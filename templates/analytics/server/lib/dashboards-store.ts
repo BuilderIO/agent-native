@@ -1587,6 +1587,20 @@ async function snapshotDashboardRevision(
   return id;
 }
 
+/**
+ * The edit check `upsertDashboard` makes, for callers that must know the
+ * caller can edit before they run anything on the dashboard's behalf.
+ */
+export async function assertDashboardEditable(
+  dashboardId: string,
+  ctx: AccessCtx,
+): Promise<void> {
+  await assertAccess("dashboard", dashboardId, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+}
+
 export async function createDashboardRevisionSnapshot(
   dashboardId: string,
   ctx: AccessCtx,
@@ -1769,6 +1783,18 @@ async function upsertDashboardWithOutcome(
   return { dashboard, didWrite: true };
 }
 
+export async function upsertDashboardOutcome(
+  id: string,
+  kind: DashboardKind,
+  body: Record<string, unknown>,
+  ctx: AccessCtx,
+  expectedUpdatedAt?: string,
+): Promise<DashboardUpsertOutcome> {
+  return expectedUpdatedAt === undefined
+    ? await upsertDashboardLastWriteWins(id, kind, body, ctx)
+    : await upsertDashboardWithOutcome(id, kind, body, ctx, expectedUpdatedAt);
+}
+
 export async function upsertDashboard(
   id: string,
   kind: DashboardKind,
@@ -1776,16 +1802,13 @@ export async function upsertDashboard(
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
 ): Promise<DashboardRecord> {
-  const outcome =
-    expectedUpdatedAt === undefined
-      ? await upsertDashboardLastWriteWins(id, kind, body, ctx)
-      : await upsertDashboardWithOutcome(
-          id,
-          kind,
-          body,
-          ctx,
-          expectedUpdatedAt,
-        );
+  const outcome = await upsertDashboardOutcome(
+    id,
+    kind,
+    body,
+    ctx,
+    expectedUpdatedAt,
+  );
   return outcome.dashboard;
 }
 

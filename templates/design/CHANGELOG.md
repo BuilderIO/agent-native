@@ -5,8 +5,21 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-06
 
+### Added
+
+- Design Systems now offers a waitlist for early access to its workflows.
+
+### Improved
+
+- Design systems now show a coming-soon waitlist while existing systems remain visible.
+
 ### Fixed
 
+- Reopening a ChatGPT Design widget restores the full editor for its saved design.
+- Fixed attached images missing from visual analysis.
+- Reference screenshots guide every design generation path.
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- The Recent tab stays visible while designs load and opens immediately when designs were present last time.
 - Dragging a selected nested frame now moves the frame and saves its new position
 
 ## 2026-10-05
@@ -17,6 +30,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Design keeps exact-size screens at their requested dimensions without adding mobile views
 - Agent links copied from a design are shorter, so Claude can fetch them without hitting its URL length limit.
 - Dropping a layer after crossing a nested frame places it in front of that frame.
 - Fixed layer placement after dragging across nested frames

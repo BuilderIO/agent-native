@@ -43,6 +43,7 @@ export interface Document {
   canSuggest?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
+  mcpDirectoryWidgetReadOnly?: true;
   source?: DocumentSourceInfo;
   properties?: DocumentProperty[];
   database?: ContentDatabase;
