@@ -707,7 +707,7 @@ export async function runAuthoringFuzz(
         event.inputType === "insertReplacementText" ||
         data === null ||
         data === "" ||
-        /[ \u00a0\-+*_~`]/u.test(data);
+        /[ \u00a0\-+*_~`\/]/u.test(data);
       if (!relevant) return;
       const lastCodePoint = data?.codePointAt(data.length - 1);
       trace.push({
@@ -4257,8 +4257,11 @@ export async function runAuthoringFuzz(
     };
   } catch (error) {
     const prefix = replay();
-    const diagnostics = await page
-      .evaluate((selector: string) => {
+    let diagnostics:
+      | { status: "available"; value: Record<string, unknown> }
+      | { status: "unavailable"; error: string };
+    try {
+      const value = await page.evaluate((selector: string) => {
         const root = document.querySelector(selector);
         const scope = window as Window & {
           __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
@@ -4275,8 +4278,11 @@ export async function runAuthoringFuzz(
           recentInputEvents:
             scope.__slidesAuthoringInputTrace?.slice(-12) ?? [],
         };
-      }, editorSelector)
-      .catch(() => null);
+      }, editorSelector);
+      diagnostics = { status: "available", value };
+    } catch (diagnosticError) {
+      diagnostics = { status: "unavailable", error: String(diagnosticError) };
+    }
     throw formatAuthoringFuzzFailure(
       seed,
       activePhase,

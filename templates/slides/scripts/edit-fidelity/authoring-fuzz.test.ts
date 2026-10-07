@@ -456,6 +456,7 @@ it("checks the rendered slide scale when the scaled profile is requested", async
   const page = {
     on: () => {},
     off: () => {},
+    evaluate: async () => {},
     locator: (selector: string) =>
       selector === "#editor"
         ? { waitFor: async () => {} }
