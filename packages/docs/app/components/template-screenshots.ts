@@ -48,3 +48,8 @@ export const TEMPLATE_SCREENSHOTS = {
     light: "/app-hero-screenshots/chat-light.jpg",
   },
 } as const;
+
+export function getScreenshotTileScaleX(slug: string) {
+  // These hero exports include a 40px outer gutter on each side of the app window.
+  return slug === "design" || slug === "slides" ? 15 / 14 : undefined;
+}
