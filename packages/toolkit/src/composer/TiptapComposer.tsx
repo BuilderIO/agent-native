@@ -1424,8 +1424,10 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "grok-code-fast": "Grok Code Fast",
   "qwen3-coder": "Qwen3 Coder",
   "deepseek-v3-1": "DeepSeek v3.1",
+  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
   "z-ai-glm-4-5": "Z-AI GLM 4.5",
   "z-ai-glm-5-1": "Z-AI GLM 5.1",
+  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
 };
 
 const LOCAL_RUNTIME_ENGINES = new Set([
@@ -1578,13 +1580,12 @@ export function compactComposerModelName(
     .replace(/^Gemini\s+\d+(?:\.\d+)?\s*/i, "")
     .replace(/^Claude\s+/i, "")
     .replace(/^Qwen\s*\d*(?:\.\d+)?\s*/i, "")
-    .replace(/^DeepSeek\s+v?\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^(DeepSeek)\s+v?\d+(?:\.\d+)?/i, "$1")
     .replace(/^Z-AI\s*/i, "")
     .replace(/^Grok\s*/i, "")
     .replace(/\s+[a-z]*\d+(?:\.\d+)*$/i, "")
     .trim();
-  if (shortName) return shortName;
-  return /^deepseek-/i.test(model) ? "DeepSeek" : fullName;
+  return shortName || fullName;
 }
 
 export function compactComposerReasoningEffortLabel(
