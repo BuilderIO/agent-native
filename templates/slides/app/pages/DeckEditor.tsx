@@ -1330,6 +1330,7 @@ export default function DeckEditor() {
     }
     generationSettlingAttemptRef.current = generationAttemptId;
     void (async () => {
+      const generationEndedAt = Date.now();
       try {
         const refreshResult = await refreshDeckForGenerationOutcome(
           refreshOpenDeck,
@@ -1344,7 +1345,6 @@ export default function DeckEditor() {
         generationTerminalAttemptRef.current = generationAttemptId;
         const refreshedDeck =
           refreshResult.status === "ready" ? refreshResult.deck : null;
-        const generationEndedAt = Date.now();
         const startedAt = generationStartedAtRef.current;
         const durationMs =
           startedAt !== null

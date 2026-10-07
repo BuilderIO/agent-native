@@ -116,6 +116,25 @@ describe("generation outcome cleanup", () => {
     );
   });
 
+  it("captures terminal timing before waiting for the deck refresh", () => {
+    const settleStart = deckEditorSource.indexOf(
+      "generationSettlingAttemptRef.current = generationAttemptId;",
+    );
+    const settleEnd = deckEditorSource.indexOf("})();", settleStart);
+    const settleBody = deckEditorSource.slice(settleStart, settleEnd);
+    const timestampIndex = settleBody.indexOf(
+      "const generationEndedAt = Date.now();",
+    );
+    const refreshIndex = settleBody.indexOf(
+      "await refreshDeckForGenerationOutcome(",
+    );
+
+    expect(settleStart).toBeGreaterThanOrEqual(0);
+    expect(timestampIndex).toBeGreaterThanOrEqual(0);
+    expect(refreshIndex).toBeGreaterThanOrEqual(0);
+    expect(timestampIndex).toBeLessThan(refreshIndex);
+  });
+
   it("cleans up a submitted attempt on page exit before the run becomes active", () => {
     const recordExitStart = deckEditorSource.indexOf("const recordExit = (");
     const recordExitEnd = deckEditorSource.indexOf(
