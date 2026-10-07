@@ -176,6 +176,23 @@ async function pasteSvgFile(
   }, svg);
 }
 
+async function pasteSvgHtml(
+  target: import("@playwright/test").Locator,
+  svg: string,
+) {
+  return target.evaluate((body, source) => {
+    const transfer = new DataTransfer();
+    transfer.setData("text/html", source);
+    const event = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: transfer,
+    });
+    body.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, svg);
+}
+
 const SVG_FILE =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0h30v30z" fill="#f97316"/><path d="M50 0h30v30z" fill="#16a34a"/></g></svg>';
 
@@ -668,6 +685,24 @@ test("clipboard SVG File paste in the parent editor stays editable after reload"
       ),
     ).toHaveCount(0);
     await assertNestedPathColorPersists(page, designId, screenId);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("rejected SVG HTML is consumed instead of inserted as native markup", async ({
+  page,
+}) => {
+  const { designId } = await createDesign(page);
+  const unsupportedSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1v1z"/></svg>';
+  try {
+    await gotoEditor(page, designId);
+    expect(await pasteSvgHtml(page.locator("body"), unsupportedSvg)).toBe(true);
+    await expect(
+      page.getByText("Something went wrong", { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator("body > svg")).toHaveCount(0);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
