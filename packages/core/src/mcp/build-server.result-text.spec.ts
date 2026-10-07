@@ -55,6 +55,31 @@ describe("conciseToolResultText truncation notice", () => {
     expect(conciseToolResultText("read", text)).toBe(text);
   });
 
+  it("counts and cuts a large astral string by code point", () => {
+    const text = conciseToolResultText("read", "😀".repeat(200_000));
+    expect(text).toBe(
+      `${"😀".repeat(2000)}\n[Truncated: showing the first 2000 of 200000 characters. This result is incomplete.]`,
+    );
+  });
+
+  it("counts a lone surrogate as one character and never pairs it across the cut", () => {
+    const text = conciseToolResultText("read", `${"x".repeat(1999)}\ud83d😀`);
+    expect(text).toBe(
+      `${"x".repeat(1999)}\ud83d\n[Truncated: showing the first 2000 of 2001 characters. This result is incomplete.]`,
+    );
+  });
+
+  it("shortens a large astral link at 500 code points", () => {
+    const text = conciseToolResultText("create-deck", {
+      title: "Deck",
+      id: "d1",
+      url: "😀".repeat(100_000),
+    });
+    expect(text).toBe(
+      `Deck (d1) is ready. ${"😀".repeat(500)}… [URL shortened: showing the first 500 of 100000 characters.]`,
+    );
+  });
+
   it("shortens a long link with its own notice, making no claim about inputs", () => {
     const link = `${"u".repeat(499)}😀y`;
     const text = conciseToolResultText(

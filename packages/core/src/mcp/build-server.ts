@@ -1658,9 +1658,18 @@ function cutAtCodePoints(
   max: number,
 ): { shown: string; total: number } | undefined {
   if (value.length <= max) return undefined;
-  const points = Array.from(value);
-  if (points.length <= max) return undefined;
-  return { shown: points.slice(0, max).join(""), total: points.length };
+  let total = 0;
+  let cutIndex = value.length;
+  for (let i = 0; i < value.length; i++, total++) {
+    if (total === max) cutIndex = i;
+    const unit = value.charCodeAt(i);
+    if (unit >= 0xd800 && unit <= 0xdbff && i + 1 < value.length) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) i++;
+    }
+  }
+  if (total <= max) return undefined;
+  return { shown: value.slice(0, cutIndex), total };
 }
 
 // A text-only host reads this notice and nothing else, so it has to say that
