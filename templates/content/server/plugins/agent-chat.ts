@@ -195,7 +195,7 @@ export default createAgentChatPlugin({
   mcp: {
     externalAgents: { writes: "allowlisted" },
     instructions:
-      "Find documents with list-documents or search-documents; read with get-document (pull-document for raw Markdown). Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. Use update-document for metadata and browser rewrites. For provider data use provider-api-catalog → provider-api-docs → provider-api-request.",
+      "Find documents with list-documents or search-documents; read with get-document. Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body.",
     directoryProfile: CHATGPT_DIRECTORY_PROFILE,
   },
   anonymousOwner: resolvePublicViewerOwner,

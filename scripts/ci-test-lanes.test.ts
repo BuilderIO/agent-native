@@ -7,6 +7,7 @@ import {
   partitionWeighted,
   requiresFullCoreFastTests,
   splitLargePackages,
+  templateRegistryCoreSpecs,
 } from "./ci-test-lanes.ts";
 
 const pkgs = (...entries: Array<[string, number]>) =>
@@ -93,6 +94,29 @@ test("falls back to all core tests for fixture, config, and instruction changes"
   assert.equal(
     requiresFullCoreFastTests(["packages/core/docs/content/deployment.mdx"]),
     false,
+  );
+});
+
+test("runs the template-registry core specs when a template's actions or plugin change", () => {
+  const specs = [
+    "src/mcp/advertised-tool-annotations.spec.ts",
+    "src/mcp/instructions-name-advertised-tools.spec.ts",
+  ];
+  assert.deepEqual(
+    templateRegistryCoreSpecs(["templates/mail/actions/send-email.ts"]),
+    specs,
+  );
+  assert.deepEqual(
+    templateRegistryCoreSpecs(["templates/forms/server/plugins/agent-chat.ts"]),
+    specs,
+  );
+  assert.deepEqual(
+    templateRegistryCoreSpecs([
+      "templates/mail/actions/send-email.test.ts",
+      "templates/mail/app/routes/inbox.tsx",
+      "packages/core/src/mcp/server.ts",
+    ]),
+    [],
   );
 });
 

@@ -220,6 +220,30 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
   });
 }
 
+// These specs load every template's action registry and agent-chat plugin
+// options through dynamic imports, which `vitest --changed` cannot follow, so
+// a template-only change would otherwise never reach them.
+const TEMPLATE_REGISTRY_CORE_SPECS = [
+  "src/mcp/advertised-tool-annotations.spec.ts",
+  "src/mcp/instructions-name-advertised-tools.spec.ts",
+] as const;
+const TEMPLATE_REGISTRY_SOURCE_RE =
+  /^templates\/[^/]+\/(?:actions\/.+|server\/plugins\/agent-chat\.ts)$/u;
+
+export function templateRegistryCoreSpecs(
+  paths: readonly string[],
+): readonly string[] {
+  return paths.some((path) => {
+    const normalized = normalizeChangedPath(path);
+    return (
+      TEMPLATE_REGISTRY_SOURCE_RE.test(normalized) &&
+      !TEST_FILE_RE.test(normalized)
+    );
+  })
+    ? TEMPLATE_REGISTRY_CORE_SPECS
+    : [];
+}
+
 function readCoreFastTestFiles(since?: string): string[] {
   const args = ["--filter", CORE, "exec", "vitest", "list", "--dir", "src"];
   if (since) args.push("--changed", since);
@@ -598,9 +622,15 @@ function main(): void {
         "CI_BASE_SHA is required when targeted tests are planned",
       );
     }
-    const fullCore = requiresFullCoreFastTests(readChangedPaths(baseSha));
+    const changedPaths = readChangedPaths(baseSha);
+    const fullCore = requiresFullCoreFastTests(changedPaths);
     coreMode = fullCore ? "full" : "changed";
-    coreTestFiles = readCoreFastTestFiles(fullCore ? undefined : baseSha);
+    coreTestFiles = [
+      ...new Set([
+        ...readCoreFastTestFiles(fullCore ? undefined : baseSha),
+        ...(fullCore ? [] : templateRegistryCoreSpecs(changedPaths)),
+      ]),
+    ];
     coreFiles = coreTestFiles.length;
     lanes = partitionTargetedWeighted(
       weighPackages(rest),
