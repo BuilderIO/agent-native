@@ -2500,6 +2500,10 @@ async function runAuthoringParityQa(
       id: "authoring-paragraph-bullet-delete",
       kind: "paragraph-bullet-delete" as const,
     },
+    {
+      id: "authoring-empty-paragraph-bullet-delete",
+      kind: "empty-paragraph-bullet-delete" as const,
+    },
     { id: "authoring-soft-break-slash", kind: "soft-break-slash" as const },
   ];
   const cases = allCases.filter(
@@ -2546,7 +2550,14 @@ async function runAuthoringParityQa(
         return {
           id: test.id,
           content:
-            '<div class="fmd-slide"><section><p>Before</p><p data-slide-plain-row="true" style="color:red"><span>●</span><span>After</span></p><blockquote><p></p></blockquote></section></div>',
+            '<div class="fmd-slide"><section><p>Before</p><p data-slide-plain-row="true" style="color:red"><span>●</span>old<span>After</span></p><blockquote><p></p></blockquote></section></div>',
+        };
+      }
+      if (test.kind === "empty-paragraph-bullet-delete") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><section><p></p><p data-slide-plain-row="true" style="color:red"><span>●</span><span>After</span></p><blockquote><p></p></blockquote></section></div>',
         };
       }
       if (
@@ -2969,12 +2980,14 @@ async function runAuthoringParityQa(
           selection?.addRange(range);
         });
         await editor.press("Delete");
+        await editor.pressSequentially("x");
         await finish(index, async () => {
           const state = await editor.evaluate((element: HTMLElement) => ({
             blockCount: element.children.length,
             rowTag: element.firstElementChild?.tagName ?? null,
             rowText:
-              element.firstElementChild?.lastElementChild?.textContent ?? null,
+              element.firstElementChild?.textContent?.replace(/^●/u, "") ??
+              null,
             rowStyle:
               (element.firstElementChild as HTMLElement | null)?.style.color ??
               null,
@@ -3000,18 +3013,61 @@ async function runAuthoringParityQa(
           if (
             state.blockCount !== 2 ||
             state.rowTag !== "P" ||
-            state.rowText !== "BeforeAfter" ||
+            state.rowText !== "BeforexoldAfter" ||
             state.rowStyle !== "red" ||
             state.rowAttribute !== "true" ||
             !state.retainedSentinel ||
             state.markerText !== "●" ||
             state.markerCount !== 1 ||
-            state.anchorText !== "Before" ||
-            state.anchorOffset !== "Before".length ||
+            state.anchorText !== "Beforex" ||
+            state.anchorOffset !== "Beforex".length ||
             !state.caretInside
           ) {
             throw new Error(
               `Delete failed to preserve the receiving bullet row: ${JSON.stringify(state)}`,
+            );
+          }
+        });
+      } else if (test.kind === "empty-paragraph-bullet-delete") {
+        await editor.evaluate((element: HTMLElement) => {
+          const paragraph = element.querySelector(":scope > p");
+          if (!paragraph) throw new Error("empty paragraph is missing");
+          const range = document.createRange();
+          range.setStart(paragraph, 0);
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        });
+        await editor.press("Delete");
+        await editor.pressSequentially("x");
+        await finish(index, async () => {
+          const state = await editor.evaluate((element: HTMLElement) => ({
+            blockCount: element.children.length,
+            rowText: element.firstElementChild?.textContent ?? null,
+            rowStyle:
+              (element.firstElementChild as HTMLElement | null)?.style.color ??
+              null,
+            markerText:
+              element.firstElementChild?.firstElementChild?.textContent ?? null,
+            anchorText: window.getSelection()?.anchorNode?.textContent ?? null,
+            anchorOffset: window.getSelection()?.anchorOffset ?? null,
+            caretInside: Boolean(
+              window.getSelection()?.anchorNode &&
+              element.contains(window.getSelection()!.anchorNode),
+            ),
+          }));
+          if (
+            state.blockCount !== 2 ||
+            state.rowText !== "●xAfter" ||
+            state.rowStyle !== "red" ||
+            state.markerText !== "●" ||
+            state.anchorText !== "xAfter" ||
+            state.anchorOffset !== 1 ||
+            !state.caretInside
+          ) {
+            throw new Error(
+              `Delete from an empty paragraph misplaced the caret in the receiving bullet row: ${JSON.stringify(state)}`,
             );
           }
         });

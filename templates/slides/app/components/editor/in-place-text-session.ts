@@ -2568,8 +2568,17 @@ export function startInPlaceTextSession(
       true,
     );
     const textContainer = rowTextContainer(row, marker);
-    const insertionIndex = textContainer === row ? content.startOffset : 0;
-    const before = textContainer.childNodes[insertionIndex] ?? null;
+    const textContainerIndex = Array.from(row.childNodes).indexOf(
+      textContainer,
+    );
+    const hasEarlierContent =
+      textContainer !== row &&
+      Array.from(row.childNodes)
+        .slice(content.startOffset, textContainerIndex)
+        .some(hasRenderedContent);
+    const insertionTarget = hasEarlierContent ? row : textContainer;
+    const insertionIndex = insertionTarget === row ? content.startOffset : 0;
+    const before = insertionTarget.childNodes[insertionIndex] ?? null;
     const insertedLength = textOffset(
       paragraph,
       paragraph,
@@ -2577,10 +2586,17 @@ export function startInPlaceTextSession(
       true,
     );
     for (const child of Array.from(paragraph.childNodes)) {
-      textContainer.insertBefore(child, before);
+      insertionTarget.insertBefore(child, before);
     }
     paragraph.remove();
-    placeCaret(...textPoint(row, contentStart + insertedLength, true, true));
+    placeCaret(
+      ...textPoint(
+        row,
+        contentStart + insertedLength,
+        insertedLength > 0,
+        true,
+      ),
+    );
   }
 
   function plainifyQuote(quote: HTMLElement) {

@@ -1902,6 +1902,49 @@ describe("in-place text session: deleting", () => {
     expect(window.getSelection()?.anchorOffset).toBe("Before".length);
   });
 
+  it("inserts before bare row text and keeps the caret at the join", () => {
+    const el = mount(
+      '<div id="t"><p>Before</p><p data-slide-plain-row="true" style="display:flex;gap:12px"><span>●</span>old<span>after</span></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Before"), "Before".length);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+
+    const row = el.firstElementChild as HTMLElement;
+    expect(row.getAttribute("style")).toBe("display:flex;gap:12px");
+    expect(row.textContent).toBe("●Beforeoldafter");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(row, "Before"));
+    expect(window.getSelection()?.anchorOffset).toBe("Before".length);
+
+    type(el, "x");
+    expect(row.textContent).toBe("●Beforexoldafter");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(row, "Beforex"));
+    expect(window.getSelection()?.anchorOffset).toBe("Beforex".length);
+  });
+
+  it("places the caret after the marker when an empty paragraph joins a row", () => {
+    const el = mount(
+      '<div id="t"><p></p><p data-slide-plain-row="true" style="display:flex;gap:12px"><span>●</span><span>After</span></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.firstElementChild!, 0);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+
+    const row = el.firstElementChild as HTMLElement;
+    const content = textOf(row, "After");
+    expect(row.getAttribute("style")).toBe("display:flex;gap:12px");
+    expect(row.firstElementChild?.textContent).toBe("●");
+    expect(window.getSelection()?.anchorNode).toBe(content);
+    expect(window.getSelection()?.anchorOffset).toBe(0);
+
+    type(el, "x");
+    expect(row.textContent).toBe("●xAfter");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(row, "xAfter"));
+    expect(window.getSelection()?.anchorOffset).toBe(1);
+  });
+
   it("keeps the caret after a trailing soft break when merging on Backspace", () => {
     const el = mount('<div id="t"><p>Alpha<br></p><p>Beta</p></div>');
     session = startInPlaceTextSession(el);
