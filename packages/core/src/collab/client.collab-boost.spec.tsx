@@ -8,6 +8,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getBrowserTabId } from "../client/browser-tab-id.js";
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
 import {
   _resetCollabDocRegistryForTests,
@@ -35,7 +36,11 @@ class FakeEventSource {
 const USER = { name: "Me", email: "me@example.test", color: "#111111" };
 
 function Probe({ docId }: { docId: string }) {
-  useCollaborativeDoc({ docId, user: USER });
+  useCollaborativeDoc({
+    docId,
+    user: USER,
+    activityResource: { resourceType: "design", resourceId: "d1" },
+  });
   return null;
 }
 
@@ -44,6 +49,7 @@ describe("collab poll boost from presence", () => {
   let containers: HTMLDivElement[] = [];
   let others: Array<{ clientId: number; state: string }> = [];
   let sharedPolls = 0;
+  let ownPollEvents: Array<Record<string, unknown>> = [];
 
   function human(email: string, visible = true, clientId = 4242) {
     return {
@@ -82,6 +88,7 @@ describe("collab poll boost from presence", () => {
     vi.useFakeTimers();
     others = [];
     sharedPolls = 0;
+    ownPollEvents = [];
     _resetCollabDocRegistryForTests();
     _resetSyncTransportRegistryForTests();
     vi.stubGlobal(
@@ -99,8 +106,13 @@ describe("collab poll boost from presence", () => {
         if (url.includes("/_agent-native/poll")) {
           // Collab's own poll sends only ?since=; the shared transport adds a
           // composite cursor= once it has seen a version.
-          if (url.includes("cursor=")) sharedPolls += 1;
-          return new Response(JSON.stringify({ version: 1, events: [] }));
+          if (url.includes("cursor=")) {
+            sharedPolls += 1;
+            return new Response(JSON.stringify({ version: 1, events: [] }));
+          }
+          const events = ownPollEvents;
+          ownPollEvents = [];
+          return new Response(JSON.stringify({ version: 1, events }));
         }
         return new Response(JSON.stringify({}));
       }),
@@ -142,6 +154,74 @@ describe("collab poll boost from presence", () => {
   it("ignores the agent and hidden tabs", async () => {
     await mountRefused();
     others = [human("agent@system"), human("hidden@example.test", false, 4243)];
+    await advance(13_000);
+    const at = sharedPolls;
+    await advance(30_000);
+    expect(sharedPolls - at).toBeLessThanOrEqual(1);
+  });
+
+  // A viewer on a different screen shares no doc with the editor, so presence
+  // never shows them; its own connection's poll still carries the design's
+  // resource-scoped events from the other screens.
+  it("boosts when its own poll carries another tab's event on the open resource", async () => {
+    await mountRefused();
+    await advance(13_000); // first poll replays history, nothing counts yet
+    ownPollEvents = [
+      {
+        source: "collab",
+        type: "yjs-update",
+        docId: "other-screen",
+        requestSource: "other-tab",
+        resourceType: "design",
+        resourceId: "d1",
+      },
+    ];
+    await advance(13_000);
+    const at = sharedPolls;
+    await advance(30_000);
+    expect(sharedPolls - at).toBeGreaterThanOrEqual(10);
+  });
+
+  it("does not boost for the history its first poll replays, this tab's own events, or another resource", async () => {
+    ownPollEvents = [
+      {
+        source: "action",
+        key: "update-file",
+        requestSource: "other-tab",
+        resourceType: "design",
+        resourceId: "d1",
+      },
+    ];
+    await mountRefused();
+    await advance(13_000);
+    const replayedAt = sharedPolls;
+    await advance(30_000);
+    expect(sharedPolls - replayedAt).toBeLessThanOrEqual(1);
+
+    ownPollEvents = [
+      {
+        source: "collab",
+        docId: "other-screen",
+        requestSource: getBrowserTabId(),
+        resourceType: "design",
+        resourceId: "d1",
+      },
+      // The server mirrors this tab's own file saves into Yjs as "agent".
+      {
+        source: "collab",
+        docId: "this-screen",
+        requestSource: "agent",
+        resourceType: "design",
+        resourceId: "d1",
+      },
+      {
+        source: "action",
+        key: "update-file",
+        requestSource: "other-tab",
+        resourceType: "design",
+        resourceId: "d2",
+      },
+    ];
     await advance(13_000);
     const at = sharedPolls;
     await advance(30_000);

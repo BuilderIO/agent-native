@@ -6,6 +6,7 @@ import { agentNativePath } from "../client/api-path.js";
 import { useAvatarUrl } from "../client/use-avatar.js";
 import {
   acquireCollabPollBoost,
+  noteCollabPollActivity,
   registerCollabActivityResource,
   subscribeSyncEvents,
   type SyncEvent,
@@ -1012,6 +1013,8 @@ class CollabDocConnection {
           docId?: string;
           update?: string;
           requestSource?: string;
+          resourceType?: string;
+          resourceId?: string;
         }>;
       };
 
@@ -1035,6 +1038,8 @@ class CollabDocConnection {
         }
       }
 
+      // The first poll replays history; later ones carry what happened since.
+      if (this.pollCycleCount > 0) noteCollabPollActivity(events);
       this.pollVersion = version;
       this.lastPolledVersion = version;
       this.pollCycleCount++;
