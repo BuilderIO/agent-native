@@ -572,6 +572,7 @@ function ReplayPlayer({
   const stageAreaRef = useRef<HTMLDivElement>(null);
   const stageRootRef = useRef<HTMLDivElement>(null);
   const replayerRef = useRef<any>(null);
+  const screenshotCaptureRef = useRef<AbortController | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastClockUpdateAtRef = useRef<number | null>(null);
   const [status, setStatus] = useState<ReplayPlayerStatus>("idle");
@@ -903,6 +904,10 @@ function ReplayPlayer({
 
     return () => {
       cancelled = true;
+      screenshotCaptureRef.current?.abort();
+      screenshotCaptureRef.current = null;
+      savingScreenshotRef.current = false;
+      setSavingScreenshot(false);
       stopCursorVisibilityObserver();
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -1036,6 +1041,8 @@ function ReplayPlayer({
     const captureAt = Number(
       replayer.getCurrentTime?.() ?? currentTimeRef.current,
     );
+    const capture = new AbortController();
+    screenshotCaptureRef.current = capture;
     savingScreenshotRef.current = true;
     setSavingScreenshot(true);
 
@@ -1049,20 +1056,31 @@ function ReplayPlayer({
         `session-replay-${Math.floor(captureAt / 1000)
           .toString()
           .padStart(4, "0")}.png`,
+        capture.signal,
       );
       toast.success(t("sessions.screenshotDownloaded"));
     } catch (error) {
-      toast.error(
-        t(
-          error instanceof ReplayScreenshotAssetError
-            ? "sessions.screenshotUnsupportedAssets"
-            : "sessions.screenshotSaveFailed",
-        ),
-      );
+      if (!capture.signal.aborted) {
+        toast.error(
+          t(
+            error instanceof ReplayScreenshotAssetError
+              ? "sessions.screenshotUnsupportedAssets"
+              : "sessions.screenshotSaveFailed",
+          ),
+        );
+      }
     } finally {
+      const captureStillCurrent = screenshotCaptureRef.current === capture;
+      if (captureStillCurrent) {
+        screenshotCaptureRef.current = null;
+      }
       savingScreenshotRef.current = false;
-      setSavingScreenshot(false);
-      if (wasPlaying && replayerRef.current === replayer) {
+      if (captureStillCurrent) setSavingScreenshot(false);
+      if (
+        captureStillCurrent &&
+        wasPlaying &&
+        replayerRef.current === replayer
+      ) {
         try {
           replayer.play(captureAt);
           setPlaying(true);

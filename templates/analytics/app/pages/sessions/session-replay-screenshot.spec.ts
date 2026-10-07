@@ -46,6 +46,25 @@ function pngBlob(width = 1, height = 1, animated = false): Blob {
   return new Blob([bytes], { type: "image/png" });
 }
 
+async function dataPng(width = 1, height = 1): Promise<string> {
+  const bytes = new Uint8Array(await pngBlob(width, height).arrayBuffer());
+  return `data:image/png;base64,${btoa(String.fromCharCode(...bytes))}`;
+}
+
+function markMatchingElements(
+  original: Document,
+  cloned: Document,
+  captureId: string,
+) {
+  const originalElements = [...original.querySelectorAll("*")];
+  const clonedElements = [...cloned.querySelectorAll("*")];
+  for (const [index, element] of originalElements.entries()) {
+    const marker = `${captureId}-0-${index}`;
+    element.setAttribute("data-replay-screenshot-map", marker);
+    clonedElements[index]?.setAttribute("data-replay-screenshot-map", marker);
+  }
+}
+
 function stubImageProbes(
   request: (
     url: string,
@@ -678,6 +697,27 @@ describe("session replay screenshot asset checks", () => {
     image.remove();
   });
 
+  it("preflights inline image data and checks its dimensions", async () => {
+    const image = document.createElement("img");
+    image.src = await dataPng(4_000, 3_000);
+    document.body.appendChild(image);
+    const probes = stubImageProbes(
+      () =>
+        new Response(pngBlob(4_000, 3_000), {
+          headers: { "content-type": "image/png" },
+        }),
+    );
+    const decode = vi.mocked(globalThis.createImageBitmap);
+
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    expect(probes).toHaveLength(1);
+    expect(decode).not.toHaveBeenCalled();
+
+    image.remove();
+  });
+
   it("checks image dimensions before decoding large raster assets", async () => {
     const image = document.createElement("img");
     image.src = "https://assets.example.test/large.png";
@@ -787,6 +827,32 @@ describe("session replay screenshot asset checks", () => {
     stage.remove();
   });
 
+  it("rejects replay viewports whose output canvas exceeds the pixel cap", async () => {
+    const stage = document.createElement("div");
+    const iframe = document.createElement("iframe");
+    const replayDocument = document.implementation.createHTMLDocument("replay");
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      value: replayDocument,
+    });
+    Object.defineProperty(iframe, "contentWindow", {
+      configurable: true,
+      value: { innerHeight: 3_000, innerWidth: 8_000, scrollX: 0, scrollY: 0 },
+    });
+    stage.appendChild(iframe);
+    document.body.appendChild(stage);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+
+    await expect(
+      downloadReplayScreenshot(stage, iframe, "replay.png"),
+    ).rejects.toBeInstanceOf(ReplayScreenshotAssetError);
+    expect(html2canvasMock).not.toHaveBeenCalled();
+    stage.remove();
+  });
+
   it("rejects image errors such as a redirect without CORS permission", async () => {
     const image = document.createElement("img");
     image.src = "/redirected-image.png";
@@ -831,6 +897,8 @@ describe("session replay screenshot asset checks", () => {
     cloned.body.appendChild(clonedCard);
     const imageData = "data:image/png;base64,aW1hZ2U=";
     const cardData = "data:image/png;base64,Y2FyZA==";
+    const captureId = "replay-test";
+    markMatchingElements(original, cloned, captureId);
 
     inlineReplayAssets(
       original,
@@ -844,6 +912,7 @@ describe("session replay screenshot asset checks", () => {
           ]),
         ],
       ]),
+      captureId,
     );
 
     expect(clonedImage.getAttribute("src")).toBe(imageData);
@@ -851,6 +920,108 @@ describe("session replay screenshot asset checks", () => {
     expect(clonedCard.style.getPropertyPriority("background-image")).toBe(
       "important",
     );
+  });
+
+  it("preserves rewritten pseudo images against stronger important rules", () => {
+    const original = document.implementation.createHTMLDocument("original");
+    const cloned = document.implementation.createHTMLDocument("cloned");
+    const originalCard = original.createElement("div");
+    originalCard.className = "card";
+    original.body.appendChild(originalCard);
+    const clonedCard = cloned.createElement("div");
+    clonedCard.className = "card";
+    cloned.body.appendChild(clonedCard);
+    const captureId = "replaypseudo";
+    markMatchingElements(original, cloned, captureId);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (_element, pseudo) =>
+        ({
+          backgroundImage: "none",
+          borderImageSource: "none",
+          content:
+            pseudo === "::before"
+              ? 'url("https://assets.example.test/pseudo.png")'
+              : "none",
+          display: "block",
+          listStyleImage: "none",
+          maskImage: "none",
+          opacity: "1",
+          visibility: "visible",
+        }) as CSSStyleDeclaration,
+    );
+
+    inlineReplayAssets(
+      original,
+      cloned,
+      new Map([
+        [
+          original,
+          new Map([
+            [
+              "https://assets.example.test/pseudo.png",
+              "data:image/png;base64,cGl4ZWw=",
+            ],
+          ]),
+        ],
+      ]),
+      captureId,
+    );
+
+    const pseudoRule = cloned.head.querySelector("style")?.textContent ?? "";
+    const specificityMarkers = pseudoRule.match(/:not\(#replaypseudo\)/g) ?? [];
+    expect(specificityMarkers.length).toBeGreaterThanOrEqual(32);
+    expect(specificityMarkers.length % 32).toBe(0);
+    expect(pseudoRule).toContain("data:image/png;base64,cGl4ZWw=");
+    expect(pseudoRule).toContain("!important");
+  });
+
+  it("maps original elements when the cloned document contains helper nodes", () => {
+    const original = document.implementation.createHTMLDocument("original");
+    const cloned = document.implementation.createHTMLDocument("cloned");
+    const originalImage = original.createElement("img");
+    originalImage.src = "https://assets.example.test/photo.png";
+    original.body.appendChild(originalImage);
+    const clonedHelper = cloned.createElement("div");
+    cloned.body.appendChild(clonedHelper);
+    const clonedImage = cloned.createElement("img");
+    clonedImage.src = originalImage.src;
+    cloned.body.appendChild(clonedImage);
+    const captureId = "replay-helper";
+    const originalElements = [...original.querySelectorAll("*")];
+    const cloneMatches = new Map<Element, Element>([
+      [original.documentElement, cloned.documentElement],
+      [original.head, cloned.head],
+      [
+        original.head.querySelector("title")!,
+        cloned.head.querySelector("title")!,
+      ],
+      [original.body, cloned.body],
+      [originalImage, clonedImage],
+    ]);
+    for (const [index, element] of originalElements.entries()) {
+      const marker = `${captureId}-0-${index}`;
+      element.setAttribute("data-replay-screenshot-map", marker);
+      cloneMatches
+        .get(element)
+        ?.setAttribute("data-replay-screenshot-map", marker);
+    }
+
+    inlineReplayAssets(
+      original,
+      cloned,
+      new Map([
+        [
+          original,
+          new Map([[originalImage.src, "data:image/png;base64,aW1hZ2U="]]),
+        ],
+      ]),
+      captureId,
+    );
+
+    expect(clonedImage.getAttribute("src")).toBe(
+      "data:image/png;base64,aW1hZ2U=",
+    );
+    expect(clonedHelper.hasAttribute("data-replay-screenshot-map")).toBe(false);
   });
 
   it("limits parallel image checks", async () => {
