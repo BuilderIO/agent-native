@@ -5,6 +5,10 @@ import {
   type DecodedFigImage,
 } from "../server/lib/fig-file-decoder.js";
 import {
+  SERVER_FIG_LIMITS,
+  type FigImportLimits,
+} from "../server/lib/fig-file-limits.js";
+import {
   collectTopLevelFrames,
   guidKey,
   imageRefUrl,
@@ -15,13 +19,8 @@ import {
 import type { ImportedDesignFile } from "../server/lib/import-design-files.js";
 import { utf8ByteLength } from "./fig-bytes.js";
 
-const MAX_FIG_NODES = 75_000;
-const MAX_FIG_IMAGES = 1_024;
-const MAX_FIG_FRAMES = 300;
 const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
 export const MAX_FIG_FRAME_HTML_BYTES = 2 * 1024 * 1024;
-const MAX_TOTAL_HTML_BYTES = 24 * 1024 * 1024;
-const MAX_EMBEDDED_IMAGE_BYTES = 64 * 1024 * 1024;
 const IMAGE_UPLOAD_CONCURRENCY = 4;
 const MAX_DURABLE_IMAGE_URL_CHARS = 2_048;
 
@@ -86,7 +85,8 @@ function mimeTypeForImage(image: DecodedFigImage): string {
 
 function nodeChangesFromDocument(
   document: unknown,
-  decodeError?: string,
+  decodeError: string | undefined,
+  limits: FigImportLimits,
 ): unknown[] {
   if (!document || typeof document !== "object") {
     const detail = decodeError ? ` Decode detail: ${decodeError}.` : "";
@@ -100,19 +100,25 @@ function nodeChangesFromDocument(
       "This .fig file decoded but does not contain editable node data. Copy the frame in Figma and paste onto the canvas, or use a Figma frame link to import via the API.",
     );
   }
-  if (nodeChanges.length > MAX_FIG_NODES) {
-    throw new Error(".fig document has too many nodes (max 75,000).");
+  if (nodeChanges.length > limits.nodes) {
+    throw new Error(
+      `.fig document has too many nodes (max ${limits.nodes.toLocaleString("en-US")}).`,
+    );
   }
   return nodeChanges;
 }
 
-export function inspectDecodedFig(decoded: DecodedFig): FigImportSummary {
-  assertSafeDecodedFigDocument(decoded.document);
+export function inspectDecodedFig(
+  decoded: DecodedFig,
+  limits: FigImportLimits = SERVER_FIG_LIMITS,
+): FigImportSummary {
+  assertSafeDecodedFigDocument(decoded.document, limits);
   const nodeChanges = nodeChangesFromDocument(
     decoded.document,
     decoded.decodeError,
+    limits,
   ) as FigNode[];
-  assertEmbeddedImageBudget(decoded.images);
+  assertEmbeddedImageBudget(decoded.images, limits);
 
   const childrenOf = new Map<string, FigNode[]>();
   for (const node of nodeChanges) {
@@ -168,6 +174,7 @@ async function uploadEmbeddedImages(
   images: DecodedFigImage[],
   ownerEmail: string,
   uploader: ImageUploader,
+  limits: FigImportLimits,
 ): Promise<{
   imageMap: Map<string, string>;
   uploaded: number;
@@ -176,7 +183,7 @@ async function uploadEmbeddedImages(
   cleanup: () => Promise<number>;
   finalize: () => Promise<number>;
 }> {
-  assertEmbeddedImageBudget(images);
+  assertEmbeddedImageBudget(images, limits);
 
   const imageMap = new Map<string, string>();
   let omitted = 0;
@@ -263,17 +270,22 @@ function withCleanupFailures(message: string, failures: number): string {
   return `${message} Storage cleanup failed for ${failures} uploaded image${failures === 1 ? "" : "s"}.`;
 }
 
-export function assertEmbeddedImageBudget(images: DecodedFigImage[]): void {
-  if (images.length > MAX_FIG_IMAGES) {
-    throw new Error(".fig document has too many embedded images (max 1,024).");
+export function assertEmbeddedImageBudget(
+  images: DecodedFigImage[],
+  limits: FigImportLimits = SERVER_FIG_LIMITS,
+): void {
+  if (images.length > limits.images) {
+    throw new Error(
+      `.fig document has too many embedded images (max ${limits.images.toLocaleString("en-US")}).`,
+    );
   }
   const totalImageBytes = images.reduce(
     (total, image) => total + image.bytes.byteLength,
     0,
   );
-  if (totalImageBytes > MAX_EMBEDDED_IMAGE_BYTES) {
+  if (totalImageBytes > limits.imageBytes) {
     throw new Error(
-      ".fig document has too much embedded image data (max 64 MB).",
+      `.fig document has too much embedded image data (max ${Math.round(limits.imageBytes / 1024 / 1024)} MB).`,
     );
   }
 }
@@ -318,15 +330,21 @@ function placeholderPattern(prefix: string): RegExp {
 
 export function renderFigImport(
   decoded: DecodedFig,
-  options: { maxFrameHtmlBytes?: number; selection?: ReadonlySet<string> } = {},
+  options: {
+    maxFrameHtmlBytes?: number;
+    selection?: ReadonlySet<string>;
+    limits?: FigImportLimits;
+  } = {},
 ): RenderedFigImport {
   const maxFrameHtmlBytes = options.maxFrameHtmlBytes ?? MAX_FRAME_HTML_BYTES;
-  assertSafeDecodedFigDocument(decoded.document);
+  const limits = options.limits ?? SERVER_FIG_LIMITS;
+  assertSafeDecodedFigDocument(decoded.document, limits);
   const nodeChanges = nodeChangesFromDocument(
     decoded.document,
     decoded.decodeError,
+    limits,
   );
-  assertEmbeddedImageBudget(decoded.images);
+  assertEmbeddedImageBudget(decoded.images, limits);
 
   const selection =
     options.selection && options.selection.size > 0
@@ -352,8 +370,11 @@ export function renderFigImport(
     missingImageUrl: "about:blank",
     trackUnresolvedImageRefs: true,
     selection,
+    maxFrames: limits.frames,
+    maxRenderedNodes: limits.renderedNodes,
+    maxTotalOutputBytes: limits.totalHtmlBytes,
   });
-  assertFrameCount(rendered.frames.length);
+  assertFrameCount(rendered.frames.length, limits);
 
   const pattern = placeholderPattern(imagePlaceholderPrefix);
   const referenced = new Set<string>();
@@ -371,6 +392,7 @@ export function renderFigImport(
       minBytes,
       minTotalBytes,
       maxFrameHtmlBytes,
+      limits,
     );
     return {
       html: frame.html,
@@ -409,15 +431,18 @@ export async function completeFigImport(
     uploader: ImageUploader;
     normalizeHtml: HtmlNormalizer;
     maxFrameHtmlBytes?: number;
+    limits?: FigImportLimits;
   },
 ): Promise<FigFileImportResult> {
   const maxFrameHtmlBytes = options.maxFrameHtmlBytes ?? MAX_FRAME_HTML_BYTES;
+  const limits = options.limits ?? SERVER_FIG_LIMITS;
   let images: Awaited<ReturnType<typeof uploadEmbeddedImages>> | undefined;
   try {
     const uploadedImages = await uploadEmbeddedImages(
       rendered.images,
       options.ownerEmail,
       options.uploader,
+      limits,
     );
     images = uploadedImages;
     if (uploadedImages.omitted > 0) {
@@ -456,6 +481,7 @@ export async function completeFigImport(
         htmlBytes,
         rawHtmlBytes,
         maxFrameHtmlBytes,
+        limits,
       );
       const content = options.normalizeHtml(
         html,
@@ -469,6 +495,7 @@ export async function completeFigImport(
         contentBytes,
         totalHtmlBytes,
         maxFrameHtmlBytes,
+        limits,
       );
       return {
         filename: frame.filename,
@@ -532,15 +559,15 @@ export async function convertDecodedFigToEditableHtml(
   return completeFigImport(renderFigImport(decoded, options), options);
 }
 
-function assertFrameCount(frameCount: number): void {
+function assertFrameCount(frameCount: number, limits: FigImportLimits): void {
   if (frameCount === 0) {
     throw new Error(
       "No editable top-level frames were found in this .fig file.",
     );
   }
-  if (frameCount > MAX_FIG_FRAMES) {
+  if (frameCount > limits.frames) {
     throw new Error(
-      `.fig document has too many top-level frames (max ${MAX_FIG_FRAMES}).`,
+      `.fig document has too many top-level frames (max ${limits.frames}).`,
     );
   }
 }
@@ -550,15 +577,16 @@ function assertFrameHtmlBytes(
   frameBytes: number,
   runningTotalBytes: number,
   maxFrameHtmlBytes: number,
+  limits: FigImportLimits,
 ): void {
   if (frameBytes > maxFrameHtmlBytes) {
     throw new Error(
       `.fig frame "${frameName}" is too complex (generated HTML exceeds ${Math.round(maxFrameHtmlBytes / 1024 / 1024)} MB).`,
     );
   }
-  if (runningTotalBytes > MAX_TOTAL_HTML_BYTES) {
+  if (runningTotalBytes > limits.totalHtmlBytes) {
     throw new Error(
-      ".fig import generated too much editable HTML (max 24 MB).",
+      `.fig import generated too much editable HTML (max ${Math.round(limits.totalHtmlBytes / 1024 / 1024)} MB).`,
     );
   }
 }

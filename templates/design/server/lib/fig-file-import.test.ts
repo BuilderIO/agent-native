@@ -27,6 +27,7 @@ import {
   decodeFig,
   decodeKiwiContainer,
 } from "./fig-file-decoder.js";
+import { BROWSER_FIG_LIMITS, SERVER_FIG_LIMITS } from "./fig-file-limits.js";
 import {
   convertDecodedFigToEditableHtml,
   importFigFileToEditableHtml,
@@ -50,6 +51,40 @@ function kiwiContainer(chunks: Buffer[], version = 124): Buffer {
       return [length, compressed];
     }),
   ]);
+}
+
+function storedZip(entries: Array<[string, Buffer]>): Buffer {
+  const locals: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const [name, data] of entries) {
+    const nameBytes = Buffer.from(name);
+    const crc = zlib.crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    locals.push(local, nameBytes, data);
+    const header = Buffer.alloc(46);
+    header.writeUInt32LE(0x02014b50, 0);
+    header.writeUInt32LE(crc, 16);
+    header.writeUInt32LE(data.length, 20);
+    header.writeUInt32LE(data.length, 24);
+    header.writeUInt16LE(nameBytes.length, 28);
+    header.writeUInt32LE(offset, 42);
+    central.push(header, nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
 }
 
 function encodedHelloFig(extraChunks: Buffer[] = []): Buffer {
@@ -192,15 +227,41 @@ describe("bounded .fig decoding", () => {
     expect(decoded.decodeError).toMatch(/too much string data/i);
   });
 
-  it("lets browser-local decoding skip only the raw upload ceiling", () => {
+  it("applies the raw file ceiling from the limits profile", () => {
     const fig = encodedHelloFig();
+    const limits = { ...SERVER_FIG_LIMITS, fileBytes: fig.byteLength - 1 };
 
-    expect(() => decodeFig(fig, { maxFileBytes: fig.byteLength - 1 })).toThrow(
-      /too large/,
+    expect(() => decodeFig(fig, { limits })).toThrow(/too large/);
+    expect(
+      decodeFig(fig, { limits: BROWSER_FIG_LIMITS }).document,
+    ).toEqual({ hello: "world" });
+  });
+
+  it("keeps stored zip entries as views outside the inflate budget", () => {
+    const image = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      randomBytes(4096),
+    ]);
+    const zipBytes = storedZip([
+      ["canvas.fig", encodedHelloFig()],
+      ["images/a", image],
+    ]);
+    const zip = new Uint8Array(
+      zipBytes.buffer,
+      zipBytes.byteOffset,
+      zipBytes.byteLength,
     );
-    expect(decodeFig(fig, { maxFileBytes: null }).document).toEqual({
-      hello: "world",
-    });
+    const limits = { ...BROWSER_FIG_LIMITS, inflatedBytes: 1024 };
+
+    const decoded = decodeFig(zip, { limits });
+
+    expect(decoded.format).toBe("zip");
+    expect(decoded.document).toEqual({ hello: "world" });
+    expect(decoded.images).toHaveLength(1);
+    expect(decoded.images[0]!.bytes.buffer).toBe(zip.buffer);
+    expect(() =>
+      decodeFig(zip, { limits: { ...limits, zipEntries: 1 } }),
+    ).toThrow(/too many entries \(max 1\)/);
   });
 
   it("decodes valid browser-local containers above the server upload ceiling", () => {
@@ -211,7 +272,7 @@ describe("bounded .fig decoding", () => {
 
     expect(fig.byteLength).toBeGreaterThan(50 * 1024 * 1024);
     expect(() => decodeFig(fig)).toThrow(/too large/);
-    expect(decodeFig(fig, { maxFileBytes: null }).document).toEqual({
+    expect(decodeFig(fig, { limits: BROWSER_FIG_LIMITS }).document).toEqual({
       hello: "world",
     });
   }, 30_000);

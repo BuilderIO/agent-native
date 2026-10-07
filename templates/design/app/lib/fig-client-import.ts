@@ -1,5 +1,6 @@
 import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 
+import { BROWSER_FIG_LIMITS } from "../../server/lib/fig-file-limits.js";
 import { bytesToBase64, utf8ByteLength } from "../../shared/fig-bytes.js";
 import {
   completeFigImport,
@@ -225,6 +226,7 @@ export async function importFigInBrowser(
       ownerEmail: "",
       normalizeHtml: (content: string) => content,
       maxFrameHtmlBytes: MAX_FIG_FRAME_HTML_BYTES,
+      limits: BROWSER_FIG_LIMITS,
       uploader: async ({ data, filename, mimeType }) => {
         remoteMutationStarted = true;
         const idempotencyKey = `${importId}:${filename}`;
