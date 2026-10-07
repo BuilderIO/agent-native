@@ -302,31 +302,46 @@ const zoomOf = () =>
     return match ? Number(match[1]) * 100 : null;
   });
 async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
-  const distance = async () => Math.log(((await zoomOf()) ?? 10) / target);
+  const distance = async () => {
+    const zoom = await zoomOf();
+    return zoom === null || zoom <= 0 || !Number.isFinite(zoom)
+      ? null
+      : Math.log(zoom / target);
+  };
   // A CI runner reads the zoom back several times slower than a laptop.
-  const giveUpAt = Date.now() + 60_000;
+  const startedAt = Date.now();
+  const giveUpAt = startedAt + 60_000;
+  let inputs = 0;
   while (Date.now() < giveUpAt) {
     const off = await distance();
+    if (off === null) return false;
     if (Math.abs(off) < 0.06) break;
-    // Wait for the camera to apply each input. A fixed delay can enqueue several
-    // events behind a long frame and overshoot on a loaded CI runner.
+    // Keep Ctrl+wheel deltas out of the pinch band and scale them to the
+    // remaining distance so a long zoom does not time out on a loaded runner.
     await cdp.send("Input.dispatchMouseEvent", {
       type: "mouseWheel",
       x,
       y,
       deltaX: 0,
-      deltaY: Math.sign(off) * Math.min(40, Math.max(2, Math.abs(off) * 40)),
+      deltaY: Math.sign(off) * Math.min(240, Math.max(40, Math.abs(off) * 600)),
       modifiers: 2,
     });
+    inputs += 1;
+    // Wait for the camera to apply each input before measuring again.
     await page.evaluate(
       () =>
         new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
     );
-    // Give small steps time to settle before checking their final distance.
-    if (Math.abs(off) < 0.3) await page.waitForTimeout(120);
   }
   await page.waitForTimeout(1500);
-  return Math.abs(await distance()) < 0.15;
+  const actual = await zoomOf();
+  const arrived = actual !== null && Math.abs(Math.log(actual / target)) < 0.15;
+  if (!arrived) {
+    console.log(
+      `  zoom ${target}% ended at ${actual ?? "unavailable"}% after ${inputs} inputs in ${Date.now() - startedAt}ms`,
+    );
+  }
+  return arrived;
 }
 
 async function until(check: () => Promise<boolean>, timeoutMs = 30_000) {
