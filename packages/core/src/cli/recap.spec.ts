@@ -1442,11 +1442,15 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
 
     expect(body).toContain(
-      "Recap authentication failed — `PLAN_RECAP_TOKEN` was rejected; it may be expired, revoked, or minted for a different Plans app.",
+      "Recap authentication failed — `PLAN_RECAP_TOKEN` was rejected; it may be expired, revoked, or minted for another Plans app.",
     );
     expect(body).toContain(
-      "npx -y @agent-native/core@latest connect <app-url> --service-token <name> --ttl-days 3650",
+      "Personal token: run `npx @agent-native/core@latest connect <app-url> --client codex`, then `npx @agent-native/recap-cli@latest recap setup`.",
     );
+    expect(body).toContain(
+      "Org service token: an owner/admin can mint a 10-year replacement with `npx -y @agent-native/core@latest connect <app-url> --service-token <name> --ttl-days 3650`.",
+    );
+    expect(body).not.toContain("As an org owner/admin, mint a replacement");
     expect(body).not.toContain("reconnect <app-url>");
   });
 
@@ -3228,7 +3232,7 @@ describe("recap comment body — auth-failure differentiation", () => {
     expect(body).toContain("generation failed");
     expect(body).toContain("PLAN_RECAP_TOKEN");
     expect(body).toContain(
-      "expired, revoked, or minted for a different Plans app",
+      "expired, revoked, or minted for another Plans app",
     );
     expect(body).toContain(
       "connect <app-url> --service-token <name> --ttl-days 3650",

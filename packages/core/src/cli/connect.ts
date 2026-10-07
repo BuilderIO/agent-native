@@ -2454,6 +2454,14 @@ export async function runConnect(
 
     const parsed = parseConnectArgs(args);
 
+    if (parsed.ttlDays !== undefined && parsed.serviceToken === undefined) {
+      logErr(
+        "  --ttl-days is only supported with --service-token. Set a personal token lifetime on the app's Connect page.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+
     if (parsed.mode) {
       let ok: boolean;
       if (parsed.mode === "reconnect" || parsed.mode === "reauth") {

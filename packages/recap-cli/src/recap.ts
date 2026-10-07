@@ -2299,7 +2299,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     lines.push("");
     if (authFailed) {
       lines.push(
-        "Recap authentication failed — `PLAN_RECAP_TOKEN` was rejected; it may be expired, revoked, or minted for a different Plans app. As an org owner/admin, mint a replacement with `npx -y @agent-native/core@latest connect <app-url> --service-token <name> --ttl-days 3650`, then update this repo's secret.",
+        "Recap authentication failed — `PLAN_RECAP_TOKEN` was rejected; it may be expired, revoked, or minted for another Plans app. Personal token: run `npx @agent-native/core@latest connect <app-url> --client codex`, then `npx @agent-native/recap-cli@latest recap setup`. Org service token: an owner/admin can mint a 10-year replacement with `npx -y @agent-native/core@latest connect <app-url> --service-token <name> --ttl-days 3650`. Update this repo's secret.",
       );
     } else {
       lines.push(

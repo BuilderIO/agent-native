@@ -60,7 +60,7 @@ The command still authenticates you in the browser first — minting requires or
 | Who can mint                 | Any signed-in user          | Org owner/admin only             |
 | Best for                     | Your own scripts, local dev | CI, bots, scheduled integrations |
 
-Personal tokens default to 365 days and accept `--ttl-days` between 1 and 365; org service tokens default to 365 days and accept values between 1 and 3650. If a machine cannot open a browser, the app's connect page at `https://<app>/mcp/connect` is the fallback: sign in there, copy the token, and pass it with `connect <url> --token <token>` or paste it directly into your secret store.
+Personal tokens default to 365 days in the CLI device flow; to choose a lifetime from 1 to 365 days, use the app's Connect page at `https://<app>/mcp/connect`. Org service tokens also default to 365 days and accept `--ttl-days` values between 1 and 3650. If a machine cannot open a browser, the app's Connect page is the fallback: sign in there, copy the token, and pass it with `connect <url> --token <token>` or paste it directly into your secret store.
 
 For a self-hosted, single-tenant app where per-person identity does not matter, the static `ACCESS_TOKEN` / `ACCESS_TOKENS` environment variables are the simplest option — see [Authentication — Static MCP Bearer Tokens](/docs/authentication#access-tokens).
 
