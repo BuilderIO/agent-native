@@ -6146,6 +6146,8 @@ async function main() {
       viewport: { width: 1600, height: 1000 },
       deviceScaleFactor: 1,
     });
+    // The local app can still be compiling when a new page first opens /home.
+    context.setDefaultNavigationTimeout(120_000);
     const navigatorPlatform =
       lineKeyPlatform === "darwin"
         ? "MacIntel"
