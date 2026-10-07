@@ -1,5 +1,15 @@
 # @agent-native/toolkit
 
+## 0.203.1
+
+### Patch Changes
+
+- b717c70: Move AgentKit usage below message actions and round credits to one decimal place.
+- Release all public npm packages with a patch version bump.
+- 2842af8: Keep failed spawned-agent cards visually neutral in chat.
+- Updated dependencies
+  - @agent-native/agentkit@0.203.1
+
 ## 0.203.0
 
 ### Patch Changes
@@ -1079,12 +1089,5 @@
 - 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
 - 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
 - 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
-
-## 0.10.4
-
-### Patch Changes
-
-- 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
-  inside blocks created through the shared slash-command menu.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

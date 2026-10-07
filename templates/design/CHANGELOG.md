@@ -8,6 +8,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Waitlist signups work from the Make Real and Design Systems flows.
+- Design keeps frame-relative positions and selections stable when moving or pasting layers.
+- Position values stay aligned with selected layers in layouts with body margins.
 
 ## 2026-10-06
 
