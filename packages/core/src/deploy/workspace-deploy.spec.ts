@@ -1516,8 +1516,20 @@ describe("workspace deploy", () => {
       "https://workspace.example.test",
     );
     expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
-      "https://workspace.example.test",
+      "https://workspace.example.test/dispatch",
     );
+    const dispatchServer = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "dispatch-server",
+        "dispatch-server.mjs",
+      ),
+      "utf8",
+    );
+    expect(dispatchServer).toContain("https://workspace.example.test/dispatch");
+    expect(dispatchServer).toContain('new URL("/dispatch", directoryBaseUrl)');
     expect(
       JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
     ).toEqual([

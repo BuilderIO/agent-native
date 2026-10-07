@@ -137,22 +137,45 @@ function builtinAgentsEnvSnippet(): string {
 `;
 }
 
+function workspaceDirectoryUrl(
+  dispatchPath: string | undefined,
+  gatewayUrl: string | null,
+): string | undefined {
+  if (!dispatchPath || !gatewayUrl) return undefined;
+  const url = new URL(dispatchPath, gatewayUrl);
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
 function workspaceDirectoryEnvSnippet(
   workspaceApps: WorkspaceAppManifestEntry[],
 ): string {
-  const orgDirectoryUrl = getAppConfig().workspace.orgDirectoryUrl?.trim();
-  if (!orgDirectoryUrl && !workspaceApps.some((app) => app.isDispatch)) {
+  const configuredOrgDirectoryUrl =
+    getAppConfig().workspace.orgDirectoryUrl?.trim();
+  const dispatchApp = workspaceApps.find((app) => app.isDispatch);
+  if (!configuredOrgDirectoryUrl && !dispatchApp) {
     return builtinAgentsEnvSnippet();
   }
+  const defaultDirectoryUrl = workspaceDirectoryUrl(
+    dispatchApp?.path,
+    process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl(),
+  );
   return `${builtinAgentsEnvSnippet()}
-  const directoryOrigin =
-    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
-    ${JSON.stringify(orgDirectoryUrl ?? null)} ||
+  const directoryBaseUrl =
     processRef.env.WORKSPACE_GATEWAY_URL ||
     processRef.env.APP_URL ||
     processRef.env.URL ||
     processRef.env.DEPLOY_URL ||
     processRef.env.BETTER_AUTH_URL;
+  const runtimeDirectoryUrl = directoryBaseUrl
+    ? ${dispatchApp ? `new URL(${JSON.stringify(dispatchApp.path)}, directoryBaseUrl).toString().replace(/\\/$/, "")` : "directoryBaseUrl"}
+    : null;
+  const directoryOrigin =
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
+    ${JSON.stringify(configuredOrgDirectoryUrl ?? null)} ||
+    ${JSON.stringify(defaultDirectoryUrl ?? null)} ||
+    runtimeDirectoryUrl;
   if (directoryOrigin) {
     processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
   }
@@ -334,11 +357,10 @@ function buildOneApp(
   );
   const workspaceGatewayUrl =
     process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
+  const dispatchApp = workspaceApps.find((entry) => entry.isDispatch);
   const orgDirectoryUrl =
     getAppConfig().workspace.orgDirectoryUrl?.trim() ||
-    (workspaceApps.some((entry) => entry.isDispatch)
-      ? workspaceGatewayUrl
-      : null);
+    workspaceDirectoryUrl(dispatchApp?.path, workspaceGatewayUrl);
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
   const frameworkRoutePrefix = workspaceFrameworkRoutePrefixEnv();
   const env: NodeJS.ProcessEnv = {
