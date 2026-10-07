@@ -1,36 +1,210 @@
 ---
 title: "Cloudflare"
-description: "Implante um app agent-native no Cloudflare Workers com o preset cloudflare_module do Nitro."
+description: "Implante um app independente do Agent-Native no Cloudflare Workers com o Wrangler."
 ---
 
 # Cloudflare
 
-## Cloudflare Workers {#cloudflare-workers}
+<a id="cloudflare-workers"></a>
 
-Use a saída nativa de módulos do Nitro para um Cloudflare Worker. Isso mantém
-o SSR habilitado e gera o ponto de entrada do Worker além dos assets
-estáticos em `.output/server` e `.output/public`:
+O Cloudflare Workers executa o seu app na rede da Cloudflare, então não há nenhum servidor
+para configurar ou manter em execução. O build transforma o app em um Worker, que cuida
+das páginas e da API do app, além de arquivos estáticos que a Cloudflare serve diretamente.
+A Cloudflare dá ao app um endereço público com HTTPS.
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
+Este guia mostra como implantar um app independente do zero. Você vai
+criar o app, dar a ele um banco de dados de produção e um segredo de autenticação, preparar o
+banco de dados, fazer o build do Worker, salvar os segredos na Cloudflare e, depois, implantá-lo.
 
-Compile e implante o Worker gerado com o Wrangler:
+<Callout tone="info">
+
+É necessário o Node.js `22.22+`.
+
+</Callout>
+
+Você também precisa de uma conta da Cloudflare. Execute os comandos deste guia no seu próprio
+computador. O Wrangler, a ferramenta de linha de comando da Cloudflare, envia o Worker finalizado
+para a Cloudflare para você.
+
+## Passo 1: Crie o app {#step-1-create-the-app}
+
+Crie o seu novo app independente. O exemplo abaixo cria um app a partir do template Chat,
+mas você pode começar de qualquer template. Entre na pasta do app e
+instale as dependências. `corepack enable` ativa a versão do `pnpm` que o app
+espera, então você não precisa instalar o `pnpm` por conta própria.
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Se quiser, substitua `my-app` pelo nome do seu app. O restante deste guia
+considera que você está dentro da pasta do app.
+
+<Callout tone="info">
+
+Se esses comandos falharem com erros de dependências peer, a causa pode ser uma cópia desatualizada de um pacote no seu cache do npx. Execute `npx clear-npx-cache` para limpar o cache e depois execute os comandos novamente.
+
+</Callout>
+
+## Passo 2: Configure os segredos do ambiente {#step-2-configure-environment-secrets}
+
+O app lê as configurações de produção a partir de variáveis de ambiente:
+
+| Variável             | Obrigatória | Finalidade                                                           |
+| -------------------- | ----------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Sim         | Conecta o app ao seu banco de dados PostgreSQL                       |
+| `BETTER_AUTH_SECRET` | Sim         | Assina as sessões dos usuários                                       |
+| `BETTER_AUTH_URL`    | Não         | Define o endereço público que as pessoas usam para acessar o seu app |
+
+Os exports abaixo fazem os comandos seguintes funcionarem neste shell. Antes de
+implantar, salve essas mesmas variáveis nas configurações de ambiente do projeto ou serviço do seu host.
+O Passo 5 mostra como salvá-las na Cloudflare.
+
+### URL do banco de dados {#database-url}
+
+Durante o desenvolvimento local, o app armazena os dados em um banco de dados local quando
+`DATABASE_URL` não está definida. Um app implantado precisa de um banco de dados PostgreSQL real que
+mantenha os dados entre implantações. Um Worker não consegue manter arquivos entre requisições, então
+o banco de dados precisa ficar fora do Cloudflare Workers. Copie a string de conexão
+do seu provedor e exporte-a:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Os [guias de provedores de banco de dados](/docs/neon) mostram onde encontrar a string de conexão
+de cada provedor.
+
+<Callout tone="warning">
+
+Escolha um provedor de PostgreSQL persistente, como Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Segredo de autenticação {#auth-secret}
+
+Gere este valor uma única vez e mantenha-o igual em todas as implantações.
+
+O app usa `BETTER_AUTH_SECRET` para assinar as sessões dos usuários. Se ele mudar, todos os
+usuários conectados são desconectados. O comando abaixo gera um valor aleatório:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Salve o valor gerado em um lugar seguro, como um gerenciador de senhas. Use o
+mesmo valor sempre que implantar.
+
+### URL pública {#public-url}
+
+É opcional. Defina-a ao usar um domínio personalizado, um proxy reverso ou um fluxo de autenticação ou OAuth
+que precise de uma origem pública fixa.
+
+`BETTER_AUTH_URL` é o endereço público que as pessoas usam para acessar o seu app. Sem
+ela, o app descobre o próprio endereço a partir de cada requisição recebida. Isso normalmente
+funciona bem no endereço que a Cloudflare fornece, mas defina-a quando conectar um domínio
+personalizado, para que os links de login e os redirecionamentos de OAuth usem esse domínio.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Passo 3: Execute as migrações {#step-3-migrate}
+
+As migrações criam e atualizam as tabelas de que o app precisa no seu banco de dados. Execute
+isto antes da primeira implantação:
+
+```bash
+pnpm migrate:production
+```
+
+O comando é executado no seu computador e se conecta ao banco de dados de produção com
+a `DATABASE_URL` que você exportou no Passo 2. Execute-o novamente depois de atualizar o
+app e antes de implantar a nova versão.
+
+## Passo 4: Faça o build {#step-4-build}
+
+Faça o build do app como um Worker da Cloudflare:
+
+```bash
+NITRO_PRESET=cloudflare_module pnpm build
+```
+
+`NITRO_PRESET=cloudflare_module` faz o build do app no formato que o Cloudflare Workers
+espera. O build grava o Worker na pasta `.output/server` e os
+arquivos estáticos na pasta `.output/public`.
+
+O build também grava um arquivo de configuração do Wrangler em
+`.output/server/wrangler.json`. Esse arquivo informa ao Wrangler o que implantar e
+dá o nome ao Worker. O nome vem do `package.json` do app, então um
+app criado como `my-app` vira um Worker chamado `my-app`. Se a pasta for um repositório
+Git com um remoto, o nome vem do repositório. O build
+mostra o nome que escolheu.
+
+## Passo 5: Faça login e salve os segredos {#step-5-log-in-and-save-the-secrets}
+
+Faça login na Cloudflare pela linha de comando:
+
+```bash
+npx wrangler login
+```
+
+Salve as duas variáveis obrigatórias como segredos no Worker:
+
+```bash
+printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .output/server/wrangler.json
+```
+
+```bash
+printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
+```
+
+Cada comando lê o valor que você exportou no Passo 2 e o salva na Cloudflare, então
+você não precisa colar os segredos manualmente. `--config` aponta o Wrangler para o arquivo de
+configuração do Passo 4, para que os segredos vão para o Worker com o nome que o
+build escolheu. Na primeira vez, o Worker ainda não existe. Como o valor é passado por pipe, o Wrangler cria o Worker automaticamente, sem perguntar.
+
+Se você definir `BETTER_AUTH_URL`, salve-a da mesma forma. Você também pode ver e alterar
+esses valores depois nas configurações do Worker no painel da Cloudflare.
+
+## Passo 6: Implante {#step-6-deploy}
+
+Envie o Worker e publique-o:
+
+```bash
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-Você também pode selecionar o preset explicitamente com
-`NITRO_PRESET=cloudflare_module`. Configure um banco de dados PostgreSQL externo
-durável antes de implantar. O sistema de arquivos de um Worker não é um
-armazenamento persistente para o app.
+`--config` aponta o Wrangler para o arquivo de configuração do Passo 4, que informa
+onde encontrar o Worker e os arquivos estáticos.
 
-## O que vem a seguir
+Quando o comando termina, ele mostra o endereço do app, que termina em
+`workers.dev`. Abra-o e crie a primeira conta.
 
-- [**Implantação**](/docs/deployment) — escolha um banco de dados persistente e um preset antes da sua primeira implantação em produção
-- [**Implantação de Espaço de Trabalho**](/docs/workspace-deployment) — implante cada app do workspace em uma origem com Netlify ou Vercel
-- [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**AWS Lambda**](/docs/aws-lambda) e [**Deno Deploy**](/docs/deno-deploy) — os outros presets do Nitro
+## Implante atualizações {#deploy-updates}
+
+Para publicar uma nova versão, execute novamente os comandos de migração, build e implantação a partir
+da pasta do app:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=cloudflare_module pnpm build
+
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+Os segredos continuam salvos no Worker entre implantações, então você não precisa
+repetir o Passo 5.
+
+## O que vem a seguir {#whats-next}
+
+- [**Implantação: Variáveis de Ambiente**](/docs/deployment-environment-variables) - a lista completa de configurações de produção
+- [**Cache SSR**](/docs/ssr-caching) - como o cache de páginas funciona em destinos hospedados
+- [**Implantação**](/docs/deployment) - compare destinos de hospedagem e pré-requisitos

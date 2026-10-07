@@ -4,7 +4,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state for the chat-first app. Always call this first before taking any action.",
+    "Read the Chat app's current navigation state. Basic navigation is already included in <current-screen>; use this action only when you need a fresh read.",
   schema: z.object({}),
   http: false,
   readOnly: true,

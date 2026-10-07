@@ -132,6 +132,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "हर महीने 60 Agent Credits",
   "onboarding.builderIncludedFree": "मुफ़्त में शामिल",
   "onboarding.builderMoreServices": "+ {{count}} और सेवाएँ",
+  "onboarding.builderLlmCredits": "LLM क्रेडिट",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM क्रेडिट + {{count}} और सेवाएँ",
+  "onboarding.builderAccountCreated": "Builder.io खाता बनाया और कनेक्ट किया गया।",
   "onboarding.builderIncludedServices": "शामिल सेवाएँ",
   "onboarding.builderActivateTitle": "मुफ़्त क्रेडिट सक्रिय करें",
   "onboarding.builderAccountExistsTitle": "आपके पास पहले से Builder.io खाता है",
@@ -150,7 +154,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
-    "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
+    "आपका Builder.io खाता बनाया जा रहा है और मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं।",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
   "onboarding.builderReadyWithCodeChanges":
@@ -396,6 +400,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.connectAbove": "जारी रखने के लिए ऊपर AI कनेक्ट करें...",
   "composer.connectBuilder": "Builder.io इस्तेमाल करें",
   "composer.connectKeys": "कुंजियाँ कनेक्ट करें",
+  "composer.connectAgent": "एजेंट कनेक्ट करें",
   "composer.connectingBuilder": "Builder.io सेट अप हो रहा है…",
   "composer.costHigher": "अधिक लागत",
   "composer.costLower": "कम लागत",
@@ -996,6 +1001,19 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "संदेश की कार्रवाइयाँ",
   "message.copyMessage": "संदेश कॉपी करें",
   "message.copyRequestId": "अनुरोध ID कॉपी करें",
+  "message.usage": "उपयोग",
+  "message.usageLoading": "उपयोग लोड हो रहा है…",
+  "message.usageUnavailable": "उपयोग उपलब्ध नहीं है",
+  "message.usageNotRecorded": "उपयोग रिकॉर्ड नहीं किया गया",
+  "message.usageIncomplete":
+    "कुछ उपयोग का वर्गीकरण नहीं हो सका; कुल राशि छिपाई गई है।",
+  "message.usageReportedCost": "लागत {{amount}}",
+  "message.usageEstimatedCost": "अनुमानित लागत {{amount}}",
+  "message.usageBuilderCredits": "इस्तेमाल किए गए Builder क्रेडिट {{amount}}",
+  "message.usageEstimatedBuilderCredits": "अनुमानित Builder क्रेडिट {{amount}}",
+  "message.usageMixedCost": "रिपोर्ट की गई और अनुमानित लागत {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "रिपोर्ट किए गए और अनुमानित Builder क्रेडिट {{amount}}",
   "message.requestIdUnavailable": "अनुरोध ID उपलब्ध नहीं है",
   "message.unavailable": "यह संदेश अब इस बातचीत में उपलब्ध नहीं है।",
   "message.navigationUnavailable": "बातचीत में नेविगेशन उपलब्ध नहीं है।",
@@ -1610,6 +1628,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "ऐप",
   "settings.usage.allApps": "सभी ऐप",
   "settings.usage.unattributedApp": "अनिर्दिष्ट",
+  "settings.usage.unclassifiedUsage": "अवर्गीकृत उपयोग",
   "settings.usage.peopleFilterLabel": "लोग",
   "settings.usage.everyone": "सभी",
   "settings.usage.justYou": "केवल आप",

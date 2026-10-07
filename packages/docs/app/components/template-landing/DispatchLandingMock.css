@@ -1,4 +1,20 @@
 .dispatch-landing-art {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 0 0% 15%;
+  --secondary: 0 0% 95%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 43%;
+  --sidebar-primary: 0 0% 15%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-border: 0 0% 90%;
   --dispatch-bg: hsl(var(--background));
   --dispatch-card: hsl(var(--card));
   --dispatch-text: hsl(var(--foreground));
@@ -30,6 +46,25 @@
   font-size: 11px;
   line-height: 1.45;
   box-shadow: 0 22px 70px hsl(var(--foreground) / 0.13);
+}
+
+.dark .dispatch-landing-art {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --popover: 0 0% 15%;
+  --primary: 0 0% 75%;
+  --secondary: 0 0% 18%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 62%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-border: 0 0% 20%;
 }
 
 .dispatch-landing-art--hero {

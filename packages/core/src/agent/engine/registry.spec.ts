@@ -604,6 +604,23 @@ describe("AgentEngine registry", () => {
       expect(normalizeModelForEngine(engine, "gpt-5-4")).toBe("gpt-5-5");
     });
 
+    it("moves saved selections of retired Builder models to the default model", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const { BUILDER_MODEL_CONFIG } = await import("../model-config.js");
+      const engine = {
+        name: "builder",
+        defaultModel: BUILDER_MODEL_CONFIG.defaultModel,
+        supportedModels: BUILDER_MODEL_CONFIG.supportedModels,
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "grok-code-fast")).toBe(
+        BUILDER_MODEL_CONFIG.defaultModel,
+      );
+      expect(normalizeModelForEngine(engine, "deepseek-v4-pro")).toBe(
+        BUILDER_MODEL_CONFIG.defaultModel,
+      );
+    });
+
     it("preserves an exact supported non-GPT selection when a newer version is supported", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {

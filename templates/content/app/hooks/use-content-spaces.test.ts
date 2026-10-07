@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const useActionMutation = vi.hoisted(() => vi.fn());
 const useActionQuery = vi.hoisted(() => vi.fn());
 const useQueryClient = vi.hoisted(() => vi.fn());
+const isOpenAiMcpAppHost = vi.hoisted(() => vi.fn(() => false));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  isOpenAiMcpAppHost,
+}));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation,
@@ -16,6 +21,7 @@ vi.mock("@tanstack/react-query", async () => ({
 
 import {
   shouldAutoEnsureContentSpaces,
+  useContentSpaces,
   useEnsureContentSpaces,
 } from "./use-content-spaces";
 
@@ -118,5 +124,44 @@ describe("useEnsureContentSpaces", () => {
     expect(refetchQueries).toHaveBeenCalledWith({
       queryKey: ["action", "list-content-spaces"],
     });
+  });
+});
+
+describe("useContentSpaces in the ChatGPT widget", () => {
+  beforeEach(() => {
+    useActionQuery.mockReset();
+    isOpenAiMcpAppHost.mockReset();
+    isOpenAiMcpAppHost.mockReturnValue(true);
+  });
+
+  it("does not request workspace-wide data for a resource-scoped widget", () => {
+    useContentSpaces();
+
+    expect(useActionQuery).toHaveBeenCalledWith(
+      "list-content-spaces",
+      undefined,
+      expect.objectContaining({ enabled: false, placeholderData: undefined }),
+    );
+  });
+});
+
+describe("useContentSpaces outside the ChatGPT widget", () => {
+  beforeEach(() => {
+    useActionQuery.mockReset();
+    isOpenAiMcpAppHost.mockReset();
+    isOpenAiMcpAppHost.mockReturnValue(false);
+  });
+
+  it("keeps the regular workspace query enabled", () => {
+    useContentSpaces();
+
+    expect(useActionQuery).toHaveBeenCalledWith(
+      "list-content-spaces",
+      undefined,
+      expect.objectContaining({
+        enabled: true,
+        placeholderData: expect.any(Function),
+      }),
+    );
   });
 });

@@ -84,7 +84,14 @@ export async function getPreviewDraft(page: Page, documentId: string) {
     `get-preview-document-draft (${response.status()}): ${text}`,
   ).toBe(true);
   return (
-    JSON.parse(text) as { draft: { title: string; content: string } | null }
+    JSON.parse(text) as {
+      draft: {
+        title: string;
+        content: string;
+        editorSessionId?: string | null;
+        editGeneration?: number | null;
+      } | null;
+    }
   ).draft;
 }
 
