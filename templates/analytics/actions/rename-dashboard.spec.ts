@@ -28,7 +28,15 @@ function defaultUpsertDashboardWithRetry(
     }
     const { kind, body } = await mutate(existing);
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body, title: body.name };
+    const updated = {
+      ...existing,
+      kind,
+      config: body,
+      title: body.name,
+      updatedAt: new Date(Date.parse(existing.updatedAt) + 1).toISOString(),
+    };
+    mocks.getDashboard.mockResolvedValue(updated);
+    return updated;
   })();
 }
 
@@ -44,6 +52,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: mocks.applyText,
+  getText: vi.fn(async () => ""),
   hasCollabState: mocks.hasCollabState,
   seedFromText: mocks.seedFromText,
 }));
@@ -165,10 +174,13 @@ describe("rename-dashboard", () => {
 
     await renameDashboard.run({ id: "traffic", name: "New Name" });
 
-    expect(mocks.hasCollabState).toHaveBeenCalledWith("dash-traffic");
-    expect(mocks.seedFromText).toHaveBeenCalledTimes(1);
-    const seededConfig = JSON.parse(mocks.seedFromText.mock.calls[0][1]);
-    expect(seededConfig.name).toBe("New Name");
+    expect(mocks.applyText).toHaveBeenCalledWith(
+      "dash-traffic",
+      JSON.stringify({ ...dashboardConfig(), name: "New Name" }),
+      "content",
+      "agent",
+      expect.objectContaining({ validateSnapshot: expect.any(Function) }),
+    );
   });
 
   it("does not mark a frontend rename as an AI edit", async () => {
@@ -190,6 +202,7 @@ describe("rename-dashboard", () => {
       JSON.stringify({ ...dashboardConfig(), name: "New Name" }),
       "content",
       undefined,
+      expect.objectContaining({ validateSnapshot: expect.any(Function) }),
     );
   });
 });

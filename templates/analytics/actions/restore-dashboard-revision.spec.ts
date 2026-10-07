@@ -8,6 +8,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: vi.fn(),
+  getText: vi.fn(async () => ""),
   hasCollabState: vi.fn().mockResolvedValue(false),
   seedFromText: vi.fn(),
 }));
