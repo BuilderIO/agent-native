@@ -3231,9 +3231,7 @@ describe("recap comment body — auth-failure differentiation", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
     expect(body).toContain("PLAN_RECAP_TOKEN");
-    expect(body).toContain(
-      "expired, revoked, or minted for another Plans app",
-    );
+    expect(body).toContain("expired, revoked, or minted for another Plans app");
     expect(body).toContain(
       "connect <app-url> --service-token <name> --ttl-days 3650",
     );
