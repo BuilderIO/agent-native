@@ -932,7 +932,7 @@ jobs:
         run: |
           jq -n \
             --arg channel C0C7A1Y2EF6 \
-            --arg header "<!here> :rotating_light: *Release everything failed* ($TRIGGER, $RELEASE_TYPE release)" \
+            --arg header "<!subteam^S0C43BD9CMT> :rotating_light: *Release everything failed* ($TRIGGER, $RELEASE_TYPE release)" \
             --arg run "<$RUN_URL|Open the run>" \
             --arg reason "${RELEASE_ERROR:-No error message was captured; the job ended $JOB_STATUS (cancelled or timed out).}" \
             '{channel: $channel, text: "\($header)\n\($run)\n```\($reason)```", unfurl_links: false, unfurl_media: false}' \
