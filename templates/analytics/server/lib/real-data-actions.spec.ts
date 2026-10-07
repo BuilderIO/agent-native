@@ -15,6 +15,7 @@ import {
   hasRequestedSourceRecordEvidence,
   hasOverstatedCoverageConfidenceClaim,
   isGenericNoDataFallback,
+  isNonDataTurn,
   isSafeNoDataAnalyticsResponse,
   looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeDashboardConstructionRequest,
@@ -360,6 +361,188 @@ describe("analytics data request classification", () => {
     expect(
       looksLikeAnalyticsDataRequest("Review signup PR from last week."),
     ).toBe(false);
+  });
+});
+
+// Frozen probe: realistic RevOps asks that the pre-model retrieval and the final
+// guard must both treat as data turns. Grow it from real misses; never trim it
+// to make a change pass.
+const DATA_ASKS = [
+  "what's our NRR",
+  "Q3 bookings",
+  "pull the renewal list for Q4",
+  "churned logos last quarter",
+  "who owns Acme",
+  "what's net revenue retention by segment",
+  "how many signups did we get from paid last week",
+  "show me pipeline by stage",
+  "top 10 accounts by ARR",
+  "give me the list of customers renewing in November",
+  "what is our win rate this quarter",
+  "which reps closed the most deals in EMEA",
+  "average sales cycle for enterprise deals",
+  "weekly active users trend for the last 90 days",
+  "how many seats does Globex have",
+  "what was gross margin in FY25",
+  "forecast vs quota for Q4",
+  "expansion revenue by product YTD",
+  "list open opportunities over $50k",
+  "which accounts are at risk of churning",
+  "same but for last quarter",
+  "change it to last quarter",
+  "how much did we book in EMEA",
+  "show renewals by owner for Q1",
+  "Q2 vs Q3 ACV",
+  "how often do trials convert",
+  "which customers churned this year",
+  "split it by owner",
+  "pull the code usage for the promo code campaign last month",
+  "fix the filter: how many signups used the style guide last week",
+  "what's the layout of our NRR by cohort, last 6 months",
+  // Metrics the vocabulary never named.
+  "what's our win rate",
+  "who are our top reps",
+  "what's the NPS score",
+  "median time to close",
+  "rep leaderboard",
+  "are we on track for the quarter",
+  "top 5 pages by visits",
+  "how is onboarding converting",
+  "which features do paid users use most",
+  "rank sales reps by closed won",
+  "what percentage of users hit the aha moment",
+  "biggest drop in activation last week",
+  "what are the top themes",
+  // A script or language the patterns do not read is still a data ask.
+  "先月のサインアップ数は？",
+  "Сколько регистраций за прошлую неделю?",
+  "Combien d'inscriptions la semaine dernière ?",
+  "¿Cuántos usuarios activos tuvimos ayer?",
+  // Artifact and edit words inside a question about data.
+  "how many dashboards did we share last month",
+  "which customers opened the pricing page most",
+  "which dashboards get the most views",
+  "how many panels did we rename last quarter",
+  "how many tickets are open",
+  "delete rate for accounts last quarter",
+  "update me on pipeline health",
+  "add up signups by plan for October",
+  "make a report of signups by plan",
+  "add a chart of revenue by region",
+  // An edit that changes what is measured.
+  "set the dashboard window to 30 days",
+  "move the date range to the last 90 days",
+  "make it EMEA only",
+  "set the window to 30 days",
+  "remove EMEA from this",
+  "switch to the EMEA region",
+  "can you do the same for enterprise only",
+  "what about EMEA?",
+  "and the UK?",
+  "ok",
+  "now exclude EMEA",
+];
+
+// Asks that need no lookup: the pre-model retrieval is skipped for these.
+const SKIPPED_ASKS = [
+  "hello",
+  "hey!",
+  "hi there",
+  "thanks!",
+  "thank you so much",
+  "perfect",
+  "how's it going?",
+  "hows it going",
+  "make it blue",
+  "rename this chart",
+  "rename this panel to Overview",
+  "delete this panel",
+  "hide the legend",
+  "can you recolor the bars green",
+  "please retitle this",
+  "fix the dashboard layout",
+  "refactor the sidebar component",
+  "k",
+  "?",
+  "👍",
+];
+
+// An edit, navigation, or bug report about an artifact skips the lookup even
+// when a metric word is part of the artifact's name.
+const ARTIFACT_ASKS = [
+  "open the revenue dashboard",
+  "go to the pipeline dashboard",
+  "share the churn dashboard with Sam",
+  "delete the old signups dashboard",
+  "rename the ARR panel to Annual Recurring Revenue",
+  "favorite the customers dashboard",
+  "fix the layout of the accounts page",
+  "the route for tickets is broken",
+  "update the code that handles signups",
+  "duplicate the retention dashboard",
+  "refactor the funnel chart component",
+  "open the customers page",
+  "switch the theme to dark",
+  "edit the extension so the header is sticky",
+  "the sidebar component is broken",
+];
+
+// General asks: retrieval may run, but a draft without figures passes the guard
+// (see "realDataFinalGuard turn classification").
+const GENERAL_ASKS = [
+  "write me a haiku about autumn",
+  "what's 15% of 240",
+  "explain how a left join works",
+  "can you review my PR",
+  "how do I connect HubSpot",
+  "what does MRR mean",
+  "what's the status of the Revenue dashboard",
+  "the chat keeps typing long messages that disappear",
+];
+
+describe("analytics turn classification probe", () => {
+  it.each(DATA_ASKS)("treats %j as a data ask", (ask) => {
+    expect(isNonDataTurn(ask)).toBe(false);
+  });
+
+  it.each(SKIPPED_ASKS)("skips retrieval and the guard for %j", (ask) => {
+    expect(isNonDataTurn(ask)).toBe(true);
+  });
+
+  it.each(ARTIFACT_ASKS)("treats the artifact ask %j as non-data", (ask) => {
+    expect(isNonDataTurn(ask)).toBe(true);
+  });
+
+  it.each(GENERAL_ASKS)("leaves %j to the guard's figure check", (ask) => {
+    expect(isNonDataTurn(ask)).toBe(false);
+  });
+
+  it("keeps a data ask whose wording merely mentions UI words", () => {
+    // The old anywhere-in-the-text negative list ("fix", "code", "style",
+    // "layout", "route") dropped these.
+    for (const ask of [
+      "pull the code usage for the promo code campaign last month",
+      "what's the layout of our NRR by cohort, last 6 months",
+    ]) {
+      expect(isNonDataTurn(ask)).toBe(false);
+    }
+  });
+
+  it("keeps the real-data marker authoritative over the UI-edit denylist", () => {
+    expect(
+      isNonDataTurn("change it. REAL_DATA_REQUIRED: signups by plan"),
+    ).toBe(false);
+    expect(
+      isNonDataTurn("delete the old dashboard. REAL_DATA_REQUIRED: signups"),
+    ).toBe(false);
+  });
+
+  it("ignores framework-injected screen context when classifying the ask", () => {
+    expect(
+      isNonDataTurn(
+        "open the revenue dashboard\n\n<current-screen>\nRevenue by region, last 90 days\n</current-screen>",
+      ),
+    ).toBe(true);
   });
 });
 

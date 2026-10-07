@@ -883,6 +883,24 @@ export async function getTraceSummary(
   return rowToTraceSummary(rows[0] as any);
 }
 
+/**
+ * A thread created on a path with no request org keeps `org_id` NULL, and every
+ * review read requires `thread.org_id` to equal the trace's org, so its runs
+ * never reach Human Review. The run that executed under an org is the proof of
+ * which org the thread belongs to: adopt it, for the thread's own owner only
+ * and never over an org that was already recorded.
+ */
+export async function adoptTraceOrgForThread(
+  summary: Pick<TraceSummary, "threadId" | "userId" | "orgId">,
+): Promise<void> {
+  if (!summary.orgId || !summary.threadId || !summary.userId) return;
+  await getDbExec().execute({
+    sql: `UPDATE chat_threads SET org_id = ?
+      WHERE id = ? AND org_id IS NULL AND LOWER(owner_email) = LOWER(?)`,
+    args: [summary.orgId, summary.threadId, summary.userId],
+  });
+}
+
 export async function getOrgScopedThreadData(
   orgId: string,
   ownerEmail: string,

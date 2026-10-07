@@ -64,6 +64,26 @@ function RunStuckProbe({
   return <div>{state.isStuck ? "stuck" : "healthy"}</div>;
 }
 
+function RunReconcileProbe({
+  awaitingResponse,
+}: {
+  awaitingResponse?: boolean;
+}) {
+  const state = useRunStuckDetection({
+    threadId: "thread-1",
+    awaitingResponse,
+  });
+  return (
+    <div>
+      {[
+        state.serverSettled ? "settled" : "unsettled",
+        state.statusUnreadable ? "unreadable" : "readable",
+        state.status ?? "no-status",
+      ].join(" ")}
+    </div>
+  );
+}
+
 describe("RunStuckBanner", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -463,7 +483,12 @@ describe("RunStuckBanner", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(89_999);
     });
-    expect(container.textContent).toBe("");
+    // Polls have failed for a while: the status is unreadable, which is neither
+    // stuck nor silence.
+    expect(container.textContent).toContain(
+      "agentChat.recovery.statusUnreadable",
+    );
+    expect(container.textContent).not.toContain("This chat looks stuck.");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2);
@@ -1012,5 +1037,226 @@ describe("RunStuckBanner", () => {
       "Cancel",
     ]);
     expect(buttons.every((button) => button.disabled)).toBe(false);
+  });
+  describe("reconciling with the server's run state", () => {
+    const idleResponse = () =>
+      jsonResponse({
+        active: false,
+        status: "idle",
+        heartbeatAt: null,
+        lastProgressAt: null,
+      });
+    const runningResponse = () =>
+      jsonResponse({
+        active: true,
+        runId: "run-live",
+        status: "running",
+        heartbeatAt: 99_000,
+        lastProgressAt: 99_000,
+        serverNow: 100_000,
+      });
+
+    it("calls the run settled only after the server twice reports nothing in flight", async () => {
+      const fetchSpy = vi.fn(async () => idleResponse());
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await act(async () => {
+        renderWithCatalog(<RunReconcileProbe />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      // One idle answer could be a run the server has not registered yet.
+      expect(container.textContent).toBe("unsettled readable idle");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(container.textContent).toBe("settled readable idle");
+    });
+
+    it("keeps a live run unsettled and polls it at a bounded pace", async () => {
+      const fetchSpy = vi.fn(async () => runningResponse());
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await act(async () => {
+        renderWithCatalog(<RunReconcileProbe />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      expect(container.textContent).toBe("unsettled readable running");
+      // First poll at 2s, then every 5s: never a tight loop.
+      expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(13);
+    });
+
+    it("stops being settled when the server starts a run again", async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(idleResponse())
+        .mockResolvedValueOnce(idleResponse())
+        .mockResolvedValue(runningResponse());
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await act(async () => {
+        renderWithCatalog(<RunReconcileProbe />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(7_000);
+      });
+      expect(container.textContent).toBe("settled readable idle");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(container.textContent).toBe("unsettled readable running");
+    });
+
+    it("drops a settle taken before the chat began waiting and settles again from fresh polls", async () => {
+      const fetchSpy = vi.fn(async () => idleResponse());
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await act(async () => {
+        renderWithCatalog(<RunReconcileProbe awaitingResponse={false} />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(7_000);
+      });
+      expect(container.textContent).toBe("settled readable idle");
+
+      // The user sends: the idle answers above predate this run.
+      await act(async () => {
+        renderWithCatalog(<RunReconcileProbe awaitingResponse />);
+      });
+      expect(container.textContent).toBe("unsettled readable no-status");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(container.textContent).toBe("unsettled readable idle");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(container.textContent).toBe("settled readable idle");
+    });
+
+    it("neither warns nor reloads when a run starts in a chat that was idle and settled", async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(idleResponse())
+        .mockResolvedValueOnce(idleResponse())
+        .mockResolvedValue(runningResponse());
+      vi.stubGlobal("fetch", fetchSpy);
+      const onServerSettled = vi.fn(async () => "still_running" as const);
+      const renderChat = (awaiting: boolean) =>
+        renderWithCatalog(
+          <RunStuckBanner
+            threadId="thread-1"
+            onServerSettled={onServerSettled}
+            isAwaitingResponse={() => awaiting}
+          />,
+        );
+
+      await act(async () => renderChat(false));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(7_000);
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+      await act(async () => renderChat(true));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      expect(onServerSettled).not.toHaveBeenCalled();
+      expect(container.textContent).not.toContain(
+        "agentChat.recovery.statusMismatch",
+      );
+    });
+
+    it("still reloads a run the server stopped tracking after the chat began waiting", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => idleResponse()),
+      );
+      const onServerSettled = vi.fn(async () => "settled" as const);
+      const renderChat = (awaiting: boolean) =>
+        renderWithCatalog(
+          <RunStuckBanner
+            threadId="thread-1"
+            onServerSettled={onServerSettled}
+            isAwaitingResponse={() => awaiting}
+          />,
+        );
+
+      await act(async () => renderChat(false));
+      await act(async () => renderChat(true));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(onServerSettled).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(onServerSettled).toHaveBeenCalledTimes(1);
+    });
+
+    it("reports an unreadable status, not a finished run, while polls fail, and recovers", async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(runningResponse())
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockResolvedValueOnce(jsonResponse({ error: "down" }, false, 503))
+        .mockResolvedValue(runningResponse());
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await act(async () => {
+        renderWithCatalog(<RunReconcileProbe />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(container.textContent).toBe("unsettled readable running");
+
+      // First failure at +5s, the second 10s later.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(container.textContent).toBe("unsettled readable running");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(container.textContent).toBe("unsettled unreadable running");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(container.textContent).toBe("unsettled readable running");
+    });
+
+    it("stops polling once the chat unmounts", async () => {
+      const fetchSpy = vi.fn(async () => idleResponse());
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await act(async () => {
+        renderWithCatalog(<RunReconcileProbe />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(7_000);
+      });
+      const callsBeforeUnmount = fetchSpy.mock.calls.length;
+      expect(callsBeforeUnmount).toBeGreaterThan(0);
+
+      await act(async () => root.unmount());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000);
+      });
+
+      expect(fetchSpy.mock.calls.length).toBe(callsBeforeUnmount);
+      root = createRoot(container);
+    });
   });
 });

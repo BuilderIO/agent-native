@@ -11,6 +11,7 @@ const INJECTED_CONTEXT_BLOCKS = [
   "plan-mode-note",
   "non-analytics-retry",
   "response-guard",
+  "context-note",
 ];
 
 export const CORPUS_SOURCE_ACTIONS = new Set([
@@ -517,7 +518,7 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 }
 
 const ANALYTICS_RESULT_TERMS =
-  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|ctr|cvr|cac|ltv)\b/;
+  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn(?:ed)?|pipeline|deals?|calls?|transcripts?|sentiment|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|nrr|grr|ndr|acv|tcv|bookings?|renewals?|logos?|owners?|who owns|ctr|cvr|cac|ltv)\b/;
 
 const DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS =
   /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:conversion|conversions|rate|rates|run|runs|ran|fail(?:ed|ure|ures)?|execution(?:s)?|job(?:s)?|metric|metrics|count|counts)\b/i;
@@ -564,20 +565,20 @@ const SETUP_REQUEST_TERMS =
 const SETUP_REQUEST_FRAMING =
   /\b(?:how (?:do|can) i|can you|help me|where can i|show me how)\b/;
 
-const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
+// The shape of a data ask, independent of what it is about: a reporting window,
+// a scope filter, or a quantity question.
+const DATA_ASK_SHAPE =
+  /\b(?:q[1-4]|h[12]|fy\s?\d{2,4}|ytd|mtd|qtd|(?:last|past|prior|previous|this|current|next)\s+(?:\d+\s+)?(?:quarters?|months?|years?)|\d+\s*(?:days?|weeks?|months?|quarters?|years?)|date range|window|period|filters?|only|excluding|except|versus|vs|how (?:many|much|often))\b/;
 
 const EXPLICIT_CODE_REVIEW_REQUEST =
   /\b(?:review|check|inspect|read|look at|go over)\s+(?:(?:this|the|my|that|our|these)\s+)?(?:\w+\s+){0,3}?(?:prs?|pull requests?|code|diffs?|changes?|patch(?:es)?|commits?|changelogs?|release notes)\b/;
 const CODE_REVIEW_MENTION =
   /\b(?:prs?|pull requests?)(?:\s+descriptions?)?\b|\b(?:code review|diffs?|commits?|changelogs?|release notes)\b|\breviewers?\s+(?:said|says|say|asked|noted|flagged|comments?|feedback)\b/;
 const METRIC_RESULT_INTENT =
-  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
+  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|q[1-4]|h[12]|fy\s?\d{2,4}|ytd|mtd|qtd|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
 
 const DASHBOARD_BARE_STATUS_QUERY_TERMS =
   /\b(?:what|which|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:status|state)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)\b(?!\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
-
-const ARTIFACT_DATA_INTENT =
-  /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
 
 const METADATA_ONLY_TERMS =
   /\b(what (?:tables?|columns?|fields?|sources?|datasets?|metrics?|schema) (?:are|is|exist|available|do (?:we|you|i) have)|which (?:sources?|tables?|providers?|integrations?) (?:are|is) (?:connected|configured|available|set up)|list (?:the )?(?:tables?|columns?|fields?|sources?|datasets?|schemas?)|show (?:me )?(?:available|the) (?:data )?(?:sources?|tables?|schemas?)|what does .+ (?:mean|measure|represent|track)|how is .+ (?:defined|calculated|computed|measured)|definition of|describe (?:the )?(?:\w+\s+)?(?:table|column|schema|metric|field)|list (?:the )?columns?\s+in|what (?:is|are) (?:the )?(?:data (?:dictionary|schema)|available (?:data )?(?:sources?|tables?))|what (?:source|provider|table) (?:has|stores|contains))\b/;
@@ -629,6 +630,62 @@ function hasIndependentAnalyticsDataClause(lower: string): boolean {
     });
 }
 
+const GREETING_OR_THANKS =
+  /^(?:(?:hi|hello|hey|yo|there|thanks?|thank you|thx|ty|cheers|so much|a lot|again|great|nice|awesome|perfect|cool|got it|sounds good|lgtm|good (?:morning|afternoon|evening)|how(?:['’]?s| is) it going|what['’]?s up)\b[\s,.!?]*)+$/;
+
+const UI_EDIT_OPENER =
+  /^(?:(?:please|can you|could you|would you|go ahead and|just)\s+)*(?:make|turn|set|change|switch|toggle|enable|disable|recolou?r|color|resize|rename|retitle|move|reorder|hide|unhide|delete|remove|duplicate|open|navigate to|go to|share|favorite|unfavorite|fix|debug|refactor|update|edit|add)\b\s*/;
+
+// Things a user edits or navigates rather than measures. A metric word inside
+// the name of one ("revenue dashboard", "tickets route") does not make the
+// ask a lookup.
+const ARTIFACT_NOUNS =
+  "dashboards?|panels?|charts?|pages?|reports?|views?|extensions?|folders?|routes?|components?|layouts?|code|themes?|legends?|bars?|axes|axis|labels?|titles?|tooltips?";
+const ARTIFACT_NOUN = new RegExp(`\\b(?:${ARTIFACT_NOUNS})\\b`);
+// Creating an artifact is a request for its contents ("add a chart of signups").
+const NEW_ARTIFACT = new RegExp(
+  `\\b(?:an?|new|another)\\s+(?:[\\w-]+\\s+){0,2}(?:${ARTIFACT_NOUNS})\\b`,
+);
+const ARTIFACT_FAULT =
+  /\b(?:broken|bugs?|buggy|crash\w*|glitch\w*|misaligned|not (?:working|loading|rendering))\b|n['’]t (?:work|load|render)/;
+// After a UI verb, "it" and "this" are the open dashboard or selected panel.
+const ARTIFACT_PRONOUN = /^(?:it|this|that|these|those|them)\b/;
+
+/** An edit, navigation, or bug report about an existing artifact that asks for
+ *  nothing to be measured. */
+function isArtifactRequest(lower: string): boolean {
+  if (
+    DATA_ASK_SHAPE.test(lower) ||
+    METRIC_RESULT_INTENT.test(lower) ||
+    NEW_ARTIFACT.test(lower)
+  ) {
+    return false;
+  }
+  const edit = UI_EDIT_OPENER.exec(lower);
+  if (!edit) return ARTIFACT_FAULT.test(lower) && ARTIFACT_NOUN.test(lower);
+  return (
+    ARTIFACT_NOUN.test(lower) ||
+    ARTIFACT_PRONOUN.test(lower.slice(edit[0].length))
+  );
+}
+
+/** Turns that never need a data lookup: greetings, thanks, and an edit,
+ *  navigation, or bug report about an artifact. The one boundary for pre-model
+ *  retrieval and the final guard; every other turn, in any language, is a
+ *  candidate data turn. A wrong "data" costs one retrieval, since the guard
+ *  only rejects a draft that states figures without evidence; a wrong
+ *  "non-data" lets an invented figure through. */
+export function isNonDataTurn(text: string): boolean {
+  const lower = boundAnalyticsClassificationText(
+    stripInjectedAnalyticsGuardContext(text),
+  ).toLowerCase();
+  if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return false;
+  if ((lower.match(/[\p{L}\p{N}]/gu) ?? []).length < 2) return true;
+  return GREETING_OR_THANKS.test(lower) || isArtifactRequest(lower);
+}
+
+/** Whether a request is an analytics lookup by vocabulary. Only the coverage
+ *  checks use it; the guard and retrieval gate on `isNonDataTurn`. */
 export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const requestText = boundAnalyticsClassificationText(
     stripInjectedAnalyticsGuardContext(text),
@@ -640,6 +697,7 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
     "",
   );
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
+  if (isNonDataTurn(requestText)) return false;
   if (
     SETUP_REQUEST_TERMS.test(lower) &&
     (SETUP_REQUEST_FRAMING.test(lower) || /\bsettings?\b/.test(lower))
@@ -665,20 +723,6 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   if (
     looksLikeWorkflowOrAutomationRequest(lower) &&
     !hasIndependentAnalyticsDataClause(lower)
-  ) {
-    return false;
-  }
-  if (
-    /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
-      lower,
-    ) &&
-    !ANALYTICS_INTENT_TERMS.test(lower) &&
-    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
-  ) {
-    return false;
-  }
-  if (
-    /\b(fix|bug|layout|style|component|route|code|source code)\b/.test(lower)
   ) {
     return false;
   }
@@ -730,11 +774,7 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return true;
   }
-  return (
-    ARTIFACT_TERMS.test(lower) &&
-    ARTIFACT_DATA_INTENT.test(lower) &&
-    ANALYTICS_RESULT_TERMS.test(lower)
-  );
+  return DATA_ASK_SHAPE.test(lower);
 }
 
 const UNSUPPORTED_RESULT_CLAIM =

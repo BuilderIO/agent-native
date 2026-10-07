@@ -670,6 +670,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "عدم إعجاب",
   "feedback.thumbsUp": "إعجاب",
   "feedback.tooSlow": "بطيء جدًا",
+  "feedback.reasonMisread": "أساء فهم طلبي",
+  "feedback.reasonNotDone": "قال إنه أنجز المهمة، لكنه لم ينجزها",
+  "feedback.reasonWrongNumbers": "أرقام خاطئة",
+  "feedback.copyDetails": "نسخ التفاصيل",
   "feedback.whatWentWrong": "ما الذي حدث بشكل خاطئ؟",
   "feedback.wrongTool": "أداة غير صحيحة",
   "header.switchToCli": "التبديل إلى CLI",
@@ -1165,6 +1169,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "لا يوجد تقدم منذ {{seconds}} ثانية. ربما انتهت مهلة الخادم أو انقطع اتصال الوكيل.",
   "recovery.stuckRetrying": "تجري إعادة المحاولة تلقائيًا الآن.",
+  "recovery.statusUnreadable":
+    "تعذّر الاتصال بالخادم للتحقق من هذه المحادثة. ربما انتهت. سنواصل المحاولة.",
+  "recovery.statusMismatch":
+    "يفيد الخادم بأن هذه المحادثة لم تعد قيد التشغيل. أعد التحميل لرؤية النتيجة.",
+  "recovery.reload": "إعادة التحميل",
   "recovery.statusCheckFailed":
     "تعذّر الوصول إلى الخادم للتحقق مما إذا كان الوكيل لا يزال يعمل. أرسل رسالتك مجددًا لإعادة المحاولة.",
   "recovery.streamEnded":

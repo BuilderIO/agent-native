@@ -289,7 +289,6 @@ describe("observability routes", () => {
 
       expect(mockGetTraceSummary).toHaveBeenCalledWith("run-1", {
         userId: "alice@example.com",
-        orgId: "org-a",
       });
       expect(mockInsertFeedback).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -325,26 +324,181 @@ describe("observability routes", () => {
     },
   );
 
-  it("rejects feedback for a run outside the active org before insertion", async () => {
-    mockReadBody.mockResolvedValue({
-      threadId: "thread-from-org-b",
-      runId: "run-from-org-b",
-      feedbackType: "thumbs_down",
-      value: "wrong answer",
+  describe("resolving the run a vote is about", () => {
+    const summaries = [
+      {
+        runId: "run-no-org",
+        threadId: "thread-no-org",
+        userId: "alice@example.com",
+        orgId: null,
+        model: "gpt-5.6-terra",
+      },
+      {
+        runId: "run-other-org",
+        threadId: "thread-other-org",
+        userId: "alice@example.com",
+        orgId: "org-b",
+        model: "gpt-5.6-terra",
+      },
+      {
+        runId: "run-of-bob",
+        threadId: "thread-of-bob",
+        userId: "bob@example.com",
+        orgId: "org-a",
+        model: "gpt-5.6-terra",
+      },
+    ];
+
+    beforeEach(() => {
+      // The store's own scoping: every given filter must match.
+      mockGetTraceSummary.mockImplementation(
+        async (runId: string, opts: { userId?: string; orgId?: string } = {}) =>
+          summaries.find(
+            (summary) =>
+              summary.runId === runId &&
+              (opts.userId == null || summary.userId === opts.userId) &&
+              (opts.orgId == null || summary.orgId === opts.orgId),
+          ) ?? null,
+      );
     });
-    mockGetTraceSummary.mockResolvedValueOnce(null);
+
+    it.each([
+      ["recorded with no org", "run-no-org", "thread-no-org", "org-a"],
+      [
+        "recorded under another org",
+        "run-other-org",
+        "thread-other-org",
+        "org-b",
+      ],
+    ])(
+      "accepts a vote on the caller's own run %s",
+      async (_label, runId, threadId, orgId) => {
+        mockReadBody.mockResolvedValue({
+          threadId,
+          runId,
+          feedbackType: "thumbs_down",
+        });
+        const handler = createObservabilityHandler() as any;
+        const event = createEvent("/feedback", "POST");
+
+        await expect(handler(event)).resolves.toEqual({
+          id: expect.any(String),
+        });
+
+        expect(event._status).toBe(200);
+        expect(mockInsertFeedback).toHaveBeenCalledWith(
+          expect.objectContaining({
+            runId,
+            threadId,
+            orgId,
+            userId: "alice@example.com",
+          }),
+        );
+      },
+    );
+
+    it("rejects a vote on another user's run before insertion", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "thread-of-bob",
+        runId: "run-of-bob",
+        feedbackType: "thumbs_down",
+        value: "wrong answer",
+      });
+      const handler = createObservabilityHandler() as any;
+      const event = createEvent("/feedback", "POST");
+
+      await expect(handler(event)).resolves.toEqual({
+        error: "Trace not found",
+      });
+
+      expect(event._status).toBe(404);
+      expect(mockInsertFeedback).not.toHaveBeenCalled();
+      expect(mockTrack).not.toHaveBeenCalled();
+    });
+  });
+
+  it("records feedback for a run whose trace was never persisted, unlinked and marked", async () => {
+    mockReadBody.mockResolvedValue({
+      threadId: "thread-1",
+      runId: "run-never-persisted",
+      messageSeq: 2,
+      feedbackType: "thumbs_down",
+      value: { messageId: "msg-1", value: "negative", reason: "said done" },
+    });
+    mockGetTraceSummary.mockResolvedValue(null);
     const handler = createObservabilityHandler() as any;
     const event = createEvent("/feedback", "POST");
 
-    await expect(handler(event)).resolves.toEqual({ error: "Trace not found" });
-
-    expect(event._status).toBe(404);
-    expect(mockGetTraceSummary).toHaveBeenCalledWith("run-from-org-b", {
-      userId: "alice@example.com",
-      orgId: "org-a",
+    await expect(handler(event)).resolves.toEqual({
+      id: expect.any(String),
+      traceMissing: true,
     });
+
+    expect(event._status).toBe(200);
+    expect(mockGetTraceSummary).toHaveBeenNthCalledWith(
+      1,
+      "run-never-persisted",
+      { userId: "alice@example.com" },
+    );
+    expect(mockGetTraceSummary).toHaveBeenNthCalledWith(
+      2,
+      "run-never-persisted",
+    );
+    const [entry] = mockInsertFeedback.mock.calls[0];
+    expect(entry).toMatchObject({
+      runId: null,
+      threadId: "thread-1",
+      feedbackType: "thumbs_down",
+      orgId: "org-a",
+      source: "chat",
+    });
+    expect(JSON.parse(entry.value)).toEqual({
+      messageId: "msg-1",
+      value: "negative",
+      reason: "said done",
+      traceMissing: true,
+      unverifiedRunId: "run-never-persisted",
+    });
+    expect(mockTrack.mock.calls[0][1]).toMatchObject({
+      sentiment: "negative",
+      trace_missing: true,
+      unverified_run_id: "run-never-persisted",
+      run_id: null,
+    });
+  });
+
+  it("bounds the unverified run id it stores for a trace that was never persisted", async () => {
+    mockReadBody.mockResolvedValue({
+      threadId: "thread-1",
+      runId: "r".repeat(5_000),
+      feedbackType: "thumbs_down",
+      value: { reason: "said done" },
+    });
+    mockGetTraceSummary.mockResolvedValue(null);
+    const handler = createObservabilityHandler() as any;
+
+    await handler(createEvent("/feedback", "POST"));
+
+    const [entry] = mockInsertFeedback.mock.calls[0];
+    expect(JSON.parse(entry.value).unverifiedRunId).toBe("r".repeat(200));
+    expect(mockTrack.mock.calls[0][1].unverified_run_id).toBe("r".repeat(200));
+  });
+
+  it("rejects an oversized feedback value instead of storing it", async () => {
+    mockReadBody.mockResolvedValue({
+      threadId: "thread-1",
+      feedbackType: "text",
+      value: "x".repeat(20_001),
+    });
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/feedback", "POST");
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Feedback value is too large",
+    });
+
+    expect(event._status).toBe(413);
     expect(mockInsertFeedback).not.toHaveBeenCalled();
-    expect(mockTrack).not.toHaveBeenCalled();
   });
 
   it("rejects a thread that does not match the owned run", async () => {

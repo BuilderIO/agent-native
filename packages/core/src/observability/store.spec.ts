@@ -53,6 +53,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 }));
 
 const {
+  adoptTraceOrgForThread,
   getTraceSummaries,
   getTraceSummary,
   getLatestTraceSummaryForThread,
@@ -437,6 +438,74 @@ describe("observability store: per-user isolation", () => {
       expect(call.sql).toMatch(/AND id IN \(\?, \?\)/);
       expect(call.sql).toMatch(/^SELECT id, thread_data FROM chat_threads/);
       expect(call.args).toEqual(["org-a", "alice@example.com", "a", "b"]);
+    });
+
+    it("makes a NULL-org thread reviewable by its trace org only, and only for its owner", async () => {
+      const pg = await createTestPglite();
+      const capturingExecute = vi
+        .mocked(mockDb.execute)
+        .getMockImplementation()!;
+      try {
+        await pg.exec(`
+          CREATE TABLE chat_threads (
+            id TEXT, org_id TEXT, owner_email TEXT, title TEXT, thread_data TEXT
+          );
+          INSERT INTO chat_threads (id, org_id, owner_email, title, thread_data)
+            VALUES ('thread-null', NULL, 'Alice@example.com', 't', '{"a":1}'),
+                   ('thread-bobs', NULL, 'bob@example.com', 't', '{"b":1}'),
+                   ('thread-assigned', 'org-existing', 'alice@example.com', 't', '{"c":1}');
+        `);
+        vi.mocked(mockDb.execute).mockImplementation(async (input) => {
+          const { sql, args } =
+            typeof input === "string" ? { sql: input, args: [] } : input;
+          const result = await pg.query(sql, args ?? []);
+          return { rows: result.rows, rowsAffected: 0 };
+        });
+        const readAs = (orgId: string, threadId: string) =>
+          getOrgScopedThreadData(orgId, "alice@example.com", [threadId]);
+
+        // Before the run's org is adopted, no org's admin can read the thread.
+        expect((await readAs("org-a", "thread-null")).size).toBe(0);
+
+        await adoptTraceOrgForThread({
+          threadId: "thread-null",
+          userId: "alice@example.com",
+          orgId: "org-a",
+        });
+        // Another user's thread, and a thread whose org is already recorded,
+        // are never repointed by a run that merely names them.
+        await adoptTraceOrgForThread({
+          threadId: "thread-bobs",
+          userId: "alice@example.com",
+          orgId: "org-a",
+        });
+        await adoptTraceOrgForThread({
+          threadId: "thread-assigned",
+          userId: "alice@example.com",
+          orgId: "org-a",
+        });
+        await adoptTraceOrgForThread({
+          threadId: "thread-null",
+          userId: "alice@example.com",
+          orgId: "org-b",
+        });
+
+        expect((await readAs("org-a", "thread-null")).get("thread-null")).toBe(
+          '{"a":1}',
+        );
+        expect((await readAs("org-b", "thread-null")).size).toBe(0);
+        const rows = await pg.query(
+          "SELECT id, org_id FROM chat_threads ORDER BY id",
+        );
+        expect(rows.rows).toEqual([
+          { id: "thread-assigned", org_id: "org-existing" },
+          { id: "thread-bobs", org_id: null },
+          { id: "thread-null", org_id: "org-a" },
+        ]);
+      } finally {
+        vi.mocked(mockDb.execute).mockImplementation(capturingExecute);
+        await pg.close();
+      }
     });
 
     it("reads thread titles only from explicitly org-owned rows", async () => {

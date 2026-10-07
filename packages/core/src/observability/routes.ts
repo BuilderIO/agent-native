@@ -43,6 +43,8 @@ const FEEDBACK_TYPES = [
   "text",
 ] as const satisfies readonly FeedbackType[];
 
+const MAX_FEEDBACK_VALUE_CHARS = 20_000;
+
 function isFeedbackType(value: unknown): value is FeedbackType {
   return (
     typeof value === "string" &&
@@ -231,35 +233,57 @@ export function createObservabilityHandler() {
         return { error: "feedbackType is required" };
       }
       const rawValue = body.value;
-      const value =
+      let value =
         rawValue == null
           ? ""
           : typeof rawValue === "object"
             ? JSON.stringify(rawValue)
             : String(rawValue);
+      if (value.length > MAX_FEEDBACK_VALUE_CHARS) {
+        setResponseStatus(event, 413);
+        return { error: "Feedback value is too large" };
+      }
       const id = nanoid();
       const idempotencyKey =
         feedbackType === "text"
           ? getHeader(event, "idempotency-key")?.trim() || null
           : null;
       const org = await getOrgContext(event);
-      const runId = body.runId ? String(body.runId) : null;
+      let runId = body.runId ? String(body.runId).slice(0, 200) : null;
       let threadId = body.threadId ? String(body.threadId) : null;
       let model: string | undefined;
       let orgId = org.orgId;
+      let unverifiedRunId: string | undefined;
       if (runId) {
-        const summary = await getTraceSummary(runId, {
-          userId: owner,
-          ...(org.orgId ? { orgId: org.orgId } : {}),
-        });
-        if (!summary || (threadId && threadId !== summary.threadId)) {
+        // Ownership is the user, not the org: a run recorded with no org, or
+        // under another of the caller's orgs, is still the caller's own.
+        const summary = await getTraceSummary(runId, { userId: owner });
+        // Trace writes are fire-and-forget, so a vote can arrive for a run
+        // that was never persisted. That is a missing trace, not a run that
+        // belongs to someone else: the latter still answers 404.
+        const traceMissing = !summary && !(await getTraceSummary(runId));
+        if (traceMissing) {
+          unverifiedRunId = runId;
+          runId = null;
+          if (rawValue && typeof rawValue === "object") {
+            value = JSON.stringify({
+              ...rawValue,
+              traceMissing: true,
+              unverifiedRunId,
+            });
+          }
+        } else if (!summary || (threadId && threadId !== summary.threadId)) {
           setResponseStatus(event, 404);
           return { error: "Trace not found" };
+        } else {
+          threadId = summary.threadId;
+          model = summary.model || undefined;
+          orgId = summary.orgId ?? org.orgId;
         }
-        threadId = summary.threadId;
-        model = summary.model || undefined;
-        orgId = summary.orgId ?? org.orgId;
       }
+      const traceMissingResult = unverifiedRunId
+        ? { traceMissing: true as const }
+        : {};
       const inserted = await insertFeedback({
         id,
         runId,
@@ -274,7 +298,7 @@ export function createObservabilityHandler() {
         source: "chat",
         createdAt: Date.now(),
       });
-      if (!inserted) return { id };
+      if (!inserted) return { id, ...traceMissingResult };
       {
         const isThumb =
           feedbackType === "thumbs_up" || feedbackType === "thumbs_down";
@@ -294,6 +318,9 @@ export function createObservabilityHandler() {
             run_id: runId,
             thread_id: threadId,
             model,
+            ...(unverifiedRunId
+              ? { trace_missing: true, unverified_run_id: unverifiedRunId }
+              : {}),
             $ai_trace_id: runId ?? undefined,
             $ai_session_id: threadId ?? undefined,
             $ai_model: model,
@@ -325,7 +352,7 @@ export function createObservabilityHandler() {
           )
           .catch(() => {});
       }
-      return { id };
+      return { id, ...traceMissingResult };
     }
 
     if (method === "GET" && parts.length === 1 && parts[0] === "feedback") {

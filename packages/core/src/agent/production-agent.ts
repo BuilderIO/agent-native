@@ -87,7 +87,7 @@ import {
 } from "../secrets/optional-key-cache.js";
 import {
   COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
-  preloadJevContextForPrompt,
+  preloadJevContextWithStatus,
   type JevPromptContextCandidate,
 } from "../server/agent-chat/prompt-resources.js";
 import {
@@ -116,6 +116,7 @@ import {
   getRequestRunContext,
   ensureRequestRunContext,
   getRequestContext,
+  getRequestAuthCapability,
   getRequestOrgId,
   getRequestUserEmail,
   runWithRequestContext,
@@ -127,6 +128,15 @@ import {
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
+import {
+  isContextDegraded,
+  preloadedContextUnavailableNote,
+  readReportedContextStatus,
+  screenContextUnavailableNote,
+  SELECTION_CONTEXT_UNAVAILABLE_NOTE,
+  worstContextStatus,
+  type ContextStatus,
+} from "../shared/context-status.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
@@ -146,6 +156,12 @@ import {
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
 import { clipHead } from "./clip-text.js";
+import {
+  connectionRequiredMessage,
+  priorConnectionContextNote,
+  resolvePriorConnectionNote,
+  type PriorConnectionNote,
+} from "./connection-required-note.js";
 import {
   buildSystemManifestSections,
   readContextXraySystemSections,
@@ -552,6 +568,11 @@ export function normalizeChatScope(
 
 function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
   return browserTabId ? `${key}:${browserTabId}` : key;
+}
+
+/** `readAppState` throws when the request has no identity: that is no user to read for, not a failed read. */
+function hasAppStateIdentity(): boolean {
+  return Boolean(getRequestUserEmail() || getRequestAuthCapability());
 }
 
 async function readAppStateForBrowserTab<T>(
@@ -1627,6 +1648,20 @@ type AgentRunTrackingSource = Pick<
   "userId" | "authUserId" | "anonymousId" | "sessionId"
 > & { isSyntheticTraffic?: boolean };
 
+export interface PreparedAgentRequest {
+  message?: string;
+  displayMessage?: string;
+  attachments?: AgentChatAttachment[];
+  jevPromptCandidates?: JevPromptContextCandidate[];
+  jevFallbackCandidateIds?: string[];
+  /**
+   * Whether the app's own reference retrieval reached the model. Omit it to
+   * report nothing; `timed_out` and `failed` tell the model it is working
+   * without references it would normally have.
+   */
+  status?: ContextStatus;
+}
+
 export interface ProductionAgentOptions {
   actions?: Record<string, ActionEntry>;
   /** @deprecated Use `actions` instead */
@@ -1691,22 +1726,7 @@ export interface ProductionAgentOptions {
     dispatchToBackground: boolean;
     isBackgroundWorker?: boolean;
     mode: AgentExecutionMode;
-  }) =>
-    | void
-    | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-        jevPromptCandidates?: JevPromptContextCandidate[];
-        jevFallbackCandidateIds?: string[];
-      }
-    | Promise<void | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-        jevPromptCandidates?: JevPromptContextCandidate[];
-        jevFallbackCandidateIds?: string[];
-      }>;
+  }) => void | PreparedAgentRequest | Promise<void | PreparedAgentRequest>;
   resolveActionSurface?: (
     details: AgentActionSurfaceDetails,
   ) => AgentActionSurfaceResolution | Promise<AgentActionSurfaceResolution>;
@@ -7282,9 +7302,11 @@ export async function runAgentLoop(opts: {
           if (signal.aborted) {
             result = INTERRUPTED_TOOL_RESULT_MARKER;
           } else if (isAgentConnectionRequiredError(err)) {
-            const message =
+            const message = connectionRequiredMessage(
               sanitizeToolErrorValue(err.message) ||
-              `Connect ${err.provider} to continue.`;
+                `Connect ${err.provider} to continue.`,
+              err.reason,
+            );
             result = sanitizeToolErrorValue(err.toolResult || message);
             requestedConnection ??= {
               requestId: randomUUID(),
@@ -9264,6 +9286,7 @@ export function createProductionAgentHandler(
     });
     let jevPromptCandidates: JevPromptContextCandidate[] = [];
     let jevFallbackCandidateIds: string[] = [];
+    const preparedReferenceStatus = readReportedContextStatus(preparedRequest);
     if (preparedRequest) {
       if (
         typeof preparedRequest.message === "string" &&
@@ -9577,7 +9600,7 @@ export function createProductionAgentHandler(
     options.onEngineResolved?.(engine, effectiveModel);
 
     console.log(
-      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} turnId=${requestTurnId ?? "(none)"}`,
+      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} engineDefault=${engine.defaultModel} effort=${reasoningEffort ?? "unset"} turnId=${requestTurnId ?? "(none)"}`,
     );
 
     if (
@@ -9693,6 +9716,15 @@ export function createProductionAgentHandler(
         }
       })();
 
+    // `empty` (no navigation yet) stays silent; a timeout or a throw adds a
+    // note, because the model would otherwise read it as an app with no page.
+    const screenStatuses: Record<
+      "screen" | "url" | "selection",
+      ContextStatus
+    > = { screen: "empty", url: "empty", selection: "empty" };
+    const screenUnavailableNote = screenContextUnavailableNote(
+      Boolean(surfacedRequestActions["view-screen"]),
+    );
     const screenContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         const screenStart = Date.now();
@@ -9712,6 +9744,7 @@ export function createProductionAgentHandler(
                 typeof result === "string"
                   ? result
                   : JSON.stringify(result, null, 2);
+              screenStatuses.screen = "ok";
               return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
             }
           } else {
@@ -9720,11 +9753,18 @@ export function createProductionAgentHandler(
               requestBrowserTabId,
             );
             if (navigation) {
+              screenStatuses.screen = "ok";
               return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
             }
           }
-        } catch {
-          // DB not ready or no navigation state — skip silently
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          screenStatuses.screen = "failed";
+          console.warn(
+            "[agent-chat] current-screen context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return screenUnavailableNote;
         } finally {
           setupMarks.screenMs = Date.now() - screenStart;
         }
@@ -9769,10 +9809,17 @@ export function createProductionAgentHandler(
               );
               if (settingsPage) lines.push(settingsPage);
             }
+            screenStatuses.url = "ok";
             return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
           }
-        } catch {
-          // DB not ready — skip silently
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          screenStatuses.url = "failed";
+          console.warn(
+            "[agent-chat] current-url context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return screenUnavailableNote;
         }
         return "";
       })();
@@ -9790,13 +9837,20 @@ export function createProductionAgentHandler(
           const capturedAt =
             typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
           if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
+          screenStatuses.selection = "ok";
           return (
             `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
             `Treat this as the immediate context to act on:\n` +
             `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
           );
-        } catch {
-          // DB not ready — skip silently
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          screenStatuses.selection = "failed";
+          console.warn(
+            "[agent-chat] selection context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return SELECTION_CONTEXT_UNAVAILABLE_NOTE;
         }
         return "";
       })();
@@ -9959,6 +10013,7 @@ export function createProductionAgentHandler(
       loopSettings,
       enrichedMessage,
       jevContextCredentials,
+      priorConnection,
     ] = await Promise.all([
       presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
         // An empty configured prompt is valid, but an empty timeout fallback
@@ -9968,9 +10023,27 @@ export function createProductionAgentHandler(
         systemPromptError ??= systemPromptTimeoutError;
       }),
       presendCap("time", timeContextThunk, "", 9000),
-      presendCap("screen", screenContextThunk, "", 9000),
-      presendCap("url", urlContextThunk, "", 9000),
-      presendCap("selection", selectionContextThunk, "", 9000),
+      presendCap(
+        "screen",
+        screenContextThunk,
+        screenUnavailableNote,
+        9000,
+        () => {
+          screenStatuses.screen = "timed_out";
+        },
+      ),
+      presendCap("url", urlContextThunk, screenUnavailableNote, 9000, () => {
+        screenStatuses.url = "timed_out";
+      }),
+      presendCap(
+        "selection",
+        selectionContextThunk,
+        SELECTION_CONTEXT_UNAVAILABLE_NOTE,
+        9000,
+        () => {
+          screenStatuses.selection = "timed_out";
+        },
+      ),
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
       presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
@@ -9978,6 +10051,21 @@ export function createProductionAgentHandler(
         "jevContextCredentials",
         () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
         { apiKey: undefined, personalApiKey: undefined, builderAuth: null },
+        9000,
+      ),
+      presendCap(
+        "priorConnection",
+        // The foreground of a dispatched run never prompts the model; the
+        // worker re-reads, so reading here would pay for it twice.
+        (): Promise<PriorConnectionNote> =>
+          threadId && !dispatchToBackground
+            ? resolvePriorConnectionNote({
+                threadId,
+                appId: options.appId,
+                excludeRunId: backgroundRunMarker?.runId,
+              })
+            : Promise.resolve({ status: "none" }),
+        { status: "unreadable", error: "timed out" },
         9000,
       ),
     ]);
@@ -10001,7 +10089,22 @@ export function createProductionAgentHandler(
         },
       });
     }
+    // Screen and URL share one note; the same failure needn't be told twice.
+    if (urlBlock === screenBlock) urlBlock = "";
     const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
+    // Referenced agents don't share this run's tools, so a note telling the
+    // model to call view-screen would send them looking for a tool they lack.
+    const withoutUnavailableNote = (block: string) =>
+      block === screenUnavailableNote ||
+      block === SELECTION_CONTEXT_UNAVAILABLE_NOTE
+        ? ""
+        : block;
+    const referencedAgentContext =
+      timeBlock +
+      withoutUnavailableNote(screenBlock) +
+      withoutUnavailableNote(urlBlock) +
+      withoutUnavailableNote(selectionBlock);
+    const screenStatus = worstContextStatus(...Object.values(screenStatuses));
     const surfacedActionRegistry =
       requestMode === "plan"
         ? createPlanModeActionRegistry(surfacedRequestActions)
@@ -10037,7 +10140,7 @@ export function createProductionAgentHandler(
           COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
         )
       : undefined;
-    const [requestTools, jevContext] = await Promise.all([
+    const [requestTools, jevPreload] = await Promise.all([
       preloadJevTools({
         request: jevRequestContext,
         skip: Boolean(internalContinuation || dispatchToBackground),
@@ -10050,7 +10153,7 @@ export function createProductionAgentHandler(
         availableTools: availableRequestTools,
         readOnlyOnly: requestMode === "plan",
       }),
-      preloadJevContextForPrompt({
+      preloadJevContextWithStatus({
         request: jevRequestContext,
         appId: options.appId,
         owner: ownerEmail ?? undefined,
@@ -10067,7 +10170,27 @@ export function createProductionAgentHandler(
         fallbackCandidateIds: jevFallbackCandidateIds,
       }),
     ]);
+    const jevContext = jevPreload.context;
     if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
+    const prefetchStatus = worstContextStatus(
+      jevPreload.status,
+      preparedReferenceStatus,
+    );
+    if (runContext) {
+      runContext.contextStatus = {
+        prefetch: prefetchStatus,
+        screen: screenStatus,
+      };
+    }
+    // Per-turn, so the stable system prompt prefix keeps caching.
+    const prefetchNote =
+      prefetchStatus && isContextDegraded(prefetchStatus)
+        ? preloadedContextUnavailableNote(prefetchStatus, {
+            // The other source delivered, so only part of the context is missing.
+            partial:
+              jevPreload.status === "ok" || preparedReferenceStatus === "ok",
+          })
+        : "";
     const contextXraySystemSections = [
       ...readContextXraySystemSections(event),
       ...(jevContext
@@ -10116,7 +10239,13 @@ export function createProductionAgentHandler(
         : "";
 
     const userContent = buildUserContentWithAttachments({
-      text: enrichedMessage + screenContext + filesContext + planModeAgentNote,
+      text:
+        enrichedMessage +
+        screenContext +
+        prefetchNote +
+        priorConnectionContextNote(priorConnection) +
+        filesContext +
+        planModeAgentNote,
       attachments: requestAttachments,
     });
 
@@ -10951,7 +11080,10 @@ export function createProductionAgentHandler(
                     {
                       role: "user",
                       content: [
-                        { type: "text", text: enrichedMessage + screenContext },
+                        {
+                          type: "text",
+                          text: enrichedMessage + referencedAgentContext,
+                        },
                       ],
                     },
                   ],
@@ -11057,7 +11189,7 @@ export function createProductionAgentHandler(
                 const responseText = await callConnectedAgentReference({
                   agent: ref.name,
                   path: ref.path,
-                  message: enrichedMessage + screenContext,
+                  message: enrichedMessage + referencedAgentContext,
                   send,
                   callAgent,
                   resolveCallerAuth: resolveA2ACallerAuth,
@@ -11229,6 +11361,17 @@ export function createProductionAgentHandler(
                     : undefined,
                 metadata: {
                   modelSelectionSource,
+                  // What the request asked for; the loop may lower it on retry.
+                  reasoningEffortRequested: reasoningEffort ?? null,
+                  ...(prefetchStatus
+                    ? { contextPrefetchStatus: prefetchStatus }
+                    : {}),
+                  ...(screenStatus
+                    ? { screenContextStatus: screenStatus }
+                    : {}),
+                  ...(priorConnection.status !== "none"
+                    ? { priorConnectionRequest: priorConnection.status }
+                    : {}),
                   ...(turnUsageLabel ? { label: turnUsageLabel } : {}),
                   ...(experimentAssignments.length > 0
                     ? { experimentAssignments }

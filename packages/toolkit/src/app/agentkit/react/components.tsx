@@ -3049,6 +3049,7 @@ export function AgentMessageActions({
     slots,
     onThreadForked,
     onCopyMessage,
+    buildFeedbackReport,
     branchNavigation,
     loadRunUsage,
   } = useAgentKit();
@@ -3073,6 +3074,10 @@ export function AgentMessageActions({
   const [feedbackReasonSubmitted, setFeedbackReasonSubmitted] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [requestIdCopied, setRequestIdCopied] = useState(false);
+  const [feedbackDetailsCopied, setFeedbackDetailsCopied] = useState(false);
+  const feedbackDetailsCopiedTimer = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [usageDetails, setUsageDetails] = useState<
     | { runId: string; status: "loading" }
@@ -3163,6 +3168,8 @@ export function AgentMessageActions({
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       if (requestIdCopiedTimer.current)
         clearTimeout(requestIdCopiedTimer.current);
+      if (feedbackDetailsCopiedTimer.current)
+        clearTimeout(feedbackDetailsCopiedTimer.current);
     },
     [message.id],
   );
@@ -3216,6 +3223,25 @@ export function AgentMessageActions({
     },
     `${threadId}:${message.id}:request-id:${requestId ?? "unavailable"}`,
   );
+  const copyFeedbackDetailsAction = useAgentKitMutation(async () => {
+    if (!buildFeedbackReport) throw new Error(labels.copyUnavailable);
+    const report = buildFeedbackReport({
+      threadId,
+      ...(runId ? { runId } : {}),
+      messageId: message.id,
+      note: feedbackReason,
+    });
+    if (!(await writeClipboardText(report))) {
+      throw new Error(labels.copyUnavailable);
+    }
+    setFeedbackDetailsCopied(true);
+    if (feedbackDetailsCopiedTimer.current)
+      clearTimeout(feedbackDetailsCopiedTimer.current);
+    feedbackDetailsCopiedTimer.current = setTimeout(
+      () => setFeedbackDetailsCopied(false),
+      1_400,
+    );
+  }, `${threadId}:${message.id}:feedback-details`);
   const forkAction = useAgentKitMutation(async () => {
     const thread = await control.fork(message.id);
     onThreadForked?.(thread);
@@ -3248,6 +3274,12 @@ export function AgentMessageActions({
       setFeedback(previous);
     }
   };
+  const addFeedbackReason = (reason: string) =>
+    setFeedbackReason((current) => {
+      if (current.includes(reason)) return current;
+      const trimmed = current.trim();
+      return (trimmed ? `${trimmed}. ${reason}` : reason).slice(0, 2_000);
+    });
   const submitFeedbackReason = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const reason = feedbackReason.trim();
@@ -3266,6 +3298,7 @@ export function AgentMessageActions({
     feedbackAction.error ??
     branchNavigationAction.error ??
     requestIdAction.error ??
+    copyFeedbackDetailsAction.error ??
     forkAction.error ??
     regenerateAction.error;
   const usageMenuItems = hasRunUsage
@@ -3479,6 +3512,25 @@ export function AgentMessageActions({
                       disabled={feedbackAction.pending}
                       className="agentkit-feedback-textarea"
                     />
+                    <div className="agentkit-feedback-reasons">
+                      {[
+                        labels.feedbackReasonMisread,
+                        labels.feedbackReasonNotDone,
+                        labels.feedbackReasonWrongNumbers,
+                        labels.feedbackReasonTooSlow,
+                      ].map((reason) => (
+                        <ActionButton
+                          key={reason}
+                          type="button"
+                          size="compact"
+                          emphasis="outline"
+                          disabled={feedbackAction.pending}
+                          onPress={() => addFeedbackReason(reason)}
+                        >
+                          {reason}
+                        </ActionButton>
+                      ))}
+                    </div>
                     <div className="agentkit-feedback-footer">
                       <span>
                         {labels.feedbackKeyboardHint.replace(
@@ -3489,17 +3541,43 @@ export function AgentMessageActions({
                             : "Ctrl",
                         )}
                       </span>
-                      <ActionButton
-                        type="submit"
-                        intent="primary"
-                        size="compact"
-                        pending={feedbackAction.pending}
-                        disabled={
-                          feedbackAction.pending || !feedbackReason.trim()
-                        }
-                      >
-                        {labels.feedbackSubmit}
-                      </ActionButton>
+                      <div className="agentkit-feedback-actions">
+                        {buildFeedbackReport ? (
+                          <ActionButton
+                            type="button"
+                            size="compact"
+                            emphasis="ghost"
+                            leadingIcon={
+                              feedbackDetailsCopied ? (
+                                <IconCircleCheck size={14} aria-hidden="true" />
+                              ) : (
+                                <IconCopy size={14} aria-hidden="true" />
+                              )
+                            }
+                            pending={copyFeedbackDetailsAction.pending}
+                            onPress={() =>
+                              void copyFeedbackDetailsAction
+                                .execute()
+                                .catch(() => undefined)
+                            }
+                          >
+                            {feedbackDetailsCopied
+                              ? labels.copied
+                              : labels.feedbackCopyDetails}
+                          </ActionButton>
+                        ) : null}
+                        <ActionButton
+                          type="submit"
+                          intent="primary"
+                          size="compact"
+                          pending={feedbackAction.pending}
+                          disabled={
+                            feedbackAction.pending || !feedbackReason.trim()
+                          }
+                        >
+                          {labels.feedbackSubmit}
+                        </ActionButton>
+                      </div>
                     </div>
                   </form>
                 </Popover>

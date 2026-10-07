@@ -19,11 +19,28 @@ export interface RunStuckState {
   heartbeatSinceMs: number | null;
   dispatchMode: string | null;
   hasInFlightWork: boolean | null;
+  /**
+   * The server reported no run in flight on this thread on two polls in a row.
+   * A chat still showing "running" at that point has lost the run's ending and
+   * should reload the thread, not keep waiting.
+   */
+  serverSettled: boolean;
+  /**
+   * The last polls failed, so nothing here says whether the run is alive.
+   * Distinct from "no run": the other fields are the last answer, not a fresh one.
+   */
+  statusUnreadable: boolean;
 }
 
 export interface UseRunStuckDetectionOptions {
   threadId: string | null | undefined;
   enabled?: boolean;
+  /**
+   * Whether the chat is showing a run in progress. Each time it turns on, the
+   * hook starts over, so `serverSettled` only ever reflects polls taken after
+   * the chat began waiting, never an idle answer from before the user sent.
+   */
+  awaitingResponse?: boolean;
   stuckThresholdMs?: number;
   /**
    * Threshold for BACKGROUND-dispatched runs (dispatchMode starts with
@@ -46,6 +63,8 @@ const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const IDLE_BACKOFF_INTERVAL_MS = 15_000;
 const MAX_POLL_ERROR_BACKOFF_MS = 30_000;
 const FRESH_BACKGROUND_HEARTBEAT_MS = 30_000;
+const SETTLED_CONFIRMATIONS = 2;
+const UNREADABLE_AFTER_FAILURES = 2;
 const POLL_ABORT_MIN_MS = 10_000;
 function getPollAbortMs(interval: number): number {
   return Math.max(POLL_ABORT_MIN_MS, interval * 4);
@@ -73,11 +92,14 @@ const EMPTY_STATE: RunStuckState = {
   heartbeatSinceMs: null,
   dispatchMode: null,
   hasInFlightWork: null,
+  serverSettled: false,
+  statusUnreadable: false,
 };
 
 export function useRunStuckDetection({
   threadId,
   enabled = true,
+  awaitingResponse,
   stuckThresholdMs = DEFAULT_STUCK_THRESHOLD_MS,
   backgroundStuckThresholdMs = DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS,
   liveBackgroundStuckThresholdMs = DEFAULT_LIVE_BACKGROUND_STUCK_THRESHOLD_MS,
@@ -85,6 +107,21 @@ export function useRunStuckDetection({
   apiUrl,
 }: UseRunStuckDetectionOptions): RunStuckState {
   const [state, setState] = useState<RunStuckState>(EMPTY_STATE);
+  // Reset in render, not in the effect: an effect-time reset still lets the
+  // consumer's own effects act once on the previous answer. The epoch also
+  // restarts polling, which drops any poll still in flight from before.
+  const awaiting = awaitingResponse === true;
+  const [scope, setScope] = useState({ threadId, awaiting, epoch: 0 });
+  if (scope.threadId !== threadId || scope.awaiting !== awaiting) {
+    const waitingStarted = awaiting && !scope.awaiting;
+    setScope({
+      threadId,
+      awaiting,
+      epoch: scope.epoch + (waitingStarted ? 1 : 0),
+    });
+    if (waitingStarted || scope.threadId !== threadId) setState(EMPTY_STATE);
+  }
+  const awaitingEpoch = scope.epoch;
 
   useEffect(() => {
     setState(EMPTY_STATE);
@@ -97,10 +134,18 @@ export function useRunStuckDetection({
     let lastObservedLocalProgressAt: number | null = null;
     let lastObservedLocalProgressSeq: number | null = null;
     let consecutivePollFailures = 0;
+    let consecutiveIdlePolls = 0;
     const nextDelayRef = { current: 2_000 };
 
     const pollFailureDelay = () => {
       consecutivePollFailures += 1;
+      if (!cancelled && consecutivePollFailures >= UNREADABLE_AFTER_FAILURES) {
+        setState((current) =>
+          current.statusUnreadable
+            ? current
+            : { ...current, statusUnreadable: true },
+        );
+      }
       return Math.min(
         Math.max(pollIntervalMs, 1) * 2 ** consecutivePollFailures,
         MAX_POLL_ERROR_BACKOFF_MS,
@@ -314,6 +359,9 @@ export function useRunStuckDetection({
         if (res.ok) {
           consecutivePollFailures = 0;
           const data = (await res.json()) as ActiveRunResponse;
+          if (cancelled) return;
+          consecutiveIdlePolls = data.active ? 0 : consecutiveIdlePolls + 1;
+          const serverSettled = consecutiveIdlePolls >= SETTLED_CONFIRMATIONS;
           const lastProgressAt = data.lastProgressAt ?? null;
           const nowMs = data.serverNow ?? Date.now();
           const stuckSinceMs =
@@ -387,14 +435,20 @@ export function useRunStuckDetection({
               typeof data.hasInFlightWork === "boolean"
                 ? data.hasInFlightWork
                 : null,
+            serverSettled,
+            statusUnreadable: false,
           });
-          if (!data.active || data.status !== "running") {
+          // The first idle answer is confirmed at the normal cadence, so a
+          // run the server has not registered yet is not called settled.
+          const confirmingIdle = !data.active && !serverSettled;
+          if (!confirmingIdle && (!data.active || data.status !== "running")) {
             nextDelay = IDLE_BACKOFF_INTERVAL_MS;
           }
         } else if (res.status === 429 || res.status >= 500) {
           nextDelay = pollFailureDelay();
         } else {
           consecutivePollFailures = 0;
+          consecutiveIdlePolls = 0;
           clearObservedRun();
           nextDelay = MAX_POLL_ERROR_BACKOFF_MS;
         }
@@ -441,6 +495,7 @@ export function useRunStuckDetection({
     liveBackgroundStuckThresholdMs,
     pollIntervalMs,
     apiUrl,
+    awaitingEpoch,
   ]);
 
   return state;
