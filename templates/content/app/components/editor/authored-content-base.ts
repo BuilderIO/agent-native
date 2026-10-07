@@ -53,6 +53,14 @@ export function createAuthoredContentBase() {
           ? { revision: saved.revision, base: authoredOn }
           : null;
     },
+    /** A newer SQL snapshot is not an authored base until the editor holds it. */
+    adopted(saved: AuthoredContentBase, authoredOn: AuthoredContentBase) {
+      if (!saved.revision) return;
+      const shown = editorContent === null ? seen : [...seen, editorContent];
+      unheld = shown.some((content) => holds(content, saved, authoredOn))
+        ? null
+        : { revision: saved.revision, base: authoredOn };
+    },
     /** The editor reported its text after an edit here. */
     edited(content: string) {
       editorContent = content;
