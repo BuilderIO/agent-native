@@ -27,6 +27,7 @@ import type { ActionRunContext } from "../action.js";
 import {
   isActionContractError,
   isActionExposedToExternalAgents,
+  isActionHiddenFromEveryAgentSurface,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -127,6 +128,8 @@ export interface MCPConfig {
    * no-op. See `external-agents` skill, "Dev vs production tool surface".
    */
   productionActions?: Record<string, ActionEntry>;
+  /** Hidden from tool discovery; used only when minting scoped widget tickets. */
+  widgetReadActions?: Record<string, ActionEntry>;
   askAgent?: (message: string) => Promise<string>;
   builtinCrossAppTools?: boolean;
   /**
@@ -162,6 +165,8 @@ export interface MCPConfig {
     widgetReadOnlyActions?: readonly string[];
     /** Unlisted public reads that are available only through a scoped widget ticket. */
     widgetReadPublicActions?: readonly string[];
+    /** Unlisted authenticated reads available only through a scoped widget ticket. */
+    widgetReadPrivateActions?: readonly string[];
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;
@@ -497,6 +502,17 @@ export function validateMcpDirectoryProfile(
   const widgetReadPublicActions = new Set(
     profile?.widgetReadPublicActions ?? [],
   );
+  const widgetReadPrivateActions = new Set(
+    profile?.widgetReadPrivateActions ?? [],
+  );
+  const unprofiledWidgetReadAction = Object.keys(
+    config.widgetReadActions ?? {},
+  ).find((name) => !widgetReadPrivateActions.has(name));
+  if (unprofiledWidgetReadAction) {
+    throw new McpDirectoryProfileValidationError(
+      `[agent-native] MCP directory hidden widget read "${unprofiledWidgetReadAction}" must be listed in widgetReadPrivateActions.`,
+    );
+  }
   const widgetTargetNames = Object.keys(profile?.widgetTargets ?? {});
   if (profile && profile.widgets !== false && profile.widgetTargets) {
     const missingTarget = widgetActionNames.find(
@@ -550,13 +566,32 @@ export function validateMcpDirectoryProfile(
     }
   }
 
+  for (const name of widgetReadPrivateActions) {
+    const entry = config.widgetReadActions?.[name];
+    if (
+      names.includes(name) ||
+      !profile?.widgetReadActionArguments?.[name] ||
+      !entry ||
+      entry.readOnly !== true ||
+      entry.http === false ||
+      entry.http?.method !== "GET" ||
+      entry.requiresAuth === false ||
+      !isActionHiddenFromEveryAgentSurface(entry)
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory hidden widget read "${name}" must be an unlisted, authenticated, read-only GET action hidden from every agent tool surface.`,
+      );
+    }
+  }
+
   for (const [name, argumentMap] of Object.entries(
     profile?.widgetReadActionArguments ?? {},
   )) {
-    const entry = actions[name];
+    const scopedPrivateRead = widgetReadPrivateActions.has(name);
+    const entry = actions[name] ?? config.widgetReadActions?.[name];
     const scopedPublicRead = widgetReadPublicActions.has(name);
     if (
-      (!names.includes(name) && !scopedPublicRead) ||
+      (!names.includes(name) && !scopedPublicRead && !scopedPrivateRead) ||
       !entry ||
       (entry.readOnly !== true && !widgetReadOnlyActions.has(name)) ||
       entry.http === false ||
@@ -568,18 +603,23 @@ export function validateMcpDirectoryProfile(
           !MCP_DIRECTORY_WIDGET_ARGUMENT.test(argumentName) ||
           (typeof argument === "string"
             ? !MCP_DIRECTORY_WIDGET_ARGUMENT.test(argument)
-            : !argument ||
-              argument.type !== "integerRange" ||
-              Object.keys(argument).length !== 3 ||
-              !Number.isSafeInteger(argument.min) ||
-              !Number.isSafeInteger(argument.max) ||
-              argument.min < 0 ||
-              argument.max < argument.min ||
-              argument.max > 5_000),
+            : argument?.type === "actionSchema"
+              ? Object.keys(argument).length !== 1 ||
+                !entry.schema ||
+                typeof entry.schema !== "object" ||
+                !("~standard" in entry.schema)
+              : !argument ||
+                argument.type !== "integerRange" ||
+                Object.keys(argument).length !== 3 ||
+                !Number.isSafeInteger(argument.min) ||
+                !Number.isSafeInteger(argument.max) ||
+                argument.min < 0 ||
+                argument.max < argument.min ||
+                argument.max > 5_000),
       )
     ) {
       throw new McpDirectoryProfileValidationError(
-        `[agent-native] MCP directory widget read route "${name}" must be an explicitly scoped read-only GET action with valid resource arguments in the connector allowlist or widget public-read profile.`,
+        `[agent-native] MCP directory widget read route "${name}" must be an explicitly scoped read-only GET action with valid resource arguments in the connector allowlist or hidden-read profiles.`,
       );
     }
   }
@@ -1249,12 +1289,18 @@ function mcpDirectoryWidgetCapabilityForTool(
   for (const [actionName, argumentMap] of Object.entries(
     profile.widgetReadActionArguments ?? {},
   )) {
-    const entry = actions[actionName];
     const scopedPublicRead =
       profile.widgetReadPublicActions?.includes(actionName);
+    const scopedPrivateRead =
+      profile.widgetReadPrivateActions?.includes(actionName);
+    const entry =
+      actions[actionName] ??
+      (scopedPrivateRead ? config.widgetReadActions?.[actionName] : undefined);
     if (
       !entry ||
-      (!profile.connectorCatalog.includes(actionName) && !scopedPublicRead) ||
+      (!profile.connectorCatalog.includes(actionName) &&
+        !scopedPublicRead &&
+        !scopedPrivateRead) ||
       (entry.readOnly !== true &&
         !profile.widgetReadOnlyActions?.includes(actionName)) ||
       entry.http === false ||

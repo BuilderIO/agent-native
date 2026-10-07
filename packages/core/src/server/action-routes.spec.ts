@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { A2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -1540,6 +1541,10 @@ describe("mountActionRoutes", () => {
       args,
       caller: context?.caller,
     }));
+    const runTableQuery = vi.fn(async (args, context) => ({
+      args,
+      caller: context?.caller,
+    }));
     const runWrite = vi.fn(async () => ({ ok: true }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "content",
@@ -1551,6 +1556,11 @@ describe("mountActionRoutes", () => {
           databaseId: "database-1",
           documentId: "doc-1",
           limit: { type: "integerRange", min: 0, max: 5_000 },
+        },
+        "query-content-database-items": {
+          documentId: "doc-1",
+          limit: { type: "integerRange", min: 1, max: 5_000 },
+          tableQuery: { type: "actionSchema" },
         },
       },
     })!;
@@ -1594,6 +1604,39 @@ describe("mountActionRoutes", () => {
           requiresAuth: true,
           run: runDatabaseRead,
         } as any,
+        "query-content-database-items": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          schema: z.object({
+            documentId: z.string(),
+            limit: z.coerce.number().int().min(1).max(5_000),
+            tableQuery: z.object({
+              search: z.string().max(500).optional(),
+              filters: z
+                .array(
+                  z.object({
+                    key: z.string(),
+                    label: z.string(),
+                    value: z.string(),
+                  }),
+                )
+                .max(50)
+                .optional(),
+            }),
+          }),
+          tool: {
+            parameters: {
+              type: "object",
+              properties: {
+                documentId: { type: "string" },
+                limit: { type: "integer" },
+                tableQuery: { type: "object" },
+              },
+            },
+          },
+          run: runTableQuery,
+        } as any,
       },
       {
         getOwnerFromEvent: async () => {
@@ -1606,6 +1649,10 @@ describe("mountActionRoutes", () => {
         mcpDirectoryWidgetReadActionArguments: {
           "get-document": ["id"],
           "get-content-database": ["databaseId", "documentId", "limit"],
+          "query-content-database-items": ["documentId", "limit", "tableQuery"],
+        },
+        mcpDirectoryWidgetReadActionSchemaArguments: {
+          "query-content-database-items": ["tableQuery"],
         },
       },
     );
@@ -1745,6 +1792,62 @@ describe("mountActionRoutes", () => {
     ).resolves.toEqual({
       error: "This widget capability is scoped to a different app resource.",
     });
+
+    const tableQuery = JSON.stringify({ search: "launch" });
+    const validQueryUrl = new URL(
+      "http://app.test/_agent-native/actions/query-content-database-items",
+    );
+    validQueryUrl.searchParams.set("documentId", "doc-1");
+    validQueryUrl.searchParams.set("limit", "50");
+    validQueryUrl.searchParams.set("tableQuery", tableQuery);
+    await expect(
+      mounted[4]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { url: validQueryUrl.href },
+      }),
+    ).resolves.toEqual({
+      args: {
+        documentId: "doc-1",
+        limit: 50,
+        tableQuery: { search: "launch" },
+      },
+      caller: "mcp-widget",
+    });
+
+    const invalidQueryUrl = new URL(validQueryUrl);
+    invalidQueryUrl.searchParams.set(
+      "tableQuery",
+      JSON.stringify({ search: "x".repeat(501) }),
+    );
+    const invalidQueryRequest = {
+      _method: "GET",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { url: invalidQueryUrl.href },
+      _status: 200,
+    };
+    await mounted[4]!.handler(invalidQueryRequest);
+    expect(invalidQueryRequest._status).toBe(400);
+    expect(runTableQuery).toHaveBeenCalledOnce();
+
+    const oversizedQueryUrl = new URL(validQueryUrl);
+    oversizedQueryUrl.searchParams.set(
+      "tableQuery",
+      JSON.stringify({
+        filters: [
+          { key: "status", label: "Status", value: "x".repeat(33_000) },
+        ],
+      }),
+    );
+    const oversizedQueryRequest = {
+      _method: "GET",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { url: oversizedQueryUrl.href },
+      _status: 200,
+    };
+    await mounted[4]!.handler(oversizedQueryRequest);
+    expect(oversizedQueryRequest._status).toBe(400);
+    expect(runTableQuery).toHaveBeenCalledOnce();
     expect(runRead).toHaveBeenCalledOnce();
     expect(runDatabaseRead).toHaveBeenCalledOnce();
     expect(runWrite).not.toHaveBeenCalled();

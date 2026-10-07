@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { CHATGPT_DIRECTORY_PROFILE as contentProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
+import { isActionHiddenFromEveryAgentSurface } from "../action.js";
 import {
   filterFrameworkToolGroups,
   type FrameworkToolGroup,
@@ -141,9 +142,24 @@ describe("ChatGPT directory template profiles", () => {
           catalogMode: "directory",
           actions,
           productionActions,
+          widgetReadActions: Object.fromEntries(
+            (profile.widgetReadPrivateActions ?? []).map((name) => [
+              name,
+              actions[name],
+            ]),
+          ),
           directoryProfile: profile,
         }),
       ).not.toThrow();
+
+      if (appId === "content") {
+        const privateRead = "query-content-database-items";
+        expect(profile.connectorCatalog).not.toContain(privateRead);
+        expect(profile.widgetReadPrivateActions).toContain(privateRead);
+        expect(isActionHiddenFromEveryAgentSurface(actions[privateRead]!)).toBe(
+          true,
+        );
+      }
 
       const deniedTools = actionNames.filter(
         (name) => !profile.connectorCatalog.includes(name),

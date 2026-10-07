@@ -27,7 +27,9 @@ export interface McpDirectoryWidgetReadCapabilityInput {
 
 export type McpDirectoryWidgetReadArgument =
   | string
-  | { type: "integerRange"; min: number; max: number };
+  | { type: "integerRange"; min: number; max: number }
+  /** Dynamic input validated against the server action schema after resource binding. */
+  | { type: "actionSchema" };
 
 interface McpDirectoryWidgetReadCapability extends McpDirectoryWidgetReadCapabilityInput {
   version: 1;
@@ -67,6 +69,9 @@ function isWidgetReadArgument(
     return false;
   }
   const range = value as Record<string, unknown>;
+  if (range.type === "actionSchema") {
+    return Object.keys(range).length === 1;
+  }
   return (
     range.type === "integerRange" &&
     Object.keys(range).length === 3 &&
@@ -301,12 +306,22 @@ export function allowsMcpDirectoryWidgetReadAction(
   if (input.requireArgumentMatch === false) return true;
 
   const suppliedArgs = Object.entries(input.args ?? {});
+  const hasSchemaArgument = Object.values(expectedArgs).some(
+    (expected) =>
+      typeof expected !== "string" && expected.type === "actionSchema",
+  );
+  const includesResourceBinding = suppliedArgs.some(
+    ([name, value]) =>
+      typeof expectedArgs[name] === "string" && expectedArgs[name] === value,
+  );
+  if (hasSchemaArgument && !includesResourceBinding) return false;
   return (
     suppliedArgs.length > 0 &&
     suppliedArgs.every(([name, value]) => {
       if (!Object.hasOwn(expectedArgs, name)) return false;
       const expected = expectedArgs[name];
       if (typeof expected === "string") return expected === value;
+      if (expected.type === "actionSchema") return true;
       const number =
         typeof value === "number"
           ? value

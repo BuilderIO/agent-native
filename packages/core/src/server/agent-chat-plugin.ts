@@ -3165,6 +3165,16 @@ export function createAgentChatPlugin(
           icons: mcpOptions.icons,
           actions: externalActions,
           productionActions: externalFullActions,
+          widgetReadActions:
+            mcpOptions.catalog === "directory" && mcpOptions.directoryProfile
+              ? Object.fromEntries(
+                  (mcpOptions.directoryProfile.widgetReadPrivateActions ?? [])
+                    .map((name) => [name, httpActions[name]] as const)
+                    .filter((entry): entry is readonly [string, ActionEntry] =>
+                      Boolean(entry[1]),
+                    ),
+                )
+              : undefined,
           ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
@@ -3468,6 +3478,9 @@ export function createAgentChatPlugin(
                         ) ||
                           mcpOptions.directoryProfile?.widgetReadPublicActions?.includes(
                             name,
+                          ) ||
+                          mcpOptions.directoryProfile?.widgetReadPrivateActions?.includes(
+                            name,
                           )) &&
                         httpActions[name] &&
                         (httpActions[name]?.readOnly === true ||
@@ -3476,6 +3489,25 @@ export function createAgentChatPlugin(
                           )),
                     )
                     .map(([name, args]) => [name, Object.keys(args)]),
+                )
+              : undefined,
+          mcpDirectoryWidgetReadActionSchemaArguments:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? Object.fromEntries(
+                  Object.entries(
+                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
+                  )
+                    .map(([name, args]) => [
+                      name,
+                      Object.entries(args)
+                        .filter(
+                          ([, argument]) =>
+                            typeof argument !== "string" &&
+                            argument.type === "actionSchema",
+                        )
+                        .map(([argumentName]) => argumentName),
+                    ])
+                    .filter(([, argumentNames]) => argumentNames.length > 0),
                 )
               : undefined,
           mcpDirectoryWidgetReadOnlyActions:

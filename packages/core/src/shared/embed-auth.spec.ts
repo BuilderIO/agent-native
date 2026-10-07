@@ -49,6 +49,11 @@ describe("MCP directory widget read capabilities", () => {
           documentId: "document-123",
           limit: { type: "integerRange", min: 0, max: 5_000 },
         },
+        "query-content-database-items": {
+          documentId: "document-123",
+          limit: { type: "integerRange", min: 1, max: 5_000 },
+          tableQuery: { type: "actionSchema" },
+        },
       },
     });
     expect(
@@ -76,6 +81,42 @@ describe("MCP directory widget read capabilities", () => {
         resourceUri: "ui://content/shell-v67",
         args: { databaseId: "database-123", documentId: "another-document" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
+      }),
+    ).toBe(false);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(contentScope, {
+        actionName: "query-content-database-items",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: {
+          documentId: "document-123",
+          limit: "50",
+          tableQuery: { search: "launch" },
+        },
+        allowedArgumentNames: ["documentId", "limit", "tableQuery"],
+      }),
+    ).toBe(true);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(contentScope, {
+        actionName: "query-content-database-items",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { limit: "50", tableQuery: { search: "launch" } },
+        allowedArgumentNames: ["documentId", "limit", "tableQuery"],
+      }),
+    ).toBe(false);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(contentScope, {
+        actionName: "query-content-database-items",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: {
+          documentId: "document-123",
+          limit: "50",
+          tableQuery: { search: "launch" },
+          navigation: { parentId: null },
+        },
+        allowedArgumentNames: ["documentId", "limit", "tableQuery"],
       }),
     ).toBe(false);
     expect(
@@ -130,6 +171,17 @@ describe("MCP directory widget read capabilities", () => {
       createMcpDirectoryWidgetReadCapability({
         ...capability,
         actionArguments: {},
+      }),
+    ).toBeUndefined();
+    expect(
+      createMcpDirectoryWidgetReadCapability({
+        ...capability,
+        actionArguments: {
+          "get-design-snapshot": {
+            designId: "design-123",
+            filters: { type: "actionSchema", allowAll: true },
+          },
+        },
       }),
     ).toBeUndefined();
     expect(

@@ -128,6 +128,7 @@ import {
 } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
+const MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES = 32 * 1024;
 const FRONTEND_MUTATION_METHODS = new Set(["POST", "PUT", "DELETE"]);
 const EMBED_ACTION_QUERY_PARAMS = new Set([
   EMBED_TARGET_QUERY_PARAM,
@@ -337,6 +338,10 @@ export interface ActionRouteAuthAdapter {
 export interface MountActionRoutesOptions {
   clientCompatibilityVersion?: string;
   mcpDirectoryWidgetReadActionArguments?: Record<string, readonly string[]>;
+  mcpDirectoryWidgetReadActionSchemaArguments?: Record<
+    string,
+    readonly string[]
+  >;
   mcpDirectoryWidgetReadOnlyActions?: readonly string[];
   mcpDirectoryWidgetReadPublicActions?: readonly string[];
   mcpDirectoryWidgetAppId?: string;
@@ -1108,6 +1113,47 @@ function mountActionRoutesInternal(
                     { errorCode: "approval_required", statusCode: 409 },
                   );
                 }
+              } else if (
+                directoryWidgetReadAllowed &&
+                (options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
+                  ?.length ?? 0) > 0
+              ) {
+                const oversizedSchemaArgument =
+                  options?.mcpDirectoryWidgetReadActionSchemaArguments?.[
+                    name
+                  ]?.find((argumentName) => {
+                    if (!Object.hasOwn(params, argumentName)) return false;
+                    const serialized = JSON.stringify(params[argumentName]);
+                    return (
+                      typeof serialized !== "string" ||
+                      new TextEncoder().encode(serialized).byteLength >
+                        MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES
+                    );
+                  });
+                if (oversizedSchemaArgument) {
+                  throw new ActionContractError(
+                    "MCP directory widget query arguments exceed the supported size.",
+                    {
+                      errorCode: "mcp_widget_query_too_large",
+                      statusCode: 400,
+                    },
+                  );
+                }
+                if (
+                  !entry.schema ||
+                  typeof entry.schema !== "object" ||
+                  !("~standard" in entry.schema)
+                ) {
+                  throw new Error(
+                    `MCP directory widget read action "${name}" requires an input schema.`,
+                  );
+                }
+                params = await validateActionArgs(
+                  entry.schema as StandardSchemaV1,
+                  params,
+                  entry.tool.parameters,
+                  runContext,
+                );
               }
               const result = await entry.run(params, runContext);
 

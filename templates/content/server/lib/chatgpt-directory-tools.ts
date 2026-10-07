@@ -62,7 +62,13 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       documentId: "documentId",
       limit: { type: "integerRange" as const, min: 0, max: 5_000 },
     },
+    "query-content-database-items": {
+      documentId: "documentId",
+      limit: { type: "integerRange" as const, min: 1, max: 5_000 },
+      tableQuery: { type: "actionSchema" as const },
+    },
   },
+  widgetReadPrivateActions: ["query-content-database-items"],
   keyToolNames: [
     "search-documents",
     "get-document",

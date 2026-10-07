@@ -32,6 +32,8 @@ export interface AgentChatMcpOptions {
     widgetReadOnlyActions?: readonly string[];
     /** Unlisted public reads that are available only through a scoped widget ticket. */
     widgetReadPublicActions?: readonly string[];
+    /** Unlisted authenticated reads available only through a scoped widget ticket. */
+    widgetReadPrivateActions?: readonly string[];
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;

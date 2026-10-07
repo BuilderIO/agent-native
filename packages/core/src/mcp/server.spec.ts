@@ -891,6 +891,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           instructions: profile.instructions,
           actions,
           productionActions: actions,
+          widgetReadActions: Object.fromEntries(
+            (profile.widgetReadPrivateActions ?? []).map((name) => [
+              name,
+              loadedActions[name],
+            ]),
+          ),
           builtinCrossAppTools: false,
           directoryProfile: profile,
         };
@@ -2307,6 +2313,183 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(new URL(reopened.result.structuredContent.startUrl).origin).toBe(
       "https://design.agent-native.com",
     );
+  });
+
+  it("renews a hidden Content collection query capability after widget reload", async () => {
+    const createDatabase = defineAction({
+      description: "Create one Content collection.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/shell-v67",
+          title: "Content",
+          html: "<!doctype html><html><body>Content</body></html>",
+        },
+      },
+      run: async () => ({
+        database: { id: "database-7", documentId: "document-7" },
+      }),
+    });
+    const queryDatabaseItems = {
+      tool: {
+        description: "Query one Content collection page.",
+        parameters: {
+          type: "object",
+          properties: {
+            databaseId: { type: "string" },
+            documentId: { type: "string" },
+            limit: { type: "integer" },
+            tableQuery: { type: "object" },
+          },
+        },
+      },
+      schema: z.object({
+        databaseId: z.string(),
+        documentId: z.string(),
+        limit: z.coerce.number().int().min(1).max(5_000),
+        tableQuery: z
+          .object({ search: z.string().max(500).optional() })
+          .optional(),
+      }),
+      readOnly: true,
+      requiresAuth: true,
+      http: { method: "GET" },
+      agentTool: false,
+      run: async () => ({ items: [] }),
+    };
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "content",
+      widgetDomain: "https://content.agent-native.com",
+      actions: { "create-content-database": createDatabase },
+      widgetReadActions: {
+        "query-content-database-items": queryDatabaseItems,
+      },
+      directoryProfile: {
+        connectorCatalog: ["create-content-database"],
+        widgetDomain: "https://content.agent-native.com",
+        widgetTargets: {
+          "create-content-database": (_args: unknown, result: unknown) => {
+            const database = (result as { database?: Record<string, unknown> })
+              .database;
+            return database?.id === "database-7" &&
+              database.documentId === "document-7"
+              ? {
+                  targetPath: "/page/document-7",
+                  resourceIds: {
+                    databaseId: "database-7",
+                    documentId: "document-7",
+                  },
+                }
+              : null;
+          },
+        },
+        widgetReadActionArguments: {
+          "query-content-database-items": {
+            documentId: "documentId",
+            limit: { type: "integerRange" as const, min: 1, max: 5_000 },
+            tableQuery: { type: "actionSchema" as const },
+          },
+        },
+        widgetReadPrivateActions: ["query-content-database-items"],
+      },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://content.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      issuer: "https://content.agent-native.com",
+    });
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 148, method: "tools/list", params: {} },
+      {
+        headers: { ...headers, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    const listedToolNames = listed.result.tools.map((tool: any) => tool.name);
+    expect(listedToolNames).toContain("create-content-database");
+    expect(listedToolNames).toContain("create_embed_session");
+    expect(listedToolNames).not.toContain("query-content-database-items");
+
+    const originalCall = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 149,
+        method: "tools/call",
+        params: {
+          name: "create-content-database",
+          arguments: {},
+        },
+      },
+      {
+        headers: { ...headers, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(originalCall.result.isError).not.toBe(true);
+    expect(originalCall.result._meta["agent-native/embedStart"]).toBeDefined();
+
+    const reopened = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 150,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: {
+            sourceTool: "create-content-database",
+            toolInput: {},
+            toolOutput: originalCall.result.structuredContent,
+            chrome: "full",
+          },
+        },
+      },
+      {
+        headers: { ...headers, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(reopened.result.isError).not.toBe(true);
+    expect(reopened.result.structuredContent).toMatchObject({
+      startUrl: expect.stringContaining("minted-picker-ticket"),
+      targetPath: "/page/document-7?__an_mcp_chat_bridge=1",
+    });
+
+    const { allowsMcpDirectoryWidgetReadAction } =
+      await import("../shared/embed-auth.js");
+    const renewedCapability =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const baseArgs = {
+      documentId: "document-7",
+      limit: "50",
+      tableQuery: { search: "launch" },
+    };
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "query-content-database-items",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: baseArgs,
+        allowedArgumentNames: ["documentId", "limit", "tableQuery"],
+      }),
+    ).toBe(true);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "query-content-database-items",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { ...baseArgs, documentId: "another-document" },
+        allowedArgumentNames: ["documentId", "limit", "tableQuery"],
+      }),
+    ).toBe(false);
   });
 
   it("does not turn a completed action into an error when a widget target is missing", async () => {
