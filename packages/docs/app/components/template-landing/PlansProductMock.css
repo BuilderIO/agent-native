@@ -43,6 +43,7 @@
 }
 
 .dark .plans-product-art {
+  --plan-shadow: 0 0% 0%;
   --background: 0 0% 13%;
   --foreground: 0 0% 90%;
   --card: 0 0% 15%;
@@ -59,6 +60,7 @@
   --sidebar-primary: 0 0% 75%;
   --sidebar-accent: 0 0% 16%;
   --sidebar-border: 0 0% 20%;
+  box-shadow: 0 18px 48px hsl(var(--plan-shadow) / 0.38);
 }
 
 .plans-product-art *,
@@ -279,6 +281,13 @@
     0 0 0 4px hsl(var(--background) / 0.92),
     0 0 0 5px hsl(var(--foreground) / 0.16),
     0 16px 42px hsl(var(--foreground) / 0.22);
+}
+
+.dark .plans-phone {
+  box-shadow:
+    0 0 0 4px hsl(var(--background) / 0.92),
+    0 0 0 5px hsl(var(--plan-shadow) / 0.24),
+    0 16px 42px hsl(var(--plan-shadow) / 0.38);
 }
 
 .plans-phone-status {

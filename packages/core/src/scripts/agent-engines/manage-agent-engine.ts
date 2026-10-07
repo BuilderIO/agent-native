@@ -17,17 +17,22 @@ import {
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
+import { defaultModelMessagesForUser } from "../../localization/default-model-messages.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";
 import { run as runList } from "./list-agent-engines.js";
-import { run as runSet } from "./set-agent-engine.js";
+import {
+  run as runSet,
+  resolveDefaultModelEffective,
+  effectiveConfigurationMessage,
+} from "./set-agent-engine.js";
 import { run as runTest } from "./test-agent-engine.js";
 
 export const tool: ActionTool = {
   description:
-    'Manage AI agent engines: list available engines, set the organization default engine/model, test an engine, or manage the current app/template default model. Pass action="list" to see options, action="set" to change the organization default (owners and admins only; list reports canUpdateDefault), action="test" to verify connectivity, action="get-app-default" to inspect this app default, action="set-app-default" to set this app default, or action="reset-app-default" to clear it.',
+    'Manage AI engines and scoped defaults. Clarify organization/personal versus app when the user says "change my default" without a scope. action="set" changes only the organization default (owners/admins) or a no-organization user\'s personal default, preserving ALL app overrides. action="set-app-default" changes only the named app default, preserving explicit chat/automation models. Only an explicit request to inherit uses action="reset-app-default". action="list" shows available options, effective selection and canUpdateDefault; action="get-app-default" inspects the app default; action="test" checks connectivity.',
   parameters: {
     type: "object",
     properties: {
@@ -145,6 +150,10 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
       : "Error: Authentication required to change app model defaults.";
   }
 
+  const effective = await resolveDefaultModelEffective(ctx, appId, {
+    appDefault: { engine, model: normalizedModel },
+  });
+  const messages = await defaultModelMessagesForUser(ctx.userEmail);
   const settings = await writeAgentAppModelDefaultSettings(ctx, appId, {
     engine,
     model: normalizedModel,
@@ -157,8 +166,13 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   return JSON.stringify(
     {
       ok: true,
+      requestedScope: "app",
       ...settings,
-      message: `Default model for ${appId} set to ${normalizedModel} via ${entry.label}.${normalizedNote}`,
+      effective,
+      preservedOverrides: ["chat-models", "automation-models"],
+      message:
+        `Default model for ${appId} set to ${normalizedModel} via ${entry.label}.${normalizedNote}` +
+        effectiveConfigurationMessage(effective, messages),
     },
     null,
     2,
@@ -180,12 +194,22 @@ async function runResetAppDefault(
       ? "Error: Only organization owners and admins can reset app model defaults."
       : "Error: Authentication required to reset app model defaults.";
   }
+  registerBuiltinEngines();
+  const effective = await resolveDefaultModelEffective(ctx, appId, {
+    appDefault: null,
+  });
+  const messages = await defaultModelMessagesForUser(ctx.userEmail);
   const settings = await resetAgentAppModelDefaultSettings(ctx, appId);
   return JSON.stringify(
     {
       ok: true,
+      requestedScope: "app",
       ...settings,
-      message: `Default model for ${appId} reset to the global LLM default.`,
+      effective,
+      preservedOverrides: ["chat-models", "automation-models"],
+      message:
+        `Default model for ${appId} reset to the global LLM default.` +
+        effectiveConfigurationMessage(effective, messages),
     },
     null,
     2,

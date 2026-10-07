@@ -69,6 +69,7 @@ jobs:
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_PR_TITLE: ${{ github.event.pull_request.title }}
         run: node --experimental-strip-types scripts/ci-change-scope.ts
 
       # Full planning only reads manifests and counts files. Targeted planning
@@ -421,7 +422,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -441,26 +442,31 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Run focused Design canvas interaction cases
+      - name: Run focused Design regression cases
         working-directory: templates/design
+        timeout-minutes: 10
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           pnpm exec playwright test \
-            e2e/drag-and-drop.reparenting-rules.spec.ts \
-            e2e/drag-and-drop.auto-layout-parity.spec.ts \
-            e2e/cross-screen-auto-layout-parity.spec.ts \
-            e2e/drag-out-of-screen-to-board.spec.ts \
-            e2e/parity-drag-reparent.spec.ts \
-            e2e/corner-radius-handle-drag.spec.ts \
-            e2e/parity-vector-endpoints.spec.ts \
-            e2e/responsive-overview-regressions.spec.ts \
-            e2e/parity-report-interactions.spec.ts \
-            e2e/parity-oversized-nested.spec.ts \
-            e2e/parity-alt-drag-duplicate.spec.ts \
-            e2e/z-order-parity.spec.ts \
-            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|a layer dragged below the rendered Screen card moves to the board|a drag released inside rendered Hug overflow stays in its source Screen|a held screen child dropped beyond the rendered board window persists at that canvas point|overview screen creation and duplicate undo/redo keep screens selected and visible|cross-axis oversized drop rejects nested insertion despite main-axis fit|width-only oversized drop previews the outer fallback insertion slot|oversized drop from nested plain frames previews and lands in nearest fitting ancestor|oversized drop leaves a fitting static section without a valid ancestor|report path: board frame drops directly into a nested screen frame and survives undo/redo|report path: held board text drop into a nested frame shows guide and ghost, preserves z-order, and reloads|report path: a board layer crossing a nested frame lands directly above it in the outer frame|moves an absolute child into empty parent space directly after its exited frame|Figma G8 multi-selection preserves native order, painted order, and one-step undo|Figma G9 Bring to Front reorders an auto-layout child and undo restores it" \
-            --workers=1
+            e2e/canvas-invariants.spec.ts:508 \
+            e2e/canvas-invariants.spec.ts:1286 \
+            e2e/canvas-invariants.spec.ts:1170 \
+            e2e/canvas-invariants.spec.ts:1320 \
+            e2e/drag-and-drop.drag-feedback.spec.ts:24 \
+            e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
+            e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
+            e2e/inspector-styles.spec.ts \
+            e2e/parity-selection.spec.ts:313 \
+            e2e/parity-selection.spec.ts:451 \
+            e2e/pasted-svg-image-inspector.spec.ts:656 \
+            e2e/pasted-svg-image-inspector.spec.ts:693 \
+            e2e/position-alignment.spec.ts:335 \
+            e2e/position-alignment.spec.ts:484 \
+            e2e/position-alignment.spec.ts:529 \
+            e2e/position-alignment.spec.ts:606 \
+            e2e/position-alignment.spec.ts:646 \
+            --workers=2
 
   fast-tests:
     name: Fast tests
@@ -665,7 +671,10 @@ jobs:
         working-directory: templates/content
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
-            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            -c e2e/playwright.config.ts \
+            e2e/two-tab-convergence.spec.ts \
+            e2e/chatgpt-widget-body-paint.spec.ts \
+            --workers=1 \
             --grep-invert @known-loss --output test-results/required
         env:
           CONTENT_E2E_SERVE_BUILD: "1"

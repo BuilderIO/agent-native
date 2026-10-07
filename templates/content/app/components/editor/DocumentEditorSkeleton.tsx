@@ -15,6 +15,7 @@ import {
   type DocumentEditorIconRow,
   type DocumentEditorShape,
 } from "./document-editor-layout";
+import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 // Before the app loads, the startup script marks <html> with the icon row and
 // shape the page last drew; "startup" draws from those marks, since storage is
@@ -150,13 +151,15 @@ export function DocumentEditorSkeleton({
   title,
   iconRow = "add",
   shape = "page",
+  stalledLoad,
 }: {
   title?: string | null;
   iconRow?: DocumentEditorIconRow | "startup";
   shape?: DocumentEditorShape | "startup";
+  stalledLoad?: { stage: string; action: string };
 }) {
   const sidebarTrigger = useSidebarTrigger();
-  return (
+  const skeleton = (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
         {sidebarTrigger}
@@ -172,7 +175,7 @@ export function DocumentEditorSkeleton({
       </div>
       <div
         className={cn(
-          "min-h-0 flex-1 overflow-hidden",
+          "relative @container min-h-0 flex-1 overflow-hidden",
           DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
         )}
       >
@@ -204,5 +207,15 @@ export function DocumentEditorSkeleton({
         )}
       </div>
     </div>
+  );
+  return stalledLoad ? (
+    <WidgetLoadDiagnostic
+      active
+      stage={stalledLoad.stage}
+      action={stalledLoad.action}
+      fallback={skeleton}
+    />
+  ) : (
+    skeleton
   );
 }

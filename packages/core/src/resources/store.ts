@@ -7,6 +7,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { noteJobFrontmatterWrite } from "../jobs/frontmatter-loss.js";
 import {
   canUseLocalWorkspaceResourcePath,
   deleteLocalWorkspaceResource,
@@ -1554,8 +1555,9 @@ export async function resourcePut(
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
 
+  const isJobFile = path.startsWith("jobs/");
   const { rows: existing } = await client.execute({
-    sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata FROM resources WHERE owner = ? AND path = ?`,
+    sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata${isJobFile ? ", content" : ""} FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
   });
   const existingRow = existing[0] as
@@ -1568,6 +1570,7 @@ export async function resourcePut(
         run_id?: string | null;
         expires_at?: number | null;
         metadata?: string | null;
+        content?: string | null;
       }
     | undefined;
 
@@ -1625,6 +1628,16 @@ export async function resourcePut(
     ],
   });
 
+  if (typeof existingRow?.content === "string") {
+    await noteJobFrontmatterWrite({
+      owner,
+      orgId: organizationIdFromResourceOwner(owner),
+      path,
+      before: existingRow.content,
+      after: content,
+      writer: "resourcePut",
+    });
+  }
   emitResourceChange(id, path, owner, options?.requestSource);
 
   return {
@@ -1786,6 +1799,14 @@ export async function resourcePutIfCurrent(
   });
   if (rows.length === 0) return null;
   const resource = rowToResource(rows[0]);
+  await noteJobFrontmatterWrite({
+    owner: resource.owner,
+    orgId: organizationIdFromResourceOwner(resource.owner),
+    path: resource.path,
+    before: input.expectedContent,
+    after: resource.content,
+    writer: "resourcePutIfCurrent",
+  });
   emitResourceChange(resource.id, resource.path, resource.owner);
   return resource;
 }
@@ -1922,6 +1943,14 @@ async function resourcePutIfSnapshotInternal(
   if (rows.length !== 1) return null;
   const resource = rowToResource(rows[0]);
   if (emitChange) {
+    await noteJobFrontmatterWrite({
+      owner: resource.owner,
+      orgId: organizationIdFromResourceOwner(resource.owner),
+      path: resource.path,
+      before: previous.content,
+      after: resource.content,
+      writer: "resourcePutIfSnapshot",
+    });
     emitResourceChange(
       resource.id,
       resource.path,
@@ -1978,7 +2007,17 @@ export async function resourcePutSnapshotBatchIfCurrent(
     throw error;
   }
 
-  for (const [index, { resource }] of result.entries()) {
+  for (const [index, { before, resource }] of result.entries()) {
+    if (before) {
+      await noteJobFrontmatterWrite({
+        owner: resource.owner,
+        orgId: organizationIdFromResourceOwner(resource.owner),
+        path: resource.path,
+        before: before.content,
+        after: resource.content,
+        writer: "resourcePutSnapshotBatchIfCurrent",
+      });
+    }
     emitResourceChange(
       resource.id,
       resource.path,
