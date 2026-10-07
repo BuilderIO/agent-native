@@ -977,6 +977,7 @@ export async function runAuthoringFuzz(
               receiverText: string;
               sourceText: string;
               sourceFormatting: Array<{ text: string; marks: string[] }>;
+              receiverFormatting: Array<{ text: string; marks: string[] }>;
               receiverAttributes: string;
               receiverStyles: Record<string, string>;
             };
@@ -1059,7 +1060,9 @@ export async function runAuthoringFuzz(
           "text-decoration-color",
           "text-decoration-line",
           "text-decoration-style",
+          "text-decoration-thickness",
           "text-shadow",
+          "text-underline-offset",
           "vertical-align",
         ]);
         for (const target of targets) {
@@ -1170,6 +1173,7 @@ export async function runAuthoringFuzz(
                       receiverText: receiver.textContent ?? "",
                       sourceText: source.textContent ?? "",
                       sourceFormatting: inlineFormatting(source),
+                      receiverFormatting: inlineFormatting(receiver),
                       receiverAttributes: authoredAttributes(receiver),
                       receiverStyles: styleValues(receiver),
                     }
@@ -1221,16 +1225,35 @@ export async function runAuthoringFuzz(
         const records: NonNullable<
           typeof scope.__authoringFuzzSiblingSnapshot
         >["records"] = [];
+        const isEditorInlineStyleSpan = (element: Element) =>
+          element.tagName === "SPAN" &&
+          element.getAttribute("data-slide-inline-style") === "true" &&
+          Array.from(element.attributes).every(
+            ({ name, value }) =>
+              name === "style" ||
+              (name === "data-slide-inline-style" && value === "true"),
+          ) &&
+          getComputedStyle(element).display === "inline" &&
+          ["::before", "::after"].every((pseudo) =>
+            ["none", "normal"].includes(
+              getComputedStyle(element, pseudo).content,
+            ),
+          ) &&
+          Array.from((element as HTMLElement).style).every((property) =>
+            textOnlyStyles.has(property),
+          );
         const contentSignature = (element: Element) =>
-          Array.from(element.childNodes, (child) =>
-            child instanceof Text
-              ? `#${child.data.length}:${child.data}`
-              : `@${child.nodeName}`,
-          ).join("");
-        const childShape = (element: Element) =>
-          Array.from(element.childNodes, (child) =>
-            child instanceof Text ? "#text" : `@${child.nodeName}`,
-          ).join("");
+          element.textContent ?? "";
+        const childShape = (element: Element) => {
+          const describe = (node: Node): string[] => {
+            if (node instanceof Text) return ["#text"];
+            if (node instanceof Element && isEditorInlineStyleSpan(node)) {
+              return Array.from(node.childNodes).flatMap(describe);
+            }
+            return [`@${node.nodeName}`];
+          };
+          return Array.from(element.childNodes).flatMap(describe).join("");
+        };
         const order = new Map(
           Array.from(root.querySelectorAll<Element>("*")).map(
             (element, index) => [element, index] as const,
@@ -1289,23 +1312,8 @@ export async function runAuthoringFuzz(
           }
         }
         const isEmptyAuthorStyleSpan = (element: Element): boolean =>
-          element.tagName === "SPAN" &&
-          element.getAttribute("data-slide-inline-style") === "true" &&
+          isEditorInlineStyleSpan(element) &&
           !element.textContent &&
-          Array.from(element.attributes).every(
-            ({ name, value }) =>
-              name === "style" ||
-              (name === "data-slide-inline-style" && value === "true"),
-          ) &&
-          getComputedStyle(element).display === "inline" &&
-          ["::before", "::after"].every((pseudo) =>
-            ["none", "normal"].includes(
-              getComputedStyle(element, pseudo).content,
-            ),
-          ) &&
-          Array.from((element as HTMLElement).style).every((property) =>
-            textOnlyStyles.has(property),
-          ) &&
           Array.from(element.children).every(isEmptyAuthorStyleSpan);
         for (const element of root.querySelectorAll<HTMLElement>("*")) {
           if (
@@ -1334,7 +1342,9 @@ export async function runAuthoringFuzz(
         }
         for (const text of siblingText) {
           const parent = text.parentElement;
-          if (!parent || isTarget(text) || !root.contains(text)) continue;
+          if (!parent || !text.data || isTarget(text) || !root.contains(text)) {
+            continue;
+          }
           records.push({
             node: text,
             parent,
@@ -1364,10 +1374,14 @@ export async function runAuthoringFuzz(
             (!merge.sourceText.trim() ||
               !merge.sourceFormatting.some(
                 ({ text, marks }) => text.trim() && marks.length > 0,
+              ) ||
+              !merge.receiverText.trim() ||
+              !merge.receiverFormatting.some(
+                ({ text, marks }) => text.trim() && marks.length > 0,
               ))
           ) {
             throw new Error(
-              "block-edge setup needs a non-empty source paragraph with inline formatting",
+              "block-edge setup needs non-empty source and receiver paragraphs with inline formatting",
             );
           }
           scope.__authoringFuzzSiblingSnapshot = {
@@ -1464,6 +1478,21 @@ export async function runAuthoringFuzz(
           const parent = record.parent === baseline.root ? root : record.parent;
           const moved = record.node.parentNode !== parent;
           const newParent = record.node.parentNode;
+          const inlineWrapperRoot = (node: Node) => {
+            let current: Node | null = node;
+            while (
+              current instanceof Element &&
+              isEditorInlineStyleSpan(current)
+            ) {
+              current = current.parentNode;
+            }
+            return current;
+          };
+          const wrappedSiblingText =
+            record.node instanceof Text &&
+            newParent instanceof Element &&
+            isEditorInlineStyleSpan(newParent) &&
+            inlineWrapperRoot(newParent) === inlineWrapperRoot(parent);
           const promotedHeadingLine =
             operation.kind === "heading-enter" &&
             record.node instanceof HTMLElement &&
@@ -1479,6 +1508,7 @@ export async function runAuthoringFuzz(
             moved &&
             !(
               promotedHeadingLine ||
+              wrappedSiblingText ||
               (listShortcut &&
                 record.node instanceof Element &&
                 originalListRows.has(record.node) &&
@@ -1616,6 +1646,19 @@ export async function runAuthoringFuzz(
           ) {
             failures.push(
               `block-edge ${action} did not preserve source inline formatting (sourceRuns=${mergeAssertion.sourceFormatting.length}, mergedRuns=${receiverFormatting.length}, sourceMarks=${mergeAssertion.sourceFormatting.map(({ marks }) => marks.length).join(",")}, mergedMarks=${receiverFormatting.map(({ marks }) => marks.length).join(",")})`,
+            );
+          }
+          const receiverPrefixFormatting = inlineFormatting(
+            mergeAssertion.receiver,
+            0,
+            visibleText(mergeAssertion.receiverText).length,
+          );
+          if (
+            JSON.stringify(receiverPrefixFormatting) !==
+            JSON.stringify(mergeAssertion.receiverFormatting)
+          ) {
+            failures.push(
+              `block-edge ${action} did not preserve receiver inline formatting (receiverRuns=${mergeAssertion.receiverFormatting.length}, mergedRuns=${receiverPrefixFormatting.length}, receiverMarks=${mergeAssertion.receiverFormatting.map(({ marks }) => marks.length).join(",")}, mergedMarks=${receiverPrefixFormatting.map(({ marks }) => marks.length).join(",")})`,
             );
           }
           const changedReceiverStyle = changedStyleProperties(
@@ -3206,7 +3249,9 @@ export async function runAuthoringFuzz(
           await prepareParagraphPair("block-edge Backspace");
           const leftToken = `merge-left-${activeIndex}`;
           const rightToken = `merge-right-${activeIndex}`;
+          await editor.press(`${modifier}+B`);
           await typeText(leftToken);
+          await editor.press(`${modifier}+B`);
           await editor.press(lineEndKey);
           await editor.press("Enter");
           if (!(await plainLineState()).valid) {
@@ -3229,7 +3274,9 @@ export async function runAuthoringFuzz(
           await prepareParagraphPair("block-edge Delete");
           const leftToken = `delete-left-${activeIndex}`;
           const rightToken = `delete-right-${activeIndex}`;
+          await editor.press(`${modifier}+B`);
           await typeText(leftToken);
+          await editor.press(`${modifier}+B`);
           await editor.press(lineEndKey);
           await editor.press("Enter");
           await editor.press(`${modifier}+B`);
@@ -3943,7 +3990,8 @@ export async function runAuthoringFuzz(
         )
       ) {
         throw new Error(
-          `sibling block inside the editor moved or restyled: ${siblingChanges.slice(0, 5).join(", ")}`,
+          "sibling block inside the editor moved or restyled: " +
+            siblingChanges.slice(0, 5).join(", "),
         );
       }
       await assertOutsideUnchanged();

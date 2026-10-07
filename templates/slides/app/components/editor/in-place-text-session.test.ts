@@ -2842,6 +2842,49 @@ describe("in-place text session: commands", () => {
     );
   });
 
+  it("keeps shared underline on nested sibling text when typing without it", () => {
+    const el = mount(
+      '<div id="t" style="text-decoration-line: underline; text-decoration-style: wavy; text-decoration-color: red; text-decoration-thickness: 2px; text-underline-offset: 5px"><p><strong>before</strong></p><ul><li><p><strong>nested alpha</strong></p><ul><li><em>target</em></li><li>nested beta</li></ul></li></ul><p>after</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const underlineAppearance = (value: string) => {
+      const text = textOf(el, value);
+      for (
+        let ancestor = text.parentElement;
+        ancestor && el.contains(ancestor);
+        ancestor = ancestor.parentElement
+      ) {
+        const style = getComputedStyle(ancestor);
+        if (style.textDecorationLine.includes("underline")) {
+          return [
+            "text-decoration-color",
+            "text-decoration-style",
+            "text-decoration-thickness",
+            "text-underline-offset",
+          ].map((property) => style.getPropertyValue(property));
+        }
+      }
+      return null;
+    };
+    const expectedUnderlineAppearance = underlineAppearance("before");
+    const target = textOf(el, "target");
+    caret(target, 3);
+
+    expect(session.commands.underline()).toBe(true);
+    type(el, "x");
+
+    expect(el.textContent?.replaceAll(ZWSP, "")).toContain("tarxget");
+    expect(underlineAppearance("before")).toEqual(expectedUnderlineAppearance);
+    expect(underlineAppearance("nested alpha")).toEqual(
+      expectedUnderlineAppearance,
+    );
+    expect(underlineAppearance("nested beta")).toEqual(
+      expectedUnderlineAppearance,
+    );
+    expect(underlineAppearance("after")).toEqual(expectedUnderlineAppearance);
+    expect(underlineAppearance("x")).toBeNull();
+  });
+
   it("keeps a collapsed caret attached while creating a code run", () => {
     const el = mount('<p id="t">Hello</p>');
     session = startInPlaceTextSession(el);
