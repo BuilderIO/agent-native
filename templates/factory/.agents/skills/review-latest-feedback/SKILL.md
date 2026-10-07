@@ -219,32 +219,16 @@ Phase 2 reapplies these rules after full-thread review.
 
 Use `## Slack channels` unless the invocation narrows scope.
 
-**Automated diagnostics count as feedback regardless of author.** For a Slack
-alert, apply the Slack reaction gate before reading it. For every eligible
-actionable CI/Beta E2E or monitoring alert, establish the exact repo, ref/SHA,
-workflow or service/environment, and failure fingerprint. This bounded
-ownership preflight is the sole pre-claim exception to Phase 0: inspect only the
-alert and linked issue, PR, run, or task metadata needed to identify an active
-owner of that same failure. Do not inspect logs, tests, artifacts, or otherwise
-investigate before claiming. If this invocation already owns the active
-PR/task, continue there; if another owner is actively fixing it, record **Owned
-elsewhere** with the owner, link, and next action, and do not create or modify
-parallel work. A linked/open PR counts only when its current changes or recent
-activity address the same failure; a stale/unrelated PR, shared label, or later
-green rerun alone is not ownership evidence. If no active owner is confirmed
-and the target is within this invocation's scope, claim it immediately before
-deeper investigation. On Slack, add `👀` and read it back. For a non-Slack
-source, record a status row in the current Codex task with the source permalink,
-failure fingerprint, owner task/worktree, and next action; that durable task
-record is the claim. Do not assign, label, comment, react, or otherwise mutate
-the source without explicit authorization for that exact write. If the task
-record cannot be made accessible to later ownership checks, leave the item
-pending. Then inspect linked runs, builds/commits, job logs, test results,
-artifacts, and issue state. Treat labels/counts as leads. Fix verified
-repo-owned causes; for other causes, record evidence and the next owner/action.
-Don't ask bots; ask a person only when a fact blocks a fix. If our report lacks
-evidence, improve its checks/report with concise context and links; avoid
-duplicate details and secrets.
+**Automated diagnostics are feedback.** For Slack, gate before reading.
+Before investigation, use only the alert and linked
+issue/PR/run/task metadata to establish repo/ref/SHA, workflow/service/
+environment, failure fingerprint, and active same-failure owner; the sole
+pre-claim exception to Phase 0. If unowned and in scope, claim
+immediately: Slack `👀`; non-Slack, a current-task status row with source
+permalink, fingerprint, task/worktree owner, and next action. Continue if this
+task owns it; otherwise record **Owned elsewhere** (owner/link/action) and
+stop. No logs/tests/artifacts before claim; no source writes without exact
+authorization. Then read `references/automated-diagnostics.md`.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
