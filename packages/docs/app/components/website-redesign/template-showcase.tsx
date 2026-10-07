@@ -143,7 +143,7 @@ export function TemplateShowcase() {
           className="snap-x snap-mandatory scroll-smooth overflow-x-auto overflow-y-hidden border-x border-solid border-[var(--b-border-subtle)] [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           onScroll={updateScrollState}
         >
-          <div className="app-carousel-track flex w-max gap-1">
+          <div className="app-carousel-track flex w-max gap-1 [&>:first-child]:border-l-0 [&>:last-child]:border-r-0">
             {APPS.map((app) => {
               return (
                 <Link
