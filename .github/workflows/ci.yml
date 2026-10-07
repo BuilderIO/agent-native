@@ -505,7 +505,7 @@ jobs:
               ;;
             drag-1)
               fixed_specs=( \
-                e2e/corner-radius-handle-drag.spec.ts:202 \
+                e2e/corner-radius-handle-drag.spec.ts:217 \
                 e2e/drag-and-drop.drag-feedback.spec.ts:24 \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
               )

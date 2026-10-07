@@ -206,7 +206,9 @@ async function dragSouthEastRadius(
     }
   }
   await page.mouse.up();
-  const commit = await waitForBridge(page, "visual-style-change");
+  const commit = await waitForBridge(page, "visual-style-change", 15_000, {
+    phase: "commit",
+  });
   expect(commit.styles?.borderRadius).toBe(`${previousRadius}px`);
   return previousRadius;
 }

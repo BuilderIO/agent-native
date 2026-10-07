@@ -674,7 +674,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/corner-radius-handle-drag.spec.ts",
-      202,
+      217,
       "canvas corner-radius handle follows the drag and persists the radius",
     ],
     [
