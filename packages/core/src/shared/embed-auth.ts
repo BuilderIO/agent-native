@@ -136,7 +136,7 @@ function isWidgetReadCapability(
     actions.every(
       ([actionName, args]) =>
         MCP_DIRECTORY_ACTION_NAME.test(actionName) &&
-        isWidgetReadArgumentRecord(args),
+        isWidgetReadArgumentRecord(args, { minEntries: 0 }),
     )
   );
 }
@@ -234,7 +234,7 @@ export function createMcpDirectoryWidgetReadCapability(
     actionEntries.some(
       ([actionName, args]) =>
         !MCP_DIRECTORY_ACTION_NAME.test(actionName) ||
-        !isWidgetReadArgumentRecord(args),
+        !isWidgetReadArgumentRecord(args, { minEntries: 0 }),
     )
   ) {
     return undefined;
@@ -315,7 +315,9 @@ export function normalizeMcpDirectoryWidgetReadActionArguments(
       typeof expectedArgs[name] === "string" && expectedArgs[name] === value,
   );
   if (hasSchemaArgument && !includesResourceBinding) return undefined;
-  if (suppliedArgs.length === 0) return undefined;
+  if (suppliedArgs.length === 0) {
+    return Object.keys(expectedArgs).length === 0 ? {} : undefined;
+  }
 
   const normalizedArgs: Array<[string, unknown]> = [];
   for (const [name, value] of suppliedArgs) {
