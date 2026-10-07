@@ -2,47 +2,107 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const { html2canvasMock } = vi.hoisted(() => ({ html2canvasMock: vi.fn() }));
+vi.mock("html2canvas", () => ({ default: html2canvasMock }));
+
 import {
   assertReplayFontsReady,
   assertRemoteImagesCapturable,
   crossOriginImageUrls,
+  downloadReplayScreenshot,
   inlineReplayAssets,
   ReplayScreenshotAssetError,
 } from "./session-replay-screenshot";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  html2canvasMock.mockReset();
   vi.useRealTimers();
   document.body.replaceChildren();
 });
 
+function pngBlob(width = 1, height = 1, animated = false): Blob {
+  const bytes = new Uint8Array(animated ? 65 : 45);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  bytes.set([0, 0, 0, 13], 8);
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+  bytes.set(
+    [
+      (width >>> 24) & 255,
+      (width >>> 16) & 255,
+      (width >>> 8) & 255,
+      width & 255,
+      (height >>> 24) & 255,
+      (height >>> 16) & 255,
+      (height >>> 8) & 255,
+      height & 255,
+    ],
+    16,
+  );
+  if (animated) {
+    bytes.set([0, 0, 0, 8, 0x61, 0x63, 0x54, 0x4c], 33);
+  }
+  return new Blob([bytes], { type: "image/png" });
+}
+
 function stubImageProbes(
-  request: (url: string) => "load" | "error" | Promise<"load" | "error">,
+  request: (
+    url: string,
+  ) => "load" | "error" | Response | Promise<"load" | "error" | Response>,
 ) {
-  const probes: HTMLImageElement[] = [];
+  const requests: Array<{
+    credentials: RequestCredentials | undefined;
+    mode: RequestMode | undefined;
+    signal: AbortSignal | undefined;
+    url: string;
+  }> = [];
+  vi.stubGlobal(
+    "createImageBitmap",
+    vi.fn(async () => ({ width: 1, height: 1, close: vi.fn() })),
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const signal = init?.signal as AbortSignal | undefined;
+      requests.push({
+        credentials: init?.credentials,
+        mode: init?.mode,
+        signal,
+        url,
+      });
+      return new Promise<Response>((resolve, reject) => {
+        const abort = () => reject(new DOMException("Aborted", "AbortError"));
+        if (signal?.aborted) {
+          abort();
+          return;
+        }
+        signal?.addEventListener("abort", abort, { once: true });
+        Promise.resolve(request(url)).then((result) => {
+          signal?.removeEventListener("abort", abort);
+          if (result instanceof Response) {
+            resolve(result);
+          } else if (result === "error") {
+            resolve(new Response(null, { status: 503 }));
+          } else {
+            resolve(
+              new Response(pngBlob(), {
+                headers: { "content-type": "image/png" },
+              }),
+            );
+          }
+        }, reject);
+      });
+    }),
+  );
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
     drawImage: vi.fn(),
   } as unknown as CanvasRenderingContext2D);
   vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
     "data:image/png;base64,c2NyZWVuc2hvdA==",
   );
-  vi.spyOn(HTMLImageElement.prototype, "src", "set").mockImplementation(
-    function (this: HTMLImageElement, value: string) {
-      probes.push(this);
-      Promise.resolve(request(value)).then((result) => {
-        if (result === "error") {
-          this.onerror?.call(this, new Event("error"));
-          return;
-        }
-        Object.defineProperties(this, {
-          naturalWidth: { configurable: true, value: 1 },
-          naturalHeight: { configurable: true, value: 1 },
-        });
-        this.onload?.call(this, new Event("load"));
-      });
-    },
-  );
-  return probes;
+  return requests;
 }
 
 describe("session replay screenshot asset checks", () => {
@@ -140,6 +200,44 @@ describe("session replay screenshot asset checks", () => {
     input.remove();
   });
 
+  it("finds remote images in open shadow roots", () => {
+    const host = document.createElement("section");
+    const shadowRoot = host.attachShadow({ mode: "open" });
+    const image = document.createElement("img");
+    image.src = "https://assets.example.test/shadow.png";
+    shadowRoot.appendChild(image);
+    document.body.appendChild(host);
+
+    expect(crossOriginImageUrls(document)).toContain(
+      "https://assets.example.test/shadow.png",
+    );
+
+    host.remove();
+  });
+
+  it("parses quoted CSS image URLs containing parentheses", () => {
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (_element, pseudo) =>
+        ({
+          backgroundImage:
+            pseudo == null
+              ? 'url("https://assets.example.test/image(1).png")'
+              : "none",
+          maskImage: "none",
+          listStyleImage: "none",
+          content: "none",
+        }) as CSSStyleDeclaration,
+    );
+
+    expect(crossOriginImageUrls(document)).toContain(
+      "https://assets.example.test/image(1).png",
+    );
+
+    element.remove();
+  });
+
   it("finds remote SVG images and images in accessible child frames", () => {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     const svgImage = document.createElementNS(
@@ -153,17 +251,11 @@ describe("session replay screenshot asset checks", () => {
     nestedAsset.style.backgroundImage =
       "url(https://assets.example.test/nested.png)";
     childDocument.body.appendChild(nestedAsset);
-    const frame = {
-      contentDocument: childDocument,
-      getAttribute: () => null,
-    } as unknown as HTMLIFrameElement;
-    const querySelectorAll = document.querySelectorAll.bind(document);
-    vi.spyOn(document, "querySelectorAll").mockImplementation(((
-      selector: string,
-    ) =>
-      selector === "iframe"
-        ? ([frame] as unknown as NodeListOf<Element>)
-        : querySelectorAll(selector)) as typeof document.querySelectorAll);
+    const frame = document.createElement("iframe");
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: childDocument,
+    });
     vi.spyOn(window, "getComputedStyle").mockImplementation(
       (element) =>
         ({
@@ -175,7 +267,7 @@ describe("session replay screenshot asset checks", () => {
           content: "none",
         }) as CSSStyleDeclaration,
     );
-    document.body.appendChild(svg);
+    document.body.append(svg, frame);
 
     expect(() => crossOriginImageUrls(document)).toThrow(
       ReplayScreenshotAssetError,
@@ -185,6 +277,7 @@ describe("session replay screenshot asset checks", () => {
     expect(crossOriginImageUrls(document)).toContain(
       "https://assets.example.test/nested.png",
     );
+    frame.remove();
   });
 
   it("ignores external images in hidden elements", () => {
@@ -395,18 +488,12 @@ describe("session replay screenshot asset checks", () => {
   });
 
   it("rejects nested frames whose assets cannot be inspected", () => {
-    let frame = {
-      contentDocument: null,
-      getAttribute: () => "https://frame.example.test/",
-    } as unknown as HTMLIFrameElement;
-    vi.spyOn(document, "querySelectorAll").mockImplementation(((
-      selector: string,
-    ) =>
-      selector === "iframe"
-        ? ([frame] as unknown as NodeListOf<Element>)
-        : document
-            .createElement("div")
-            .querySelectorAll(selector)) as typeof document.querySelectorAll);
+    const frame = document.createElement("iframe");
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: null,
+    });
+    document.body.appendChild(frame);
     vi.spyOn(window, "getComputedStyle").mockReturnValue({
       display: "block",
       visibility: "visible",
@@ -417,23 +504,7 @@ describe("session replay screenshot asset checks", () => {
     expect(() => crossOriginImageUrls(document)).toThrow(
       ReplayScreenshotAssetError,
     );
-
-    frame = {
-      contentDocument: null,
-      getAttribute: () => null,
-    } as unknown as HTMLIFrameElement;
-    expect(() => crossOriginImageUrls(document)).toThrow(
-      ReplayScreenshotAssetError,
-    );
-
-    frame = {
-      contentDocument: null,
-      getAttribute: (name: string) =>
-        name === "srcdoc" ? "<p>embedded document</p>" : null,
-    } as unknown as HTMLIFrameElement;
-    expect(() => crossOriginImageUrls(document)).toThrow(
-      ReplayScreenshotAssetError,
-    );
+    frame.remove();
   });
 
   it("rejects video sources rather than saving a blank media frame", async () => {
@@ -526,17 +597,12 @@ describe("session replay screenshot asset checks", () => {
       configurable: true,
       value: { ready: childFontsReady },
     });
-    const frame = {
-      contentDocument: childDocument,
-      getAttribute: () => null,
-    } as unknown as HTMLIFrameElement;
-    const querySelectorAll = document.querySelectorAll.bind(document);
-    vi.spyOn(document, "querySelectorAll").mockImplementation(((
-      selector: string,
-    ) =>
-      selector === "iframe"
-        ? ([frame] as unknown as NodeListOf<Element>)
-        : querySelectorAll(selector)) as typeof document.querySelectorAll);
+    const frame = document.createElement("iframe");
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: childDocument,
+    });
+    document.body.appendChild(frame);
     vi.spyOn(window, "getComputedStyle").mockReturnValue({
       display: "block",
       visibility: "visible",
@@ -555,6 +621,7 @@ describe("session replay screenshot asset checks", () => {
     resolveChildFonts();
     await pending;
     expect(finished).toBe(true);
+    frame.remove();
   });
 
   it("times out image checks instead of waiting indefinitely", async () => {
@@ -583,31 +650,141 @@ describe("session replay screenshot asset checks", () => {
     svgUse.setAttribute("href", "#icon");
     svg.appendChild(svgUse);
     document.body.appendChild(svg);
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    stubImageProbes(() => "load");
 
     await expect(
       assertRemoteImagesCapturable(document),
     ).resolves.toBeInstanceOf(Map);
-    expect(fetchSpy).not.toHaveBeenCalled();
 
     svg.remove();
   });
 
-  it("uses CORS image loading rather than fetch for asset checks", async () => {
+  it("uses bounded CORS fetches and inlines raster assets", async () => {
     const image = document.createElement("img");
     image.src = "https://assets.example.test/image.png";
     document.body.appendChild(image);
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
     const probes = stubImageProbes(() => "load");
 
     const assets = await assertRemoteImagesCapturable(document);
 
-    expect(fetchSpy).not.toHaveBeenCalled();
     expect(probes).toHaveLength(1);
-    expect(probes[0].crossOrigin).toBe("anonymous");
+    expect(probes[0]).toMatchObject({
+      credentials: "same-origin",
+      mode: "cors",
+      url: image.src,
+    });
     expect(assets.get(document)?.get(image.src)).toMatch(/^data:image\/png/);
 
     image.remove();
+  });
+
+  it("checks image dimensions before decoding large raster assets", async () => {
+    const image = document.createElement("img");
+    image.src = "https://assets.example.test/large.png";
+    document.body.appendChild(image);
+    stubImageProbes(
+      () =>
+        new Response(pngBlob(4_000, 3_000), {
+          headers: { "content-type": "image/png" },
+        }),
+    );
+    const decode = vi.mocked(globalThis.createImageBitmap);
+
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    expect(decode).not.toHaveBeenCalled();
+
+    image.remove();
+  });
+
+  it("rejects animated PNGs instead of inlining a stale frame", async () => {
+    const image = document.createElement("img");
+    image.src = "https://assets.example.test/animated.png";
+    document.body.appendChild(image);
+    stubImageProbes(
+      () =>
+        new Response(pngBlob(1, 1, true), {
+          headers: { "content-type": "image/png" },
+        }),
+    );
+    const decode = vi.mocked(globalThis.createImageBitmap);
+
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    expect(decode).not.toHaveBeenCalled();
+
+    image.remove();
+  });
+
+  it("inlines a static SVG after rejecting external and animated content", async () => {
+    const image = document.createElement("img");
+    image.src = "https://assets.example.test/logo.svg";
+    document.body.appendChild(image);
+    stubImageProbes(
+      () =>
+        new Response(
+          new Blob(
+            [
+              '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><defs><linearGradient id="g"/></defs><path fill="url(#g)"/></svg>',
+            ],
+            { type: "image/svg+xml" },
+          ),
+          { headers: { "content-type": "image/svg+xml" } },
+        ),
+    );
+
+    const assets = await assertRemoteImagesCapturable(document);
+
+    expect(assets.get(document)?.get(image.src)).toMatch(/^data:image\/png/);
+    image.remove();
+  });
+
+  it("captures the replay document viewport without cloning its iframe", async () => {
+    const stage = document.createElement("div");
+    const iframe = document.createElement("iframe");
+    const replayDocument = document.implementation.createHTMLDocument("replay");
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      value: replayDocument,
+    });
+    Object.defineProperty(iframe, "contentWindow", {
+      configurable: true,
+      value: { innerHeight: 480, innerWidth: 640, scrollX: 12, scrollY: 34 },
+    });
+    stage.appendChild(iframe);
+    document.body.appendChild(stage);
+
+    const canvas = document.createElement("canvas");
+    Object.defineProperty(canvas, "toBlob", {
+      configurable: true,
+      value: (callback: BlobCallback) =>
+        callback(new Blob(["png"], { type: "image/png" })),
+    });
+    html2canvasMock.mockResolvedValue(canvas);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:replay-screenshot");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    await downloadReplayScreenshot(stage, iframe, "replay.png");
+
+    expect(html2canvasMock).toHaveBeenCalledWith(
+      replayDocument.documentElement,
+      expect.objectContaining({
+        height: 480,
+        scrollX: 12,
+        scrollY: 34,
+        width: 640,
+        windowHeight: 480,
+        windowWidth: 640,
+      }),
+    );
+    stage.remove();
   });
 
   it("rejects image errors such as a redirect without CORS permission", async () => {
@@ -671,6 +848,9 @@ describe("session replay screenshot asset checks", () => {
 
     expect(clonedImage.getAttribute("src")).toBe(imageData);
     expect(clonedCard.style.backgroundImage).toContain(cardData);
+    expect(clonedCard.style.getPropertyPriority("background-image")).toBe(
+      "important",
+    );
   });
 
   it("limits parallel image checks", async () => {
@@ -705,18 +885,20 @@ describe("session replay screenshot asset checks", () => {
     const pending = document.createElement("img");
     pending.src = "https://assets.example.test/pending.png";
     document.body.append(failed, pending);
-    const removeAttributeSpy = vi.spyOn(
-      HTMLImageElement.prototype,
-      "removeAttribute",
-    );
-    stubImageProbes((url) =>
+    const probes = stubImageProbes((url) =>
       url.endsWith("/fail.png") ? "error" : new Promise(() => {}),
     );
 
     await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
       ReplayScreenshotAssetError,
     );
-    expect(removeAttributeSpy).toHaveBeenCalledWith("src");
+    expect(
+      probes.find((probe) => probe.url.endsWith("/pending.png"))?.signal,
+    ).toBeDefined();
+    expect(
+      probes.find((probe) => probe.url.endsWith("/pending.png"))?.signal
+        ?.aborted,
+    ).toBe(true);
 
     failed.remove();
     pending.remove();

@@ -622,6 +622,7 @@ function ReplayPlayer({
   const currentTimeRef = useLiveRef(currentTime);
   const playingRef = useLiveRef(playing);
   const speedRef = useLiveRef(speed);
+  const savingScreenshotRef = useLiveRef(savingScreenshot);
 
   const currentUrl = useMemo(
     () => currentUrlAt(events, currentTime),
@@ -726,7 +727,9 @@ function ReplayPlayer({
   const seek = useCallback(
     (ms: number, autoplay = playingRef.current) => {
       const replayer = replayerRef.current;
-      if (!replayer || status !== "ready") return;
+      if (!replayer || status !== "ready" || savingScreenshotRef.current) {
+        return;
+      }
       const clamped = clamp(ms, 0, Math.max(totalTime, 0));
       try {
         if (autoplay) {
@@ -758,6 +761,7 @@ function ReplayPlayer({
     },
     [
       playingRef,
+      savingScreenshotRef,
       status,
       streamedDimsRef,
       totalTime,
@@ -768,23 +772,25 @@ function ReplayPlayer({
 
   const beginScrub = useCallback(
     (ms: number) => {
+      if (savingScreenshotRef.current) return;
       if (!scrubbingRef.current) {
         scrubResumePlayingRef.current = playingRef.current;
       }
       scrubbingRef.current = true;
       seek(ms, false);
     },
-    [playingRef, seek],
+    [playingRef, savingScreenshotRef, seek],
   );
 
   const endScrub = useCallback(
     (ms: number) => {
+      if (savingScreenshotRef.current) return;
       const resume = scrubResumePlayingRef.current;
       scrubbingRef.current = false;
       scrubResumePlayingRef.current = false;
       seek(ms, resume);
     },
-    [seek],
+    [savingScreenshotRef, seek],
   );
 
   useEffect(() => {
@@ -984,6 +990,7 @@ function ReplayPlayer({
   ]);
 
   function togglePlay() {
+    if (savingScreenshotRef.current) return;
     if (status !== "ready") return;
     const replayer = replayerRef.current;
     if (!replayer) return;
@@ -1023,12 +1030,13 @@ function ReplayPlayer({
     const replayer = replayerRef.current;
     const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
     const stage = stageAreaRef.current;
-    if (!replayer || !iframe || !stage || savingScreenshot) return;
+    if (!replayer || !iframe || !stage || savingScreenshotRef.current) return;
 
     const wasPlaying = playingRef.current;
     const captureAt = Number(
       replayer.getCurrentTime?.() ?? currentTimeRef.current,
     );
+    savingScreenshotRef.current = true;
     setSavingScreenshot(true);
 
     try {
@@ -1052,8 +1060,9 @@ function ReplayPlayer({
         ),
       );
     } finally {
+      savingScreenshotRef.current = false;
       setSavingScreenshot(false);
-      if (wasPlaying) {
+      if (wasPlaying && replayerRef.current === replayer) {
         try {
           replayer.play(captureAt);
           setPlaying(true);

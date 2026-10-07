@@ -6,13 +6,291 @@ export class ReplayScreenshotAssetError extends Error {
 }
 
 const REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS = 8_000;
-const REMOTE_IMAGE_PREFLIGHT_CONCURRENCY = 4;
+const REMOTE_IMAGE_PREFLIGHT_CONCURRENCY = 2;
 const REPLAY_FONT_TIMEOUT_MS = 8_000;
 const MAX_INLINE_IMAGE_PIXELS = 8_000_000;
+const MAX_TOTAL_IMAGE_PIXELS = 16_000_000;
 const MAX_INLINE_ASSET_BYTES = 32_000_000;
+const MAX_IMAGE_RESPONSE_BYTES = 12_000_000;
 
 type ReplayImageResource = { document: Document; url: string };
 type ReplayScreenshotAssets = Map<Document, Map<string, string>>;
+
+function readUint32BE(bytes: Uint8Array, offset: number): number {
+  return new DataView(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength,
+  ).getUint32(offset, false);
+}
+
+function readUint24LE(bytes: Uint8Array, offset: number): number {
+  return (
+    bytes[offset]! | (bytes[offset + 1]! << 8) | (bytes[offset + 2]! << 16)
+  );
+}
+
+function checkedImageDimensions(width: number, height: number) {
+  if (
+    !Number.isSafeInteger(width) ||
+    !Number.isSafeInteger(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    width * height > MAX_INLINE_IMAGE_PIXELS
+  ) {
+    throw new ReplayScreenshotAssetError();
+  }
+  return { height, width };
+}
+
+async function imageDimensionsBeforeDecode(blob: Blob): Promise<{
+  height: number;
+  width: number;
+}> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const isPng =
+    bytes.length >= 24 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a;
+  if (isPng) {
+    let offset = 8;
+    while (offset + 12 <= bytes.length) {
+      const chunkLength = readUint32BE(bytes, offset);
+      const chunkType = String.fromCharCode(
+        ...bytes.subarray(offset + 4, offset + 8),
+      );
+      if (chunkType === "acTL") throw new ReplayScreenshotAssetError();
+      if (chunkType === "IDAT") break;
+      offset += 12 + chunkLength;
+    }
+    return checkedImageDimensions(
+      readUint32BE(bytes, 16),
+      readUint32BE(bytes, 20),
+    );
+  }
+
+  const isGif =
+    bytes.length >= 6 &&
+    ["GIF87a", "GIF89a"].includes(String.fromCharCode(...bytes.subarray(0, 6)));
+  if (isGif) throw new ReplayScreenshotAssetError();
+
+  const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8;
+  if (isJpeg) {
+    const frameMarkers = new Set([
+      0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce,
+      0xcf,
+    ]);
+    let offset = 2;
+    while (offset + 4 <= bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      while (bytes[offset] === 0xff) offset += 1;
+      const marker = bytes[offset++]!;
+      if (
+        marker === 0xd8 ||
+        marker === 0xd9 ||
+        (marker >= 0xd0 && marker <= 0xd7)
+      ) {
+        continue;
+      }
+      const segmentLength = (bytes[offset]! << 8) | bytes[offset + 1]!;
+      if (segmentLength < 2 || offset + segmentLength > bytes.length) break;
+      if (frameMarkers.has(marker)) {
+        return checkedImageDimensions(
+          (bytes[offset + 5]! << 8) | bytes[offset + 6]!,
+          (bytes[offset + 3]! << 8) | bytes[offset + 4]!,
+        );
+      }
+      offset += segmentLength;
+    }
+    throw new ReplayScreenshotAssetError();
+  }
+
+  const isWebp =
+    bytes.length >= 30 &&
+    String.fromCharCode(...bytes.subarray(0, 4)) === "RIFF" &&
+    String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP";
+  if (isWebp) {
+    let offset = 12;
+    let dimensions: { height: number; width: number } | undefined;
+    while (offset + 8 <= bytes.length) {
+      const chunkType = String.fromCharCode(
+        ...bytes.subarray(offset, offset + 4),
+      );
+      const chunkLength = new DataView(
+        bytes.buffer,
+        bytes.byteOffset + offset + 4,
+        4,
+      ).getUint32(0, true);
+      const data = offset + 8;
+      if (chunkType === "ANIM" || chunkType === "ANMF") {
+        throw new ReplayScreenshotAssetError();
+      }
+      if (chunkType === "VP8X" && data + 10 <= bytes.length) {
+        if ((bytes[data]! & 0x02) !== 0) throw new ReplayScreenshotAssetError();
+        dimensions = checkedImageDimensions(
+          readUint24LE(bytes, data + 4) + 1,
+          readUint24LE(bytes, data + 7) + 1,
+        );
+      } else if (chunkType === "VP8 " && data + 10 <= bytes.length) {
+        dimensions = checkedImageDimensions(
+          ((bytes[data + 7]! & 0x3f) << 8) | bytes[data + 6]!,
+          ((bytes[data + 9]! & 0x3f) << 8) | bytes[data + 8]!,
+        );
+      } else if (chunkType === "VP8L" && data + 5 <= bytes.length) {
+        if (bytes[data] !== 0x2f) throw new ReplayScreenshotAssetError();
+        dimensions = checkedImageDimensions(
+          1 + bytes[data + 1]! + ((bytes[data + 2]! & 0x3f) << 8),
+          1 +
+            (bytes[data + 2]! >> 6) +
+            (bytes[data + 3]! << 2) +
+            ((bytes[data + 4]! & 0x0f) << 10),
+        );
+      }
+      offset = data + chunkLength + (chunkLength % 2);
+    }
+    if (dimensions) return dimensions;
+  }
+
+  const svgSource = new TextDecoder().decode(bytes);
+  if (/<\s*(?:\?xml|svg)\b/i.test(svgSource)) {
+    if (
+      /<\s*(?:script|foreignObject|animate(?:Motion|Transform)?|set)\b/i.test(
+        svgSource,
+      ) ||
+      /@import|@keyframes|\banimation\s*:/i.test(svgSource)
+    ) {
+      throw new ReplayScreenshotAssetError();
+    }
+    const svgDocument = new DOMParser().parseFromString(
+      svgSource,
+      "image/svg+xml",
+    );
+    const root = svgDocument.documentElement;
+    if (root.localName !== "svg" || svgDocument.querySelector("parsererror")) {
+      throw new ReplayScreenshotAssetError();
+    }
+    for (const element of svgDocument.querySelectorAll("*")) {
+      for (const attribute of Array.from(element.attributes)) {
+        if (
+          ["href", "xlink:href"].includes(attribute.name.toLowerCase()) &&
+          !attribute.value.trim().startsWith("#")
+        ) {
+          throw new ReplayScreenshotAssetError();
+        }
+        if (
+          cssImageUrlTokens(attribute.value).some(
+            (token) => !token.url.startsWith("#"),
+          )
+        ) {
+          throw new ReplayScreenshotAssetError();
+        }
+      }
+    }
+    const svgStyle = Array.from(svgDocument.querySelectorAll("style"))
+      .map((style) => style.textContent ?? "")
+      .join("\n");
+    if (
+      cssImageUrlTokens(svgStyle).some((token) => !token.url.startsWith("#"))
+    ) {
+      throw new ReplayScreenshotAssetError();
+    }
+    const parseLength = (value: string | null) => {
+      const match = value?.match(/^\s*([\d.]+)(?:px)?\s*$/i);
+      return match ? Number(match[1]) : 0;
+    };
+    const viewBox = root
+      .getAttribute("viewBox")
+      ?.trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    const width = parseLength(root.getAttribute("width")) || viewBox?.[2] || 0;
+    const height =
+      parseLength(root.getAttribute("height")) || viewBox?.[3] || 0;
+    return checkedImageDimensions(width, height);
+  }
+  throw new ReplayScreenshotAssetError();
+}
+
+async function boundedImageBlob(response: Response): Promise<Blob> {
+  const contentLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > MAX_IMAGE_RESPONSE_BYTES
+  ) {
+    throw new ReplayScreenshotAssetError();
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const blob = await response.blob();
+    if (blob.size > MAX_IMAGE_RESPONSE_BYTES) {
+      throw new ReplayScreenshotAssetError();
+    }
+    return blob;
+  }
+
+  const chunks: ArrayBuffer[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_IMAGE_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw new ReplayScreenshotAssetError();
+    }
+    const chunk = new Uint8Array(value.byteLength);
+    chunk.set(value);
+    chunks.push(chunk.buffer as ArrayBuffer);
+  }
+  return new Blob(chunks, {
+    type: response.headers.get("content-type") ?? "",
+  });
+}
+
+function renderedChildren(node: Node): Node[] {
+  const source =
+    node.nodeType === 1 ? ((node as Element).shadowRoot ?? node) : node;
+  return Array.from(source.childNodes).flatMap((child) => {
+    if (child.nodeType === 1 && (child as Element).localName === "slot") {
+      const assigned = (child as HTMLSlotElement).assignedNodes();
+      if (assigned.length > 0) return assigned;
+    }
+    return [child];
+  });
+}
+
+function renderedElements(document: Document): Element[] {
+  const root = document.documentElement;
+  if (!root) return [];
+  const elements: Element[] = [root];
+  const visit = (node: Node) => {
+    for (const child of renderedChildren(node)) {
+      if (child.nodeType !== 1) continue;
+      elements.push(child as Element);
+      visit(child);
+    }
+  };
+  visit(root);
+  return elements;
+}
+
+function composedParent(element: Element): Element | null {
+  if (element.parentElement) return element.parentElement;
+  const root = element.getRootNode();
+  return root.nodeType === 11 && "host" in root
+    ? (root as ShadowRoot).host
+    : null;
+}
 
 function isElementRendered(element: Element, document: Document): boolean {
   const view = document.defaultView;
@@ -23,11 +301,7 @@ function isElementRendered(element: Element, document: Document): boolean {
     return false;
   }
 
-  for (
-    let current: Element | null = element;
-    current;
-    current = current.parentElement
-  ) {
+  for (let current: Element | null = element; current; ) {
     const styles = view.getComputedStyle(current);
     if (
       styles.display === "none" ||
@@ -36,6 +310,7 @@ function isElementRendered(element: Element, document: Document): boolean {
     ) {
       return false;
     }
+    current = composedParent(current);
   }
 
   if (typeof element.getBoundingClientRect !== "function") return true;
@@ -67,7 +342,9 @@ function replayDocuments(document: Document): Document[] {
     visited.add(current);
     documents.push(current);
 
-    for (const frame of current.querySelectorAll<HTMLIFrameElement>("iframe")) {
+    for (const frame of renderedElements(current).filter(
+      (element): element is HTMLIFrameElement => element.tagName === "IFRAME",
+    )) {
       if (!isElementRendered(frame, current)) continue;
       const child = frame.contentDocument;
       if (!child?.documentElement) {
@@ -79,6 +356,74 @@ function replayDocuments(document: Document): Document[] {
 
   visit(document);
   return documents;
+}
+
+type CssImageUrlToken = { end: number; start: number; url: string };
+
+function decodeCssUrl(value: string): string {
+  return value.replace(/\\([0-9a-f]{1,6})\s?|\\(.)/gi, (_match, hex, char) =>
+    hex ? String.fromCodePoint(Number.parseInt(hex, 16)) : char,
+  );
+}
+
+function cssImageUrlTokens(value: string): CssImageUrlToken[] {
+  const tokens: CssImageUrlToken[] = [];
+  let quote: string | null = null;
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    const start = /^url\s*\(/i.exec(value.slice(index));
+    if (!start) continue;
+
+    let cursor = index + start[0].length;
+    while (/\s/.test(value[cursor] ?? "")) cursor += 1;
+    let url = "";
+    const urlQuote =
+      value[cursor] === "'" || value[cursor] === '"' ? value[cursor]! : null;
+    if (urlQuote) {
+      cursor += 1;
+      const contentStart = cursor;
+      let urlEscaped = false;
+      while (cursor < value.length) {
+        const current = value[cursor]!;
+        if (urlEscaped) urlEscaped = false;
+        else if (current === "\\") urlEscaped = true;
+        else if (current === urlQuote) break;
+        cursor += 1;
+      }
+      if (cursor >= value.length) throw new ReplayScreenshotAssetError();
+      url = value.slice(contentStart, cursor);
+      cursor += 1;
+      while (/\s/.test(value[cursor] ?? "")) cursor += 1;
+      if (value[cursor] !== ")") throw new ReplayScreenshotAssetError();
+    } else {
+      const contentStart = cursor;
+      let urlEscaped = false;
+      while (cursor < value.length) {
+        const current = value[cursor]!;
+        if (urlEscaped) urlEscaped = false;
+        else if (current === "\\") urlEscaped = true;
+        else if (current === ")") break;
+        cursor += 1;
+      }
+      if (cursor >= value.length) throw new ReplayScreenshotAssetError();
+      url = value.slice(contentStart, cursor).trim();
+    }
+    if (!url) throw new ReplayScreenshotAssetError();
+    tokens.push({ end: cursor + 1, start: index, url: decodeCssUrl(url) });
+    index = cursor;
+  }
+  return tokens;
 }
 
 function imageResourcesInDocuments(
@@ -108,8 +453,8 @@ function imageResourcesInDocuments(
     if (/(?:-webkit-)?image-set\s*\(/i.test(value)) {
       throw new ReplayScreenshotAssetError();
     }
-    for (const match of value.matchAll(/url\(["']?([^"')]+)["']?\)/gi)) {
-      addUrl(match[1], baseURI, document);
+    for (const token of cssImageUrlTokens(value)) {
+      addUrl(token.url, baseURI, document);
     }
   };
   const assertMaskSupported = (value: string) => {
@@ -119,16 +464,19 @@ function imageResourcesInDocuments(
   };
 
   for (const current of documents) {
+    const elements = renderedElements(current);
     if (
-      [...current.querySelectorAll("object, embed")].some((element) =>
-        isElementRendered(element, current),
+      elements.some(
+        (element) =>
+          (element.tagName === "OBJECT" || element.tagName === "EMBED") &&
+          isElementRendered(element, current),
       )
     ) {
       throw new ReplayScreenshotAssetError();
     }
 
-    for (const canvas of current.querySelectorAll<HTMLCanvasElement>(
-      "canvas",
+    for (const canvas of elements.filter(
+      (element): element is HTMLCanvasElement => element.tagName === "CANVAS",
     )) {
       if (!isElementRendered(canvas, current)) continue;
       const bounds = canvas.getBoundingClientRect();
@@ -147,21 +495,27 @@ function imageResourcesInDocuments(
       }
     }
 
-    for (const image of current.querySelectorAll<HTMLImageElement>("img")) {
+    for (const image of elements.filter(
+      (element): element is HTMLImageElement => element.tagName === "IMG",
+    )) {
       if (!isElementRendered(image, current)) continue;
       const source = image.currentSrc || image.src;
       if (source) addUrl(source, current.baseURI, current);
     }
 
-    for (const image of current.querySelectorAll<HTMLInputElement>(
-      'input[type="image"]',
+    for (const image of elements.filter(
+      (element): element is HTMLInputElement =>
+        element.tagName === "INPUT" &&
+        (element as HTMLInputElement).type === "image",
     )) {
       if (!isElementRendered(image, current)) continue;
       if (image.src) addUrl(image.src, current.baseURI, current);
     }
 
-    for (const image of current.querySelectorAll<SVGElement>(
-      "svg image, svg use, svg feImage",
+    for (const image of elements.filter(
+      (element) =>
+        ["image", "use", "feimage"].includes(element.localName.toLowerCase()) &&
+        element.namespaceURI === "http://www.w3.org/2000/svg",
     )) {
       if (!isElementRendered(image, current)) continue;
       const source =
@@ -176,7 +530,9 @@ function imageResourcesInDocuments(
       }
     }
 
-    for (const video of current.querySelectorAll<HTMLVideoElement>("video")) {
+    for (const video of elements.filter(
+      (element): element is HTMLVideoElement => element.tagName === "VIDEO",
+    )) {
       if (!isElementRendered(video, current)) continue;
       if (
         video.poster ||
@@ -189,20 +545,15 @@ function imageResourcesInDocuments(
       }
     }
 
-    for (const audio of current.querySelectorAll<HTMLAudioElement>("audio")) {
+    for (const audio of elements.filter(
+      (element): element is HTMLAudioElement => element.tagName === "AUDIO",
+    )) {
       if (!audio.hasAttribute("controls")) continue;
       if (!isElementRendered(audio, current)) continue;
-      const bounds = audio.getBoundingClientRect();
-      if (bounds.width > 0 && bounds.height > 0) {
-        throw new ReplayScreenshotAssetError();
-      }
+      throw new ReplayScreenshotAssetError();
     }
 
-    const styledElements = [
-      current.documentElement,
-      ...current.querySelectorAll<Element>("*"),
-    ];
-    for (const element of styledElements) {
+    for (const element of elements) {
       if (!isElementRendered(element, current)) continue;
       const view = current.defaultView ?? window;
       const styles = view.getComputedStyle(element);
@@ -266,6 +617,7 @@ export async function assertRemoteImagesCapturable(
   const resources = imageResourcesInDocuments(documents);
   const assets: ReplayScreenshotAssets = new Map();
   let inlineAssetBytes = 0;
+  let inlineImagePixels = 0;
   const controller = new AbortController();
   const timeoutId = window.setTimeout(
     () => controller.abort(),
@@ -284,77 +636,52 @@ export async function assertRemoteImagesCapturable(
       nextUrlIndex < resources.length
     ) {
       const resource = resources[nextUrlIndex++];
-      const image = resource.document.createElement("img");
       try {
-        await new Promise<void>((resolve, reject) => {
-          let settled = false;
-          const cleanup = () => {
-            image.onload = null;
-            image.onerror = null;
-            controller.signal.removeEventListener("abort", abort);
-          };
-          const succeed = () => {
-            if (settled) return;
-            settled = true;
-            cleanup();
-            resolve();
-          };
-          const failImage = () => {
-            if (settled) return;
-            settled = true;
-            cleanup();
-            reject(new ReplayScreenshotAssetError());
-          };
-          const abort = () => {
-            image.removeAttribute("src");
-            failImage();
-          };
-
-          image.crossOrigin = "anonymous";
-          image.onload = () => {
-            const hasPositiveDimensions =
-              Math.sign(image.naturalWidth) === 1 &&
-              Math.sign(image.naturalHeight) === 1;
-            const pixelCount = image.naturalWidth * image.naturalHeight;
-            if (
-              hasPositiveDimensions &&
-              pixelCount <= MAX_INLINE_IMAGE_PIXELS
-            ) {
-              try {
-                const canvas = resource.document.createElement("canvas");
-                canvas.width = image.naturalWidth;
-                canvas.height = image.naturalHeight;
-                const context = canvas.getContext("2d");
-                if (!context) throw new ReplayScreenshotAssetError();
-                context.drawImage(image, 0, 0);
-                const dataUrl = canvas.toDataURL("image/png");
-                if (
-                  inlineAssetBytes + dataUrl.length >
-                  MAX_INLINE_ASSET_BYTES
-                ) {
-                  throw new ReplayScreenshotAssetError();
-                }
-                inlineAssetBytes += dataUrl.length;
-                const documentAssets =
-                  assets.get(resource.document) ?? new Map();
-                documentAssets.set(resource.url, dataUrl);
-                assets.set(resource.document, documentAssets);
-                succeed();
-              } catch {
-                failImage();
-              }
-            } else {
-              failImage();
-            }
-          };
-          image.onerror = failImage;
-          controller.signal.addEventListener("abort", abort, { once: true });
-          if (controller.signal.aborted) {
-            abort();
-            return;
-          }
-          image.src = resource.url;
+        const response = await fetch(resource.url, {
+          credentials: "same-origin",
+          mode: "cors",
+          signal: controller.signal,
         });
+        if (!response.ok || response.type === "opaque") {
+          throw new ReplayScreenshotAssetError();
+        }
+        const blob = await boundedImageBlob(response);
+        const dimensions = await imageDimensionsBeforeDecode(blob);
+        inlineImagePixels += dimensions.width * dimensions.height;
+        if (inlineImagePixels > MAX_TOTAL_IMAGE_PIXELS) {
+          throw new ReplayScreenshotAssetError();
+        }
+        if (controller.signal.aborted) throw new ReplayScreenshotAssetError();
+
+        const bitmap = await createImageBitmap(blob);
+        try {
+          if (controller.signal.aborted) throw new ReplayScreenshotAssetError();
+          checkedImageDimensions(bitmap.width, bitmap.height);
+          const bitmapPixels = bitmap.width * bitmap.height;
+          if (bitmapPixels > dimensions.width * dimensions.height) {
+            inlineImagePixels +=
+              bitmapPixels - dimensions.width * dimensions.height;
+            if (inlineImagePixels > MAX_TOTAL_IMAGE_PIXELS) {
+              throw new ReplayScreenshotAssetError();
+            }
+          }
+          const canvas = resource.document.createElement("canvas");
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          const context = canvas.getContext("2d");
+          if (!context) throw new ReplayScreenshotAssetError();
+          context.drawImage(bitmap, 0, 0);
+          const dataUrl = canvas.toDataURL("image/png");
+          if (inlineAssetBytes + dataUrl.length > MAX_INLINE_ASSET_BYTES) {
+            throw new ReplayScreenshotAssetError();
+          }
+          inlineAssetBytes += dataUrl.length;
+          const documentAssets = assets.get(resource.document) ?? new Map();
+          documentAssets.set(resource.url, dataUrl);
+          assets.set(resource.document, documentAssets);
+        } finally {
+          bitmap.close();
+        }
       } catch {
         fail();
       }
@@ -388,17 +715,22 @@ function replaceCssImageUrls(
   baseURI: string,
   assets: Map<string, string>,
 ): string {
-  return value.replace(
-    /url\(\s*(["']?)(.*?)\1\s*\)/gi,
-    (match, _quote: string, rawUrl: string) => {
-      try {
-        const dataUrl = assets.get(new URL(rawUrl, baseURI).href);
-        return dataUrl ? `url("${dataUrl}")` : match;
-      } catch {
-        return match;
-      }
-    },
-  );
+  const tokens = cssImageUrlTokens(value);
+  if (tokens.length === 0) return value;
+  let output = "";
+  let cursor = 0;
+  for (const token of tokens) {
+    let replacement = value.slice(token.start, token.end);
+    try {
+      const dataUrl = assets.get(new URL(token.url, baseURI).href);
+      if (dataUrl) replacement = 'url("' + dataUrl + '")';
+    } catch {
+      throw new ReplayScreenshotAssetError();
+    }
+    output += value.slice(cursor, token.start) + replacement;
+    cursor = token.end;
+  }
+  return output + value.slice(cursor);
 }
 
 export function inlineReplayAssets(
@@ -415,14 +747,8 @@ export function inlineReplayAssets(
   for (const [documentIndex, original] of originalDocuments.entries()) {
     const cloned = clonedDocuments[documentIndex]!;
     const documentAssets = assets.get(original) ?? new Map();
-    const originalElements = [
-      original.documentElement,
-      ...original.querySelectorAll<Element>("*"),
-    ];
-    const clonedElements = [
-      cloned.documentElement,
-      ...cloned.querySelectorAll<Element>("*"),
-    ];
+    const originalElements = renderedElements(original);
+    const clonedElements = renderedElements(cloned);
     if (originalElements.length !== clonedElements.length) {
       throw new ReplayScreenshotAssetError();
     }
@@ -431,6 +757,13 @@ export function inlineReplayAssets(
     const view = original.defaultView ?? window;
     for (const [elementIndex, originalElement] of originalElements.entries()) {
       const clonedElement = clonedElements[elementIndex];
+      if (
+        !clonedElement ||
+        (originalElement.tagName !== clonedElement.tagName &&
+          !originalElement.localName.includes("-"))
+      ) {
+        throw new ReplayScreenshotAssetError();
+      }
       if (originalElement instanceof view.HTMLImageElement) {
         const source = originalElement.currentSrc || originalElement.src;
         const dataUrl = documentAssets.get(source);
@@ -462,12 +795,14 @@ export function inlineReplayAssets(
         (clonedElement as HTMLElement).style.setProperty(
           "background-image",
           backgroundImage,
+          "important",
         );
       }
       if (listStyleImage !== styles.listStyleImage) {
         (clonedElement as HTMLElement).style.setProperty(
           "list-style-image",
           listStyleImage,
+          "important",
         );
       }
 
@@ -493,7 +828,7 @@ export function inlineReplayAssets(
         const marker = `replay-screenshot-${documentIndex}-${elementIndex}`;
         clonedElement.setAttribute("data-replay-screenshot-asset", marker);
         const rule = rewritten
-          .map(([property, value]) => `${property}:${value};`)
+          .map(([property, value]) => property + ":" + value + " !important;")
           .join("");
         pseudoRules.push(
           `[data-replay-screenshot-asset="${marker}"]${pseudo}{${rule}}`,
@@ -542,7 +877,12 @@ export async function downloadReplayScreenshot(
 ): Promise<void> {
   const replayWindow = iframe.contentWindow;
   const replayDocument = iframe.contentDocument;
-  if (!replayWindow || !replayDocument?.documentElement || !stage.isConnected) {
+  if (
+    !replayWindow ||
+    !replayDocument?.documentElement ||
+    !stage.isConnected ||
+    !stage.contains(iframe)
+  ) {
     throw new Error("Replay frame is unavailable");
   }
 
@@ -555,44 +895,26 @@ export async function downloadReplayScreenshot(
   });
 
   const { default: html2canvas } = await import("html2canvas");
-  const width = stage.clientWidth;
-  const height = stage.clientHeight;
+  const width = replayWindow.innerWidth;
+  const height = replayWindow.innerHeight;
   if (width <= 0 || height <= 0) throw new Error("Replay frame has no size");
 
-  const stageMarker = "data-replay-screenshot-target";
-  const priorMarker = stage.getAttribute(stageMarker);
-  const markerToken = crypto.randomUUID();
-  stage.setAttribute(stageMarker, markerToken);
-  let canvas: HTMLCanvasElement;
-  try {
-    canvas = await html2canvas(stage, {
-      allowTaint: false,
-      backgroundColor: null,
-      height,
-      logging: false,
-      scale: 1,
-      scrollX: 0,
-      scrollY: 0,
-      useCORS: true,
-      width,
-      windowHeight: window.innerHeight,
-      windowWidth: window.innerWidth,
-      onclone: (clonedDocument) => {
-        const clonedStage = clonedDocument.querySelector(
-          `[${stageMarker}="${markerToken}"]`,
-        );
-        const clonedFrame = clonedStage?.querySelector("iframe");
-        const clonedReplayDocument = clonedFrame?.contentDocument;
-        if (!clonedReplayDocument?.documentElement) {
-          throw new ReplayScreenshotAssetError();
-        }
-        inlineReplayAssets(replayDocument, clonedReplayDocument, replayAssets);
-      },
-    });
-  } finally {
-    if (priorMarker === null) stage.removeAttribute(stageMarker);
-    else stage.setAttribute(stageMarker, priorMarker);
-  }
+  const canvas = await html2canvas(replayDocument.documentElement, {
+    allowTaint: false,
+    backgroundColor: null,
+    height,
+    logging: false,
+    scale: 1,
+    scrollX: replayWindow.scrollX,
+    scrollY: replayWindow.scrollY,
+    useCORS: true,
+    width,
+    windowHeight: height,
+    windowWidth: width,
+    onclone: (clonedDocument) => {
+      inlineReplayAssets(replayDocument, clonedDocument, replayAssets);
+    },
+  });
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((result) => {
       if (result) resolve(result);
