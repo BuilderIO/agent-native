@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client/i18n";
+
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import { Skeleton } from "@/components/ui/skeleton";
 import { startupAnchor } from "@/lib/startup-timing";
@@ -14,6 +16,7 @@ import {
   type DocumentEditorIconRow,
   type DocumentEditorShape,
 } from "./document-editor-layout";
+import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 // Before the app loads, the startup script marks <html> with the icon row and
 // shape the page last drew; "startup" draws from those marks, since storage is
@@ -149,11 +152,14 @@ export function DocumentEditorSkeleton({
   title,
   iconRow = "add",
   shape = "page",
+  stalledLoad,
 }: {
   title?: string | null;
   iconRow?: DocumentEditorIconRow | "startup";
   shape?: DocumentEditorShape | "startup";
+  stalledLoad?: { stage: string; action: string };
 }) {
+  const t = useT();
   const sidebarTrigger = useSidebarTrigger();
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -169,7 +175,7 @@ export function DocumentEditorSkeleton({
           <Skeleton className="h-7 w-7 rounded-md" />
         </div>
       </div>
-      <div className="@container min-h-0 flex-1 overflow-hidden">
+      <div className="relative @container min-h-0 flex-1 overflow-hidden">
         {shape === "startup" ? (
           <>
             <PageColumn
@@ -196,6 +202,15 @@ export function DocumentEditorSkeleton({
             review={shape === "review"}
           />
         )}
+        {stalledLoad ? (
+          <div className="absolute inset-x-4 bottom-4 z-10">
+            <WidgetLoadDiagnostic
+              active
+              stage={stalledLoad.stage}
+              action={stalledLoad.action}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

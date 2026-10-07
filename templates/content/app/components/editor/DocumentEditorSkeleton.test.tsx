@@ -7,6 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/components/layout/sidebar-trigger", () => ({
   useSidebarTrigger: () => null,
 }));
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string, values?: { stage: string; action: string }) =>
+    key === "editor.widgetLoadStalled"
+      ? `Still waiting for ${values?.stage}. Request: ${values?.action}.`
+      : key,
+}));
 
 import {
   STARTUP_PAGE_ICON_ROW_ATTRIBUTE,
@@ -34,6 +40,7 @@ describe("DocumentEditorSkeleton optimistic title", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   it("keeps the layout-matching title bar when no title is known", () => {
@@ -173,6 +180,30 @@ describe("DocumentEditorSkeleton optimistic title", () => {
     expect(databaseColumn?.className).toContain("hidden");
     expect(databaseColumn?.className).toContain(
       `[${mark}=database-constrained]_&]:block`,
+    );
+  });
+
+  it("names the stalled stage and request after eight seconds", async () => {
+    vi.useFakeTimers();
+    act(() => {
+      root.render(
+        <DocumentEditorSkeleton
+          title="Body check"
+          stalledLoad={{ stage: "the saved page body", action: "get-document" }}
+        />,
+      );
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(7_999);
+    });
+    expect(container.querySelector('[role="status"]')).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Still waiting for the saved page body. Request: get-document.",
     );
   });
 });

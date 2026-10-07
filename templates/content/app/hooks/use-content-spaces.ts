@@ -53,14 +53,15 @@ export function shouldAutoEnsureContentSpaces({
   );
 }
 
-export function useContentSpaces() {
+export function useContentSpaces(options: { enabled?: boolean } = {}) {
   const openAiWidget = isOpenAiMcpAppHost();
+  const enabled = options.enabled !== false && !openAiWidget;
   return useActionQuery<ListContentSpacesResponse>(
     "list-content-spaces",
     undefined,
     {
-      enabled: !openAiWidget,
-      placeholderData: openAiWidget ? undefined : (previous) => previous,
+      enabled,
+      placeholderData: enabled ? (previous) => previous : undefined,
     },
   );
 }

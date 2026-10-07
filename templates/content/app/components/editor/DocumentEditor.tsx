@@ -15,6 +15,7 @@ import {
   useDbSync,
   useSession,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useCreateResourceSuggestionProposal,
@@ -1285,6 +1286,8 @@ export function PageEditorSurface({
   focusTitle = false,
   onTitleFocused,
 }: PageEditorSurfaceProps) {
+  const t = useT();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const {
     query: documentQuery,
     fetchedForThisOpen,
@@ -1376,6 +1379,7 @@ export function PageEditorSurface({
       host === "page" &&
       !viewId &&
       !!document &&
+      document.mcpDirectoryWidgetReadOnly !== true &&
       !document.database &&
       !isError &&
       fetchedForThisOpen &&
@@ -1449,6 +1453,14 @@ export function PageEditorSurface({
           document
             ? readDocumentShapeHint(document)
             : readPageShapeHint(documentId)
+        }
+        stalledLoad={
+          widgetBridgeActive
+            ? {
+                stage: t("editor.widgetDocumentLoadStage"),
+                action: "get-document",
+              }
+            : undefined
         }
       />
     );
@@ -2443,7 +2455,9 @@ function PageEditorSessionBody({
     document.mcpDirectoryWidgetReadOnly === true;
   const canEdit = document.canEdit === true && !mcpDirectoryWidgetReadOnly;
   const canEditRef = useRef(canEdit);
-  const contentSpacesQuery = useContentSpaces();
+  const contentSpacesQuery = useContentSpaces({
+    enabled: !mcpDirectoryWidgetReadOnly,
+  });
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
   const localWorkspaceMode =
     contentSpacesQuery.data?.sourceMode === "local-files";
@@ -2453,7 +2467,7 @@ function PageEditorSessionBody({
     [localDocumentsQuery.data, localWorkspaceMode],
   );
   const navigationContextQuery = useContentNavigationContext(
-    host === "page" ? documentId : null,
+    host === "page" && !mcpDirectoryWidgetReadOnly ? documentId : null,
   );
   const navigationPath = useMemo(
     () =>
@@ -2483,7 +2497,7 @@ function PageEditorSessionBody({
   const decideSuggestionProposal = useDecideResourceSuggestionProposal();
   const suggestionsQuery = useResourceSuggestions(
     { resourceType: "document", resourceId: documentId },
-    { enabled: !isLocalFileDocument },
+    { enabled: !isLocalFileDocument && !mcpDirectoryWidgetReadOnly },
   );
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [isStartingSuggestion, setIsStartingSuggestion] = useState(false);
@@ -6872,7 +6886,9 @@ function PageEditorSessionBody({
     isLoading: commentsLoading,
     isFetching: commentsFetching,
     isError: commentsError,
-  } = useComments(!isLocalFileDocument ? documentId : null);
+  } = useComments(
+    !isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? documentId : null,
+  );
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });

@@ -8,6 +8,7 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
@@ -168,6 +169,7 @@ import {
 import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
 import { ContentTableView } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 function compareDocumentBodyRevisions(
   first: string,
@@ -3041,6 +3043,7 @@ export function VisualEditor({
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const fileUploadStatus = useFileUploadStatus();
   const fileStorageState: "configured" | "missing" | "unknown" =
     fileUploadStatus.isError
@@ -4521,6 +4524,11 @@ export function VisualEditor({
         <div className="h-4 w-full rounded bg-muted" />
         <div className="h-4 w-5/6 rounded bg-muted" />
         <div className="h-4 w-3/4 rounded bg-muted" />
+        <WidgetLoadDiagnostic
+          active={widgetBridgeActive}
+          stage={t("editor.widgetEditorInitStage")}
+          action="VisualEditor.useEditor"
+        />
       </div>
     );
   }
