@@ -426,6 +426,27 @@ describe("parity oracle guard", () => {
     }
   });
 
+  it("checks every test declaration on a changed line", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root);
+      const result = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/parity-inspector.spec.ts",
+          `test("matches Figma selection", () => {}); it("uses the oracle", () => oracle("${oracleId}"));`,
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(result.exitCode, 1, result.message);
+      assert.match(result.message, /test block needs oracle: fig\./);
+      assert.match(result.message, /1 citation/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not require native evidence citations in guard tooling tests", async () => {
     const root = makeRoot();
     try {
@@ -727,7 +748,33 @@ describe("parity oracle guard", () => {
         today: new Date("2026-10-06T00:00:00Z"),
       });
       assert.equal(result.exitCode, 1, result.message);
-      assert.match(result.message, /figma\.pageId must not be persisted/);
+      assert.match(
+        result.message,
+        /private Figma locator must not be committed/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects normalized page ID keys recursively in ledger records", async () => {
+    const root = makeRoot();
+    try {
+      for (const key of ["page-id", "figma_page_id"]) {
+        writeEntry(root, {
+          metadata: { evidence: { [key]: "private-page-id" } },
+        });
+        const result = await runParityOracleGuard({
+          repoRoot: root,
+          addedLines: new Map(),
+          today: new Date("2026-10-06T00:00:00Z"),
+        });
+        assert.equal(result.exitCode, 1, result.message);
+        assert.match(
+          result.message,
+          /private Figma locator must not be committed/,
+        );
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

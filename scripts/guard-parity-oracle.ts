@@ -179,6 +179,8 @@ function containsPrivateFigmaLocator(value: unknown): boolean {
     return (
       normalizedKey === "filekey" ||
       normalizedKey === "figmafilekey" ||
+      normalizedKey === "pageid" ||
+      normalizedKey === "figmapageid" ||
       containsPrivateFigmaLocator(child)
     );
   });
@@ -561,8 +563,6 @@ async function loadLedger(
     if (containsPrivateFigmaLocator(entry))
       problems.push(`${label}: private Figma locator must not be committed`);
     if (isRecord(entry.figma)) {
-      if (Object.hasOwn(entry.figma, "pageId"))
-        problems.push(`${label}: figma.pageId must not be persisted`);
       if (
         entry.figma.pageName !== undefined &&
         entry.figma.pageName !== WITHHELD_FIGMA_PAGE_NAME
@@ -856,6 +856,12 @@ function validateAddedTests(
       };
     }
     const lines = source.split("\n");
+    const lineOffsets = new Map<number, number>();
+    let lineOffset = 0;
+    for (const [index, line] of lines.entries()) {
+      lineOffsets.set(index + 1, lineOffset);
+      lineOffset += line.length + 1;
+    }
     for (const line of changed) {
       const text = lines[line - 1];
       if (text === undefined)
@@ -888,12 +894,12 @@ function validateAddedTests(
       const nextStart = matches[index + 1]?.index;
       const end = nextStart ?? source.length;
       const startLine = lineNumber(source, start);
-      const endLine =
-        nextStart === undefined ? undefined : lineNumber(source, nextStart);
-      const changedInBlock = [...changed].some(
-        (number) =>
-          number >= startLine && (endLine === undefined || number < endLine),
-      );
+      const changedInBlock = [...changed].some((number) => {
+        const lineStart = lineOffsets.get(number);
+        if (lineStart === undefined) return false;
+        const lineEnd = lineOffsets.get(number + 1) ?? source.length;
+        return lineStart < end && lineEnd > start;
+      });
       if (!changedInBlock) continue;
       const body = source.slice(start, end);
       const relName = path.posix.basename(rel);
