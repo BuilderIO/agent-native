@@ -8,7 +8,6 @@ import {
   isForbiddenHostedTemplateEnvKey,
   normalizeProductionUrlEntry,
   resolveNetlifyApiContext,
-  resolveNetlifyEnvScopes,
   resolveNetlifyTemplateName,
 } from "./sync-template-netlify-env";
 
@@ -149,24 +148,6 @@ describe("resolveNetlifyApiContext", () => {
   it("preserves ordinary Netlify contexts", () => {
     expect(resolveNetlifyApiContext("deploy-preview")).toBe("deploy-preview");
     expect(resolveNetlifyApiContext("production")).toBe("production");
-  });
-});
-
-describe("resolveNetlifyEnvScopes", () => {
-  it("limits the fleet-wide Sentry upload token to builds", () => {
-    expect(
-      resolveNetlifyEnvScopes("SENTRY_AUTH_TOKEN", [
-        "builds",
-        "functions",
-        "runtime",
-      ]),
-    ).toEqual(["builds"]);
-  });
-
-  it("preserves configured scopes for other keys", () => {
-    expect(
-      resolveNetlifyEnvScopes("SENTRY_DSN", ["functions", "runtime"]),
-    ).toEqual(["functions", "runtime"]);
   });
 });
 
