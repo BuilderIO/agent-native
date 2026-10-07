@@ -23,8 +23,10 @@
 5. **One browser smoke** on the domain route: create, the rejected case, and
    undo or cancel. Inspect console and failed network requests. Fix errors from
    the new route or actions; identify existing scaffold messages separately.
-   Local dev on loopback signs you in with an automatic dev account while the
-   database has no real users. Capture the finished workflow.
+   On loopback, automatic dev sign-in works while the database has no real
+   users. If it shows a sign-in page, use an existing local account or a
+   separate disposable local database; do not create accounts or set
+   `AUTH_DISABLED`. Capture the finished workflow.
 6. **Clean up.** Close the tab and stop the dev server.
 
 Run each check once. After a fix, rerun only the check that failed. Don't
@@ -44,7 +46,7 @@ add a production build, new test files, or a second full pass.
 | The agent asks "which one?" on a detail page                            | The id isn't in `navigation`                                                                            | Add it in `getNavigationState`                                                                                  |
 | The agent doesn't reach for the new actions                             | They aren't in `INITIAL_TOOL_NAMES` or `AGENTS.md`                                                      | Add them to both                                                                                                |
 | Sign-in lands on `/home`                                                | `homePath` is unset, or set somewhere other than a server plugin                                        | Set it with `defineAppConfig` in `server/plugins/` and restart dev                                              |
-| Sign-in page during the smoke                                           | The server is not running as loopback development                                                       | Check the dev URL and environment; do not create accounts or set `AUTH_DISABLED`                              |
+| Sign-in page during the smoke                                           | The DB has a real user, `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`, or the server isn't loopback development | Use an existing local account or a separate disposable local DB; verify loopback dev and clear the opt-out. Don't create accounts or set `AUTH_DISABLED` |
 | Doctor reports an unscoped query                                        | An ownable table is read without an access helper in that statement or block                            | Put `accessFilter(...)` in the query's `where`, or call `assertAccess` first in the same block                  |
 | `Named export 'IconX' not found`                                        | The icon name was guessed                                                                               | Grep the exact name in `node_modules/@tabler/icons-react/dist/tabler-icons-react.d.ts`                          |
 | A `@/components/ui/<x>` import fails                                    | The starter doesn't ship that primitive                                                                 | Add `export * from "@agent-native/toolkit/ui/<x>";`                                                             |

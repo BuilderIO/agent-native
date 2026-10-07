@@ -41,7 +41,10 @@ Choose these six things before writing code:
    `references/data-and-access.md`: private, team-visible, shared on invite, or a
    child that inherits its parent's access. Making a team resource private per
    user is the usual wrong turn. Everyone then sees an empty list, and no
-   conflict check can see anyone else's rows.
+   conflict check can see anyone else's rows. Give each table `owner_email`
+   and/or `org_id`, directly or via `ownableColumns()`; `org_id` alone passes
+   `[db-tool-scoping]`. Doctor checks the schema marker, not query authorization;
+   never denylist or opt out `rooms` or `bookings`.
 3. **Invariants**: rules that must hold under concurrent requests (no overlap,
    stock never negative, unique slug). Enforce them in a write action inside a
    transaction or with a database constraint; the UI alone is insufficient.
@@ -157,10 +160,13 @@ made from a stale view. See `real-time-sync`.
 1. Start `pnpm exec agent-native dev` in the background, without `--open`, and
    wait for the ready URL. Startup regenerates `.generated/action-types.d.ts`
    and the actions registry, so a typecheck run before this is meaningless.
-   Local dev on loopback signs you in automatically; do not create accounts or
-   set `AUTH_DISABLED`.
-2. Run `pnpm typecheck`, then `pnpm agent-native:doctor` (or
-   `pnpm exec agent-native doctor`). Fix every finding, then rerun only what failed.
+   On loopback, automatic dev sign-in works when the local database has no real
+   users. If the sign-in page appears, use an existing local account or switch
+   to a separate disposable local database; do not create accounts or set
+   `AUTH_DISABLED`.
+2. Run `pnpm typecheck`, then `pnpm agent-native:doctor`. Plain `pnpm doctor`
+   runs pnpm's own command and exits 0 without running Agent-Native Doctor. Fix
+   every finding, then rerun only what failed.
 3. Check the agent path. Call a guarded write twice with the same input via
    `pnpm action <name> --key value`. The second call must fail with the expected
    message; read back the saved state through the matching list/get action.
