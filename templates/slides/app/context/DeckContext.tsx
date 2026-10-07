@@ -2936,6 +2936,7 @@ function discardPendingDeckOps(deckId: string) {
   deckSaveRetryAttempts.delete(deckId);
   deckRevisionConflictRetryAttempts.delete(deckId);
   clearDeckSaveFailure(deckId);
+  deckAccessLostErrors.delete(deckId);
   staleContentConflicts.delete(deckId);
   staleFullReplaceDrafts.delete(deckId);
   staleContentRetrySlides.delete(deckId);
@@ -4962,6 +4963,7 @@ export function DeckProvider({
       ...pendingOpsQueue.keys(),
       ...inFlightSaves,
       ...failedSaveDecks,
+      ...deckAccessLostErrors.keys(),
       ...staleContentConflicts.keys(),
       ...staleSlideFieldDrafts.keys(),
       ...staleFullReplaceDrafts.keys(),

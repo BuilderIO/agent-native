@@ -850,6 +850,21 @@ describe("DeckContext fallback polling", () => {
     expect(getDeckSaveError("open-deck")).toMatchObject({ status: 404 });
   });
 
+  it("drops the access-lost flag with the deck when it is deleted", async () => {
+    const { api, result } = await renderOpenDeck();
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+
+    await act(async () => {
+      await result.current.deleteDeck("open-deck");
+    });
+
+    expect(hasFailedDeckSave("open-deck")).toBe(false);
+  });
+
   it("clears the flag when a reload finds the deck again", async () => {
     const { api, result } = await renderOpenDeck();
     api.failDeckReads(403);
