@@ -1,9 +1,12 @@
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import { getCurrentTurnEventsForThread } from "../agent/run-store.js";
+import { withDbExec, type DbExec } from "../db/client.js";
 import {
+  ensureTable as ensureResourcesTable,
   resourceGetByPath,
   resourceListAllOwners,
   resourcePutIfCurrent,
+  resourcePutIfCurrentInTransaction,
   type Resource,
 } from "../resources/store.js";
 import {
@@ -364,7 +367,12 @@ async function processRecurringJobsWithLease(
                 recovery.status,
                 recovery.error,
                 recovery.errorCode,
-                { requirePersisted: true },
+                {
+                  requirePersisted: true,
+                  ...(recovery.history.dispatchPending
+                    ? { expectedClaimedAt: recovery.history.claimedAt }
+                    : {}),
+                },
               );
             await recordExecutionOutcome(
               resource,
@@ -1115,40 +1123,79 @@ async function executeJob(
     return { status: "skipped", error };
   }
 
-  const historyId =
-    options.historyId ??
-    (meta.executionHostId
-      ? undefined
-      : await startBackgroundAutomationHistory(
-          jobContext,
-          jobUserEmail,
-          jobOrgId,
-          deps.appId,
-        ));
-  try {
-    await options.assertCanStart?.();
-  } catch (error) {
-    if (historyId && !options.resume)
-      await finishAutomationRun(
-        historyId,
-        "error",
-        error instanceof Error ? error.message : String(error),
-        error instanceof AutomationSchedulerLeaseLostError
-          ? error.errorCode
-          : "background_automation_interrupted",
-        { requirePersisted: true },
-      );
-    throw error;
-  }
+  let historyId = options.historyId;
+  const runningMeta = { ...meta };
   if (!options.resume) {
-    meta.lastRun = new Date().toISOString();
-    meta.lastHistoryId = historyId;
-    meta.lastRunManual = options.manual === true;
-    meta.lastRunAdvanceSchedule = options.advanceSchedule !== false;
+    runningMeta.lastRun = new Date().toISOString();
+    runningMeta.lastHistoryId = historyId;
+    runningMeta.lastRunManual = options.manual === true;
+    runningMeta.lastRunAdvanceSchedule = options.advanceSchedule !== false;
   }
-  meta.lastStatus = "running";
-  meta.lastError = undefined;
-  if (!(await updateResource(resource, meta, body))) {
+  runningMeta.lastStatus = "running";
+  runningMeta.lastError = undefined;
+  let markerWritten: boolean;
+  if (!historyId && !meta.executionHostId) {
+    await ensureResourcesTable();
+    const conflict = Symbol("automation firing marker conflict");
+    let notifyMarker: (() => void) | undefined;
+    try {
+      historyId = await startBackgroundAutomationHistory(
+        jobContext,
+        jobUserEmail,
+        jobOrgId,
+        deps.appId,
+        {
+          afterInsert: (tx, id) =>
+            withDbExec(tx, async () => {
+              await options.assertCanStart?.();
+              runningMeta.lastHistoryId = id;
+              if (
+                !(await updateResource(
+                  resource,
+                  runningMeta,
+                  body,
+                  {},
+                  {
+                    tx,
+                    deferNotification: (notify) => {
+                      notifyMarker = notify;
+                    },
+                  },
+                ))
+              )
+                throw conflict;
+            }),
+          afterCommit: () => {
+            Object.assign(meta, runningMeta);
+            notifyMarker?.();
+          },
+        },
+      );
+      markerWritten = true;
+    } catch (error) {
+      if (error !== conflict) throw error;
+      markerWritten = false;
+    }
+  } else {
+    try {
+      await options.assertCanStart?.();
+    } catch (error) {
+      if (historyId && !options.resume)
+        await finishAutomationRun(
+          historyId,
+          "error",
+          error instanceof Error ? error.message : String(error),
+          error instanceof AutomationSchedulerLeaseLostError
+            ? error.errorCode
+            : "background_automation_interrupted",
+          { requirePersisted: true },
+        );
+      throw error;
+    }
+    markerWritten = await updateResource(resource, runningMeta, body);
+    if (markerWritten) Object.assign(meta, runningMeta);
+  }
+  if (!markerWritten) {
     console.log(
       `[recurring-jobs] "${resource.path}" changed before it could start; dropping this tick.`,
     );
@@ -1380,6 +1427,7 @@ async function updateResource(
   meta: JobFrontmatter,
   _body: string,
   extra: JobFrontmatterPatch = {},
+  transaction?: { tx: DbExec; deferNotification: (notify: () => void) => void },
 ): Promise<boolean> {
   const content = patchJobFrontmatterFields(resource.content, {
     lastRun: meta.lastRun,
@@ -1397,15 +1445,23 @@ async function updateResource(
     remoteAdvanceSchedule: meta.remoteAdvanceSchedule,
     ...extra,
   });
-  const written = await resourcePutIfCurrent({
+  const input = {
     owner: resource.owner,
     path: resource.path,
     content,
     expectedId: resource.id,
     expectedUpdatedAt: resource.updatedAt,
     expectedContent: resource.content,
-  });
-  return written !== null;
+  };
+  if (transaction) {
+    const written = await resourcePutIfCurrentInTransaction(
+      input,
+      transaction.tx,
+    );
+    if (written) transaction.deferNotification(written.notify);
+    return written !== null;
+  }
+  return (await resourcePutIfCurrent(input)) !== null;
 }
 
 type ExecutionOutcome = Pick<

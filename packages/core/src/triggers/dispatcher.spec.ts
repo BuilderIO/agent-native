@@ -599,9 +599,14 @@ Respond to the event.`,
     });
   }
 
-  it.each(["event", "webhook"])(
-    "keeps a live %s firing separate from an earlier manual success",
-    async (source) => {
+  it.each([
+    ["event", ""],
+    ["webhook", ""],
+    ["event", "*/2 * * * *"],
+    ["webhook", "*/2 * * * *"],
+  ])(
+    "keeps a live %s firing with schedule %s separate from an earlier manual success",
+    async (source, schedule) => {
       const { parseJobResource } = await import("../jobs/frontmatter.js");
       const history = await import("../jobs/run-history.js");
       const health = await import("../jobs/scheduler-health.js");
@@ -613,7 +618,7 @@ Respond to the event.`,
         ...conditionResource("manual-then-event", "manual.then.event"),
         content: buildTriggerContent(
           {
-            schedule: "",
+            schedule,
             enabled: true,
             triggerType: source === "webhook" ? "webhook" : "event",
             event: "manual.then.event",
@@ -660,6 +665,21 @@ Respond to the event.`,
       const spies = [
         oldHistory,
         runSpy,
+        vi.spyOn(history, "listAutomationRuns").mockImplementation(async () => [
+          {
+            id: "current-trigger-history",
+            owner: stored.owner,
+            appId: null,
+            path: stored.path,
+            status: "success",
+            runId: "event-worker",
+            threadId: "event-thread",
+            startedAt: Date.parse(
+              parseJobResource(stored.content).meta.lastRun!,
+            ),
+            finishedAt: Date.now(),
+          } as any,
+        ]),
         vi
           .spyOn(health, "acquireAutomationSchedulerLease")
           .mockResolvedValue("test-lease"),
@@ -716,6 +736,7 @@ Respond to the event.`,
           "running",
         );
         expect(oldHistory).not.toHaveBeenCalled();
+        expect(history.listAutomationRuns).not.toHaveBeenCalled();
         const running = parseJobResource(stored.content).meta;
         expect(running.lastHistoryId).toBeUndefined();
         expect(running.lastRunManual).toBeUndefined();

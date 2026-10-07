@@ -20,6 +20,7 @@ import {
   type JobFrontmatter,
 } from "./frontmatter.js";
 import {
+  automationRunClaimLeaseMs,
   getAutomationRun,
   listAutomationRuns,
   type AutomationRun,
@@ -115,6 +116,7 @@ export async function inspectAutomationRecovery(
     )
       throw new Error(automationRecoveryMessagesForLocale().unreadable);
   } else {
+    if ((meta.triggerType ?? "schedule") !== "schedule") return null;
     const histories = await listAutomationRuns({
       owners: [owner],
       automation: resource.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
@@ -137,6 +139,14 @@ export async function inspectAutomationRecovery(
   }
   if (!history) return null;
   if (!history.runId || !history.threadId) {
+    const lastQueueTouch = history.claimedAt ?? history.startedAt;
+    if (
+      history.finishedAt === null &&
+      history.dispatchPending &&
+      Number.isFinite(lastQueueTouch) &&
+      lastQueueTouch > now.getTime() - automationRunClaimLeaseMs()
+    )
+      return { state: "active" };
     return {
       state: "settle",
       status: "error",

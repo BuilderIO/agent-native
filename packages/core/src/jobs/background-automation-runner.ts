@@ -104,6 +104,7 @@ import {
   attachAutomationRunThread,
   finishAutomationRun,
   startAutomationRun,
+  type StartAutomationRunOptions,
 } from "./run-history.js";
 import { AutomationSchedulerLeaseLostError } from "./scheduler-health.js";
 
@@ -528,21 +529,25 @@ export async function startBackgroundAutomationHistory(
   ownerEmail: string,
   orgId?: string,
   appId?: string,
+  options?: StartAutomationRunOptions,
 ): Promise<string> {
-  return startAutomationRun({
-    owner: automationHistoryOwner(automation.resource, ownerEmail, orgId),
-    automation: automation.name,
-    path: automation.resource.path,
-    scope: orgId ? "organization" : "personal",
-    orgId: orgId ?? null,
-    appId,
-    notificationEmail: await notificationEmailFor(
-      automation.name,
-      ownerEmail,
-      automation.meta.createdBy,
-      orgId,
-    ),
-  });
+  return startAutomationRun(
+    {
+      owner: automationHistoryOwner(automation.resource, ownerEmail, orgId),
+      automation: automation.name,
+      path: automation.resource.path,
+      scope: orgId ? "organization" : "personal",
+      orgId: orgId ?? null,
+      appId,
+      notificationEmail: await notificationEmailFor(
+        automation.name,
+        ownerEmail,
+        automation.meta.createdBy,
+        orgId,
+      ),
+    },
+    options,
+  );
 }
 
 export async function runBackgroundAutomation(

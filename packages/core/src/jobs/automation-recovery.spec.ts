@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./run-history.js", () => ({
   listAutomationRuns: mocks.list,
   getAutomationRun: mocks.history,
+  automationRunClaimLeaseMs: () => 900_000,
 }));
 vi.mock("../agent/run-store.js", () => ({
   reapIfStale: mocks.reap,
@@ -146,6 +147,36 @@ describe("automation worker recovery", () => {
     mocks.get.mockResolvedValue({ id: "job-1", status: "running" });
     expect(await inspectAutomationRecovery(resource, meta, now)).toEqual({
       state: "active",
+    });
+  });
+
+  it("leaves an unlinked queued firing to its live dispatch claim", async () => {
+    mocks.history.mockResolvedValue({
+      ...history,
+      startedAt: now.getTime() - 1_800_000,
+      runId: null,
+      threadId: null,
+      dispatchPending: true,
+      claimedAt: now.getTime() - 1_000,
+    });
+    expect(await inspectAutomationRecovery(resource, meta, now)).toEqual({
+      state: "active",
+    });
+    expect(mocks.reap).not.toHaveBeenCalled();
+  });
+
+  it("settles an unlinked queued firing after its dispatch claim expires", async () => {
+    mocks.history.mockResolvedValue({
+      ...history,
+      runId: null,
+      threadId: null,
+      dispatchPending: true,
+      claimedAt: now.getTime() - 900_001,
+    });
+    expect(await inspectAutomationRecovery(resource, meta, now)).toMatchObject({
+      state: "settle",
+      status: "error",
+      errorCode: "background_automation_interrupted",
     });
   });
 

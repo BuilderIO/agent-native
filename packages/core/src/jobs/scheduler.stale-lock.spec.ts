@@ -30,6 +30,11 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 }));
 
 vi.mock("../resources/store.js", () => ({
+  ensureTable: vi.fn(async () => {}),
+  resourcePutIfCurrentInTransaction: async (input: unknown) => {
+    const resource = await resourcePutIfCurrentMock(input);
+    return resource ? { resource, notify: vi.fn() } : null;
+  },
   organizationResourceOwner: (orgId: string) =>
     `__organization__:${encodeURIComponent(orgId)}`,
   organizationIdFromResourceOwner: (owner: string) =>
@@ -423,7 +428,14 @@ describe("stale automation run-lock recovery across trigger types", () => {
     resourceListAllOwnersMock.mockResolvedValue([resource]);
     const start = vi
       .spyOn(runHistory, "startAutomationRun")
-      .mockResolvedValue("new-firing-id");
+      .mockImplementation(async (_input, options) => {
+        await options?.afterInsert?.(
+          { execute: dbExecuteMock },
+          "new-firing-id",
+        );
+        options?.afterCommit?.();
+        return "new-firing-id";
+      });
     const attach = vi
       .spyOn(runHistory, "attachAutomationRunThread")
       .mockImplementation(async (id) => {
@@ -447,7 +459,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
     }
   });
 
-  it("settles a newly opened history when the scheduler lease is lost before its running marker", async () => {
+  it("rolls back new admission when the scheduler lease is lost before its running marker", async () => {
     const resource = {
       id: "resource-lease-before-marker",
       owner: "owner@example.com",
@@ -461,8 +473,13 @@ describe("stale automation run-lock recovery across trigger types", () => {
       .mockResolvedValue(true);
     const start = vi
       .spyOn(runHistory, "startAutomationRun")
-      .mockImplementation(async () => {
+      .mockImplementation(async (_input, options) => {
         renewal.mockResolvedValue(false);
+        await options?.afterInsert?.(
+          { execute: dbExecuteMock },
+          "unstarted-firing",
+        );
+        options?.afterCommit?.();
         return "unstarted-firing";
       });
     const finish = vi
@@ -470,13 +487,8 @@ describe("stale automation run-lock recovery across trigger types", () => {
       .mockResolvedValue(undefined);
     try {
       await processRecurringJobs(recoveryDeps);
-      expect(finish).toHaveBeenCalledWith(
-        "unstarted-firing",
-        "error",
-        expect.any(String),
-        "automation_scheduler_lease_lost",
-        { requirePersisted: true },
-      );
+      expect(start).toHaveBeenCalledOnce();
+      expect(finish).not.toHaveBeenCalled();
       expect(resourcePutMock).not.toHaveBeenCalled();
       expect(startRunMock).not.toHaveBeenCalled();
     } finally {
@@ -771,7 +783,14 @@ describe("stale automation run-lock recovery across trigger types", () => {
     resourceListAllOwnersMock.mockResolvedValue([resource]);
     const start = vi
       .spyOn(runHistory, "startAutomationRun")
-      .mockResolvedValue("manual-history");
+      .mockImplementation(async (_input, options) => {
+        await options?.afterInsert?.(
+          { execute: dbExecuteMock },
+          "manual-history",
+        );
+        options?.afterCommit?.();
+        return "manual-history";
+      });
     resourceGetByPathMock.mockResolvedValueOnce(resource);
     const finish = vi
       .spyOn(runHistory, "finishAutomationRun")
@@ -989,6 +1008,39 @@ describe("stale automation run-lock recovery across trigger types", () => {
       expect(finish.mock.invocationCallOrder[1]).toBeLessThan(
         resourcePutMock.mock.invocationCallOrder[0]!,
       );
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
+  it("retains a queued firing when a dispatch claims it during terminal settlement", async () => {
+    const fixture = interruptedScheduledJob();
+    const expiredClaim =
+      Date.now() - runHistory.automationRunClaimLeaseMs() - 1_000;
+    Object.assign(fixture.history, {
+      runId: null,
+      threadId: null,
+      dispatchPending: true,
+      claimedAt: expiredClaim,
+    });
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockImplementation(async (_id, _status, _error, _code, options) => {
+        expect(options).toMatchObject({
+          requirePersisted: true,
+          expectedClaimedAt: expiredClaim,
+        });
+        Object.assign(fixture.history, { claimedAt: Date.now() });
+        throw new runHistory.AutomationRunHistoryWriteError(fixture.history.id);
+      });
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledOnce();
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledOnce();
+      expect(resourcePutMock).not.toHaveBeenCalled();
     } finally {
       finish.mockRestore();
       fixture.restore();

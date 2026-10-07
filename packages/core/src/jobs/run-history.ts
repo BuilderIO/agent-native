@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -334,29 +334,50 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
   };
 }
 
+export interface StartAutomationRunOptions {
+  afterInsert?: (tx: DbExec, historyId: string) => Promise<void>;
+  afterCommit?: () => void;
+}
+
 export async function startAutomationRun(
   input: StartAutomationRunInput,
+  options: StartAutomationRunOptions = {},
 ): Promise<string> {
   await ensureTable();
   const id = randomUUID();
-  await getDbExec().execute({
-    sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, app_id, notification_email, run_id, thread_id, status, started_at, dispatch_pending)
+  const client = getDbExec();
+  const insert = async (tx: DbExec) => {
+    const result = await tx.execute({
+      sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, app_id, notification_email, run_id, thread_id, status, started_at, dispatch_pending)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
-    args: [
-      id,
-      input.owner,
-      input.automation,
-      input.path,
-      input.scope ?? null,
-      input.orgId ?? null,
-      input.appId ?? null,
-      input.notificationEmail?.trim().toLowerCase() || null,
-      input.runId ?? null,
-      input.threadId ?? null,
-      Date.now(),
-      input.dispatchPending ? 1 : 0,
-    ],
-  });
+      args: [
+        id,
+        input.owner,
+        input.automation,
+        input.path,
+        input.scope ?? null,
+        input.orgId ?? null,
+        input.appId ?? null,
+        input.notificationEmail?.trim().toLowerCase() || null,
+        input.runId ?? null,
+        input.threadId ?? null,
+        Date.now(),
+        input.dispatchPending ? 1 : 0,
+      ],
+    });
+    if (options.afterInsert) {
+      if (Number(result.rowsAffected ?? 0) !== 1)
+        throw new AutomationRunHistoryWriteError(id);
+      await options.afterInsert(tx, id);
+    }
+  };
+  if (options.afterInsert) {
+    if (!client.transaction) throw new AutomationRunHistoryWriteError(id);
+    await client.transaction(insert);
+  } else {
+    await insert(client);
+  }
+  options.afterCommit?.();
   await pruneAutomationRuns(input.owner, input.automation);
   return id;
 }

@@ -1747,6 +1747,30 @@ async function resourcePutIfAbsentInternal(
 export async function resourcePutIfCurrent(
   input: ResourceConditionalWrite,
 ): Promise<Resource | null> {
+  const resource = await writeResourceIfCurrent(input, getDbExec());
+  if (resource) emitResourceChange(resource.id, resource.path, resource.owner);
+  return resource;
+}
+
+/** The caller must emit the returned notification only after its transaction commits. */
+export async function resourcePutIfCurrentInTransaction(
+  input: ResourceConditionalWrite,
+  tx: DbExec,
+): Promise<{ resource: Resource; notify: () => void } | null> {
+  const resource = await writeResourceIfCurrent(input, tx);
+  return resource
+    ? {
+        resource,
+        notify: () =>
+          emitResourceChange(resource.id, resource.path, resource.owner),
+      }
+    : null;
+}
+
+async function writeResourceIfCurrent(
+  input: ResourceConditionalWrite,
+  client: DbExec,
+): Promise<Resource | null> {
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(input.owner) &&
@@ -1758,7 +1782,6 @@ export async function resourcePutIfCurrent(
     await assertWritableWorkspaceResourcePath(input.path);
   }
 
-  const client = getDbExec();
   const now = Math.max(Date.now(), input.expectedUpdatedAt + 1);
   const size = Buffer.byteLength(input.content, "utf8");
   const mime = input.mimeType || "text/markdown";
@@ -1786,7 +1809,6 @@ export async function resourcePutIfCurrent(
   });
   if (rows.length === 0) return null;
   const resource = rowToResource(rows[0]);
-  emitResourceChange(resource.id, resource.path, resource.owner);
   return resource;
 }
 

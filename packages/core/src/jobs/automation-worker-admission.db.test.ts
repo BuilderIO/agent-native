@@ -7,6 +7,14 @@ import {
   tryClaimRunSlot,
 } from "../agent/run-store.js";
 import { createDbExec, withDbExec, type DbExec } from "../db/client.js";
+import { getResourcesEmitter } from "../resources/emitter.js";
+import {
+  resourceGetByPath,
+  resourcePut,
+  resourcePutIfCurrentInTransaction,
+} from "../resources/store.js";
+import { inspectAutomationRecovery } from "./automation-recovery.js";
+import { parseJobResource, patchJobFrontmatterFields } from "./frontmatter.js";
 import {
   attachAutomationRunThread,
   getAutomationRun,
@@ -16,6 +24,102 @@ import {
 const db = await createDbExec({ url: "pglite:memory://" });
 afterAll(async () => {
   await db.close?.();
+});
+
+describe("atomic automation firing marker", () => {
+  it.each(["insert interrupted", "marker conflict", "committed"])(
+    "keeps firing history and its marker together when %s",
+    async (mode) => {
+      await withDbExec(db, async () => {
+        const owner = "owner@example.com";
+        const automation = mode.replaceAll(" ", "-");
+        const path = `jobs/${automation}.md`;
+        const initial = await resourcePut(
+          owner,
+          path,
+          '---\nschedule: "*/2 * * * *"\nenabled: true\n---\nRun work.',
+        );
+        if (mode === "marker conflict")
+          await resourcePut(owner, path, initial.content + "\nAn owner edit.");
+        const events: unknown[] = [];
+        const emitter = getResourcesEmitter();
+        const onChange = (event: { path: string }) => {
+          if (event.path === path) events.push(event);
+        };
+        emitter.on("resources", onChange);
+        let historyId!: string;
+        let notify: (() => void) | undefined;
+        try {
+          const admission = startAutomationRun(
+            { owner, path, automation },
+            {
+              afterInsert: (tx, id) =>
+                withDbExec(tx, async () => {
+                  historyId = id;
+                  if (mode === "insert interrupted")
+                    throw new Error("admission interrupted");
+                  const written = await resourcePutIfCurrentInTransaction(
+                    {
+                      owner,
+                      path,
+                      expectedId: initial.id,
+                      expectedContent: initial.content,
+                      expectedUpdatedAt: initial.updatedAt,
+                      content: patchJobFrontmatterFields(initial.content, {
+                        lastHistoryId: id,
+                        lastStatus: "running",
+                        lastRun: new Date().toISOString(),
+                        lastRunManual: false,
+                        lastRunAdvanceSchedule: true,
+                      }),
+                    },
+                    tx,
+                  );
+                  if (!written) throw new Error("marker changed");
+                  notify = written.notify;
+                  expect(events).toHaveLength(0);
+                }),
+              afterCommit: () => notify?.(),
+            },
+          );
+          if (mode === "committed") {
+            expect(await admission).toBe(historyId);
+            const stored = await resourceGetByPath(owner, path);
+            const parsed = parseJobResource(stored!.content);
+            expect(parsed.meta).toMatchObject({
+              lastHistoryId: historyId,
+              lastStatus: "running",
+              lastRunManual: false,
+              lastRunAdvanceSchedule: true,
+            });
+            expect(await getAutomationRun(historyId)).toMatchObject({
+              finishedAt: null,
+              runId: null,
+              threadId: null,
+            });
+            expect(events).toHaveLength(1);
+            expect(
+              await inspectAutomationRecovery(stored!, parsed.meta, new Date()),
+            ).toMatchObject({ state: "settle", history: { id: historyId } });
+          } else {
+            await expect(admission).rejects.toThrow(
+              mode === "insert interrupted"
+                ? "admission interrupted"
+                : "marker changed",
+            );
+            expect(await getAutomationRun(historyId)).toBeNull();
+            expect((await resourceGetByPath(owner, path))?.content).toBe(
+              initial.content +
+                (mode === "marker conflict" ? "\nAn owner edit." : ""),
+            );
+            expect(events).toHaveLength(0);
+          }
+        } finally {
+          emitter.off("resources", onChange);
+        }
+      });
+    },
+  );
 });
 
 describe("atomic automation worker admission", () => {

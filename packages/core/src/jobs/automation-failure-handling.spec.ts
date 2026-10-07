@@ -48,7 +48,8 @@ const resourceStore = vi.hoisted(() => ({
 vi.mock("../resources/store.js", () => {
   const key = (owner: string, path: string) => `${owner}:${path}`;
   const copy = (row: StoredResource | undefined) => (row ? { ...row } : null);
-  return {
+  const store = {
+    ensureTable: vi.fn(async () => {}),
     organizationIdFromResourceOwner: (owner: string) =>
       owner.startsWith("__organization__:")
         ? decodeURIComponent(owner.slice("__organization__:".length))
@@ -93,6 +94,15 @@ vi.mock("../resources/store.js", () => {
       };
       resourceStore.rows.set(key(input.owner, input.path), row);
       return { ...row };
+    },
+  };
+  return {
+    ...store,
+    resourcePutIfCurrentInTransaction: async (
+      input: Parameters<typeof store.resourcePutIfCurrent>[0],
+    ) => {
+      const resource = await store.resourcePutIfCurrent(input);
+      return resource ? { resource, notify: vi.fn() } : null;
     },
   };
 });
