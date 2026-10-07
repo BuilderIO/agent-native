@@ -50,6 +50,7 @@ describe("collab poll boost from presence", () => {
   let others: Array<{ clientId: number; state: string }> = [];
   let sharedPolls = 0;
   let ownPollEvents: Array<Record<string, unknown>> = [];
+  let initialPollResponses = 0;
 
   function human(email: string, visible = true, clientId = 4242) {
     return {
@@ -89,6 +90,7 @@ describe("collab poll boost from presence", () => {
     others = [];
     sharedPolls = 0;
     ownPollEvents = [];
+    initialPollResponses = 0;
     _resetCollabDocRegistryForTests();
     _resetSyncTransportRegistryForTests();
     vi.stubGlobal(
@@ -111,8 +113,19 @@ describe("collab poll boost from presence", () => {
             return new Response(JSON.stringify({ version: 1, events: [] }));
           }
           const events = ownPollEvents;
-          ownPollEvents = [];
-          return new Response(JSON.stringify({ version: 1, events }));
+          const version = events.reduce(
+            (latest, event) =>
+              typeof event.version === "number"
+                ? Math.max(latest, event.version)
+                : latest,
+            Date.now(),
+          );
+          // The shared transport and the doc poll both start with since=0.
+          const isInitialPoll = url.includes("since=0");
+          if (!isInitialPoll || ++initialPollResponses >= 2) {
+            ownPollEvents = [];
+          }
+          return new Response(JSON.stringify({ version, events }));
         }
         return new Response(JSON.stringify({}));
       }),
@@ -170,6 +183,7 @@ describe("collab poll boost from presence", () => {
       {
         source: "collab",
         type: "yjs-update",
+        version: Date.now() + 1,
         docId: "other-screen",
         requestSource: "other-tab",
         resourceType: "design",
@@ -183,10 +197,12 @@ describe("collab poll boost from presence", () => {
   });
 
   it("does not boost for the history its first poll replays, this tab's own events, or another resource", async () => {
+    const connectionStartedAt = Date.now();
     ownPollEvents = [
       {
         source: "action",
         key: "update-file",
+        version: connectionStartedAt - 1,
         requestSource: "other-tab",
         resourceType: "design",
         resourceId: "d1",
@@ -201,6 +217,7 @@ describe("collab poll boost from presence", () => {
     ownPollEvents = [
       {
         source: "collab",
+        version: connectionStartedAt - 1,
         docId: "other-screen",
         requestSource: getBrowserTabId(),
         resourceType: "design",
@@ -209,6 +226,7 @@ describe("collab poll boost from presence", () => {
       // The server mirrors this tab's own file saves into Yjs as "agent".
       {
         source: "collab",
+        version: connectionStartedAt - 1,
         docId: "this-screen",
         requestSource: "agent",
         resourceType: "design",
@@ -217,6 +235,7 @@ describe("collab poll boost from presence", () => {
       {
         source: "action",
         key: "update-file",
+        version: connectionStartedAt - 1,
         requestSource: "other-tab",
         resourceType: "design",
         resourceId: "d2",
@@ -226,5 +245,33 @@ describe("collab poll boost from presence", () => {
     const at = sharedPolls;
     await advance(30_000);
     expect(sharedPolls - at).toBeLessThanOrEqual(1);
+  });
+
+  it("boosts for fresh collaborator activity included in the initial history replay", async () => {
+    const connectionStartedAt = Date.now();
+    ownPollEvents = [
+      {
+        source: "action",
+        key: "update-file",
+        version: connectionStartedAt - 1,
+        requestSource: "other-tab",
+        resourceType: "design",
+        resourceId: "d1",
+      },
+      {
+        source: "collab",
+        type: "yjs-update",
+        version: connectionStartedAt + 1,
+        docId: "other-screen",
+        requestSource: "other-tab",
+        resourceType: "design",
+        resourceId: "d1",
+      },
+    ];
+    await mountRefused();
+
+    const at = sharedPolls;
+    await advance(30_000);
+    expect(sharedPolls - at).toBeGreaterThanOrEqual(10);
   });
 });

@@ -280,6 +280,7 @@ class CollabDocConnection {
   private pollCycleCount = 0;
   private pollVersion = 0;
   private lastPolledVersion = 0;
+  private readonly pollActivitySince = Date.now();
   private stateVectorFetch: Promise<CollaborativeDocSyncResult> | null = null;
   private stateVectorAbortControllers = new Set<AbortController>();
   private sseActive = false;
@@ -1009,6 +1010,7 @@ class CollabDocConnection {
       const { version, events } = data as {
         version: number;
         events: Array<{
+          version: number;
           source: string;
           docId?: string;
           update?: string;
@@ -1038,8 +1040,13 @@ class CollabDocConnection {
         }
       }
 
-      // The first poll replays history; later ones carry what happened since.
-      if (this.pollCycleCount > 0) noteCollabPollActivity(events);
+      // Keep replayed updates for document sync, but only count activity newer
+      // than this connection when the initial poll also includes its history.
+      const activityEvents =
+        this.pollCycleCount === 0
+          ? events.filter((evt) => evt.version >= this.pollActivitySince)
+          : events;
+      noteCollabPollActivity(activityEvents);
       this.pollVersion = version;
       this.lastPolledVersion = version;
       this.pollCycleCount++;
