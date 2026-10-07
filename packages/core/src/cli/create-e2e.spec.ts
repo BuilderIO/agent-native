@@ -1345,7 +1345,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const appDir = path.join(wsDir, "apps", "chat");
     const appPkg = readPkg(appDir);
 
-    expect(rootPkg.scripts.doctor).toBe("agent-native doctor");
+    expect(rootPkg.scripts.doctor).toBeUndefined();
     expect(rootPkg.scripts.prebuild).toBe("agent-native doctor --strict");
     expect(
       JSON.parse(
@@ -1355,7 +1355,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(fs.readFileSync(path.join(wsDir, "AGENTS.md"), "utf-8")).toContain(
       "Guarded verification",
     );
-    expect(appPkg.scripts.doctor).toBe("agent-native doctor");
+    expect(appPkg.scripts.doctor).toBeUndefined();
     expect(appPkg.scripts["agent-native:doctor"]).toBe("agent-native doctor");
     expect(
       JSON.parse(

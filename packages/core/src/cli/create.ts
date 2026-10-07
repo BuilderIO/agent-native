@@ -2097,9 +2097,6 @@ function ensureGuardedScaffold(appDir: string): void {
     !existingNativeDoctor.includes(AGENT_NATIVE_DOCTOR)
       ? `${existingNativeDoctor} && ${AGENT_NATIVE_DOCTOR}`
       : AGENT_NATIVE_DOCTOR;
-  if (typeof scripts.doctor !== "string") {
-    scripts.doctor = AGENT_NATIVE_DOCTOR;
-  }
 
   if (
     typeof scripts.build === "string" &&

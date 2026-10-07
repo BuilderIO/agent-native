@@ -569,7 +569,7 @@ describe("createApp", { timeout: 30000 }, () => {
     );
     const deps = allDeps(pkg);
 
-    expect(pkg.scripts.doctor).toBe("agent-native doctor");
+    expect(pkg.scripts.doctor).toBeUndefined();
     expect(pkg.scripts["agent-native:doctor"]).toBe("agent-native doctor");
     expect(
       JSON.parse(
