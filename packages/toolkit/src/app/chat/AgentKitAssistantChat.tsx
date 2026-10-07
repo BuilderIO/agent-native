@@ -758,6 +758,23 @@ export const AgentKitAssistantChat = forwardRef<
       copied: t("agentChat.common.copied"),
       messageActions: t("agentChat.message.actions"),
       copyRequestId: t("agentChat.message.copyRequestId"),
+      usage: t("agentChat.message.usage"),
+      usageLoading: t("agentChat.message.usageLoading"),
+      usageUnavailable: t("agentChat.message.usageUnavailable"),
+      usageNotRecorded: t("agentChat.message.usageNotRecorded"),
+      usageReportedCost: t("agentChat.message.usageReportedCost", {
+        amount: "{{amount}}",
+      }),
+      usageEstimatedCost: t("agentChat.message.usageEstimatedCost", {
+        amount: "{{amount}}",
+      }),
+      usageBuilderCredits: t("agentChat.message.usageBuilderCredits", {
+        amount: "{{amount}}",
+      }),
+      usageEstimatedBuilderCredits: t(
+        "agentChat.message.usageEstimatedBuilderCredits",
+        { amount: "{{amount}}" },
+      ),
       requestIdUnavailable: t("agentChat.message.requestIdUnavailable"),
       messageUnavailable: t("agentChat.message.unavailable"),
       navigationUnavailable: t("agentChat.message.navigationUnavailable"),

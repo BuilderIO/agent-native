@@ -114,6 +114,7 @@ import {
   type AgentWidget,
   type RunId,
 } from "@agent-native/agentkit/protocol";
+import { useActionQuery } from "@agent-native/core/client/use-action";
 
 import {
   defaultAgentKitLabels,
@@ -3077,12 +3078,21 @@ export function AgentMessageActions({
     () => resolveAgentMessageRequestId(message, thread.events),
     [message, thread.events],
   );
-  const hasMessageMenuActions = Boolean(
-    requestId || (forkingCapability.visible && onThreadForked),
-  );
   const runId = useMemo(
     () => resolveAgentMessageRunId(message, thread.events),
     [message, thread.events],
+  );
+  const hasRunUsage = message.role === "assistant" && Boolean(runId);
+  const hasMessageMenuActions = Boolean(
+    requestId || hasRunUsage || (forkingCapability.visible && onThreadForked),
+  );
+  const usageQuery = useActionQuery(
+    "get-usage-run",
+    { runId: runId ?? "", scope: "me" },
+    {
+      enabled: actionsMenuOpen && hasRunUsage,
+      staleTime: 5 * 60_000,
+    },
   );
   const messageSeq = thread.messages.findIndex(
     (item) => item.id === message.id,
@@ -3197,6 +3207,129 @@ export function AgentMessageActions({
     requestIdAction.error ??
     forkAction.error ??
     regenerateAction.error;
+  const usageMenuItems = hasRunUsage
+    ? (() => {
+        if (usageQuery.isPending) {
+          return [
+            {
+              id: "usage-loading",
+              label: labels.usageLoading,
+              disabled: true,
+            },
+          ];
+        }
+        if (usageQuery.isError) {
+          return [
+            {
+              id: "usage-unavailable",
+              label: labels.usageUnavailable,
+              disabled: true,
+            },
+          ];
+        }
+        const usage = usageQuery.data;
+        if (!usage) {
+          return [
+            {
+              id: "usage-not-recorded",
+              label: labels.usageNotRecorded,
+              disabled: true,
+            },
+          ];
+        }
+        const rows = [];
+        if (usage.durationMs !== null) {
+          rows.push({
+            id: "usage-duration",
+            label: labels.workedFor.replace(
+              "{{duration}}",
+              formatAgentKitDuration(usage.durationMs, {
+                hour: labels.durationHourShort,
+                minute: labels.durationMinuteShort,
+                second: labels.durationSecondShort,
+              }),
+            ),
+            disabled: true,
+          });
+        }
+        if (usage.billing.providerCostUsd !== null) {
+          const usd = usage.billing.providerCostUsd;
+          const amount =
+            usd > 0 && usd < 0.0001
+              ? "<$0.0001"
+              : usd.toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "USD",
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 4,
+                });
+          rows.push({
+            id: "usage-provider-cost",
+            label: (usage.billing.providerCostSource === "reported"
+              ? labels.usageReportedCost
+              : labels.usageEstimatedCost
+            ).replace("{{amount}}", amount),
+            disabled: true,
+          });
+        }
+        if (usage.billing.builderCredits !== null) {
+          const amount = usage.billing.builderCredits.toLocaleString(
+            undefined,
+            { maximumFractionDigits: 3 },
+          );
+          rows.push({
+            id: "usage-builder-credits",
+            label: (usage.billing.builderCreditsSource === "reported"
+              ? labels.usageBuilderCredits
+              : labels.usageEstimatedBuilderCredits
+            ).replace("{{amount}}", amount),
+            disabled: true,
+          });
+        }
+        if (rows.length === 0) {
+          rows.push({
+            id: "usage-unavailable",
+            label: labels.usageUnavailable,
+            disabled: true,
+          });
+        }
+        return rows;
+      })()
+    : [];
+  const actionMenuItems = [
+    ...(requestId
+      ? [
+          {
+            id: "copy-request-id",
+            label: requestIdCopied ? labels.copied : labels.copyRequestId,
+            icon: requestIdCopied ? (
+              <IconCircleCheck size={14} aria-hidden="true" />
+            ) : (
+              <IconId size={14} aria-hidden="true" />
+            ),
+            disabled: requestIdAction.pending,
+          },
+        ]
+      : []),
+    ...(forkingCapability.visible && onThreadForked
+      ? [
+          {
+            id: "fork-chat",
+            label: <span title={forkingCapability.reason}>{labels.fork}</span>,
+            icon: <IconGitBranch size={14} aria-hidden="true" />,
+            disabled: !forkingCapability.enabled || forkAction.pending,
+          },
+        ]
+      : []),
+  ];
+  const messageMenuSections = [
+    ...(usageMenuItems.length > 0
+      ? [{ id: "usage", label: labels.usage, items: usageMenuItems }]
+      : []),
+    ...(actionMenuItems.length > 0
+      ? [{ id: "actions", items: actionMenuItems }]
+      : []),
+  ];
   return (
     <div
       className="agentkit-message-actions"
@@ -3404,39 +3537,7 @@ export function AgentMessageActions({
                     title={labels.messageActions}
                   />
                 }
-                items={[
-                  ...(requestId
-                    ? [
-                        {
-                          id: "copy-request-id",
-                          label: requestIdCopied
-                            ? labels.copied
-                            : labels.copyRequestId,
-                          icon: requestIdCopied ? (
-                            <IconCircleCheck size={14} aria-hidden="true" />
-                          ) : (
-                            <IconId size={14} aria-hidden="true" />
-                          ),
-                          disabled: requestIdAction.pending,
-                        },
-                      ]
-                    : []),
-                  ...(forkingCapability.visible && onThreadForked
-                    ? [
-                        {
-                          id: "fork-chat",
-                          label: (
-                            <span title={forkingCapability.reason}>
-                              {labels.fork}
-                            </span>
-                          ),
-                          icon: <IconGitBranch size={14} aria-hidden="true" />,
-                          disabled:
-                            !forkingCapability.enabled || forkAction.pending,
-                        },
-                      ]
-                    : []),
-                ]}
+                sections={messageMenuSections}
                 onAction={(id) => {
                   if (id === "copy-request-id") {
                     void requestIdAction.execute().catch(() => undefined);

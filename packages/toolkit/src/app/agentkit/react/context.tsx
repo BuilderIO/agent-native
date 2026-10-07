@@ -238,6 +238,14 @@ export interface AgentKitLabels {
   copied: string;
   messageActions: string;
   copyRequestId: string;
+  usage: string;
+  usageLoading: string;
+  usageUnavailable: string;
+  usageNotRecorded: string;
+  usageReportedCost: string;
+  usageEstimatedCost: string;
+  usageBuilderCredits: string;
+  usageEstimatedBuilderCredits: string;
   requestIdUnavailable: string;
   positiveFeedback: string;
   negativeFeedback: string;
@@ -336,6 +344,14 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   copied: "Copied",
   messageActions: "Message actions",
   copyRequestId: "Copy request ID",
+  usage: "Usage",
+  usageLoading: "Loading usage…",
+  usageUnavailable: "Usage unavailable",
+  usageNotRecorded: "Usage not recorded",
+  usageReportedCost: "Cost {{amount}}",
+  usageEstimatedCost: "Estimated cost {{amount}}",
+  usageBuilderCredits: "Builder credits used {{amount}}",
+  usageEstimatedBuilderCredits: "Estimated Builder credits {{amount}}",
   requestIdUnavailable: "Request ID unavailable",
   positiveFeedback: "Helpful",
   negativeFeedback: "Not helpful",

@@ -134,6 +134,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "60 رصيد Agent شهريًا",
   "onboarding.builderIncludedFree": "مُضمّن مجانًا",
   "onboarding.builderMoreServices": "+ {{count}} خدمات أخرى",
+  "onboarding.builderLlmCredits": "أرصدة لنماذج اللغة الكبيرة (LLM)",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "أرصدة LLM + {{count}} خدمات أخرى",
+  "onboarding.builderAccountCreated": "تم إنشاء حساب Builder.io وربطه.",
   "onboarding.builderIncludedServices": "الخدمات المضمنة",
   "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
   "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
@@ -151,7 +155,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":
-    "جارٍ إنشاء حساب Builder.io الخاص بك أو إعادة استخدامه. يستغرق ذلك عادةً بضع ثوانٍ.",
+    "جارٍ إنشاء حساب Builder.io الخاص بك وتفعيل الأرصدة المجانية.",
   "onboarding.builderConnectionDescription":
     "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
   "onboarding.builderReadyWithCodeChanges":
@@ -395,7 +399,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.configureProviderKeys": "إعداد Anthropic أو OpenAI أو مزوّد آخر",
   "composer.connectAbove": "اتصل بالذكاء الاصطناعي أعلاه للمتابعة...",
   "composer.connectBuilder": "استخدم Builder.io",
-  "composer.connectKeys": "ربط المفاتيح",
+  "composer.connectKeys": "ربط الوكيل",
   "composer.connectingBuilder": "جارٍ إعداد Builder.io…",
   "composer.costHigher": "تكلفة أعلى",
   "composer.costLower": "تكلفة أقل",
@@ -1020,6 +1024,14 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "إجراءات الرسالة",
   "message.copyMessage": "نسخ الرسالة",
   "message.copyRequestId": "نسخ معرّف الطلب",
+  "message.usage": "الاستخدام",
+  "message.usageLoading": "جارٍ تحميل الاستخدام…",
+  "message.usageUnavailable": "الاستخدام غير متاح",
+  "message.usageNotRecorded": "لم يُسجّل الاستخدام",
+  "message.usageReportedCost": "التكلفة {{amount}}",
+  "message.usageEstimatedCost": "التكلفة المقدّرة {{amount}}",
+  "message.usageBuilderCredits": "أرصدة Builder المستخدمة {{amount}}",
+  "message.usageEstimatedBuilderCredits": "أرصدة Builder المقدّرة {{amount}}",
   "message.requestIdUnavailable": "معرّف الطلب غير متاح",
   "message.unavailable": "لم تعد هذه الرسالة متاحة في هذه المحادثة.",
   "message.navigationUnavailable": "التنقل في المحادثة غير متاح.",

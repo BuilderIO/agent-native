@@ -139,6 +139,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "60 Agent Credits al mes",
   "onboarding.builderIncludedFree": "Incluido gratis",
   "onboarding.builderMoreServices": "+ {{count}} servicios más",
+  "onboarding.builderLlmCredits": "Créditos para LLM",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "Créditos para LLM + {{count}} servicios más",
+  "onboarding.builderAccountCreated":
+    "Cuenta de Builder.io creada y conectada.",
   "onboarding.builderIncludedServices": "Servicios incluidos",
   "onboarding.builderActivateTitle": "Activar créditos gratuitos",
   "onboarding.builderAccountExistsTitle": "Ya tienes una cuenta de Builder.io",
@@ -160,7 +165,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting":
     "Configurando los créditos gratuitos de Builder.io",
   "onboarding.builderProvisioningDescription":
-    "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
+    "Estamos creando tu cuenta de Builder.io y activando los créditos gratis.",
   "onboarding.builderConnectionDescription":
     "Finaliza la conexión con un clic en la nueva ventana.",
   "onboarding.builderReadyWithCodeChanges":
@@ -747,6 +752,15 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "Acciones del mensaje",
   "message.copyMessage": "Copiar mensaje",
   "message.copyRequestId": "Copiar ID de solicitud",
+  "message.usage": "Uso",
+  "message.usageLoading": "Cargando uso…",
+  "message.usageUnavailable": "Uso no disponible",
+  "message.usageNotRecorded": "No se registró el uso",
+  "message.usageReportedCost": "Costo {{amount}}",
+  "message.usageEstimatedCost": "Costo estimado {{amount}}",
+  "message.usageBuilderCredits": "Créditos de Builder usados {{amount}}",
+  "message.usageEstimatedBuilderCredits":
+    "Créditos de Builder estimados {{amount}}",
   "message.requestIdUnavailable": "ID de solicitud no disponible",
   "message.unavailable":
     "El mensaje ya no está disponible en esta conversación.",
@@ -1013,7 +1027,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.connectAbove":
     "Conecta arriba un proveedor de IA para continuar...",
   "composer.connectBuilder": "Usar Builder.io",
-  "composer.connectKeys": "Conectar claves",
+  "composer.connectKeys": "Conectar agente",
   "composer.connectingBuilder": "Configurando Builder.io…",
   "composer.costHigher": "Mayor costo",
   "composer.costLower": "Menor costo",

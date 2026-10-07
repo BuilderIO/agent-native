@@ -12,7 +12,6 @@ import {
   IconClipboardList,
   IconKey,
   IconPencil,
-  IconPlugConnected,
   IconHelpCircle,
   IconAlertCircle,
   IconLoader2,
@@ -42,6 +41,7 @@ import {
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
+import { BuilderBMark } from "./BuilderBMark.js";
 import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
 import {
   ComposerPlusMenu,
@@ -2341,7 +2341,14 @@ function ModelSelector({
                                 disabled={builderFlow.connecting}
                                 className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
                               >
-                                <IconPlugConnected className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                {builderFlow.connecting ? (
+                                  <IconLoader2
+                                    aria-hidden="true"
+                                    className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary"
+                                  />
+                                ) : (
+                                  <BuilderBMark className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                )}
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-[12px] font-medium text-foreground">
                                     {builderFlow.connecting

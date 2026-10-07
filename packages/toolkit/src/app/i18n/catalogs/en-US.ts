@@ -133,6 +133,11 @@ const messages = {
   "onboarding.builderMonthlyCredits": "60 monthly Agent Credits",
   "onboarding.builderIncludedFree": "Included free",
   "onboarding.builderMoreServices": "+ {{count}} more services",
+  "onboarding.builderLlmCredits": "LLM credits",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM credits + {{count}} more services",
+  "onboarding.builderAccountCreated":
+    "Builder.io account created and connected.",
   "onboarding.builderIncludedServices": "Included services",
   "onboarding.builderActivateTitle": "Activate free credits",
   "onboarding.builderAccountExistsTitle":
@@ -152,7 +157,7 @@ const messages = {
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
-    "Creating or reusing your Builder.io account. This usually takes a few seconds.",
+    "Creating your Builder.io account and activating free credits.",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
   "onboarding.builderReadyWithCodeChanges":
@@ -401,7 +406,7 @@ const messages = {
     "Configure Anthropic, OpenAI, or another provider",
   "composer.connectAbove": "Connect AI above to continue...",
   "composer.connectBuilder": "Use Builder.io",
-  "composer.connectKeys": "Connect keys",
+  "composer.connectKeys": "Connect agent",
   "composer.connectingBuilder": "Setting up Builder.io…",
   "composer.costHigher": "Higher cost",
   "composer.costLower": "Lower cost",
@@ -1011,6 +1016,15 @@ const messages = {
   "message.actions": "Message actions",
   "message.copyMessage": "Copy message",
   "message.copyRequestId": "Copy request ID",
+  "message.usage": "Usage",
+  "message.usageLoading": "Loading usage…",
+  "message.usageUnavailable": "Usage unavailable",
+  "message.usageNotRecorded": "Usage not recorded",
+  "message.usageReportedCost": "Cost {{amount}}",
+  "message.usageEstimatedCost": "Estimated cost {{amount}}",
+  "message.usageBuilderCredits": "Builder credits used {{amount}}",
+  "message.usageEstimatedBuilderCredits":
+    "Estimated Builder credits {{amount}}",
   "message.requestIdUnavailable": "Request ID unavailable",
   "message.unavailable":
     "The message is no longer available in this conversation.",

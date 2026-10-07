@@ -1226,7 +1226,7 @@ async function hydrateRecentPrompts(
   return recent;
 }
 
-async function detectUsageEngineName(): Promise<string | null> {
+export async function detectUsageEngineName(): Promise<string | null> {
   const { readDefaultAgentEngineSetting } =
     await import("../agent/default-agent-engine.js");
   const stored = (await readDefaultAgentEngineSetting()) as {
