@@ -8,6 +8,7 @@
  * field. The redacted `input` payload is never exported.
  */
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import { redactTextToSummary } from "./redact.js";
 import type { AuditEvent, AuditStatus } from "./types.js";
 
 export const OCSF_SCHEMA_VERSION = "1.9.0";
@@ -50,6 +51,68 @@ const SEVERITY: Record<AuditStatus, 1 | 2 | 3> = {
   error: 2,
   denied: 3,
 };
+
+function sanitizeLineageUrl(
+  value: string | null | undefined,
+): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return undefined;
+    }
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    let redactNextPathSegment = false;
+    const safePath = url.pathname
+      .split("/")
+      .map((segment) => {
+        if (redactNextPathSegment) {
+          redactNextPathSegment = false;
+          return "redacted";
+        }
+        let decoded = segment;
+        try {
+          decoded = decodeURIComponent(segment);
+        } catch {
+          return "redacted";
+        }
+        const pathKey = decoded.toLowerCase().replace(/[-_]/g, "");
+        if (
+          /^(?:apikey|accesstoken|refreshtoken|token|secret|password|credential|signature|sig|authorization|auth|session)$/.test(
+            pathKey,
+          )
+        ) {
+          redactNextPathSegment = true;
+          return segment;
+        }
+        const redacted = redactTextToSummary(decoded);
+        if (!redacted || redacted === decoded) return segment;
+        return encodeURIComponent(
+          redacted === "[redacted]" ? "redacted" : redacted,
+        );
+      })
+      .join("/");
+    const safeUrl = `${url.origin}${safePath === "/" ? "" : safePath}`;
+    return redactTextToSummary(safeUrl) ?? undefined;
+    // coercion-ok: malformed lineage URLs are omitted from the SIEM export.
+  } catch {
+    return undefined;
+  }
+}
+
+function sanitizeNetworkPeer(
+  value: string | null | undefined,
+): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  const url = sanitizeLineageUrl(trimmed);
+  if (url) return url;
+  if (/^(?:[a-z][a-z\d+.-]*:)?\/\//i.test(trimmed)) return undefined;
+  return redactTextToSummary(trimmed) ?? undefined;
+}
 
 export interface OcsfApiActivity {
   class_uid: 6003;
@@ -167,10 +230,11 @@ export function auditEventToOcsf(event: AuditEvent): OcsfApiActivity {
   keep("source_kind", event.sourceKind);
   keep("source_platform", event.sourcePlatform);
   keep("source_id", event.sourceId);
-  keep("source_url", event.sourceUrl);
+  keep("source_url", sanitizeLineageUrl(event.sourceUrl));
   keep("network_protocol", event.networkProtocol);
   keep("network_id", event.networkId);
-  keep("network_peer", event.networkPeer);
+  const networkPeer = sanitizeNetworkPeer(event.networkPeer);
+  keep("network_peer", networkPeer);
 
   const resource =
     event.targetType || event.targetId
@@ -223,7 +287,7 @@ export function auditEventToOcsf(event: AuditEvent): OcsfApiActivity {
       ...(event.app ? { service: { name: event.app } } : {}),
     },
     src_endpoint: {
-      name: event.networkPeer || event.caller,
+      name: networkPeer || event.caller,
       ...(event.networkId ? { uid: event.networkId } : {}),
     },
     ...(resource ? { resources: resource } : {}),

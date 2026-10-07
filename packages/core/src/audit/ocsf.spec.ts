@@ -131,6 +131,35 @@ describe("auditEventToOcsf", () => {
     });
   });
 
+  it("removes URL credentials, queries, and fragments from exported lineage", () => {
+    const out = auditEventToOcsf(
+      event({
+        sourceUrl:
+          "https://source-user:source-password@source.example.test/thread/123/api-key/example-only?access_token=example-only#private-fragment",
+        networkPeer:
+          "https://peer-user:peer-password@peer.example.test/mcp?credential=example-only#private-fragment",
+      }),
+    );
+
+    expect(out.unmapped.source_url).toBe(
+      "https://source.example.test/thread/123/api-key/redacted",
+    );
+    expect(out.unmapped.network_peer).toBe("https://peer.example.test/mcp");
+    expect(out.src_endpoint.name).toBe("https://peer.example.test/mcp");
+    expect(JSON.stringify(out)).not.toMatch(
+      /source-password|peer-password|example-only|private-fragment|access_token|credential/,
+    );
+  });
+
+  it("redacts known webhook URLs from exported lineage", () => {
+    const out = auditEventToOcsf(
+      event({ sourceUrl: "https://hooks.slack.com/services/example-only" }),
+    );
+
+    expect(out.unmapped.source_url).toBe("[redacted]");
+    expect(JSON.stringify(out)).not.toContain("hooks.slack.com");
+  });
+
   it("maps a service principal to a Service user, not a mailbox", () => {
     const out = auditEventToOcsf(
       event({

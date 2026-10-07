@@ -1,16 +1,15 @@
-import { parseServiceIdentityEmail } from "./service-identity.js";
-/**
- * Enforcement helpers over the service-principal policy store. MCP admission,
- * MCP tool dispatch, and inbound A2A all ask these instead of reading
- * `evaluateServicePrincipal` themselves, so a refusal means the same thing
- * (status, message, audit row) on every entry point.
- */
 import {
   evaluateServicePrincipal,
   isActionGranted,
   SERVICE_PRINCIPAL_SUSPENDED_MESSAGE,
 } from "./service-principal-policy.js";
 
+/**
+ * Enforcement helpers over the service-principal policy store. MCP admission,
+ * MCP tool dispatch, and inbound A2A all ask these instead of reading
+ * `evaluateServicePrincipal` themselves, so a refusal means the same thing
+ * (status, message, audit row) on every entry point.
+ */
 export const SERVICE_PRINCIPAL_UNAVAILABLE_MESSAGE =
   "The service principal's status could not be verified. Retry shortly.";
 
@@ -86,8 +85,8 @@ export function assertServicePrincipalMayCall(
 }
 
 /**
- * Writes a `denied` audit row for a refused service-principal call. Visible to
- * org admins only; the recorder is best-effort and never throws.
+ * Writes a `denied` audit row when a refused service-principal call has a
+ * verified org scope. Visible to org admins only; the recorder is best-effort.
  */
 export async function recordServicePrincipalDenial(input: {
   email: string | null | undefined;
@@ -97,9 +96,9 @@ export async function recordServicePrincipalDenial(input: {
   error: ServicePrincipalRefusedError;
 }): Promise<void> {
   if (input.error.statusCode !== 403) return;
+  const orgId = input.orgId?.trim();
+  if (!orgId) return;
   const { recordActionAudit } = await import("../audit/record.js");
-  const orgId =
-    input.orgId ?? parseServiceIdentityEmail(input.email)?.orgId ?? null;
   await recordActionAudit({
     config: {
       enabled: true,

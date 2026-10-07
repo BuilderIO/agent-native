@@ -67,6 +67,20 @@ describe("assertServicePrincipalMayRun", () => {
     });
   });
 
+  it("requires a verified org before reading a service principal policy", async () => {
+    const error = await refusal(assertServicePrincipalMayRun(SVC));
+    expect(error.statusCode).toBe(403);
+    expect(error.errorCode).toBe("service_principal_inactive");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a service identity whose verified org differs from its address", async () => {
+    const error = await refusal(assertServicePrincipalMayRun(SVC, "org_2"));
+    expect(error.statusCode).toBe(403);
+    expect(error.errorCode).toBe("service_principal_inactive");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
   it("returns the grant of an active governed principal", async () => {
     storeReturns(policyRow({ allowed_actions: JSON.stringify(["read-*"]) }));
     await expect(assertServicePrincipalMayRun(SVC, "org_1")).resolves.toEqual({
@@ -166,7 +180,7 @@ describe("recordServicePrincipalDenial", () => {
     });
   });
 
-  it("derives the admin audit scope from the service identity when omitted", async () => {
+  it("does not write a denial into an unverified org scope", async () => {
     let error: any;
     try {
       assertServicePrincipalMayCall([], "delete-doc");
@@ -180,12 +194,7 @@ describe("recordServicePrincipalDenial", () => {
       error,
     });
 
-    const input = recordActionAuditMock.mock.calls[0][0];
-    expect(input.ctx.orgId).toBe("org_1");
-    expect(input.config.target()).toMatchObject({
-      orgId: "org_1",
-      visibility: "admins",
-    });
+    expect(recordActionAuditMock).not.toHaveBeenCalled();
   });
 
   it("does not record a retryable unavailable refusal as a denial", async () => {

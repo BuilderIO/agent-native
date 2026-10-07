@@ -71,7 +71,7 @@ export type ServicePrincipalState =
       status: "suspended" | "retired";
       policy: ServicePrincipalPolicy;
     }
-  /** The verified org disagrees with the address, so this is not the principal. */
+  /** No verified org matches the address, so this is not the principal. */
   | { status: "org-mismatch" }
   | { status: "unavailable" };
 
@@ -301,9 +301,9 @@ export async function setServicePrincipalLifecycle(
 }
 
 /**
- * Resolve whether a caller may run, from its identity email alone. Non-service
- * identities return `not-service` without touching the database, so the hot
- * path for human callers is unchanged.
+ * Resolve whether a caller may run from its identity email and verified org.
+ * Non-service identities return `not-service` without touching the database,
+ * so the hot path for human callers is unchanged.
  */
 export async function evaluateServicePrincipal(
   email: string | null | undefined,
@@ -311,9 +311,9 @@ export async function evaluateServicePrincipal(
 ): Promise<ServicePrincipalState> {
   const parsed = parseServiceIdentityEmail(email);
   if (!parsed) return { status: "not-service" };
-  // The email alone is not proof of the org (see service-identity.ts); a
-  // caller whose verified org disagrees with the address is not this principal.
-  if (orgId && orgId !== parsed.orgId) return { status: "org-mismatch" };
+  // The email alone is not proof of the org (see service-identity.ts); require
+  // a verified org claim before reading this principal's policy.
+  if (!orgId || orgId !== parsed.orgId) return { status: "org-mismatch" };
   try {
     const policy = await getServicePrincipalPolicy(
       parsed.orgId,
