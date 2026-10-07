@@ -28,9 +28,14 @@ function defaultUpsertDashboardWithRetry(
         `dashboard "${id}" not found (or you don't have access).`,
       );
     }
+    // The edit mutates the record's config in place, so snapshot it first.
+    const stored = JSON.stringify(existing.config);
     const { kind, body } = await mutate(existing);
+    // Like the store: an identical config persists nothing and returns the
+    // stored record, with the same revision.
+    if (JSON.stringify(body) === stored) return existing;
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body };
+    return { ...existing, kind, config: body, updatedAt: "moved" };
   })();
 }
 
@@ -112,6 +117,18 @@ function panel(id: string) {
   };
 }
 
+// The dashboard as stored before the save (a different name), then as saved.
+function seedRenameSave(config: { name: string; panels: unknown[] }) {
+  const updatedAt = "2026-10-06T00:00:00.000Z";
+  mocks.upsertDashboard.mockResolvedValue({ archivedAt: null, updatedAt });
+  mocks.getDashboard
+    .mockResolvedValueOnce({
+      config: { ...config, name: "Weekly draft" },
+      updatedAt: "2026-10-05T00:00:00.000Z",
+    })
+    .mockResolvedValue({ config, updatedAt });
+}
+
 describe("update-dashboard proof-of-done summary", () => {
   beforeEach(() => {
     mocks.getDashboard.mockReset();
@@ -191,9 +208,7 @@ describe("update-dashboard proof-of-done summary", () => {
   it("does not mark frontend saves as AI edits", async () => {
     mocks.hasCollabState.mockResolvedValue(true);
     const config = { name: "Weekly", panels: [panel("a")] };
-    const updatedAt = "2026-10-06T00:00:00.000Z";
-    mocks.upsertDashboard.mockResolvedValue({ archivedAt: null, updatedAt });
-    mocks.getDashboard.mockResolvedValue({ config, updatedAt });
+    seedRenameSave(config);
 
     await updateDashboard.run(
       { dashboardId: "weekly", config },
@@ -212,9 +227,7 @@ describe("update-dashboard proof-of-done summary", () => {
   it("marks agent tool edits as AI edits", async () => {
     mocks.hasCollabState.mockResolvedValue(true);
     const config = { name: "Weekly", panels: [panel("a")] };
-    const updatedAt = "2026-10-06T00:00:00.000Z";
-    mocks.upsertDashboard.mockResolvedValue({ archivedAt: null, updatedAt });
-    mocks.getDashboard.mockResolvedValue({ config, updatedAt });
+    seedRenameSave(config);
 
     await updateDashboard.run(
       { dashboardId: "weekly", config },
@@ -355,7 +368,12 @@ describe("update-dashboard proof-of-done summary", () => {
         mutateCallCount += 1;
         const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
-        return { ...afterConcurrentWrite, kind, config: body };
+        return {
+          ...afterConcurrentWrite,
+          kind,
+          config: body,
+          updatedAt: "moved",
+        };
       },
     );
 

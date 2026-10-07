@@ -186,7 +186,10 @@ import {
   isResolvedEngineUsableForRequest,
   type ResolveEngineConfig,
 } from "./engine/index.js";
-import { MAX_PROVIDER_TOOLS } from "./engine/limit-provider-tools.js";
+import {
+  limitProviderTools,
+  MAX_PROVIDER_TOOLS,
+} from "./engine/limit-provider-tools.js";
 import {
   resolveEmptyResponseRetryMaxOutputTokens,
   resolveMainChatMaxOutputTokens,
@@ -1879,6 +1882,11 @@ export function resolveSourceSweepToolCallThreshold(): number {
   return getAppConfig().agent.sourceSweepToolCallThreshold;
 }
 const EXPANDED_TOOL_SCHEMA_WARN_BYTES = 32_000;
+const MAX_TOOL_SEARCH_OVERFLOW_NAMES_SHOWN = 5;
+const PROVIDER_CORE_TOOL_NAMES = [
+  TOOL_SEARCH_ACTION_NAME,
+  FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+];
 
 const MAX_SCREEN_CONTEXT_CHARS = 10_000;
 
@@ -5006,8 +5014,8 @@ export async function runAgentLoop(opts: {
   const availableToolMap = new Map(
     (availableTools ?? tools).map((tool) => [tool.name, tool]),
   );
-  const activeToolNames = new Set(tools.map((tool) => tool.name));
-  let activeTools = tools;
+  let activeTools = limitProviderTools(tools, PROVIDER_CORE_TOOL_NAMES);
+  const activeToolNames = new Set(activeTools.map((tool) => tool.name));
   let appAuthorizationPromise:
     | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
     | undefined;
@@ -5035,35 +5043,71 @@ export async function runAgentLoop(opts: {
   let expandedToolSchemaBytes = 0;
   let reportedExpandedToolSchemaBytes = false;
   let alreadyLoadedToolSearches = 0;
+  // Tools loaded after the first request, least recently needed first.
   const loadedToolNames = new Set<string>();
-  const expandActiveTools = (names: string[]): string[] => {
-    const added: string[] = [];
-    for (const name of names) {
-      if (activeToolNames.has(name)) continue;
+  const noteToolNeeded = (name: string) => {
+    if (loadedToolNames.delete(name)) loadedToolNames.add(name);
+  };
+  // `names` lead with what the model needs most. Below MAX_PROVIDER_TOOLS they
+  // append in registry order, so the tools prefix of the prompt cache survives.
+  // Past it the request keeps, in this order: tool-search and the follow-up
+  // tool, `pinned` (already promised this step) and `names`, the initial
+  // tools, then the other loaded tools most recently needed first, so the least
+  // recently needed loaded tools are evicted before any initial one. A tool
+  // that still does not fit is returned as overflow and never becomes active,
+  // so `activeTools` is exactly what the engine sends and nothing it dropped is
+  // reported as loaded.
+  const expandActiveTools = (
+    names: string[],
+    pinned: ReadonlySet<string> = new Set(),
+  ): { added: string[]; overflow: string[] } => {
+    const requested = new Set(names);
+    for (const name of requested) noteToolNeeded(name);
+    const wanted = [...requested].flatMap((name) => {
       const tool = availableToolMap.get(name);
-      if (!tool) continue;
-      activeToolNames.add(name);
-      expandedToolSchemaBytes += JSON.stringify(tool).length;
-      added.push(name);
-    }
-    if (added.length > 0) {
-      // Appending in registry order keeps every earlier tool where it was, so
-      // the tools prefix of the prompt cache survives an expansion.
-      for (const name of added) loadedToolNames.add(name);
-      const addedNames = new Set(added);
-      activeTools = [
-        ...activeTools,
-        ...(availableTools ?? tools).filter((tool) =>
-          addedNames.has(tool.name),
-        ),
-      ];
-      // limitProviderTools keeps the first MAX_PROVIDER_TOOLS, so past the cap
-      // a loaded tool must lead or the provider silently drops it.
-      if (activeTools.length > MAX_PROVIDER_TOOLS) {
+      return tool && !activeToolNames.has(name) ? [tool] : [];
+    });
+    const added: string[] = [];
+    const overflow: string[] = [];
+    if (wanted.length > 0) {
+      if (activeTools.length + wanted.length <= MAX_PROVIDER_TOOLS) {
+        const wantedNames = new Set(wanted.map((tool) => tool.name));
         activeTools = [
-          ...activeTools.filter((tool) => loadedToolNames.has(tool.name)),
-          ...activeTools.filter((tool) => !loadedToolNames.has(tool.name)),
+          ...activeTools,
+          ...(availableTools ?? tools).filter((tool) =>
+            wantedNames.has(tool.name),
+          ),
         ];
+      } else {
+        const byName = new Map(
+          [...activeTools, ...wanted].map((tool) => [tool.name, tool] as const),
+        );
+        const priority = new Set([
+          ...PROVIDER_CORE_TOOL_NAMES,
+          ...pinned,
+          ...names,
+          ...activeTools
+            .map((tool) => tool.name)
+            .filter((name) => !loadedToolNames.has(name)),
+          ...[...loadedToolNames].reverse(),
+        ]);
+        activeTools = [...priority]
+          .flatMap((name) => byName.get(name) ?? [])
+          .slice(0, MAX_PROVIDER_TOOLS);
+      }
+      activeToolNames.clear();
+      for (const tool of activeTools) activeToolNames.add(tool.name);
+      for (const name of loadedToolNames) {
+        if (!activeToolNames.has(name)) loadedToolNames.delete(name);
+      }
+      for (const tool of wanted) {
+        if (!activeToolNames.has(tool.name)) {
+          overflow.push(tool.name);
+          continue;
+        }
+        added.push(tool.name);
+        loadedToolNames.add(tool.name);
+        expandedToolSchemaBytes += JSON.stringify(tool).length;
       }
     }
     if (
@@ -5075,10 +5119,13 @@ export async function runAgentLoop(opts: {
         `[agent-loop] expanded tool schemas reached ${expandedToolSchemaBytes} bytes across ${activeToolNames.size} active tools (runId=${opts.runId ?? "none"})`,
       );
     }
-    return added;
+    return { added, overflow };
   };
 
-  expandActiveTools(extractToolSearchResultNamesFromMessages(messages));
+  // Newest searches lead, so they win if history alone overflows the cap.
+  expandActiveTools(
+    extractToolSearchResultNamesFromMessages(messages).reverse(),
+  );
 
   const processorChain =
     opts.processors && opts.processors.length > 0
@@ -6101,7 +6148,7 @@ export async function runAgentLoop(opts: {
             : Math.max(0, Math.min(3, Math.trunc(guard.maxRetries ?? 1)));
         if (finalGuardRetries < maxGuardRetries) {
           if (typeof guard !== "string" && guard.expandToolSurface) {
-            expandActiveTools([...availableToolMap.keys()]);
+            expandActiveTools([...activeToolNames, ...availableToolMap.keys()]);
           }
           if (receiptGuard && receiptGuard.maxRetries > 0) {
             receiptGuardRetried = true;
@@ -6229,6 +6276,7 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      noteToolNeeded(toolCall.name);
       const actionEntry = actions[toolCall.name];
       const placeholderNormalization = actionEntry
         ? normalizeOptionalToolPlaceholders(
@@ -7143,14 +7191,17 @@ export async function runAgentLoop(opts: {
           result = resultStr;
           if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
             const matched = extractToolSearchResultNames(rawForAgent);
-            for (const name of expandActiveTools(matched)) {
-              toolNamesLoadedThisStep.add(name);
-            }
+            const { added, overflow } = expandActiveTools(
+              matched,
+              toolNamesLoadedThisStep,
+            );
+            for (const name of added) toolNamesLoadedThisStep.add(name);
             const loadedThisStep = matched.filter((name) =>
               toolNamesLoadedThisStep.has(name),
             );
+            const loadedNote = `Loaded matching tool schemas for the next step, not this one: ${loadedThisStep.join(", ")}`;
             if (loadedThisStep.length > 0) {
-              result += `\n\nLoaded matching tool schemas for the next step, not this one: ${loadedThisStep.join(", ")}`;
+              result += `\n\n${loadedNote}`;
               alreadyLoadedToolSearches = 0;
             } else if (
               matched.length > 0 &&
@@ -7190,6 +7241,35 @@ export async function runAgentLoop(opts: {
                   errorCode: "repeated_tool_call",
                 };
               }
+            }
+            if (overflow.length > 0) {
+              const shown = overflow.slice(
+                0,
+                MAX_TOOL_SEARCH_OVERFLOW_NAMES_SHOWN,
+              );
+              const more =
+                overflow.length > shown.length
+                  ? `, and ${overflow.length - shown.length} more`
+                  : "";
+              const overflowNote = `Could not load ${overflow.length} matched ${overflow.length === 1 ? "tool" : "tools"} because the per-request tool limit (${MAX_PROVIDER_TOOLS}) was reached: ${shown.join(", ")}${more}. They are not callable; use tools you already have.`;
+              // A repeated search's own message says its matches are
+              // available, which these are not.
+              result =
+                (rawForAgent as { repeated?: unknown }).repeated === true
+                  ? JSON.stringify(
+                      {
+                        ...(rawForAgent as Record<string, unknown>),
+                        message: [
+                          loadedThisStep.length > 0 ? loadedNote : "",
+                          overflowNote,
+                        ]
+                          .filter(Boolean)
+                          .join(" "),
+                      },
+                      null,
+                      2,
+                    )
+                  : `${result}\n\n${overflowNote}`;
             }
           }
         } catch (err: any) {

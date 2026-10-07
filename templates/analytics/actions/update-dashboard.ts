@@ -15,6 +15,7 @@ import {
 } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import { dryRunQuery } from "../server/lib/bigquery";
 import {
+  dashboardNoopReceipt,
   dashboardWriteReceipt,
   requireEditableDashboard,
 } from "../server/lib/dashboard-agent-write";
@@ -654,6 +655,8 @@ function dashboardResult(
     dashboardId,
     name: typeof config.name === "string" ? config.name : dashboardId,
     ...compact,
+    saved: true,
+    changed: true,
     appliedOps,
     summary,
     ...verdictFields(verdict),
@@ -673,6 +676,49 @@ function dashboardResult(
       (returnConfig
         ? ""
         : " Full config omitted; call get-sql-dashboard with panelIds for a panel's SQL and config (includeConfig=true only to review the whole dashboard)."),
+  };
+}
+
+/**
+ * The store moves `updatedAt` on every write and hands back the stored record
+ * untouched when nothing differed, so a revision that did not move is its answer
+ * that nothing was persisted. `observedUpdatedAt` is the revision the save
+ * compared against: the fence, or else the record the edit was built from.
+ */
+function persistedNothing(
+  saved: DashboardRecord,
+  observedUpdatedAt: string | undefined,
+): boolean {
+  return saved.updatedAt === observedUpdatedAt;
+}
+
+/**
+ * A save the store did not persist is reported like an unchanged
+ * `mutate-dashboard` batch: no sync, no tracking, and nothing verified.
+ */
+function unchangedDashboardResult(
+  dashboardId: string,
+  config: Record<string, unknown>,
+  returnConfig: boolean,
+  updatedAt: string,
+  agentCaller: boolean,
+) {
+  return {
+    ...dashboardResult(
+      dashboardId,
+      config,
+      0,
+      `No dashboard changes were needed for "${dashboardId}"; the requested state already matches.` +
+        (agentCaller
+          ? " If the viewer still sees the old result, call inspect-dashboard-panel to see what the panel renders."
+          : ""),
+      [],
+      returnConfig,
+      updatedAt,
+    ),
+    saved: false,
+    changed: false,
+    ...(agentCaller ? { _receipt: dashboardNoopReceipt(dashboardId) } : {}),
   };
 }
 
@@ -828,6 +874,15 @@ export default defineAction({
         }
         throw err;
       }
+      if (before && persistedNothing(saved, fence ?? before.updatedAt)) {
+        return unchangedDashboardResult(
+          dashboardId,
+          args.config,
+          args.returnConfig === true,
+          saved.updatedAt,
+          agentCaller,
+        );
+      }
       void queueDashboardCollabSync(
         dashboardId,
         saved.updatedAt,
@@ -852,11 +907,13 @@ export default defineAction({
     if (args.panelOrder) {
       let orderDetails!: PanelOrderResult;
       let orderVerdict: PanelWriteVerdict | null = null;
+      let observedUpdatedAt!: string;
       const saved = await upsertDashboardWithRetry(
         dashboardId,
         ctx,
         async (existing) => {
           await requireEditableDashboard(dashboardId, ctx, existing);
+          observedUpdatedAt = existing.updatedAt;
           const root = existing.config as Record<string, unknown>;
           // applyPanelOrder edits `root` in place, so the pre-edit config must be copied first.
           const baseline = JSON.parse(JSON.stringify(root)) as Record<
@@ -881,6 +938,15 @@ export default defineAction({
         },
       );
       const root = saved.config as Record<string, unknown>;
+      if (persistedNothing(saved, observedUpdatedAt)) {
+        return unchangedDashboardResult(
+          dashboardId,
+          root,
+          args.returnConfig === true,
+          saved.updatedAt,
+          agentCaller,
+        );
+      }
       void queueDashboardCollabSync(
         dashboardId,
         saved.updatedAt,
@@ -903,11 +969,13 @@ export default defineAction({
 
     let appliedDetails: string[] = [];
     let opsVerdict: PanelWriteVerdict | null = null;
+    let observedUpdatedAt!: string;
     const saved = await upsertDashboardWithRetry(
       dashboardId,
       ctx,
       async (existing) => {
         await requireEditableDashboard(dashboardId, ctx, existing);
+        observedUpdatedAt = existing.updatedAt;
         const root = existing.config as Record<string, unknown>;
         // The ops below edit `root` in place, so the pre-edit config must be copied first.
         const baseline = JSON.parse(JSON.stringify(root)) as Record<
@@ -945,6 +1013,15 @@ export default defineAction({
       },
     );
     const root = saved.config as Record<string, unknown>;
+    if (persistedNothing(saved, observedUpdatedAt)) {
+      return unchangedDashboardResult(
+        dashboardId,
+        root,
+        args.returnConfig === true,
+        saved.updatedAt,
+        agentCaller,
+      );
+    }
     void queueDashboardCollabSync(
       dashboardId,
       saved.updatedAt,

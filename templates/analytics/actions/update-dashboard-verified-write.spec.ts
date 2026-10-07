@@ -19,9 +19,14 @@ function defaultUpsertDashboardWithRetry(
 ) {
   return (async () => {
     const existing = await mocks.getDashboard(id, ctx);
+    // The edit mutates the record's config in place, so snapshot it first.
+    const stored = JSON.stringify(existing?.config);
     const { kind, body } = await mutate(existing);
+    // Like the store: an identical config persists nothing and returns the
+    // stored record, with the same revision.
+    if (JSON.stringify(body) === stored) return existing;
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body };
+    return { ...existing, kind, config: body, updatedAt: "moved" };
   })();
 }
 
@@ -395,8 +400,13 @@ describe("update-dashboard verified writes", () => {
     });
 
     it("covers a panelOrder write as a verified change with no render affected", async () => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: dashboard([pivotPanel(), pivotPanel({ id: "other" })]),
+      });
+
       const saved: any = await updateDashboard.run(
-        { dashboardId: "growth", panelOrder: ["by-app"] },
+        { dashboardId: "growth", panelOrder: ["other"] },
         agent,
       );
 
