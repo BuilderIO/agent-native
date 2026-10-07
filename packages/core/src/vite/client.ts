@@ -76,6 +76,7 @@ import {
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
 import {
+  AGENT_NATIVE_TYPEGEN_ENV,
   formatRuntimeConfigReport,
   getRuntimeConfigReport,
   isTruthyRuntimeValue,
@@ -4089,6 +4090,8 @@ function reportRuntimeConfigDiagnostics(
   mode: string,
   env: Record<string, string | undefined> = process.env,
 ): void {
+  if (process.env[AGENT_NATIVE_TYPEGEN_ENV] === "1") return;
+
   const production =
     mode === "production" || process.env.NODE_ENV === "production";
   if (!production) return;
