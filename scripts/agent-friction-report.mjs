@@ -2021,12 +2021,14 @@ const FEEDBACK_RELEASE_CONTEXT_RE =
 const FEEDBACK_NO_LOCAL_REPRO_RE = new RegExp(
   [
     String.raw`\b(?:feedback\s+(?:sweep|review|skill|triage)|the\s+sweep)\b[^\n]{0,160}\b(?:skip(?:ped|ping)?|stop(?:ped|ping)?|declared?|called|mark(?:ed)?|gave\s+up)\b[^\n]{0,160}\b(?:not\s+reproducible|unreproducible|easily\s+reproducible|no\s+(?:local\s+)?(?:attempt|repro)|evidence\s+limit|can['’]?t\s+do\s+anything)\b|\b(?:why|how)\b[^\n]{0,90}\b(?:feedback|sweep|skill)\b[^\n]{0,90}\b(?:skip(?:ped)?|stop(?:ped)?|give\s+up)\b[^\n]{0,100}\b(?:reproducible|reproduce|attempt)\b`,
-    String.raw`\b(?:i|we)\b[^\n]{0,120}\b(?:had\s+to\s+)?(?:ask(?:ed)?|remind(?:ed)?|nudge(?:d)?|request(?:ed)?)\b[^\n]{0,120}\b(?:review[- ]latest[- ]feedback|feedback(?:\s+(?:sweep|review|skill|triage))?|the\s+sweep|the\s+skill)\b[^\n]{0,100}\b(?:try|attempt|reproduc(?:e|ing|tion|ible))\b`,
+    String.raw`\b(?:i|we)\b[^\n]{0,120}\b(?:had\s+to\s+)?(?:ask(?:ed)?|remind(?:ed)?|nudge(?:d)?|request(?:ed)?)\b[^\n]{0,120}\b(?:you|the\s+(?:agent|assistant|sweep|skill)|review[- ]latest[- ]feedback|feedback(?:\s+(?:sweep|review|skill|triage))?)\b[^\n]{0,100}\b(?:try|attempt|reproduc(?:e|ing|tion|ible))\b`,
   ].join("|"),
   "i",
 );
 const FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES = [
   [true, "Why did the feedback skill skip this? It's easily reproducible."],
+  [true, "I had to ask you to reproduce this locally."],
+  [true, "I had to ask the agent to attempt local reproduction."],
   [true, "I had to ask the feedback sweep to try reproducing this locally."],
   [true, "We reminded review-latest-feedback to attempt local reproduction."],
   [
