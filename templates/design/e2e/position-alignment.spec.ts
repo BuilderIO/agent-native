@@ -557,7 +557,7 @@ test("fixed Position stays viewport-relative after iframe scroll and reload", as
   );
 });
 
-// Native oracle O-06 (desktop Figma, 2026-10-06): Position skips Groups and
+// oracle: fig.canvas.position-relative-to-frame — Position skips Groups and
 // resets at the nearest Frame.
 test("Position stays Frame-relative through Groups and resets at nested Frames", async ({
   page,
@@ -767,8 +767,8 @@ test("Position edits invert own and static-containing-block transforms and persi
     .toEqual({ x: 170, y: 50 });
 });
 
-// Native oracle O-09/O-10 (desktop Figma, 2026-10-06): alignment uses Group
-// bounds; Position remains Frame-relative.
+// oracle: fig.inspector.align-left-within-group, fig.inspector.align-center-within-group —
+// alignment uses Group bounds; Position remains Frame-relative.
 test("Align uses a Group's bounds while Position stays Frame-relative", async ({
   page,
   request,

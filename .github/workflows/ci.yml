@@ -423,7 +423,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.shard == 'changed' && 50 || 25 }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -449,7 +449,7 @@ jobs:
 
       - name: Run focused Design regression cases
         working-directory: templates/design
-        timeout-minutes: ${{ matrix.shard == 'changed' && 45 || 20 }}
+        timeout-minutes: 9
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -490,7 +490,7 @@ jobs:
               ;;
             drag)
               fixed_specs=( \
-                e2e/corner-radius-handle-drag.spec.ts:188 \
+                e2e/corner-radius-handle-drag.spec.ts:189 \
                 e2e/drag-and-drop.drag-feedback.spec.ts:24 \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
@@ -537,7 +537,7 @@ jobs:
             echo "All fixed regression cases are included in the changed-spec shard."
             exit 0
           fi
-          pnpm exec playwright test "${focused_specs[@]}" --workers=1
+          pnpm exec playwright test "${focused_specs[@]}" --workers=2
 
   fast-tests:
     name: Fast tests
