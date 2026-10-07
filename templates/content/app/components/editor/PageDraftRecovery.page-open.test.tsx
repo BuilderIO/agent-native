@@ -315,5 +315,6 @@ describe("Page draft recovery on a page open", () => {
       name: "get-document",
       params: { id: "page" },
     });
+    expect(draftReads()).toBe(0);
   });
 });
