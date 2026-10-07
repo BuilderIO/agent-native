@@ -98,9 +98,14 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "cloudflare",
           },
           {
-            id: "aws-lambda",
-            labelKey: "deploymentAwsLambda",
-            slug: "aws-lambda",
+            id: "render",
+            labelKey: "deploymentRender",
+            slug: "render",
+          },
+          {
+            id: "koyeb",
+            labelKey: "deploymentKoyeb",
+            slug: "koyeb",
           },
           {
             id: "deno-deploy",
@@ -113,14 +118,14 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "azure-static-web-apps",
           },
           {
-            id: "koyeb",
-            labelKey: "deploymentKoyeb",
-            slug: "koyeb",
+            id: "aws-lambda",
+            labelKey: "deploymentAwsLambda",
+            slug: "aws-lambda",
           },
           {
-            id: "render",
-            labelKey: "deploymentRender",
-            slug: "render",
+            id: "aws-amplify",
+            labelKey: "deploymentAwsAmplify",
+            slug: "aws-amplify",
           },
         ],
       },

@@ -36,6 +36,12 @@ describe("embedApp", () => {
     expect(html).toContain("bridge.toolInput");
     expect(html).toContain("bridge.toolOutput");
     expect(html).toContain("bridge.toolResponseMetadata");
+    expect(html).toContain('toolResponseMetadata["agent-native/openLink"]');
+    expect(html).toMatch(/record\.label \|\| openLink\.label \|\| record\.app/);
+    const syncSignature = html.match(
+      /signature = JSON\.stringify\(\[\s*toolInput,[\s\S]*?\]\);/,
+    );
+    expect(syncSignature?.[0]).toContain("openLinkLabel");
     expect(html).toContain("openAiBridge.callTool(startTool, args)");
     expect(html).toContain("openAiBridge.openExternal");
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
@@ -432,6 +438,28 @@ describe("embedApp", () => {
     expect(html.endsWith("</body>\n</html>")).toBe(true);
     expect(csp?.connectDomains).not.toContain("https://esm.sh");
     expect(csp?.resourceDomains).not.toContain("https://esm.sh");
+  });
+
+  it("renews directory widget sessions from saved tool output without embedStart metadata", () => {
+    const resource = embedApp({ title: "Directory widget" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({
+            actionName: "create-document",
+            appId: "content",
+            catalogMode: "directory",
+            startToolName: "create_embed_session",
+          })
+        : resource.html;
+
+    expect(html).toContain('data-start-tool="create_embed_session"');
+    expect(html).toContain('data-catalog-mode="directory"');
+    expect(html).toContain('toolResponseMetadata["agent-native/widgetSource"]');
+    expect(html).toContain("toolOutput: toolResultData");
+    expect(html).toContain(
+      "const result = await callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
+    );
+    expect(html).toContain("openStartUrl || openUrl");
   });
 
   it("renders the shared MCP App document without trailing characters", () => {

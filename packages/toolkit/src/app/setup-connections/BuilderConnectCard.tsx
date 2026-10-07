@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { BuilderBMark } from "@agent-native/core/client/builder-mark";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   ActionButton,
@@ -284,16 +285,39 @@ export function BuilderConnectionMenu({
 
   if (flow.connecting) {
     return (
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-8 px-2 text-xs"
-        data-testid="builder-connection-cancel"
-        onClick={flow.cancel}
-      >
-        {t("common.cancel")}
-      </Button>
+      <div className="flex h-8 items-center gap-2" aria-busy="true">
+        <span
+          role="status"
+          aria-live="polite"
+          className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+        >
+          <IconLoader2
+            size={14}
+            className="shrink-0 animate-spin"
+            aria-hidden="true"
+          />
+          <span className="truncate">
+            {provisionAttemptRef.current
+              ? t("agentChat.onboarding.builderProvisioningDescription", {
+                  defaultValue:
+                    "Creating your Builder.io account and activating free credits.",
+                })
+              : t("agentChat.composer.connectingBuilder", {
+                  defaultValue: "Setting up Builder.io…",
+                })}
+          </span>
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 shrink-0 px-2 text-xs"
+          data-testid="builder-connection-cancel"
+          onClick={flow.cancel}
+        >
+          {t("common.cancel")}
+        </Button>
+      </div>
     );
   }
 
@@ -475,7 +499,7 @@ export function DefaultBuilderConnectCardView({
                     pending={action.pending}
                     disabled={action.disabled}
                     className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
-                    leadingIcon={<IconPlugConnected className="size-3.5" />}
+                    leadingIcon={<BuilderBMark className="size-3.5" />}
                   >
                     {action.label}
                   </ActionButton>
@@ -488,7 +512,7 @@ export function DefaultBuilderConnectCardView({
                   pending={action.pending}
                   disabled={action.disabled}
                   className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
-                  leadingIcon={<IconPlugConnected className="size-3.5" />}
+                  leadingIcon={<BuilderBMark className="size-3.5" />}
                   onPress={() => action.onPress()}
                 >
                   {action.label}

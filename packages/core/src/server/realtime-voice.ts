@@ -18,7 +18,10 @@ import {
   sanitizeToolErrorText,
   sanitizeToolErrorValue,
 } from "../agent/tool-error-redaction.js";
-import { TOOL_SEARCH_ACTION_NAME } from "../agent/tool-search.js";
+import {
+  isTargetedToolSearch,
+  TOOL_SEARCH_ACTION_NAME,
+} from "../agent/tool-search.js";
 import { parseAcceptLanguage } from "../localization/server.js";
 import { getSession } from "./auth.js";
 import {
@@ -428,12 +431,10 @@ function grantDiscoveredRealtimeTools(input: {
   initialAllowedNames: ReadonlySet<string>;
   capability: RealtimeToolCapability;
 }): RealtimeFunctionTool[] {
-  const query = input.request.args.query;
   if (
     input.request.name !== TOOL_SEARCH_ACTION_NAME ||
     input.result.status !== "completed" ||
-    typeof query !== "string" ||
-    !query.trim()
+    !isTargetedToolSearch(input.request.args)
   ) {
     return [];
   }

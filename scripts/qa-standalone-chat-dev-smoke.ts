@@ -1350,6 +1350,8 @@ const helloPrompt =
   "Call the hello action with name AgentKit Browser, then report the greeting in streamed markdown.";
 const approvalPrompt =
   "Call accept-agentkit-release with release agentkit-acceptance for production and wait for my approval.";
+const approvedContinuationPrompt =
+  "Approved. Go ahead and run the requested action.";
 const widgetFirstBatchPrompt =
   "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, and best shared time in that order.";
 const widgetSecondBatchPrompt =
@@ -1566,11 +1568,12 @@ async function streamToolCallResponse(
 }
 
 function originalUserPrompt(value: string): string {
+  if (value.trim() === approvedContinuationPrompt) return approvalPrompt;
   const frameworkSuffixes = [
     "\n\n<current-time>",
     "\n\n<current-screen>",
     "\n\nContinue from where you left off",
-    "Approved. Go ahead and run the requested action.",
+    approvedContinuationPrompt,
   ];
   const suffixIndexes = frameworkSuffixes
     .map((suffix) => value.indexOf(suffix))
@@ -3847,6 +3850,35 @@ async function main(): Promise<void> {
         return;
       }
       const error = `${status} ${url}`;
+      if (
+        status === 409 &&
+        request.method() === "POST" &&
+        responseUrl.pathname === "/_agent-native/agent-chat"
+      ) {
+        pendingHttpErrorDetails.push(
+          response
+            .json()
+            .then((payload) => {
+              const body =
+                payload &&
+                typeof payload === "object" &&
+                !Array.isArray(payload)
+                  ? (payload as Record<string, unknown>)
+                  : undefined;
+              if (body?.code === "run_slot_busy" && body.retryable === true) {
+                recordSuppressedNoise(
+                  `expected retryable run-slot contention ${request.method()} ${url}`,
+                );
+              } else {
+                httpErrors.push(error);
+              }
+            })
+            .catch(() => {
+              httpErrors.push(`${error}: response body unavailable`);
+            }),
+        );
+        return;
+      }
       if (status >= 500 && request.method() === "GET") {
         pendingHttpErrorDetails.push(
           response

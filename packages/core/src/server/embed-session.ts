@@ -17,6 +17,7 @@ import {
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_READ_CAPABILITY_MAX_LENGTH,
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
@@ -163,7 +164,7 @@ export function resolvedEmbedCapabilityScope(
   if (
     !isEmbedCapabilityScope(scope) ||
     !scope ||
-    scope.length > 512 ||
+    scope.length > MCP_DIRECTORY_WIDGET_READ_CAPABILITY_MAX_LENGTH ||
     CONTROL_CHARS.test(scope)
   ) {
     return undefined;

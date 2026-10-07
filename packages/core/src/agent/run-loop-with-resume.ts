@@ -10,6 +10,7 @@ import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import { EngineError, type EngineMessage } from "./engine/types.js";
 import {
   runAgentLoop,
+  mergeAgentLoopUsage,
   appendAgentLoopContinuation,
   isResumableEngineError,
   isTransientProviderRateLimitError,
@@ -341,20 +342,8 @@ export async function runAgentLoopDirectWithSoftTimeout(
     model: opts.model,
   };
 
-  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
-    usage.inputTokens += next.inputTokens;
-    usage.outputTokens += next.outputTokens;
-    usage.cacheReadTokens += next.cacheReadTokens;
-    usage.cacheWriteTokens += next.cacheWriteTokens;
-    if (next.builderCreditsUsed !== undefined) {
-      usage.builderCreditsUsed =
-        (usage.builderCreditsUsed ?? 0) + next.builderCreditsUsed;
-    }
-    usage.engineName = next.engineName ?? usage.engineName;
-    usage.model = next.model;
-    if (next.usageReported) usage.usageReported = true;
-    usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
-  };
+  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) =>
+    mergeAgentLoopUsage(usage, next);
 
   const localTurnEvents: AgentChatEvent[] = [];
   const continueFromChunkBoundary = async (

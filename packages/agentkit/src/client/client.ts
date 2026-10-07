@@ -262,6 +262,11 @@ export interface AgentKitController {
   getSnapshot(): AgentKitSnapshot;
   subscribe(listener: AgentKitListener): () => void;
   getThread(threadId: ThreadId): AgentThreadState;
+  /** Persist the current thread snapshot, optionally with a host-filtered message list. */
+  persistThreadSnapshot(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+  ): Promise<void>;
   openThread(
     threadId: ThreadId,
     context?: AgentRequestContext,
@@ -3580,14 +3585,27 @@ export class AgentKitClient implements AgentKitController {
     void completed.catch(() => undefined);
   }
 
-  private persistThreadSnapshot(
+  public async persistThreadSnapshot(
     threadId: ThreadId,
+    messages?: AgentMessage[],
+  ): Promise<void> {
+    const result = await this.persistThreadSnapshotToTransport(
+      threadId,
+      messages,
+    );
+    if (result) this.fail(result.error, "thread_snapshot_persist_failed");
+  }
+
+  private persistThreadSnapshotToTransport(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
   ): Promise<{ error: unknown } | undefined> {
     const persist = this.transport.persistThreadSnapshot;
     if (!persist) return Promise.resolve(undefined);
     const thread = this.getThread(threadId);
     const updatedAt = this.now();
-    const messageIds = new Set(thread.messages.map((message) => message.id));
+    const snapshotMessages = messages ?? thread.messages;
+    const messageIds = new Set(snapshotMessages.map((message) => message.id));
     const annotations: AgentAnnotationSnapshot[] = Object.entries(
       thread.annotations,
     ).flatMap(([id, annotation]) => {
@@ -3604,7 +3622,7 @@ export class AgentKitClient implements AgentKitController {
       }),
       id: threadId,
       updatedAt,
-      messages: thread.messages,
+      messages: snapshotMessages,
       queuedMessages: thread.queuedMessages,
       events: thread.events,
       runs: Object.values(thread.runs).map((run) => ({
@@ -3756,7 +3774,7 @@ export class AgentKitClient implements AgentKitController {
     this.submittedUserMessages.delete(
       this.runKey(threadId, terminalEvent.runId),
     );
-    const snapshotPersistence = this.persistThreadSnapshot(threadId);
+    const snapshotPersistence = this.persistThreadSnapshotToTransport(threadId);
     const completed =
       terminalEvent.type === "run.completed" ||
       (terminalEvent.type === "run.status" &&

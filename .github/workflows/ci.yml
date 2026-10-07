@@ -175,6 +175,10 @@ jobs:
         with:
           restore-dist-cache: "true"
 
+      - name: Build core declarations before dependent typechecks
+        if: needs.change-scope.outputs.full == 'true' || contains(needs.change-scope.outputs.test_workspace_filters, '{packages/core}')
+        run: pnpm --filter @agent-native/core run build
+
       - name: Typecheck affected workspaces
         env:
           CI_FULL: ${{ needs.change-scope.outputs.full }}

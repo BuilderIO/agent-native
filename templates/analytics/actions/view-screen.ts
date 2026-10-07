@@ -6,6 +6,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import {
+  buildDashboardAgentContext,
+  fitDashboardScreenContext,
+} from "../server/lib/agent-readable-resource-context";
 import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
@@ -83,6 +87,11 @@ const SESSION_EXCERPT_SIZE = 25;
  * rows, so a cut there would drop what says the list is incomplete.
  */
 const SCREEN_CHAR_BUDGET = 45_000;
+/**
+ * The auto-injected `<current-screen>` block is cut at 10,000 characters. The
+ * dashboard summary gets most of that, so the rest of the screen still fits.
+ */
+const SCREEN_DASHBOARD_CHAR_BUDGET = 6_000;
 const DASHBOARD_PATH_RE = /^\/(?:adhoc|dashboards)\/([^/]+)\/?$/;
 
 function dashboardIdFromPathname(pathname: string): string | null {
@@ -115,7 +124,7 @@ function isAskPathname(pathname: string): boolean {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current view, dashboard config (if on a dashboard), analysis details (if on an analysis), Analytics session replay context, and any active URL filter params. Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
+    "See what the user is currently looking at on screen. Returns the current view, a compact dashboard summary (if on a dashboard: panel ids, chart types, bound columns, layout; use get-sql-dashboard with panelIds for a panel's SQL and config), analysis details (if on an analysis), Analytics session replay context, and any active URL filter params. Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -194,12 +203,10 @@ export default defineAction({
             orgId,
           });
           if (dashboard) {
-            screen.dashboard = dashboard.config;
-            screen.dashboardAccess = {
-              role: dashboard.role,
-              canEdit: dashboard.canEdit,
-              canManage: dashboard.canManage,
-            };
+            screen.dashboard = fitDashboardScreenContext(
+              buildDashboardAgentContext(dashboard, { forAgent: true }),
+              SCREEN_DASHBOARD_CHAR_BUDGET,
+            );
           }
         }
       } catch {

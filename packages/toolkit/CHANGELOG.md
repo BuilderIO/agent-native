@@ -1,5 +1,21 @@
 # @agent-native/toolkit
 
+## 0.203.0
+
+### Patch Changes
+
+- 8944abb: Accept SVG files in agent chat again, as reference attachments. A dropped file that can't be added now shows a short, wrapping error naming the file instead of a clipped list of accepted types, and prompt composers without their own error surface show the rejection inline instead of ignoring the file.
+- 6b0f888: Show per-run provider or Builder credit costs in chat, and keep historical usage without billing metadata unclassified across usage dashboards.
+- d317d31: Keep model choices current and show the Builder.io included-services count immediately.
+- Release all public npm packages with a patch version bump.
+- 6f748b3: Keep ocean renderer tuning and color modules out of the signup hydration entry chunk.
+- de755c7: Keep signup wave backgrounds empty until the ocean is ready and position them clear of the marketing copy.
+- Updated dependencies [3d573d7]
+- Updated dependencies
+- Updated dependencies [3d573d7]
+- Updated dependencies [4738d38]
+  - @agent-native/agentkit@0.203.0
+
 ## 0.202.0
 
 ### Minor Changes
@@ -1070,11 +1086,5 @@
 
 - 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
   inside blocks created through the shared slash-command menu.
-
-## 0.10.3
-
-### Patch Changes
-
-- 180b41d: Preserve native pointer, keyboard, accessibility, and ref props when legacy Toolkit buttons are composed as menu triggers.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

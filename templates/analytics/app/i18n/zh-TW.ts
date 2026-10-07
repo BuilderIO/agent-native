@@ -1513,6 +1513,12 @@ export default {
     replayChunksDescription: "用於重建此回放的受控分塊。提供者 URL 保持私人。",
     chunkAndEventCount: "{{chunks}} 個區塊，{{events}} 個重播事件",
     replayEventCount: "{{events}} 個回放事件",
+    saveScreenshot: "下載螢幕截圖",
+    savingScreenshot: "正在儲存螢幕截圖…",
+    screenshotDownloaded: "螢幕截圖已下載",
+    screenshotSaveFailed: "無法儲存螢幕截圖",
+    screenshotUnsupportedAssets:
+      "螢幕截圖未儲存：部分嵌入媒體或圖片無法安全擷取。",
     timeline: "事件時間線",
     replayTimeline: "回放時間線",
     timelineDescription: "顯示 {{count}} / {{total}} 個有用事件。",

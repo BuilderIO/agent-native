@@ -33,6 +33,7 @@ import {
   isAgentConnectionRequiredError,
   type ActionAutomationContext,
   type ActionCaller,
+  type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -56,6 +57,7 @@ import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import {
   describeAttachmentBytesVerdict,
+  normalizeImageMediaType,
   reconcileImageBytes,
   reconcilePdfBytes,
 } from "../file-upload/attachment-bytes.js";
@@ -125,6 +127,7 @@ import {
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
   isReasoningEffort,
@@ -142,6 +145,7 @@ import {
   drainAgentWarnings,
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
+import { clipHead } from "./clip-text.js";
 import {
   buildSystemManifestSections,
   readContextXraySystemSections,
@@ -183,6 +187,10 @@ import {
   type ResolveEngineConfig,
 } from "./engine/index.js";
 import {
+  limitProviderTools,
+  MAX_PROVIDER_TOOLS,
+} from "./engine/limit-provider-tools.js";
+import {
   resolveEmptyResponseRetryMaxOutputTokens,
   resolveMainChatMaxOutputTokens,
   resolveMaxOutputTokensForEngine,
@@ -211,10 +219,11 @@ import type {
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
-  FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT,
   FOLLOW_UP_SUGGESTIONS_INSTRUCTION,
   FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS,
   FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+  buildFollowUpCompletionMessages,
   followUpSuggestionsTool,
   identifyFollowUpSuggestions,
   parseFollowUpSuggestions,
@@ -255,7 +264,7 @@ import {
   toolCallsFromContent,
   type Processor,
 } from "./processors.js";
-import { resolveUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
+import { applyUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
 import {
   startRun,
   subscribeToRun,
@@ -326,9 +335,12 @@ import {
 } from "./tool-result-images.js";
 import {
   createToolSearchEntry,
+  extractToolSearchResultNames,
   filterActionsForAgentDiscovery,
+  readLoadedToolNames,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
+  withLoadedToolNames,
 } from "./tool-search.js";
 import {
   normalizeAgentActionScope,
@@ -343,6 +355,12 @@ import {
   AgentChatStructuredMessage,
   RunEvent,
 } from "./types.js";
+import {
+  mergeFinalResponseGuards,
+  readWriteReceipt,
+  writeReceiptGuard,
+  type ToolWriteReceipt,
+} from "./write-receipts.js";
 
 registerBuiltinEngines();
 
@@ -1867,6 +1885,11 @@ export function resolveSourceSweepToolCallThreshold(): number {
   return getAppConfig().agent.sourceSweepToolCallThreshold;
 }
 const EXPANDED_TOOL_SCHEMA_WARN_BYTES = 32_000;
+const MAX_TOOL_SEARCH_OVERFLOW_NAMES_SHOWN = 5;
+const PROVIDER_CORE_TOOL_NAMES = [
+  TOOL_SEARCH_ACTION_NAME,
+  FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+];
 
 const MAX_SCREEN_CONTEXT_CHARS = 10_000;
 
@@ -2057,23 +2080,6 @@ function retryDelay(
   });
 }
 
-type SupportedImageMediaType =
-  | "image/jpeg"
-  | "image/png"
-  | "image/gif"
-  | "image/webp";
-
-function isSupportedImageMediaType(
-  mediaType: string,
-): mediaType is SupportedImageMediaType {
-  return (
-    mediaType === "image/jpeg" ||
-    mediaType === "image/png" ||
-    mediaType === "image/gif" ||
-    mediaType === "image/webp"
-  );
-}
-
 function isSvgMediaType(mediaType: string | undefined): boolean {
   return mediaType?.split(";")[0]?.trim().toLowerCase() === "image/svg+xml";
 }
@@ -2134,12 +2140,14 @@ function dataUrlToFilePart(
   att: AgentChatAttachment,
 ): { type: "file"; data: string; mediaType: string; filename?: string } | null {
   if (att.type !== "file" || typeof att.data !== "string") return null;
-  const match = att.data.match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) return null;
+  const parsed = parseBase64DataUrl(att.data);
+  if (!parsed) return null;
   return {
     type: "file",
-    data: match[2],
-    mediaType: att.contentType || match[1],
+    data: parsed.data,
+    mediaType:
+      att.contentType?.split(";", 1)[0]?.trim().toLowerCase() ||
+      parsed.mediaType,
     filename: att.name || undefined,
   };
 }
@@ -2174,11 +2182,14 @@ export function buildUserContentWithAttachments(opts: {
         }
         continue;
       }
-      const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
+      const parsed = parseBase64DataUrl(att.data);
+      const mediaType = parsed
+        ? normalizeImageMediaType(parsed.mediaType)
+        : null;
       if (
-        match &&
-        isSupportedImageMediaType(match[1]) &&
-        match[2].length > MAX_INLINE_IMAGE_BASE64_CHARS
+        parsed &&
+        mediaType &&
+        parsed.data.length > MAX_INLINE_IMAGE_BASE64_CHARS
       ) {
         const label = att.name ? `"${att.name}"` : "An image";
         const limit = formatBase64CharBudget(MAX_INLINE_IMAGE_BASE64_CHARS);
@@ -2189,15 +2200,15 @@ export function buildUserContentWithAttachments(opts: {
         );
         continue;
       }
-      if (match && isSupportedImageMediaType(match[1])) {
+      if (parsed && mediaType) {
         const verdict = reconcileImageBytes({
-          base64: match[2],
-          declared: match[1],
+          base64: parsed.data,
+          declared: mediaType,
         });
         if (verdict.kind === "ok") {
           userContent.push({
             type: "image",
-            data: match[2],
+            data: parsed.data,
             mediaType: verdict.mediaType,
           });
         } else {
@@ -2207,7 +2218,7 @@ export function buildUserContentWithAttachments(opts: {
             : "";
           const logName = att.name ?? "(unnamed)";
           console.warn(
-            `[attachments] dropped image block name=${logName} declared=${match[1]} verdict=${verdict.kind} base64Chars=${match[2].length}`,
+            `[attachments] dropped image block name=${logName} declared=${parsed.mediaType} verdict=${verdict.kind} base64Chars=${parsed.data.length}`,
           );
           textAttachments.push(
             `[${label} could not be sent for vision analysis because ${describeAttachmentBytesVerdict(verdict)}.` +
@@ -2216,7 +2227,7 @@ export function buildUserContentWithAttachments(opts: {
           );
         }
       } else {
-        const mime = match?.[1] ?? att.contentType ?? "unknown format";
+        const mime = parsed?.mediaType ?? att.contentType ?? "unknown format";
         const label = att.name ? `"${att.name}"` : "An image";
         const uploadedHint = uploadedUrl
           ? ` It is available at ${uploadedUrl}; use that URL for embedding/reference if the task does not require vision analysis.`
@@ -2833,6 +2844,12 @@ export interface AgentLoopUsage {
   engineName?: string;
   model: string;
   llmCalls?: number;
+  /** Wall time and input tokens of the end-of-turn follow-up suggestions call. */
+  followUpMs?: number;
+  followUpInputTokens?: number;
+  /** Write receipts this run with `verified` other than true / with `changed: false`. */
+  receiptUnverifiedCount?: number;
+  receiptChangedFalseCount?: number;
   /**
    * True once the engine reported at least one real `usage` event for this
    * run. The token fields above start at 0 and are only ever incremented —
@@ -2842,6 +2859,39 @@ export interface AgentLoopUsage {
    */
   usageReported?: boolean;
   firstEngineEventAtMs?: number;
+}
+
+/**
+ * Folds one loop attempt's usage into a running total. Every wrapper that
+ * re-enters `runAgentLoop` merges through this, so a field added to
+ * `AgentLoopUsage` cannot be reported by the loop and dropped by a wrapper.
+ */
+export function mergeAgentLoopUsage(
+  total: AgentLoopUsage,
+  next: AgentLoopUsage,
+): void {
+  total.inputTokens += next.inputTokens;
+  total.outputTokens += next.outputTokens;
+  total.cacheReadTokens += next.cacheReadTokens;
+  total.cacheWriteTokens += next.cacheWriteTokens;
+  for (const key of [
+    "builderCreditsUsed",
+    "llmCalls",
+    "followUpMs",
+    "followUpInputTokens",
+    "receiptUnverifiedCount",
+    "receiptChangedFalseCount",
+  ] as const) {
+    if (typeof next[key] === "number") {
+      total[key] = (total[key] ?? 0) + next[key];
+    }
+  }
+  total.engineName = next.engineName ?? total.engineName;
+  total.model = next.model;
+  if (next.usageReported) total.usageReported = true;
+  // Keep the earliest attempt's first event — a later continuation
+  // attempt starting fresh must not overwrite genuine first-token timing.
+  total.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
 }
 
 export type AgentLoopOutcome =
@@ -2865,7 +2915,11 @@ export interface AgentLoopToolResultSummary {
   content: string;
   isError: boolean;
   artifacts?: ArtifactReceipt[];
+  /** The action's `_receipt`, read before the result was truncated. */
+  receipt?: WriteReceipt;
 }
+
+export type { ToolWriteReceipt };
 
 export interface AgentLoopFinalResponseGuardContext {
   messages: EngineMessage[];
@@ -2874,6 +2928,8 @@ export interface AgentLoopFinalResponseGuardContext {
   text: string;
   toolCalls: AgentLoopToolCallSummary[];
   toolResults: AgentLoopToolResultSummary[];
+  /** Every write receipt this turn; set by the loop, absent only in hand-built contexts. */
+  receipts?: ToolWriteReceipt[];
   retryCount: number;
   executionMode: AgentExecutionMode;
 }
@@ -3420,6 +3476,52 @@ const INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS = 5_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
+const MAX_ALREADY_LOADED_TOOL_SEARCHES = 4;
+const MAX_STOP_ERROR_LINE_CHARS = 300;
+
+/** `error: message` for a JSON `{ error, message }` result; `undefined` when the text is not one. */
+function jsonErrorCause(text: string): string | undefined {
+  if (!text.startsWith("{")) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+    // coercion-ok: unparseable text is not a JSON error result; the caller reads its first line
+  } catch {
+    return undefined;
+  }
+  const { error, message } = (parsed ?? {}) as Record<string, unknown>;
+  if (typeof error !== "string" || !error.trim()) return undefined;
+  return typeof message === "string" && message.trim()
+    ? `${error}: ${message}`
+    : error;
+}
+
+function errorCauseLine(text: string): string {
+  const body = text.trim().replace(/^Error running [^\s:]+:\s*/, "");
+  return (
+    (jsonErrorCause(body) ?? body)
+      .split(/\r?\n/)
+      .find((line) => line.trim())
+      ?.trim() ?? ""
+  );
+}
+
+/**
+ * The line of a failed tool result that names the cause, for a message the
+ * user reads. It takes the credential-sanitized text and keeps identifiers and
+ * emails, since a column or account name is the diagnosis; the trace-grade
+ * `toolErrorSignature` redacts those. A pretty-printed JSON error opens with
+ * `Error running x: {`, and a `(errorCode: ...)` suffix keeps it from parsing,
+ * so a bare first line can be only a bracket.
+ */
+function stopErrorLine(sanitizedResult: string): string {
+  const lines = sanitizedResult.split(/\r?\n/).filter((line) => line.trim());
+  for (const candidate of [sanitizedResult, ...lines]) {
+    const cause = errorCauseLine(candidate);
+    if (/[\p{L}\p{N}]/u.test(cause)) return cause;
+  }
+  return errorCauseLine(sanitizedResult) || "(no error text)";
+}
 
 function isToolCallTimeoutResult(content: string): boolean {
   return /tool call timed out after \d+(?:\.\d+)? seconds?/i.test(content);
@@ -3773,28 +3875,12 @@ function isDefaultInitialToolName(name: string): boolean {
   return DEFAULT_INITIAL_TOOL_NAMES.has(name);
 }
 
-function extractToolSearchResultNames(value: unknown): string[] {
-  if (!value || typeof value !== "object") return [];
-  const result = value as { query?: unknown; results?: unknown };
-  if (typeof result.query !== "string" || result.query.trim().length === 0) {
-    return [];
-  }
-  if (!Array.isArray(result.results)) return [];
+function readToolSearchHistory(messages: EngineMessage[]): {
+  names: string[];
+  unreadable: number;
+} {
   const names: string[] = [];
-  for (const item of result.results) {
-    if (!item || typeof item !== "object") continue;
-    const record = item as Record<string, unknown>;
-    if (record.callable === false) continue;
-    const name = record.name;
-    if (typeof name === "string" && name.trim()) names.push(name);
-  }
-  return names;
-}
-
-function extractToolSearchResultNamesFromMessages(
-  messages: EngineMessage[],
-): string[] {
-  const names: string[] = [];
+  let unreadable = 0;
   for (const message of messages) {
     if (message.role !== "user") continue;
     for (const part of message.content) {
@@ -3805,14 +3891,12 @@ function extractToolSearchResultNamesFromMessages(
       ) {
         continue;
       }
-      try {
-        names.push(...extractToolSearchResultNames(JSON.parse(part.content)));
-      } catch {
-        // Tool results are best-effort history hints; ignore non-JSON content.
-      }
+      const loaded = readLoadedToolNames(part.content);
+      if (loaded) names.push(...loaded);
+      else unreadable += 1;
     }
   }
-  return names;
+  return { names, unreadable };
 }
 
 function normalizeToolInputSchema(
@@ -4708,6 +4792,74 @@ function validateRawToolInput(
   });
 }
 
+type ModelInputObserver = (
+  messages: readonly unknown[],
+) => void | Promise<void>;
+
+function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
+  const seen = new WeakMap<object, unknown>();
+  const project = (value: unknown, isImageListEntry = false): unknown => {
+    if (!value || typeof value !== "object") return value;
+    const existing = seen.get(value);
+    if (existing !== undefined) return existing;
+    if (Array.isArray(value)) {
+      const projected: unknown[] = [];
+      seen.set(value, projected);
+      for (const entry of value) {
+        projected.push(project(entry, isImageListEntry));
+      }
+      return projected;
+    }
+
+    const part = value as Record<string, unknown>;
+    const isMedia =
+      isImageListEntry || part.type === "image" || part.type === "file";
+    if (isMedia) {
+      const mediaType =
+        typeof part.mediaType === "string" ? part.mediaType : "unknown";
+      const filename =
+        part.type === "file" && typeof part.filename === "string"
+          ? ` ${part.filename}`
+          : "";
+      const label = part.type === "file" ? `file${filename}` : "image";
+      const data = typeof part.data === "string" ? part.data : "";
+      return {
+        type: "text",
+        text: `[${label}: ${mediaType}, ~${Math.floor((data.length * 3) / 4)} bytes]`,
+      };
+    }
+
+    const projected: Record<string, unknown> = {};
+    seen.set(value, projected);
+    for (const [key, nested] of Object.entries(part)) {
+      projected[key] =
+        key === "images" && Array.isArray(nested)
+          ? project(nested, true)
+          : project(nested);
+    }
+    return projected;
+  };
+
+  return project(messages) as unknown[];
+}
+
+function notifyModelInputObserver(
+  observer: ModelInputObserver | undefined,
+  messages: readonly unknown[],
+): void {
+  if (!observer) return;
+  try {
+    const result = observer(projectModelInputForObserver(messages));
+    if (result !== undefined) {
+      void Promise.resolve(result).catch(() => {
+        // coercion-ok: observer failures cannot change agent execution.
+      });
+    }
+  } catch {
+    // coercion-ok: observer failures cannot change agent execution.
+  }
+}
+
 export async function runAgentLoop(opts: {
   engine: AgentEngine;
   model: string;
@@ -4719,6 +4871,7 @@ export async function runAgentLoop(opts: {
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  onModelInput?: ModelInputObserver;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
@@ -4810,6 +4963,8 @@ export async function runAgentLoop(opts: {
     : providedAvailableTools;
   let completedFollowUpSuggestions: AgentSuggestion[] | undefined;
   let completingFollowUpSuggestions = false;
+  let followUpCompletionContext: EngineMessage[] = [];
+  let followUpStartedAt: number | undefined;
   let followUpCompletionFailed = false;
   const failFollowUpCompletion = (code: FollowUpSuggestionsFailure) => {
     if (followUpCompletionFailed) return;
@@ -4844,8 +4999,8 @@ export async function runAgentLoop(opts: {
   const availableToolMap = new Map(
     (availableTools ?? tools).map((tool) => [tool.name, tool]),
   );
-  const activeToolNames = new Set(tools.map((tool) => tool.name));
-  let activeTools = tools;
+  let activeTools = limitProviderTools(tools, PROVIDER_CORE_TOOL_NAMES);
+  const activeToolNames = new Set(activeTools.map((tool) => tool.name));
   let appAuthorizationPromise:
     | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
     | undefined;
@@ -4872,26 +5027,73 @@ export async function runAgentLoop(opts: {
 
   let expandedToolSchemaBytes = 0;
   let reportedExpandedToolSchemaBytes = false;
-  const expandActiveTools = (names: string[]): string[] => {
-    const added: string[] = [];
-    for (const name of names) {
-      if (activeToolNames.has(name)) continue;
+  let alreadyLoadedToolSearches = 0;
+  // Tools loaded after the first request, least recently needed first.
+  const loadedToolNames = new Set<string>();
+  const noteToolNeeded = (name: string) => {
+    if (loadedToolNames.delete(name)) loadedToolNames.add(name);
+  };
+  // `names` lead with what the model needs most. Below MAX_PROVIDER_TOOLS they
+  // append in registry order, so the tools prefix of the prompt cache survives.
+  // Past it the request keeps, in this order: tool-search and the follow-up
+  // tool, `pinned` (already promised this step) and `names`, the initial
+  // tools, then the other loaded tools most recently needed first, so the least
+  // recently needed loaded tools are evicted before any initial one. A tool
+  // that still does not fit is returned as overflow and never becomes active,
+  // so `activeTools` is exactly what the engine sends and nothing it dropped is
+  // reported as loaded.
+  const expandActiveTools = (
+    names: string[],
+    pinned: ReadonlySet<string> = new Set(),
+  ): { added: string[]; overflow: string[] } => {
+    const requested = new Set(names);
+    for (const name of requested) noteToolNeeded(name);
+    const wanted = [...requested].flatMap((name) => {
       const tool = availableToolMap.get(name);
-      if (!tool) continue;
-      activeToolNames.add(name);
-      expandedToolSchemaBytes += JSON.stringify(tool).length;
-      added.push(name);
-    }
-    if (added.length > 0) {
-      const expandedTools = (availableTools ?? tools).filter((tool) =>
-        activeToolNames.has(tool.name),
-      );
-      const prioritizedNames = new Set(names);
-      if (followUpRunId) prioritizedNames.add(FOLLOW_UP_SUGGESTIONS_TOOL_NAME);
-      activeTools = [
-        ...expandedTools.filter((tool) => prioritizedNames.has(tool.name)),
-        ...expandedTools.filter((tool) => !prioritizedNames.has(tool.name)),
-      ];
+      return tool && !activeToolNames.has(name) ? [tool] : [];
+    });
+    const added: string[] = [];
+    const overflow: string[] = [];
+    if (wanted.length > 0) {
+      if (activeTools.length + wanted.length <= MAX_PROVIDER_TOOLS) {
+        const wantedNames = new Set(wanted.map((tool) => tool.name));
+        activeTools = [
+          ...activeTools,
+          ...(availableTools ?? tools).filter((tool) =>
+            wantedNames.has(tool.name),
+          ),
+        ];
+      } else {
+        const byName = new Map(
+          [...activeTools, ...wanted].map((tool) => [tool.name, tool] as const),
+        );
+        const priority = new Set([
+          ...PROVIDER_CORE_TOOL_NAMES,
+          ...pinned,
+          ...names,
+          ...activeTools
+            .map((tool) => tool.name)
+            .filter((name) => !loadedToolNames.has(name)),
+          ...[...loadedToolNames].reverse(),
+        ]);
+        activeTools = [...priority]
+          .flatMap((name) => byName.get(name) ?? [])
+          .slice(0, MAX_PROVIDER_TOOLS);
+      }
+      activeToolNames.clear();
+      for (const tool of activeTools) activeToolNames.add(tool.name);
+      for (const name of loadedToolNames) {
+        if (!activeToolNames.has(name)) loadedToolNames.delete(name);
+      }
+      for (const tool of wanted) {
+        if (!activeToolNames.has(tool.name)) {
+          overflow.push(tool.name);
+          continue;
+        }
+        added.push(tool.name);
+        loadedToolNames.add(tool.name);
+        expandedToolSchemaBytes += JSON.stringify(tool).length;
+      }
     }
     if (
       !reportedExpandedToolSchemaBytes &&
@@ -4902,10 +5104,17 @@ export async function runAgentLoop(opts: {
         `[agent-loop] expanded tool schemas reached ${expandedToolSchemaBytes} bytes across ${activeToolNames.size} active tools (runId=${opts.runId ?? "none"})`,
       );
     }
-    return added;
+    return { added, overflow };
   };
 
-  expandActiveTools(extractToolSearchResultNamesFromMessages(messages));
+  const priorSearches = readToolSearchHistory(messages);
+  if (priorSearches.unreadable > 0) {
+    console.warn(
+      `[agent-loop] ${priorSearches.unreadable} earlier tool-search result(s) could not be read, so the tools they loaded were not restored (runId=${opts.runId ?? "none"})`,
+    );
+  }
+  // Newest searches lead, so they win if history alone overflows the cap.
+  expandActiveTools(priorSearches.names.reverse());
 
   const processorChain =
     opts.processors && opts.processors.length > 0
@@ -4951,6 +5160,11 @@ export async function runAgentLoop(opts: {
     actions,
   });
   const toolResultHistory: AgentLoopToolResultSummary[] = [];
+  const turnReceipts = (): ToolWriteReceipt[] =>
+    toolResultHistory.flatMap((result) =>
+      result.receipt ? [{ tool: result.name, ...result.receipt }] : [],
+    );
+  let receiptGuardRetried = false;
   const runCtx = getRequestRunContext();
   if (runCtx) {
     runCtx.toolCalls = toolCallHistory;
@@ -5167,46 +5381,32 @@ export async function runAgentLoop(opts: {
       { name: string; input: unknown; error: string }
     >();
     let contextMessages = completingFollowUpSuggestions
-      ? [
-          ...messages,
-          {
-            role: "user" as const,
-            content: [
-              {
-                type: "text" as const,
-                text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
-              },
-            ],
-          },
-        ]
+      ? followUpCompletionContext
       : messages;
 
-    try {
-      if (opts.threadId) {
-        contextMessages = await applyContextXrayTransformForIteration({
-          threadId: opts.threadId,
-          ownerEmail: opts.ownerEmail,
-          turnId: opts.turnId,
-          model,
-          messages: contextMessages,
-          systemSections: opts.systemSections,
-        });
+    // The completion call carries a digest, not the conversation: the manifest
+    // and memory window describe the full thread, and the transform would
+    // overwrite this turn's manifest with the digest.
+    if (opts.threadId && !completingFollowUpSuggestions) {
+      contextMessages = await applyContextXrayTransformForIteration({
+        threadId: opts.threadId,
+        ownerEmail: opts.ownerEmail,
+        turnId: opts.turnId,
+        model,
+        messages: contextMessages,
+        systemSections: opts.systemSections,
+      });
 
-        if (opts.ownerEmail) {
-          contextMessages = await applyObservationalMemoryToContext(
-            contextMessages,
-            {
-              threadId: opts.threadId,
-              ownerEmail: opts.ownerEmail,
-              orgId: opts.orgId ?? null,
-            },
-          );
-        }
+      if (opts.ownerEmail) {
+        contextMessages = await applyObservationalMemoryToContext(
+          contextMessages,
+          {
+            threadId: opts.threadId,
+            ownerEmail: opts.ownerEmail,
+            orgId: opts.orgId ?? null,
+          },
+        );
       }
-    } catch (error) {
-      if (signal.aborted || !completingFollowUpSuggestions) throw error;
-      failFollowUpCompletion("context_error");
-      break;
     }
     if (signal.aborted) break;
 
@@ -5229,7 +5429,9 @@ export async function runAgentLoop(opts: {
         }
         const streamOpts = {
           model,
-          systemPrompt: continuationSystemPrompt,
+          systemPrompt: completingFollowUpSuggestions
+            ? FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT
+            : continuationSystemPrompt,
           messages: contextMessages,
           tools: loopBreakerCloseout
             ? []
@@ -5257,6 +5459,7 @@ export async function runAgentLoop(opts: {
         };
 
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
+        notifyModelInputObserver(opts.onModelInput, contextMessages);
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();
@@ -5526,6 +5729,10 @@ export async function runAgentLoop(opts: {
               usage.outputTokens += eventUsage.outputTokens;
               usage.cacheReadTokens += eventUsage.cacheReadTokens;
               usage.cacheWriteTokens += eventUsage.cacheWriteTokens;
+              if (completingFollowUpSuggestions) {
+                usage.followUpInputTokens =
+                  (usage.followUpInputTokens ?? 0) + eventUsage.inputTokens;
+              }
               if (eventUsage.builderCreditsUsed !== undefined) {
                 usage.builderCreditsUsed =
                   (usage.builderCreditsUsed ?? 0) +
@@ -5660,6 +5867,10 @@ export async function runAgentLoop(opts: {
         }
         throw err;
       }
+    }
+
+    if (completingFollowUpSuggestions && followUpStartedAt !== undefined) {
+      usage.followUpMs = Date.now() - followUpStartedAt;
     }
 
     if (tripwire || followUpCompletionFailed) break;
@@ -5889,6 +6100,8 @@ export async function runAgentLoop(opts: {
       const finalResponseDraftText = collectTextParts(
         assistantContentForHistory,
       );
+      const receipts = turnReceipts();
+      const receiptGuard = writeReceiptGuard(receipts, receiptGuardRetried);
       if (opts.finalResponseGuard) {
         try {
           guard = await opts.finalResponseGuard({
@@ -5898,6 +6111,7 @@ export async function runAgentLoop(opts: {
             text: finalResponseDraftText,
             toolCalls: [...toolCallHistory],
             toolResults: [...toolResultHistory],
+            receipts,
             retryCount: finalGuardRetries,
             executionMode: opts.executionMode ?? "act",
           });
@@ -5905,6 +6119,11 @@ export async function runAgentLoop(opts: {
           send({ type: "clear" });
           throw err;
         }
+      }
+      if (receiptGuard) {
+        guard = guard
+          ? mergeFinalResponseGuards(receiptGuard, guard)
+          : receiptGuard;
       }
       if (guard) {
         completedFollowUpSuggestions = undefined;
@@ -5918,7 +6137,10 @@ export async function runAgentLoop(opts: {
             : Math.max(0, Math.min(3, Math.trunc(guard.maxRetries ?? 1)));
         if (finalGuardRetries < maxGuardRetries) {
           if (typeof guard !== "string" && guard.expandToolSurface) {
-            expandActiveTools([...availableToolMap.keys()]);
+            expandActiveTools([...activeToolNames, ...availableToolMap.keys()]);
+          }
+          if (receiptGuard && receiptGuard.maxRetries > 0) {
+            receiptGuardRetried = true;
           }
           finalGuardRetries += 1;
           send({ type: "clear" });
@@ -5951,6 +6173,12 @@ export async function runAgentLoop(opts: {
           terminalStopReason === "end_turn"
         ) {
           completingFollowUpSuggestions = true;
+          followUpStartedAt = Date.now();
+          followUpCompletionContext = buildFollowUpCompletionMessages({
+            requestText: finalResponseGuardRequestText,
+            replyText: finalResponseDraftText,
+            toolNames: toolCallHistory.map((call) => call.name),
+          });
           continue;
         }
       }
@@ -6029,9 +6257,15 @@ export async function runAgentLoop(opts: {
 
     const approvedToolCallKeys = new Set<string>(opts.approvedToolCalls ?? []);
 
+    // A tool-search in this step loads schemas the model can call only on the
+    // next step, so a sibling search must not read them as already callable.
+    const toolNamesLoadedThisStep = new Set<string>();
+    let countedAlreadyLoadedSearchThisStep = false;
+
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      noteToolNeeded(toolCall.name);
       const actionEntry = actions[toolCall.name];
       const placeholderNormalization = actionEntry
         ? normalizeOptionalToolPlaceholders(
@@ -6125,12 +6359,14 @@ export async function runAgentLoop(opts: {
         content: string,
         isError: boolean,
         artifacts?: ArtifactReceipt[],
+        receipt?: WriteReceipt,
       ) => {
         toolResultHistory.push({
           name: toolCall.name,
           content,
           isError,
           ...(artifacts?.length ? { artifacts } : {}),
+          ...(receipt ? { receipt } : {}),
         });
       };
       let directStop: { message: string; explicit: boolean } | null = null;
@@ -6179,10 +6415,15 @@ export async function runAgentLoop(opts: {
           const result =
             `Stopped after ${anyArgsCount} attempts at ${toolCall.name} that all failed the same way ` +
             `with different arguments. Last error: ${sanitizedResult}`;
+          const lastErrorLine = stopErrorLine(sanitizedResult);
           requestedActionStop ??= {
             message:
-              `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way, ` +
-              "so changing the arguments again would not have worked. Anything completed before this is saved.",
+              `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way. ` +
+              `Last error: ${
+                lastErrorLine.length > MAX_STOP_ERROR_LINE_CHARS
+                  ? `${clipHead(lastErrorLine, MAX_STOP_ERROR_LINE_CHARS)}…`
+                  : lastErrorLine
+              }\n\nAnything completed before this is saved.`,
             errorCode: "repeated_tool_error_across_arguments",
             details: sanitizedResult,
           };
@@ -6736,6 +6977,7 @@ export async function runAgentLoop(opts: {
           | undefined;
         let toolArtifacts: ArtifactReceipt[] = [];
         let fileMutation: AgentFileMutationProof | undefined;
+        let receipt: WriteReceipt | undefined;
         try {
           // The run may have been aborted while we waited above for an
           // interrupted tool's ledger result (the wait can poll for minutes).
@@ -6915,12 +7157,39 @@ export async function runAgentLoop(opts: {
             }
           }
           chatUIResult = resultForAgent;
+          // Before stringify and truncation: a large result must not lose it.
+          receipt = readWriteReceipt(resultForAgent);
           toolArtifacts = detectArtifactReceipts(resultForAgent, toolCall.name);
           if (toolResultImages) {
             imageNotes = [
               ...describeToolResultImages(toolResultImages),
               ...imageNotes,
             ];
+          }
+          let toolSearch:
+            | {
+                matched: string[];
+                overflow: string[];
+                loadedThisStep: string[];
+              }
+            | undefined;
+          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
+            const matched = extractToolSearchResultNames(rawForAgent);
+            const { added, overflow } = expandActiveTools(
+              matched,
+              toolNamesLoadedThisStep,
+            );
+            for (const name of added) toolNamesLoadedThisStep.add(name);
+            const loadedThisStep = matched.filter((name) =>
+              toolNamesLoadedThisStep.has(name),
+            );
+            toolSearch = { matched, overflow, loadedThisStep };
+            if (matched.length > 0) {
+              resultForAgent = withLoadedToolNames(
+                rawForAgent as Record<string, unknown>,
+                loadedThisStep,
+              );
+            }
           }
           let resultStr =
             typeof resultForAgent === "string"
@@ -6934,12 +7203,79 @@ export async function runAgentLoop(opts: {
             resultStr = `${resultStr}\n\n${imageNotes.join("\n")}`;
           }
           result = resultStr;
-          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
-            const added = expandActiveTools(
-              extractToolSearchResultNames(rawForAgent),
-            );
-            if (added.length > 0) {
-              result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+          if (toolSearch) {
+            const { matched, overflow, loadedThisStep } = toolSearch;
+            const loadedNote = `Loaded matching tool schemas for the next step, not this one: ${loadedThisStep.join(", ")}`;
+            if (loadedThisStep.length > 0) {
+              result += `\n\n${loadedNote}`;
+              alreadyLoadedToolSearches = 0;
+            } else if (
+              matched.length > 0 &&
+              matched.every((name) => activeToolNames.has(name))
+            ) {
+              const priorMessage = (rawForAgent as { message?: unknown })
+                .message;
+              result = JSON.stringify(
+                {
+                  ...(resultForAgent as Record<string, unknown>),
+                  alreadyLoaded: true,
+                  message: [
+                    `All ${matched.length} matches are already callable; call them directly.`,
+                    typeof priorMessage === "string" ? priorMessage : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
+                },
+                null,
+                2,
+              );
+              // One count per step, reset by any progress: parallel searches
+              // are one repeat, and a run that searches between writes is not
+              // repeating.
+              if (!countedAlreadyLoadedSearchThisStep) {
+                countedAlreadyLoadedSearchThisStep = true;
+                alreadyLoadedToolSearches += 1;
+              }
+              if (
+                alreadyLoadedToolSearches >= MAX_ALREADY_LOADED_TOOL_SEARCHES
+              ) {
+                requestedActionStop ??= {
+                  message:
+                    `Stopped because tool-search was used ${alreadyLoadedToolSearches} times in a row to look for tools that were already callable, ` +
+                    "which means the same step is repeating rather than making progress. " +
+                    "Everything completed before this point is preserved above.",
+                  errorCode: "repeated_tool_call",
+                };
+              }
+            }
+            if (overflow.length > 0) {
+              const shown = overflow.slice(
+                0,
+                MAX_TOOL_SEARCH_OVERFLOW_NAMES_SHOWN,
+              );
+              const more =
+                overflow.length > shown.length
+                  ? `, and ${overflow.length - shown.length} more`
+                  : "";
+              const overflowNote = `Could not load ${overflow.length} matched ${overflow.length === 1 ? "tool" : "tools"} because the per-request tool limit (${MAX_PROVIDER_TOOLS}) was reached: ${shown.join(", ")}${more}. They are not callable; use tools you already have.`;
+              // A repeated search's own message says its matches are
+              // available, which these are not.
+              result =
+                (rawForAgent as { repeated?: unknown }).repeated === true
+                  ? JSON.stringify(
+                      {
+                        ...(resultForAgent as Record<string, unknown>),
+                        message: [
+                          loadedThisStep.length > 0 ? loadedNote : "",
+                          overflowNote,
+                        ]
+                          .filter(Boolean)
+                          .join(" "),
+                      },
+                      null,
+                      2,
+                    )
+                  : `${result}\n\n${overflowNote}`;
             }
           }
         } catch (err: any) {
@@ -7008,11 +7344,23 @@ export async function runAgentLoop(opts: {
           );
         }
         if (isError) {
+          receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
             result = finalizeToolErrorResult(result);
           }
         } else {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
+          // Only a write or a receipt is progress; a read-only call between
+          // redundant searches is the same repeating step.
+          if (!actionIsReadOnly || receipt) alreadyLoadedToolSearches = 0;
+          if (receipt && receipt.verified !== true) {
+            usage.receiptUnverifiedCount =
+              (usage.receiptUnverifiedCount ?? 0) + 1;
+          }
+          if (receipt && !receipt.changed) {
+            usage.receiptChangedFalseCount =
+              (usage.receiptChangedFalseCount ?? 0) + 1;
+          }
         }
 
         const agentWarnings = drainAgentWarnings();
@@ -7064,16 +7412,18 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(isError
             ? { completedSideEffect: false }
-            : !actionIsReadOnly
-              ? { completedSideEffect: true }
-              : {}),
+            : receipt
+              ? { completedSideEffect: receipt.changed }
+              : !actionIsReadOnly
+                ? { completedSideEffect: true }
+                : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
           ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
-        recordToolResult(result, isError, toolArtifacts);
+        recordToolResult(result, isError, toolArtifacts, receipt);
         if (!isError) {
           noteToolCallSucceeded(actionEntry);
           if (cacheKey) {
@@ -7602,25 +7952,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     engineName: opts.engine.name,
     model: opts.model,
   };
-  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
-    usage.inputTokens += next.inputTokens;
-    usage.outputTokens += next.outputTokens;
-    usage.cacheReadTokens += next.cacheReadTokens;
-    usage.cacheWriteTokens += next.cacheWriteTokens;
-    if (next.builderCreditsUsed !== undefined) {
-      usage.builderCreditsUsed =
-        (usage.builderCreditsUsed ?? 0) + next.builderCreditsUsed;
-    }
-    usage.engineName = next.engineName ?? usage.engineName;
-    usage.model = next.model;
-    if (typeof next.llmCalls === "number") {
-      usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
-    }
-    if (next.usageReported) usage.usageReported = true;
-    // Keep the earliest attempt's first event — a later continuation
-    // attempt starting fresh must not overwrite genuine first-token timing.
-    usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
-  };
+  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) =>
+    mergeAgentLoopUsage(usage, next);
 
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
   const resumeResumableErrorsInProcess =
@@ -8644,7 +8977,8 @@ export type AgentModelSelectionSource =
   | "request"
   | "configured"
   | "stored"
-  | "default";
+  | "default"
+  | "provider-selection-fallback";
 
 function isConcreteModelSelection(
   model: string | null | undefined,
@@ -9193,22 +9527,17 @@ export function createProductionAgentHandler(
       !requestModelIsExplicit && !configuredModelIsExplicit
         ? await getStoredModelForEngine(engine, { appId: options.appId })
         : undefined;
-    const modelSelection = resolveAgentModelSelection({
-      requestModel,
-      configuredModel,
-      storedModel,
-      defaultModel: engine.defaultModel,
-    });
-    // Only the engine default yields to the provider's checked models. A model
-    // the request or a stored default names still runs after it is unchecked,
-    // so chats already on it keep working.
-    const modelCandidate =
-      modelSelection.source === "default"
-        ? ((await resolveUncheckedDefaultModelReplacement(engine)) ??
-          modelSelection.model)
-        : modelSelection.model;
+    const modelSelection = await applyUncheckedDefaultModelReplacement(
+      engine,
+      resolveAgentModelSelection({
+        requestModel,
+        configuredModel,
+        storedModel,
+        defaultModel: engine.defaultModel,
+      }),
+    );
     workerStep("model_done");
-    const model = normalizeModelForEngine(engine, modelCandidate);
+    const model = normalizeModelForEngine(engine, modelSelection.model);
     let effectiveModel = model;
     let modelSelectionSource: AgentModelSelectionSource | "experiment" =
       modelSelection.source;
