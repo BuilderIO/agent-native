@@ -49,6 +49,7 @@ describe("redactToolErrorMessage", () => {
       }),
     ).toBe("postgresql://[REDACTED]");
     expect(
+      // guard:allow-secret-literal — fake password with @ verifies URI redaction
       redactToolErrorMessage("postgresql://alice:pa@ss", {
         truncated: true,
       }),
