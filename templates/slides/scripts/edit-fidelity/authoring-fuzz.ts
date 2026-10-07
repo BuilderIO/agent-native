@@ -645,7 +645,15 @@ export async function runAuthoringFuzz(
     }
     pageErrors.push(message.text());
   };
-  const onPageError = (error: Error) => pageErrors.push(error.message);
+  const onPageError = (error: Error) =>
+    pageErrors.push(error.stack ?? error.message);
+  const onRequestFailed = (request: any) => {
+    const url = request.url();
+    if (!url.includes("/_agent-native/browser-sessions/")) return;
+    pageErrors.push(
+      `browser-session request failed: ${url} (${request.failure()?.errorText ?? "unknown"})`,
+    );
+  };
   const onResponse = (response: any) => {
     if (
       response.status() !== 409 ||
@@ -668,6 +676,7 @@ export async function runAuthoringFuzz(
   page.on("console", onConsole);
   page.on("pageerror", onPageError);
   page.on("response", onResponse);
+  page.on("requestfailed", onRequestFailed);
 
   let activeIndex = -1;
   let activePhase = "setup";
@@ -678,7 +687,7 @@ export async function runAuthoringFuzz(
       throw new Error(
         `browser emitted ${pageErrors.length} console/page error(s): ${pageErrors
           .slice(0, 2)
-          .map((error) => error.replaceAll(/\s+/g, " ").slice(0, 300))
+          .map((error) => error.replaceAll(/\s+/g, " ").slice(0, 700))
           .join("; ")}`,
       );
   };
@@ -2171,6 +2180,27 @@ export async function runAuthoringFuzz(
     )
       throw new Error(`${command} did not consume its slash query`);
   };
+  const prepareParagraphPair = async (label: string) => {
+    await newPlainLine(label);
+    const headingCommand = await editor.evaluate((root: HTMLElement) => {
+      const selection = window.getSelection();
+      const anchor = selection?.anchorNode;
+      const element =
+        anchor instanceof HTMLElement ? anchor : anchor?.parentElement;
+      const block = element?.closest<HTMLElement>(
+        "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
+      );
+      return block?.tagName === "H2" ? "heading3" : "heading2";
+    });
+    await runSlashCommand(headingCommand);
+    await editor.press(lineEndKey);
+    await editor.press("Enter");
+    if (!(await plainLineState()).valid) {
+      throw new Error(
+        `${label} setup did not create a paragraph after a heading`,
+      );
+    }
+  };
   const selectToken = async (token: string, edge?: "start" | "end") =>
     editor.evaluate(
       (
@@ -3168,7 +3198,7 @@ export async function runAuthoringFuzz(
           await editor.press("Enter");
           break;
         case "backspace-block-edge": {
-          await newPlainLine("block-edge Backspace");
+          await prepareParagraphPair("block-edge Backspace");
           const leftToken = `merge-left-${activeIndex}`;
           const rightToken = `merge-right-${activeIndex}`;
           await typeText(leftToken);
@@ -3191,7 +3221,7 @@ export async function runAuthoringFuzz(
           break;
         }
         case "delete-block-edge": {
-          await newPlainLine("block-edge Delete");
+          await prepareParagraphPair("block-edge Delete");
           const leftToken = `delete-left-${activeIndex}`;
           const rightToken = `delete-right-${activeIndex}`;
           await typeText(leftToken);
@@ -4131,5 +4161,6 @@ export async function runAuthoringFuzz(
     page.off("console", onConsole);
     page.off("pageerror", onPageError);
     page.off("response", onResponse);
+    page.off("requestfailed", onRequestFailed);
   }
 }

@@ -4749,14 +4749,65 @@ async function runAuthoringFuzzQa(
         `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`,
       );
     } finally {
-      try {
-        if (deckId && (await editorState(page, slideId)).editing) {
-          await exitEdit(page, slideId, "escape");
+      const cleanupErrors: string[] = [];
+      const onConsole = (message: { type(): string; text(): string }) => {
+        if (message.type() === "error") {
+          cleanupErrors.push(`console: ${message.text()}`);
         }
-        if (deckId) await action(page, "delete-deck", { id: deckId }, "DELETE");
-      } catch (error) {
+      };
+      const onPageError = (error: Error) => {
+        cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
+      };
+      const onResponse = (response: { status(): number; url(): string }) => {
+        if (response.status() >= 400) {
+          cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
+        }
+      };
+      try {
+        if (deckId) {
+          page.on("console", onConsole);
+          page.on("pageerror", onPageError);
+          page.on("response", onResponse);
+          try {
+            if ((await editorState(page, slideId)).editing) {
+              await exitEdit(page, slideId, "escape");
+            }
+          } catch (error) {
+            cleanupErrors.push(`could not exit editing: ${String(error)}`);
+          }
+          try {
+            await settleSaved(page, deckId, slideId, () => 0);
+          } catch (error) {
+            cleanupErrors.push(`could not settle saves: ${String(error)}`);
+          }
+          try {
+            await page.goto(`${base}/home`, {
+              waitUntil: "domcontentloaded",
+              timeout: 120_000,
+            });
+          } catch (error) {
+            cleanupErrors.push(
+              `could not leave scratch deck: ${String(error)}`,
+            );
+          }
+          try {
+            await action(page, "delete-deck", { id: deckId }, "DELETE");
+          } catch (error) {
+            cleanupErrors.push(
+              `could not delete scratch deck: ${String(error)}`,
+            );
+          }
+        }
+      } finally {
+        if (deckId) {
+          page.off("console", onConsole);
+          page.off("pageerror", onPageError);
+          page.off("response", onResponse);
+        }
+      }
+      if (cleanupErrors.length) {
         problems.push(
-          `seed ${seed}: scratch deck cleanup failed (${String(error)})`,
+          `seed ${seed}: scratch deck cleanup failed (${cleanupErrors.join("; ")})`,
         );
       }
     }
