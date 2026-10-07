@@ -2644,7 +2644,7 @@ export default function DeckEditor() {
           ? t("editorToolbar.videoUploadNeedsBuilder")
           : message.includes("Only valid MP4 and WebM")
             ? t("editorToolbar.videoFormatUnsupported")
-            : message || t("editorToolbar.videoUploadError");
+            : t("editorToolbar.videoUploadError");
         toast.error(t("editorToolbar.videoUploadFailed"), {
           id: toastId,
           description,

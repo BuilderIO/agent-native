@@ -7,10 +7,26 @@ export async function uploadSlideVideo(file: File): Promise<string> {
     method: "POST",
     body,
   });
-  const data = (await response.json().catch(() => null)) as {
-    url?: unknown;
-    error?: unknown;
-  } | null;
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch {
+    const error = new Error("Video upload response was unreadable") as Error & {
+      status?: number;
+    };
+    error.status = response.status;
+    throw error;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    const error = new Error("Video upload response was invalid") as Error & {
+      status?: number;
+    };
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = parsed as { url?: unknown; error?: unknown };
 
   if (!response.ok || typeof data?.url !== "string") {
     const error = new Error(
