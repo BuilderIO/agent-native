@@ -1,5 +1,5 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
-import { appPath } from "@agent-native/core/client/api-path";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
@@ -117,7 +117,12 @@ export function shouldRevalidate({
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
 export function isContentEditorPath(pathname: string): boolean {
-  return /^\/page\/[^/]+\/?$/.test(pathname);
+  const basePath = appBasePath();
+  const appPathname =
+    basePath && pathname.startsWith(`${basePath}/`)
+      ? pathname.slice(basePath.length)
+      : pathname;
+  return /^\/page\/[^/]+\/?$/.test(appPathname);
 }
 
 export function computeSessionBypass(pathname: string): boolean {

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { appBasePath } from "@agent-native/core/client/api-path";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +10,13 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   getEmbedAuthToken: vi.fn(() => null),
 }));
 
+vi.mock("@agent-native/core/client/api-path", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/api-path")
+  >()),
+  appBasePath: vi.fn(() => "/content"),
+}));
+
 import { computeSessionBypass, isContentEditorPath } from "./root";
 
 describe("Content editor session policy", () => {
@@ -16,6 +24,7 @@ describe("Content editor session policy", () => {
     sessionStorage.clear();
     window.history.replaceState(null, "", "/");
     vi.mocked(getEmbedAuthToken).mockReturnValue(null);
+    vi.mocked(appBasePath).mockReturnValue("/content");
   });
 
   it("opens document and database editors with a scoped embed token", () => {
@@ -28,7 +37,10 @@ describe("Content editor session policy", () => {
 
     expect(isContentEditorPath("/page/document-1")).toBe(true);
     expect(isContentEditorPath("/page/database-page")).toBe(true);
+    expect(isContentEditorPath("/content/page/document-1")).toBe(true);
+    expect(isContentEditorPath("/content/page/database-page")).toBe(true);
     expect(computeSessionBypass("/page/database-page")).toBe(true);
+    expect(computeSessionBypass("/content/page/document-1")).toBe(true);
   });
 
   it("keeps the session gate without a ticket or outside the editor route", () => {
