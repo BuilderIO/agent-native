@@ -274,6 +274,7 @@ export interface AgentKitLabels {
   imagePreview: string;
   closePreview: string;
   dropFilesToAttach: string;
+  dropFileFailed: string;
   scrollToBottom: string;
   formatTimestamp?: (createdAt: string) => string;
   error: string;
@@ -384,6 +385,7 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   imagePreview: "Image preview",
   closePreview: "Close preview",
   dropFilesToAttach: "Drop files to attach",
+  dropFileFailed: "Could not add the dropped file. Try a different format.",
   scrollToBottom: "Scroll to bottom",
   error: "Something went wrong",
   renderError: "This content couldn’t be displayed.",
