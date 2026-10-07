@@ -1367,6 +1367,14 @@ const messages = {
     agentTitle: "대화에 참여하려면 무료 Clips 계정을 만드세요",
     genericTitle: "계속하려면 무료 Clips 계정을 만드세요",
     description: "완료하면 이 클립으로 돌아옵니다.",
+    verificationPendingTitle: "이메일을 인증하세요",
+    verificationPendingCopy:
+      "{{email}}(으)로 인증 이메일을 보냈습니다. 이메일을 열어 계정 생성을 완료하고 이 클립으로 돌아오세요.",
+    resendVerification: "인증 이메일 다시 보내기",
+    resendingVerification: "인증 이메일 보내는 중...",
+    verificationEmailResent: "새 인증 이메일을 보냈습니다.",
+    verificationEmailFailed:
+      "인증 이메일을 다시 보내지 못했습니다. 다시 시도하거나 이메일 링크로 로그인하세요.",
     passwordsMismatch: "비밀번호가 일치하지 않습니다.",
     commentIntent: "댓글을 작성",
     reactIntent: "반응을 추가",

@@ -812,12 +812,16 @@ describe("refresh tokens", () => {
     expect(await s.getOAuthRefreshToken("synthetic-raced-rotation")).toBeNull();
   });
 
-  it("touchOAuthRefreshToken slides the expiry window (active users never expire)", async () => {
+  it("creates non-expiring refresh grants and removes an older expiry on use", async () => {
     const s = await freshStore();
     vi.spyOn(Date, "now").mockReturnValue(1000);
     await s.createOAuthRefreshToken(refreshParams);
     const original = await s.getOAuthRefreshToken("raw-refresh-token");
-    expect(original?.expiresAt).toBe(1000 + s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS);
+    expect(original?.expiresAt).toBeNull();
+    await pglite.query(
+      "UPDATE mcp_oauth_refresh_tokens SET expires_at = $1",
+      [5000],
+    );
 
     vi.spyOn(Date, "now").mockReturnValue(2000);
     await s.touchOAuthRefreshToken(
@@ -825,8 +829,23 @@ describe("refresh tokens", () => {
       refreshParams.ownerEmail,
     );
     const touched = await s.getOAuthRefreshToken("raw-refresh-token");
-    expect(touched?.expiresAt).toBe(2000 + s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS);
+    expect(touched?.expiresAt).toBeNull();
     expect(touched?.lastUsedAt).toBe(2000);
+  });
+
+  it("keeps refresh grants valid after long inactivity until they are revoked", async () => {
+    const s = await freshStore();
+    vi.spyOn(Date, "now").mockReturnValue(1000);
+    await s.createOAuthRefreshToken(refreshParams);
+    vi.spyOn(Date, "now").mockReturnValue(1000 + 10 * 365 * 24 * 60 * 60_000);
+
+    expect(await s.getOAuthRefreshToken("raw-refresh-token")).toMatchObject({
+      expiresAt: null,
+      revokedAt: null,
+    });
+    await expect(
+      s.touchOAuthRefreshToken("raw-refresh-token", refreshParams.ownerEmail),
+    ).resolves.toBe("renewed");
   });
 
   it.each(["revoked", "deleted"])(
@@ -864,18 +883,15 @@ describe("refresh tokens", () => {
     ).rejects.toThrow(/invalid row count/);
   });
 
-  it("refresh token TTL is 365d by default", async () => {
-    const s = await freshStore();
-    expect(s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS).toBe(365 * 24 * 60 * 60_000);
-  });
-
-  it("getOAuthRefreshToken returns null once expired", async () => {
+  it("getOAuthRefreshToken refuses an expired legacy grant", async () => {
     const s = await freshStore();
     vi.spyOn(Date, "now").mockReturnValue(1000);
     await s.createOAuthRefreshToken(refreshParams);
-    vi.spyOn(Date, "now").mockReturnValue(
-      1000 + s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS + 1,
+    await pglite.query(
+      "UPDATE mcp_oauth_refresh_tokens SET expires_at = $1",
+      [2000],
     );
+    vi.spyOn(Date, "now").mockReturnValue(2001);
     expect(await s.getOAuthRefreshToken("raw-refresh-token")).toBeNull();
     await expect(
       s.touchOAuthRefreshToken("raw-refresh-token", refreshParams.ownerEmail),
@@ -951,13 +967,15 @@ describe("refresh tokens", () => {
     ).toBeNull();
   });
 
-  it("rotateOAuthRefreshToken returns null for an expired token (no new token minted)", async () => {
+  it("rotateOAuthRefreshToken refuses an expired legacy grant", async () => {
     const s = await freshStore();
     vi.spyOn(Date, "now").mockReturnValue(1000);
     await s.createOAuthRefreshToken(refreshParams);
-    vi.spyOn(Date, "now").mockReturnValue(
-      1000 + s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS + 1,
+    await pglite.query(
+      "UPDATE mcp_oauth_refresh_tokens SET expires_at = $1",
+      [2000],
     );
+    vi.spyOn(Date, "now").mockReturnValue(2001);
     const rotated = await s.rotateOAuthRefreshToken({
       oldRefreshToken: "raw-refresh-token",
       newRefreshToken: "new-token",

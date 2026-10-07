@@ -2303,10 +2303,7 @@ async function createBetterAuthInstance(
         updateEmailWithoutVerification: false,
         sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
           await preflightEmailIdentityRekey(user.email, newEmail);
-          const confirmationBasePath = getConfiguredAppBasePath();
-          const confirmationUrl = confirmationBasePath
-            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${confirmationBasePath}$2`)
-            : url;
+          const confirmationUrl = emailAuthLinkLandingUrl(url) ?? url;
           const renderedEmail = await renderTransactionalEmail(
             CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
             { email: user.email, newEmail, confirmationUrl },

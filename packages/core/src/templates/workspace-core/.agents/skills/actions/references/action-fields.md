@@ -114,8 +114,8 @@ A guard that throws denies with its own message; returning `false` denies
 generically; anything else (including `undefined`) allows. A guarded action
 needs a user identity, so an unattended CLI/cron caller with no user email is
 denied. `authorize` gates the operation; `accessFilter` / `assertAccess` still
-scope which rows a permitted caller may touch. See the `authentication` skill
-for `defineAppRoles` and the `sharing` skill for row scoping.
+scope which rows a permitted caller may touch. Use `agent-native-docs` to find
+the current authentication and sharing documentation when adding role checks.
 
 ## Human-in-the-Loop Approval (`needsApproval`)
 

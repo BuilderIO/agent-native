@@ -488,7 +488,7 @@ describe("server/auth", () => {
 
       expect(landingResponse.status).toBe(200);
       expect(html).toContain('lang="fr-FR"');
-      expect(html).toContain("Continuer la connexion");
+      expect(html).toContain("Continuer avec le lien reçu par e-mail");
       expect(html).toContain('method="post"');
       expect(html).toContain('name="token" value="one-time-token"');
       expect(authHandler).not.toHaveBeenCalled();

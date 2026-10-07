@@ -57,6 +57,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "Google Slides export is unavailable right now.",
         "editorExport.googleSlidesCreated": "Exported to Google Slides",
         "editorExport.googleSlidesCreatedHint": "Created in your Drive.",
+        "editorExport.googleSlidesGoTo": "Go to Google Slides",
         "editorExport.googleSlidesDownloaded": "Downloaded for Google Slides",
         "editorExport.googleSlidesImportHint":
           "Import the downloaded PPTX into Google Slides yourself.",
@@ -253,7 +254,7 @@ describe("export paths smoke test", () => {
     await clickExport("Export to Google Slides");
 
     const open = await screen.findByRole("button", {
-      name: /Export to Google Slides/,
+      name: /Go to Google Slides/,
     });
     fireEvent.click(open);
     expect(harness.opened).toContain(

@@ -1353,6 +1353,14 @@ const messages = {
     agentTitle: "बातचीत में शामिल होने के लिए मुफ़्त Clips खाता बनाएं",
     genericTitle: "जारी रखने के लिए मुफ़्त Clips खाता बनाएं",
     description: "पूरा होते ही आप इसी क्लिप पर लौट आएंगे।",
+    verificationPendingTitle: "अपना ईमेल सत्यापित करें",
+    verificationPendingCopy:
+      "हमने {{email}} पर सत्यापन ईमेल भेजा है। खाता बनाने और इस क्लिप पर लौटने के लिए उसे खोलें।",
+    resendVerification: "सत्यापन ईमेल फिर से भेजें",
+    resendingVerification: "सत्यापन ईमेल भेजा जा रहा है...",
+    verificationEmailResent: "नया सत्यापन ईमेल भेज दिया गया है।",
+    verificationEmailFailed:
+      "सत्यापन ईमेल फिर से नहीं भेज पाए। दोबारा कोशिश करें या ईमेल लिंक से साइन इन करें।",
     passwordsMismatch: "पासवर्ड मेल नहीं खाते।",
     commentIntent: "टिप्पणी करने",
     reactIntent: "प्रतिक्रिया जोड़ने",

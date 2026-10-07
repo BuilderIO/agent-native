@@ -31,6 +31,6 @@ npx agent-native upgrade --codemods
 
 `agent-native doctor` também executa `server-plugin-default-export`, que aponta qualquer arquivo que o Nitro carrega de `server/plugins/` sem export default em tempo de execução. O Nitro chama o export default de cada plugin, então o build de produção falha com `[MISSING_EXPORT]` mesmo quando o typecheck passa. Use `export default defineNitroPlugin(...)` ou mova o código que só faz registro para `server/` e importe-o a partir de um plugin.
 
-O CLI adiciona os comandos `pnpm doctor` e `pnpm agent-native:doctor` a cada novo app e workspace. A partir da raiz de um workspace, ele verifica cada app em `apps/<name>`. Builds falham por padrão quando há achados; use `failOnBuild: false` apenas como exceção revisada.
+O CLI adiciona o comando `pnpm agent-native:doctor` a cada novo app e workspace. A partir da raiz de um workspace, ele verifica cada app em `apps/<name>`. Builds falham por padrão quando há achados; use `failOnBuild: false` apenas como exceção revisada.
 
 Entradas marcadas como `planned` aparecem apenas como avisos e não são reescritas. Entradas ativas são achados; o codemod só as reescreve quando o export de destino está instalado.

@@ -2032,6 +2032,13 @@ export default {
       "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
   },
   designSystems: {
+    comingSoonTitle: "デザインシステムは近日公開予定です",
+    waitlist: {
+      join: "ウェイトリストに登録",
+      joining: "登録中...",
+      joined: "ウェイトリストに登録されました",
+      error: "ウェイトリストに登録できませんでした。もう一度お試しください。",
+    },
     deleteError: "デザインシステムを削除できませんでした",
     updateSuccess: "デザインシステムが更新されました",
     updateError: "デザインシステムを更新できませんでした",
