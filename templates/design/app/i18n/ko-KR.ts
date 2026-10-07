@@ -2004,6 +2004,13 @@ export default {
       "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
   },
   designSystems: {
+    comingSoonTitle: "디자인 시스템이 곧 제공됩니다",
+    waitlist: {
+      join: "대기자 명단에 등록",
+      joining: "등록 중...",
+      joined: "대기자 명단에 등록되었습니다",
+      error: "대기자 명단에 등록하지 못했습니다. 다시 시도해 주세요.",
+    },
     deleteError: "디자인 시스템을 삭제할 수 없습니다.",
     updateSuccess: "디자인 시스템 업데이트",
     updateError: "디자인 시스템을 업데이트할 수 없습니다.",
