@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import ts from "typescript";
 import { parse } from "yaml";
 
 const workflowPath = ".github/workflows/beta-e2e.yml";
@@ -61,6 +62,13 @@ if (sitesRaw) {
 
 if (chat) {
   const chatCode = stripComments(chat);
+  const chatSource = ts.createSourceFile(
+    chatPath,
+    chat,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
   for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
     const configured = new RegExp(
       `\\bexport\\s+const\\s+${name}\\s*=\\s*["']([^"']+)["']`,
@@ -71,10 +79,26 @@ if (chat) {
       );
     }
   }
-  if (
-    !chatCode.includes(
-      "export const LUNA_MODEL_PATTERN = /^(?:openai\\/)?gpt-(?:5[.-]6|6)-luna$/i;",
+  const modelPatternDeclaration = chatSource.statements
+    .filter(
+      (statement): statement is ts.VariableStatement =>
+        ts.isVariableStatement(statement) &&
+        statement.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+        ) === true,
     )
+    .flatMap((statement) => statement.declarationList.declarations)
+    .find(
+      (declaration) =>
+        ts.isIdentifier(declaration.name) &&
+        declaration.name.text === "LUNA_MODEL_PATTERN",
+    );
+  const modelPatternInitializer = modelPatternDeclaration?.initializer;
+  if (
+    !modelPatternInitializer ||
+    !ts.isRegularExpressionLiteral(modelPatternInitializer) ||
+    modelPatternInitializer.getText(chatSource) !==
+      String.raw`/^(?:openai\/)?gpt-(?:5[.-]6|6)-luna$/i`
   ) {
     issues.push(
       `${chatPath} LUNA_MODEL_PATTERN must accept only the current low-cost model aliases. Loosening the pattern can make the budget guard accept a more expensive model.`,

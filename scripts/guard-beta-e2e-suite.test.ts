@@ -110,6 +110,20 @@ describe("guard:beta-e2e-suite", () => {
     );
   });
 
+  it("checks the exported pattern initializer instead of matching source text", () => {
+    const expectedDeclaration = String.raw`export const LUNA_MODEL_PATTERN = /^(?:openai\/)?gpt-(?:5[.-]6|6)-luna$/i;`;
+    rejects(
+      (files) =>
+        edit(
+          files,
+          "e2e/beta/lib/chat.ts",
+          expectedDeclaration,
+          `export const LUNA_MODEL_PATTERN = /^.*$/i;\nconst staleExpected = "${expectedDeclaration}";`,
+        ),
+      /LUNA_MODEL_PATTERN must accept only the current low-cost model aliases/,
+    );
+  });
+
   it("caps the public matrix and the authenticated matrix", () => {
     rejects(
       (files) =>
