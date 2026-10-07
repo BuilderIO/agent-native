@@ -61,3 +61,17 @@ scripts/migrate-production.ts
 public/manifest.json
 README.md
 .agents/skills/build-an-app/SKILL.md
+.claude/skills/turn-into-app
+.claude/skills/turn-into-skill
+.claude/skills/workspace-conventions
+app/components/layout/AgentInspector.test.tsx
+app/lib/sidebar-thread-state.spec.ts
+app/lib/sidebar-thread-state.ts
+app/routes/chat.$threadId.tsx
+app/routes/extensions.$id.$slug.tsx
+app/routes/extensions.$id.tsx
+app/routes/extensions._index.tsx
+app/routes/extensions.tsx
+app/routes/settings.spec.tsx
+app/routes/team.tsx
+public/auth-marketing

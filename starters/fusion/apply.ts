@@ -72,7 +72,15 @@ function uniqueReplace(file: string, from: string, to: string): void {
   }
   const src = readFileSync(file, "utf8");
   const toCount = src.split(to).length - 1;
-  if (toCount === 1) return;
+  if (toCount === 1) {
+    // Some replacements keep `from` inside `to`, so look for it outside `to`.
+    if (src.split(to).join("").includes(from)) {
+      throw new Error(
+        `starter patch failed: both the original and patched snippet are in ${relTo(file)}`,
+      );
+    }
+    return;
+  }
   if (toCount > 1) {
     throw new Error(
       `starter patch failed: patched snippet not unique (${toCount}x) in ${relTo(file)}`,
@@ -508,6 +516,10 @@ existing \`homePath\` when it still points to a valid route. Otherwise choose
 the actual primary authenticated landing page from the product already built,
 such as \`/\`, \`/dashboard\`, or \`/tasks\`. Never assume \`/home\` unless that
 route really exists.
+
+The starter ships \`homePath: "/"\` only so sign-in lands on the blank canvas.
+Once \`/\` is a public page and the signed-in app lives elsewhere, replace it
+with that route.
 
 Do not choose an auth route, API route, public-only marketing page, wildcard
 route, or parameterized route that cannot open without an id. If multiple

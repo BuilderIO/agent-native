@@ -79,8 +79,8 @@ prevents prior patch output from accumulating or blocking a changed patch.
 - Tells agents enabling auth to inspect the generated product routes, preserve a
   valid existing `app.homePath`, or select the real primary authenticated route
   and persist it in `server/plugins/config.ts` without assuming `/home`. The
-  blank starter intentionally ships no `homePath`; the agent decides only after
-  product routes exist.
+  blank starter ships `homePath: "/"` so sign-in lands on the canvas instead of
+  Chat's missing `/home`; agents replace it once product routes exist.
 - Replaces the chat template's `README.md` with a generic "My App" README and
   tells agents (in `DEVELOPING.md`) to rewrite it once the app has real features
 - Tells agents to typecheck once per batch and skip i18n/changelog unless asked

@@ -31,8 +31,8 @@ the currently patched `main` tree. Both assert:
 - Generated `AGENTS.md` requires route inspection before auth, persists the
   selected landing route as `app.homePath`, and explicitly forbids assuming
   `/home` when that route does not exist
-- The blank `server/plugins/config.ts` retains `plugins.disabled` without
-  preselecting a `homePath` before product routes exist
+- The blank `server/plugins/config.ts` retains `plugins.disabled` and lands
+  sign-in on the canvas (`homePath: "/"`) until product routes exist
 - `README.md` is the generic "My App" README with no chat template copy, and
   `DEVELOPING.md` tells agents to rewrite it
 - Previously patched output migrates to the current overlay without duplicates
