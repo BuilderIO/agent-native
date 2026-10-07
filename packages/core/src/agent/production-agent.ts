@@ -75,6 +75,10 @@ import {
 } from "../navigation/settings-redirects.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import {
+  enforceServicePrincipalActionGrant,
+  ServicePrincipalRefusedError,
+} from "../org/service-principal-guard.js";
+import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
   updateRunProgress,
@@ -6266,6 +6270,21 @@ export async function runAgentLoop(opts: {
           content: result,
           isError: true,
         };
+      }
+
+      // Before approval, so a human is never asked to approve a call the
+      // principal's grant already forbids. Covers framework tools that bypass
+      // `defineAction`, which enforces the same grant for the actions.
+      try {
+        await enforceServicePrincipalActionGrant({
+          email: opts.ownerEmail ?? getRequestUserEmail(),
+          orgId: opts.orgId ?? getRequestOrgId() ?? null,
+          actionName: toolCall.name,
+          caller: opts.actionCaller ?? "tool",
+        });
+      } catch (error) {
+        if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+        return declineToolCall(error.message);
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);

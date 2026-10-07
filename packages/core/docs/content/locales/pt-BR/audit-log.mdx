@@ -92,6 +92,21 @@ const { data } = useActionQuery("list-audit-events", {
 
 O agente pode chamar a mesma ação - pergunte "o que você mudou nesta gravação?" e responde pela trilha.
 
+## Exportar para um SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** retorna a trilha da organização como eventos OCSF 1.9.0 API Activity ([OCSF](https://schema.ocsf.io), `class_uid` 6003), do mais antigo ao mais recente, para um SIEM coletar periodicamente. Apenas para proprietários e administradores; lê os mesmos eventos `org` e `admins` do log de auditoria da organização, nunca as linhas privadas de ninguém.
+
+| Entrada  | Significado                                                                                  |
+| -------- | -------------------------------------------------------------------------------------------- |
+| `since`  | Somente eventos a partir deste carimbo de data/hora ISO 8601 ou destes ms epoch (inclusive). |
+| `until`  | Somente eventos anteriores a este carimbo de data/hora ISO 8601 ou a estes ms epoch.         |
+| `cursor` | O `nextCursor` da página anterior.                                                           |
+| `limit`  | Eventos por página, até 500 (padrão 100).                                                    |
+
+Retorna `{ events, hasMore, nextCursor }`. Guarde `nextCursor` e envie-o na próxima coleta; uma página vazia retorna o cursor que você enviou, então continue consultando com ele. Os cinco segundos mais recentes são retidos para que uma linha gravada com atraso nunca seja ignorada.
+
+Cada evento mapeia `status` para `status_id` (`success` é Success; `error` e `denied` são Failure, e `denied` também recebe `action_id` Denied e um `severity_id` maior), o ator para `actor.user` (um principal de serviço é do tipo Service), a ação para `api.operation` e o alvo para `resources`. Os ids de execução, tarefa, tarefa pai, thread, turno e app não têm campo OCSF e ficam em `unmapped`. Os argumentos da chamada nunca são exportados.
+
 ## Privacidade e retenção {#privacy}
 
 - **Redação** — antes de qualquer entrada ser armazenada, chaves e valores em formato de credencial (tokens, segredos, senhas, strings de portador) são removidos e cargas úteis superdimensionadas são truncadas. O log de auditoria nunca se torna um armazenamento secundário de segredos. Mantenha o texto `summary` livre de dados confidenciais também.

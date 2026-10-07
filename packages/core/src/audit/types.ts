@@ -92,4 +92,12 @@ export interface AuditQueryFilters {
   beforeMs?: number;
   limit?: number;
   offset?: number;
+  /** Sort direction on (createdAt, id). Defaults to newest first. */
+  order?: "asc" | "desc";
+  /**
+   * Keyset position for an incremental pull: only rows strictly after this
+   * (createdAt, id) in `asc` order. Stable under concurrent inserts, which
+   * `offset` is not.
+   */
+  after?: { createdAt: number; id: string };
 }

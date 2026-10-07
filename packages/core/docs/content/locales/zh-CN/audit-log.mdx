@@ -92,6 +92,21 @@ const { data } = useActionQuery("list-audit-events", {
 
 代理可以调用​​相同的操作 - 询问它“你对此录音做了什么更改？”它会从踪迹中回答。
 
+## 导出到 SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** 以 [OCSF](https://schema.ocsf.io) 1.9.0 API Activity 事件（`class_uid` 6003）的形式返回组织的审计踪迹，按从旧到新排序，供 SIEM 定期拉取。仅限所有者和管理员，读取的 `org` 和 `admins` 事件与组织审计日志相同，绝不读取任何人的私有行。
+
+| 输入     | 含义                                                   |
+| -------- | ------------------------------------------------------ |
+| `since`  | 仅返回此 ISO 8601 时间戳或纪元毫秒及之后（含）的事件。 |
+| `until`  | 仅返回此 ISO 8601 时间戳或纪元毫秒之前的事件。         |
+| `cursor` | 上一页返回的 `nextCursor`。                            |
+| `limit`  | 每页事件数，最多 500（默认 100）。                     |
+
+返回 `{ events, hasMore, nextCursor }`。保存 `nextCursor`，并在下次拉取时传回；空页会原样返回您发送的游标，因此请继续使用它轮询。最近五秒的事件会被保留不返回，以免跳过延迟写入的行。
+
+每个事件将 `status` 映射到 `status_id`（`success` 为 Success；`error` 和 `denied` 为 Failure，其中 `denied` 还会设置 `action_id` 为 Denied 并提高 `severity_id`），将执行者映射到 `actor.user`（服务主体的类型为 Service），将操作映射到 `api.operation`，将目标映射到 `resources`。运行、任务、父任务、线程、轮次和应用 ID 没有对应的 OCSF 字段，位于 `unmapped` 下。调用参数绝不会被导出。
+
 ## 隐私和保留 {#privacy}
 
 - **编辑** - 在存储任何输入之前，凭证形状的密钥和值（令牌、秘密、密码、承载字符串）将被剥离，并截断超大的有效负载。审核日志永远不会成为秘密的辅助存储。也不要让 `summary` 文本包含敏感数据。

@@ -92,6 +92,21 @@ const { data } = useActionQuery("list-audit-events", {
 
 Der Agent kann dieselbe Aktion aufrufen – fragen Sie ihn: „Was haben Sie an dieser Aufzeichnung geändert?“ und es antwortet von der Spur.
 
+## Export an ein SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** liefert die Spur der Organisation als [OCSF](https://schema.ocsf.io)-1.9.0-API-Activity-Ereignisse (`class_uid` 6003), älteste zuerst, damit ein SIEM sie regelmäßig abrufen kann. Nur für Eigentümer und Administratoren; es liest dieselben `org`- und `admins`-Ereignisse wie das Audit-Log der Organisation, niemals private Zeilen einer Person.
+
+| Eingabe  | Bedeutung                                                                            |
+| -------- | ------------------------------------------------------------------------------------ |
+| `since`  | Nur Ereignisse ab diesem ISO-8601-Zeitstempel oder diesen Epoch-ms (einschließlich). |
+| `until`  | Nur Ereignisse vor diesem ISO-8601-Zeitstempel oder diesen Epoch-ms.                 |
+| `cursor` | Der `nextCursor` der vorherigen Seite.                                               |
+| `limit`  | Ereignisse pro Seite, bis zu 500 (Standard 100).                                     |
+
+Es gibt `{ events, hasMore, nextCursor }` zurück. Speichern Sie `nextCursor` und senden Sie ihn beim nächsten Abruf zurück; eine leere Seite gibt den gesendeten Cursor zurück, fragen Sie also weiter mit ihm ab. Die neuesten fünf Sekunden werden zurückgehalten, damit eine verspätet geschriebene Zeile nie übersprungen wird.
+
+Jedes Ereignis bildet `status` auf `status_id` ab (`success` ist Success; `error` und `denied` sind Failure, wobei `denied` zusätzlich `action_id` Denied und eine höhere `severity_id` erhält), den Akteur auf `actor.user` (ein Dienst-Principal hat den Typ Service), die Aktion auf `api.operation` und das Ziel auf `resources`. Lauf-, Aufgaben-, übergeordnete Aufgaben-, Thread-, Turn- und App-IDs haben kein OCSF-Feld und stehen unter `unmapped`. Aufrufargumente werden nie exportiert.
+
 ## Datenschutz und Aufbewahrung {#privacy}
 
 - **Redaktion** – bevor Eingaben gespeichert werden, werden anmeldeinformationsförmige Schlüssel und Werte (Tokens, Geheimnisse, Passwörter, Trägerzeichenfolgen) entfernt und übergroße Nutzlasten abgeschnitten. Das Audit-Protokoll wird niemals zu einem sekundären Speicher für Geheimnisse. Halten Sie auch den `summary`-Text frei von sensiblen Daten.

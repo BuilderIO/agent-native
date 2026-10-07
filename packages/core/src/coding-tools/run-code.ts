@@ -731,7 +731,13 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
     if (callBudget) callBudget.count += 1;
     usedTools.add(toolName);
     try {
-      const run = () => entry.run(childArgs, options.context);
+      // Name the child, not `run-code`: a service principal's grant is checked
+      // against the action actually being run.
+      const run = () =>
+        entry.run(
+          childArgs,
+          options.context && { ...options.context, actionName: toolName },
+        );
       const result =
         options.context?.credentialScope === "org"
           ? await runWithRequestContext(

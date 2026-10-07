@@ -690,6 +690,8 @@ describe("action discovery", () => {
         "create-org-service-token",
         "list-org-service-tokens",
         "revoke-org-service-token",
+        "set-service-principal-policy",
+        "set-service-principal-lifecycle",
       ],
     };
 

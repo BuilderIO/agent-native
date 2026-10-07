@@ -35,6 +35,13 @@ import {
 } from "../agent/tool-result-images.js";
 import { getAppConfig } from "../app-config/store.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
+import {
+  assertServicePrincipalMayCall,
+  assertServicePrincipalMayRun,
+  recordServicePrincipalDenial,
+  ServicePrincipalRefusedError,
+} from "../org/service-principal-guard.js";
+import { isActionGranted } from "../org/service-principal-policy.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -2083,11 +2090,39 @@ export async function createMCPServerForRequest(
     });
   }
 
+  // Read per request, never cached: a principal suspended or re-scoped after
+  // admission is stopped by the next list or call.
+  function resolveServiceGrant(): Promise<{
+    allowedActions: string[] | null;
+  }> {
+    return assertServicePrincipalMayRun(
+      effectiveIdentity?.userEmail,
+      typeof effectiveIdentity?.orgId === "string"
+        ? effectiveIdentity.orgId
+        : undefined,
+    );
+  }
+
+  // MCP App widgets belong to their action: outside the grant, the resource is
+  // as invisible as the tool.
+  async function grantedAdvertisedActions(): Promise<typeof advertisedActions> {
+    const { allowedActions } = await resolveServiceGrant();
+    return allowedActions === null
+      ? advertisedActions
+      : Object.fromEntries(
+          Object.entries(advertisedActions).filter(([name]) =>
+            isActionGranted(allowedActions, name),
+          ),
+        );
+  }
+
   server.setRequestHandler("tools/list", async (request: any, ctx: any) => {
     const startedAt = Date.now();
+    const { allowedActions } = await resolveServiceGrant();
     const result = await withCallerContext(async () => {
       const tools: Tool[] = await Promise.all(
         Object.entries(advertisedActions)
+          .filter(([name]) => isActionGranted(allowedActions, name))
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
           .map(async ([name, entry]) => {
             const hasLink = typeof entry.link === "function";
@@ -2201,6 +2236,7 @@ export async function createMCPServerForRequest(
       if (
         fullCatalogRequested &&
         config.askAgent &&
+        isActionGranted(allowedActions, "ask-agent") &&
         hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")
       ) {
         tools.push({
@@ -2273,6 +2309,28 @@ export async function createMCPServerForRequest(
               : undefined;
       const result = await withCallerContext(async () => {
         const { name, arguments: args } = request.params;
+
+        try {
+          const { allowedActions } = await resolveServiceGrant();
+          assertServicePrincipalMayCall(allowedActions, name);
+        } catch (error) {
+          if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+          failure = {
+            errorType: error.errorCode,
+            errorMessage: error.message,
+          };
+          await recordServicePrincipalDenial({
+            email: effectiveIdentity?.userEmail,
+            orgId: getRequestOrgId(),
+            actionName: name,
+            caller: "mcp",
+            error,
+          });
+          return {
+            content: [{ type: "text", text: error.message }],
+            isError: true,
+          };
+        }
 
         if (name === "ask-agent" && config.askAgent) {
           if (!fullCatalogRequested) {
@@ -2591,10 +2649,11 @@ export async function createMCPServerForRequest(
       "resources/list",
       async (request: any, ctx: any) => {
         const startedAt = Date.now();
+        const grantedActions = await grantedAdvertisedActions();
         const result = await withCallerContext(async () => {
           const mcpAppResources = await getMcpAppResources(
             config,
-            advertisedActions,
+            grantedActions,
             requestMeta,
           );
           return {
@@ -2624,10 +2683,11 @@ export async function createMCPServerForRequest(
       if (config.catalogMode === "directory") {
         return withCallerContext(async () => ({ resourceTemplates: [] }));
       }
+      const grantedActions = await grantedAdvertisedActions();
       return withCallerContext(async () => {
         const mcpAppResources = await getMcpAppResources(
           config,
-          advertisedActions,
+          grantedActions,
           requestMeta,
         );
         return {
@@ -2667,6 +2727,7 @@ export async function createMCPServerForRequest(
           });
         };
         try {
+          const grantedActions = await grantedAdvertisedActions();
           return await withCallerContext(async () => {
             const uri = request.params?.uri;
             let found: {
@@ -2674,7 +2735,7 @@ export async function createMCPServerForRequest(
               resource: ResolvedMcpAppResource;
             } | null = null;
             const resourceActions = mcpAppWidgetsEnabled(config)
-              ? Object.entries(advertisedActions)
+              ? Object.entries(grantedActions)
               : [];
             const orderedResourceActions =
               config.catalogMode === "directory"
@@ -3085,6 +3146,46 @@ async function admitIssuedCredential(
   orgResolution: ConnectTokenOrgResolution,
   issuedAt: number | undefined,
 ): Promise<VerifyAuthResult> {
+  const admitted = await checkIssuedCredential(
+    result,
+    requestOrigin,
+    orgResolution,
+    issuedAt,
+  );
+  return admitted.authed ? admitServicePrincipal(admitted) : admitted;
+}
+
+/**
+ * A service identity is admitted only while its governance record says it may
+ * run. Every credential branch that can yield one ends here; a caller whose
+ * email is not service-shaped returns before any database read.
+ */
+async function admitServicePrincipal(
+  result: VerifyAuthResult,
+): Promise<VerifyAuthResult> {
+  const email = result.identity?.userEmail;
+  try {
+    await assertServicePrincipalMayRun(
+      email,
+      typeof result.identity?.orgId === "string"
+        ? result.identity.orgId
+        : undefined,
+    );
+    return result;
+  } catch (error) {
+    if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+    return error.statusCode === 503
+      ? { authed: false, unavailable: true }
+      : { authed: false };
+  }
+}
+
+async function checkIssuedCredential(
+  result: VerifyAuthResult & { identity: MCPCallerIdentity },
+  requestOrigin: string | undefined,
+  orgResolution: ConnectTokenOrgResolution,
+  issuedAt: number | undefined,
+): Promise<VerifyAuthResult> {
   const { checkCredentialEmailRetirement, checkCredentialOrgMembership } =
     await import("./credential-membership.js");
   if (result.identity.userEmail) {
@@ -3317,7 +3418,7 @@ export async function verifyAuth(
             orgResolution,
             typeof payload.iat === "number" ? payload.iat : undefined,
           )
-        : verified;
+        : await admitServicePrincipal(verified);
     if (admitted.authed && tokenScope === MCP_CONNECT_SCOPE) {
       await markConnectTokenUsed(payload.jti as string | undefined);
     }

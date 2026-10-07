@@ -13,6 +13,10 @@ import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
+import {
+  assertServicePrincipalMayRun,
+  ServicePrincipalRefusedError,
+} from "../org/service-principal-guard.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
@@ -725,6 +729,21 @@ export function mountA2A(
             error: {
               code: -32003,
               message: "A2A identity verification is temporarily unavailable",
+            },
+          };
+        }
+        try {
+          await assertServicePrincipalMayRun(tokenPayload.email, verifiedOrgId);
+        } catch (error) {
+          if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+          setResponseStatus(event, error.statusCode);
+          return {
+            jsonrpc: "2.0",
+            id: null,
+            error: {
+              code: error.statusCode === 503 ? -32003 : -32001,
+              message: error.message,
+              data: { errorCode: error.errorCode },
             },
           };
         }

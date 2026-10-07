@@ -169,6 +169,21 @@ const { data } = useActionQuery("list-audit-events", {
 
 The agent can call the same action — ask it "what did you change on this recording?" and it answers from the trail.
 
+## Export to a SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** returns the organization's trail as [OCSF](https://schema.ocsf.io) 1.9.0 API Activity events (`class_uid` 6003), oldest first, for a SIEM to pull on a schedule. Owners and admins only, and it reads the same `org` and `admins` events as the organization audit log, never anyone's private rows.
+
+| Input    | Meaning                                                      |
+| -------- | ------------------------------------------------------------ |
+| `since`  | Only events at or after this ISO 8601 timestamp or epoch ms. |
+| `until`  | Only events before this ISO 8601 timestamp or epoch ms.      |
+| `cursor` | The `nextCursor` from the previous page.                     |
+| `limit`  | Events per page, up to 500 (default 100).                    |
+
+It returns `{ events, hasMore, nextCursor }`. Store `nextCursor` and send it back on the next pull; an empty page returns the cursor you sent, so keep polling with it. The newest five seconds are held back so a late-written row is never skipped.
+
+Each event maps `status` to `status_id` (`success` is Success; `error` and `denied` are Failure, with `denied` also `action_id` Denied and a higher `severity_id`), the actor to `actor.user` (a service principal is type Service), the action to `api.operation`, and the target to `resources`. Run, task, parent-task, thread, turn, and app ids have no OCSF field, so they sit under `unmapped`. Call arguments are never exported.
+
 ## Privacy & retention {#privacy}
 
 - **Redaction** — before any inputs are stored, credential-shaped keys and values (tokens, secrets, passwords, bearer strings) are stripped and oversized payloads truncated. The audit log never becomes a secondary store of secrets. Keep `summary` text free of sensitive data too.

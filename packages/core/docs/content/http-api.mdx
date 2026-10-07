@@ -242,6 +242,25 @@ Because `list-org-service-tokens` reports `lastUsedAt`, it doubles as a cleanup 
 
 </Callout>
 
+## Service principals {#service-principals}
+
+Each org service token is a **service principal**, and a governance record says who answers for it and what it may do. Owners and admins set it when minting (`create-org-service-token` takes optional `ownerEmail`, `team`, `riskTier`, `purpose`, and `allowedActions`) and change it later with `set-service-principal-policy`. `list-org-service-tokens` returns each principal's record in `principals`.
+
+| Field             | Meaning                                                                                                                                         |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ownerEmail`      | The accountable human. Defaults to the admin who minted the token.                                                                              |
+| `team`, `purpose` | Who to page and what the principal is for.                                                                                                      |
+| `riskTier`        | `low`, `medium`, or `high`.                                                                                                                     |
+| `lifecycle`       | `active`, `suspended`, or `retired`.                                                                                                            |
+| `allowedActions`  | `null` is unrestricted. A list is a deny-by-default grant of exact action names or a trailing `*` prefix pattern; an empty list grants nothing. |
+
+- **Grant** — `tools/list` shows only the granted actions, and any call outside the grant is refused, whether it arrives over MCP, an HTTP action route, or an agent run the principal started with `ask-agent` or `ask_app`. Agent built-ins such as `tool-search` and `view-screen` are covered too, so name them in the grant if the principal needs them. The grant narrows what the `member` role already allows; it never adds access.
+- **Suspend and resume** — `set-service-principal-lifecycle` with `suspended` refuses the principal on every request, refuses new agent runs for it, and aborts its in-flight runs. `active` resumes it. The MCP connect page (`/mcp/connect`) has the same suspend and resume controls. `retired` also revokes its tokens and cannot be undone.
+- **Ungoverned** — a service token minted before governance has no record. It stays active and unrestricted until an admin sets a policy.
+- **Fails closed** — if the policy cannot be read, the request is refused with a `503`, never admitted.
+
+These actions are owner/admin-only and are not callable by the agent, so neither an agent nor a service token can loosen its own grant.
+
 ## When it 403s {#troubleshooting}
 
 A `401` means the token was not accepted at all. A `403` means the token _was_ accepted and the request then failed an access check — a different problem with a different fix.

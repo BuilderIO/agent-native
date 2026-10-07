@@ -57,6 +57,21 @@ export interface McpConnectMessages {
   couldNotCreate: string;
   networkError: string;
   urlTitle: string;
+  servicePrincipals: string;
+  principalUngoverned: string;
+  principalActive: string;
+  principalSuspended: string;
+  principalRetired: string;
+  principalUngovernedHint: string;
+  principalOwner: string;
+  principalRisk: string;
+  riskLow: string;
+  riskMedium: string;
+  riskHigh: string;
+  suspend: string;
+  resume: string;
+  couldNotUpdatePrincipal: string;
+  containmentIncomplete: string;
 }
 
 export const MCP_CONNECT_MESSAGES: Record<

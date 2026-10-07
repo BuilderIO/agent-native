@@ -265,6 +265,14 @@ vi.mock("../server/agent-discovery.js", () => ({
   findWorkspaceDispatchAgent: findWorkspaceDispatchAgentMock,
 }));
 
+const evaluateServicePrincipalMock = vi.hoisted(() => vi.fn());
+vi.mock("../org/service-principal-policy.js", async (importActual) => ({
+  ...(await importActual<
+    typeof import("../org/service-principal-policy.js")
+  >()),
+  evaluateServicePrincipal: evaluateServicePrincipalMock,
+}));
+
 function mockEvent(): any {
   return {
     _status: 200,
@@ -286,6 +294,8 @@ function mockEvent(): any {
 
 describe("handleJsonRpc", () => {
   beforeEach(() => {
+    evaluateServicePrincipalMock.mockReset();
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     resolveOrgByDomainMock.mockReset();
     resolveA2AOrganizationCredentialsByDomainMock.mockReset();
     resolveOrgIdForEmailMock.mockReset();
@@ -710,6 +720,52 @@ describe("handleJsonRpc", () => {
 
     expect(second.result.id).not.toBe(first.result.id);
     expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails a queued task whose service principal was suspended after submission", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "svc-ci@service.org-acme",
+      __a2aAudienceVerified: true,
+      __a2aVerifiedOrgId: "org-acme",
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 28,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "run later" }],
+          },
+        },
+      },
+      event,
+      config,
+    );
+    const taskId = created.result.id;
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "suspended",
+      policy: { lifecycle: "suspended" },
+    });
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(taskId, config);
+
+    const failed = await handleJsonRpc(
+      { jsonrpc: "2.0", id: 29, method: "tasks/get", params: { id: taskId } },
+      event,
+      config,
+    );
+    expect(failed.result.status.state).toBe("failed");
+    expect(failed.result.status.message.parts[0].text).toContain(
+      "suspended or retired",
+    );
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("persists a structured error code on a failed async task message", async () => {

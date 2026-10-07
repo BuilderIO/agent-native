@@ -10,6 +10,10 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
+import {
+  assertServicePrincipalMayRun,
+  ServicePrincipalRefusedError,
+} from "../org/service-principal-guard.js";
 import { findWorkspaceDispatchAgent } from "../server/agent-discovery.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
@@ -339,6 +343,19 @@ export async function processA2ATaskFromQueue(
     typeof processorMeta.verifiedOrgId === "string"
       ? processorMeta.verifiedOrgId.trim()
       : undefined;
+  try {
+    await assertServicePrincipalMayRun(verifiedEmail, verifiedOrgId);
+  } catch (error) {
+    if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+    await settleProcessingA2ATask(taskId, {
+      state: "failed",
+      message: {
+        role: "agent",
+        parts: [{ type: "text", text: error.message }],
+      },
+    });
+    return;
+  }
   const requestOrigin =
     requestOriginFromMetadata(processorMeta) ?? requestOriginFromEvent(event);
   const contextId =

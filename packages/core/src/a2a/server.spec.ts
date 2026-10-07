@@ -59,6 +59,14 @@ vi.mock("../org/membership.js", () => ({
   isOrgMemberForA2A: isOrgMemberForA2AMock,
 }));
 
+const evaluateServicePrincipalMock = vi.hoisted(() => vi.fn());
+vi.mock("../org/service-principal-policy.js", async (importActual) => ({
+  ...(await importActual<
+    typeof import("../org/service-principal-policy.js")
+  >()),
+  evaluateServicePrincipal: evaluateServicePrincipalMock,
+}));
+
 vi.mock("../server/auth.js", () => ({ getSession: getSessionMock }));
 
 vi.mock("../server/request-context.js", () => ({
@@ -92,6 +100,8 @@ describe("mountA2A auth", () => {
     isOrgMemberForA2AMock.mockResolvedValue(true);
     setResponseStatusMock.mockClear();
     setResponseHeaderMock.mockClear();
+    evaluateServicePrincipalMock.mockReset();
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     getSessionMock.mockReset();
     getApprovalMock.mockReset();
     claimApprovalMock.mockReset();
@@ -718,6 +728,70 @@ describe("mountA2A auth", () => {
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  describe("service principal governance", () => {
+    async function serviceCall() {
+      process.env.A2A_SECRET = "shared-global-secret";
+      resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+        orgId: "org-builder",
+        orgDomain: "builder.io",
+      });
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+        orgId: "org-builder",
+        orgDomain: "builder.io",
+        secret: "receiver-local-org-secret",
+      });
+      const token = await new jose.SignJWT({
+        sub: "svc-ci@service.org-builder",
+        org_domain: "builder.io",
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuer("https://dispatch.agent-native.test")
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode("shared-global-secret"));
+      const handler = await mountedA2AHandler(config);
+      const event = postEvent({ authorization: `Bearer ${token}` });
+      return { response: await handler(event), event };
+    }
+
+    it.each(["suspended", "retired"])(
+      "refuses to start work for a %s service principal",
+      async (status) => {
+        evaluateServicePrincipalMock.mockResolvedValue({
+          status,
+          policy: { lifecycle: status },
+        });
+        const { response, event } = await serviceCall();
+        expect(event._status).toBe(403);
+        expect(response.error.data).toEqual({
+          errorCode: "service_principal_inactive",
+        });
+        expect(event.context.__a2aVerifiedEmail).toBeUndefined();
+        expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+      },
+    );
+
+    it("answers a retryable 503 when the policy cannot be read", async () => {
+      evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
+      const { response, event } = await serviceCall();
+      expect(event._status).toBe(503);
+      expect(response.error.code).toBe(-32003);
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("runs an active service principal", async () => {
+      evaluateServicePrincipalMock.mockResolvedValue({
+        status: "active",
+        policy: { lifecycle: "active", allowedActions: null },
+      });
+      const { response, event } = await serviceCall();
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+      expect(event.context.__a2aVerifiedEmail).toBe(
+        "svc-ci@service.org-builder",
+      );
+    });
   });
 
   it("rejects an MCP connect token signed with the shared secret", async () => {

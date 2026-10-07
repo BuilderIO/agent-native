@@ -92,6 +92,21 @@ const { data } = useActionQuery("list-audit-events", {
 
 El agente puede realizar la misma acción: preguntarle "¿qué cambiaste en esta grabación?" y responde desde el rastro.
 
+## Exportar a un SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** devuelve el rastro de la organización como eventos OCSF 1.9.0 API Activity ([OCSF](https://schema.ocsf.io), `class_uid` 6003), del más antiguo al más reciente, para que un SIEM los extraiga de forma programada. Solo para propietarios y administradores; lee los mismos eventos `org` y `admins` que el registro de auditoría de la organización, nunca las filas privadas de nadie.
+
+| Entrada  | Significado                                                                    |
+| -------- | ------------------------------------------------------------------------------ |
+| `since`  | Solo eventos desde esta marca de tiempo ISO 8601 o estos ms epoch (inclusive). |
+| `until`  | Solo eventos anteriores a esta marca de tiempo ISO 8601 o a estos ms epoch.    |
+| `cursor` | El `nextCursor` de la página anterior.                                         |
+| `limit`  | Eventos por página, hasta 500 (por defecto 100).                               |
+
+Devuelve `{ events, hasMore, nextCursor }`. Guarde `nextCursor` y envíelo en la siguiente extracción; una página vacía devuelve el cursor que envió, así que siga consultando con él. Los últimos cinco segundos se retienen para que una fila escrita tarde nunca se omita.
+
+Cada evento asigna `status` a `status_id` (`success` es Success; `error` y `denied` son Failure, y `denied` añade además `action_id` Denied y un `severity_id` mayor), el actor a `actor.user` (un principal de servicio es de tipo Service), la acción a `api.operation` y el destino a `resources`. Los identificadores de ejecución, tarea, tarea principal, hilo, turno y aplicación no tienen campo OCSF y van bajo `unmapped`. Los argumentos de la llamada nunca se exportan.
+
 ## Privacidad y retención {#privacy}
 
 - **Redacción**: antes de almacenar cualquier entrada, se eliminan las claves y valores en forma de credenciales (tokens, secretos, contraseñas, cadenas de portador) y se truncan las cargas útiles de gran tamaño. El registro de auditoría nunca se convierte en un almacén secundario de secretos. Mantenga también el texto `summary` libre de datos confidenciales.

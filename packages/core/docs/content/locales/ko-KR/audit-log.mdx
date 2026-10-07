@@ -92,6 +92,21 @@ const { data } = useActionQuery("list-audit-events", {
 
 상담원은 동일한 작업을 호출할 수 있습니다. "이 녹음에서 무엇을 변경했나요?"라고 물어보세요. 트레일에서 응답합니다.
 
+## SIEM으로 내보내기 (OCSF) {#ocsf}
+
+**`export-audit-ocsf`**는 조직의 트레일을 [OCSF](https://schema.ocsf.io) 1.9.0 API Activity 이벤트(`class_uid` 6003)로 오래된 순서대로 반환하며, SIEM이 주기적으로 가져가는 용도입니다. 소유자와 관리자만 사용할 수 있고, 조직 감사 로그와 동일한 `org` 및 `admins` 이벤트를 읽으며 누구의 비공개 행도 읽지 않습니다.
+
+| 입력     | 의미                                                        |
+| -------- | ----------------------------------------------------------- |
+| `since`  | 이 ISO 8601 타임스탬프 또는 epoch ms 이후(포함)의 이벤트만. |
+| `until`  | 이 ISO 8601 타임스탬프 또는 epoch ms 이전의 이벤트만.       |
+| `cursor` | 이전 페이지의 `nextCursor`.                                 |
+| `limit`  | 페이지당 이벤트 수, 최대 500(기본값 100).                   |
+
+`{ events, hasMore, nextCursor }`를 반환합니다. `nextCursor`를 저장해 두었다가 다음 가져오기에 그대로 보내세요. 빈 페이지는 보낸 커서를 그대로 반환하므로 그 커서로 계속 조회하면 됩니다. 늦게 기록된 행을 건너뛰지 않도록 가장 최근 5초의 이벤트는 제외됩니다.
+
+각 이벤트는 `status`를 `status_id`로(`success`는 Success, `error`와 `denied`는 Failure이며 `denied`는 `action_id` Denied와 더 높은 `severity_id`도 가짐), 행위자를 `actor.user`로(서비스 프린시펄은 Service 유형), 액션을 `api.operation`으로, 대상을 `resources`로 매핑합니다. 실행, 작업, 상위 작업, 스레드, 턴, 앱 ID에는 해당하는 OCSF 필드가 없어 `unmapped` 아래에 들어갑니다. 호출 인자는 내보내지 않습니다.
+
 ## 개인정보 보호 및 보존 {#privacy}
 
 - **수정** — 입력 내용이 저장되기 전에 자격 증명 형태의 키와 값(토큰, 비밀, 비밀번호, 전달자 문자열)이 제거되고 크기가 너무 큰 페이로드가 잘립니다. 감사 로그는 결코 보조 비밀 저장소가 되지 않습니다. `summary` 텍스트에도 민감한 데이터가 포함되지 않도록 유지하세요.

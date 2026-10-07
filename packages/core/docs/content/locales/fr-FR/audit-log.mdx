@@ -92,6 +92,21 @@ const { data } = useActionQuery("list-audit-events", {
 
 L'agent peut appeler la même action : demandez-lui "Qu'avez-vous changé sur cet enregistrement ?" et il répond depuis le sentier.
 
+## Exporter vers un SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** renvoie le journal de l'organisation sous forme d'événements OCSF 1.9.0 API Activity ([OCSF](https://schema.ocsf.io), `class_uid` 6003), du plus ancien au plus récent, qu'un SIEM peut extraire à intervalles réguliers. Réservé aux propriétaires et aux administrateurs ; il lit les mêmes événements `org` et `admins` que le journal d'audit de l'organisation, jamais les lignes privées de quelqu'un.
+
+| Entrée   | Signification                                                                             |
+| -------- | ----------------------------------------------------------------------------------------- |
+| `since`  | Seulement les événements à partir de cet horodatage ISO 8601 ou de ces ms epoch (inclus). |
+| `until`  | Seulement les événements antérieurs à cet horodatage ISO 8601 ou à ces ms epoch.          |
+| `cursor` | Le `nextCursor` de la page précédente.                                                    |
+| `limit`  | Événements par page, jusqu'à 500 (par défaut 100).                                        |
+
+Renvoie `{ events, hasMore, nextCursor }`. Conservez `nextCursor` et renvoyez-le à l'extraction suivante ; une page vide renvoie le curseur que vous avez envoyé, continuez donc d'interroger avec lui. Les cinq dernières secondes sont retenues afin qu'une ligne écrite tardivement ne soit jamais ignorée.
+
+Chaque événement fait correspondre `status` à `status_id` (`success` donne Success ; `error` et `denied` donnent Failure, `denied` ajoutant `action_id` Denied et un `severity_id` plus élevé), l'acteur à `actor.user` (un principal de service est de type Service), l'action à `api.operation` et la cible à `resources`. Les identifiants d'exécution, de tâche, de tâche parente, de fil, de tour et d'application n'ont pas de champ OCSF ; ils se trouvent sous `unmapped`. Les arguments d'appel ne sont jamais exportés.
+
 ## Confidentialité et conservation {#privacy}
 
 - **Rédaction** — avant que les entrées ne soient stockées, les clés et valeurs en forme d'informations d'identification (jetons, secrets, mots de passe, chaînes de support) sont supprimées et les charges utiles surdimensionnées tronquées. Le journal d'audit ne devient jamais un magasin secondaire de secrets. Gardez également le texte `summary` exempt de données sensibles.
