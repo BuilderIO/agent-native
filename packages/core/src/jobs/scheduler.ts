@@ -1,4 +1,5 @@
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
+import { getCurrentTurnEventsForThread } from "../agent/run-store.js";
 import {
   resourceGetByPath,
   resourceListAllOwners,
@@ -31,6 +32,7 @@ import {
   type AutomationFailure,
 } from "./automation-outcome.js";
 import {
+  deliveryNoteForEvents,
   inspectAutomationRecovery,
   type AutomationResume,
 } from "./automation-recovery.js";
@@ -370,6 +372,7 @@ async function processRecurringJobsWithLease(
                 lastError: recovery.error,
                 expectedLastRun: meta.lastRun,
                 expectedHistoryId: meta.lastHistoryId,
+                advanceSchedule: meta.lastRunAdvanceSchedule,
               },
               recovery.status === "error"
                 ? {
@@ -379,7 +382,10 @@ async function processRecurringJobsWithLease(
                         deliveryNote: recovery.deliveryNote,
                       }),
                     ),
-                    countTowardPause: true,
+                    countTowardPause: !meta.lastRunManual,
+                    pauseImmediately:
+                      !meta.lastRunManual &&
+                      isPermanentIdentityFailure(recovery.errorCode),
                     eventId: recovery.history.id,
                   }
                 : undefined,
@@ -487,6 +493,20 @@ async function processRecurringJobsWithLease(
         });
         leaseSignal.throwIfAborted();
         if (!identity.ok) {
+          if (candidate.resume) {
+            await rejectAutomationRecovery(
+              candidate.resource,
+              candidate.meta,
+              candidate.resume,
+              now,
+              {
+                code: identity.code ?? "owner_unverifiable",
+                message: identity.reason,
+                precondition: true,
+              },
+            );
+            continue;
+          }
           // A gone owner or a broken identity config will not heal on its own,
           // so the job is disabled once with the reason. An owner that merely
           // could not be verified is retried after a cooldown.
@@ -511,6 +531,20 @@ async function processRecurringJobsWithLease(
           continue;
         }
         if (isReservedIdentityBlocked(identity.identity.userEmail)) {
+          if (candidate.resume) {
+            await rejectAutomationRecovery(
+              candidate.resource,
+              candidate.meta,
+              candidate.resume,
+              now,
+              {
+                code: OWNER_RESERVED_ERROR_CODE,
+                message: reservedIdentityMessage(identity.identity.userEmail),
+                precondition: true,
+              },
+            );
+            continue;
+          }
           await disableAutomation(candidate.resource, candidate.meta, now, {
             code: OWNER_RESERVED_ERROR_CODE,
             message: reservedIdentityMessage(identity.identity.userEmail),
@@ -524,6 +558,13 @@ async function processRecurringJobsWithLease(
         _activeScheduledJobs.add(candidate.key);
         reservedJobKeys.add(candidate.key);
         dueJobs.push(candidate);
+      } catch (error) {
+        leaseSignal.throwIfAborted();
+        healthError = error instanceof Error ? error.message : String(error);
+        console.error(
+          `[recurring-jobs] Could not preflight "${candidate.resource.path}":`,
+          error,
+        );
       } finally {
         _preflightingScheduledJobs.delete(candidate.key);
       }
@@ -543,7 +584,14 @@ async function processRecurringJobsWithLease(
       dueJobs.map(({ key, resource, meta, body, resume }) => {
         startedJobKeys.add(key);
         return executeJob(resource, meta, body, deps, now, {
-          ...(resume ? { historyId: resume.historyId, resume } : {}),
+          ...(resume
+            ? {
+                historyId: resume.historyId,
+                resume,
+                manual: meta.lastRunManual,
+                advanceSchedule: meta.lastRunAdvanceSchedule,
+              }
+            : {}),
           assertCanStart,
         }).finally(() => {
           _activeScheduledJobs.delete(key);
@@ -552,6 +600,10 @@ async function processRecurringJobsWithLease(
     );
     for (const outcome of outcomes) {
       if (outcome.status === "rejected") {
+        healthError =
+          outcome.reason instanceof Error
+            ? outcome.reason.message
+            : String(outcome.reason);
         console.error("[recurring-jobs] Job execution error:", outcome.reason);
       }
     }
@@ -662,6 +714,56 @@ interface ExecuteJobOptions {
   historyId?: string;
   manual?: boolean;
   assertCanStart?: () => Promise<void>;
+}
+
+async function rejectAutomationRecovery(
+  resource: Resource,
+  meta: JobFrontmatter,
+  resume: AutomationResume,
+  now: Date,
+  failure: AutomationFailure,
+): Promise<JobExecutionResult> {
+  if (!isPermanentIdentityFailure(failure.code))
+    throw new Error(failure.message);
+  const events = await getCurrentTurnEventsForThread(
+    resume.threadId,
+    resume.turnId,
+  );
+  const recordedFailure = {
+    ...failure,
+    deliveryNote: deliveryNoteForEvents(events),
+  };
+  const error = withDeliveryNote(failure.message, recordedFailure.deliveryNote);
+  await finishAutomationRun(resume.historyId, "error", error, failure.code, {
+    requirePersisted: true,
+  });
+  await recordExecutionOutcome(
+    resource,
+    {
+      lastRun: meta.lastRun,
+      lastCheck: now.toISOString(),
+      lastStatus: "error",
+      lastError: error,
+      expectedLastRun: meta.lastRun,
+      expectedHistoryId: resume.historyId,
+      advanceSchedule: meta.lastRunAdvanceSchedule,
+    },
+    {
+      failure: recordedFailure,
+      countTowardPause: !meta.lastRunManual,
+      pauseImmediately: !meta.lastRunManual,
+      eventId: resume.historyId,
+    },
+  );
+  return { status: "error", error };
+}
+
+function isPermanentIdentityFailure(code: string | undefined): boolean {
+  return (
+    code === OWNER_MISSING_ERROR_CODE ||
+    code === CONFIG_INVALID_ERROR_CODE ||
+    code === OWNER_RESERVED_ERROR_CODE
+  );
 }
 
 async function recordIdentityFailure(
@@ -970,6 +1072,12 @@ async function executeJob(
   // failure; leave the cron entry alone so an admin can purge after
   // investigation.
   if (!identity.ok) {
+    if (options.resume)
+      return rejectAutomationRecovery(resource, meta, options.resume, now, {
+        code: identity.code ?? "owner_unverifiable",
+        message: identity.reason,
+        precondition: true,
+      });
     return recordIdentityFailure(
       resource,
       meta,
@@ -982,8 +1090,18 @@ async function executeJob(
   await options.assertCanStart?.();
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;
+  if (options.resume && isReservedIdentityBlocked(jobUserEmail))
+    return rejectAutomationRecovery(resource, meta, options.resume, now, {
+      code: OWNER_RESERVED_ERROR_CODE,
+      message: reservedIdentityMessage(jobUserEmail),
+      precondition: true,
+    });
 
-  if (options.manual && isBackgroundAutomationRunActive(meta, now)) {
+  if (
+    options.manual &&
+    !options.resume &&
+    isBackgroundAutomationRunActive(meta, now)
+  ) {
     const error = "The automation is already running.";
     if (options.historyId) {
       await finishAutomationRun(
@@ -1009,6 +1127,8 @@ async function executeJob(
   if (!options.resume) {
     meta.lastRun = new Date().toISOString();
     meta.lastHistoryId = historyId;
+    meta.lastRunManual = options.manual === true;
+    meta.lastRunAdvanceSchedule = options.advanceSchedule !== false;
   }
   meta.lastStatus = "running";
   meta.lastError = undefined;
@@ -1247,6 +1367,8 @@ async function updateResource(
   const content = patchJobFrontmatterFields(resource.content, {
     lastRun: meta.lastRun,
     lastHistoryId: meta.lastHistoryId,
+    lastRunManual: meta.lastRunManual,
+    lastRunAdvanceSchedule: meta.lastRunAdvanceSchedule,
     lastCheck: meta.lastCheck,
     lastStatus: meta.lastStatus,
     lastError: meta.lastError,
@@ -1291,6 +1413,7 @@ interface ExecutionFailure {
   /** A manual run records its cause but never pauses the automation. */
   countTowardPause: boolean;
   eventId?: string;
+  pauseImmediately?: boolean;
 }
 
 async function recordExecutionOutcome(
@@ -1329,12 +1452,21 @@ async function recordExecutionOutcome(
   let resumed = false;
   let pausedAfter: number | undefined;
   if (failed) {
-    const transition = applyAutomationFailure(
-      current.meta,
-      failed.failure,
-      now,
-      { countTowardPause: failed.countTowardPause, eventId: failed.eventId },
-    );
+    const transition = failed.pauseImmediately
+      ? pauseNow(
+          {
+            ...failed.failure,
+            message: withDeliveryNote(
+              failed.failure.message,
+              failed.failure.deliveryNote,
+            ),
+          },
+          now,
+        )
+      : applyAutomationFailure(current.meta, failed.failure, now, {
+          countTowardPause: failed.countTowardPause,
+          eventId: failed.eventId,
+        });
     extra = transition.patch;
     if (transition.pause) {
       pausedAfter = transition.consecutiveFailures;

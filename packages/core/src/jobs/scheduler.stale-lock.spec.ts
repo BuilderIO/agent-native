@@ -6,6 +6,7 @@ import {
   RUNTIME_PAUSE_AFTER,
   runtimeFailureNextRun,
 } from "./automation-outcome.js";
+import * as automationRunner from "./background-automation-runner.js";
 import { parseJobResource } from "./frontmatter.js";
 import * as runHistory from "./run-history.js";
 import * as schedulerHealth from "./scheduler-health.js";
@@ -502,6 +503,288 @@ describe("stale automation run-lock recovery across trigger types", () => {
       }
     },
   );
+
+  it.each(["preflight", "dispatch"])(
+    "retains recovery after temporary identity failure at %s",
+    async (stage) => {
+      const fixture = interruptedScheduledJob();
+      const identity = vi.spyOn(
+        automationRunner,
+        "resolveBackgroundAutomationIdentity",
+      );
+      const valid = {
+        ok: true as const,
+        identity: { userEmail: fixture.resource.owner },
+      };
+      if (stage === "dispatch") identity.mockResolvedValueOnce(valid as any);
+      identity.mockResolvedValueOnce({
+        ok: false,
+        code: "owner_unverifiable",
+        reason: "Identity lookup unavailable",
+      });
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockResolvedValue(undefined);
+      try {
+        await processRecurringJobs(recoveryDeps);
+        expect(resourcePutMock).not.toHaveBeenCalled();
+        expect(finish).not.toHaveBeenCalled();
+        expect(runAgentLoopMock).not.toHaveBeenCalled();
+        expect(recordAutomationSchedulerHealth).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            error: expect.stringContaining("Identity lookup unavailable"),
+          }),
+        );
+      } finally {
+        identity.mockRestore();
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
+
+  it.each(["preflight", "dispatch"])(
+    "settles rejected recovery with confirmed delivery at %s",
+    async (stage) => {
+      const fixture = interruptedScheduledJob();
+      const identity = vi.spyOn(
+        automationRunner,
+        "resolveBackgroundAutomationIdentity",
+      );
+      if (stage === "dispatch")
+        identity.mockResolvedValueOnce({
+          ok: true,
+          identity: { userEmail: fixture.resource.owner },
+        } as any);
+      identity.mockResolvedValueOnce({
+        ok: false,
+        code: "owner_missing",
+        reason: "Owner removed",
+      });
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockResolvedValue(undefined);
+      try {
+        await processRecurringJobs(recoveryDeps);
+        expect(runAgentLoopMock).not.toHaveBeenCalled();
+        expect(finish).toHaveBeenCalledWith(
+          fixture.history.id,
+          "error",
+          expect.stringContaining("send-test-email"),
+          "owner_missing",
+          { requirePersisted: true },
+        );
+        const meta = parseJobResource(
+          resourcePutMock.mock.calls.at(-1)![2],
+        ).meta;
+        expect(meta).toMatchObject({
+          lastStatus: "paused",
+          pausedReason: "owner_missing",
+          enabled: false,
+        });
+        expect(meta.lastError).toContain("send-test-email");
+        expect(meta.lastError).not.toContain("No delivery was confirmed");
+        expect(finish.mock.invocationCallOrder[0]).toBeLessThan(
+          resourcePutMock.mock.invocationCallOrder[0]!,
+        );
+      } finally {
+        identity.mockRestore();
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
+
+  it.each(["resume", "exhausted", "identity rejected"])(
+    "preserves paused manual firing policy when %s",
+    async (state) => {
+      const fixture = interruptedScheduledJob(state === "exhausted" ? 4 : 1);
+      const nextRun = "2026-10-09T00:00:00Z";
+      fixture.resource.content = fixture.resource.content.replace(
+        "enabled: true",
+        "enabled: false\npausedReason: http_502\npausedAt: 2026-10-01T00:00:00Z\nconsecutiveFailures: 3\nlastErrorCode: http_502\nlastRunManual: true\nlastRunAdvanceSchedule: false\nnextRun: " +
+          nextRun,
+      );
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockResolvedValue(undefined);
+      const identity = vi.spyOn(
+        automationRunner,
+        "resolveBackgroundAutomationIdentity",
+      );
+      if (state === "identity rejected")
+        identity.mockResolvedValueOnce({
+          ok: false,
+          code: "owner_missing",
+          reason: "Owner removed",
+        });
+      if (state === "resume") {
+        vi.mocked(getThread).mockResolvedValueOnce({
+          id: "thread-1",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                role: "user",
+                content: [{ type: "text", text: "Original manual request" }],
+                metadata: { custom: { submittedTurnId: "killed-worker" } },
+              },
+            ],
+          }),
+        } as any);
+        runAgentLoopMock.mockRejectedValueOnce(
+          new Error("Provider unavailable"),
+        );
+      }
+      try {
+        await processRecurringJobs(recoveryDeps);
+        const meta = parseJobResource(
+          resourcePutMock.mock.calls.at(-1)![2],
+        ).meta;
+        expect(meta).toMatchObject({
+          lastStatus: "error",
+          enabled: false,
+          pausedReason: "http_502",
+          consecutiveFailures: 3,
+          nextRun,
+        });
+        if (state === "resume") {
+          expect(runAgentLoopMock).toHaveBeenCalledOnce();
+          expect(startRunMock.mock.calls[0]![0]).toMatch(/^manual-/);
+        }
+      } finally {
+        identity.mockRestore();
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
+
+  it("persists manual firing policy before starting its worker", async () => {
+    const resource = {
+      id: "manual-resource",
+      owner: "owner@example.com",
+      path: "jobs/manual.md",
+      content:
+        '---\nschedule: "*/2 * * * *"\nenabled: true\n---\nRun manual work.',
+    };
+    resourceListAllOwnersMock.mockResolvedValue([resource]);
+    const start = vi
+      .spyOn(runHistory, "startAutomationRun")
+      .mockResolvedValue("manual-history");
+    resourceGetByPathMock.mockResolvedValueOnce(resource);
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    try {
+      await runJobNow(resource.owner, "manual", recoveryDeps);
+      expect(
+        parseJobResource(resourcePutMock.mock.calls[0]![2]).meta,
+      ).toMatchObject({
+        lastStatus: "running",
+        lastHistoryId: "manual-history",
+        lastRunManual: true,
+        lastRunAdvanceSchedule: false,
+      });
+    } finally {
+      start.mockRestore();
+      finish.mockRestore();
+    }
+  });
+
+  it("retries rejected recovery settlement without losing the pause or delivery evidence", async () => {
+    const fixture = interruptedScheduledJob();
+    const identity = vi
+      .spyOn(automationRunner, "resolveBackgroundAutomationIdentity")
+      .mockResolvedValueOnce({
+        ok: false,
+        code: "owner_missing",
+        reason: "Owner removed",
+      });
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockImplementation(async (_id, status, error, errorCode) => {
+        Object.assign(fixture.history, {
+          status,
+          error,
+          errorCode,
+          finishedAt: Date.now(),
+        });
+      });
+    resourcePutIfCurrentMock.mockResolvedValueOnce(null);
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledOnce();
+      expect(identity).toHaveBeenCalledOnce();
+      expect(
+        parseJobResource(resourcePutMock.mock.calls.at(-1)![2]).meta,
+      ).toMatchObject({
+        lastStatus: "paused",
+        enabled: false,
+        pausedReason: "owner_missing",
+      });
+      expect(resourcePutMock.mock.calls.at(-1)![2]).toContain(
+        "send-test-email",
+      );
+    } finally {
+      identity.mockRestore();
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
+  it("retries the original turn after temporary identity recovery while dispatching unrelated work", async () => {
+    const fixture = interruptedScheduledJob();
+    const healthy = {
+      id: "healthy-resource",
+      owner: "owner@example.com",
+      path: "jobs/healthy.md",
+      content:
+        '---\nschedule: "* * * * *"\nenabled: true\nnextRun: 2026-01-01T00:00:00Z\n---\nRun healthy work.',
+    };
+    resourceListAllOwnersMock.mockResolvedValue([fixture.resource, healthy]);
+    const identity = vi
+      .spyOn(automationRunner, "resolveBackgroundAutomationIdentity")
+      .mockResolvedValueOnce({
+        ok: false,
+        code: "owner_unverifiable",
+        reason: "Identity lookup unavailable",
+      });
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(runAgentLoopMock).toHaveBeenCalledOnce();
+      expect(
+        resourcePutMock.mock.calls.every((call) => call[1] === healthy.path),
+      ).toBe(true);
+      resourceListAllOwnersMock.mockResolvedValue([fixture.resource]);
+      vi.mocked(getThread).mockResolvedValueOnce({
+        id: "thread-1",
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Original request" }],
+              metadata: { custom: { submittedTurnId: "killed-worker" } },
+            },
+          ],
+        }),
+      } as any);
+      await processRecurringJobs(recoveryDeps);
+      expect(runAgentLoopMock).toHaveBeenCalledTimes(2);
+      expect(runAgentLoopMock.mock.calls.at(-1)![0]).toMatchObject({
+        threadId: "thread-1",
+        turnId: "killed-worker",
+      });
+    } finally {
+      identity.mockRestore();
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
 
   it("counts exhausted recovery as one failed firing and applies runtime backoff", async () => {
     const fixture = interruptedScheduledJob(4);

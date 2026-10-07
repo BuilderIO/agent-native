@@ -39,6 +39,8 @@ describe("job resource frontmatter", () => {
       runAs: "creator",
       lastRun: "2026-07-29T16:00:00.000Z",
       lastHistoryId: "firing-history-1",
+      lastRunManual: true,
+      lastRunAdvanceSchedule: false,
       lastStatus: "error",
       lastError: 'Provider said "no"\nretry later',
       nextRun: "2026-07-30T16:00:00.000Z",
