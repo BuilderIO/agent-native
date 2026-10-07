@@ -329,9 +329,9 @@ test("runs the connection budget only for core changes", () => {
   assert.equal(tooling.checks.neon_connection_budget, false);
 });
 
-test("checks the Fusion starter scaffold for core and Chat changes", () => {
+test("checks the Builder Code starter scaffold for core and Chat changes", () => {
   const template = classifyChangedPaths([
-    "packages/core/src/templates/fusion-starter/app/routes/_index.tsx",
+    "packages/core/src/templates/builder-code-starter/app/routes/_index.tsx",
   ]);
   const core = classifyChangedPaths(["packages/core/src/cli/create.ts"]);
   const chat = classifyChangedPaths(["templates/chat/app/routes/_index.tsx"]);
@@ -340,16 +340,16 @@ test("checks the Fusion starter scaffold for core and Chat changes", () => {
 
   assert.equal(template.full, false);
   assert.equal(template.checks.scaffold, true);
-  assert.equal(template.checks.fusion_starter_scaffold, true);
-  assert.equal(core.checks.fusion_starter_scaffold, true);
+  assert.equal(template.checks.builder_code_starter_scaffold, true);
+  assert.equal(core.checks.builder_code_starter_scaffold, true);
   const forms = classifyChangedPaths(["templates/forms/actions/list-forms.ts"]);
 
   assert.equal(chat.checks.scaffold, true);
-  assert.equal(chat.checks.fusion_starter_scaffold, true);
-  assert.equal(forms.checks.fusion_starter_scaffold, false);
-  assert.equal(full.checks.fusion_starter_scaffold, true);
+  assert.equal(chat.checks.builder_code_starter_scaffold, true);
+  assert.equal(forms.checks.builder_code_starter_scaffold, false);
+  assert.equal(full.checks.builder_code_starter_scaffold, true);
   assert.equal(tooling.full, true);
-  assert.equal(tooling.checks.fusion_starter_scaffold, true);
+  assert.equal(tooling.checks.builder_code_starter_scaffold, true);
 });
 
 test("smokes only the changed SSR templates for a template-only change", () => {

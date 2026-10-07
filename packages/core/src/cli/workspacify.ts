@@ -203,7 +203,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       exportName: "defaultAuthPlugin",
     });
     writeInheritedChatAgentChatPlugin(appDir, workspaceCoreName, opts.appName);
-  } else if (opts.templateName === "fusion-starter") {
+  } else if (opts.templateName === "builder-code-starter") {
     // The starter keeps its own agent-chat plugin (guard, prompt), but the
     // appId it inherits from Chat must become this app's.
     renameInheritedChatAppId(appDir, opts.appName);

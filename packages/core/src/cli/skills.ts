@@ -74,7 +74,7 @@ import {
   DISPATCH_TEMPLATE_SHARED_SKILLS,
   DOMAIN_TEMPLATE_SHARED_SKILLS,
   FACTORY_TEMPLATE_SHARED_SKILLS,
-  FUSION_STARTER_SKILLS,
+  BUILDER_CODE_STARTER_SKILLS,
   HEADLESS_TEMPLATE_SHARED_SKILLS,
   WORKSPACE_SKILLS,
 } from "./workspace-skill-policy.js";
@@ -794,7 +794,7 @@ interface ScaffoldGuidanceState {
     | "headless"
     | "default"
     | "chat"
-    | "fusion-starter";
+    | "builder-code-starter";
   path: string;
   sourcePath: string;
   additionalSourcePaths?: string[];
@@ -1902,11 +1902,11 @@ function markedScaffoldGuidanceTemplate(
       skills: CHAT_STARTER_SKILLS,
     };
   }
-  if (templateName === "fusion-starter") {
+  if (templateName === "builder-code-starter") {
     return {
       templateName,
-      sourceTemplate: "fusion-starter",
-      skills: FUSION_STARTER_SKILLS,
+      sourceTemplate: "builder-code-starter",
+      skills: BUILDER_CODE_STARTER_SKILLS,
     };
   }
   if (templateName === "dispatch") {

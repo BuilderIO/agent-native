@@ -15,7 +15,7 @@ import {
 } from "./skills.js";
 import {
   CHAT_STARTER_SKILLS,
-  FUSION_STARTER_SKILLS,
+  BUILDER_CODE_STARTER_SKILLS,
 } from "./workspace-skill-policy.js";
 import { WORKSPACE_SKILLS } from "./workspace-skill-policy.js";
 
@@ -3335,9 +3335,9 @@ describe("agent-native skills", () => {
       omittedSkill: "build-an-app",
     },
     {
-      template: "fusion-starter",
+      template: "builder-code-starter",
       frameworkSkills: "default",
-      sourceTemplates: ["fusion-starter", "chat"],
+      sourceTemplates: ["builder-code-starter", "chat"],
       refreshedSkill: "authentication",
       omittedSkill: "turn-into-app",
     },
@@ -3448,7 +3448,7 @@ describe("agent-native skills", () => {
     },
   );
 
-  it("prefers fusion-starter skill overrides and inherits the rest from Chat", async () => {
+  it("prefers builder-code-starter skill overrides and inherits the rest from Chat", async () => {
     const root = tmpDir();
     const targetSkills = path.join(root, ".agents", "skills");
     const bundled = path.join(workspaceRoot(), "packages/core/src/templates");
@@ -3460,7 +3460,7 @@ describe("agent-native skills", () => {
           dependencies: { "@agent-native/core": "latest" },
           "agent-native": {
             scaffold: {
-              template: "fusion-starter",
+              template: "builder-code-starter",
               frameworkSkills: "default",
             },
           },
@@ -3491,7 +3491,10 @@ describe("agent-native skills", () => {
 
     const read = (dir: string, skill: string) =>
       fs.readFileSync(path.join(dir, skill, "SKILL.md"), "utf8");
-    const fusionSkills = path.join(bundled, "fusion-starter/.agents/skills");
+    const builderCodeSkills = path.join(
+      bundled,
+      "builder-code-starter/.agents/skills",
+    );
     const chatSkills = path.join(bundled, "chat/.agents/skills");
     // The layer stores storing-data as a patch over Chat's copy.
     expect(read(targetSkills, "storing-data")).toContain(
@@ -3502,7 +3505,7 @@ describe("agent-native skills", () => {
     );
     expect(read(targetSkills, "security")).toBe(read(chatSkills, "security"));
     expect(read(targetSkills, "multi-app-workspace")).toBe(
-      read(fusionSkills, "multi-app-workspace"),
+      read(builderCodeSkills, "multi-app-workspace"),
     );
     // Skills outside the policy stay app-owned and untouched.
     expect(read(targetSkills, "turn-into-app")).toBe("old turn-into-app\n");
@@ -3516,7 +3519,7 @@ describe("agent-native skills", () => {
       "workspace-conventions",
       "self-modifying-code",
     ]) {
-      expect(FUSION_STARTER_SKILLS).not.toContain(excluded);
+      expect(BUILDER_CODE_STARTER_SKILLS).not.toContain(excluded);
     }
   });
 

@@ -35,7 +35,7 @@ import {
   resolveTargets,
   runTemplate,
 } from "./template-sync.js";
-import { FUSION_STARTER_SKILLS } from "./workspace-skill-policy.js";
+import { BUILDER_CODE_STARTER_SKILLS } from "./workspace-skill-policy.js";
 import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
@@ -384,10 +384,10 @@ describe("materializeTemplate", () => {
     fs.rmSync(materialized.dir, { recursive: true, force: true });
   }, 180_000);
 
-  it("materializes fusion-starter as a layer over Chat", async () => {
+  it("materializes builder-code-starter as a layer over Chat", async () => {
     const materialized = await materializeTemplate({
       appName: "app",
-      template: "fusion-starter",
+      template: "builder-code-starter",
       ref: null,
       shape: "standalone",
     });
@@ -397,12 +397,12 @@ describe("materializeTemplate", () => {
 
     expect(
       fs.readdirSync(path.join(materialized.dir, ".agents/skills")).sort(),
-    ).toEqual([...FUSION_STARTER_SKILLS].sort());
+    ).toEqual([...BUILDER_CODE_STARTER_SKILLS].sort());
     expect(
       fs.existsSync(
         path.join(
           bundled,
-          "fusion-starter/.agents/skills/storing-data/SKILL.md",
+          "builder-code-starter/.agents/skills/storing-data/SKILL.md",
         ),
       ),
     ).toBe(false);
@@ -416,15 +416,15 @@ describe("materializeTemplate", () => {
       fs.readFileSync(path.join(materialized.dir, "package.json"), "utf-8"),
     );
     expect(pkg.name).toBe("app");
-    expect(pkg["agent-native"].scaffold.template).toBe("fusion-starter");
+    expect(pkg["agent-native"].scaffold.template).toBe("builder-code-starter");
     expect(pkg.scripts["migrate:production"]).toBe(
       "tsx scripts/migrate-production.ts && pnpm db:migrate",
     );
     // Shared with Chat, not copied: the layer's base supplies them.
     for (const rel of ["vite.config.ts", "app/global.css", "netlify.toml"]) {
-      expect(fs.existsSync(path.join(bundled, "fusion-starter", rel))).toBe(
-        false,
-      );
+      expect(
+        fs.existsSync(path.join(bundled, "builder-code-starter", rel)),
+      ).toBe(false);
       expect(fs.existsSync(path.join(materialized.dir, rel))).toBe(true);
     }
     expect(
@@ -450,7 +450,7 @@ describe("materializeTemplate", () => {
     const requested: Array<{ subdir: string; refs: string[] }> = [];
     const dest = path.join(tmpDir, "remote-layer");
     const usedRef = await downloadTemplateLayer(
-      "fusion-starter",
+      "builder-code-starter",
       "v9.9.9",
       dest,
       async (subdir, target, refs) => {
@@ -463,7 +463,7 @@ describe("materializeTemplate", () => {
     expect(usedRef).toBe("resolved-ref");
     expect(requested).toEqual([
       {
-        subdir: "packages/core/src/templates/fusion-starter",
+        subdir: "packages/core/src/templates/builder-code-starter",
         refs: ["v9.9.9"],
       },
       { subdir: "templates/chat", refs: ["resolved-ref"] },

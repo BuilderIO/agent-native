@@ -2617,9 +2617,9 @@ const PATTERNS = [
   {
     key: "starter-patch-drift",
     label:
-      "Had to report the Fusion starter breaking or drifting after a Chat change",
+      "Had to report the Builder Code starter breaking or drifting after a Chat change",
     fixedBy: "guard:template-layers + pnpm template-layer rebase (2026-10-07)",
-    re: /\b((fusion|builder-agent-native-starter|starter)[^.!?]{0,40}\b(broke|breaks|broken|drift(ed|ing|s)?|out of sync|sync (failed|broke)|patch (failed|broke))|apply\.ts (failed|broke)|starter-patch)/i,
+    re: /\b((fusion|builder[- ]code|builder-agent-native-starter|starter)[^.!?]{0,40}\b(broke|breaks|broken|drift(ed|ing|s)?|out of sync|sync (failed|broke)|patch (failed|broke))|apply\.ts (failed|broke)|starter-patch)/i,
   },
   {
     key: "config-sprawl",

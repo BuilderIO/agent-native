@@ -473,7 +473,7 @@ describe("workspacifyApp core pinning", () => {
     ).toBe("workspace actions\n");
   });
 
-  it("gives a Fusion starter app its own agent-chat appId", () => {
+  it("gives a Builder Code starter app its own agent-chat appId", () => {
     const { root, appDir } = makeWorkspace("0.131.4");
     const pluginPath = path.join(appDir, "server", "plugins", "agent-chat.ts");
     fs.mkdirSync(path.dirname(pluginPath), { recursive: true });
@@ -485,7 +485,7 @@ describe("workspacifyApp core pinning", () => {
     workspacifyApp({
       appDir,
       appName: "mail",
-      templateName: "fusion-starter",
+      templateName: "builder-code-starter",
       workspaceRoot: root,
       workspaceCoreName: "@ws/shared",
     });

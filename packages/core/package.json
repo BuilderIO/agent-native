@@ -35,7 +35,7 @@
     "src/templates/default",
     "src/templates/headless",
     "src/templates/chat",
-    "src/templates/fusion-starter",
+    "src/templates/builder-code-starter",
     "src/templates/workspace-core",
     "src/templates/workspace-root",
     "src/templates/factory"
