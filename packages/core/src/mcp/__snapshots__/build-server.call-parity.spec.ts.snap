@@ -1,0 +1,4485 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`direct tools/call wire output > approval: a client without elicitation cannot be asked 1`] = `
+{
+  "trace": [
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "argumentsHash": "nOYpsgx8sVGgkpz_PUtzlpyG8J4PYER1RGo7L5bFdvU",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+        "version": 1,
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "draftId": "d-6",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+    {
+      "clientError": {
+        "code": -32021,
+        "message": "Cannot request input 'actionApproval' (elicitation/create): the request's client capabilities do not declare the required capability",
+        "name": "ProtocolError",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "error": {
+          "code": -32021,
+          "data": {
+            "requiredCapabilities": {
+              "elicitation": {
+                "form": {},
+              },
+            },
+          },
+          "message": "Cannot request input 'actionApproval' (elicitation/create): the request's client capabilities do not declare the required capability",
+        },
+        "id": 0,
+        "jsonrpc": "2.0",
+      },
+      "status": 400,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > approval: a grant that expired in the store is refused 1`] = `
+{
+  "trace": [
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "argumentsHash": "TnXu3fru3cEpwJ9iP3hAJ7puikkVyS0yVqImefTDnI4",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+        "version": 1,
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "draftId": "d-8",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+    {
+      "grantConsume": {
+        "actionName": "publish",
+        "argumentsHash": "TnXu3fru3cEpwJ9iP3hAJ7puikkVyS0yVqImefTDnI4",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "consumed": false,
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": true,
+        "parameters": {
+          "draftId": "d-8",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "inputRequests": {
+            "actionApproval": {
+              "method": "elicitation/create",
+              "params": {
+                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "mode": "form",
+                "requestedSchema": {
+                  "properties": {
+                    "decision": {
+                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "enum": [
+                        "approve",
+                        "deny",
+                      ],
+                      "title": "Run publish?",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "decision",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+          },
+          "requestState": "<requestState #1>",
+          "resultType": "input_required",
+        },
+      },
+      "status": 200,
+    },
+    {
+      "body": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Approval for publish is invalid, expired, or already used.",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > approval: a resume after the approval window is refused 1`] = `
+{
+  "trace": [
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "argumentsHash": "snq_ezE18r3zMdd-6sv8oPx7Wfhin7XQirmA1_lPttE",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+        "version": 1,
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "draftId": "d-9",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+    {
+      "clientError": {
+        "code": -32602,
+        "message": "Invalid or expired requestState",
+        "name": "ProtocolError",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "inputRequests": {
+            "actionApproval": {
+              "method": "elicitation/create",
+              "params": {
+                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "mode": "form",
+                "requestedSchema": {
+                  "properties": {
+                    "decision": {
+                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "enum": [
+                        "approve",
+                        "deny",
+                      ],
+                      "title": "Run publish?",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "decision",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+          },
+          "requestState": "<requestState #1>",
+          "resultType": "input_required",
+        },
+      },
+      "status": 200,
+    },
+    {
+      "body": {
+        "error": {
+          "code": -32602,
+          "data": {
+            "reason": "invalid_request_state",
+          },
+          "message": "Invalid or expired requestState",
+        },
+        "id": 1,
+        "jsonrpc": "2.0",
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > approval: a static-token caller cannot approve 1`] = `
+{
+  "trace": [
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": true,
+        "parameters": {
+          "draftId": "d-5",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "publish requires approval from a verified user identity.",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > approval: client-fulfilled elicitation round trip 1`] = `
+{
+  "trace": [
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "argumentsHash": "9_klES-5SILmNhpqaJiJCX8ekNdR76HSG4JRt5uiXDM",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+        "version": 1,
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "draftId": "d-4",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+    {
+      "grantConsume": {
+        "actionName": "publish",
+        "argumentsHash": "9_klES-5SILmNhpqaJiJCX8ekNdR76HSG4JRt5uiXDM",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "consumed": true,
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+      },
+    },
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "publish",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "publish",
+        "appId": "mail",
+        "args": {
+          "draftId": "d-4",
+        },
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "publish",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{"draftId":"d-4"}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "publish",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "output_id": "d-4",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "publish",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "draftId": "d-4",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "inputRequests": {
+            "actionApproval": {
+              "method": "elicitation/create",
+              "params": {
+                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "mode": "form",
+                "requestedSchema": {
+                  "properties": {
+                    "decision": {
+                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "enum": [
+                        "approve",
+                        "deny",
+                      ],
+                      "title": "Run publish?",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "decision",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+          },
+          "requestState": "<requestState #1>",
+          "resultType": "input_required",
+        },
+      },
+      "status": 200,
+    },
+    {
+      "body": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Published",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > approval: denied decision and predicate outcomes 1`] = `
+{
+  "trace": [
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "argumentsHash": "jT_vl6AkM95sCdyv3vw_6_1JRwlN81KThziLsBoOQj8",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+        "version": 1,
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "draftId": "d-3",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+    {
+      "grantConsume": {
+        "actionName": "publish",
+        "argumentsHash": "jT_vl6AkM95sCdyv3vw_6_1JRwlN81KThziLsBoOQj8",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "consumed": true,
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": true,
+        "parameters": {
+          "draftId": "d-3",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+    {
+      "needsApproval": {
+        "action": "maybe-approve",
+        "args": {
+          "big": true,
+        },
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "maybe-approve",
+        "argumentsHash": "R1jioZM--ef9eO_yFqMudYNuKX2JPop0Fl35jpZQqqk",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #2>",
+        "version": 1,
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "big": true,
+        },
+        "toolCategory": "write",
+        "toolDescription": "Approval only for big changes",
+        "toolName": "maybe-approve",
+      },
+    },
+    {
+      "needsApproval": {
+        "action": "approval-throws",
+        "args": {},
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "approval-throws",
+        "argumentsHash": "RBNvo1WzZ4oRRq0W9-hknpT7T8If536DEMBg9hyq_4o",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #3>",
+        "version": 1,
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Approval predicate throws",
+        "toolName": "approval-throws",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "inputRequests": {
+            "actionApproval": {
+              "method": "elicitation/create",
+              "params": {
+                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "mode": "form",
+                "requestedSchema": {
+                  "properties": {
+                    "decision": {
+                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "enum": [
+                        "approve",
+                        "deny",
+                      ],
+                      "title": "Run publish?",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "decision",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+          },
+          "requestState": "<requestState #1>",
+          "resultType": "input_required",
+        },
+      },
+      "status": 200,
+    },
+    {
+      "body": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "publish was not approved.",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+    {
+      "body": {
+        "id": 2,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "inputRequests": {
+            "actionApproval": {
+              "method": "elicitation/create",
+              "params": {
+                "message": "Action "maybe-approve" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "mode": "form",
+                "requestedSchema": {
+                  "properties": {
+                    "decision": {
+                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "enum": [
+                        "approve",
+                        "deny",
+                      ],
+                      "title": "Run maybe-approve?",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "decision",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+          },
+          "requestState": "<requestState #2>",
+          "resultType": "input_required",
+        },
+      },
+      "status": 200,
+    },
+    {
+      "body": {
+        "id": 3,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "inputRequests": {
+            "actionApproval": {
+              "method": "elicitation/create",
+              "params": {
+                "message": "Action "approval-throws" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "mode": "form",
+                "requestedSchema": {
+                  "properties": {
+                    "decision": {
+                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "enum": [
+                        "approve",
+                        "deny",
+                      ],
+                      "title": "Run approval-throws?",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "decision",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+          },
+          "requestState": "<requestState #3>",
+          "resultType": "input_required",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > approval: elicitation, approved retry, and replay 1`] = `
+{
+  "trace": [
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "argumentsHash": "W7RsdOsv9fHnCLcYDH8_cBD69EpVtmiqYHb16ugXBGM",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+        "version": 1,
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "draftId": "d-1",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+    {
+      "grantConsume": {
+        "actionName": "publish",
+        "argumentsHash": "W7RsdOsv9fHnCLcYDH8_cBD69EpVtmiqYHb16ugXBGM",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "consumed": true,
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+      },
+    },
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "publish",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "publish",
+        "appId": "mail",
+        "args": {
+          "draftId": "d-1",
+        },
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "publish",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{"draftId":"d-1"}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "publish",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "output_id": "d-1",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "publish",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "draftId": "d-1",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+    {
+      "grantConsume": {
+        "actionName": "publish",
+        "argumentsHash": "W7RsdOsv9fHnCLcYDH8_cBD69EpVtmiqYHb16ugXBGM",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "consumed": false,
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": true,
+        "parameters": {
+          "draftId": "d-1",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": true,
+        "parameters": {
+          "draftId": "d-2",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "inputRequests": {
+            "actionApproval": {
+              "method": "elicitation/create",
+              "params": {
+                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "mode": "form",
+                "requestedSchema": {
+                  "properties": {
+                    "decision": {
+                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "enum": [
+                        "approve",
+                        "deny",
+                      ],
+                      "title": "Run publish?",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "decision",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+          },
+          "requestState": "<requestState #1>",
+          "resultType": "input_required",
+        },
+      },
+      "status": 200,
+    },
+    {
+      "body": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Published",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+    {
+      "body": {
+        "id": 2,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Approval for publish is invalid, expired, or already used.",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+    {
+      "body": {
+        "id": 3,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Approval for publish is invalid or does not match this exact call.",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > approval: the client gives up when its round limit is exhausted 1`] = `
+{
+  "trace": [
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "argumentsHash": "DCTARDB0mtygR52xdPIGu7imYA9DSfaeDEwjAwwKTCo",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "expiresAt": 1767226200000,
+        "nonce": "<nonce #1>",
+        "version": 1,
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "draftId": "d-7",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
+      },
+    },
+    {
+      "clientError": {
+        "code": "INPUT_REQUIRED_ROUNDS_EXCEEDED",
+        "message": "Multi-round-trip request 'tools/call' still required input after 0 rounds (inputRequired.maxRounds)",
+        "name": "SdkError",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "inputRequests": {
+            "actionApproval": {
+              "method": "elicitation/create",
+              "params": {
+                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "mode": "form",
+                "requestedSchema": {
+                  "properties": {
+                    "decision": {
+                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "enum": [
+                        "approve",
+                        "deny",
+                      ],
+                      "title": "Run publish?",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "decision",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+          },
+          "requestState": "<requestState #1>",
+          "resultType": "input_required",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > approval: two concurrent resumes of one approval run the action once 1`] = `
+{
+  "firstLeg": {
+    "trace": [
+      {
+        "grantCreate": {
+          "actionName": "publish",
+          "argumentsHash": "EZtgHYij_3hOHFY1bt4YZhYRP6eW5XT1QLJ8_xNc3Bo",
+          "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+          "expiresAt": 1767226200000,
+          "nonce": "<nonce #1>",
+          "version": 1,
+        },
+      },
+      {
+        "mcpToolCall": {
+          "durationMs": "<duration>",
+          "isError": false,
+          "parameters": {
+            "draftId": "d-10",
+          },
+          "toolCategory": "write",
+          "toolDescription": "Publish",
+          "toolName": "publish",
+        },
+      },
+    ],
+    "wire": [
+      {
+        "body": {
+          "id": 0,
+          "jsonrpc": "2.0",
+          "result": {
+            "_meta": {
+              "io.modelcontextprotocol/serverInfo": {
+                "description": "Mail app",
+                "name": "agent-native-mail",
+                "version": "1.0.0",
+              },
+            },
+            "inputRequests": {
+              "actionApproval": {
+                "method": "elicitation/create",
+                "params": {
+                  "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                  "mode": "form",
+                  "requestedSchema": {
+                    "properties": {
+                      "decision": {
+                        "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                        "enum": [
+                          "approve",
+                          "deny",
+                        ],
+                        "title": "Run publish?",
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "decision",
+                    ],
+                    "type": "object",
+                  },
+                },
+              },
+            },
+            "requestState": "<requestState #1>",
+            "resultType": "input_required",
+          },
+        },
+        "status": 200,
+      },
+    ],
+  },
+  "raced": {
+    "trace": [
+      {
+        "audit": {
+          "action": "publish",
+          "actorEmail": "oauth@example.com",
+          "actorKind": "human",
+          "app": null,
+          "caller": "mcp",
+          "createdAt": 1767225600000,
+          "errorCode": null,
+          "id": "<auditId #1>",
+          "input": "{"draftId":"d-10"}",
+          "networkId": null,
+          "networkPeer": null,
+          "networkProtocol": null,
+          "orgId": null,
+          "ownerEmail": "oauth@example.com",
+          "runId": null,
+          "status": "success",
+          "summary": null,
+          "targetId": null,
+          "targetType": null,
+          "threadId": null,
+          "turnId": null,
+          "visibility": "private",
+        },
+      },
+      {
+        "grantConsume": {
+          "actionName": "publish",
+          "argumentsHash": "EZtgHYij_3hOHFY1bt4YZhYRP6eW5XT1QLJ8_xNc3Bo",
+          "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+          "consumed": false,
+          "expiresAt": 1767226200000,
+          "nonce": "<nonce #1>",
+        },
+      },
+      {
+        "grantConsume": {
+          "actionName": "publish",
+          "argumentsHash": "EZtgHYij_3hOHFY1bt4YZhYRP6eW5XT1QLJ8_xNc3Bo",
+          "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+          "consumed": true,
+          "expiresAt": 1767226200000,
+          "nonce": "<nonce #1>",
+        },
+      },
+      {
+        "marker": {
+          "actionName": "publish",
+          "owner": "oauth@example.com",
+        },
+      },
+      {
+        "mcpToolCall": {
+          "durationMs": "<duration>",
+          "isError": false,
+          "parameters": {
+            "draftId": "d-10",
+          },
+          "toolCategory": "write",
+          "toolDescription": "Publish",
+          "toolName": "publish",
+        },
+      },
+      {
+        "mcpToolCall": {
+          "durationMs": "<duration>",
+          "isError": true,
+          "parameters": {
+            "draftId": "d-10",
+          },
+          "toolCategory": "write",
+          "toolDescription": "Publish",
+          "toolName": "publish",
+        },
+      },
+      {
+        "run": {
+          "action": "publish",
+          "appId": "mail",
+          "args": {
+            "draftId": "d-10",
+          },
+          "caller": "mcp",
+          "orgId": null,
+          "userEmail": "oauth@example.com",
+        },
+      },
+      {
+        "track": {
+          "name": "action_completed",
+          "properties": {
+            "action_kind": "write",
+            "action_name": "publish",
+            "action_source": "mcp",
+            "app_name": "mail",
+            "duration_ms": "<duration>",
+            "operation_id": "<operation #1>",
+            "outcome": "success",
+            "output_id": "d-10",
+            "status": "completed",
+            "success": true,
+            "template_name": "mail",
+            "user_email": "oauth@example.com",
+          },
+        },
+      },
+      {
+        "track": {
+          "name": "action_started",
+          "properties": {
+            "action_kind": "write",
+            "action_name": "publish",
+            "action_source": "mcp",
+            "app_name": "mail",
+            "operation_id": "<operation #1>",
+            "status": "started",
+            "template_name": "mail",
+            "user_email": "oauth@example.com",
+          },
+        },
+      },
+    ],
+    "wire": [
+      {
+        "body": {
+          "id": "<either resume>",
+          "jsonrpc": "2.0",
+          "result": {
+            "_meta": {
+              "io.modelcontextprotocol/serverInfo": {
+                "description": "Mail app",
+                "name": "agent-native-mail",
+                "version": "1.0.0",
+              },
+            },
+            "content": [
+              {
+                "text": "Approval for publish is invalid, expired, or already used.",
+                "type": "text",
+              },
+            ],
+            "isError": true,
+            "resultType": "complete",
+          },
+        },
+        "status": 200,
+      },
+      {
+        "body": {
+          "id": "<either resume>",
+          "jsonrpc": "2.0",
+          "result": {
+            "_meta": {
+              "io.modelcontextprotocol/serverInfo": {
+                "description": "Mail app",
+                "name": "agent-native-mail",
+                "version": "1.0.0",
+              },
+            },
+            "content": [
+              {
+                "text": "Published",
+                "type": "text",
+              },
+            ],
+            "resultType": "complete",
+          },
+        },
+        "status": 200,
+      },
+    ],
+  },
+}
+`;
+
+exports[`direct tools/call wire output > compact catalog, read-only OAuth scope: embed-widget 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "embed-widget",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "embedTicket": {
+        "ownerEmail": "oauth@example.com",
+        "scope": null,
+        "targetPath": "/inbox/thread-1?__an_mcp_chat_bridge=1",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Opens a widget",
+        "toolName": "embed-widget",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "agent-native/embedStart": {
+              "expiresAt": 1735689600000,
+              "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-ticket&__an_mcp_chat_bridge=1",
+            },
+            "agent-native/openLink": {
+              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-1&agentSidebar=closed",
+              "label": "Open mail",
+              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-1",
+              "webUrl": "https://mail.agent-native.com/inbox/thread-1",
+            },
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+            "openai/outputTemplate": "ui://mail/embed-widget/shell-v65",
+            "openai/toolInvocation/invoked": "Mail widget ready",
+            "openai/toolInvocation/invoking": "Opening Mail widget",
+            "openai/widgetAccessible": true,
+          },
+          "content": [
+            {
+              "text": "Thread is ready.",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "app": "mail",
+            "embed": true,
+            "openLink": {
+              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-1&agentSidebar=closed",
+              "label": "Open mail",
+              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-1",
+              "webUrl": "https://mail.agent-native.com/inbox/thread-1",
+            },
+            "title": "Thread",
+            "url": "/inbox/thread-1",
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > compact catalog, read-only OAuth scope: read-thing 1`] = `
+{
+  "trace": [
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "Unknown tool: read-thing",
+        "errorType": "unknown_tool",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Read a thing",
+        "toolName": "read-thing",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Unknown tool: read-thing",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > compact catalog, read-only OAuth scope: write-thing 1`] = `
+{
+  "trace": [
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "Unknown tool: write-thing",
+        "errorType": "unknown_tool",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Write a thing",
+        "toolName": "write-thing",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Unknown tool: write-thing",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > directory catalog: projected results, errors, and widget embeds 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "dir-read",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "projectResult": {
+        "result": {
+          "id": "thing-1",
+          "tags": [
+            "a",
+            "b",
+          ],
+          "title": "Thing",
+        },
+        "toolName": "dir-read",
+      },
+    },
+    {
+      "projectResult": {
+        "result": {
+          "id": "thing-1",
+          "tags": [
+            "a",
+            "b",
+          ],
+          "title": "Thing",
+        },
+        "toolName": "dir-read",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Read a thing",
+        "toolName": "dir-read",
+      },
+    },
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "dir-fail",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "dir-fail",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "dir-fail",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": "Error",
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "error",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_failed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "dir-fail",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "failure_type": "error",
+          "operation_id": "<operation #1>",
+          "outcome": "error",
+          "status": "failed",
+          "success": false,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "projectResult": {
+        "result": "boom",
+        "toolName": "dir-fail",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "boom",
+        "errorType": "Error",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Always fails",
+        "toolName": "dir-fail",
+      },
+    },
+    {
+      "run": {
+        "action": "dir-widget",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "projectResult": {
+        "result": {
+          "embedExpiresAt": 2,
+          "embedStartUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=leaked-ticket",
+          "embedTargetPath": "/inbox",
+          "title": "Thread",
+        },
+        "toolName": "dir-widget",
+      },
+    },
+    {
+      "projectResult": {
+        "result": {
+          "embedExpiresAt": 2,
+          "embedStartUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=leaked-ticket",
+          "embedTargetPath": "/inbox",
+          "title": "Thread",
+        },
+        "toolName": "dir-widget",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Opens a widget",
+        "toolName": "dir-widget",
+      },
+    },
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "dir-write-widget",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #2>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "dir-write-widget",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "dir-write-widget",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #2>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "dir-write-widget",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #2>",
+          "outcome": "success",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "projectResult": {
+        "result": {
+          "title": "Draft",
+        },
+        "toolName": "dir-write-widget",
+      },
+    },
+    {
+      "projectResult": {
+        "result": {
+          "title": "Draft",
+        },
+        "toolName": "dir-write-widget",
+      },
+    },
+    {
+      "embedTicket": {
+        "ownerEmail": "oauth@example.com",
+        "scope": null,
+        "targetPath": "/inbox/thread-9?__an_mcp_chat_bridge=1",
+      },
+    },
+    {
+      "marker": {
+        "actionName": "dir-write-widget",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Opens a widget after a write",
+        "toolName": "dir-write-widget",
+      },
+    },
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "dir-proxy-error",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #3>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "dir-proxy-error",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "dir-proxy-error",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #3>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "dir-proxy-error",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #3>",
+          "outcome": "success",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "projectResult": {
+        "result": {
+          "detail": "upstream detail",
+          "isError": true,
+        },
+        "toolName": "dir-proxy-error",
+      },
+    },
+    {
+      "projectResult": {
+        "result": "Upstream failed",
+        "toolName": "dir-proxy-error",
+      },
+    },
+    {
+      "marker": {
+        "actionName": "dir-proxy-error",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Proxied MCP error",
+        "toolName": "dir-proxy-error",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "Unknown tool: read-thing",
+        "errorType": "unknown_tool",
+        "isError": true,
+        "parameters": {},
+        "toolName": "read-thing",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": "event: message
+data: {"result":{"_meta":{"agent-native/openLink":{"label":"Open thing","view":"thing","webUrl":"https://mail.agent-native.com/things/thing-1","desktopUrl":"https://mail.agent-native.com/things/thing-1","vscodeUrl":"vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Fthings%2Fthing-1"}},"content":[{"type":"text","text":"{\\"id\\":\\"thing-1\\",\\"title\\":\\"Thing\\",\\"tags\\":[\\"a\\",\\"b\\"],\\"projectedBy\\":\\"dir-read\\"}"},{"type":"text","text":"\\n\\n[Open thing →](https://mail.agent-native.com/things/thing-1)"}],"structuredContent":{"id":"thing-1","title":"Thing","tags":["a","b"],"projectedBy":"dir-read","openLink":{"label":"Open thing","view":"thing","webUrl":"https://mail.agent-native.com/things/thing-1","desktopUrl":"https://mail.agent-native.com/things/thing-1","vscodeUrl":"vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Fthings%2Fthing-1"},"url":"https://mail.agent-native.com/things/thing-1"}},"jsonrpc":"2.0","id":"dir-read"}
+
+",
+      "status": 200,
+    },
+    {
+      "body": "event: message
+data: {"result":{"content":[{"type":"text","text":"Error: [dir-fail] boom"}],"isError":true},"jsonrpc":"2.0","id":"dir-fail"}
+
+",
+      "status": 200,
+    },
+    {
+      "body": "event: message
+data: {"result":{"_meta":{"agent-native/openLink":{"label":"Open","webUrl":"https://mail.agent-native.com/inbox/thread-1","desktopUrl":"https://mail.agent-native.com/inbox/thread-1","vscodeUrl":"vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-1"},"openai/outputTemplate":"ui://mail/shell-v66","openai/toolInvocation/invoking":"Opening Mail widget","openai/toolInvocation/invoked":"Mail widget ready"},"content":[{"type":"text","text":"Thread is ready."},{"type":"text","text":"\\n\\n[Open →](https://mail.agent-native.com/inbox/thread-1)"}],"structuredContent":{"title":"Thread","projectedBy":"dir-widget","openLink":{"label":"Open","webUrl":"https://mail.agent-native.com/inbox/thread-1","desktopUrl":"https://mail.agent-native.com/inbox/thread-1","vscodeUrl":"vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-1"},"url":"https://mail.agent-native.com/inbox/thread-1"}},"jsonrpc":"2.0","id":"dir-widget"}
+
+",
+      "status": 200,
+    },
+    {
+      "body": "event: message
+data: {"result":{"_meta":{"agent-native/openLink":{"label":"Open","webUrl":"https://mail.agent-native.com/inbox/thread-9","desktopUrl":"https://mail.agent-native.com/inbox/thread-9","vscodeUrl":"vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-9"},"agent-native/embedStart":{"startUrl":"https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-ticket&__an_mcp_chat_bridge=1","expiresAt":1735689600000},"openai/outputTemplate":"ui://mail/shell-v66","openai/toolInvocation/invoking":"Opening Mail widget","openai/toolInvocation/invoked":"Mail widget ready"},"content":[{"type":"text","text":"Draft is ready."},{"type":"text","text":"\\n\\n[Open →](https://mail.agent-native.com/inbox/thread-9)"}],"structuredContent":{"title":"Draft","projectedBy":"dir-write-widget","openLink":{"label":"Open","webUrl":"https://mail.agent-native.com/inbox/thread-9","desktopUrl":"https://mail.agent-native.com/inbox/thread-9","vscodeUrl":"vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-9"},"url":"https://mail.agent-native.com/inbox/thread-9"}},"jsonrpc":"2.0","id":"dir-write-widget"}
+
+",
+      "status": 200,
+    },
+    {
+      "body": "event: message
+data: {"result":{"_meta":{"openai/outputTemplate":"ui://mail/shell-v66","openai/toolInvocation/invoking":"Opening Mail widget","openai/toolInvocation/invoked":"Mail widget ready"},"content":[{"type":"text","text":"[dir-proxy-error] Upstream failed"}],"structuredContent":{"isError":false,"detail":"upstream detail"}},"jsonrpc":"2.0","id":"dir-proxy-error"}
+
+",
+      "status": 200,
+    },
+    {
+      "body": "event: message
+data: {"result":{"content":[{"type":"text","text":"Unknown tool: read-thing"}],"isError":true},"jsonrpc":"2.0","id":"read-thing"}
+
+",
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: app-only 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "app-only",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "app-only",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "app-only",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "app-only",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "app-only",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Widget-only helper",
+        "toolName": "app-only",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "app-only completed.",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "ok": true,
+            "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=leaked-ticket",
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "bigint-read",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "Do not know how to serialize a BigInt",
+        "errorType": "TypeError",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Read whose result is not JSON",
+        "toolName": "bigint-read",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Error: Do not know how to serialize a BigInt",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: bigint-write 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "bigint-write",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "bigint-write",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "bigint-write",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "bigint-write",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "output_id": "big-1",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "bigint-write",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Write whose result is not JSON",
+        "toolName": "bigint-write",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "bigint-write completed for big-1.",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: contract-fail 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "contract-fail",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "contract-fail",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "contract-fail",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": "stale_revision",
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "error",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_failed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "contract-fail",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "failure_type": "http_error",
+          "operation_id": "<operation #1>",
+          "outcome": "http_error",
+          "status": "failed",
+          "success": false,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "Revision is stale.",
+        "errorType": "stale_revision",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Fails a contract",
+        "toolName": "contract-fail",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Error: Revision is stale. (errorCode: stale_revision)",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: contract-generic 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "contract-generic",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "contract-generic",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "contract-generic",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": "action_failed",
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "error",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_failed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "contract-generic",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "failure_type": "http_error",
+          "operation_id": "<operation #1>",
+          "outcome": "http_error",
+          "status": "failed",
+          "success": false,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "Generic failure.",
+        "errorType": "action_failed",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Fails generically",
+        "toolName": "contract-generic",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Error: Generic failure.",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: cycle-read 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "cycle-read",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Read whose result is circular",
+        "toolName": "cycle-read",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "{"id":"loop-1","self":"[circular result]"}",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "id": "loop-1",
+            "self": "[circular result]",
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: cycle-write 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "cycle-write",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "cycle-write",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "cycle-write",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "cycle-write",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "output_id": "loop-1",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "cycle-write",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Write whose result is circular",
+        "toolName": "cycle-write",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "cycle-write completed for loop-1.",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: embed-empty 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "embed-empty",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Widget with nothing to show",
+        "toolName": "embed-empty",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "{}",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+          "structuredContent": {
+            "status": "ok",
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: embed-leak 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "embed-leak",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Returns an embed ticket without a widget",
+        "toolName": "embed-leak",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "{"nested":[{"label":"start"},{"keep":"me"}]}",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "nested": [
+              {
+                "label": "start",
+              },
+              {
+                "keep": "me",
+              },
+            ],
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "embed-widget",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "embedTicket": {
+        "ownerEmail": "oauth@example.com",
+        "scope": null,
+        "targetPath": "/inbox/thread-1?__an_mcp_chat_bridge=1",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Opens a widget",
+        "toolName": "embed-widget",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "agent-native/embedStart": {
+              "expiresAt": 1735689600000,
+              "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-ticket&__an_mcp_chat_bridge=1",
+            },
+            "agent-native/openLink": {
+              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-1&agentSidebar=closed",
+              "label": "Open mail",
+              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-1",
+              "webUrl": "https://mail.agent-native.com/inbox/thread-1",
+            },
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+            "openai/outputTemplate": "ui://mail/embed-widget/shell-v65",
+            "openai/toolInvocation/invoked": "Mail widget ready",
+            "openai/toolInvocation/invoking": "Opening Mail widget",
+            "openai/widgetAccessible": true,
+          },
+          "content": [
+            {
+              "text": "Thread is ready.",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "app": "mail",
+            "embed": true,
+            "openLink": {
+              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-1&agentSidebar=closed",
+              "label": "Open mail",
+              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-1",
+              "webUrl": "https://mail.agent-native.com/inbox/thread-1",
+            },
+            "title": "Thread",
+            "url": "/inbox/thread-1",
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget-existing 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "embed-widget-existing",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "embed-widget-existing",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "embed-widget-existing",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "embed-widget-existing",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "embed-widget-existing",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Widget with its own ticket",
+        "toolName": "embed-widget-existing",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "agent-native/embedStart": {
+              "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=leaked-ticket&__an_mcp_chat_bridge=1",
+            },
+            "agent-native/openLink": {
+              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-2&agentSidebar=closed",
+              "label": "Open mail",
+              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-2",
+              "webUrl": "https://mail.agent-native.com/inbox/thread-2",
+            },
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+            "openai/outputTemplate": "ui://mail/embed-widget-existing/shell-v65",
+            "openai/toolInvocation/invoked": "Mail widget ready",
+            "openai/toolInvocation/invoking": "Opening Mail widget",
+            "openai/widgetAccessible": true,
+          },
+          "content": [
+            {
+              "text": "Draft ready",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "app": "mail",
+            "deepLinkUrl": "/inbox/thread-2",
+            "message": "Draft ready",
+            "openLink": {
+              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-2&agentSidebar=closed",
+              "label": "Open mail",
+              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-2",
+              "webUrl": "https://mail.agent-native.com/inbox/thread-2",
+            },
+            "url": "https://mail.agent-native.com/inbox/thread-2",
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: embed-write-leak 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "embed-write-leak",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "embed-write-leak",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "embed-write-leak",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "embed-write-leak",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "output_id": "doc-9",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "embed-write-leak",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Write that returns an embed ticket",
+        "toolName": "embed-write-leak",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "embed-write-leak completed for doc-9.",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: fail-thing 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "fail-thing",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "fail-thing",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "fail-thing",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": "Error",
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "error",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_failed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "fail-thing",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "failure_type": "error",
+          "operation_id": "<operation #1>",
+          "outcome": "error",
+          "status": "failed",
+          "success": false,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "boom",
+        "errorType": "Error",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Always fails",
+        "toolName": "fail-thing",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Error: boom",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: image-thing 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "image-thing",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Returns images",
+        "toolName": "image-thing",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "{"summary":"Chart rendered"}
+
+[image: image/png, 9 bytes "chart" — attached #1]
+[image #2 "hosted" attached: https://cdn.example.com/a.png]
+[image #3 dropped: url must be a public https:// URL]",
+              "type": "text",
+            },
+            {
+              "data": "iVBORw0KGgo=",
+              "mimeType": "image/png",
+              "type": "image",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "summary": "Chart rendered",
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: list-things 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "list-things",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "List things",
+        "toolName": "list-things",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "[{"id":"a"},{"id":"b"}]",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "items": [
+              {
+                "id": "a",
+              },
+              {
+                "id": "b",
+              },
+            ],
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: long-read 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "long-read",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Read a long thing",
+        "toolName": "long-read",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "{"body":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: maybe-approve 1`] = `
+{
+  "trace": [
+    {
+      "needsApproval": {
+        "action": "maybe-approve",
+        "args": {
+          "big": false,
+        },
+      },
+    },
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "maybe-approve",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "maybe-approve",
+        "appId": "mail",
+        "args": {
+          "big": false,
+        },
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "maybe-approve",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{"big":false}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "maybe-approve",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "maybe-approve",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "big": false,
+        },
+        "toolCategory": "write",
+        "toolDescription": "Approval only for big changes",
+        "toolName": "maybe-approve",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "maybe-approve completed.",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: no-such-tool 1`] = `
+{
+  "trace": [
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "Unknown tool: no-such-tool",
+        "errorType": "unknown_tool",
+        "isError": true,
+        "parameters": {},
+        "toolName": "no-such-tool",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Unknown tool: no-such-tool",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: partial-then-fail 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "partial-then-fail",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "partial-then-fail",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "effect": "row written before the failure",
+    },
+    {
+      "audit": {
+        "action": "partial-then-fail",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": "Error",
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "error",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_failed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "partial-then-fail",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "failure_type": "error",
+          "operation_id": "<operation #1>",
+          "outcome": "error",
+          "status": "failed",
+          "success": false,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "failed after writing",
+        "errorType": "Error",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Writes, then fails",
+        "toolName": "partial-then-fail",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Error: failed after writing",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: read-thing 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "read-thing",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Read a thing",
+        "toolName": "read-thing",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "agent-native/openLink": {
+              "desktopUrl": "https://mail.agent-native.com/things/thing-1",
+              "label": "Open thing",
+              "view": "thing",
+              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Fthings%2Fthing-1",
+              "webUrl": "https://mail.agent-native.com/things/thing-1",
+            },
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "{"id":"thing-1","title":"Thing","tags":["a","b"]}",
+              "type": "text",
+            },
+            {
+              "text": "
+
+[Open thing →](https://mail.agent-native.com/things/thing-1)",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "id": "thing-1",
+            "openLink": {
+              "desktopUrl": "https://mail.agent-native.com/things/thing-1",
+              "label": "Open thing",
+              "view": "thing",
+              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Fthings%2Fthing-1",
+              "webUrl": "https://mail.agent-native.com/things/thing-1",
+            },
+            "tags": [
+              "a",
+              "b",
+            ],
+            "title": "Thing",
+            "url": "https://mail.agent-native.com/things/thing-1",
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: throws-string 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "throws-string",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "throws-string",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "throws-string",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": "error",
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "error",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_failed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "throws-string",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "failure_type": "error",
+          "operation_id": "<operation #1>",
+          "outcome": "error",
+          "status": "failed",
+          "success": false,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "plain string",
+        "errorType": "Error",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Throws a non-Error",
+        "toolName": "throws-string",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Error: undefined",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-error 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "wrapped-error",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "wrapped-error",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "wrapped-error",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "wrapped-error",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Proxied MCP error",
+        "toolName": "wrapped-error",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Upstream failed",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-ok 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "wrapped-ok",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Proxied MCP result",
+        "toolName": "wrapped-ok",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Upstream says hello",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "nested": {
+              "ok": true,
+            },
+            "value": 1,
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: write-thing 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "write-thing",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "write-thing",
+        "appId": "mail",
+        "args": {
+          "name": "draft",
+        },
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "write-thing",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{"name":"draft"}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "write-thing",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "output_id": "w-1",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "write-thing",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {
+          "name": "draft",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Write a thing",
+        "toolName": "write-thing",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Saved draft Next: Read it back",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, OAuth user: write-void 1`] = `
+{
+  "trace": [
+    {
+      "track": {
+        "name": "action_started",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "write-void",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "operation_id": "<operation #1>",
+          "status": "started",
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "run": {
+        "action": "write-void",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "audit": {
+        "action": "write-void",
+        "actorEmail": "oauth@example.com",
+        "actorKind": "human",
+        "app": null,
+        "caller": "mcp",
+        "createdAt": 1767225600000,
+        "errorCode": null,
+        "id": "<auditId #1>",
+        "input": "{}",
+        "networkId": null,
+        "networkPeer": null,
+        "networkProtocol": null,
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "runId": null,
+        "status": "success",
+        "summary": null,
+        "targetId": null,
+        "targetType": null,
+        "threadId": null,
+        "turnId": null,
+        "visibility": "private",
+      },
+    },
+    {
+      "track": {
+        "name": "action_completed",
+        "properties": {
+          "action_kind": "write",
+          "action_name": "write-void",
+          "action_source": "mcp",
+          "app_name": "mail",
+          "duration_ms": "<duration>",
+          "operation_id": "<operation #1>",
+          "outcome": "success",
+          "status": "completed",
+          "success": true,
+          "template_name": "mail",
+          "user_email": "oauth@example.com",
+        },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "write-void",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Write without a result",
+        "toolName": "write-void",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "write-void completed.",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
+exports[`direct tools/call wire output > full catalog, read-only OAuth scope: a write is refused by scope 1`] = `
+{
+  "trace": [
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "errorMessage": "OAuth scope does not allow tool write-thing",
+        "errorType": "forbidden_scope",
+        "isError": true,
+        "parameters": {},
+        "toolCategory": "write",
+        "toolDescription": "Write a thing",
+        "toolName": "write-thing",
+      },
+    },
+    {
+      "run": {
+        "action": "read-thing",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Read a thing",
+        "toolName": "read-thing",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Forbidden: OAuth scope does not allow tool write-thing",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
+      },
+      "status": 200,
+    },
+    {
+      "body": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "agent-native/openLink": {
+              "desktopUrl": "https://mail.agent-native.com/things/thing-1",
+              "label": "Open thing",
+              "view": "thing",
+              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Fthings%2Fthing-1",
+              "webUrl": "https://mail.agent-native.com/things/thing-1",
+            },
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "{"id":"thing-1","title":"Thing","tags":["a","b"]}",
+              "type": "text",
+            },
+            {
+              "text": "
+
+[Open thing →](https://mail.agent-native.com/things/thing-1)",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "id": "thing-1",
+            "openLink": {
+              "desktopUrl": "https://mail.agent-native.com/things/thing-1",
+              "label": "Open thing",
+              "view": "thing",
+              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Fthings%2Fthing-1",
+              "webUrl": "https://mail.agent-native.com/things/thing-1",
+            },
+            "tags": [
+              "a",
+              "b",
+            ],
+            "title": "Thing",
+            "url": "https://mail.agent-native.com/things/thing-1",
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
