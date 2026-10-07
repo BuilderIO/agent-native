@@ -636,6 +636,7 @@ import {
   readClientAppState,
 } from "@agent-native/core/client/application-state";
 
+import { AgentKitActionWidget } from "./agentkit-chat/action-widget.js";
 import {
   AgentKitAssistantChat,
   type AgentKitAssistantChatProps,
@@ -815,6 +816,12 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("uses the action widget renderer for action chat UI output", async () => {
+    await mount(baseProps());
+
+    expect(chatMocks.rootProps.slots.widget).toBe(AgentKitActionWidget);
+  });
+
   it("asks for a title on the engine and model the first prompt was sent with", async () => {
     const onGenerateTitle = vi.fn();
     const props = baseProps({ onGenerateTitle });
