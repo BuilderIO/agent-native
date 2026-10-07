@@ -138,7 +138,7 @@ describe("preUploadAttachments", () => {
     expect(att.data).toBe(`data:image/jpg;base64,${JPEG_BASE64}`);
   });
 
-  it("recovers uppercase inline image data URLs from the URL field", async () => {
+  it("recovers parameterized inline image data URLs from the URL field", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/photo.jpg",
       provider: "builder",
@@ -148,7 +148,7 @@ describe("preUploadAttachments", () => {
       name: "photo.jpg",
       contentType: "image/jpg",
       data: undefined,
-      url: `data:IMAGE/JPG;base64,${JPEG_BASE64}`,
+      url: `data:IMAGE/JPG;charset=binary;base64,${JPEG_BASE64}`,
     });
     const result = await preUploadAttachments({
       attachments: [att],
@@ -158,7 +158,9 @@ describe("preUploadAttachments", () => {
     expect(uploadFileMock).toHaveBeenCalledWith(
       expect.objectContaining({ mimeType: "image/jpeg" }),
     );
-    expect(att.data).toBe(`data:IMAGE/JPG;base64,${JPEG_BASE64}`);
+    expect(att.data).toBe(
+      `data:IMAGE/JPG;charset=binary;base64,${JPEG_BASE64}`,
+    );
     expect(att.url).toBe("https://cdn.example.com/photo.jpg");
     expect(result.uploaded[0]?.contentType).toBe("image/jpeg");
   });

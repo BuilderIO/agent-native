@@ -39,7 +39,7 @@ export interface PreUploadAttachmentsResult {
   injectedText: string | null;
 }
 
-const FILE_DATA_URL_RE = /^data:([^;]+);base64,(.+)$/i;
+const FILE_DATA_URL_RE = /^data:([^;,]+)(?:;[^;,=]+=[^;,]*)*;base64,(.+)$/i;
 const SVG_REFERENCE_SECURITY_NOTE =
   "SVG content may contain active markup; use this URL as a file reference unless the target app sanitizes it.";
 const SPREADSHEET_PREVIEW_MAX_CHARS = 24_000;
