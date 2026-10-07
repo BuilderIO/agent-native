@@ -3081,7 +3081,7 @@ export function AgentMessageActions({
   const usageCacheRef = useRef<{
     runId: string;
     fetchedAt: number;
-    data: AgentKitRunUsage | null;
+    data: AgentKitRunUsage;
   } | null>(null);
   const requestIdCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -3096,6 +3096,24 @@ export function AgentMessageActions({
   );
   const hasRunUsage =
     message.role === "assistant" && Boolean(runId) && Boolean(loadRunUsage);
+  const runFinished = useMemo(
+    () =>
+      Boolean(
+        runId &&
+        thread.events.some(
+          (event) =>
+            event.runId === runId &&
+            (event.type === "run.completed" ||
+              event.type === "run.failed" ||
+              event.type === "run.cancelled" ||
+              (event.type === "run.status" &&
+                (event.status === "completed" ||
+                  event.status === "failed" ||
+                  event.status === "cancelled"))),
+        ),
+      ),
+    [runId, thread.events],
+  );
   const hasMessageMenuActions = Boolean(
     requestId || hasRunUsage || (forkingCapability.visible && onThreadForked),
   );
@@ -3112,7 +3130,8 @@ export function AgentMessageActions({
     void loadRunUsage({ runId, signal: controller.signal })
       .then((data) => {
         if (!active) return;
-        usageCacheRef.current = { runId, fetchedAt: Date.now(), data };
+        if (data)
+          usageCacheRef.current = { runId, fetchedAt: Date.now(), data };
         setUsageDetails({ runId, status: "loaded", data });
       })
       .catch(() => {
@@ -3123,7 +3142,7 @@ export function AgentMessageActions({
       active = false;
       controller.abort();
     };
-  }, [actionsMenuOpen, hasRunUsage, loadRunUsage, runId]);
+  }, [actionsMenuOpen, hasRunUsage, loadRunUsage, runFinished, runId]);
   const messageSeq = thread.messages.findIndex(
     (item) => item.id === message.id,
   );
