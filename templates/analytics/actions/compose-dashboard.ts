@@ -9,6 +9,14 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
+import {
+  annotateSummary,
+  isAgentCaller,
+  verdictFields,
+  verifyPanelWrite,
+  type PanelVerification,
+  type PanelWriteVerdict,
+} from "../server/lib/dashboard-panel-verification";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   getDashboard,
@@ -113,7 +121,7 @@ export default defineAction({
     "Do NOT hand-author large `update-dashboard` configs panel-by-panel — producing/streaming a big multi-panel config inside the ~40s run budget fails and thrashes. " +
     "Each metric expands into a complete first-party panel from the shipped, already-validated metric catalog. Unknown metric keys are skipped and reported (not fatal); each panel's SQL is validated independently (valid panels are saved, invalid ones reported), and the dashboard is assembled and saved in a single atomic store write. " +
     "If the dashboard already exists and `overwrite` is false (default), the new panels are APPENDED (panels whose id is already present are skipped). Set `refreshExisting: true` to atomically replace matching catalog panels in place while preserving unrelated panels. With `overwrite: true` the config is replaced. " +
-    "Returns { dashboardId, panelCount, createdMetrics, refreshedExistingIds, unknownMetrics, invalidMetrics, urlPath, deepLink, message } — use panelCount as proof-of-done. " +
+    "Returns { dashboardId, panelCount, createdMetrics, refreshedExistingIds, unknownMetrics, invalidMetrics, verified, urlPath, deepLink, message } — use panelCount as proof-of-done, and `verified:true` as proof the panels render. Agent calls run the composed panels the way the dashboard page does before saving and refuse a panel that would show 'No data' or drop its columns; on `verified:false` call `inspect-dashboard-panel`. " +
     `Available metric keys: ${METRIC_KEYS.join(", ")}. ` +
     "Each metric accepts an optional per-metric `window` of '30d' | '90d' | 'all' (only affects windowed virality/time metrics). Catalog panels are time-scoped by construction; custom first-party SQL added later must use `{{timeRange}}` or declare `config.timeScope`.",
   schema: z.object({
@@ -149,6 +157,12 @@ export default defineAction({
       .describe(
         "When appending to an existing dashboard, replace panels whose ids match the requested catalog metrics in place, preserving unrelated panels and layout order. Use this to refresh a catalog-backed dashboard without sending SQL through the prompt.",
       ),
+    allowEmptyResult: z
+      .boolean()
+      .optional()
+      .describe(
+        "Agent calls only. Set true only when the user expects a composed panel to have no rows right now (for example a brand-new workspace); the save then reports verified:false.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -164,6 +178,9 @@ export default defineAction({
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const ctx = { email, orgId: getRequestOrgId() || null };
+    const agentCaller = isAgentCaller(actionContext?.caller);
+    const verificationMemo = new Map<string, PanelVerification>();
+    let verdict: PanelWriteVerdict | null = null;
 
     const rawMetrics: unknown[] = Array.isArray(args.metrics)
       ? (args.metrics as unknown[])
@@ -248,7 +265,7 @@ export default defineAction({
       const saved = await upsertDashboardWithRetry(
         args.dashboardId,
         ctx,
-        (freshExisting) => {
+        async (freshExisting) => {
           const existingConfig = freshExisting.config as Record<
             string,
             unknown
@@ -300,6 +317,15 @@ export default defineAction({
                 : dashboardName,
             panels: [...mergedExistingPanels, ...toAppend],
           });
+          if (agentCaller) {
+            verdict = await verifyPanelWrite({
+              base: existingConfig,
+              next: merged,
+              signal: actionContext?.signal,
+              allowEmptyResult: args.allowEmptyResult,
+              memo: verificationMemo,
+            });
+          }
           return { kind: "sql" as const, body: merged };
         },
       );
@@ -311,6 +337,15 @@ export default defineAction({
           "First-party analytics dashboard composed from the metric catalog.",
         panels: composedPanels,
       });
+      if (agentCaller) {
+        verdict = await verifyPanelWrite({
+          base: existing ? (existing.config as Record<string, unknown>) : null,
+          next: finalConfig,
+          signal: actionContext?.signal,
+          allowEmptyResult: args.allowEmptyResult,
+          memo: verificationMemo,
+        });
+      }
       await upsertDashboard(args.dashboardId, "sql", finalConfig, ctx);
     }
 
@@ -388,13 +423,14 @@ export default defineAction({
       unknownMetrics,
       invalidMetrics,
       skippedExistingIds,
+      ...verdictFields(verdict),
       urlPath: `/dashboards/${args.dashboardId}`,
       deepLink: buildDeepLink({
         app: "analytics",
         view: "adhoc",
         params: { dashboardId: args.dashboardId },
       }),
-      message: parts.join("; ") + ".",
+      message: annotateSummary(parts.join("; ") + ".", verdict),
     };
   },
   link: ({ result }) => {

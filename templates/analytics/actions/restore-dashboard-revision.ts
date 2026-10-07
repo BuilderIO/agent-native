@@ -6,7 +6,17 @@ import {
 import { z } from "zod";
 
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
-import { restoreDashboardRevision } from "../server/lib/dashboards-store";
+import {
+  annotateSummary,
+  isAgentCaller,
+  verdictFields,
+  verifyPanelWrite,
+  type PanelWriteVerdict,
+} from "../server/lib/dashboard-panel-verification";
+import {
+  getDashboard,
+  restoreDashboardRevision,
+} from "../server/lib/dashboards-store";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -28,10 +38,15 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async (args, actionContext) => {
+    const scope = resolveScope();
+    // Read before the restore: the verifier diffs against the config being replaced.
+    const before = isAgentCaller(actionContext?.caller)
+      ? await getDashboard(args.dashboardId, scope)
+      : null;
     const restored = await restoreDashboardRevision(
       args.dashboardId,
       args.revisionId,
-      resolveScope(),
+      scope,
       args.expectedUpdatedAt,
     );
     if (!restored) {
@@ -48,13 +63,38 @@ export default defineAction({
       dashboard.config,
       actionContext?.caller === "frontend" ? undefined : "agent",
     );
+    // A restore is the recovery path and is already saved here, so it reports
+    // what no longer renders, or that it could not check, instead of refusing.
+    let verdict: PanelWriteVerdict | null = null;
+    if (isAgentCaller(actionContext?.caller) && dashboard.kind === "sql") {
+      try {
+        verdict = await verifyPanelWrite({
+          base: before?.kind === "sql" ? before.config : null,
+          next: dashboard.config,
+          signal: actionContext?.signal,
+          mode: "report",
+        });
+      } catch (error) {
+        verdict = {
+          verified: false,
+          verification: null,
+          proof: [],
+          unverified: [],
+          nextStep: `REQUIRED: the restore was saved but panel verification failed (${error instanceof Error ? error.message : String(error)}). Call inspect-dashboard-panel on the panels the user cares about before telling them the dashboard renders.`,
+        };
+      }
+    }
     return {
       id: dashboard.id,
       kind: dashboard.kind,
       name: dashboard.title,
       updatedAt: dashboard.updatedAt,
       snapshotRevisionId,
-      message: `Restored dashboard "${dashboard.title}" from history.`,
+      ...verdictFields(verdict),
+      message: annotateSummary(
+        `Restored dashboard "${dashboard.title}" from history.`,
+        verdict,
+      ),
     };
   },
 });

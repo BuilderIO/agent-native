@@ -1,7 +1,7 @@
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import { z } from "zod";
 
-import type { EngineTool } from "./engine/types.js";
+import type { EngineMessage, EngineTool } from "./engine/types.js";
 
 export const FOLLOW_UP_SUGGESTIONS_TOOL_NAME = "suggest-follow-ups";
 export const FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS = 1024;
@@ -9,15 +9,54 @@ export const FOLLOW_UP_SUGGESTIONS_INSTRUCTION =
   "Before finishing this turn, evaluate useful next actions grounded in the user's request, conversation, app workflow/current context, and observed results. " +
   "Record your decision with suggest-follow-ups: zero to three meaningful next intents, or an empty list when none is warranted. Do not fill a quota or repeat completed work.";
 
+export const FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT =
+  "You write follow-up suggestions for a conversation between a user and an AI agent inside an app. You only record them by calling suggest-follow-ups.";
+
 export const FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION =
-  "The final reply above has already been delivered. Complete only its missing follow-up metadata by calling suggest-follow-ups once, using the conversation, current app context, and completed results. " +
+  "The final reply above has already been delivered. Complete only its missing follow-up metadata by calling suggest-follow-ups once, using the request, reply, and tools used above. " +
   "An empty list is valid when no useful next action exists. Do not repeat the reply, perform more work, or call other tools.";
+
+const MAX_COMPLETION_REQUEST_CHARS = 2_000;
+const MAX_COMPLETION_REPLY_CHARS = 4_000;
+const MAX_COMPLETION_TOOL_NAMES = 30;
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/**
+ * The completion call sends a different tools array than the turn did, so it
+ * can never read the turn's prompt cache. It carries a bounded digest of the
+ * turn instead of re-prefilling the whole conversation at full price.
+ */
+export function buildFollowUpCompletionMessages(input: {
+  requestText?: string;
+  replyText: string;
+  toolNames: readonly string[];
+}): EngineMessage[] {
+  const requestText = input.requestText?.trim();
+  const toolNames = [...new Set(input.toolNames)]
+    .filter((name) => name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME)
+    .slice(0, MAX_COMPLETION_TOOL_NAMES);
+  const sections = [
+    requestText
+      ? `<user-request>\n${clip(requestText, MAX_COMPLETION_REQUEST_CHARS)}\n</user-request>`
+      : "",
+    `<final-reply>\n${clip(input.replyText.trim(), MAX_COMPLETION_REPLY_CHARS)}\n</final-reply>`,
+    toolNames.length > 0
+      ? `<tools-used>${toolNames.join(", ")}</tools-used>`
+      : "",
+    FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+  ].filter(Boolean);
+  return [
+    { role: "user", content: [{ type: "text", text: sections.join("\n\n") }] },
+  ];
+}
 
 export type FollowUpSuggestionsFailure =
   | "budget_exhausted"
   | "iteration_limit"
   | "interrupted"
-  | "context_error"
   | "processor_error"
   | "provider_error"
   | "invalid_or_missing";

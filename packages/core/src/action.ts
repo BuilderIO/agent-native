@@ -127,6 +127,26 @@ export function fail(message: string, options: FailOptions = {}): never {
   });
 }
 
+/**
+ * What a write action verified about its own effect. An action opts in by
+ * returning a plain-object result with a reserved `_receipt: WriteReceipt`.
+ * The agent loop reads it before the result is stringified and truncated, so
+ * the final answer is reconciled with what the write did instead of with the
+ * model's reading of a JSON string.
+ *
+ * - `changed: false`: nothing was written (a no-op); not a completed side effect.
+ * - `verified: true`: the effect was observed. `false`: it was checked and did
+ *   not hold. `"unverified"`: it could not be checked.
+ * - Bounds, enforced by the loop: summary 200 chars, 8 checks, 5 warnings.
+ */
+export interface WriteReceipt {
+  changed: boolean;
+  verified: true | false | "unverified";
+  summary: string;
+  checks?: Array<{ id: string; ok: boolean; detail?: string }>;
+  warnings?: string[];
+}
+
 export class AgentActionStopError extends Error {
   readonly agentNativeStop = true;
   readonly errorCode?: string;

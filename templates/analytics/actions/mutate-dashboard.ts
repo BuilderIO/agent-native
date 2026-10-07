@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { fail, type WriteReceipt } from "@agent-native/core/action";
 import {
   buildDeepLink,
   getRequestOrgId,
@@ -12,10 +13,22 @@ import {
   queueDashboardCollabSync,
 } from "../server/lib/dashboard-collab-sync";
 import {
+  annotateSummary,
+  describePanelOutcome,
+  verdictFields,
+  verifyPanelWrite,
+  type PanelVerification,
+  type PanelWriteVerdict,
+} from "../server/lib/dashboard-panel-verification";
+import {
   getDashboard,
   upsertDashboardWithRetry,
   type DashboardRecord,
 } from "../server/lib/dashboards-store";
+import {
+  PANEL_CHART_TYPES,
+  validatePanelContract,
+} from "../shared/panel-render-contract";
 import {
   applyDashboardMutationOperations,
   DASHBOARD_MUTATION_API_TYPES,
@@ -27,27 +40,29 @@ import {
   type DashboardMutationResult,
 } from "./dashboard-mutation-api";
 import { compactDashboardResult } from "./dashboard-panel-order";
-import { validateDashboardConfig, validatePanelSql } from "./update-dashboard";
+import {
+  assertValidDashboardConfig,
+  isAgentCaller,
+  validatePanelSql,
+} from "./update-dashboard";
+
+/**
+ * Zod emits a typeless `additionalProperties: {}` for `record(string, unknown)`
+ * and `.passthrough()`, and the action schema sanitizer expands every typeless
+ * position into a 400-character JSON-value union in the tool schema. The
+ * explicit `true` is the same constraint in a few characters.
+ */
+const freeFormObject = () =>
+  z.record(z.string(), z.unknown()).meta({ additionalProperties: true });
 
 const mutationTargetSchema = {
   position: z.enum(["top", "bottom"]).optional(),
   index: z.number().int().nonnegative().optional(),
   beforePanelId: z.string().optional(),
   afterPanelId: z.string().optional(),
-  nextToPanelId: z
-    .string()
-    .optional()
-    .describe("Place the panel in the same visible row, after this panel id."),
-  rowNumber: z
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .describe("1-based visible row number for row-aware placement."),
-  rowPosition: z
-    .enum(["start", "end"])
-    .optional()
-    .describe("Where in rowNumber to place the panel. Defaults to end."),
+  nextToPanelId: z.string().optional(),
+  rowNumber: z.number().int().positive().optional(),
+  rowPosition: z.enum(["start", "end"]).optional(),
 };
 
 const insertPanelSchema = z
@@ -61,21 +76,7 @@ const insertPanelSchema = z
         message: "panel.title must be a non-empty string",
       })
       .optional(),
-    chartType: z
-      .enum([
-        "line",
-        "area",
-        "bar",
-        "metric",
-        "table",
-        "pie",
-        "section",
-        "funnel",
-        "heatmap",
-        "callout",
-        "extension",
-      ])
-      .optional(),
+    chartType: z.enum(PANEL_CHART_TYPES).optional(),
     width: z
       .number()
       .int()
@@ -83,7 +84,7 @@ const insertPanelSchema = z
       .max(6)
       .optional()
       .describe(
-        "If supplied, an integer from 1 to 6; do not pass a string. The final saved panel must have a width, supplied here or by a later operation in this batch.",
+        "Integer 1-6, not a string. The saved panel needs a width from here or a later op in this batch.",
       ),
     source: z
       .enum([
@@ -99,9 +100,10 @@ const insertPanelSchema = z
     sql: z.string().optional(),
     columns: z.number().int().min(1).max(6).optional(),
     tab: z.string().optional(),
-    config: z.record(z.string(), z.unknown()).optional(),
+    config: freeFormObject().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .meta({ additionalProperties: true });
 
 const mutationOperationSchema = z.discriminatedUnion("op", [
   z.object({
@@ -116,7 +118,7 @@ const mutationOperationSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("updatePanel"),
     panelId: z.string(),
-    patch: z.record(z.string(), z.unknown()),
+    patch: freeFormObject(),
   }),
   z.object({
     op: z.literal("updatePanelPath"),
@@ -133,12 +135,12 @@ const mutationOperationSchema = z.discriminatedUnion("op", [
     op: z.literal("duplicatePanel"),
     panelId: z.string(),
     newPanelId: z.string(),
-    patch: z.record(z.string(), z.unknown()).optional(),
+    patch: freeFormObject().optional(),
     ...mutationTargetSchema,
   }),
   z.object({
     op: z.literal("setDashboard"),
-    patch: z.record(z.string(), z.unknown()),
+    patch: freeFormObject(),
   }),
   z.object({
     op: z.literal("setFilterDefault"),
@@ -195,42 +197,34 @@ function nonEmptyOperations(
 }
 
 const apiHelp =
-  "Short, constrained TypeScript-like dashboard mutation script for compatibility. Prefer structured `operations` for agent calls; use this only for small layout/config edits. The server parses only calls on `dashboard`; it does not execute arbitrary JavaScript. " +
-  "No variables, imports, loops, functions, templates, network, filesystem, or DB access. Arguments must be JSON-compatible literals, so quote object keys. " +
-  "Subjects: dashboard.set, dashboard.setFilterDefault, dashboard.panel, dashboard.panels, dashboard.panelsMatching, dashboard.section, dashboard.insertPanel. " +
-  'For a simple default-filter change, use `dashboard.setFilterDefault("emailFilter","exclude_builder");`; it verifies the filter and option value without resending every filter or revalidating unchanged panel SQL. ' +
-  "Panel config is for renderer options such as xKey, yKey, columns, and formatters; use setSql or set for panel fields such as sql, chartType, source, title, or width. " +
-  'Selection methods: moveToTop, moveToBottom, moveBefore, moveAfter, moveToIndex, moveNextTo, moveToRow, remove, set, setTitle, setSql, setWidth, setConfig, setConfigPath, duplicate. Duplicate supports one chained placement method, for example `dashboard.panel("source").duplicate("copy", {"chartType":"bar"}).nextTo("source");`. ' +
-  "Inserted panels support atTop, atBottom, before, after, atIndex, nextTo, atRow, atRowStart, and atRowEnd. Use nextTo(panelId) or atRow(rowNumber) for visible row placement. " +
-  "AI-generated first-party panels are dashboard-time-bound by default: set config.timeScope to dashboard and include a matching dashboard time filter in SQL. Allowed values are dashboard, fixed-window, cohort-history, and all-time; use all-time only when the user requests full available history and put all-time, lifetime, or historical in the title or description. A {{timeRange}} token requires the timeRange select filter; {{<id>Start}}/{{<id>End}} require a matching date-range filter. Server validation rejects unbound first-party SQL. " +
-  `Examples: ${DASHBOARD_MUTATION_EXAMPLES.slice(0, 5).join(" ")}`;
+  "Compact script form of `operations`: JSON-literal calls on `dashboard` only (quote object keys; no variables, loops, or imports). Use it for short layout or config edits; the dashboard-management skill lists the methods. " +
+  `Examples: ${DASHBOARD_MUTATION_EXAMPLES[0]} ${DASHBOARD_MUTATION_EXAMPLES[2]}`;
+
+const dryRunHelp = "Validate and verify without saving.";
+const allowEmptyResultHelp =
+  "Set true only when the user expects an edited panel to have no rows right now; the save then reports verified:false. It never overrides missing columns or query errors.";
 
 const agentInputSchema = z.object({
-  dashboardId: z
-    .string()
-    .min(1)
-    .describe("Dashboard id, e.g. 'agent-native-templates-first-party'."),
+  dashboardId: z.string().min(1).describe("Dashboard id."),
   operations: z
     .array(mutationOperationSchema)
     .max(MAX_DASHBOARD_MUTATION_OPERATIONS)
     .optional()
-    .describe(
-      "Preferred agent input: structured dashboard edits applied atomically in one save. Use panel ids, not array indexes. For first-party metric refreshes, use compose-dashboard with metric keys instead of embedding SQL here.",
-    ),
+    .describe("Edits applied atomically in one save, by panel id."),
   code: z
     .string()
     .max(MAX_DASHBOARD_MUTATION_CODE_LENGTH)
     .optional()
     .describe(apiHelp),
-  dryRun: z
-    .boolean()
-    .optional()
-    .describe("Validate the mutation without saving it."),
+  dryRun: z.boolean().optional().describe(dryRunHelp),
+  allowEmptyResult: z.boolean().optional().describe(allowEmptyResultHelp),
   returnConfig: z
     .boolean()
     .optional()
-    .describe("Include the full resulting config only when it is needed."),
+    .describe("Include the full resulting config only when needed."),
 });
+
+class NoEffectiveChange extends Error {}
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -302,6 +296,50 @@ async function validateMutationSql(
   });
 }
 
+/**
+ * What the save proved, for the loop's final-answer guard. Failing checks come
+ * first so the receipt's check cap never drops the reason.
+ */
+function writeReceipt(
+  dashboardId: string,
+  appliedOps: number,
+  verdict: PanelWriteVerdict | null,
+): WriteReceipt {
+  const saved = `Saved ${appliedOps} op(s) to "${dashboardId}"`;
+  const panels = verdict?.verification?.panels ?? [];
+  if (!verdict || verdict.verified === null || panels.length === 0) {
+    return {
+      changed: true,
+      verified: true,
+      summary: `${saved}; no panel render was affected.`,
+    };
+  }
+  const checks = panels
+    .map((panel) => ({
+      id: panel.panelId,
+      ok: panel.status === "ok" && panel.staticIssues.length === 0,
+      detail: describePanelOutcome(panel),
+    }))
+    .sort((a, b) => Number(a.ok) - Number(b.ok));
+  const failing = checks.filter((check) => !check.ok);
+  const titleOf = new Map(panels.map((panel) => [panel.panelId, panel.title]));
+  return {
+    changed: true,
+    verified: verdict.verified,
+    summary:
+      failing.length === 0
+        ? `${saved}; ${panels.length} panel(s) verified rendering: ${panels
+            .slice(0, 3)
+            .map((panel) => `"${panel.title}"`)
+            .join(", ")}.`
+        : `${saved} but NOT verified: ${failing
+            .slice(0, 2)
+            .map((check) => `"${titleOf.get(check.id)}" ${check.detail}`)
+            .join("; ")}.`,
+    checks,
+  };
+}
+
 function movedPanelIdsFrom(operations: DashboardMutationOperation[]): string[] {
   const moved = new Set<string>();
   for (const op of operations) {
@@ -323,18 +361,12 @@ function helpResult() {
 
 export default defineAction({
   description:
-    "Apply general SQL dashboard edits through a small typed mutation API in ONE atomic save. Prefer structured `operations` for agent calls; use the short `code` form only for compact layout/config edits. " +
-    "Prefer this for dashboard layout and panel edits: move panels by id, edit titles/SQL/width/config, remove panels, duplicate panels, insert panels, or patch dashboard fields. " +
-    "For user placement requests like 'second row' or 'next to return rates', use row-aware placement such as `dashboard.insertPanel(...).nextTo(\"retention-over-time\")` or `.atRow(2)`, then verify rendered rows from `get-sql-dashboard.layout.groups`. " +
-    "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. First-party SQL must be explicitly time-bound as described in the API help; server validation rejects unbound first-party SQL. " +
-    "Structured operations avoid brittle JSON-pointer indexes and native-array serialization issues. Do not put a large multi-panel SQL payload in `code`; use `compose-dashboard` for catalog metrics or structured operations for a bounded custom edit. " +
-    "When adding or restyling a panel, read the existing panels from `view-screen` or `get-sql-dashboard` first and match their chart types, widths, and config conventions instead of introducing a one-off style. " +
-    `Common example: ${DASHBOARD_MUTATION_EXAMPLES[0]}`,
+    "Edit a SQL dashboard in ONE atomic save: move, insert, duplicate, remove, and edit panels by id (title, SQL, width, config), patch dashboard fields, or set filter defaults. Pass typed `operations`; `code` is a compact script form of the same edits. " +
+    "Place a panel in a visible row with nextToPanelId or rowNumber. First-party panel SQL must bind to a dashboard time filter (config.timeScope). Use `compose-dashboard` for catalog metrics and keep large SQL out of `code`. Read the existing panels with `get-sql-dashboard` first and match their chart types, widths, and config. The dashboard-management skill owns placement, time-scope, and config rules. " +
+    "Before saving, agent calls run every changed panel the way the dashboard page does; a panel that would show 'No data', drop configured columns, or fail is refused with the reason and nothing is written. " +
+    "The result's `verified` flag and per-panel `verification` (or `unverified` reasons) are the proof the edit renders: report only what they show, and on `verified:false`, an error, or a user report that nothing changed, call `inspect-dashboard-panel` before saying anything about the chart.",
   schema: z.object({
-    dashboardId: z
-      .string()
-      .optional()
-      .describe("Dashboard id, e.g. 'agent-native-templates-first-party'."),
+    dashboardId: z.string().optional().describe("Dashboard id."),
     id: z
       .string()
       .optional()
@@ -345,25 +377,18 @@ export default defineAction({
       .optional()
       .describe(apiHelp),
     operations: operationsInputSchema.describe(
-      "Structured equivalent of the typed script. Native callers should pass an array of mutation ops; shell/legacy callers may pass a JSON string. " +
-        "Supported ops: movePanels, removePanels, updatePanel, updatePanelPath, insertPanel, duplicatePanel, setDashboard, setFilterDefault.",
+      "Edits applied atomically in one save, by panel id. Native callers pass an array; shell/legacy callers may pass a JSON string.",
     ),
-    dryRun: z
-      .boolean()
-      .optional()
-      .describe(
-        "If true, validate and return the resulting compact proof without saving.",
-      ),
+    dryRun: z.boolean().optional().describe(dryRunHelp),
+    allowEmptyResult: z.boolean().optional().describe(allowEmptyResultHelp),
     returnConfig: z
       .boolean()
       .optional()
-      .describe(
-        "If true, include the full resulting dashboard config. Defaults to false to keep tool output compact.",
-      ),
+      .describe("Include the full resulting config only when needed."),
     returnTypes: z
       .boolean()
       .optional()
-      .describe("If true, include the allowed TypeScript API and examples."),
+      .describe("With no dashboardId, return the `code` API and examples."),
   }),
   agentInputSchema,
   http: { method: "POST" },
@@ -377,7 +402,8 @@ export default defineAction({
       height: 680,
     }),
   },
-  timeoutMs: 35_000,
+  // SQL validation (<=10s) plus panel verification (<=18s) plus store I/O.
+  timeoutMs: 45_000,
   run: async (args, actionContext) => {
     const code = nonEmptyCode(args.code);
     const requestedOperations = nonEmptyOperations(args.operations);
@@ -400,6 +426,22 @@ export default defineAction({
 
     const scope = resolveScope();
     const ctx = { email: scope.email, orgId: scope.orgId };
+    const agentCaller = isAgentCaller(actionContext?.caller);
+    const verificationMemo = new Map<string, PanelVerification>();
+
+    function verifyMutation(
+      base: Record<string, unknown>,
+      next: Record<string, unknown>,
+    ): Promise<PanelWriteVerdict | null> {
+      if (!agentCaller) return Promise.resolve(null);
+      return verifyPanelWrite({
+        base,
+        next,
+        signal: actionContext?.signal,
+        allowEmptyResult: args.allowEmptyResult,
+        memo: verificationMemo,
+      });
+    }
 
     function computeMutation(
       existing: Pick<DashboardRecord, "kind" | "config">,
@@ -409,7 +451,8 @@ export default defineAction({
           `mutate-dashboard only supports SQL dashboards; "${dashboardId}" is ${existing.kind}.`,
         );
       }
-      const nextRoot = cloneConfig(existing.config as Record<string, unknown>);
+      const base = existing.config as Record<string, unknown>;
+      const nextRoot = cloneConfig(base);
       const nextOperations = requestedOperations
         ? requestedOperations
         : parseDashboardMutationScript(nextRoot, code!);
@@ -417,14 +460,42 @@ export default defineAction({
         nextRoot,
         nextOperations,
       );
-      const validation = validateDashboardConfig(nextRoot);
-      if (validation) throw new Error(validation);
-      return { nextRoot, nextOperations, nextMutation };
+      if (!nextMutation.changed) {
+        return { nextRoot, nextOperations, nextMutation, noop: true };
+      }
+      assertValidDashboardConfig(nextRoot, { baseline: base });
+      if (agentCaller) {
+        const issues = validatePanelContract(
+          base,
+          nextRoot,
+          new Set(nextMutation.changedPanelIds),
+        );
+        if (issues.length > 0) {
+          fail(issues.map((issue) => issue.message).join("\n"), {
+            errorCode: "invalid_panel_config",
+            details: { issues },
+          });
+        }
+      }
+      return { nextRoot, nextOperations, nextMutation, noop: false };
     }
 
-    let root: Record<string, unknown>;
+    function noEffectiveChange(mutation: DashboardMutationResult): never {
+      fail(
+        `No effective change: dashboard "${dashboardId}" already has exactly this config, so nothing was written` +
+          (mutation.noopOps.length > 0
+            ? ` (ops that changed nothing: ${mutation.noopOps.join(", ")})`
+            : "") +
+          ". If the viewer still sees the old result, their view is not this saved config (filters, saved view, or a stale tab): call the inspect-dashboard-panel action for the panel to see what it renders.",
+        { errorCode: "no_effective_change", statusCode: 409 },
+      );
+    }
+
+    let root!: Record<string, unknown>;
     let operations!: DashboardMutationOperation[];
     let mutation!: DashboardMutationResult;
+    let verdict: PanelWriteVerdict | null = null;
+    let noop = false;
 
     if (args.dryRun === true) {
       const existing = await getDashboard(dashboardId, ctx);
@@ -437,66 +508,98 @@ export default defineAction({
       root = computed.nextRoot;
       operations = computed.nextOperations;
       mutation = computed.nextMutation;
-      const sqlError = await validateMutationSql(
-        root,
-        operations,
-        actionContext?.signal,
-      );
-      if (sqlError) throw new Error(sqlError);
+      noop = computed.noop;
+      if (!noop) {
+        const sqlError = await validateMutationSql(
+          root,
+          operations,
+          actionContext?.signal,
+        );
+        if (sqlError) throw new Error(sqlError);
+        verdict = await verifyMutation(
+          existing.config as Record<string, unknown>,
+          root,
+        );
+      }
     } else {
-      const saved = await upsertDashboardWithRetry(
-        dashboardId,
-        ctx,
-        async (existing) => {
-          const computed = computeMutation(existing);
-          const sqlError = await validateMutationSql(
-            computed.nextRoot,
-            computed.nextOperations,
-            actionContext?.signal,
-          );
-          if (sqlError) throw new Error(sqlError);
-          root = computed.nextRoot;
-          operations = computed.nextOperations;
-          mutation = computed.nextMutation;
-          return { kind: "sql" as const, body: computed.nextRoot };
-        },
-      );
-      root = saved.config as Record<string, unknown>;
-      queueDashboardCollabSync(dashboardId, root, "agent");
-      track(
-        "dashboard_saved",
-        {
-          app_name: "analytics",
-          template_name: "analytics",
-          output_id: dashboardId,
-          output_type: "dashboard",
-          dashboard_id: dashboardId,
-          panel_count: Array.isArray(root.panels) ? root.panels.length : 0,
-        },
-        actionContext,
-      );
+      try {
+        const saved = await upsertDashboardWithRetry(
+          dashboardId,
+          ctx,
+          async (existing) => {
+            const computed = computeMutation(existing);
+            root = computed.nextRoot;
+            operations = computed.nextOperations;
+            mutation = computed.nextMutation;
+            if (computed.noop) throw new NoEffectiveChange();
+            const sqlError = await validateMutationSql(
+              computed.nextRoot,
+              computed.nextOperations,
+              actionContext?.signal,
+            );
+            if (sqlError) throw new Error(sqlError);
+            verdict = await verifyMutation(
+              existing.config as Record<string, unknown>,
+              computed.nextRoot,
+            );
+            return { kind: "sql" as const, body: computed.nextRoot };
+          },
+        );
+        root = saved.config as Record<string, unknown>;
+        queueDashboardCollabSync(dashboardId, root, "agent");
+        track(
+          "dashboard_saved",
+          {
+            app_name: "analytics",
+            template_name: "analytics",
+            output_id: dashboardId,
+            output_type: "dashboard",
+            dashboard_id: dashboardId,
+            panel_count: Array.isArray(root.panels) ? root.panels.length : 0,
+          },
+          actionContext,
+        );
+      } catch (err) {
+        if (!(err instanceof NoEffectiveChange)) throw err;
+        if (agentCaller) noEffectiveChange(mutation);
+        noop = true;
+      }
     }
 
     const compact = compactDashboardResult(root, movedPanelIdsFrom(operations));
-    const summary =
-      `${args.dryRun === true ? "Dry-ran" : "Applied"} ${operations.length} dashboard mutation op(s) for "${dashboardId}". ` +
-      `First panels: ${compact.firstPanelIds.join(", ")}.`;
+    const summary = annotateSummary(
+      (noop
+        ? `No change for "${dashboardId}": the saved dashboard already has this exact config; nothing was written. `
+        : `${args.dryRun === true ? "Dry-ran" : "Applied"} ${operations.length} dashboard mutation op(s) for "${dashboardId}". ` +
+          (mutation.noopOps.length > 0
+            ? `Ops that changed nothing: ${mutation.noopOps.join(", ")}. `
+            : "")) + `First panels: ${compact.firstPanelIds.join(", ")}.`,
+      verdict,
+      { saved: args.dryRun !== true },
+    );
 
     return {
       id: dashboardId,
       dashboardId,
       name: typeof root.name === "string" ? root.name : dashboardId,
       mutationApiVersion: 1,
-      saved: args.dryRun !== true,
+      saved: args.dryRun !== true && !noop,
+      changed: !noop,
+      noop,
       dryRun: args.dryRun === true,
       appliedOps: operations.length,
       ...compact,
       commandLog: mutation.commandLog,
+      noopOps: mutation.noopOps,
       changedPanelIds: mutation.changedPanelIds,
       insertedPanelIds: mutation.insertedPanelIds,
       removedPanelIds: mutation.removedPanelIds,
       dashboardFieldsChanged: mutation.dashboardFieldsChanged,
-      ...(args.dryRun === true
+      ...verdictFields(verdict),
+      ...(agentCaller && args.dryRun !== true && !noop
+        ? { _receipt: writeReceipt(dashboardId, operations.length, verdict) }
+        : {}),
+      ...(args.dryRun === true || noop
         ? { collabSync: { status: "skipped" as const } }
         : {
             collabSync: {

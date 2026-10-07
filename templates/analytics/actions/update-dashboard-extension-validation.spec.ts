@@ -88,7 +88,8 @@ describe("validateDashboardConfig — extension panels", () => {
       name: "Bad SQL Panel",
       panels: [{ id: "p1", title: "No source", chartType: "metric", width: 1 }],
     });
-    expect(error).toMatch(/panel\[0\]\.(sql|source) is required/);
+    expect(error).toMatch(/panel "p1" \("No source"\) sql is missing/);
+    expect(error).toMatch(/panel "p1" \("No source"\) source is missing/);
   });
 
   it("repairs panel fields that were saved inside config", () => {

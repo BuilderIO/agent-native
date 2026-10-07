@@ -1907,6 +1907,122 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(ttft as number).toBeGreaterThanOrEqual(0);
   });
 
+  it("records the follow-up suggestions call's time and input tokens, and omits them when it did not run", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-trace",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+    const runWith = async (
+      runId: string,
+      extra: { followUpMs?: number; followUpInputTokens?: number },
+    ) =>
+      instrumentAgentLoop({
+        runAgentLoop: async () => ({
+          inputTokens: 100,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+          usageReported: true,
+          ...extra,
+        }),
+        loopOpts: {
+          engine: { name: "builder" },
+          model: "gpt-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId,
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+
+    await runWith("run-follow-up", {
+      followUpMs: 840,
+      followUpInputTokens: 1200,
+    });
+    await runWith("run-no-follow-up", {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.properties).toMatchObject({
+      follow_up_ms: 840,
+      follow_up_input_tokens: 1200,
+    });
+    expect(events[1]?.properties?.follow_up_ms).toBeUndefined();
+    expect(events[1]?.properties?.follow_up_input_tokens).toBeUndefined();
+  });
+
+  it("records how many write receipts were unverified or changed nothing, and omits them for clean runs", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-trace-receipts",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+    const runWith = async (
+      runId: string,
+      extra: {
+        receiptUnverifiedCount?: number;
+        receiptChangedFalseCount?: number;
+      },
+    ) =>
+      instrumentAgentLoop({
+        runAgentLoop: async () => ({
+          inputTokens: 100,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+          usageReported: true,
+          ...extra,
+        }),
+        loopOpts: {
+          engine: { name: "builder" },
+          model: "gpt-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId,
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+
+    await runWith("run-receipts", {
+      receiptUnverifiedCount: 2,
+      receiptChangedFalseCount: 1,
+    });
+    await runWith("run-clean", {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const byRun = (runId: string) =>
+      events.find((event) => event.properties?.run_id === runId);
+    expect(byRun("run-receipts")?.properties).toMatchObject({
+      receipt_unverified_count: 2,
+      receipt_changed_false_count: 1,
+    });
+    expect(
+      byRun("run-clean")?.properties?.receipt_unverified_count,
+    ).toBeUndefined();
+    expect(
+      byRun("run-clean")?.properties?.receipt_changed_false_count,
+    ).toBeUndefined();
+  });
+
   it("omits unreported token totals from the aggregate chat span", async () => {
     const { spans, runtime } = createRecordingTracer();
     __setAgentTraceRuntimeForTests(runtime as any);

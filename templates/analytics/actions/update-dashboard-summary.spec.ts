@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
   upsertDashboardWithRetry: vi.fn(),
   dryRunQuery: vi.fn(),
+  resolvePanel: vi.fn(),
   hasCollabState: vi.fn(async () => false),
   applyText: vi.fn(async () => undefined),
   seedFromText: vi.fn(async () => undefined),
@@ -75,6 +76,24 @@ vi.mock("../server/lib/dashboards-store", () => ({
 
 vi.mock("../server/lib/bigquery", () => ({
   dryRunQuery: mocks.dryRunQuery,
+  dryRunQuerySchema: vi.fn(async () => ({ error: null })),
+}));
+
+// Agent saves run their panels through the source resolver before committing.
+vi.mock(
+  "@agent-native/core/server/request-context",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/server/request-context")
+    >()),
+    getCredentialContext: () => ({
+      userEmail: "alice@example.com",
+      orgId: null,
+    }),
+  }),
+);
+vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
+  resolveAnalyticsPanelSource: mocks.resolvePanel,
 }));
 
 const { default: updateDashboard, validatePanelSql } =
@@ -101,6 +120,11 @@ describe("update-dashboard proof-of-done summary", () => {
     );
     mocks.dryRunQuery.mockReset();
     mocks.dryRunQuery.mockResolvedValue(null);
+    mocks.resolvePanel.mockReset();
+    mocks.resolvePanel.mockResolvedValue({
+      rows: [{ value: 1 }],
+      schema: [{ name: "value", type: "INT64" }],
+    });
     mocks.hasCollabState.mockClear();
     mocks.applyText.mockClear();
     mocks.seedFromText.mockClear();
@@ -112,14 +136,11 @@ describe("update-dashboard proof-of-done summary", () => {
 
   it("uses custom date interpolation for BigQuery dry-run validation", async () => {
     const error = await validatePanelSql({
-      filters: [
-        {
-          id: "timeRange",
-          type: "select",
-          default: "custom",
-          options: [{ value: "30d", label: "Last 30 days" }],
-        },
-      ],
+      variables: {
+        timeRange: "custom",
+        timeRangeStart: "2026-01-01",
+        timeRangeEnd: "2026-01-31",
+      },
       panels: [
         {
           id: "signups",
@@ -135,6 +156,32 @@ describe("update-dashboard proof-of-done summary", () => {
     expect(error).toBeNull();
     expect(mocks.dryRunQuery).toHaveBeenCalledWith(
       expect.stringContaining("'custom' = 'custom' AND event_date >= DATE('"),
+      expect.any(Object),
+    );
+  });
+
+  it("validates with the variable state the page resolves, not guessed filter defaults", async () => {
+    await validatePanelSql({
+      variables: { mode: "from-variable", app: "from-variable" },
+      filters: [
+        { id: "mode", label: "Mode", type: "toggle", default: "on" },
+        { id: "app", label: "App", type: "select", default: "mail" },
+      ],
+      panels: [
+        {
+          id: "p",
+          title: "P",
+          source: "bigquery",
+          chartType: "line",
+          width: 1,
+          sql: "SELECT '{{mode}}' AS m, '{{app}}' AS a",
+        },
+      ],
+    });
+
+    // A toggle resolves empty and a filter beats a same-named variable.
+    expect(mocks.dryRunQuery).toHaveBeenCalledWith(
+      "SELECT '' AS m, 'mail' AS a",
       expect.any(Object),
     );
   });
@@ -275,7 +322,7 @@ describe("update-dashboard proof-of-done summary", () => {
         dashboardId: "weekly",
         ops: [{ op: "remove", path: "/panels/0/title" }],
       }),
-    ).rejects.toThrow(/panel\[0\]\.title is required/);
+    ).rejects.toThrow(/panel "a" title is missing/);
 
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
   });

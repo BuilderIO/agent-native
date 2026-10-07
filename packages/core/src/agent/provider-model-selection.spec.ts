@@ -67,6 +67,7 @@ vi.mock("../server/request-context.js", () => ({
 const {
   ProviderModelSelectionError,
   applyProviderModelSelection,
+  applyUncheckedDefaultModelReplacement,
   normalizeSelectedModels,
   providerForEngineName,
   readProviderModelSelection,
@@ -350,6 +351,73 @@ describe("resolveUncheckedDefaultModelReplacement", () => {
         defaultModel: "gpt-5.6-luna",
       }),
     ).toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe("applyUncheckedDefaultModelReplacement", () => {
+  const builderEngine = { name: "builder", defaultModel: "gpt-6-luna" };
+
+  beforeEach(() => {
+    requestUserEmail = OWNER;
+    requestOrgId = ORG;
+    builderSource = "org";
+  });
+
+  it("labels a model swapped in for an unchecked default as a provider-selection fallback", async () => {
+    await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "builder",
+      "org",
+      ["gpt-6-sol", "claude-opus-5-5"],
+    );
+    expect(
+      await applyUncheckedDefaultModelReplacement(builderEngine, {
+        model: "gpt-6-luna",
+        source: "default",
+      }),
+    ).toEqual({ model: "gpt-6-sol", source: "provider-selection-fallback" });
+  });
+
+  it("keeps the default label while the default is checked or nothing is selected", async () => {
+    const selection = { model: "gpt-6-luna", source: "default" };
+    expect(
+      await applyUncheckedDefaultModelReplacement(builderEngine, selection),
+    ).toBe(selection);
+    await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "builder",
+      "org",
+      ["gpt-6-sol", "gpt-6-luna"],
+    );
+    expect(
+      await applyUncheckedDefaultModelReplacement(builderEngine, selection),
+    ).toBe(selection);
+  });
+
+  it("never replaces a model the request, config or a stored default named", async () => {
+    await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "builder",
+      "org",
+      ["gpt-6-sol"],
+    );
+    for (const source of ["request", "configured", "stored"]) {
+      const selection = { model: "gpt-6-luna", source };
+      expect(
+        await applyUncheckedDefaultModelReplacement(builderEngine, selection),
+      ).toBe(selection);
+    }
+  });
+
+  it("keeps the default label when the selection can't be read", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    settingsReadThrows = true;
+    const selection = { model: "gpt-6-luna", source: "default" };
+    expect(
+      await applyUncheckedDefaultModelReplacement(builderEngine, selection),
+    ).toBe(selection);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });

@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+
 import {
   buildDashboardPanelGroups,
   columnExpansionForDropSlot,
@@ -9,6 +11,12 @@ import {
   MAX_DASHBOARD_COLUMNS,
   type SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import {
+  editDistance,
+  PANEL_CHART_TYPES,
+  PANEL_CONFIG_KEYS,
+  stableStringify,
+} from "../shared/panel-render-contract";
 import { movePanelsById, type PanelOrderTarget } from "./dashboard-panel-order";
 
 export const DASHBOARD_MUTATION_API_TYPES = `type DashboardScript = {
@@ -42,14 +50,14 @@ type PanelTimeScope =
 type PanelConfig = Record<string, unknown> & {
   /** Use "dashboard" for AI-generated first-party panels by default. */
   timeScope?: PanelTimeScope;
-  /** Renderer options only; keep panel fields at the panel level. */
+  /** Renderer options only; other keys are rejected. Honored: ${Object.keys(PANEL_CONFIG_KEYS).join(", ")}. No rolling-average option: add a window-function column in sql and list it in yKeys. */
 };
 
 type PanelPatch = {
   title?: string;
   sql?: string;
   source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus" | "program";
-  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "funnel" | "section" | "heatmap" | "callout" | "extension";
+  chartType?: ${PANEL_CHART_TYPES.map((type) => `"${type}"`).join(" | ")};
   width?: number;
   columns?: number;
   tab?: string;
@@ -97,7 +105,7 @@ type PanelSelection = {
   setSql(sql: string): void;
   setWidth(width: number): void;
   setConfig(patch: Record<string, unknown>): void;
-  setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yAxis.format" or "config.yAxis.format"
+  setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yFormatter" or "config.yFormatter"
   duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
@@ -130,7 +138,7 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panel("retention").set({"width":2,"config":{"description":"Updated definition."}});',
   'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).moveToTop();',
   'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);',
-  'dashboard.panel("retention").setConfigPath("yAxis.format","percent");',
+  'dashboard.panel("retention").setConfigPath("yFormatter","percent");',
   'dashboard.section("retention-activity-section").append(["repeat-users","retention-over-time"]);',
   `dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter}"}).atTop();`,
   `dashboard.insertPanel({"id":"new-chart","title":"New Chart","source":"first-party","chartType":"line","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_date AS date, COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter} GROUP BY event_date ORDER BY event_date"}).nextTo("retention-over-time");`,
@@ -206,6 +214,10 @@ export type DashboardMutationOperation =
 export interface DashboardMutationResult {
   operations: DashboardMutationOperation[];
   commandLog: string[];
+  /** False when the resulting config is deep-equal to the one passed in. */
+  changed: boolean;
+  /** 1-based positions of operations that left the dashboard exactly as it was. */
+  noopOps: number[];
   changedPanelIds: string[];
   removedPanelIds: string[];
   insertedPanelIds: string[];
@@ -355,26 +367,6 @@ function compactList(values: string[], max = 20): string {
   const items = values.filter(Boolean).slice(0, max);
   const suffix = values.length > max ? `, ... (${values.length} total)` : "";
   return `${items.join(", ")}${suffix}`;
-}
-
-function editDistance(a: string, b: string): number {
-  const left = a.toLowerCase();
-  const right = b.toLowerCase();
-  const dp = Array.from({ length: left.length + 1 }, (_, i) =>
-    Array.from({ length: right.length + 1 }, (_2, j) => (i === 0 ? j : 0)),
-  );
-  for (let i = 1; i <= left.length; i++) dp[i][0] = i;
-  for (let i = 1; i <= left.length; i++) {
-    for (let j = 1; j <= right.length; j++) {
-      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost,
-      );
-    }
-  }
-  return dp[left.length][right.length];
 }
 
 function nearest(value: string, candidates: string[], limit = 3): string[] {
@@ -801,8 +793,11 @@ function setConfigPath(
     .filter(Boolean);
   if (segments[0] === "config") segments.shift();
   if (segments.length === 0) {
-    throw new Error(
-      'setConfigPath path must point under panel.config, e.g. "yAxis.format".',
+    fail(
+      'setConfigPath path must point under panel.config, e.g. "yFormatter".',
+      {
+        errorCode: "invalid_config_path",
+      },
     );
   }
   for (const segment of segments) {
@@ -847,6 +842,43 @@ function duplicatePanel(
   return insertPanel(config, duplicate, target);
 }
 
+function snapshotPanels(
+  config: Record<string, unknown>,
+): Map<string, { json: string; index: number }> {
+  const snapshot = new Map<string, { json: string; index: number }>();
+  if (!Array.isArray(config.panels)) return snapshot;
+  config.panels.forEach((panel, index) => {
+    const id =
+      panel && typeof panel === "object"
+        ? panelId(panel as Record<string, unknown>)
+        : "";
+    if (id) snapshot.set(id, { json: stableStringify(panel), index });
+  });
+  return snapshot;
+}
+
+function valueAtPath(value: unknown, path: string): unknown {
+  let cursor = value;
+  for (const segment of path.split(".")) {
+    if (!cursor || typeof cursor !== "object") return undefined;
+    cursor = (cursor as Record<string, unknown>)[segment];
+  }
+  return cursor;
+}
+
+function dashboardFieldValue(
+  config: Record<string, unknown>,
+  field: string,
+): unknown {
+  const filterId = /^filters\.(.+)\.default$/.exec(field)?.[1];
+  if (filterId === undefined) return config[field];
+  return Array.isArray(config.filters)
+    ? (config.filters as Array<Record<string, unknown>>).find(
+        (item) => item?.id === filterId,
+      )?.default
+    : undefined;
+}
+
 export function applyDashboardMutationOperations(
   config: Record<string, unknown>,
   operations: DashboardMutationOperation[],
@@ -856,16 +888,32 @@ export function applyDashboardMutationOperations(
   }
 
   const commandLog: string[] = [];
-  const changedPanelIds = new Set<string>();
+  const touchedPanelIds = new Set<string>();
+  const movedPanelIds = new Set<string>();
   const removedPanelIds = new Set<string>();
   const insertedPanelIds = new Set<string>();
   const dashboardFieldsChanged = new Set<string>();
+  const dashboardFieldsBefore = new Map<string, string>();
+  const noopOps: number[] = [];
+  const startPanels = snapshotPanels(config);
+  const startJson = stableStringify(config);
+  // Plain JSON order is stable under these in-place edits; a missed no-op
+  // only means an op is reported as effective, never the reverse.
+  let opSnapshot = JSON.stringify(config);
+  const rememberDashboardField = (field: string) => {
+    if (dashboardFieldsBefore.has(field)) return;
+    dashboardFieldsBefore.set(
+      field,
+      stableStringify(dashboardFieldValue(config, field)),
+    );
+  };
 
   for (let opIndex = 0; opIndex < operations.length; opIndex++) {
     const op = operations[opIndex];
     try {
       switch (op.op) {
         case "movePanels": {
+          for (const id of op.panelIds) movedPanelIds.add(id);
           const target = targetFromOperation(op);
           if (isVisualPlacementTarget(target)) {
             if (op.panelIds.length !== 1) {
@@ -878,7 +926,7 @@ export function applyDashboardMutationOperations(
               op.panelIds[0],
               target,
             );
-            changedPanelIds.add(op.panelIds[0]);
+            touchedPanelIds.add(op.panelIds[0]);
             commandLog.push(`movePanels(${op.panelIds[0]}) -> index ${index}`);
             break;
           }
@@ -888,7 +936,7 @@ export function applyDashboardMutationOperations(
           } catch (err) {
             enhancePanelError(config, err);
           }
-          for (const id of result.movedPanelIds) changedPanelIds.add(id);
+          for (const id of result.movedPanelIds) touchedPanelIds.add(id);
           commandLog.push(
             `movePanels(${result.movedPanelIds.join(", ")}) -> index ${result.insertIndex}`,
           );
@@ -902,7 +950,7 @@ export function applyDashboardMutationOperations(
             (panel) => !ids.includes(panelId(panel)),
           );
           for (const id of ids) {
-            changedPanelIds.add(id);
+            touchedPanelIds.add(id);
             removedPanelIds.add(id);
           }
           commandLog.push(`removePanels(${ids.join(", ")})`);
@@ -910,24 +958,35 @@ export function applyDashboardMutationOperations(
         }
         case "updatePanel": {
           const panel = requirePanel(panelsFromConfig(config), op.panelId);
-          const changedFields = patchPanel(panel, op.patch);
-          changedPanelIds.add(op.panelId);
+          const before = JSON.parse(JSON.stringify(panel));
+          const changedFields = patchPanel(panel, op.patch).filter(
+            (field) =>
+              stableStringify(valueAtPath(before, field)) !==
+              stableStringify(valueAtPath(panel, field)),
+          );
+          touchedPanelIds.add(op.panelId);
           commandLog.push(
-            `updatePanel(${op.panelId}: ${changedFields.join(", ") || "no fields"})`,
+            `updatePanel(${op.panelId}: ${changedFields.join(", ") || "no change"})`,
           );
           break;
         }
         case "updatePanelPath": {
           const panel = requirePanel(panelsFromConfig(config), op.panelId);
-          const changedField = setConfigPath(panel, op.path, op.value);
-          changedPanelIds.add(op.panelId);
-          commandLog.push(`updatePanelPath(${op.panelId}: ${changedField})`);
+          const before = JSON.parse(JSON.stringify(panel));
+          const field = setConfigPath(panel, op.path, op.value);
+          const unchanged =
+            stableStringify(valueAtPath(before, field)) ===
+            stableStringify(valueAtPath(panel, field));
+          touchedPanelIds.add(op.panelId);
+          commandLog.push(
+            `updatePanelPath(${op.panelId}: ${unchanged ? "no change" : field})`,
+          );
           break;
         }
         case "insertPanel": {
           const index = insertPanel(config, op.panel, targetFromOperation(op));
           const id = assertString(op.panel.id, "panel.id");
-          changedPanelIds.add(id);
+          touchedPanelIds.add(id);
           insertedPanelIds.add(id);
           commandLog.push(`insertPanel(${id}) -> index ${index}`);
           break;
@@ -940,7 +999,7 @@ export function applyDashboardMutationOperations(
             op.patch ?? {},
             targetFromOperation(op),
           );
-          changedPanelIds.add(op.newPanelId);
+          touchedPanelIds.add(op.newPanelId);
           insertedPanelIds.add(op.newPanelId);
           commandLog.push(
             `duplicatePanel(${op.panelId} -> ${op.newPanelId}) -> index ${index}`,
@@ -949,6 +1008,7 @@ export function applyDashboardMutationOperations(
         }
         case "setDashboard": {
           for (const [key, value] of Object.entries(op.patch)) {
+            rememberDashboardField(key);
             config[key] = value;
             dashboardFieldsChanged.add(key);
           }
@@ -958,6 +1018,7 @@ export function applyDashboardMutationOperations(
           break;
         }
         case "setFilterDefault": {
+          rememberDashboardField(`filters.${op.filterId}.default`);
           setFilterDefault(config, op.filterId, op.value);
           dashboardFieldsChanged.add(`filters.${op.filterId}.default`);
           commandLog.push(
@@ -971,17 +1032,43 @@ export function applyDashboardMutationOperations(
           );
       }
     } catch (err: any) {
-      throw new Error(`operation ${opIndex + 1} (${op.op}): ${err.message}`);
+      fail(`operation ${opIndex + 1} (${op.op}): ${err.message}`, {
+        errorCode: "invalid_dashboard_mutation",
+      });
     }
+    const afterOp = JSON.stringify(config);
+    if (afterOp === opSnapshot) noopOps.push(opIndex + 1);
+    opSnapshot = afterOp;
   }
+
+  const endPanels = snapshotPanels(config);
+  const panelChanged = (id: string) => {
+    const before = startPanels.get(id);
+    const after = endPanels.get(id);
+    if (!before || !after) return Boolean(before) !== Boolean(after);
+    return (
+      before.json !== after.json ||
+      (movedPanelIds.has(id) && before.index !== after.index)
+    );
+  };
 
   return {
     operations,
     commandLog,
-    changedPanelIds: Array.from(changedPanelIds),
-    removedPanelIds: Array.from(removedPanelIds),
-    insertedPanelIds: Array.from(insertedPanelIds),
-    dashboardFieldsChanged: Array.from(dashboardFieldsChanged),
+    changed: stableStringify(config) !== startJson,
+    noopOps,
+    changedPanelIds: Array.from(touchedPanelIds).filter(panelChanged),
+    removedPanelIds: Array.from(removedPanelIds).filter(
+      (id) => startPanels.has(id) && !endPanels.has(id),
+    ),
+    insertedPanelIds: Array.from(insertedPanelIds).filter(
+      (id) => endPanels.has(id) && !startPanels.has(id),
+    ),
+    dashboardFieldsChanged: Array.from(dashboardFieldsChanged).filter(
+      (field) =>
+        dashboardFieldsBefore.get(field) !==
+        stableStringify(dashboardFieldValue(config, field)),
+    ),
   };
 }
 

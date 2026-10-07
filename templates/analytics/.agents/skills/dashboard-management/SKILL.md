@@ -1,9 +1,7 @@
 ---
 name: dashboard-management
 description: >-
-  How analytics dashboards are stored, created, and modified. Covers SQL dashboard tables,
-  legacy settings migration, folders, valid panel sources, layout shape, and safe update
-  patterns. Use when creating, organizing, sharing, or modifying Analytics dashboards.
+  Create, edit, organize, or share Analytics dashboards and panels: sources, layout, mutate-dashboard edits and verification. Use before any dashboard or panel change.
 ---
 
 # Dashboard Management
@@ -52,8 +50,8 @@ this organization-scoped operation.
 
 Use `mutate-dashboard` for existing dashboard edits. It resolves the current
 user/org context, validates the resulting config, writes the SQL-backed record,
-syncs collab, and returns compact proof. Use `update-dashboard` for new
-full-config saves, UI full-config saves, or explicitly requested low-level
+syncs collab, and returns a compact result with a `verified` flag. Use
+`update-dashboard` for new full-config saves, UI full-config saves, or explicitly requested low-level
 JSON-pointer edits.
 
 Every meaningful dashboard save snapshots the previous state into
@@ -66,7 +64,7 @@ Saved analyses follow the same undo model with `analysis_revisions`,
 
 Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
 dashboard config. Those bypass the dashboard action's access checks, SQL
-validation, collab sync, and proof-of-done return. If a dashboard action fails
+validation, collab sync, and verification. If a dashboard action fails
 because the argument shape was wrong, fix that action's arguments and retry
 once — do not switch to db-patch or raw SQL.
 
@@ -124,7 +122,9 @@ When the user asks for a dashboard:
 3. If a metric is not documented, do not guess column names. Ask for the table/columns or introspect the provider schema, then propose a dictionary entry with `save-data-dictionary-entry`.
 4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
 5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; use `config.extensionId` for ordinary author-selected shared embeds. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot (see "Embedding An Extension As A Panel").
-6. Persist with `update-dashboard`, not raw SQL or settings writes.
+6. Persist with `update-dashboard` (load it with `tool-search` — it is not on the
+   initial tool surface), not raw SQL or settings writes. For a large first-party
+   dashboard, load `compose-dashboard` the same way in one `tool-search` call.
 7. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
 
 An explicit dashboard request authorizes the complete non-destructive build in
@@ -142,6 +142,18 @@ pnpm action navigate --view=adhoc --dashboardId=weekly-metrics
 ```
 
 The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. Never work around validation by writing directly to a table.
+
+### Replicating Or Adapting Another Dashboard
+
+When the user asks to replicate, clone, or adapt an existing dashboard into a new
+one, call `search-dashboard-references` with focused terms first. It searches
+accessible active saved dashboards (ids, names, descriptions, serialized config),
+including legacy ones. Inspect each result with `get-sql-dashboard` when `kind`
+is `sql`, or `get-explorer-dashboard` when it is `explorer`. A result is a
+reference, not proof its source is authoritative for the new request: check the
+provider and scope the user asked for before copying its source semantics, and do
+not route a replication request to first-party Analytics by default. This applies
+to a new dashboard, not to editing the dashboard that is already open.
 
 ## Dual-Axis Charts
 
@@ -216,155 +228,12 @@ creates deterministic `native-*-v2-*` dashboard copies, and preserves the
 extension-backed originals and any existing v2 edits. Do not add these to the
 root demo bootstrap or silently auto-bind them to guessed provider schemas.
 
-## When To Use An Extension Instead
+## Custom Blocks
 
-Native Analytics dashboards are JSON configs rendered by the built-in dashboard
-components. Use native dashboard actions only when the request fits that model:
-standard panels, supported chart types, filters, variables, sections, and grid
-layout. Dual-axis charts are part of that model — build one with
-`config.rightYKeys`, never as an extension.
-
-If the user asks for a dashboard or analytical surface that needs bespoke UI or
-code beyond the dashboard JSON/component model, create an extension and embed it
-in the dashboard. Examples include custom interaction flows, non-standard
-visualizations, complex multi-step workflows, highly custom layouts, custom
-client-side state, or a dashboard-like app that needs behavior the built-in
-renderer cannot express. In production mode, call `create-extension`
-automatically, then call `update-dashboard` with one or more
-`chartType: "extension"` panels using `config.extensionId`. Never leave the
-extension as a standalone Analytics result or direct the user to the Extensions
-page.
-
-## Embedding An Extension As A Panel
-
-Use `chartType: "extension"` to add an extension box alongside normal SQL
-charts. The panel skips `source` and `sql`. For ordinary requests such as "put
-X in this dashboard," save the author-selected extension id in
-`config.extensionId`. This makes the selection part of the shared dashboard and
-keeps the widget present in scheduled report captures:
-
-```jsonc
-{
-  "id": "pipeline-widget",
-  "title": "Pipeline Widget",
-  "chartType": "extension",
-  "width": 3,
-  "config": { "extensionId": "extension-123" },
-}
-```
-
-Direct embeds receive the dashboard id, name, description, current filters,
-and panel context. Embedding does not grant extension access, so share the
-extension with the dashboard audience.
-
-Use a stable `config.extensionSlotId` only when the user explicitly wants each
-viewer to choose or install their own widget:
-
-```text
-analytics.dashboard.<dashboard-id>.panel.<panel-id>
-```
-
-Create or choose the extension, call `add-extension-slot-target` with the
-extension id and slot id, then call `install-extension` with the same values.
-The dashboard panel is shared, while the installed extension is per-user.
-Empty slots show the normal install affordance instead of a broken iframe.
-
-```jsonc
-{
-  "id": "pipeline-widget",
-  "title": "Pipeline Widget",
-  "chartType": "extension",
-  "width": 3,
-  "config": {
-    "extensionSlotId": "analytics.dashboard.weekly-metrics.panel.pipeline-widget",
-  },
-}
-```
-
-Notes:
-
-- Both direct and slot-backed extensions receive dashboard and panel context.
-- Installs and extension access are per viewer. Sharing the dashboard does not
-  automatically install or grant access to its extension for other viewers.
-- Slot installs are per-user preferences. Different viewers can see different
-  widgets, and scheduled reports running as a service identity may show an
-  empty slot. This is why slots are opt-in rather than the default.
-
-## Cloning A Direct-Extension Dashboard (e.g. per-customer copies)
-
-When the user asks for a copy of an existing extension-backed dashboard for a
-different customer/org (for example "make an Intuit version of the Roku usage
-dashboard"), follow this playbook. Extension bodies are frequently tens of
-thousands of characters. The reliable path is to read+transform+write the body
-INSIDE `run-code` (where `workspaceRead` returns the full file) and then create
-from that written file — never by pulling the body into chat context first or
-re-typing it as a `content` argument.
-
-1. `get-sql-dashboard` with `includeConfig: true` on the source dashboard and
-   confirm the target panel is a `chartType: "extension"` panel with
-   `config.extensionId`; grab that extension id. For a slot-backed panel, clone
-   the dashboard panel with a new stable `extensionSlotId`, then target and
-   install the desired extension into that slot instead of using this body-copy
-   playbook.
-2. `get-extension` for that id with `forceContent: true` **exactly once**. Reuse
-   that body for the rest of the turn — a second same-run read intentionally
-   omits `content` and returns `contentOmitted` instead. That is not the content
-   disappearing; use the copy you already have. Do NOT try to re-fetch the body
-   with `run-code` (`appAction('get-extension')`) to page past a display
-   truncation — the same-run omit makes it return empty `content`, wasting turns.
-   If you need the full body again, read the workspace resource file (step 5) or
-   set `forceContent: true` on a single native `get-extension`.
-3. Change ONLY the small customer-specific static config (e.g. the
-   `ACCOUNT_USAGE_STATIC` block: company name, title, org-discovery filters,
-   messaging). Prefer a focused `update-extension` edit/patch over regenerating
-   the entire HTML.
-4. **Call `create-extension` / `update-extension` as native tools.** They are
-   mutating actions and are NOT callable from `run-code` / `appAction` (the
-   sandbox bridge only exposes read-only actions). Do not try to create or update
-   an extension from inside `run-code`.
-5. **If the source body already exists as a workspace/shared resource file**
-   (e.g. a pre-built `intuit-analytics-extension.html`), do the read AND the
-   customer swap in ONE `run-code` call, then create from the written file:
-   - Inside `run-code`: `const src = await workspaceRead('<source>.html')`
-     returns the WHOLE file (it auto-pages; there is no 50k cap here), do the
-     small string-replace on the static config block, then
-     `await workspaceWrite('<target>.html', modified)`.
-   - Then call `create-extension` (native) with
-     `contentFromWorkspaceFile: '<target>.html'` and leave `content` empty — the
-     server reads the full file verbatim.
-   Do NOT read the source body with the `resources` read tool (or `get-extension`)
-   first just to transform it: that display is capped and wastes a turn. And do
-   NOT re-emit an 80k+ char body as the `content` argument — it gets cut off
-   mid-stream. `contentFromAttachment` only sees files the user pasted into chat,
-   not workspace resources. `create-extension`/`update-extension` are mutating and
-   cannot run from `run-code`, so only the read+write+transform happens there.
-6. Finally `update-dashboard` to save a new dashboard embedding the new
-   extension panel (`chartType: "extension"`, `config.extensionId`), then
-   `navigate` to it.
-
-## Repairing An Existing Extension-Backed Dashboard
-
-When the user asks to fix data loading in an existing or migrated
-extension-backed dashboard, treat the current extension body as user-authored
-design. Read the dashboard config and extension once, identify the smallest
-data-loading seam, and call `update-extension` with focused `patches` or
-`edits`. Preserve the existing layout, CSS, copy, and interactions. Do not
-send a reconstructed full `content` body for a data-only repair;
-`update-extension` blocks full-body replacement unless
-`allowFullReplacement: true` is explicitly supplied. Use that flag only for a
-user-requested broad visual rewrite or a complete replacement body supplied by
-the user. If a focused edit fails, inspect the current body and change the
-target rather than retrying the same arguments.
-
-### Display truncation is cosmetic — do not chase the "missing" tail
-
-A tool result ending in `...[truncated — full result was N chars; only first
-50,000 shown]` (from the `resources` read tool or `get-extension`) means only the
-DISPLAYED text was capped. The file is intact. `run-code`'s `workspaceRead`
-returns the full N chars, and `contentFromWorkspaceFile` hosts the full file.
-Never read the same file twice or try to "page the rest" to recover the tail —
-that is the single biggest source of wasted turns on clone requests. Decide to
-clone, then go straight to the `run-code` read+transform+write path in step 5.
+A Custom Block is a sandboxed extension embedded as a `chartType: "extension"`
+panel (`config.extensionId`). It is the exception, not the default: native panels
+and Data Programs come first, and dual-axis charts are native (`config.rightYKeys`).
+Read `custom-blocks` before creating, embedding, cloning, or repairing one.
 
 ## Config Shape
 
@@ -470,147 +339,23 @@ form for short layout/config edits only. Large SQL payloads belong in the
 server-side first-party metric catalog, not in a prompt argument.
 The server parses only documented `dashboard.*` method calls, applies the
 resulting operations in memory, validates the final dashboard config, writes
-SQL once, syncs collab, and returns compact proof.
+SQL once, syncs collab, and returns a compact result with a `verified` flag.
 
 Arguments must be JSON-compatible literals, so quote object keys. Variables,
 imports, loops, functions, templates, network, filesystem, DB access, and
 calling other actions from the script are not available.
 
-```ts
-type DashboardMutationApi = {
-  dashboard: {
-    set(patch: DashboardPatch): void;
-    setFilterDefault(
-      filterId: string,
-      value: string | number | boolean | null,
-    ): void;
-    panel(id: string): PanelSelection;
-    section(id: string): SectionSelection;
-    panels(ids: string[]): PanelSelection;
-    panelsMatching(filter: PanelFilter): PanelSelection;
-    insertPanel(panel: PanelInput): InsertedPanel;
-  };
-};
-
-type DashboardPatch = {
-  name?: string;
-  description?: string;
-  columns?: number;
-  filters?: unknown[];
-  variables?: Record<string, string>;
-  parentId?: string;
-};
-
-type PanelTimeScope =
-  | "dashboard"
-  | "fixed-window"
-  | "cohort-history"
-  | "all-time";
-
-type PanelConfig = Record<string, unknown> & {
-  // Use "dashboard" for AI-generated first-party panels by default.
-  timeScope?: PanelTimeScope;
-  // Fixed bar width in pixels for bar charts.
-  // Series to plot against a second, right-hand y-axis. See "Dual-Axis Charts".
-  rightYKeys?: string[];
-  rightYFormatter?: "number" | "currency" | "percent";
-  // Exact series-key to display-label aliases for legends and tooltips.
-  seriesLabels?: Record<string, string>;
-};
-
-type PanelPatch = {
-  title?: string;
-  sql?: string;
-  source?:
-    | "bigquery"
-    | "ga4"
-    | "amplitude"
-    | "first-party"
-    | "demo"
-    | "prometheus"
-    | "program";
-  chartType?:
-    | "line"
-    | "area"
-    | "bar"
-    | "metric"
-    | "table"
-    | "pie"
-    | "section"
-    | "funnel"
-    | "heatmap"
-    | "callout"
-    | "extension";
-  width?: number;
-  columns?: number;
-  tab?: string;
-  config?: PanelConfig;
-  description?: string;
-};
-
-type PanelInput = PanelPatch & {
-  id: string;
-  title: string;
-  chartType: NonNullable<PanelPatch["chartType"]>;
-  source?: PanelPatch["source"]; // required for non-section / non-extension panels
-  sql?: string; // required for non-section / non-extension panels
-  // For chartType "extension": use config.extensionId by default; extensionSlotId is opt-in per-viewer content.
-};
-
-type PanelFilter = {
-  id?: string;
-  ids?: string[];
-  idIncludes?: string;
-  title?: string;
-  titleIncludes?: string;
-  chartType?: PanelPatch["chartType"];
-  source?: PanelPatch["source"];
-  tab?: string;
-  isSection?: boolean;
-};
-
-type PanelSelection = {
-  moveToTop(): void;
-  moveToBottom(): void;
-  moveBefore(panelId: string): void;
-  moveAfter(panelId: string): void;
-  moveToIndex(index: number): void;
-  moveNextTo(panelId: string): void;
-  nextTo(panelId: string): void;
-  moveToRow(rowNumber: number): void;
-  moveToRowStart(rowNumber: number): void;
-  moveToRowEnd(rowNumber: number): void;
-  atRow(rowNumber: number): void;
-  atRowStart(rowNumber: number): void;
-  atRowEnd(rowNumber: number): void;
-  remove(): void;
-  set(patch: PanelPatch): void;
-  setTitle(title: string): void;
-  setSql(sql: string): void;
-  setWidth(width: number): void;
-  setConfig(patch: Record<string, unknown>): void;
-  setConfigPath(path: string, value: unknown): void;
-  duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
-};
-
-type SectionSelection = PanelSelection & {
-  append(panelIds: string[]): void;
-};
-
-type PanelPlacement = {
-  atTop(): void;
-  atBottom(): void;
-  before(panelId: string): void;
-  after(panelId: string): void;
-  atIndex(index: number): void;
-  nextTo(panelId: string): void;
-  atRow(rowNumber: number): void;
-  atRowStart(rowNumber: number): void;
-  atRowEnd(rowNumber: number): void;
-};
-
-type InsertedPanel = PanelPlacement;
-```
+The complete typed API (`dashboard.*`, panel selections, `PanelPatch`,
+`PanelInput`, `PanelFilter`) is returned by `mutate-dashboard` called with only
+`returnTypes: true`. Subjects: `dashboard.set`, `setFilterDefault`, `panel`,
+`panels`, `panelsMatching`, `section`, `insertPanel`. Selection methods:
+`moveToTop`, `moveToBottom`, `moveBefore`, `moveAfter`, `moveToIndex`,
+`moveNextTo`, `moveToRow`, `remove`, `set`, `setTitle`, `setSql`, `setWidth`,
+`setConfig`, `setConfigPath`, `duplicate`. Inserted and duplicated panels take
+one chained placement: `atTop`, `atBottom`, `before`, `after`, `atIndex`,
+`nextTo`, `atRow`, `atRowStart`, `atRowEnd`. Panel `config` holds renderer
+options (`xKey`, `yKey`, `columns`, formatters); `sql`, `chartType`, `source`,
+`title`, and `width` are panel fields set with `setSql` or `set`.
 
 Examples:
 
@@ -663,11 +408,15 @@ Native tool call:
 Use `update-dashboard` only for new full-config saves, UI full-config saves, or
 when the user specifically requests low-level JSON-pointer edits.
 
-`get-sql-dashboard` is compact by default. It returns panel summaries, ids,
-titles, chart types, sources, layout groups, `layout.panelOrder`, and
-`layout.firstPanelIds` without embedding every panel's full SQL. Use that
-compact result to find panel ids and verify order. Pass `includeConfig: true`
-only when you need full panel SQL/config for a detailed edit.
+`get-sql-dashboard` is compact by default: per-panel summaries (ids, titles,
+chart types, sources, `bindings` — the config keys that name result columns —
+`sqlChars`, `sqlHash`, `configKeys`), layout groups, `layout.panelOrder`,
+`layout.firstPanelIds`, and a `revision`. Pass `panelIds: ["panel-id"]` to get the
+full SQL and config of just those panels in `panelDetails`; ids that do not exist
+come back in `missingPanelIds`. `includeConfig: true` returns every panel's SQL
+and config, but past ~12k characters it returns the compact summaries with
+`truncated: true` and `omittedPanelIds` instead, so name the panels you need with
+`panelIds`.
 
 After a mutation, navigate to the dashboard if the user is elsewhere. The app syncs through the framework's polling/query invalidation path.
 
@@ -688,28 +437,70 @@ Do not do index arithmetic with `/panels/<index>` unless the user specifically
 asks for a low-level JSON-pointer edit. Use `moveBefore`, `moveAfter`,
 `moveToTop`, `moveToBottom`, or `moveToIndex` against panel ids instead.
 
+For visible placement requests like "second row" or "next to return rates", use
+row-aware placement: `dashboard.insertPanel({...}).nextTo("retention-over-time")`,
+`.atRow(2)`, or `dashboard.panel("panel-a").moveNextTo("panel-b")`. These keep
+panels in the intended rendered row and rebalance that row when needed. In
+`operations`, `movePanels`, `insertPanel`, and `duplicatePanel` take the same
+placement as fields: `position`, `index`, `beforePanelId`, `afterPanelId`,
+`nextToPanelId` (same visible row, after that panel), or `rowNumber` (1-based
+visible row) with `rowPosition` `start` or `end` (default `end`).
+
 `get-sql-dashboard` returns `layout.panelOrder`, `layout.firstPanelIds`, and
-row/group summaries. Use those fields for orientation and verification instead
-of re-reading stale screenshots or counting positions from memory.
+row/group summaries. Use `layout.groups[].rows[].rowNumber/panelIds` to read
+where panels sit instead of counting positions from memory. Layout says nothing
+about whether a chart renders: the `mutate-dashboard` verification result and
+`inspect-dashboard-panel` are the proof.
 
 ### Existing Dashboard Edits
 
-When the user asks to change existing panels:
+When the user asks to change an existing panel on the open dashboard:
 
-1. Read the current dashboard with `get-sql-dashboard` compact mode unless full
-   SQL/config is required.
+1. Read only that panel: `get-sql-dashboard` with `panelIds: ["<panel-id>"]`.
+   The compact `bindings` of every panel show which result columns its chart is
+   bound to. The open dashboard and selected panel are in `<current-screen>`.
 2. Call `mutate-dashboard` once with every change in `operations`. Use panel
    ids, not shifted array indexes. The short `code` form is only for compact
    layout/config edits; do not stream a large multi-panel SQL script.
-3. Verify the returned `panelCount`, `appliedOps`, `firstPanelIds`, and
-   `summary`. If possible, read the affected panels back and confirm the exact
-   fields changed.
+3. Read the verification result before saying anything about the chart.
+   `verified: true` means the saved config renders. On `verified: false`, an
+   error, or the user saying the change is not visible, call
+   `inspect-dashboard-panel` for that panel, fix what it reports, and verify
+   again. Never describe a visible change you have not verified.
 
 For SQL-only panel edits, use `dashboard.panel("id").setSql("...")`. If the
 metric semantics changed, also update the visible definition with
 `setConfigPath("description", "...")` or `set({ "description": "..." })`. If
 the title, source, chart type, width, or config shape changes together, put them
 in the same `set({...})` call.
+
+### Reading Panel State
+
+- "No data" means the panel's resolved SQL returned zero rows: dashboard
+  filters or `{{timeRange}}` bounds, a stale `config.pivot`, or a rewritten query
+  that no longer returns the columns the config names.
+- A banner reading "Ignored missing result columns" means `config` names a
+  column (`xKey`, `yKey`, `yKeys`, `rightYKeys`, `barKeys`, or a table
+  `columns[].key`) the query does not return. A missing banner is not proof the
+  chart shows what you intended.
+- Only columns listed in `config.yKeys` (or `yKey`) are plotted; an extra SQL
+  column the config does not name never appears.
+- `config.pivot` (`{ xKey, seriesKey, valueKey }`) reshapes long-format rows into
+  one series per `seriesKey` value and drops every other column. If the query now
+  returns wide-format rows, remove `pivot` or the panel shows "No data".
+- Config keys the renderer does not honor are ignored. `mutate-dashboard`
+  rejects them on the panels you change and lists the honored keys; read that
+  error instead of retrying the same key.
+
+### Rolling Averages And Trend Lines
+
+There is no native rolling or moving-average option. Add a window-function column
+to the panel SQL, for example
+`AVG(value) OVER (ORDER BY week ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS value_4wk_avg`,
+and list it in `config.yKeys`. For bars plus a line, use `chartType: "combo"`
+with `config.barKeys` naming the bar series; the other `yKeys` draw as lines.
+With `config.pivot` set, extra columns are dropped, so remove `pivot` or emit the
+average as an extra series row.
 
 ### First-Party User Metrics
 
@@ -760,8 +551,6 @@ pnpm action compose-dashboard --dashboardId first-party-overview --title "First-
 
 ## Reliable Bulk Edits
 
-This is the dashboard-specific application of the framework-wide `reliable-mutations` skill — read that for the general rule (one atomic write, verify end state, report proof-of-done).
-
 Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` calls (one per panel, plus schema-discovery calls) will blow that budget and leave the dashboard in a partial state — earlier inserts looked like they succeeded (✓), but nothing actually persisted. Avoid this:
 
 - **For a large first-party dashboard, use `compose-dashboard`** (see the section above): name the metrics, the server generates the panels in one call. Do not hand-author the big config.
@@ -773,10 +562,11 @@ Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` cal
   - To make nested config edits, use
     `setConfigPath("yAxis.format", "percent")` instead of resending/clobbering
     the whole nested object.
-- **Always verify the returned proof-of-done and report it.**
-  `mutate-dashboard` returns `panelCount`, `appliedOps`, `panelOrder`,
-  `firstPanelIds`, `changedPanelIds`, `commandLog`, and a `summary` string.
-  Tell the user the resulting panel count instead of assuming success.
+- **Read the verification result and report it.** `mutate-dashboard` returns
+  `verified`, `panelCount`, `appliedOps`, `panelOrder`, `firstPanelIds`,
+  `changedPanelIds`, `commandLog`, and a `summary` string. The tool's own echo is
+  not proof the chart renders: only `verified: true` is. On `verified: false`,
+  call `inspect-dashboard-panel` for the changed panels.
 
 ```bash
 # Add or edit several panels in ONE atomic call (never one call per panel)

@@ -6,6 +6,7 @@ import {
   type SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
 import {
+  DASHBOARD_MUTATION_API_TYPES,
   DASHBOARD_MUTATION_EXAMPLES,
   applyDashboardMutationOperations,
   parseDashboardMutationScript,
@@ -431,5 +432,128 @@ describe("dashboard mutation api", () => {
         { op: "updatePanel", panelId: "a", patch: { id: "renamed" } },
       ]),
     ).toThrow(/operation 1 \(updatePanel\).*panel\.id cannot be changed/);
+  });
+
+  it("teaches only config keys the renderer honors", () => {
+    expect(DASHBOARD_MUTATION_API_TYPES).not.toContain("yAxis");
+    expect(DASHBOARD_MUTATION_API_TYPES).toContain('e.g. "yFormatter"');
+    expect(DASHBOARD_MUTATION_EXAMPLES).toContain(
+      'dashboard.panel("retention").setConfigPath("yFormatter","percent");',
+    );
+    expect(DASHBOARD_MUTATION_API_TYPES).toMatch(/chartType\?:.*"combo"/);
+    expect(DASHBOARD_MUTATION_API_TYPES).toContain("window-function column");
+    expect(DASHBOARD_MUTATION_EXAMPLES.join("\n")).not.toContain("yAxis");
+    expect(() =>
+      applyDashboardMutationOperations(clone(config()), [
+        { op: "updatePanelPath", panelId: "a", path: "config", value: 1 },
+      ]),
+    ).toThrow(/e\.g\. "yFormatter"/);
+  });
+
+  describe("effective-change diff", () => {
+    it("derives changed ids and the command log from before and after", () => {
+      const root = clone(config());
+
+      const result = applyDashboardMutationOperations(root, [
+        { op: "updatePanel", panelId: "a", patch: { title: "Renamed" } },
+        {
+          op: "updatePanel",
+          panelId: "b",
+          patch: { title: "Signed-In Daily Active Visitors" },
+        },
+        {
+          op: "updatePanelPath",
+          panelId: "c",
+          path: "yFormatter",
+          value: "percent",
+        },
+        {
+          op: "updatePanelPath",
+          panelId: "c",
+          path: "yFormatter",
+          value: "percent",
+        },
+      ]);
+
+      expect(result.changed).toBe(true);
+      expect(result.changedPanelIds).toEqual(["a", "c"]);
+      expect(result.noopOps).toEqual([2, 4]);
+      expect(result.commandLog).toEqual([
+        "updatePanel(a: title)",
+        "updatePanel(b: no change)",
+        "updatePanelPath(c: config.yFormatter)",
+        "updatePanelPath(c: no change)",
+      ]);
+    });
+
+    it("reports a fully identical batch as unchanged", () => {
+      const root = clone(config());
+
+      const result = applyDashboardMutationOperations(root, [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: { title: "Alpha", width: 1 },
+        },
+        { op: "updatePanel", panelId: "a", patch: {} },
+        { op: "movePanels", panelIds: ["a"], position: "top" },
+        { op: "setFilterDefault", filterId: "emailFilter", value: "all" },
+        { op: "setDashboard", patch: { columns: 2 } },
+      ]);
+
+      expect(result).toMatchObject({
+        changed: false,
+        noopOps: [1, 2, 3, 4, 5],
+        changedPanelIds: [],
+        insertedPanelIds: [],
+        removedPanelIds: [],
+        dashboardFieldsChanged: [],
+      });
+      expect(root).toEqual(config());
+    });
+
+    it("does not count a title-only edit as a render change but does count a move", () => {
+      const root = clone(config());
+
+      const result = applyDashboardMutationOperations(root, [
+        { op: "updatePanel", panelId: "a", patch: { title: "Renamed" } },
+        { op: "movePanels", panelIds: ["d"], position: "top" },
+      ]);
+
+      expect(result.changedPanelIds).toEqual(["a", "d"]);
+      expect(result.noopOps).toEqual([]);
+    });
+
+    it("reports a filter default and dashboard field only when the value moved", () => {
+      const root = clone(config());
+
+      const result = applyDashboardMutationOperations(root, [
+        {
+          op: "setFilterDefault",
+          filterId: "emailFilter",
+          value: "exclude_builder",
+        },
+        { op: "setDashboard", patch: { columns: 2, description: "New" } },
+      ]);
+
+      expect(result.dashboardFieldsChanged).toEqual([
+        "filters.emailFilter.default",
+        "description",
+      ]);
+    });
+
+    it("drops panels that were inserted and removed in one batch", () => {
+      const root = clone(config());
+
+      const result = applyDashboardMutationOperations(root, [
+        { op: "insertPanel", panel: panel("temp") },
+        { op: "removePanels", panelIds: ["temp", "a"] },
+      ]);
+
+      expect(result.insertedPanelIds).toEqual([]);
+      expect(result.removedPanelIds).toEqual(["a"]);
+      expect(result.changedPanelIds).toEqual(["a"]);
+      expect(result.changed).toBe(true);
+    });
   });
 });

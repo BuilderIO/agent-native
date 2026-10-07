@@ -45,6 +45,9 @@ let nextUpdatedAt = 0;
 
 vi.mock("../server/lib/dashboards-store", () => ({
   DashboardConflictError: mocks.DashboardConflictError,
+  getDashboard: vi.fn(async () =>
+    row ? { kind: "sql", config: row.config } : null,
+  ),
   upsertDashboard: vi.fn(
     async (
       _id: string,

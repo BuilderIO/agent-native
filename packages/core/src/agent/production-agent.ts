@@ -33,6 +33,7 @@ import {
   isAgentConnectionRequiredError,
   type ActionAutomationContext,
   type ActionCaller,
+  type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -182,6 +183,7 @@ import {
   isResolvedEngineUsableForRequest,
   type ResolveEngineConfig,
 } from "./engine/index.js";
+import { MAX_PROVIDER_TOOLS } from "./engine/limit-provider-tools.js";
 import {
   resolveEmptyResponseRetryMaxOutputTokens,
   resolveMainChatMaxOutputTokens,
@@ -211,10 +213,11 @@ import type {
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
-  FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT,
   FOLLOW_UP_SUGGESTIONS_INSTRUCTION,
   FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS,
   FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+  buildFollowUpCompletionMessages,
   followUpSuggestionsTool,
   identifyFollowUpSuggestions,
   parseFollowUpSuggestions,
@@ -255,7 +258,7 @@ import {
   toolCallsFromContent,
   type Processor,
 } from "./processors.js";
-import { resolveUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
+import { applyUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
 import {
   startRun,
   subscribeToRun,
@@ -343,6 +346,12 @@ import {
   AgentChatStructuredMessage,
   RunEvent,
 } from "./types.js";
+import {
+  mergeFinalResponseGuards,
+  readWriteReceipt,
+  writeReceiptGuard,
+  type ToolWriteReceipt,
+} from "./write-receipts.js";
 
 registerBuiltinEngines();
 
@@ -2833,6 +2842,12 @@ export interface AgentLoopUsage {
   engineName?: string;
   model: string;
   llmCalls?: number;
+  /** Wall time and input tokens of the end-of-turn follow-up suggestions call. */
+  followUpMs?: number;
+  followUpInputTokens?: number;
+  /** Write receipts this run with `verified` other than true / with `changed: false`. */
+  receiptUnverifiedCount?: number;
+  receiptChangedFalseCount?: number;
   /**
    * True once the engine reported at least one real `usage` event for this
    * run. The token fields above start at 0 and are only ever incremented —
@@ -2865,7 +2880,11 @@ export interface AgentLoopToolResultSummary {
   content: string;
   isError: boolean;
   artifacts?: ArtifactReceipt[];
+  /** The action's `_receipt`, read before the result was truncated. */
+  receipt?: WriteReceipt;
 }
+
+export type { ToolWriteReceipt };
 
 export interface AgentLoopFinalResponseGuardContext {
   messages: EngineMessage[];
@@ -2874,6 +2893,8 @@ export interface AgentLoopFinalResponseGuardContext {
   text: string;
   toolCalls: AgentLoopToolCallSummary[];
   toolResults: AgentLoopToolResultSummary[];
+  /** Every write receipt this turn; set by the loop, absent only in hand-built contexts. */
+  receipts?: ToolWriteReceipt[];
   retryCount: number;
   executionMode: AgentExecutionMode;
 }
@@ -3420,6 +3441,8 @@ const INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS = 5_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
+const MAX_ALREADY_LOADED_TOOL_SEARCHES = 4;
+const MAX_STOP_ERROR_LINE_CHARS = 300;
 
 function isToolCallTimeoutResult(content: string): boolean {
   return /tool call timed out after \d+(?:\.\d+)? seconds?/i.test(content);
@@ -4810,6 +4833,8 @@ export async function runAgentLoop(opts: {
     : providedAvailableTools;
   let completedFollowUpSuggestions: AgentSuggestion[] | undefined;
   let completingFollowUpSuggestions = false;
+  let followUpCompletionContext: EngineMessage[] = [];
+  let followUpStartedAt: number | undefined;
   let followUpCompletionFailed = false;
   const failFollowUpCompletion = (code: FollowUpSuggestionsFailure) => {
     if (followUpCompletionFailed) return;
@@ -4872,6 +4897,8 @@ export async function runAgentLoop(opts: {
 
   let expandedToolSchemaBytes = 0;
   let reportedExpandedToolSchemaBytes = false;
+  let alreadyLoadedToolSearches = 0;
+  const loadedToolNames = new Set<string>();
   const expandActiveTools = (names: string[]): string[] => {
     const added: string[] = [];
     for (const name of names) {
@@ -4883,15 +4910,24 @@ export async function runAgentLoop(opts: {
       added.push(name);
     }
     if (added.length > 0) {
-      const expandedTools = (availableTools ?? tools).filter((tool) =>
-        activeToolNames.has(tool.name),
-      );
-      const prioritizedNames = new Set(names);
-      if (followUpRunId) prioritizedNames.add(FOLLOW_UP_SUGGESTIONS_TOOL_NAME);
+      // Appending in registry order keeps every earlier tool where it was, so
+      // the tools prefix of the prompt cache survives an expansion.
+      for (const name of added) loadedToolNames.add(name);
+      const addedNames = new Set(added);
       activeTools = [
-        ...expandedTools.filter((tool) => prioritizedNames.has(tool.name)),
-        ...expandedTools.filter((tool) => !prioritizedNames.has(tool.name)),
+        ...activeTools,
+        ...(availableTools ?? tools).filter((tool) =>
+          addedNames.has(tool.name),
+        ),
       ];
+      // limitProviderTools keeps the first MAX_PROVIDER_TOOLS, so past the cap
+      // a loaded tool must lead or the provider silently drops it.
+      if (activeTools.length > MAX_PROVIDER_TOOLS) {
+        activeTools = [
+          ...activeTools.filter((tool) => loadedToolNames.has(tool.name)),
+          ...activeTools.filter((tool) => !loadedToolNames.has(tool.name)),
+        ];
+      }
     }
     if (
       !reportedExpandedToolSchemaBytes &&
@@ -4951,6 +4987,11 @@ export async function runAgentLoop(opts: {
     actions,
   });
   const toolResultHistory: AgentLoopToolResultSummary[] = [];
+  const turnReceipts = (): ToolWriteReceipt[] =>
+    toolResultHistory.flatMap((result) =>
+      result.receipt ? [{ tool: result.name, ...result.receipt }] : [],
+    );
+  let receiptGuardRetried = false;
   const runCtx = getRequestRunContext();
   if (runCtx) {
     runCtx.toolCalls = toolCallHistory;
@@ -5167,46 +5208,32 @@ export async function runAgentLoop(opts: {
       { name: string; input: unknown; error: string }
     >();
     let contextMessages = completingFollowUpSuggestions
-      ? [
-          ...messages,
-          {
-            role: "user" as const,
-            content: [
-              {
-                type: "text" as const,
-                text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
-              },
-            ],
-          },
-        ]
+      ? followUpCompletionContext
       : messages;
 
-    try {
-      if (opts.threadId) {
-        contextMessages = await applyContextXrayTransformForIteration({
-          threadId: opts.threadId,
-          ownerEmail: opts.ownerEmail,
-          turnId: opts.turnId,
-          model,
-          messages: contextMessages,
-          systemSections: opts.systemSections,
-        });
+    // The completion call carries a digest, not the conversation: the manifest
+    // and memory window describe the full thread, and the transform would
+    // overwrite this turn's manifest with the digest.
+    if (opts.threadId && !completingFollowUpSuggestions) {
+      contextMessages = await applyContextXrayTransformForIteration({
+        threadId: opts.threadId,
+        ownerEmail: opts.ownerEmail,
+        turnId: opts.turnId,
+        model,
+        messages: contextMessages,
+        systemSections: opts.systemSections,
+      });
 
-        if (opts.ownerEmail) {
-          contextMessages = await applyObservationalMemoryToContext(
-            contextMessages,
-            {
-              threadId: opts.threadId,
-              ownerEmail: opts.ownerEmail,
-              orgId: opts.orgId ?? null,
-            },
-          );
-        }
+      if (opts.ownerEmail) {
+        contextMessages = await applyObservationalMemoryToContext(
+          contextMessages,
+          {
+            threadId: opts.threadId,
+            ownerEmail: opts.ownerEmail,
+            orgId: opts.orgId ?? null,
+          },
+        );
       }
-    } catch (error) {
-      if (signal.aborted || !completingFollowUpSuggestions) throw error;
-      failFollowUpCompletion("context_error");
-      break;
     }
     if (signal.aborted) break;
 
@@ -5229,7 +5256,9 @@ export async function runAgentLoop(opts: {
         }
         const streamOpts = {
           model,
-          systemPrompt: continuationSystemPrompt,
+          systemPrompt: completingFollowUpSuggestions
+            ? FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT
+            : continuationSystemPrompt,
           messages: contextMessages,
           tools: loopBreakerCloseout
             ? []
@@ -5526,6 +5555,10 @@ export async function runAgentLoop(opts: {
               usage.outputTokens += eventUsage.outputTokens;
               usage.cacheReadTokens += eventUsage.cacheReadTokens;
               usage.cacheWriteTokens += eventUsage.cacheWriteTokens;
+              if (completingFollowUpSuggestions) {
+                usage.followUpInputTokens =
+                  (usage.followUpInputTokens ?? 0) + eventUsage.inputTokens;
+              }
               if (eventUsage.builderCreditsUsed !== undefined) {
                 usage.builderCreditsUsed =
                   (usage.builderCreditsUsed ?? 0) +
@@ -5660,6 +5693,10 @@ export async function runAgentLoop(opts: {
         }
         throw err;
       }
+    }
+
+    if (completingFollowUpSuggestions && followUpStartedAt !== undefined) {
+      usage.followUpMs = Date.now() - followUpStartedAt;
     }
 
     if (tripwire || followUpCompletionFailed) break;
@@ -5889,6 +5926,8 @@ export async function runAgentLoop(opts: {
       const finalResponseDraftText = collectTextParts(
         assistantContentForHistory,
       );
+      const receipts = turnReceipts();
+      const receiptGuard = writeReceiptGuard(receipts, receiptGuardRetried);
       if (opts.finalResponseGuard) {
         try {
           guard = await opts.finalResponseGuard({
@@ -5898,6 +5937,7 @@ export async function runAgentLoop(opts: {
             text: finalResponseDraftText,
             toolCalls: [...toolCallHistory],
             toolResults: [...toolResultHistory],
+            receipts,
             retryCount: finalGuardRetries,
             executionMode: opts.executionMode ?? "act",
           });
@@ -5905,6 +5945,11 @@ export async function runAgentLoop(opts: {
           send({ type: "clear" });
           throw err;
         }
+      }
+      if (receiptGuard) {
+        guard = guard
+          ? mergeFinalResponseGuards(receiptGuard, guard)
+          : receiptGuard;
       }
       if (guard) {
         completedFollowUpSuggestions = undefined;
@@ -5919,6 +5964,9 @@ export async function runAgentLoop(opts: {
         if (finalGuardRetries < maxGuardRetries) {
           if (typeof guard !== "string" && guard.expandToolSurface) {
             expandActiveTools([...availableToolMap.keys()]);
+          }
+          if (receiptGuard && receiptGuard.maxRetries > 0) {
+            receiptGuardRetried = true;
           }
           finalGuardRetries += 1;
           send({ type: "clear" });
@@ -5951,6 +5999,12 @@ export async function runAgentLoop(opts: {
           terminalStopReason === "end_turn"
         ) {
           completingFollowUpSuggestions = true;
+          followUpStartedAt = Date.now();
+          followUpCompletionContext = buildFollowUpCompletionMessages({
+            requestText: finalResponseGuardRequestText,
+            replyText: finalResponseDraftText,
+            toolNames: toolCallHistory.map((call) => call.name),
+          });
           continue;
         }
       }
@@ -6125,12 +6179,14 @@ export async function runAgentLoop(opts: {
         content: string,
         isError: boolean,
         artifacts?: ArtifactReceipt[],
+        receipt?: WriteReceipt,
       ) => {
         toolResultHistory.push({
           name: toolCall.name,
           content,
           isError,
           ...(artifacts?.length ? { artifacts } : {}),
+          ...(receipt ? { receipt } : {}),
         });
       };
       let directStop: { message: string; explicit: boolean } | null = null;
@@ -6179,10 +6235,19 @@ export async function runAgentLoop(opts: {
           const result =
             `Stopped after ${anyArgsCount} attempts at ${toolCall.name} that all failed the same way ` +
             `with different arguments. Last error: ${sanitizedResult}`;
+          const lastErrorLine =
+            sanitizedResult
+              .split(/\r?\n/)
+              .find((line) => line.trim())
+              ?.trim() ?? "(no error text)";
           requestedActionStop ??= {
             message:
-              `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way, ` +
-              "so changing the arguments again would not have worked. Anything completed before this is saved.",
+              `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way. ` +
+              `Last error: ${
+                lastErrorLine.length > MAX_STOP_ERROR_LINE_CHARS
+                  ? `${lastErrorLine.slice(0, MAX_STOP_ERROR_LINE_CHARS)}…`
+                  : lastErrorLine
+              }\n\nAnything completed before this is saved.`,
             errorCode: "repeated_tool_error_across_arguments",
             details: sanitizedResult,
           };
@@ -6736,6 +6801,7 @@ export async function runAgentLoop(opts: {
           | undefined;
         let toolArtifacts: ArtifactReceipt[] = [];
         let fileMutation: AgentFileMutationProof | undefined;
+        let receipt: WriteReceipt | undefined;
         try {
           // The run may have been aborted while we waited above for an
           // interrupted tool's ledger result (the wait can poll for minutes).
@@ -6915,6 +6981,8 @@ export async function runAgentLoop(opts: {
             }
           }
           chatUIResult = resultForAgent;
+          // Before stringify and truncation: a large result must not lose it.
+          receipt = readWriteReceipt(resultForAgent);
           toolArtifacts = detectArtifactReceipts(resultForAgent, toolCall.name);
           if (toolResultImages) {
             imageNotes = [
@@ -6935,11 +7003,35 @@ export async function runAgentLoop(opts: {
           }
           result = resultStr;
           if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
-            const added = expandActiveTools(
-              extractToolSearchResultNames(rawForAgent),
-            );
+            const matched = extractToolSearchResultNames(rawForAgent);
+            const added = expandActiveTools(matched);
             if (added.length > 0) {
-              result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+              result += `\n\nLoaded matching tool schemas for the next step, not this one: ${added.join(", ")}`;
+            } else if (
+              matched.length > 0 &&
+              matched.every((name) => activeToolNames.has(name))
+            ) {
+              result = JSON.stringify(
+                {
+                  ...(rawForAgent as Record<string, unknown>),
+                  alreadyLoaded: true,
+                  message: `All ${matched.length} matches are already callable; call them directly.`,
+                },
+                null,
+                2,
+              );
+              alreadyLoadedToolSearches += 1;
+              if (
+                alreadyLoadedToolSearches >= MAX_ALREADY_LOADED_TOOL_SEARCHES
+              ) {
+                requestedActionStop ??= {
+                  message:
+                    `Stopped because tool-search was used ${alreadyLoadedToolSearches} times to look for tools that were already callable, ` +
+                    "which means the same step is repeating rather than making progress. " +
+                    "Everything completed before this point is preserved above.",
+                  errorCode: "repeated_tool_call",
+                };
+              }
             }
           }
         } catch (err: any) {
@@ -7008,11 +7100,20 @@ export async function runAgentLoop(opts: {
           );
         }
         if (isError) {
+          receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
             result = finalizeToolErrorResult(result);
           }
         } else {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
+          if (receipt && receipt.verified !== true) {
+            usage.receiptUnverifiedCount =
+              (usage.receiptUnverifiedCount ?? 0) + 1;
+          }
+          if (receipt && !receipt.changed) {
+            usage.receiptChangedFalseCount =
+              (usage.receiptChangedFalseCount ?? 0) + 1;
+          }
         }
 
         const agentWarnings = drainAgentWarnings();
@@ -7064,16 +7165,18 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(isError
             ? { completedSideEffect: false }
-            : !actionIsReadOnly
-              ? { completedSideEffect: true }
-              : {}),
+            : receipt
+              ? { completedSideEffect: receipt.changed }
+              : !actionIsReadOnly
+                ? { completedSideEffect: true }
+                : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
           ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
-        recordToolResult(result, isError, toolArtifacts);
+        recordToolResult(result, isError, toolArtifacts, receipt);
         if (!isError) {
           noteToolCallSucceeded(actionEntry);
           if (cacheKey) {
@@ -8644,7 +8747,8 @@ export type AgentModelSelectionSource =
   | "request"
   | "configured"
   | "stored"
-  | "default";
+  | "default"
+  | "provider-selection-fallback";
 
 function isConcreteModelSelection(
   model: string | null | undefined,
@@ -9193,22 +9297,17 @@ export function createProductionAgentHandler(
       !requestModelIsExplicit && !configuredModelIsExplicit
         ? await getStoredModelForEngine(engine, { appId: options.appId })
         : undefined;
-    const modelSelection = resolveAgentModelSelection({
-      requestModel,
-      configuredModel,
-      storedModel,
-      defaultModel: engine.defaultModel,
-    });
-    // Only the engine default yields to the provider's checked models. A model
-    // the request or a stored default names still runs after it is unchecked,
-    // so chats already on it keep working.
-    const modelCandidate =
-      modelSelection.source === "default"
-        ? ((await resolveUncheckedDefaultModelReplacement(engine)) ??
-          modelSelection.model)
-        : modelSelection.model;
+    const modelSelection = await applyUncheckedDefaultModelReplacement(
+      engine,
+      resolveAgentModelSelection({
+        requestModel,
+        configuredModel,
+        storedModel,
+        defaultModel: engine.defaultModel,
+      }),
+    );
     workerStep("model_done");
-    const model = normalizeModelForEngine(engine, modelCandidate);
+    const model = normalizeModelForEngine(engine, modelSelection.model);
     let effectiveModel = model;
     let modelSelectionSource: AgentModelSelectionSource | "experiment" =
       modelSelection.source;

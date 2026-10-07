@@ -8176,6 +8176,56 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("quotes the last error's first line when the across-arguments breaker stops the turn", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3].map((id) => ({
+        name: "edit-panel",
+        input: { id },
+      })),
+      {
+        "edit-panel": {
+          ...actionEntry({ readOnly: false }),
+          run: async () =>
+            fail("panel width must be a number\nsecond line of detail"),
+        },
+      },
+    );
+
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({ reason: "loop_breaker" });
+    const message = (done as { message?: string }).message ?? "";
+    expect(message).toContain("rejected 3 different attempts the same way");
+    expect(message).toContain("Last error: Error running edit-panel: panel");
+    expect(message).toContain("panel width must be a number");
+    expect(message).not.toContain("second line of detail");
+  });
+
+  it("does not trip the across-arguments breaker when each error names a different target", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3, 4].map((id) => ({
+        name: "edit-panel",
+        input: { id },
+      })),
+      {
+        "edit-panel": {
+          ...actionEntry({ readOnly: false }),
+          run: async (args: Record<string, unknown>) =>
+            fail(`panel[${args.id}].width must be a number`),
+        },
+      },
+    );
+
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      4,
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Done." }),
+    );
+  });
+
   it("lets a long turn keep going while each tool call is genuinely different", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => "distinct answer");

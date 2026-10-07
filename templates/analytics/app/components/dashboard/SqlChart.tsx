@@ -6,6 +6,10 @@ import {
 } from "@agent-native/toolkit/app/extensions";
 import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
 import {
+  isNumericLikeValue,
+  planPanelRender,
+} from "@shared/panel-render-contract";
+import {
   IconArrowsSort,
   IconSortAscending,
   IconSortDescending,
@@ -76,7 +80,6 @@ import {
   type DualAxisPlan,
 } from "@/pages/adhoc/sql-dashboard/dual-axis";
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
-import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
   SqlPanel,
   ChartType,
@@ -332,15 +335,6 @@ export function formatMetricValue(
     : raw == null
       ? "-"
       : stringifyValue(raw);
-}
-
-function isNumericLikeValue(value: unknown): boolean {
-  if (typeof value === "number") return Number.isFinite(value);
-  return (
-    typeof value === "string" &&
-    value.trim() !== "" &&
-    Number.isFinite(Number(value))
-  );
 }
 
 export function detectMetricValueColumn(
@@ -1161,79 +1155,6 @@ export function ChartTooltip({
   );
 }
 
-function detectKeys(
-  rows: Record<string, unknown>[],
-  config?: SqlPanel["config"],
-  forcedYKeys?: string[],
-): { xKey: string; yKeys: string[] } {
-  if (rows.length === 0) return { xKey: "", yKeys: [] };
-
-  const cols = Object.keys(rows[0]);
-  const colSet = new Set(cols);
-  const sample = rows[0] as Record<string, unknown>;
-
-  let xKey = config?.xKey && colSet.has(config.xKey) ? config.xKey : "";
-  if (!xKey) {
-    xKey =
-      cols.find((c) => {
-        const v = sample[c];
-        if (typeof v === "string" && v.length >= 8) {
-          const d = new Date(v);
-          return !isNaN(d.getTime());
-        }
-        return false;
-      }) ||
-      cols.find((c) => typeof sample[c] === "string") ||
-      cols[0];
-  }
-
-  if (forcedYKeys && forcedYKeys.length) {
-    return { xKey, yKeys: forcedYKeys.filter((key) => colSet.has(key)) };
-  }
-
-  const yKeys = (config?.yKeys ?? (config?.yKey ? [config.yKey] : [])).filter(
-    (key) => colSet.has(key),
-  );
-  if (yKeys.length === 0) {
-    for (const c of cols) {
-      if (c === xKey) continue;
-      if (isNumericLikeValue(sample[c])) yKeys.push(c);
-    }
-  }
-  if (yKeys.length === 0 && cols.length > 1) {
-    yKeys.push(cols.find((c) => c !== xKey) || cols[1]);
-  }
-
-  return { xKey, yKeys };
-}
-
-function configuredKeysMissingFromRows(
-  rows: Record<string, unknown>[],
-  panel: SqlPanel,
-): string[] {
-  if (rows.length === 0) return [];
-  const rowKeys = new Set(Object.keys(rows[0]));
-  const missing = new Set<string>();
-  const config = panel.config;
-  if (config?.xKey && !rowKeys.has(config.xKey)) missing.add(config.xKey);
-
-  if (!config?.pivot) {
-    if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
-    for (const key of config?.yKeys ?? []) {
-      if (!rowKeys.has(key)) missing.add(key);
-    }
-    for (const key of config?.rightYKeys ?? []) {
-      if (!rowKeys.has(key)) missing.add(key);
-    }
-  }
-
-  for (const col of config?.columns ?? []) {
-    if (!rowKeys.has(col.key)) missing.add(col.key);
-    if (col.linkKey && !rowKeys.has(col.linkKey)) missing.add(col.linkKey);
-  }
-  return Array.from(missing);
-}
-
 function ConfigWarning({ keys }: { keys: string[] }) {
   if (keys.length === 0) return null;
   return (
@@ -1317,21 +1238,11 @@ export function SqlChart({
     else setLocalRefreshToken((token) => token + 1);
   };
 
-  const { rows: queryRows, forcedYKeys } = useMemo(() => {
-    if (panel.config?.pivot && rawRows.length) {
-      const pivoted = pivotRows(rawRows, panel.config.pivot, {
-        fillDateGaps: panel.chartType !== "bar",
-        timeRange,
-      });
-      return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
-    }
-    return { rows: rawRows, forcedYKeys: undefined };
-  }, [rawRows, panel.chartType, panel.config?.pivot, timeRange]);
-
-  const { xKey, yKeys } = useMemo(
-    () => detectKeys(queryRows, panel.config, forcedYKeys),
-    [queryRows, panel.config, forcedYKeys],
+  const plan = useMemo(
+    () => planPanelRender(rawRows, panel, { timeRange }),
+    [rawRows, panel.chartType, panel.config, timeRange],
   );
+  const { rows: queryRows, xKey, yKeys } = plan;
   const shouldCreateDemoTrend =
     demoModeEnabled &&
     (panel.chartType === "line" ||
@@ -1428,7 +1339,7 @@ export function SqlChart({
     );
   }
 
-  if (rows.length === 0) {
+  if (plan.empty) {
     return (
       <div
         className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
@@ -1440,7 +1351,7 @@ export function SqlChart({
     );
   }
 
-  const missingConfigKeys = configuredKeysMissingFromRows(rows, panel);
+  const missingConfigKeys = plan.missingKeys;
   const withConfigWarning = (node: ReactNode) => {
     if (refreshError) {
       return (

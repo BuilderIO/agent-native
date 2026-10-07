@@ -15,6 +15,7 @@ import type {
 } from "./engine/types.js";
 import {
   FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT,
   FOLLOW_UP_SUGGESTIONS_INSTRUCTION,
   FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
 } from "./follow-up-suggestions.js";
@@ -119,6 +120,13 @@ function setup(
   return { events, requests, controller, opts };
 }
 
+function digestText(request: EngineStreamOptions): string {
+  return request.messages
+    .flatMap((message) => message.content)
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("\n");
+}
+
 function published(events: AgentChatEvent[]) {
   return events.filter(
     (event) => event.type === "suggestions" && event.suggestions.length > 0,
@@ -141,70 +149,42 @@ const readCall: EngineContentPart = {
 };
 
 describe("native agent follow-up publication", () => {
-  it.each(["success", "failure", "cancel"])(
-    "includes the completion reminder in context processing (%s)",
-    async (mode) => {
-      const { opts, requests, events, controller } = setup([
-        step([reply()]),
-        step([call()], "tool_use"),
-      ]);
-      opts.threadId = "thread-fixture";
-      const transform = vi
-        .spyOn(contextTransforms, "applyContextXrayTransformForIteration")
-        .mockImplementation(async ({ messages }) => {
-          if (
-            messages
-              .at(-1)
-              ?.content.some(
-                (part) =>
-                  part.type === "text" &&
-                  part.text === FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
-              )
-          ) {
-            if (mode === "failure") throw new Error("Context unavailable");
-            if (mode === "cancel") controller.abort();
-          }
-          return messages;
-        });
-      const readJournal = vi
-        .spyOn(journal, "loadPriorTurnToolCallJournal")
-        .mockResolvedValue({
-          status: "read",
-          toolCallJournal: null,
-          priorToolCalls: [],
-          priorToolCallSequence: [],
-          priorToolResults: [],
-        });
-      const clearLedger = vi
-        .spyOn(runStore, "clearLedgerForThread")
-        .mockResolvedValue();
-      try {
-        await runAgentLoop(opts);
-        expect(transform).toHaveBeenCalledTimes(2);
-        expect(transform.mock.calls[1][0].messages.at(-1)).toEqual({
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
-            },
-          ],
-        });
-        expect(requests).toHaveLength(mode === "success" ? 2 : 1);
-        if (mode === "failure")
-          expect(events.at(-2)).toMatchObject({
-            type: "rich_event",
-            event: { data: { code: "context_error" } },
-          });
-        if (mode === "cancel")
-          expect(events.some((event) => event.type === "done")).toBe(false);
-      } finally {
-        transform.mockRestore();
-        readJournal.mockRestore();
-        clearLedger.mockRestore();
-      }
-    },
-  );
+  it("keeps full-conversation context processing off the bounded completion call", async () => {
+    const { opts, requests } = setup([
+      step([reply()]),
+      step([call()], "tool_use"),
+    ]);
+    opts.threadId = "thread-fixture";
+    const transformed: unknown[] = [];
+    const transform = vi
+      .spyOn(contextTransforms, "applyContextXrayTransformForIteration")
+      .mockImplementation(async ({ messages }) => {
+        transformed.push(structuredClone(messages));
+        return messages;
+      });
+    const readJournal = vi
+      .spyOn(journal, "loadPriorTurnToolCallJournal")
+      .mockResolvedValue({
+        status: "read",
+        toolCallJournal: null,
+        priorToolCalls: [],
+        priorToolCallSequence: [],
+        priorToolResults: [],
+      });
+    const clearLedger = vi
+      .spyOn(runStore, "clearLedgerForThread")
+      .mockResolvedValue();
+    try {
+      await runAgentLoop(opts);
+      expect(requests).toHaveLength(2);
+      expect(transform).toHaveBeenCalledTimes(1);
+      expect(transformed).toEqual([[opts.messages[0]]]);
+    } finally {
+      transform.mockRestore();
+      readJournal.mockRestore();
+      clearLedger.mockRestore();
+    }
+  });
 
   it.each([undefined, 512, 128, 32_768])(
     "respects the metadata cap and supported output floor for %s",
@@ -304,12 +284,9 @@ describe("native agent follow-up publication", () => {
           ?.id,
       );
       expect(turns.map((turn) => turn.requests.length)).toEqual([1, 2]);
-      expect(turns[1].requests[1].messages).toEqual(
-        expect.arrayContaining([
-          { role: "user", content: [{ type: "text", text: followUp.prompt }] },
-          { role: "assistant", content: [reply("Refined the layout.")] },
-        ]),
-      );
+      expect(turns[1].requests[1].messages).toHaveLength(1);
+      expect(digestText(turns[1].requests[1])).toContain(followUp.prompt);
+      expect(digestText(turns[1].requests[1])).toContain("Refined the layout.");
       await cold.loadThread("thread-1");
       expect(selectAgentSuggestions(cold.getThread("thread-1"))).toEqual(
         second,
@@ -373,19 +350,33 @@ describe("native agent follow-up publication", () => {
     expect(requests[1].tools.map((tool) => tool.name)).toEqual([
       FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
     ]);
-    expect(requests[1].messages.at(-1)).toEqual({
-      role: "user",
-      content: [
-        { type: "text", text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION },
-      ],
-    });
+    expect(requests[1].systemPrompt).toBe(
+      FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT,
+    );
+    expect(requests[1].messages).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: [
+              "<user-request>\nCreate a design. <current-screen>canvas</current-screen>\n</user-request>",
+              "<final-reply>\nCreated your design.\n</final-reply>",
+              FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+            ].join("\n\n"),
+          },
+        ],
+      },
+    ]);
     expect(usage).toMatchObject({
       llmCalls: 2,
       inputTokens: 300,
       outputTokens: 70,
       cacheReadTokens: 80,
       builderCreditsUsed: 1,
+      followUpInputTokens: 200,
     });
+    expect(usage.followUpMs).toBeGreaterThanOrEqual(0);
     expect(opts.onUsage).toHaveBeenCalledTimes(2);
     expect(processor.processOutputStep).toHaveBeenCalledTimes(2);
     expect(processor.processOutputResult).toHaveBeenCalledWith(
@@ -398,6 +389,35 @@ describe("native agent follow-up publication", () => {
     ).toEqual([{ type: "text", text: "Created your design." }]);
     expect(published(events)).toHaveLength(1);
     expect(opts.messages).toHaveLength(2);
+  });
+
+  it("sends a bounded digest however large the turn grew, naming the tools it used", async () => {
+    const bulk = "BULK-RESULT".repeat(20_000);
+    const { opts, requests } = setup(
+      [
+        step([readCall], "tool_use"),
+        step([reply("r".repeat(10_000))]),
+        step([call()], "tool_use"),
+      ],
+      { "read-artifact": { ...read, run: async () => ({ bulk }) } },
+    );
+    opts.messages[0].content = [
+      { type: "text", text: `Create a design. ${"q".repeat(5_000)}` },
+    ];
+    await runAgentLoop(opts);
+    expect(requests).toHaveLength(3);
+    expect(JSON.stringify(requests[1].messages)).toContain("BULK-RESULT");
+    expect(requests[2].tools.map((tool) => tool.name)).toEqual([
+      FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+    ]);
+    expect(requests[2].messages).toHaveLength(1);
+    expect(JSON.stringify(requests[2].messages).length).toBeLessThan(8_000);
+    expect(JSON.stringify(requests[2])).not.toContain("BULK-RESULT");
+    expect(digestText(requests[2])).toContain("Create a design.");
+    expect(digestText(requests[2])).toContain(
+      "<tools-used>read-artifact</tools-used>",
+    );
+    expect(requests[2].systemPrompt).not.toContain(opts.systemPrompt);
   });
 
   it.each([
@@ -565,6 +585,8 @@ describe("native agent follow-up publication", () => {
     ]);
     const usage = await runAgentLoop(opts);
     expect(usage.llmCalls).toBe(1);
+    expect(usage.followUpMs).toBeUndefined();
+    expect(usage.followUpInputTokens).toBeUndefined();
     expect(requests).toHaveLength(1);
     expect(requests[0].systemPrompt).toBe(
       `${opts.systemPrompt}\n\n${FOLLOW_UP_SUGGESTIONS_INSTRUCTION}`,

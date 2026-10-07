@@ -8,6 +8,8 @@ export const TOOL_SEARCH_ACTION_NAME = "tool-search";
 
 type ToolSearchArgs = {
   query?: unknown;
+  queries?: unknown;
+  names?: unknown;
   limit?: unknown;
   includeSchemas?: unknown;
   readOnlyOnly?: unknown;
@@ -39,6 +41,9 @@ type ToolSearchOptions = {
 
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 10;
+const MAX_QUERIES = 5;
+const MAX_NAMES = 20;
+const EXACT_NAME_SCORE = 100;
 const MAX_MENU_DESCRIPTION_CHARS = 140;
 const MAX_DESCRIPTION_CHARS = 220;
 const MAX_PARAMETER_COUNT = 8;
@@ -61,7 +66,7 @@ export function createToolSearchEntry(
   return {
     tool: {
       description:
-        "Find actions and connected MCP tools named `mcp__<server>__<tool>` by capability or name. A targeted query returns concise details and adds matches allowed in the current mode, with their full schemas, to the next model step. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
+        "Find actions and connected MCP tools named `mcp__<server>__<tool>` by capability or name. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
       parameters: {
         type: "object",
         properties: {
@@ -70,9 +75,22 @@ export function createToolSearchEntry(
             description:
               "Capability or exact tool name to find. A targeted search adds matches allowed in the current mode, with their full schemas, to the next model step. Omit for a bounded alphabetical inventory.",
           },
+          queries: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: MAX_QUERIES,
+            description: `Up to ${MAX_QUERIES} capability searches run together; all matches load on the next step.`,
+          },
+          names: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: MAX_NAMES,
+            description:
+              "Exact tool names to load on the next step, together with any queries.",
+          },
           limit: {
             type: "number",
-            description: `Maximum results to return, including menu mode. Defaults to ${defaultLimit}; capped at ${maxLimit}.`,
+            description: `Maximum results to return per query, including menu mode. Defaults to ${defaultLimit}; capped at ${maxLimit}.`,
           },
           includeSchemas: {
             type: "boolean",
@@ -148,19 +166,85 @@ export async function filterActionsForAgentDiscovery(
   return filtered;
 }
 
-export function searchToolRegistry(
-  registry: Record<string, ActionEntry>,
-  args: ToolSearchArgs = {},
-  options: ToolSearchOptions = {},
-): {
+type ToolSearchOutput = {
   query: string;
   totalTools: number;
   count: number;
   repeated?: boolean;
   message?: string;
   results: ToolSearchResult[];
-} {
-  const query = String(args.query ?? "").trim();
+};
+
+/**
+ * One call may carry several capability queries and exact names; every match
+ * loads on the same next step. Each query keeps its own repeat guard.
+ */
+export function searchToolRegistry(
+  registry: Record<string, ActionEntry>,
+  args: ToolSearchArgs = {},
+  options: ToolSearchOptions = {},
+): ToolSearchOutput {
+  const queries = parseStringList(
+    [String(args.query ?? ""), args.queries],
+    MAX_QUERIES,
+  );
+  const names = parseStringList([args.names], MAX_NAMES);
+  const targets: SearchTarget[] = [
+    ...queries.map((query) => ({ query })),
+    ...(names.length > 0 ? [{ names }] : []),
+  ];
+  if (targets.length <= 1) {
+    return searchOnce(registry, targets[0] ?? { query: "" }, args, options);
+  }
+  const parts = targets.map((target) =>
+    searchOnce(registry, target, args, options),
+  );
+  const byName = new Map<string, ToolSearchResult>();
+  for (const part of parts) {
+    for (const result of part.results) {
+      const existing = byName.get(result.name);
+      if (!existing || result.score > existing.score) {
+        byName.set(result.name, result);
+      }
+    }
+  }
+  const results = [...byName.values()].sort(
+    (a, b) => b.score - a.score || a.name.localeCompare(b.name),
+  );
+  const allRepeated = parts.every((part) => part.repeated);
+  const message = allRepeated
+    ? parts[0].message
+    : parts
+        .filter((part) => !part.repeated && part.message)
+        .map((part) => part.message)
+        .join(" ");
+  return {
+    query: parts.map((part) => part.query).join(" | "),
+    totalTools: Math.max(...parts.map((part) => part.totalTools)),
+    count: results.length,
+    ...(allRepeated ? { repeated: true } : {}),
+    ...(message ? { message } : {}),
+    results,
+  };
+}
+
+type SearchTarget = { query: string } | { names: string[] };
+
+function searchOnce(
+  registry: Record<string, ActionEntry>,
+  target: SearchTarget,
+  args: ToolSearchArgs,
+  options: ToolSearchOptions,
+): ToolSearchOutput {
+  const names = "names" in target ? target.names : undefined;
+  const exactNames = names
+    ? new Set(names.map((name) => name.toLowerCase()))
+    : undefined;
+  const query = names
+    ? `names: ${names.join(", ")}`
+    : "query" in target
+      ? target.query
+      : "";
   const listAll = query.length === 0;
   const readOnlyOnly = parseBoolean(args.readOnlyOnly);
   const limit = parseLimit(
@@ -240,15 +324,19 @@ export function searchToolRegistry(
     }
 
     const parameters = summarizeParameters(entry.tool.parameters);
-    const score = scoreTool({
-      query,
-      queryTokens,
-      name,
-      source,
-      description,
-      parameters,
-      kind,
-    });
+    const score = exactNames
+      ? exactNames.has(name.toLowerCase())
+        ? EXACT_NAME_SCORE
+        : 0
+      : scoreTool({
+          query,
+          queryTokens,
+          name,
+          source,
+          description,
+          parameters,
+          kind,
+        });
 
     if (score <= 0) continue;
 
@@ -284,11 +372,21 @@ export function searchToolRegistry(
     return a.name.localeCompare(b.name);
   });
 
+  const cap = exactNames ? MAX_NAMES : limit;
+  const found = new Set(
+    candidates.map((candidate) => candidate.name.toLowerCase()),
+  );
+  const missing = names?.filter((name) => !found.has(name.toLowerCase()));
   const result = {
     query,
     totalTools,
-    count: Math.min(candidates.length, limit),
-    results: candidates.slice(0, limit),
+    count: Math.min(candidates.length, cap),
+    ...(missing && missing.length > 0
+      ? {
+          message: `No tool named ${missing.join(", ")} is available in the current mode.`,
+        }
+      : {}),
+    results: candidates.slice(0, cap),
   };
   rememberToolSearchResult(cacheKey, result);
   return result;
@@ -360,6 +458,18 @@ function rememberToolSearchResult(
 function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max - 1).trimEnd()}…`;
+}
+
+function parseStringList(values: unknown[], max: number): string[] {
+  const unique = new Map<string, string>();
+  for (const item of values.flat()) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (trimmed && !unique.has(trimmed.toLowerCase())) {
+      unique.set(trimmed.toLowerCase(), trimmed);
+    }
+  }
+  return [...unique.values()].slice(0, max);
 }
 
 function parseLimit(value: unknown, fallback: number, max: number): number {

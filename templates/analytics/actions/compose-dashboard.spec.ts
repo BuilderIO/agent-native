@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(),
   upsertDashboardWithRetry: vi.fn(),
+  verifyPanelWrite: vi.fn(),
   hasCollabState: vi.fn(async () => false),
   applyText: vi.fn(async () => undefined),
   seedFromText: vi.fn(async () => undefined),
@@ -77,6 +78,17 @@ vi.mock("../server/lib/dashboards-store", () => ({
   upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
 }));
 
+// Panel verification has its own specs; here it only has to let a save through.
+vi.mock(
+  "../server/lib/dashboard-panel-verification",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/lib/dashboard-panel-verification")
+    >()),
+    verifyPanelWrite: mocks.verifyPanelWrite,
+  }),
+);
+
 const { default: composeDashboard } = await import("./compose-dashboard");
 const { buildPanel, FIRST_PARTY_TEMPLATE_NAMES, listMetricKeys } =
   await import("../server/lib/first-party-metric-catalog");
@@ -122,6 +134,12 @@ beforeEach(() => {
   store.clear();
   vi.clearAllMocks();
   mocks.hasCollabState.mockResolvedValue(false);
+  mocks.verifyPanelWrite.mockResolvedValue({
+    verified: null,
+    verification: null,
+    proof: [],
+    unverified: [],
+  });
   mocks.getDashboard.mockImplementation(async (id: string) => {
     const saved = store.get(id);
     return saved ? { kind: "sql", config: saved.config } : null;

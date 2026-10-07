@@ -5,6 +5,7 @@ import {
   type McpClientManager,
   type McpTool,
 } from "../mcp-client/index.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import type { ActionEntry } from "./production-agent.js";
 import {
   attachToolSearch,
@@ -555,6 +556,117 @@ describe("tool-search", () => {
         expect(parameter.enum?.every((value) => value.length <= 60)).toBe(true);
       }
       expect(tool).not.toHaveProperty("inputSchema");
+    });
+  });
+
+  describe("batched search", () => {
+    const registry = {
+      "send-email": action("Send an email message"),
+      "list-events": action("List calendar events"),
+      "export-report": action("Export a report to CSV"),
+      "delete-event": action("Delete a calendar event"),
+    };
+
+    it("unions the matches of several queries into one result", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["send email", "export report"],
+      });
+
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "export-report",
+        "send-email",
+      ]);
+      expect(result.count).toBe(2);
+      expect(result.query).toBe("send email | export report");
+    });
+
+    it("keeps the single query alongside queries without duplicating it", () => {
+      const result = searchToolRegistry(registry, {
+        query: "send email",
+        queries: ["Send Email", "calendar"],
+      });
+
+      expect(result.query).toBe("send email | calendar");
+      expect(result.results.map((r) => r.name)).toEqual(
+        expect.arrayContaining(["send-email", "list-events", "delete-event"]),
+      );
+      expect(
+        result.results.filter((r) => r.name === "send-email"),
+      ).toHaveLength(1);
+    });
+
+    it("loads exact names, ignoring fuzzy matches, and reports the ones it lacks", () => {
+      const result = searchToolRegistry(registry, {
+        names: ["list-events", "no-such-tool"],
+      });
+
+      expect(result.results.map((r) => r.name)).toEqual(["list-events"]);
+      expect(result.query).toBe("names: list-events, no-such-tool");
+      expect(result.message).toBe(
+        "No tool named no-such-tool is available in the current mode.",
+      );
+    });
+
+    it("combines queries and names in one result", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["send email"],
+        names: ["delete-event"],
+      });
+
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "delete-event",
+        "send-email",
+      ]);
+    });
+
+    it("runs at most five queries and ignores blanks and repeats", () => {
+      const result = searchToolRegistry(registry, {
+        queries: [
+          "email",
+          " ",
+          "EMAIL",
+          "report",
+          "events",
+          "calendar",
+          "csv",
+          "delete",
+        ],
+      });
+
+      expect(result.query).toBe("email | report | events | calendar | csv");
+    });
+
+    it("keeps a repeat guard per query, flagging the call only when all repeated", async () => {
+      await runWithRequestContext(
+        { userEmail: "agent@example.com", run: {} },
+        () => {
+          const first = searchToolRegistry(registry, {
+            queries: ["send email", "export report"],
+          });
+          const partial = searchToolRegistry(registry, {
+            queries: ["send email", "calendar"],
+          });
+          const again = searchToolRegistry(registry, {
+            queries: ["send email", "export report"],
+          });
+
+          expect(first.repeated).toBeUndefined();
+          expect(partial.repeated).toBeUndefined();
+          expect(partial.results.map((r) => r.name)).toEqual(
+            expect.arrayContaining(["send-email", "list-events"]),
+          );
+          expect(again.repeated).toBe(true);
+          expect(again.message).toContain("already ran");
+        },
+      );
+    });
+
+    it("leaves single-query results and menu mode unchanged", () => {
+      expect(searchToolRegistry(registry, { query: "email" }).query).toBe(
+        "email",
+      );
+      expect(searchToolRegistry(registry, { queries: [" "] }).query).toBe("");
+      expect(searchToolRegistry(registry, {}).results).toHaveLength(4);
     });
   });
 });
