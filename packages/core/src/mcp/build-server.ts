@@ -24,10 +24,7 @@ import {
   type ActionMcpAppResourceConfig,
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
-import {
-  isActionContractError,
-  isActionExposedToExternalAgents,
-} from "../action.js";
+import { isActionExposedToExternalAgents } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   describeToolResultImages,
@@ -67,10 +64,6 @@ import {
   trackMcpToolCall,
   trackMcpToolsList,
 } from "./analytics.js";
-import {
-  consumeMcpApprovalGrant,
-  createMcpApprovalGrant,
-} from "./approval-store.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
@@ -79,9 +72,21 @@ import {
   type StoredConnectTokenIdentity,
 } from "./connect-store.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
+import {
+  MCP_ACTION_APPROVAL_TTL_SECONDS,
+  type McpActionApprovalState,
+  type McpActionCallContext,
+  canonicalJson,
+  isActionVisibleForOAuthScope,
+  isEmbedStartUrl,
+  isReportedProxyError,
+  mcpActionErrorCode,
+  purgeEmbedStartUrls,
+  runMcpActionCallUnredacted,
+  sha256Base64Url,
+} from "./execute-action-call.js";
 import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
-  MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
   parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
@@ -164,57 +169,7 @@ export interface MCPCallerIdentity {
   firstPartyMcp?: boolean;
 }
 
-const MCP_ACTION_APPROVAL_TTL_SECONDS = 10 * 60;
 const MCP_ACTION_APPROVAL_INPUT_KEY = "actionApproval";
-
-interface McpActionApprovalState {
-  version: 1;
-  nonce: string;
-  actionName: string;
-  argumentsHash: string;
-  expiresAt: number;
-}
-
-function canonicalJson(value: unknown): string {
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "string"
-  ) {
-    return JSON.stringify(value);
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new TypeError("MCP action arguments must contain finite numbers");
-    }
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-      .join(",")}}`;
-  }
-  throw new TypeError("MCP action arguments must be JSON values");
-}
-
-async function sha256Base64Url(value: string): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  const bytes = new Uint8Array(digest);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
 
 function mcpApprovalPrincipal(
   identity: MCPCallerIdentity | undefined,
@@ -299,18 +254,6 @@ export function isMcpAppsInlineEnabled(
     if (allowed.includes(email)) return true;
   }
   return false;
-}
-
-type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number];
-
-function isActionVisibleForOAuthScope(
-  entry: ActionEntry,
-  scopes: string[] | undefined,
-): boolean {
-  if (!scopes) return true;
-  const required: McpOAuthScope =
-    entry.readOnly === true ? "mcp:read" : "mcp:write";
-  return hasMcpOAuthScope(scopes, required);
 }
 
 const TOOL_SEARCH_TOOL_NAME = "tool-search";
@@ -716,16 +659,6 @@ function withMcpChatBridgeParam(urlOrPath: string): string {
   }
 }
 
-function isEmbedStartUrl(value: string): boolean {
-  try {
-    const base = "http://agent-native.invalid";
-    const url = value.startsWith("/") ? new URL(value, base) : new URL(value);
-    return url.pathname.includes("/_agent-native/embed/start");
-  } catch {
-    return value.includes("/_agent-native/embed/start");
-  }
-}
-
 function routePathFromOpenUrl(value: string): string | null {
   try {
     const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
@@ -740,104 +673,6 @@ function routePathFromOpenUrl(value: string): string | null {
   } catch {
     return null;
   }
-}
-
-/**
- * Recursively redact embed-ticket-bearing URLs from any value before it gets
- * serialized into a model-visible text payload. Embed start URLs carry a
- * single-use ticket that grants iframe access to the user's session — they
- * MUST stay in `_meta` (where the embed runtime can consume them) and never
- * appear in `content[].text` for the LLM. This is the generic safety net for
- * actions that return `{ embedStartUrl, ... }` without declaring
- * `mcpApp.resource` (the resource path already strips them via
- * `mcpAppStructuredContent`).
- *
- * Circular structures are replaced with a marker. Strings that embed an
- * `isEmbedStartUrl` substring (e.g. a longer message that includes the URL)
- * are replaced with `[hidden embed URL]`. Credential-like `ticket` fields are
- * removed only inside an embed-signaled object/branch, so ordinary business
- * fields from unrelated read actions remain faithful.
- */
-const EMBED_RESULT_SENSITIVE_KEYS = new Set([
-  "embedTargetPath",
-  "embedExpiresAt",
-  "embedTicket",
-]);
-
-function isEmbedCredentialKey(key: string): boolean {
-  return key === "ticket" || /Ticket$/.test(key);
-}
-
-function containsEmbedRoutingSignal(
-  value: unknown,
-  seen = new WeakSet<object>(),
-): boolean {
-  if (typeof value === "string") return isEmbedStartUrl(value);
-  if (!value || typeof value !== "object") return false;
-  if (seen.has(value)) return false;
-  seen.add(value);
-  if (Array.isArray(value)) {
-    const result = value.some((item) => containsEmbedRoutingSignal(item, seen));
-    seen.delete(value);
-    return result;
-  }
-  for (const [key, val] of Object.entries(value)) {
-    if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) {
-      seen.delete(value);
-      return true;
-    }
-    if (containsEmbedRoutingSignal(val, seen)) {
-      seen.delete(value);
-      return true;
-    }
-  }
-  seen.delete(value);
-  return false;
-}
-
-function purgeEmbedStartUrls(
-  value: unknown,
-  seen = new WeakSet<object>(),
-  embedContext = false,
-): unknown {
-  if (typeof value === "string") {
-    return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
-  }
-  if (Array.isArray(value)) {
-    if (seen.has(value)) return "[circular result]";
-    seen.add(value);
-    // An embed marker in one array item puts the whole result in the embed
-    // routing context. Credential fields in sibling items must not survive
-    // just because the marker lives elsewhere in the array.
-    const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
-    const out = value.map((item) =>
-      purgeEmbedStartUrls(item, seen, arrayEmbedContext),
-    );
-    seen.delete(value);
-    return out;
-  }
-  if (value && typeof value === "object") {
-    if (seen.has(value)) return "[circular result]";
-    seen.add(value);
-    const entries = Object.entries(value as Record<string, unknown>);
-    const localEmbedContext = embedContext || containsEmbedRoutingSignal(value);
-    const out: Record<string, unknown> = {};
-    for (const [key, val] of entries) {
-      if (
-        EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
-        (localEmbedContext && isEmbedCredentialKey(key))
-      ) {
-        continue;
-      }
-      if (typeof val === "string" && isEmbedStartUrl(val)) {
-        continue;
-      }
-      out[key] = purgeEmbedStartUrls(val, seen, localEmbedContext);
-    }
-    seen.delete(value);
-    return out;
-  }
-  return value;
 }
 
 function mcpResultHasContent(result: unknown): boolean {
@@ -1957,107 +1792,20 @@ export async function createMCPServerForRequest(
     ) as Promise<T>;
   }
 
-  async function requireMcpActionApproval(
-    entry: ActionEntry,
+  const actionCallContext: McpActionCallContext = {
+    appId: config.appId,
+    identity: effectiveIdentity,
+    approvalCallerKey,
+    canRequestApproval:
+      !approvalConfigurationError && approvalCodec !== undefined,
+  };
+
+  async function requestMcpActionApproval(
+    approvalState: McpActionApprovalState,
     name: string,
-    args: Record<string, unknown>,
     ctx: ServerContext,
-  ): Promise<CallToolResult | InputRequiredResult | undefined> {
-    const verifiedState =
-      ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined;
-    const argumentsHash = await sha256Base64Url(canonicalJson(args));
-    const hasVerifiedUserIdentity =
-      effectiveIdentity?.identityAssurance === "user" &&
-      Boolean(effectiveIdentity.userEmail?.trim());
-
-    if (verifiedState !== undefined) {
-      if (!hasVerifiedUserIdentity) {
-        return actionApprovalError(
-          `${name} requires approval from a verified user identity.`,
-        );
-      }
-      if (
-        verifiedState.version !== 1 ||
-        typeof verifiedState.nonce !== "string" ||
-        verifiedState.actionName !== name ||
-        verifiedState.argumentsHash !== argumentsHash ||
-        !Number.isFinite(verifiedState.expiresAt) ||
-        verifiedState.expiresAt < Date.now() ||
-        !approvalCallerKey
-      ) {
-        return actionApprovalError(
-          `Approval for ${name} is invalid or does not match this exact call.`,
-        );
-      }
-
-      const consumed = await consumeMcpApprovalGrant({
-        nonce: verifiedState.nonce,
-        callerKey: approvalCallerKey,
-        actionName: name,
-        argumentsHash,
-        expiresAt: verifiedState.expiresAt,
-      });
-      if (!consumed) {
-        return actionApprovalError(
-          `Approval for ${name} is invalid, expired, or already used.`,
-        );
-      }
-
-      const approval = acceptedContent(
-        ctx.mcpReq.inputResponses,
-        MCP_ACTION_APPROVAL_INPUT_KEY,
-      ) as Record<string, unknown> | undefined;
-      if (approval?.decision !== "approve") {
-        return actionApprovalError(`${name} was not approved.`);
-      }
-      return undefined;
-    }
-
-    if (entry.needsApproval === undefined) return undefined;
-    let mustApprove = false;
-    try {
-      mustApprove =
-        typeof entry.needsApproval === "function"
-          ? Boolean(
-              await entry.needsApproval(args, {
-                userEmail: getRequestUserEmail(),
-                orgId: getRequestOrgId() ?? null,
-                appId: config.appId,
-                caller: "mcp",
-                actionName: name,
-              }),
-            )
-          : entry.needsApproval === true;
-    } catch {
-      mustApprove = true;
-    }
-    if (!mustApprove) return undefined;
-
-    if (!hasVerifiedUserIdentity) {
-      return actionApprovalError(
-        `${name} requires approval from a verified user identity.`,
-      );
-    }
-
-    if (approvalConfigurationError || !approvalCodec || !approvalCallerKey) {
-      return actionApprovalError(
-        `${name} requires approval, but secure MCP approval is not configured on this server.`,
-      );
-    }
-
-    const now = Date.now();
-    const approvalState: McpActionApprovalState = {
-      version: 1,
-      nonce: globalThis.crypto.randomUUID(),
-      actionName: name,
-      argumentsHash,
-      expiresAt: now + MCP_ACTION_APPROVAL_TTL_SECONDS * 1000,
-    };
-    await createMcpApprovalGrant({
-      ...approvalState,
-      callerKey: approvalCallerKey,
-    });
-    const requestState = await approvalCodec.mint(approvalState, ctx);
+  ): Promise<InputRequiredResult> {
+    const requestState = await approvalCodec!.mint(approvalState, ctx);
     return inputRequired({
       inputRequests: {
         [MCP_ACTION_APPROVAL_INPUT_KEY]: inputRequired.elicit({
@@ -2328,54 +2076,71 @@ export async function createMCPServerForRequest(
         const callableActions = fullCatalogRequested
           ? actions
           : advertisedActions;
-        const entry = callableActions[name];
-        if (!entry) {
+        const outcome = await runMcpActionCallUnredacted(actionCallContext, {
+          name,
+          args,
+          callable: callableActions,
+          approval: {
+            state: () =>
+              ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined,
+            decision: () =>
+              (
+                acceptedContent(
+                  ctx.mcpReq.inputResponses,
+                  MCP_ACTION_APPROVAL_INPUT_KEY,
+                ) as Record<string, unknown> | undefined
+              )?.decision,
+          },
+        });
+        if (outcome.status === "unknown-tool") {
           failure = {
             errorType: "unknown_tool",
-            errorMessage: `Unknown tool: ${name}`,
+            errorMessage: outcome.message,
           };
           return {
-            content: [{ type: "text", text: `Unknown tool: ${name}` }],
+            content: [{ type: "text", text: outcome.message }],
             isError: true,
           };
         }
-        if (
-          !isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes)
-        ) {
+        if (outcome.status === "forbidden-scope") {
           failure = {
             errorType: "forbidden_scope",
-            errorMessage: `OAuth scope does not allow tool ${name}`,
+            errorMessage: outcome.message,
           };
+          return {
+            content: [{ type: "text", text: `Forbidden: ${outcome.message}` }],
+            isError: true,
+          };
+        }
+        if (outcome.status === "approval-denied") {
+          return actionApprovalError(outcome.message);
+        }
+
+        const toolCallError = (err: any) => {
+          const errorCode = mcpActionErrorCode(err);
+          failure = describeMcpError(err);
+          const projectedError =
+            directoryCatalog && config.directoryProfile?.projectResult
+              ? config.directoryProfile.projectResult(name, err.message)
+              : err.message;
           return {
             content: [
               {
                 type: "text",
-                text: `Forbidden: OAuth scope does not allow tool ${name}`,
+                text: `Error: ${typeof projectedError === "string" ? projectedError : err.message}${errorCode ? ` (errorCode: ${errorCode})` : ""}`,
               },
             ],
             isError: true,
           };
-        }
+        };
+        if (outcome.status === "threw") return toolCallError(outcome.error);
 
         try {
-          const approvalResult = await requireMcpActionApproval(
-            entry,
-            name,
-            (args as Record<string, unknown>) ?? {},
-            ctx,
-          );
-          if (approvalResult !== undefined) return approvalResult;
+          if (outcome.status === "approval-required") {
+            return await requestMcpActionApproval(outcome.approval, name, ctx);
+          }
 
-          const result = await entry.run(
-            (args as Record<string, string>) ?? {},
-            {
-              userEmail: getRequestUserEmail(),
-              orgId: getRequestOrgId() ?? null,
-              appId: config.appId,
-              caller: "mcp",
-              actionName: name,
-            },
-          );
+          const { entry, result } = outcome;
           const mcpResult = isMcpActionResult(result) ? result : null;
           const rawResult = mcpResult ? mcpResult.raw : result;
           const resultForClient = mcpResult ? mcpResult.text : result;
@@ -2388,11 +2153,9 @@ export async function createMCPServerForRequest(
           const projectedResultForClient = projectDirectoryResult
             ? projectDirectoryResult(name, resultForClient)
             : resultForClient;
-          const mcpResultIsError =
-            !!mcpResult &&
-            !!mcpResult.raw &&
-            typeof mcpResult.raw === "object" &&
-            (mcpResult.raw as Record<string, unknown>).isError === true;
+          // Read after projection: a directory projector may rewrite the
+          // proxied value it is handed, including its error flag.
+          const mcpResultIsError = isReportedProxyError(result);
           const mcpAppResourceCandidate =
             requestMeta?.inlineMcpApps && mcpAppWidgetsEnabled(config)
               ? await resolveMcpAppResourceSafely(
@@ -2543,24 +2306,7 @@ export async function createMCPServerForRequest(
           }
           return response;
         } catch (err: any) {
-          const errorCode =
-            isActionContractError(err) && err.errorCode !== "action_failed"
-              ? ` (errorCode: ${err.errorCode})`
-              : "";
-          failure = describeMcpError(err);
-          const projectedError =
-            directoryCatalog && config.directoryProfile?.projectResult
-              ? config.directoryProfile.projectResult(name, err.message)
-              : err.message;
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Error: ${typeof projectedError === "string" ? projectedError : err.message}${errorCode}`,
-              },
-            ],
-            isError: true,
-          };
+          return toolCallError(err);
         }
       }, mcpRequestId);
 

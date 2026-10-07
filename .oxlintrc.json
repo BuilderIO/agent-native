@@ -40,6 +40,18 @@
         "ignoreRestSiblings": true,
         "varsIgnorePattern": "^_"
       }
+    ],
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "regex": "(^|/)execute-action-call(\\.js)?$",
+            "importNames": ["runMcpActionCallUnredacted"],
+            "message": "Only the direct tools/call adapter in build-server.ts may read unredacted action results. Use executeMcpActionCall."
+          }
+        ]
+      }
     ]
   },
   "ignorePatterns": [
@@ -140,6 +152,12 @@
       "files": ["packages/recap-cli/src/**/*.ts"],
       "rules": {
         "typescript/no-useless-default-assignment": "off"
+      }
+    },
+    {
+      "files": ["packages/core/src/mcp/build-server.ts"],
+      "rules": {
+        "eslint/no-restricted-imports": "off"
       }
     }
   ]
