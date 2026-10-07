@@ -7013,7 +7013,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 if (
                   body.messageCount !== undefined &&
                   body.messageCount !== null &&
-                  typeof body.messageCount !== "number"
+                  (typeof body.messageCount !== "number" ||
+                    !Number.isSafeInteger(body.messageCount) ||
+                    body.messageCount < 0)
                 ) {
                   setResponseStatus(event, 400);
                   return { error: "Invalid request body" };

@@ -479,26 +479,34 @@ describe("agent chat thread save route", () => {
     expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
   });
 
-  it("rejects a nonnumeric message count before saving", async () => {
-    const h3App = await mountResourceRoutes();
-    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
-    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+  it.each([
+    ["nonnumeric", "2"],
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["unsafe", Number.MAX_SAFE_INTEGER + 1],
+  ])(
+    "rejects a %s message count before saving",
+    async (_label, messageCount) => {
+      const h3App = await mountResourceRoutes();
+      threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+      mocks.getSession.mockResolvedValue({ email: "user@example.test" });
 
-    const response = await fetchWithRequestContext(
-      h3App,
-      `/_agent-native/agent-chat/threads/${thread.id}`,
-      { userEmail: "user@example.test" },
-      {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messageCount: "2" }),
-      },
-    );
+      const response = await fetchWithRequestContext(
+        h3App,
+        `/_agent-native/agent-chat/threads/${thread.id}`,
+        { userEmail: "user@example.test" },
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageCount }),
+        },
+      );
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "Invalid request body" });
-    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "Invalid request body" });
+      expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+    },
+  );
 
   it("preserves threadData for the metadata-only empty-string save sentinel", async () => {
     const h3App = await mountResourceRoutes();
