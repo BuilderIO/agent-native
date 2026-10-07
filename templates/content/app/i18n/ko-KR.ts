@@ -1053,6 +1053,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "{{stage}}을(를) 기다리는 중입니다. 요청: {{action}}.",
+    widgetDocumentLoadStage: "저장된 페이지 본문",
+    widgetDraftCheckStage: "페이지 초안 복구",
+    widgetEditorInitStage: "서식 있는 텍스트 편집기 초기화",
     iconPickerIcons: "아이콘",
     iconPickerEmoji: "이모지",
     iconPickerRecent: "최근 항목",

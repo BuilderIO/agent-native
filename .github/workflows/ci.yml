@@ -671,7 +671,10 @@ jobs:
         working-directory: templates/content
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
-            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            -c e2e/playwright.config.ts \
+            e2e/two-tab-convergence.spec.ts \
+            e2e/chatgpt-widget-body-paint.spec.ts \
+            --workers=1 \
             --grep-invert @known-loss --output test-results/required
         env:
           CONTENT_E2E_SERVE_BUILD: "1"

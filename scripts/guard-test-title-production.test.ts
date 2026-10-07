@@ -62,7 +62,7 @@ describe("test-title production guard", () => {
     );
     assert.equal(
       checkout?.with?.ref,
-      "${{ github.event.pull_request.base.sha }}",
+      "${{ github.event.pull_request.base.ref }}",
     );
     assert.equal(checkout?.with?.["persist-credentials"], true);
     assert.ok(
