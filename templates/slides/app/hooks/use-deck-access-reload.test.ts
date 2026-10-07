@@ -105,35 +105,46 @@ describe("useDeckAccessReload", () => {
     expect(result.current).toBe("deck-2|org-1");
   });
 
-  it("does not revive a superseded retry loop when the key changes away and back", async () => {
+  it("does not revive an old attempt after the key changes away and back while loading", async () => {
     let finishFirst: (status: DeckReloadStatus) => void = () => {};
+    let finishCurrent: (status: DeckReloadStatus) => void = () => {};
     const reload = vi
       .fn<() => Promise<DeckReloadStatus>>()
       .mockImplementationOnce(
         () =>
           new Promise<DeckReloadStatus>((resolve) => (finishFirst = resolve)),
       )
+      .mockImplementationOnce(
+        () =>
+          new Promise<DeckReloadStatus>((resolve) => (finishCurrent = resolve)),
+      )
       .mockResolvedValue("loaded");
     const { result, rerender } = renderHook(
-      ({ accessKey }) =>
+      ({ accessKey, loading }) =>
         useDeckAccessReload({
           accessKey,
           deckFound: false,
-          loading: false,
+          loading,
           orgId: "org-1",
           orgLoading: false,
           reload,
         }),
-      { initialProps: { accessKey: "deck-1|org-1" } },
+      { initialProps: { accessKey: "deck-1|org-1", loading: false } },
     );
 
-    rerender({ accessKey: "deck-2|org-1" });
-    await waitFor(() => expect(result.current).toBe("deck-2|org-1"));
-    rerender({ accessKey: "deck-1|org-1" });
-    await waitFor(() => expect(result.current).toBe("deck-1|org-1"));
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    rerender({ accessKey: "deck-2|org-1", loading: true });
+    rerender({ accessKey: "deck-1|org-1", loading: true });
+    rerender({ accessKey: "deck-1|org-1", loading: false });
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(2));
+
     await act(async () => finishFirst("stale"));
     await act(() => tick(20));
 
-    expect(reload).toHaveBeenCalledTimes(3);
+    expect(reload).toHaveBeenCalledTimes(2);
+    expect(result.current).toBeNull();
+
+    await act(async () => finishCurrent("loaded"));
+    await waitFor(() => expect(result.current).toBe("deck-1|org-1"));
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { DeckReloadStatus } from "@/context/DeckContext";
 
@@ -7,9 +7,8 @@ import type { DeckReloadStatus } from "@/context/DeckContext";
  * from it, and returns the key of the last settled check.
  *
  * `reload` toggles `loading`, which this effect reads, so the effect re-runs
- * mid-reload. The once-per-key guard is a ref for that reason: gating on a
- * cleanup `cancelled` flag drops the settled key whenever `loading` flips,
- * so a deck the viewer cannot open reloads forever.
+ * mid-reload. Attempts use a generation that advances with every key change,
+ * so a K1 → K2 → K1 transition cannot revive the first K1 attempt.
  */
 export function useDeckAccessReload({
   accessKey,
@@ -27,23 +26,27 @@ export function useDeckAccessReload({
   reload: () => Promise<DeckReloadStatus>;
 }): string | null {
   const [checkedKey, setCheckedKey] = useState<string | null>(null);
-  // One object per attempt: comparing keys would revive a superseded loop when
-  // the key changes away and back (K1 -> K2 -> K1).
-  const startedRef = useRef<{ key: string } | null>(null);
+  const generationRef = useRef(0);
+  const startedGenerationRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    generationRef.current += 1;
+    startedGenerationRef.current = null;
+  }, [accessKey]);
 
   useEffect(() => {
+    const generation = generationRef.current;
     if (
       loading ||
       deckFound ||
       !accessKey ||
       orgLoading ||
       checkedKey === accessKey ||
-      startedRef.current?.key === accessKey
+      startedGenerationRef.current === generation
     ) {
       return;
     }
-    const attempt = { key: accessKey };
-    startedRef.current = attempt;
+    startedGenerationRef.current = generation;
 
     if (!orgId) {
       setCheckedKey(accessKey);
@@ -52,10 +55,10 @@ export function useDeckAccessReload({
 
     void (async () => {
       let status = await reload();
-      while (status === "stale" && startedRef.current === attempt) {
+      while (status === "stale" && generationRef.current === generation) {
         status = await reload();
       }
-      if (startedRef.current === attempt) setCheckedKey(accessKey);
+      if (generationRef.current === generation) setCheckedKey(accessKey);
     })();
   }, [accessKey, checkedKey, deckFound, loading, orgId, orgLoading, reload]);
 
