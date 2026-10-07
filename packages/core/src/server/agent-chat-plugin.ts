@@ -3476,6 +3476,9 @@ export function createAgentChatPlugin(
                           mcpOptions.directoryProfile?.widgetReadPublicActions?.includes(
                             name,
                           ) ||
+                          mcpOptions.directoryProfile?.widgetReadAuthenticatedActions?.includes(
+                            name,
+                          ) ||
                           mcpOptions.directoryProfile?.widgetReadPrivateActions?.includes(
                             name,
                           )) &&

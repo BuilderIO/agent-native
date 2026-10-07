@@ -112,8 +112,7 @@ import {
   patchDocumentCaches,
   documentQueryFilter,
   documentQueryKey,
-  startPageOpenReviewReads,
-  startPreviewDocumentDraftRead,
+  startPageOpenCompanionReads,
   useContentNavigationContext,
   useDeleteDocument,
   useDocuments,
@@ -1309,10 +1308,12 @@ export function PageEditorSurface({
     const cached = queryClient.getQueryData<Document>(
       documentQueryKey(documentId, { databaseId, databaseDocumentId }),
     );
-    startPreviewDocumentDraftRead(queryClient, documentId, cached);
-    if (cached?.source?.mode !== "local-files") {
-      startPageOpenReviewReads(queryClient, documentId);
-    }
+    startPageOpenCompanionReads(
+      queryClient,
+      documentId,
+      cached,
+      readsStartedEarly,
+    );
   }, [
     databaseDocumentId,
     databaseId,

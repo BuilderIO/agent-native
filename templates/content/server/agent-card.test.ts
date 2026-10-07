@@ -9,6 +9,8 @@ import {
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { describe, expect, it } from "vitest";
 
+import { CHATGPT_DIRECTORY_PROFILE } from "./lib/chatgpt-directory-tools.js";
+
 const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -42,6 +44,22 @@ async function loadContentActions() {
 }
 
 describe("content agent card", () => {
+  it(
+    "registers the scoped page suggestions read from the generated action registry",
+    async () => {
+      const actions = await loadContentActions();
+
+      expect(
+        CHATGPT_DIRECTORY_PROFILE.widgetReadAuthenticatedActions,
+      ).toContain("list-resource-suggestions");
+      expect(actions["list-resource-suggestions"]).toMatchObject({
+        http: { method: "GET" },
+        readOnly: true,
+      });
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
   it(
     "advertises content domain actions from the generated static registry",
     async () => {

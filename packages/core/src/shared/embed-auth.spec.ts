@@ -249,4 +249,32 @@ describe("MCP directory widget read capabilities", () => {
       ),
     ).toBe(true);
   });
+
+  it("supports an explicitly scoped read action with no input arguments", () => {
+    const scope = createMcpDirectoryWidgetReadCapability({
+      appId: "content",
+      resourceUri: "ui://content/shell-v67",
+      resourceIds: { documentId: "document-123" },
+      actionArguments: { "list-content-spaces": {} },
+    });
+
+    expect(
+      allowsMcpDirectoryWidgetReadAction(scope, {
+        actionName: "list-content-spaces",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: {},
+        allowedArgumentNames: [],
+      }),
+    ).toBe(true);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(scope, {
+        actionName: "list-content-spaces",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { unexpected: true },
+        allowedArgumentNames: [],
+      }),
+    ).toBe(false);
+  });
 });
