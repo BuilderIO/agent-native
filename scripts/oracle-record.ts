@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
@@ -21,6 +21,7 @@ const ORACLE_DIR = "templates/design/parity/oracle";
 const ORACLE_ID = /^fig\.[a-z0-9]+(?:-[a-z0-9]+)*\.[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const FigmaMethods = new Set([
   "figma-desktop-app-click",
+  "figma-web-app-click",
   "figma-inspector-read",
   "cdp-plugin-api",
   "cdp-input",
@@ -39,6 +40,12 @@ type RecorderManifest = {
   probeMarker: string;
   designId: string;
   values: Record<string, unknown>;
+};
+
+type FigmaPageIdentity = {
+  id: string;
+  name: string;
+  pageChangeCount: number;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -70,6 +77,13 @@ function requireString(value: unknown, field: string): string {
   return value.trim();
 }
 
+function requireExactString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`manifest is missing ${field}`);
+  }
+  return value;
+}
+
 export function parseRecorderManifest(value: unknown): RecorderManifest {
   if (!isRecord(value)) throw new Error("manifest must be a JSON object");
   if (containsPrivateFigmaLocator(value)) {
@@ -87,7 +101,7 @@ export function parseRecorderManifest(value: unknown): RecorderManifest {
     operator: requireString(value.operator, "operator"),
     measuredBy: requireString(value.measuredBy, "measuredBy"),
     trials: requireString(value.trials, "trials"),
-    figmaPageName: requireString(value.figmaPageName, "figmaPageName"),
+    figmaPageName: requireExactString(value.figmaPageName, "figmaPageName"),
     probeMarker: requireString(value.probeMarker, "probeMarker"),
     designId: requireString(value.designId, "designId"),
     values: isRecord(value.values) ? value.values : {},
@@ -144,6 +158,59 @@ export function requireSelectedFigmaProbe(
       "Figma must select exactly the marked oracle probe layer before recording",
     );
   }
+}
+
+export function requireExpectedFigmaPage(
+  expectedName: string,
+  value: unknown,
+): FigmaPageIdentity {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    value.id.trim() === "" ||
+    typeof value.name !== "string" ||
+    value.name.trim() === "" ||
+    !Number.isSafeInteger(value.pageChangeCount) ||
+    (value.pageChangeCount as number) < 0
+  ) {
+    throw new Error("active Figma page bridge returned no page identity");
+  }
+  const page = {
+    id: value.id.trim(),
+    name: value.name,
+    pageChangeCount: value.pageChangeCount as number,
+  };
+  if (page.name !== expectedName) {
+    throw new Error(
+      `active Figma page is ${JSON.stringify(page.name)}, expected ${expectedName}`,
+    );
+  }
+  return page;
+}
+
+export function requireStableFigmaPage(
+  before: FigmaPageIdentity,
+  after: unknown,
+): FigmaPageIdentity {
+  const current = requireExpectedFigmaPage(before.name, after);
+  if (
+    current.id !== before.id ||
+    current.pageChangeCount !== before.pageChangeCount
+  ) {
+    throw new Error("active Figma page changed during capture");
+  }
+  return current;
+}
+
+export async function withVerifiedFigmaPage<T>(
+  expectedName: string,
+  readActivePage: () => Promise<unknown>,
+  capture: () => Promise<T>,
+): Promise<{ activePage: FigmaPageIdentity; result: T }> {
+  const before = requireExpectedFigmaPage(expectedName, await readActivePage());
+  const result = await capture();
+  const activePage = requireStableFigmaPage(before, await readActivePage());
+  return { activePage, result };
 }
 
 function readManifest(file: string): RecorderManifest {
@@ -208,6 +275,110 @@ async function verifyProbePage(page: any, marker: string): Promise<void> {
   requireSelectedFigmaProbe(marker, selection.available, selection.selected);
 }
 
+function readFigmaPageBridgePluginId(manifestPath: string): string {
+  const bridgeManifestPath = path.resolve(process.cwd(), manifestPath);
+  let pluginId: unknown;
+  try {
+    pluginId = JSON.parse(readFileSync(bridgeManifestPath, "utf8")).id;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `cannot read Figma development plugin manifest; create the local plugin in Figma Desktop and build the bridge into that directory first: ${detail}`,
+      { cause: error },
+    );
+  }
+  if (typeof pluginId !== "string" || !/^\d{12,}$/.test(pluginId)) {
+    throw new Error(
+      "Figma development plugin manifest has no Figma-assigned numeric plugin id",
+    );
+  }
+  return pluginId;
+}
+
+export async function readFigmaActivePage(
+  page: any,
+  pluginId: string,
+): Promise<FigmaPageIdentity> {
+  const requestId = randomUUID();
+  if (pluginId.trim() === "") {
+    throw new Error("local oracle page bridge manifest has no plugin id");
+  }
+  const bridgeResponses = await Promise.all(
+    page.frames().map(async (frame: any) => {
+      try {
+        return await frame.evaluate(
+          async ({
+            request,
+            pluginId,
+          }: {
+            request: string;
+            pluginId: string;
+          }) => {
+            if (!document.getElementById("agent-native-oracle-page-bridge")) {
+              return null;
+            }
+
+            return new Promise((resolve) => {
+              const timeout = window.setTimeout(() => {
+                window.removeEventListener("message", receive);
+                resolve({ found: true, page: null });
+              }, 2_000);
+              const receive = (event: MessageEvent) => {
+                const message = (event.data as { pluginMessage?: unknown })
+                  ?.pluginMessage;
+                if (
+                  !message ||
+                  typeof message !== "object" ||
+                  (message as { type?: unknown }).type !== "active-page" ||
+                  (message as { requestId?: unknown }).requestId !== request
+                ) {
+                  return;
+                }
+                window.clearTimeout(timeout);
+                window.removeEventListener("message", receive);
+                resolve({
+                  found: true,
+                  page: (message as { page?: unknown }).page ?? null,
+                });
+              };
+              window.addEventListener("message", receive);
+              window.parent.postMessage(
+                {
+                  pluginMessage: {
+                    type: "get-active-page",
+                    requestId: request,
+                  },
+                  pluginId,
+                },
+                "https://www.figma.com",
+              );
+            });
+          },
+          { request: requestId, pluginId },
+        );
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const matches = bridgeResponses.filter(
+    (response: any) => response?.found === true,
+  );
+  if (matches.length !== 1) {
+    if (matches.length > 1) {
+      throw new Error("multiple active Figma page bridges are open");
+    }
+    throw new Error(
+      "active Figma page bridge is missing; build and run the local oracle page bridge before recording",
+    );
+  }
+  const pageIdentity = matches[0].page;
+  if (!isRecord(pageIdentity) || typeof pageIdentity.name !== "string") {
+    throw new Error("active Figma page bridge returned no page identity");
+  }
+  return requireExpectedFigmaPage(pageIdentity.name, pageIdentity);
+}
+
 async function readFigmaInspector(page: any): Promise<Record<string, string>> {
   return page.evaluate(() => {
     const values: Record<string, string> = {};
@@ -242,7 +413,10 @@ function appendArtifact(
   };
 }
 
-async function record(manifest: RecorderManifest): Promise<string> {
+async function record(
+  manifest: RecorderManifest,
+  pluginId: string,
+): Promise<string> {
   const finalRoot = path.join(REPO_ROOT, ORACLE_DIR);
   const finalEntry = path.join(finalRoot, `${manifest.id}.json`);
   const finalArtifacts = path.join(finalRoot, manifest.id);
@@ -278,6 +452,7 @@ async function record(manifest: RecorderManifest): Promise<string> {
 
     let figmaShot = "";
     let figmaInspector: Record<string, string> = {};
+    let activeFigmaPage: FigmaPageIdentity;
     await withLock("osmouse", async () => {
       const browser = await chromium.connectOverCDP(CDP_URL);
       try {
@@ -287,7 +462,11 @@ async function record(manifest: RecorderManifest): Promise<string> {
           .find((candidate: any) =>
             candidate.url().includes("figma.com/design/"),
           );
-        if (!page) throw new Error("no native Figma design tab is open");
+        if (!page) {
+          throw new Error(
+            "no Figma Design tab is open in the CDP-connected Chrome",
+          );
+        }
         const cookies = await page.context().cookies("https://www.figma.com");
         if (
           !cookies.some(
@@ -298,24 +477,31 @@ async function record(manifest: RecorderManifest): Promise<string> {
             "Figma login cookie is unavailable; no capture was written",
           );
         }
-        await verifyProbePage(page, manifest.probeMarker);
-        figmaInspector = await readFigmaInspector(page);
-        const viewport = await page.evaluate(() => ({
-          width: window.innerWidth,
-          height: window.innerHeight,
-        }));
-        const width = Math.min(980, viewport.width);
-        const top = Math.min(55, Math.max(0, viewport.height - 1));
-        figmaShot = path.join(captureDir, "figma.png");
-        await page.screenshot({
-          path: figmaShot,
-          clip: {
-            x: viewport.width - width,
-            y: top,
-            width,
-            height: viewport.height - top,
+        const verified = await withVerifiedFigmaPage(
+          manifest.figmaPageName,
+          () => readFigmaActivePage(page, pluginId),
+          async () => {
+            await verifyProbePage(page, manifest.probeMarker);
+            figmaInspector = await readFigmaInspector(page);
+            const viewport = await page.evaluate(() => ({
+              width: window.innerWidth,
+              height: window.innerHeight,
+            }));
+            const width = Math.min(980, viewport.width);
+            const top = Math.min(55, Math.max(0, viewport.height - 1));
+            figmaShot = path.join(captureDir, "figma.png");
+            await page.screenshot({
+              path: figmaShot,
+              clip: {
+                x: viewport.width - width,
+                y: top,
+                width,
+                height: viewport.height - top,
+              },
+            });
           },
-        });
+        );
+        activeFigmaPage = verified.activePage;
       } finally {
         await browser.close();
       }
@@ -418,7 +604,8 @@ async function record(manifest: RecorderManifest): Promise<string> {
       },
       figma: {
         fileKeyWithheld: true,
-        pageName: manifest.figmaPageName,
+        pageId: activeFigmaPage.id,
+        pageName: activeFigmaPage.name,
         probeLayerName: manifest.probeMarker,
         appBuild: "not exposed by the native Figma page",
       },
@@ -451,24 +638,46 @@ async function record(manifest: RecorderManifest): Promise<string> {
 }
 
 function main(): void {
-  const [flag, manifestPath] = process.argv.slice(2);
-  if (flag !== "--manifest" || !manifestPath) {
+  let manifestPath = "";
+  let pluginManifestPath = ".tmp/figma-oracle-page-bridge/manifest.json";
+  const args = process.argv.slice(2);
+  if (args[0] === "--") args.shift();
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) {
+      console.error(`missing value for ${flag}`);
+      process.exitCode = 2;
+      return;
+    }
+    if (flag === "--manifest") manifestPath = value;
+    else if (flag === "--plugin-manifest") pluginManifestPath = value;
+    else {
+      console.error(`unknown option: ${flag}`);
+      process.exitCode = 2;
+      return;
+    }
+    index += 1;
+  }
+  if (!manifestPath) {
     console.error(
-      "usage: pnpm design:oracle-record -- --manifest <probe.json>",
+      "usage: pnpm design:oracle-record -- --manifest <probe.json> [--plugin-manifest <figma-plugin-manifest.json>]",
     );
     process.exitCode = 2;
     return;
   }
   let manifest: RecorderManifest;
+  let pluginId: string;
   try {
     manifest = readManifest(manifestPath);
+    pluginId = readFigmaPageBridgePluginId(pluginManifestPath);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error(`[oracle-record] ${detail}`);
     process.exitCode = 2;
     return;
   }
-  void record(manifest).then(
+  void record(manifest, pluginId).then(
     (file) => {
       console.log(`[oracle-record] wrote ${path.relative(REPO_ROOT, file)}`);
     },

@@ -27,7 +27,7 @@ const pullRequestEventFixture = {
 const changedPathsFixture = (...paths: string[]) => `${paths.join("\0")}\0`;
 
 describe("test-title production guard", () => {
-  it("reruns only the lightweight guard when an existing PR title is edited", () => {
+  it("checks test-title PRs on open, sync, reopen, and title edit", () => {
     const workflow = parse(
       readFileSync(".github/workflows/test-title-production.yml", "utf8"),
     ) as {
@@ -38,9 +38,14 @@ describe("test-title production guard", () => {
 
     assert.deepEqual(workflow.on?.pull_request, {
       branches: ["main"],
-      types: ["edited"],
+      types: ["opened", "synchronize", "reopened", "edited"],
     });
-    assert.equal(titleGuard?.if, "github.event.changes.title != null");
+    assert.match(
+      titleGuard?.if ?? "",
+      /startsWith\(github\.event\.pull_request\.title, 'test:'\)/,
+    );
+    assert.match(titleGuard?.if ?? "", /github\.event\.action == 'edited'/);
+    assert.match(titleGuard?.if ?? "", /github\.event\.changes\.title != null/);
     assert.ok(
       titleGuard?.steps?.some((step) =>
         step.run?.includes("scripts/guard-test-title-production.ts"),

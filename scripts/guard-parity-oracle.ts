@@ -26,7 +26,8 @@ const ARTIFACT_KINDS = new Set([
   "design-screenshot",
   "comparison-sheet",
 ]);
-const TEST_BLOCK = /\b(?:test|it)(?:\.(?:only|skip|fixme))?\s*\(/g;
+const TEST_BLOCK =
+  /\b(?:test|it)(?:\.(?:only|skip|fixme|each|concurrent))*\s*\(/g;
 const ORACLE_CALL = /\boracle\s*\(\s*["'](fig\.[a-z0-9.-]+)["']\s*\)/g;
 const ORACLE_COMMENT =
   /\boracle\s*:\s*(fig\.[a-z0-9.-]+|none\s*[—-]\s*\S[^\r\n]*)/i;

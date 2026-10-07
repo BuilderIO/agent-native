@@ -62,14 +62,29 @@ parity log is not a native Figma oracle.
 - Use a disposable local Design fixture and a Figma probe layer named exactly
   `AN-ORACLE-PROBE:<id>`. Keep the private Figma file key out of the manifest
   and repository. Record the Figma page name in the local manifest.
-- Run `pnpm design:oracle-record -- --manifest <path>` with a manifest under
-  `.tmp/`. Include `id`, `claim`, `area`, `gesture`, `nativeObservation`,
-  `operator`, `measuredBy`, `trials`, `figmaPageName`, `probeMarker`,
-  `designId`, and the measured `values`. The recorder checks the logged-in
-  native Figma tab, exact probe-layer name, matching local Design comment, and
-  unique selected Design probe layer before saving screenshots, inspector
-  values, a comparison sheet, and the hashed record. Inspect the record and
-  artifacts before citing them.
+- In Figma Desktop, create a Custom UI development plugin so Figma assigns its
+  plugin id. Keep its generated directory under `.tmp/` or outside the repo.
+  Build the bridge into that plugin with
+  `pnpm design:oracle-page-bridge -- --manifest <plugin-manifest.json>`; this
+  writes `plugin.js` and `ui.html` beside the manifest and preserves its id.
+  Then open the same file in the Figma tab attached to the harness CDP browser
+  (Chrome on port 9222 by default), run the registered plugin from Development,
+  and leave its small UI open. Confirm it says `Active Figma page: <name>` in
+  that Chrome tab. The bridge reads `figma.currentPage`; it does not edit the
+  file or send page data elsewhere.
+- Run `pnpm design:oracle-record -- --manifest <probe.json> --plugin-manifest
+  <plugin-manifest.json>` with both manifests local; keep the probe manifest
+  under `.tmp/`. Include `id`, `claim`, `area`, `gesture`, `nativeObservation`,
+  `operator`, `measuredBy`, `trials`, `figmaPageName`, `probeMarker`, `designId`,
+  and the measured `values`. The recorder checks the logged-in
+  Figma tab in the CDP-connected Chrome, verifies the exact active page name
+  before capture and the same page identity afterward, then checks the exact
+  probe-layer name, matching local Design comment, and unique selected Design
+  probe layer before saving screenshots, inspector values, a comparison sheet,
+  and the hashed record. Keep the page active while capture runs: Figma page
+  change callbacks are asynchronous and may be coalesced, so the counter only
+  detects changes Figma reports. Inspect the record and artifacts before citing
+  them.
 - A recorder failure exits 2 and removes staged files. Do not hand-write a
   measured entry to work around a missing session or probe.
 

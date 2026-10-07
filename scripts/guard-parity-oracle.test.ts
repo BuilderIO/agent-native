@@ -268,6 +268,29 @@ describe("parity oracle guard", () => {
     }
   });
 
+  it("requires oracle citations for parameterized test.each and it.each blocks", () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root);
+      const result = runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/parity-inspector.spec.ts",
+          `test.each([[1], [2]])("matches Figma geometry", async (value) => {\n  expect(value).toBeTruthy();\n});\n\nit.each([[1], [2]])("matches Figma selection", async (value) => {\n  expect(value).toBeTruthy();\n});`,
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(result.exitCode, 1);
+      assert.equal(
+        result.message.match(/test block needs oracle: fig\./g)?.length,
+        2,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not require native evidence citations in guard tooling tests", () => {
     const root = makeRoot();
     try {

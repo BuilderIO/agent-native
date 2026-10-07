@@ -283,11 +283,6 @@ deduplicated against Slack. If a source cannot be read, record it as
 **unavailable**. Never report "nothing matched" for a source you could not
 query.
 
-### CI failures are a first-class source
-
-Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
-Failed queries mean **CI unavailable**, never an empty source.
-
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
 Read each issue's body, comments, author, labels, linked PRs. Treat
@@ -578,7 +573,6 @@ Upvoted items in scope: N (built: N)
 | Tracker/source | Reporter | Status | Repro (expected/actual) | Pre/post | Runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 18 / [thread](...) | ... | <disposition> | steps; expected/actual | before/after | source/tests/build/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
-| CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | fix/quarantine proof | N/A | owner/[issue](...) | N/A | N/A |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete

@@ -3,7 +3,7 @@ name: Test-title production guard
 on:
   pull_request:
     branches: [main]
-    types: [edited]
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -15,7 +15,9 @@ concurrency:
 jobs:
   test-title-production:
     name: Test-title production guard
-    if: github.event.changes.title != null
+    if: >-
+      startsWith(github.event.pull_request.title, 'test:') ||
+      (github.event.action == 'edited' && github.event.changes.title != null)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
