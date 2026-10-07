@@ -6,10 +6,13 @@ fix gets its final reply after verification; continuing work gets a concrete
 progress reply. An earlier generic “taking a look” does not satisfy this
 update.
 
-Preserve cluster handling: represent duplicate non-owner threads by permalink
-and **Clustered** in one owner-thread status. Do not react or reply in a
-non-owner thread unless a distinct question or update needs its own
-disposition; if it does, react and reply there as a separate item.
+Preserve cluster handling: identify known duplicates before claiming them;
+represent duplicate non-owner threads by permalink and **Clustered** in one
+owner-thread status. Do not react or reply in a non-owner thread unless a
+distinct question or update needs its own disposition; if it does, react and
+reply there as a separate item. If a duplicate is discovered only after this
+run added `👀`, keep it and post a concise **Clustered** reply with the owner
+permalink; never remove the reaction.
 
 Compare each reported symptom with the evidence. State what is fixed and what
 is not. Use `✅` only for verified fixed scope. Use `🎫` for a distinct

@@ -21,13 +21,10 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply**, under a hard question budget, then recap.
 
-Output is fixes; every Slack item this run independently marks with a workflow
-reaction gets one same-thread status reply. For duplicate cluster members,
-record the permalink and **Clustered** in the owner thread; react and reply in
-a non-owner thread only when a distinct question or update needs its own
-disposition. Follow
-[`slack-reaction-replies.md`](references/slack-reaction-replies.md) for its
-content.
+Output is fixes. Reply in-thread for every workflow reaction added this run;
+continuing work gets a concrete progress reply, and resolved work gets a final
+reply after verification. Follow
+[`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
 
@@ -51,9 +48,10 @@ work, post one status reply with task link and remaining scope.
 
 ## Phase 0: claim what you are taking
 
-For an eligible item you intend to take, add `👀` before investigation and
-never remove it. Do not resume items excluded by the Slack ownership gate. Post
-**In progress** only when work continues beyond this run.
+Resolve known duplicate clusters before claiming. For an eligible item, add
+`👀` before investigation and never remove it. Do not resume items excluded by
+the Slack ownership gate. Post **In progress** only when work continues beyond
+this run.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
 Investigate first; ask what they saw or did in plain language. Gather request
@@ -69,14 +67,13 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 `👀` is claim history; `✅` requires **Fixed** after Phase 2 bars. Check each
 reported symptom separately. For partial fixes, pair `✅` for verified scope
-with `🎫` for distinct unfinished scope needing a human only when an existing
-ticket names the owner and exact action. Link that ticket in the ledger and
-reply. If an item has unfinished human work but no such ticket, keep it
-`👀`-only and open; report the fixed and pending scopes, exact untracked
-handoff, and missing ticket in the reply and ledger. No `🎫` for fixed scope,
-routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
+with `🎫` for distinct unfinished human work only when an existing ticket names
+the owner and exact action; link it in the ledger and reply. Without a ticket,
+keep the item `👀`-only and open; report fixed and pending scopes, the exact
+untracked handoff, and the missing ticket. No `🎫` for fixed scope, routine
+rollout, optional checks, subjective/out-of-scope, or unapproved work.
 **Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
-Follow the reply reference above before marking an item replied.
+Follow the reply reference before marking an item replied.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -90,9 +87,8 @@ means you found neither a fix nor a useful question; state why in the thread.
 For eligible items, use one disposition per row; record it in the recap and, if
 unstated, in the thread or linked work. Do not inspect gated items for status.
 For clusters, post one owner status with each source permalink and
-**Clustered**; do not react or reply in a non-owner thread unless a distinct
-question or update needs its own disposition. If it does, react and reply there
-as a separate item.
+**Clustered**; do not mark duplicate non-owners separately. Give a distinct
+question or update its own reaction and reply.
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
