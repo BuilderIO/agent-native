@@ -8,7 +8,7 @@ const CREDENTIAL_FIELD = `(?:(?:(?:[a-z0-9]+)[_ -]+)*(?:authorization|cookie|jwt
 const LABELED_CREDENTIAL =
   "([\"']?\\b" + CREDENTIAL_FIELD + "\\b[\"']?\\s*[:=]\\s*[\"']?)";
 const QUOTED_CREDENTIAL_PATTERN = new RegExp(
-  `([\"']?\\b${CREDENTIAL_FIELD}\\b[\"']?\\s*[:=]\\s*)([\"'])(?:\\\\.|(?!\\2)[\\s\\S])*?\\2`,
+  `([\"']?\\b${CREDENTIAL_FIELD}\\b[\"']?\\s*[:=]\\s*)([\"'])(?:\\\\.|(?!\\2)[\\s\\S])*?(?:\\2|$)`,
   "gi",
 );
 const PRIVATE_KEY_BLOCK_PATTERN =

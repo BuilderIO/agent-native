@@ -7,6 +7,7 @@ import {
 } from "../tracking/registry.js";
 import type { TrackingEvent } from "../tracking/types.js";
 import { registerObservabilityProvider } from "./otel-provider.js";
+import { MAX_AI_CONTENT_BYTES } from "./posthog-ai.js";
 import * as traceStore from "./store.js";
 import { instrumentAgentLoop, redactSensitiveFields } from "./traces.js";
 import {
@@ -676,7 +677,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     await instrumentAgentLoop({
       runAgentLoop: async ({ send }) => {
         send({ type: "model_stream", status: "start" });
-        send({ type: "text", text: "a".repeat(140_000) });
+        send({
+          type: "text",
+          text: `${"a".repeat(MAX_AI_CONTENT_BYTES - 1024 - 36)}"client_secret": "partial secret value that continues past the capture limit`,
+        });
         send({ type: "model_stream", status: "end", reason: "tool_use" });
         send({ type: "model_stream", status: "start" });
         send({ type: "text", text: "second model response" });
@@ -708,7 +712,19 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       (span) => span.spanType === "llm_call",
     );
     expect(llmSpans).toHaveLength(2);
+    const firstOutput = JSON.stringify(llmSpans[0]?.metadata?.output);
     expect(llmSpans[0]?.metadata).toMatchObject({ output_truncated: true });
+    expect(
+      firstOutput.startsWith(
+        `[{"role":"assistant","content":"${"a".repeat(512)}`,
+      ),
+    ).toBe(true);
+    expect(firstOutput).toContain("[REDACTED]");
+    expect(firstOutput).toContain("[truncated]");
+    expect(firstOutput).not.toContain("partial secret valu");
+    expect(
+      new TextEncoder().encode(firstOutput).byteLength,
+    ).toBeLessThanOrEqual(MAX_AI_CONTENT_BYTES);
     expect(llmSpans[1]?.metadata).toMatchObject({
       output: [{ role: "assistant", content: "second model response" }],
     });

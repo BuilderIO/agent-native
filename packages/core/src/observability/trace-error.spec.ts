@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { toolErrorSignature } from "./trace-error.js";
+import { redactToolErrorMessage, toolErrorSignature } from "./trace-error.js";
+
+describe("redactToolErrorMessage", () => {
+  it("redacts a quoted credential when capture ends before its closing quote", () => {
+    const redacted = redactToolErrorMessage(
+      '{"client_secret": "partial secret value',
+    );
+
+    expect(redacted).toBe('{"client_secret": "[REDACTED]"');
+    expect(redacted).not.toContain("partial secret value");
+  });
+});
 
 describe("toolErrorSignature", () => {
   it("keeps the first line of a plain failure so the tool stays diagnosable", () => {

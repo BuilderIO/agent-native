@@ -45,28 +45,107 @@ function spanId(): string {
 
 type BoundedAssistantText = {
   parts: string[];
-  length: number;
+  byteLength: number;
   truncated: boolean;
 };
+
+const ASSISTANT_CAPTURE_RESERVE_BYTES = 1024;
+const ASSISTANT_OUTPUT_TRUNCATION_MARKER = "\n[truncated]";
+
+function utf8Prefix(
+  value: string,
+  maxBytes: number,
+): {
+  text: string;
+  byteLength: number;
+} {
+  let byteLength = 0;
+  let end = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    const characterBytes =
+      character.length === 2
+        ? 4
+        : codePoint <= 0x7f
+          ? 1
+          : codePoint <= 0x7ff
+            ? 2
+            : 3;
+    if (byteLength + characterBytes > maxBytes) break;
+    byteLength += characterBytes;
+    end += character.length;
+  }
+  return { text: value.slice(0, end), byteLength };
+}
+
+function utf8ByteLength(value: string): number {
+  return utf8Prefix(value, Number.POSITIVE_INFINITY).byteLength;
+}
 
 function appendBoundedAssistantText(
   capture: BoundedAssistantText,
   text: string,
 ): void {
-  const remaining = MAX_AI_CONTENT_BYTES - capture.length;
+  const remaining =
+    MAX_AI_CONTENT_BYTES - ASSISTANT_CAPTURE_RESERVE_BYTES - capture.byteLength;
   if (remaining <= 0) {
     if (text.length > 0) capture.truncated = true;
     return;
   }
 
-  const chunk = text.slice(0, remaining);
-  if (chunk) capture.parts.push(chunk);
-  capture.length += chunk.length;
-  if (chunk.length < text.length) capture.truncated = true;
+  const prefix = utf8Prefix(text, remaining);
+  if (prefix.text) capture.parts.push(prefix.text);
+  capture.byteLength += prefix.byteLength;
+  if (prefix.text.length < text.length) capture.truncated = true;
 }
 
 function createBoundedAssistantText(): BoundedAssistantText {
-  return { parts: [], length: 0, truncated: false };
+  return { parts: [], byteLength: 0, truncated: false };
+}
+
+function boundAssistantOutput(
+  content: string,
+  toolCalls: Array<{
+    type: "function";
+    id: string;
+    function: { name: string; arguments?: unknown };
+  }>,
+  alreadyTruncated: boolean,
+): { value: unknown; truncated: boolean } {
+  const makeOutput = (assistantContent: string) => [
+    {
+      role: "assistant",
+      content: assistantContent,
+      ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+    },
+  ];
+  const complete = makeOutput(content);
+  if (
+    !alreadyTruncated &&
+    utf8ByteLength(JSON.stringify(complete)) <= MAX_AI_CONTENT_BYTES
+  ) {
+    return { value: complete, truncated: false };
+  }
+
+  let low = 0;
+  let high = utf8ByteLength(content);
+  let best: unknown;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const prefix = utf8Prefix(content, middle).text;
+    const candidate = makeOutput(
+      `${prefix}${ASSISTANT_OUTPUT_TRUNCATION_MARKER}`,
+    );
+    if (utf8ByteLength(JSON.stringify(candidate)) <= MAX_AI_CONTENT_BYTES) {
+      best = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return best === undefined
+    ? boundAiContent(makeOutput(ASSISTANT_OUTPUT_TRUNCATION_MARKER))
+    : { value: best, truncated: true };
 }
 
 function llmProviderFromEngine(
@@ -378,15 +457,18 @@ function buildGenerationContent(args: {
 
   const hasChoice = config.capturePrompts || toolCalls.length > 0;
   const output = hasChoice
-    ? boundAiContent([
-        {
-          role: "assistant",
-          ...(config.capturePrompts
-            ? { content: redactToolErrorMessage(args.assistantText) }
-            : {}),
-          ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
-        },
-      ])
+    ? config.capturePrompts
+      ? boundAssistantOutput(
+          redactToolErrorMessage(args.assistantText),
+          toolCalls,
+          args.assistantTextTruncated === true,
+        )
+      : boundAiContent([
+          {
+            role: "assistant",
+            ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+          },
+        ])
     : undefined;
 
   return {
