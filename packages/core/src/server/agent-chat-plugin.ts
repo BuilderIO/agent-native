@@ -7010,19 +7010,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 let newThreadData = hasThreadData
                   ? incomingThreadData
                   : thread.threadData;
+                const requestedMessageCount = body.messageCount;
                 if (
-                  body.messageCount !== undefined &&
-                  body.messageCount !== null &&
-                  (typeof body.messageCount !== "number" ||
-                    !Number.isSafeInteger(body.messageCount) ||
-                    body.messageCount < 0)
+                  Object.prototype.hasOwnProperty.call(body, "messageCount") &&
+                  (typeof requestedMessageCount !== "number" ||
+                    !Number.isSafeInteger(requestedMessageCount) ||
+                    requestedMessageCount < 0)
                 ) {
                   setResponseStatus(event, 400);
                   return { error: "Invalid request body" };
                 }
                 let newMessageCount =
-                  typeof body.messageCount === "number"
-                    ? body.messageCount
+                  typeof requestedMessageCount === "number"
+                    ? requestedMessageCount
                     : thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;

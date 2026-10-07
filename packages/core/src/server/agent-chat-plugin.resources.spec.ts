@@ -481,6 +481,7 @@ describe("agent chat thread save route", () => {
 
   it.each([
     ["nonnumeric", "2"],
+    ["null", null],
     ["negative", -1],
     ["fractional", 1.5],
     ["unsafe", Number.MAX_SAFE_INTEGER + 1],
