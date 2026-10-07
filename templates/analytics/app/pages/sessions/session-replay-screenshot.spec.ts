@@ -803,10 +803,36 @@ describe("session replay screenshot asset checks", () => {
     image.remove();
   });
 
-  it("captures the replay document viewport without cloning its iframe", async () => {
+  it("captures the replay viewport, nested frames, and visible cursor overlay", async () => {
     const stage = document.createElement("div");
+    const stageRoot = document.createElement("div");
     const iframe = document.createElement("iframe");
     const replayDocument = document.implementation.createHTMLDocument("replay");
+    const childDocument = document.implementation.createHTMLDocument("nested");
+    const replayView = {
+      getComputedStyle: window.getComputedStyle.bind(window),
+      HTMLIFrameElement: window.HTMLIFrameElement,
+      HTMLImageElement: window.HTMLImageElement,
+      HTMLInputElement: window.HTMLInputElement,
+      innerHeight: 480,
+      innerWidth: 640,
+      scrollX: 12,
+      scrollY: 34,
+    };
+    Object.defineProperty(replayDocument, "defaultView", {
+      configurable: true,
+      value: replayView,
+    });
+    Object.defineProperty(childDocument, "defaultView", {
+      configurable: true,
+      value: replayView,
+    });
+    const nestedFrame = replayDocument.createElement("iframe");
+    Object.defineProperty(nestedFrame, "contentDocument", {
+      configurable: true,
+      value: childDocument,
+    });
+    replayDocument.body.appendChild(nestedFrame);
     Object.defineProperty(iframe, "contentDocument", {
       configurable: true,
       value: replayDocument,
@@ -815,29 +841,95 @@ describe("session replay screenshot asset checks", () => {
       configurable: true,
       value: { innerHeight: 480, innerWidth: 640, scrollX: 12, scrollY: 34 },
     });
-    stage.appendChild(iframe);
+    const cursor = document.createElement("div");
+    cursor.className = "replayer-mouse has-position";
+    stageRoot.append(iframe, cursor);
+    stage.appendChild(stageRoot);
     document.body.appendChild(stage);
 
-    const canvas = document.createElement("canvas");
-    Object.defineProperty(canvas, "toBlob", {
-      configurable: true,
-      value: (callback: BlobCallback) =>
-        callback(new Blob(["png"], { type: "image/png" })),
-    });
-    html2canvasMock.mockResolvedValue(canvas);
+    const makeCanvas = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 640;
+      canvas.height = 480;
+      Object.defineProperty(canvas, "toDataURL", {
+        configurable: true,
+        value: () => "data:image/png;base64,c2NyZWVuc2hvdA==",
+      });
+      Object.defineProperty(canvas, "toBlob", {
+        configurable: true,
+        value: (callback: BlobCallback) =>
+          callback(new Blob(["png"], { type: "image/png" })),
+      });
+      return canvas;
+    };
+    const captures: Array<{
+      element: HTMLElement;
+      options: Record<string, any>;
+    }> = [];
+    html2canvasMock.mockImplementation(
+      async (element: HTMLElement, options: Record<string, any>) => {
+        captures.push({ element, options });
+        if (captures.length < 3) {
+          const sourceDocument = element.ownerDocument;
+          const clonedDocument = document.implementation.createHTMLDocument();
+          const clonedRoot = sourceDocument.documentElement.cloneNode(
+            true,
+          ) as HTMLElement;
+          clonedDocument.documentElement.innerHTML = clonedRoot.innerHTML;
+          for (const attribute of Array.from(clonedRoot.attributes)) {
+            clonedDocument.documentElement.setAttribute(
+              attribute.name,
+              attribute.value,
+            );
+          }
+          await options.onclone?.(clonedDocument);
+          if (captures.length === 2) {
+            const clonedNestedFrame = clonedDocument.querySelector("img");
+            expect(clonedNestedFrame?.getAttribute("src")).toBe(
+              "data:image/png;base64,c2NyZWVuc2hvdA==",
+            );
+          }
+          return makeCanvas();
+        }
+
+        const clonedStageRoot = stageRoot.cloneNode(true) as HTMLElement;
+        await options.onclone?.(document, clonedStageRoot);
+        expect(clonedStageRoot.querySelector(".replayer-mouse")).not.toBeNull();
+        expect(clonedStageRoot.querySelector("iframe")).toBeNull();
+        expect(clonedStageRoot.querySelector("img")?.getAttribute("src")).toBe(
+          "data:image/png;base64,c2NyZWVuc2hvdA==",
+        );
+        expect(clonedStageRoot.style.position).toBe("fixed");
+        expect(clonedStageRoot.style.transform).toBe("none");
+        expect(
+          clonedStageRoot.style.getPropertyValue("--an-replay-cursor-scale"),
+        ).toBe("1");
+        return makeCanvas();
+      },
+    );
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       callback(0);
       return 1;
     });
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:replay-screenshot");
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:download");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
 
-    await downloadReplayScreenshot(stage, iframe, "replay.png");
+    await downloadReplayScreenshot(stage, stageRoot, iframe, "replay.png");
 
-    expect(html2canvasMock).toHaveBeenCalledWith(
-      replayDocument.documentElement,
-      expect.objectContaining({
+    expect(captures).toHaveLength(3);
+    expect(captures[0]).toMatchObject({
+      element: childDocument.documentElement,
+      options: expect.objectContaining({
+        height: 480,
+        width: 640,
+        windowHeight: 480,
+        windowWidth: 640,
+      }),
+    });
+    expect(captures[1]).toMatchObject({
+      element: replayDocument.documentElement,
+      options: expect.objectContaining({
         height: 480,
         scrollX: 12,
         scrollY: 34,
@@ -845,7 +937,18 @@ describe("session replay screenshot asset checks", () => {
         windowHeight: 480,
         windowWidth: 640,
       }),
-    );
+    });
+    expect(captures[2]).toMatchObject({
+      element: stageRoot,
+      options: expect.objectContaining({
+        height: 480,
+        scrollX: 0,
+        scrollY: 0,
+        width: 640,
+        windowHeight: 480,
+        windowWidth: 640,
+      }),
+    });
     stage.remove();
   });
 
@@ -868,8 +971,11 @@ describe("session replay screenshot asset checks", () => {
       return 1;
     });
 
+    const stageRoot = document.createElement("div");
+    stageRoot.appendChild(iframe);
+    stage.appendChild(stageRoot);
     await expect(
-      downloadReplayScreenshot(stage, iframe, "replay.png"),
+      downloadReplayScreenshot(stage, stageRoot, iframe, "replay.png"),
     ).rejects.toBeInstanceOf(ReplayScreenshotAssetError);
     expect(html2canvasMock).not.toHaveBeenCalled();
     stage.remove();
@@ -955,13 +1061,19 @@ describe("session replay screenshot asset checks", () => {
     cloned.body.appendChild(clonedCard);
     const captureId = "replaypseudo";
     markMatchingElements(original, cloned, captureId);
+    clonedCard.classList.add("___html2canvas___pseudoelement_before");
+    const pseudoElement = cloned.createElement("html2canvaspseudoelement");
+    const pseudoImage = cloned.createElement("img");
+    pseudoImage.src = "https://assets.example.test/pseudo.png";
+    pseudoElement.appendChild(pseudoImage);
+    clonedCard.appendChild(pseudoElement);
     vi.spyOn(window, "getComputedStyle").mockImplementation(
-      (_element, pseudo) =>
+      (element, pseudo) =>
         ({
           backgroundImage: "none",
           borderImageSource: "none",
           content:
-            pseudo === "::before"
+            element === originalCard && pseudo === "::before"
               ? 'url("https://assets.example.test/pseudo.png")'
               : "none",
           display: "block",
@@ -989,12 +1101,10 @@ describe("session replay screenshot asset checks", () => {
       captureId,
     );
 
-    const pseudoRule = cloned.head.querySelector("style")?.textContent ?? "";
-    const specificityMarkers = pseudoRule.match(/:not\(#replaypseudo\)/g) ?? [];
-    expect(specificityMarkers.length).toBeGreaterThanOrEqual(32);
-    expect(specificityMarkers.length % 32).toBe(0);
-    expect(pseudoRule).toContain("data:image/png;base64,cGl4ZWw=");
-    expect(pseudoRule).toContain("!important");
+    expect(pseudoImage.getAttribute("src")).toBe(
+      "data:image/png;base64,cGl4ZWw=",
+    );
+    expect(cloned.head.querySelector("style")).toBeNull();
   });
 
   it("maps original elements when the cloned document contains helper nodes", () => {
@@ -1044,6 +1154,33 @@ describe("session replay screenshot asset checks", () => {
       "data:image/png;base64,aW1hZ2U=",
     );
     expect(clonedHelper.hasAttribute("data-replay-screenshot-map")).toBe(false);
+  });
+
+  it("ignores source helper nodes added after the replay element snapshot", () => {
+    const original = document.implementation.createHTMLDocument("original");
+    const cloned = document.implementation.createHTMLDocument("cloned");
+    const originalCard = original.createElement("div");
+    const clonedCard = cloned.createElement("div");
+    original.body.appendChild(originalCard);
+    cloned.body.appendChild(clonedCard);
+    const captureId = "replay-source-helper";
+    const originalElements = [...original.querySelectorAll("*")];
+    markMatchingElements(original, cloned, captureId);
+
+    const helperFrame = original.createElement("iframe");
+    helperFrame.className = "html2canvas-container";
+    original.body.appendChild(helperFrame);
+
+    expect(() =>
+      inlineReplayAssets(
+        original,
+        cloned,
+        new Map(),
+        captureId,
+        new Map(),
+        originalElements,
+      ),
+    ).not.toThrow();
   });
 
   it("limits parallel image checks", async () => {

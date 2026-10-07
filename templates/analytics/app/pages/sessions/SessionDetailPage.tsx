@@ -1035,7 +1035,16 @@ function ReplayPlayer({
     const replayer = replayerRef.current;
     const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
     const stage = stageAreaRef.current;
-    if (!replayer || !iframe || !stage || savingScreenshotRef.current) return;
+    const stageRoot = stageRootRef.current;
+    if (
+      !replayer ||
+      !iframe ||
+      !stage ||
+      !stageRoot ||
+      savingScreenshotRef.current
+    ) {
+      return;
+    }
 
     const wasPlaying = playingRef.current;
     const captureAt = Number(
@@ -1052,6 +1061,7 @@ function ReplayPlayer({
       updateTime(captureAt);
       await downloadReplayScreenshot(
         stage,
+        stageRoot,
         iframe,
         `session-replay-${Math.floor(captureAt / 1000)
           .toString()
