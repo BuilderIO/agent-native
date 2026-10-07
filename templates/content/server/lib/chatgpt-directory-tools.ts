@@ -60,7 +60,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "get-content-database": {
       databaseId: "databaseId",
       documentId: "documentId",
-      limit: { type: "integerRange", min: 0, max: 5_000 },
+      limit: { type: "integerRange" as const, min: 0, max: 5_000 },
     },
   },
   keyToolNames: [
