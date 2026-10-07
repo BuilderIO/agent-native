@@ -308,10 +308,9 @@ async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
   while (Date.now() < giveUpAt) {
     const off = await distance();
     if (Math.abs(off) < 0.06) break;
-    // Fire and forget: awaiting each wheel event lets the camera settle between
-    // them. Smaller steps near the target, because events queued behind a long
-    // frame all land at once and overshoot.
-    void cdp.send("Input.dispatchMouseEvent", {
+    // Wait for the camera to apply each input. A fixed delay can enqueue several
+    // events behind a long frame and overshoot on a loaded CI runner.
+    await cdp.send("Input.dispatchMouseEvent", {
       type: "mouseWheel",
       x,
       y,
@@ -319,11 +318,12 @@ async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
       deltaY: Math.sign(off) * Math.min(40, Math.max(2, Math.abs(off) * 40)),
       modifiers: 2,
     });
-    // Near the target, let the camera apply each step before reading again;
-    // otherwise a slow runner overshoots back and forth around it.
-    await new Promise((resolve) =>
-      setTimeout(resolve, Math.abs(off) < 0.3 ? 120 : 16),
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
     );
+    // Give small steps time to settle before checking their final distance.
+    if (Math.abs(off) < 0.3) await page.waitForTimeout(120);
   }
   await page.waitForTimeout(1500);
   return Math.abs(await distance()) < 0.15;
