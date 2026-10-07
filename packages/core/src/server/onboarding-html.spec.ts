@@ -185,7 +185,7 @@ describe("getOnboardingHtml", () => {
     const html = getOnboardingHtml({ requestHost: "slides.agent-native.com" });
 
     expect(html).toContain(".auth-wave-background {");
-    expect(html).toContain("transform: translateY(-9vh);");
+    expect(html).toContain("transform: translateY(-15vh);");
   });
 
   it("allows a hosted app to opt out of catalog auth marketing", () => {
