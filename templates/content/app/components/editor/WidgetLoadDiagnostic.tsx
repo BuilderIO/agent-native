@@ -30,29 +30,15 @@ export function WidgetLoadDiagnostic({
 }) {
   const t = useT();
   const [timedOut, setTimedOut] = useState(false);
-  const [failureName, setFailureName] = useState<string | null>(null);
 
   useEffect(() => {
     setTimedOut(false);
-    setFailureName(null);
     if (!active) return;
     const timeout = window.setTimeout(() => setTimedOut(true), 8_000);
-    const onError = (event: ErrorEvent) => {
-      setFailureName(exceptionName(event.error));
-    };
-    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
-      setFailureName(exceptionName(event.reason));
-    };
-    window.addEventListener("error", onError);
-    window.addEventListener("unhandledrejection", onUnhandledRejection);
-    return () => {
-      window.clearTimeout(timeout);
-      window.removeEventListener("error", onError);
-      window.removeEventListener("unhandledrejection", onUnhandledRejection);
-    };
+    return () => window.clearTimeout(timeout);
   }, [active, action, stage]);
 
-  const observedErrorName = externalErrorName ?? failureName;
+  const observedErrorName = externalErrorName;
   if (!active || (!timedOut && !observedErrorName)) return fallback ?? null;
   const diagnosticStage = observedErrorName
     ? `${stage} (${observedErrorName})`

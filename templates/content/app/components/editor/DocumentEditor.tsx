@@ -8718,6 +8718,16 @@ function PageEditorSessionBody({
                             </div>
                           ) : null}
                           <WidgetVisualEditorBoundary
+                            key={`${visualEditorInstanceKey({
+                              documentId,
+                              documentUpdatedAt:
+                                suggestionEditorIsolation.contentUpdatedAt,
+                              isLocalFileDocument,
+                              canEdit,
+                              collabEditorEnabled,
+                              hasYDoc: Boolean(ydoc),
+                              localFileSyncRevision,
+                            })}:${isSuggesting ? "suggesting" : "canonical"}`}
                             active={mcpDirectoryWidgetReadOnly}
                             stage={t("editor.widgetEditorInitStage")}
                             action="VisualEditor"
@@ -8774,16 +8784,6 @@ function PageEditorSessionBody({
                               onProposalDecisionReadbackOutdated={
                                 handleProposalDecisionReadbackOutdated
                               }
-                              key={`${visualEditorInstanceKey({
-                                documentId,
-                                documentUpdatedAt:
-                                  suggestionEditorIsolation.contentUpdatedAt,
-                                isLocalFileDocument,
-                                canEdit,
-                                collabEditorEnabled,
-                                hasYDoc: Boolean(ydoc),
-                                localFileSyncRevision,
-                              })}:${isSuggesting ? "suggesting" : "canonical"}`}
                               documentId={documentId}
                               contentSpaceId={document.spaceId ?? undefined}
                               widgetLoadDiagnosticsActive={

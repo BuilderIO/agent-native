@@ -211,7 +211,7 @@ describe("DocumentEditorSkeleton optimistic title", () => {
     );
   });
 
-  it("reports only the exception name when widget boot throws", async () => {
+  it("does not attribute an unrelated window error to the editor", () => {
     vi.useFakeTimers();
     act(() => {
       root.render(
@@ -222,20 +222,16 @@ describe("DocumentEditorSkeleton optimistic title", () => {
       );
     });
 
-    await act(async () => {
+    act(() => {
       window.dispatchEvent(
         new ErrorEvent("error", {
-          error: new DOMException(
-            "private token must not appear",
-            "SecurityError",
-          ),
+          error: new DOMException("unrelated failure", "NetworkError"),
         }),
       );
     });
 
-    const diagnostic = container.querySelector('[role="alert"]');
-    expect(diagnostic?.textContent).toContain("SecurityError");
-    expect(diagnostic?.textContent).not.toContain("private token");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector(".skeleton-shimmer")).not.toBeNull();
   });
 
   it("catches editor initialization errors only inside the widget boundary", () => {
@@ -260,5 +256,49 @@ describe("DocumentEditorSkeleton optimistic title", () => {
     expect(diagnostic?.textContent).toContain("SecurityError");
     expect(diagnostic?.textContent).toContain("VisualEditor");
     expect(diagnostic?.textContent).not.toContain("private token");
+  });
+
+  it("recovers after the editor identity changes", () => {
+    function HealthyEditor(): ReactElement {
+      return <div>Recovered editor</div>;
+    }
+
+    function ThrowingEditor(): ReactElement {
+      throw new DOMException("private token must not appear", "SecurityError");
+    }
+
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    act(() => {
+      root.render(
+        <WidgetVisualEditorBoundary
+          key="failed-editor"
+          active
+          stage="the rich-text editor to initialize"
+          action="VisualEditor"
+        >
+          <ThrowingEditor />
+        </WidgetVisualEditorBoundary>,
+      );
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "SecurityError",
+    );
+
+    act(() => {
+      root.render(
+        <WidgetVisualEditorBoundary
+          key="reloaded-editor"
+          active
+          stage="the rich-text editor to initialize"
+          action="VisualEditor"
+        >
+          <HealthyEditor />
+        </WidgetVisualEditorBoundary>,
+      );
+    });
+
+    expect(container.textContent).toContain("Recovered editor");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 });
