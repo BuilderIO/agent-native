@@ -589,8 +589,8 @@ Babysit pull requests.
       enabled: true,
     };
 
-    it("stamps triggerType: schedule on a job file that has none", async () => {
-      const untagged = existingContent.replace("triggerType: schedule\n", "");
+    const untagged = existingContent.replace("triggerType: schedule\n", "");
+    const saveUntagged = async (live: string) => {
       findFactoryAutomationDefinitionMock.mockResolvedValue({
         name: saveInput.name,
         body: "Observe Slack.",
@@ -598,7 +598,7 @@ Babysit pull requests.
           id: "resource-1",
           owner: "__organization__:org-1",
           path: "jobs/factories/support-triage/factory-slack-feedback.md",
-          content: untagged,
+          content: live,
           updatedAt: 1,
         },
         meta: { domain: "factory", timezone: "UTC" },
@@ -607,16 +607,48 @@ Babysit pull requests.
         id: "resource-1",
         owner: "__organization__:org-1",
         path: "jobs/factories/support-triage/factory-slack-feedback.md",
-        content: untagged,
+        content: live,
         updatedAt: 1,
       });
       const { default: action } = await import("./save-factory-automation.js");
-
       await action.run(saveInput, { userEmail: "teammate@example.com" });
+      return resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
+    };
 
-      expect(resourcePutIfCurrentMock.mock.calls[0]?.[0].content).toContain(
-        "triggerType: schedule",
+    it("stamps triggerType: schedule on a job file that has none, writing down the identity the legacy path assumed", async () => {
+      const content = await saveUntagged(untagged);
+
+      expect(content).toContain("triggerType: schedule");
+      expect(content).toContain("createdBy: alice@example.com");
+      expect(content).toContain("runAs: creator");
+      expect(content).toContain("orgId: org-1");
+    });
+
+    it("saves a file without a creator but leaves it untagged, so it keeps its legacy run path", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const content = await saveUntagged(
+        untagged.replace("createdBy: alice@example.com\n", ""),
       );
+
+      expect(content).not.toContain("triggerType:");
+      expect(content).not.toContain("createdBy:");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("stays untagged because it has no createdBy"),
+      );
+      warn.mockRestore();
+    });
+
+    it("leaves a file owned by another org untagged", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const content = await saveUntagged(
+        untagged.replace("enabled: true", "enabled: true\norgId: org-2"),
+      );
+
+      expect(content).not.toContain("triggerType:");
+      expect(content).toContain("orgId: org-2");
+      warn.mockRestore();
     });
 
     it("writes the field once when the file already has it", async () => {

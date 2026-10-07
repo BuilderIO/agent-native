@@ -15,6 +15,7 @@ import {
   readFactoryAutomationConfig,
   readFrontmatterValue,
   readPromptVersion,
+  stampAutomationTriggerType,
 } from "./factory-automation-config.js";
 import { findFactoryAutomationByResourceId } from "./factory-automation-resources.js";
 import {
@@ -422,12 +423,17 @@ export async function restoreFactoryAutomationVersion(input: {
     input.factoryId,
   );
   // Versions saved before the stamp existed lack it; restoring one must not
-  // take it off the live file.
-  if (readFrontmatterValue(content, "triggerType") == null) {
-    content = setAutomationFrontmatterField(
-      content,
-      "triggerType",
-      readFrontmatterValue(current.content, "triggerType") ?? "schedule",
+  // take it off the live file, nor tag a file that cannot pass the strict
+  // identity check.
+  const stamp = stampAutomationTriggerType(content, {
+    orgId: input.orgId,
+    triggerType: readFrontmatterValue(current.content, "triggerType"),
+    identityFrom: current.content,
+  });
+  content = stamp.content;
+  if (stamp.skipped) {
+    console.warn(
+      `[factory-automation-history] ${input.automationName} stays untagged after the restore because ${stamp.skipped}.`,
     );
   }
 

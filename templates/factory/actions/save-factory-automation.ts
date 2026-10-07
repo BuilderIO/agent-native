@@ -24,6 +24,7 @@ import {
   readPromptVersion,
   replaceAutomationContentWithUserPrompt,
   scheduleCron,
+  stampAutomationTriggerType,
 } from "../server/lib/factory-automation-config.js";
 import {
   deleteFactoryAutomationVersionRow,
@@ -292,11 +293,11 @@ export default defineAction({
       input.factoryId,
     );
     content = setAutomationFrontmatterField(content, "appId", "factory");
-    if (definition.meta.triggerType == null) {
-      content = setAutomationFrontmatterField(
-        content,
-        "triggerType",
-        "schedule",
+    const stamp = stampAutomationTriggerType(content, { orgId });
+    content = stamp.content;
+    if (stamp.skipped) {
+      console.warn(
+        `[save-factory-automation] ${input.name} stays untagged because ${stamp.skipped}.`,
       );
     }
     if (input.model !== undefined) {

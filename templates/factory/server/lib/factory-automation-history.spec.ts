@@ -339,16 +339,25 @@ describe("restoreFactoryAutomationVersion", () => {
         `factoryId: myfact\ntriggerType: ${type}`,
       );
 
+    const identified = (content: string) =>
+      content.replace(
+        "factoryId: myfact",
+        "factoryId: myfact\ncreatedBy: alice@example.com\nrunAs: creator\norgId: org-1",
+      );
+
     it("stamps triggerType: schedule when neither file has one", async () => {
-      const written = await restoreWith(currentContent, historicalContent);
+      const written = await restoreWith(
+        identified(currentContent),
+        identified(historicalContent),
+      );
 
       expect(written).toContain("triggerType: schedule");
     });
 
     it("keeps the live file's trigger type when the restored version predates it", async () => {
       const written = await restoreWith(
-        tagged(currentContent, "webhook"),
-        historicalContent,
+        tagged(identified(currentContent), "webhook"),
+        identified(historicalContent),
       );
 
       expect(written.match(/^triggerType:.*$/gm)).toEqual([
@@ -358,13 +367,36 @@ describe("restoreFactoryAutomationVersion", () => {
 
     it("leaves a trigger type the restored version already has", async () => {
       const written = await restoreWith(
-        tagged(currentContent, "webhook"),
-        tagged(historicalContent, "event"),
+        tagged(identified(currentContent), "webhook"),
+        tagged(identified(historicalContent), "event"),
       );
 
       expect(written.match(/^triggerType:.*$/gm)).toEqual([
         "triggerType: event",
       ]);
+    });
+
+    it("keeps the live file tagged when the restored version has no identity of its own", async () => {
+      const written = await restoreWith(
+        tagged(identified(currentContent), "schedule"),
+        historicalContent,
+      );
+
+      expect(written).toContain("triggerType: schedule");
+      expect(written).toContain("createdBy: alice@example.com");
+      expect(written).toContain("orgId: org-1");
+    });
+
+    it("leaves the file untagged when neither version names a creator", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const written = await restoreWith(currentContent, historicalContent);
+
+      expect(written).not.toContain("triggerType:");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("stays untagged after the restore"),
+      );
+      warn.mockRestore();
     });
   });
 });
