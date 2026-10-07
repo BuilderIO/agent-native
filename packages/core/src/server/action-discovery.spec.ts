@@ -489,6 +489,24 @@ describe("action discovery", () => {
     expect(out).toContain("hello Ada Lovelace");
   });
 
+  it("preserves a quoted option-like value in string CLI args", async () => {
+    const seenArgs: string[][] = [];
+    const registry = loadActionsFromStaticRegistry({
+      content: {
+        default: async (args: string[]) => {
+          seenArgs.push(args);
+        },
+      },
+    });
+    const content = "---\nname: spell-check\n---\n# Spell check";
+
+    await registry["content"].run({
+      args: `--content '${content}' --verbose`,
+    });
+
+    expect(seenArgs[0]).toEqual([`--content=${content}`, "--verbose"]);
+  });
+
   it("preserves arbitrary key/value params in CLI tokens", async () => {
     const seenArgs: string[][] = [];
     const content = "---\nname: spell-check\n---\n# Spell check";

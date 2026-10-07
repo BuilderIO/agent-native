@@ -71,12 +71,20 @@ export function mergePackageActions(
   }
 }
 
-function splitShellArgs(input: string): string[] {
-  const tokens: string[] = [];
+type ShellArgToken = { value: string; quoted: boolean };
+
+function splitShellArgs(input: string): ShellArgToken[] {
+  const tokens: ShellArgToken[] = [];
   let current = "";
   let inDouble = false;
   let inSingle = false;
   let wasQuoted = false;
+
+  const pushToken = () => {
+    tokens.push({ value: current, quoted: wasQuoted });
+    current = "";
+    wasQuoted = false;
+  };
 
   for (let i = 0; i < input.length; i++) {
     const ch = input[i];
@@ -92,18 +100,36 @@ function splitShellArgs(input: string): string[] {
     }
     if ((ch === " " || ch === "\t") && !inDouble && !inSingle) {
       if (current.length > 0 || wasQuoted) {
-        tokens.push(current);
+        pushToken();
       }
-      current = "";
-      wasQuoted = false;
       continue;
     }
     current += ch;
   }
   if (current.length > 0 || wasQuoted) {
-    tokens.push(current);
+    pushToken();
   }
   return tokens;
+}
+
+function normalizeShellArgs(tokens: ShellArgToken[]): string[] {
+  const normalized: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const next = tokens[i + 1];
+    if (
+      token.value.startsWith("--") &&
+      !token.value.includes("=") &&
+      next?.quoted &&
+      next.value.startsWith("--")
+    ) {
+      normalized.push(`${token.value}=${next.value}`);
+      i++;
+    } else {
+      normalized.push(token.value);
+    }
+  }
+  return normalized;
 }
 
 function wrapDefaultExport(
@@ -129,7 +155,7 @@ function wrapDefaultExport(
     run: async (args: Record<string, string>): Promise<string> => {
       const cliArgs =
         args.args && Object.keys(args).length === 1
-          ? splitShellArgs(args.args)
+          ? normalizeShellArgs(splitShellArgs(args.args))
           : serializeCliArgs(args);
       return captureCliOutput(() => defaultFn(cliArgs));
     },
