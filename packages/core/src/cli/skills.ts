@@ -50,9 +50,15 @@ import {
   REWIND_SKILL_MD,
   TURN_INTO_APP_ATTACHMENTS_REFERENCE_MD,
   TURN_INTO_APP_FRESH_PROJECT_REFERENCE_MD,
+  TURN_INTO_APP_LOCAL_RUN_AND_DEPLOY_REFERENCE_MD,
   TURN_INTO_APP_OPENAI_YAML,
+  TURN_INTO_APP_REVIEW_LOOP_REFERENCE_MD,
   TURN_INTO_APP_SKILL_MD,
+  TURN_INTO_APP_SOURCE_BRIEF_REFERENCE_MD,
   TURN_INTO_APP_SPREADSHEET_SOURCE_REFERENCE_MD,
+  TURN_INTO_APP_UI_ARCHETYPES_REFERENCE_MD,
+  TURN_INTO_APP_UI_DIRECTION_REFERENCE_MD,
+  TURN_INTO_APP_UI_PALETTES_REFERENCE_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
   VISUALIZE_REPO_SKILL_MD,
@@ -450,6 +456,13 @@ export const BUILT_IN_APP_SKILLS = {
         "references/fresh-project.md": TURN_INTO_APP_FRESH_PROJECT_REFERENCE_MD,
         "references/spreadsheet-source.md":
           TURN_INTO_APP_SPREADSHEET_SOURCE_REFERENCE_MD,
+        "references/local-run-and-deploy.md":
+          TURN_INTO_APP_LOCAL_RUN_AND_DEPLOY_REFERENCE_MD,
+        "references/review-loop.md": TURN_INTO_APP_REVIEW_LOOP_REFERENCE_MD,
+        "references/source-brief.md": TURN_INTO_APP_SOURCE_BRIEF_REFERENCE_MD,
+        "references/ui-archetypes.md": TURN_INTO_APP_UI_ARCHETYPES_REFERENCE_MD,
+        "references/ui-direction.md": TURN_INTO_APP_UI_DIRECTION_REFERENCE_MD,
+        "references/ui-palettes.md": TURN_INTO_APP_UI_PALETTES_REFERENCE_MD,
         "agents/openai.yaml": TURN_INTO_APP_OPENAI_YAML,
       },
     },
@@ -458,7 +471,7 @@ export const BUILT_IN_APP_SKILLS = {
       id: "turn-into-app",
       displayName: "Turn Into App",
       description:
-        "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
+        "Turn a thread, skill, spreadsheet, or Claude/ChatGPT project into a visual Agent-Native app. Local code agents build, run, and screenshot-review it; Claude and ChatGPT on the web hand a bounded source brief to Builder through Dispatch.",
       hosted: {
         url: "https://dispatch.agent-native.com",
         mcpUrl: "https://dispatch.agent-native.com/mcp",
