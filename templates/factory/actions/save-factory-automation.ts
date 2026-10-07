@@ -28,7 +28,7 @@ import {
 import {
   deleteFactoryAutomationVersionRow,
   insertFactoryAutomationVersionIfChanged,
-  resolvePromptVersionForSnapshot,
+  resolvePromptVersionAllocation,
   snapshotFromAutomationResource,
 } from "../server/lib/factory-automation-history.js";
 import { findFactoryAutomationDefinition } from "../server/lib/factory-automation-resources.js";
@@ -249,14 +249,17 @@ export default defineAction({
       input.displayName !== undefined
         ? input.displayName.trim() || null
         : previousSnapshot.displayName;
-    const resolvedPromptVersion = resolvePromptVersionForSnapshot(
-      {
+    const versionAllocation = await resolvePromptVersionAllocation({
+      automationId: definition.resource.id,
+      orgId,
+      next: {
         userPrompt: normalizedPrompt,
         displayName: nextDisplayName,
         config,
       },
-      previousSnapshot,
-    );
+      previous: previousSnapshot,
+    });
+    const resolvedPromptVersion = versionAllocation.promptVersion;
     let content = applyAutomationConfigFrontmatter(resource.content, config);
     content = replaceAutomationContentWithUserPrompt(
       content,
@@ -289,6 +292,13 @@ export default defineAction({
       input.factoryId,
     );
     content = setAutomationFrontmatterField(content, "appId", "factory");
+    if (definition.meta.triggerType == null) {
+      content = setAutomationFrontmatterField(
+        content,
+        "triggerType",
+        "schedule",
+      );
+    }
     if (input.model !== undefined) {
       content = setAutomationFrontmatterField(
         content,
@@ -328,6 +338,7 @@ export default defineAction({
       nextContent: content,
       summary: "Automation save",
       source: "save",
+      version: versionAllocation.predecessorVersion ?? undefined,
     });
     let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
     let writeError: unknown;

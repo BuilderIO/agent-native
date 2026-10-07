@@ -1,5 +1,7 @@
+import { fail } from "@agent-native/core/action";
+import { isUniqueViolation } from "@agent-native/core/db";
 import { type Resource } from "@agent-native/core/resources";
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt, max } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { factoryAutomationVersions } from "../db/schema.js";
@@ -74,17 +76,73 @@ export function snapshotContentIdentity(
   });
 }
 
-export function resolvePromptVersionForSnapshot(
+async function maxStoredVersion(input: {
+  automationId: string;
+  orgId: string;
+}): Promise<number | null> {
+  const [row] = await getDb()
+    .select({ latest: max(factoryAutomationVersions.version) })
+    .from(factoryAutomationVersions)
+    .where(
+      and(
+        eq(factoryAutomationVersions.automationId, input.automationId),
+        eq(factoryAutomationVersions.orgId, input.orgId),
+      ),
+    );
+  return row?.latest ?? null;
+}
+
+/**
+ * The version number to store the previous content under. A file's own
+ * `promptVersion` is the right number until it falls behind its history: a
+ * file that lost its frontmatter reads as version 0, and storing that under a
+ * number the history already holds fails the whole save.
+ */
+export async function allocatePredecessorVersion(input: {
+  automationId: string;
+  orgId: string;
+  fileVersion: number;
+}): Promise<number> {
+  const stored = await maxStoredVersion(input);
+  const nextFree = stored === null ? 0 : stored + 1;
+  if (input.fileVersion >= nextFree) return input.fileVersion;
+  console.warn(
+    `[factory-automation-history] ${input.automationId} reports promptVersion ${input.fileVersion} but versions up to ${stored} are already stored; recording its previous content as version ${nextFree}.`,
+  );
+  return nextFree;
+}
+
+export type PromptVersionAllocation = {
+  /** The `promptVersion` the saved file carries. */
+  promptVersion: number;
+  /** Where the previous content is stored; null when nothing changed. */
+  predecessorVersion: number | null;
+};
+
+export async function resolvePromptVersionAllocation(input: {
+  automationId: string;
+  orgId: string;
   next: Pick<
     FactoryAutomationSnapshot,
     "userPrompt" | "displayName" | "config"
-  >,
-  previous: FactoryAutomationSnapshot,
-): number {
-  if (snapshotContentIdentity(previous) === snapshotContentIdentity(next)) {
-    return previous.promptVersion;
+  >;
+  previous: FactoryAutomationSnapshot;
+}): Promise<PromptVersionAllocation> {
+  if (
+    snapshotContentIdentity(input.previous) ===
+    snapshotContentIdentity(input.next)
+  ) {
+    return {
+      promptVersion: input.previous.promptVersion,
+      predecessorVersion: null,
+    };
   }
-  return previous.promptVersion + 1;
+  const predecessorVersion = await allocatePredecessorVersion({
+    automationId: input.automationId,
+    orgId: input.orgId,
+    fileVersion: input.previous.promptVersion,
+  });
+  return { promptVersion: predecessorVersion + 1, predecessorVersion };
 }
 
 export type FactoryAutomationVersionRow = {
@@ -115,17 +173,26 @@ export async function insertFactoryAutomationVersionRow(input: {
   content: string;
   summary: string;
   source: FactoryAutomationVersionSource;
+  /** Pre-allocated by `resolvePromptVersionAllocation`; allocated here when omitted. */
+  version?: number;
 }): Promise<FactoryAutomationVersionRow> {
   const snapshot = snapshotFromAutomationResource(
     input.content,
     input.automationName,
     input.factoryId,
   );
+  const version =
+    input.version ??
+    (await allocatePredecessorVersion({
+      automationId: input.automationId,
+      orgId: input.orgId,
+      fileVersion: snapshot.promptVersion,
+    }));
   const row: FactoryAutomationVersionRow = {
     id: createVersionId(),
     automationId: input.automationId,
     factoryId: input.factoryId,
-    version: snapshot.promptVersion,
+    version,
     rawContent: input.content,
     displayName: snapshot.displayName,
     source: input.source,
@@ -135,7 +202,21 @@ export async function insertFactoryAutomationVersionRow(input: {
     ownerEmail: input.userEmail,
     orgId: input.orgId,
   };
-  await getDb().insert(factoryAutomationVersions).values(row);
+  try {
+    await getDb().insert(factoryAutomationVersions).values(row);
+  } catch (error) {
+    // Drizzle wraps the driver error, so the constraint code is on `cause`.
+    if (
+      isUniqueViolation(error) ||
+      isUniqueViolation((error as { cause?: unknown }).cause)
+    ) {
+      fail(
+        "Another change to this automation was saved at the same time. Refresh and try again.",
+        { statusCode: 409, errorCode: "automation_version_conflict" },
+      );
+    }
+    throw error;
+  }
   return row;
 }
 
@@ -149,6 +230,7 @@ export async function insertFactoryAutomationVersionIfChanged(input: {
   nextContent: string;
   summary: string;
   source: FactoryAutomationVersionSource;
+  version?: number;
 }): Promise<FactoryAutomationVersionRow | null> {
   const previousSnapshot = snapshotFromAutomationResource(
     input.previousContent,
@@ -175,6 +257,7 @@ export async function insertFactoryAutomationVersionIfChanged(input: {
     content: input.previousContent,
     summary: input.summary,
     source: input.source,
+    version: input.version,
   });
 }
 
@@ -305,10 +388,13 @@ export async function restoreFactoryAutomationVersion(input: {
     input.automationName,
     input.factoryId,
   );
-  const resolvedVersion = resolvePromptVersionForSnapshot(
-    restoredSnapshot,
-    previousSnapshot,
-  );
+  const allocation = await resolvePromptVersionAllocation({
+    automationId: input.automationId,
+    orgId: input.orgId,
+    next: restoredSnapshot,
+    previous: previousSnapshot,
+  });
+  const resolvedVersion = allocation.promptVersion;
   const configSavedAt = new Date().toISOString();
 
   let content = preserveOperationalFrontmatterFields(
@@ -335,6 +421,15 @@ export async function restoreFactoryAutomationVersion(input: {
     "factoryId",
     input.factoryId,
   );
+  // Versions saved before the stamp existed lack it; restoring one must not
+  // take it off the live file.
+  if (readFrontmatterValue(content, "triggerType") == null) {
+    content = setAutomationFrontmatterField(
+      content,
+      "triggerType",
+      readFrontmatterValue(current.content, "triggerType") ?? "schedule",
+    );
+  }
 
   const insertedVersion = await insertFactoryAutomationVersionIfChanged({
     automationId: input.automationId,
@@ -346,6 +441,7 @@ export async function restoreFactoryAutomationVersion(input: {
     nextContent: content,
     summary: input.summary,
     source: "restore",
+    version: allocation.predecessorVersion ?? undefined,
   });
 
   let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;

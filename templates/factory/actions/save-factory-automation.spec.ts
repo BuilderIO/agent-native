@@ -55,8 +55,12 @@ const deleteReturningMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue([{ id: "ver-deleted" }]),
 );
 const getDbMock = vi.hoisted(() => vi.fn());
+const selectMaxMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/db/index.js", () => ({ getDb: getDbMock }));
+vi.mock("@agent-native/core/db", () => ({
+  isUniqueViolation: (error: { code?: string }) => error?.code === "23505",
+}));
 
 const existingContent = `---
 domain: factory
@@ -107,9 +111,11 @@ beforeEach(() => {
   assertFactoryConnectorReadyMock.mockResolvedValue(undefined);
   insertValuesMock.mockResolvedValue(undefined);
   deleteReturningMock.mockResolvedValue([{ id: "ver-deleted" }]);
+  selectMaxMock.mockResolvedValue([{ latest: null }]);
   getDbMock.mockReturnValue({
     insert: () => ({ values: insertValuesMock }),
     delete: () => ({ where: () => ({ returning: deleteReturningMock }) }),
+    select: () => ({ from: () => ({ where: selectMaxMock }) }),
   });
 });
 
@@ -509,5 +515,118 @@ Babysit pull requests.
 
     expect(insertValuesMock).toHaveBeenCalledTimes(1);
     expect(deleteReturningMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe("version history", () => {
+    const saveInput = {
+      factoryId: "support-triage",
+      automationId: "resource-1",
+      name: "factories/support-triage/factory-slack-feedback",
+      prompt: "Watch Slack more closely.",
+      enabled: true,
+    };
+
+    it("stores the previous content past existing history when the file lost its promptVersion", async () => {
+      selectMaxMock.mockResolvedValue([{ latest: 1 }]);
+      const { default: action } = await import("./save-factory-automation.js");
+
+      await action.run(saveInput, { userEmail: "teammate@example.com" });
+
+      expect(insertValuesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ version: 2 }),
+      );
+      expect(resourcePutIfCurrentMock.mock.calls[0]?.[0].content).toContain(
+        "promptVersion: 3",
+      );
+    });
+
+    it("keeps the file's own numbering when it is in step with its history", async () => {
+      selectMaxMock.mockResolvedValue([{ latest: 1 }]);
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-slack-feedback.md",
+        content: existingContent.replace(
+          "enabled: true",
+          "enabled: true\npromptVersion: 2",
+        ),
+        updatedAt: 1,
+      });
+      const { default: action } = await import("./save-factory-automation.js");
+
+      await action.run(saveInput, { userEmail: "teammate@example.com" });
+
+      expect(insertValuesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ version: 2 }),
+      );
+      expect(resourcePutIfCurrentMock.mock.calls[0]?.[0].content).toContain(
+        "promptVersion: 3",
+      );
+    });
+
+    it("reports a concurrent history insert as a conflict, not a server error", async () => {
+      insertValuesMock.mockRejectedValue(
+        Object.assign(new Error("Failed query: insert into"), {
+          cause: { code: "23505" },
+        }),
+      );
+      const { default: action } = await import("./save-factory-automation.js");
+
+      await expect(
+        action.run(saveInput, { userEmail: "teammate@example.com" }),
+      ).rejects.toThrow("saved at the same time");
+
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("trigger type", () => {
+    const saveInput = {
+      factoryId: "support-triage",
+      automationId: "resource-1",
+      name: "factories/support-triage/factory-slack-feedback",
+      prompt: "Watch Slack more closely.",
+      enabled: true,
+    };
+
+    it("stamps triggerType: schedule on a job file that has none", async () => {
+      const untagged = existingContent.replace("triggerType: schedule\n", "");
+      findFactoryAutomationDefinitionMock.mockResolvedValue({
+        name: saveInput.name,
+        body: "Observe Slack.",
+        resource: {
+          id: "resource-1",
+          owner: "__organization__:org-1",
+          path: "jobs/factories/support-triage/factory-slack-feedback.md",
+          content: untagged,
+          updatedAt: 1,
+        },
+        meta: { domain: "factory", timezone: "UTC" },
+      });
+      resourceGetByPathMock.mockResolvedValue({
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-slack-feedback.md",
+        content: untagged,
+        updatedAt: 1,
+      });
+      const { default: action } = await import("./save-factory-automation.js");
+
+      await action.run(saveInput, { userEmail: "teammate@example.com" });
+
+      expect(resourcePutIfCurrentMock.mock.calls[0]?.[0].content).toContain(
+        "triggerType: schedule",
+      );
+    });
+
+    it("writes the field once when the file already has it", async () => {
+      const { default: action } = await import("./save-factory-automation.js");
+
+      await action.run(saveInput, { userEmail: "teammate@example.com" });
+
+      const content: string =
+        resourcePutIfCurrentMock.mock.calls[0]?.[0].content;
+      expect(content.match(/^triggerType:/gm)).toHaveLength(1);
+    });
   });
 });
