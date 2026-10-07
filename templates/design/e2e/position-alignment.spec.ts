@@ -518,14 +518,14 @@ test("fixed Position stays viewport-relative after iframe scroll and reload", as
   );
   await openEditPanel(page, designId);
   const frame = designFrame(page);
-  await frame.locator("body").evaluate(() => window.scrollTo(50, 70));
+  await frame.locator("body").evaluate(() => window.scrollTo(50, 0));
   await expect
     .poll(() =>
       frame
         .locator("body")
         .evaluate(() => ({ x: window.scrollX, y: window.scrollY })),
     )
-    .toEqual({ x: 50, y: 70 });
+    .toEqual({ x: 50, y: 0 });
 
   const fixed = frame.locator('[data-agent-native-node-id="fixed-child"]');
   const box = (await fixed.boundingBox())!;
@@ -548,6 +548,14 @@ test("fixed Position stays viewport-relative after iframe scroll and reload", as
 
   await page.reload();
   await openEditPanel(page, designId);
+  await frame.locator("body").evaluate(() => window.scrollTo(50, 0));
+  await expect
+    .poll(() =>
+      frame
+        .locator("body")
+        .evaluate(() => ({ x: window.scrollX, y: window.scrollY })),
+    )
+    .toEqual({ x: 50, y: 0 });
   await selectLayer(page, "Fixed child");
   await expect(page.getByRole("textbox", { name: "X-position" })).toHaveValue(
     "40px",
