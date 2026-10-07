@@ -24,6 +24,28 @@ function read(path: string): string {
   }
 }
 
+function findExportedConstDeclaration(
+  source: ts.SourceFile,
+  name: string,
+): ts.VariableDeclaration | undefined {
+  const declarations = source.statements
+    .filter(
+      (statement): statement is ts.VariableStatement =>
+        ts.isVariableStatement(statement) &&
+        (statement.declarationList.flags & ts.NodeFlags.Const) !== 0 &&
+        statement.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+        ) === true,
+    )
+    .flatMap((statement) => statement.declarationList.declarations)
+    .filter(
+      (declaration) =>
+        ts.isIdentifier(declaration.name) && declaration.name.text === name,
+    );
+
+  return declarations.length === 1 ? declarations[0] : undefined;
+}
+
 const workflow = read(workflowPath);
 const scheduledWorkflow = read(scheduledWorkflowPath);
 const fleet = read(fleetPath);
@@ -61,7 +83,6 @@ if (sitesRaw) {
 }
 
 if (chat) {
-  const chatCode = stripComments(chat);
   const chatSource = ts.createSourceFile(
     chatPath,
     chat,
@@ -70,29 +91,26 @@ if (chat) {
     ts.ScriptKind.TS,
   );
   for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
-    const configured = new RegExp(
-      `\\bexport\\s+const\\s+${name}\\s*=\\s*["']([^"']+)["']`,
-    ).exec(chatCode)?.[1];
+    const initializer = findExportedConstDeclaration(
+      chatSource,
+      name,
+    )?.initializer;
+    const configured =
+      initializer &&
+      (ts.isStringLiteral(initializer) ||
+        ts.isNoSubstitutionTemplateLiteral(initializer))
+        ? initializer.text
+        : undefined;
     if (configured !== "gpt-6-luna") {
       issues.push(
-        `${chatPath} ${name} must be set to gpt-6-luna; found ${JSON.stringify(configured ?? "missing")}. This suite is budgeted for the current low-cost model.`,
+        `${chatPath} ${name} must be set to gpt-6-luna; found ${JSON.stringify(configured ?? (initializer ? "non-string initializer" : "missing"))}. This suite is budgeted for the current low-cost model.`,
       );
     }
   }
-  const modelPatternDeclaration = chatSource.statements
-    .filter(
-      (statement): statement is ts.VariableStatement =>
-        ts.isVariableStatement(statement) &&
-        statement.modifiers?.some(
-          (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
-        ) === true,
-    )
-    .flatMap((statement) => statement.declarationList.declarations)
-    .find(
-      (declaration) =>
-        ts.isIdentifier(declaration.name) &&
-        declaration.name.text === "LUNA_MODEL_PATTERN",
-    );
+  const modelPatternDeclaration = findExportedConstDeclaration(
+    chatSource,
+    "LUNA_MODEL_PATTERN",
+  );
   const modelPatternInitializer = modelPatternDeclaration?.initializer;
   if (
     !modelPatternInitializer ||

@@ -97,6 +97,21 @@ describe("guard:beta-e2e-suite", () => {
     }
   });
 
+  it("checks the exported model initializers instead of matching source text", () => {
+    for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
+      rejects(
+        (files) =>
+          edit(
+            files,
+            "e2e/beta/lib/chat.ts",
+            `export const ${name} = "gpt-6-luna";`,
+            `export const ${name} = selectModel("claude-opus-4-6");\nconst staleExpected = 'export const ${name} = "gpt-6-luna";';`,
+          ),
+        new RegExp(`${name} must be set to gpt-6-luna`),
+      );
+    }
+  });
+
   it("guards the model acceptance pattern", () => {
     rejects(
       (files) =>
