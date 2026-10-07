@@ -72,28 +72,6 @@ jobs:
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node --experimental-strip-types scripts/ci-change-scope.ts
 
-      # Advisory: fusion-starter replaces these Chat files wholesale, so an edit
-      # to Chat's copy does not reach the Fusion starter until it is ported.
-      - name: Flag Chat edits to files fusion-starter overrides
-        if: github.event_name == 'pull_request'
-        env:
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          layer=packages/core/src/templates/fusion-starter
-          changed="$(git diff --name-only "$CI_BASE_SHA...$CI_HEAD_SHA" -- templates/chat)"
-          [ -n "$changed" ] || exit 0
-          git ls-files "$layer" \
-            | sed -e "s#^$layer/##" -e 's#^\(\.agents/skills/[^/]*\)/.*#\1/#' \
-            | awk '$0 != "package.json" && $0 != "template-layer.json"' \
-            | sort -u \
-            | while read -r rel; do
-                if printf '%s\n' "$changed" | grep -qF "templates/chat/$rel"; then
-                  echo "::warning title=fusion-starter override::Chat changed $rel, which fusion-starter overrides; port the change to $layer/$rel if it applies."
-                fi
-              done
-
       # Full planning only reads manifests and counts files. Targeted planning
       # runs `pnpm list` and `vitest list --changed`, so it needs an install.
       - name: Install dependencies for targeted lane planning

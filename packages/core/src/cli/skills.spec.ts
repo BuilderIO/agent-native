@@ -3493,11 +3493,12 @@ describe("agent-native skills", () => {
       fs.readFileSync(path.join(dir, skill, "SKILL.md"), "utf8");
     const fusionSkills = path.join(bundled, "fusion-starter/.agents/skills");
     const chatSkills = path.join(bundled, "chat/.agents/skills");
-    expect(read(targetSkills, "storing-data")).toBe(
-      read(fusionSkills, "storing-data"),
+    // The layer stores storing-data as a patch over Chat's copy.
+    expect(read(targetSkills, "storing-data")).toContain(
+      "managed Drizzle scaffold is the only app migration path",
     );
-    expect(read(fusionSkills, "storing-data")).not.toBe(
-      read(chatSkills, "storing-data"),
+    expect(read(chatSkills, "storing-data")).not.toContain(
+      "managed Drizzle scaffold is the only app migration path",
     );
     expect(read(targetSkills, "security")).toBe(read(chatSkills, "security"));
     expect(read(targetSkills, "multi-app-workspace")).toBe(

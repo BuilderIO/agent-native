@@ -397,8 +397,16 @@ describe("materializeTemplate", () => {
     expect(
       fs.readdirSync(path.join(materialized.dir, ".agents/skills")).sort(),
     ).toEqual([...FUSION_STARTER_SKILLS].sort());
-    expect(skillFile(materialized.dir, "storing-data")).toEqual(
-      skillFile(path.join(bundled, "fusion-starter"), "storing-data"),
+    expect(
+      fs.existsSync(
+        path.join(
+          bundled,
+          "fusion-starter/.agents/skills/storing-data/SKILL.md",
+        ),
+      ),
+    ).toBe(false);
+    expect(skillFile(materialized.dir, "storing-data").toString()).toContain(
+      "managed Drizzle scaffold is the only app migration path",
     );
     expect(skillFile(materialized.dir, "security")).toEqual(
       skillFile(path.join(bundled, "chat"), "security"),

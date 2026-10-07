@@ -1,17 +1,15 @@
 {
   "base": "chat",
   "delete": [
+    ".agents/skills/build-an-app/references/edit-points-chat.md",
     "CHANGELOG.md",
-    "changelog",
-    "app/i18n",
-    "app/i18n-data.ts",
     "app/components/chat",
     "app/components/layout/AgentInspector.test.tsx",
     "app/components/layout/AgentInspector.tsx",
     "app/components/layout/Header.tsx",
     "app/components/layout/Sidebar.tsx",
-    "app/lib/agent-page.spec.tsx",
-    "app/lib/agent-page.tsx",
+    "app/i18n",
+    "app/i18n-data.ts",
     "app/lib/sidebar-thread-state.spec.ts",
     "app/lib/sidebar-thread-state.ts",
     "app/routes/agent.tsx",
@@ -28,6 +26,6 @@
     "app/routes/settings.spec.tsx",
     "app/routes/settings.tsx",
     "app/routes/team.tsx",
-    "public/auth-marketing"
+    "changelog"
   ]
 }

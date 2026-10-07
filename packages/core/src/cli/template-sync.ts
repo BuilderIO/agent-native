@@ -183,7 +183,8 @@ export async function materializeTemplate(
   return { dir: dest, ref: usedRef, source };
 }
 
-function copyTemplateTree(templateDir: string, dest: string): void {
+/** Copies a bundled template's source tree, resolving template layers. */
+export function copyTemplateTree(templateDir: string, dest: string): void {
   const layer = readTemplateLayer(templateDir);
   if (!layer) {
     _copyDir(templateDir, dest);

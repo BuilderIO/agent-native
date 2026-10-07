@@ -1,0 +1,74 @@
+===================================================================
+--- a/app/hooks/use-navigation-state.ts
++++ b/app/hooks/use-navigation-state.ts
+@@ -32,54 +32,33 @@
+   try {
+     const value = decodeURIComponent(match[1]).trim();
+     return value || null;
+   } catch {
++    // coercion-ok: a malformed thread id in the URL selects no thread.
+     return null;
+   }
+ }
+ 
+ function viewForPath(pathname: string): string {
+-  if (isChatPath(pathname)) return "chat";
+-  if (pathname.startsWith("/database")) return "database";
+-  if (pathname.startsWith("/extensions")) return "extensions";
+-  if (pathname.startsWith("/observability")) return "observability";
+-  if (pathname.startsWith("/settings/agent") || pathname.startsWith("/agent")) {
+-    return "agent";
+-  }
+-  if (pathname.startsWith("/settings")) return "settings";
+-  if (pathname.startsWith("/team")) return "settings";
+-  return "chat";
++  if (pathname === "/") return "home";
++  return "home";
+ }
+ 
+ function pathForView(view?: string): string {
+   switch (view) {
+-    case "chat":
+     case "home":
+-    case "ask":
+-      return "/home";
+-    case "database":
+-      return "/database";
+-    case "extensions":
+-      return "/extensions";
+-    case "observability":
+-      return "/observability";
+-    case "agent":
+-      return "/settings/agent";
+-    case "settings":
+-      return "/settings";
+-    case "team":
+-      return "/settings/organization";
++      return "/";
+     default:
+-      return "/home";
++      return "/";
+   }
+ }
+ 
+ function pathForCommand(command: any): string {
+   const path = pathForView(command?.view);
+-  if (path !== "/home") return path;
++  if (path !== "/") return path;
+   const threadId =
+     typeof command?.threadId === "string" ? command.threadId.trim() : "";
+-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : path;
++  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
+ }
+ 
+ function routerPath(path: string): string {
+   const basePath = appBasePath();
+@@ -89,8 +68,4 @@
+     return path.slice(basePath.length) || "/";
+   }
+   return path;
+ }
+-
+-function isChatPath(pathname: string): boolean {
+-  return pathname === "/home" || pathname.startsWith("/chat/");
+-}

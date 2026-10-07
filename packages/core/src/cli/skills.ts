@@ -65,6 +65,7 @@ import {
   WIREFRAME_REFERENCE_MD,
 } from "./skills-content/index.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
+import { applyTemplateLayer, readTemplateLayer } from "./template-layer.js";
 import { allTemplateNames } from "./templates-meta.js";
 import {
   CLIPS_TEMPLATE_SHARED_SKILLS,
@@ -1782,15 +1783,29 @@ function corePackageRootDir(): string {
   return path.resolve(here, "../..");
 }
 
+const layeredScaffoldSkillsDirs = new Map<string, string>();
+
 function bundledScaffoldSkillsDir(templateName: string): string {
-  return path.join(
+  const templateDir = path.join(
     corePackageRootDir(),
     "src",
     "templates",
     templateName,
-    ".agents",
-    "skills",
   );
+  const layer = readTemplateLayer(templateDir);
+  if (!layer) return path.join(templateDir, ".agents", "skills");
+  // A layer stores its skills as patches over the base's, so the copies
+  // `skills update` installs have to be assembled first.
+  const cached = layeredScaffoldSkillsDirs.get(templateName);
+  if (cached) return cached;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-layer-skills-"));
+  const skillsDir = path.join(root, ".agents", "skills");
+  fs.cpSync(bundledScaffoldSkillsDir(layer.base), skillsDir, {
+    recursive: true,
+  });
+  applyTemplateLayer(templateDir, layer, root, { only: ".agents/skills" });
+  layeredScaffoldSkillsDirs.set(templateName, skillsDir);
+  return skillsDir;
 }
 
 function readJsonRecord(file: string): Record<string, unknown> | undefined {
@@ -1891,7 +1906,6 @@ function markedScaffoldGuidanceTemplate(
     return {
       templateName,
       sourceTemplate: "fusion-starter",
-      additionalSourceTemplates: ["chat"],
       skills: FUSION_STARTER_SKILLS,
     };
   }

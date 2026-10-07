@@ -669,6 +669,7 @@
     "ajv": "^8.20.0",
     "better-auth": "1.7.6",
     "cron-parser": "^5.5.0",
+    "diff": "^9.0.0",
     "diff-match-patch": "^1.0.5",
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.45.2",

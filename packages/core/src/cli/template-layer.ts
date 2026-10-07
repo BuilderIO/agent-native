@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { applyPatch, createTwoFilesPatch } from "diff";
+
 export const TEMPLATE_LAYER_FILE = "template-layer.json";
+export const LAYER_PATCH_SUFFIX = ".patch";
 
 export interface TemplateLayer {
   base: string;
@@ -10,9 +13,11 @@ export interface TemplateLayer {
 
 /**
  * A bundled template that holds only what it changes on top of another
- * template. Materialize copies the base, deletes `delete`, replaces whole
- * files (and whole skill folders) with the layer's own, and merges the
- * layer's package.json fields into the base's.
+ * template. Materialize copies the base, deletes `delete`, applies each
+ * `<file>.patch` (a unified diff) to the base's `<file>`, copies the layer's
+ * other files as new files, and merges the layer's package.json fields into
+ * the base's. A patch whose context no longer matches the base fails the
+ * materialize instead of silently dropping the change.
  */
 export function readTemplateLayer(templateDir: string): TemplateLayer | null {
   const file = path.join(templateDir, TEMPLATE_LAYER_FILE);
@@ -36,26 +41,42 @@ export function readTemplateLayer(templateDir: string): TemplateLayer | null {
   return { base: record.base, delete: deletes as string[] };
 }
 
+/**
+ * Applies the layer onto `dest`, which already holds the base tree. `only`
+ * limits it to one subtree (for example `.agents/skills`) and skips the
+ * package.json merge.
+ */
 export function applyTemplateLayer(
   layerDir: string,
   layer: TemplateLayer,
   dest: string,
+  options: { only?: string } = {},
 ): void {
-  for (const rel of layer.delete) {
+  const inScope = (rel: string) =>
+    !options.only || rel === options.only || rel.startsWith(`${options.only}/`);
+  for (const rel of layer.delete.filter(inScope)) {
     fs.rmSync(path.join(dest, rel), { recursive: true, force: true });
   }
-  // `skills update` copies a skill folder from the first source that has it,
-  // so an overridden skill replaces the base folder rather than merging.
-  const layerSkills = path.join(layerDir, ".agents", "skills");
-  if (fs.existsSync(layerSkills)) {
-    for (const skill of fs.readdirSync(layerSkills)) {
-      fs.rmSync(path.join(dest, ".agents", "skills", skill), {
-        recursive: true,
-        force: true,
-      });
+  for (const rel of listLayerFiles(layerDir).filter(inScope)) {
+    const source = path.join(layerDir, rel);
+    if (rel.endsWith(LAYER_PATCH_SUFFIX)) {
+      applyLayerPatch(source, dest, rel.slice(0, -LAYER_PATCH_SUFFIX.length));
+      continue;
     }
+    const target = path.join(dest, rel);
+    const existing = fs.lstatSync(target, { throwIfNoEntry: false });
+    if (existing && !existing.isSymbolicLink()) {
+      throw new Error(
+        `Template layer file ${source} would replace the base's ${rel} wholesale; ship ${rel}${LAYER_PATCH_SUFFIX} instead so base edits keep flowing in.`,
+      );
+    }
+    // The base may ship a symlink here (CLAUDE.md -> AGENTS.md); writing
+    // through it would overwrite the link target instead.
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(source, target);
   }
-  copyLayerFiles(layerDir, dest, "");
+  if (options.only) return;
   const basePkgPath = path.join(dest, "package.json");
   const merged = mergePackageFields(
     JSON.parse(fs.readFileSync(basePkgPath, "utf-8")),
@@ -64,7 +85,37 @@ export function applyTemplateLayer(
   fs.writeFileSync(basePkgPath, `${JSON.stringify(merged, null, 2)}\n`);
 }
 
-function copyLayerFiles(layerDir: string, dest: string, rel: string): void {
+/** The unified diff a layer stores for `rel` to turn `before` into `after`. */
+export function createLayerPatch(
+  rel: string,
+  before: string,
+  after: string,
+): string {
+  return createTwoFilesPatch(`a/${rel}`, `b/${rel}`, before, after);
+}
+
+function applyLayerPatch(patchFile: string, dest: string, rel: string): void {
+  const target = path.join(dest, rel);
+  if (!fs.existsSync(target)) {
+    throw new Error(
+      `Template layer patch ${patchFile} targets ${rel}, which the base template no longer has.`,
+    );
+  }
+  const patched = applyPatch(
+    fs.readFileSync(target, "utf-8"),
+    fs.readFileSync(patchFile, "utf-8"),
+  );
+  if (patched === false) {
+    throw new Error(
+      `Template layer patch ${patchFile} no longer applies to ${rel}; the base template changed near it. Regenerate it with \`pnpm template-layer diff\`.`,
+    );
+  }
+  fs.writeFileSync(target, patched);
+}
+
+/** Layer-relative paths of every file the layer contributes. */
+export function listLayerFiles(layerDir: string, rel = ""): string[] {
+  const files: string[] = [];
   for (const entry of fs.readdirSync(path.join(layerDir, rel), {
     withFileTypes: true,
   })) {
@@ -72,17 +123,10 @@ function copyLayerFiles(layerDir: string, dest: string, rel: string): void {
     if (entryRel === TEMPLATE_LAYER_FILE || entryRel === "package.json") {
       continue;
     }
-    if (entry.isDirectory()) {
-      copyLayerFiles(layerDir, dest, entryRel);
-      continue;
-    }
-    const target = path.join(dest, entryRel);
-    // The base may ship a symlink here (CLAUDE.md -> AGENTS.md); writing
-    // through it would overwrite the link target instead.
-    fs.rmSync(target, { recursive: true, force: true });
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(path.join(layerDir, entryRel), target);
+    if (entry.isDirectory()) files.push(...listLayerFiles(layerDir, entryRel));
+    else files.push(entryRel);
   }
+  return files.sort();
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

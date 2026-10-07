@@ -71,8 +71,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # fusion-starter is a layer over templates/chat: materialize copies Chat,
-      # then applies the starter's deletions, whole-file overrides, and
-      # package.json fields.
+      # then applies the starter's deletions, unified-diff patches, new files,
+      # and package.json fields.
       - name: Materialize the bundled fusion-starter template
         if: steps.gate.outputs.publishable == 'true'
         run: >-
