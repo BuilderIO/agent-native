@@ -822,7 +822,7 @@ import { runScreenVisualStructureChange } from "./design-editor/commands/screen-
 import { runScreenVisualStyleChange } from "./design-editor/commands/screen-visual-style-change";
 import {
   runSelectAll,
-  screenDeletionProvenanceAfterSelectAll,
+  explicitScreenTargetsAfterSelectAll,
 } from "./design-editor/commands/select-all";
 import {
   restoreSelectionColorPreview,
@@ -18876,7 +18876,7 @@ function DesignEditor() {
       if (projection && decision.kind === "layers") {
         selectionRevisionRef.current += 1;
         explicitOverviewScreenSelectionRef.current =
-          screenDeletionProvenanceAfterSelectAll(
+          explicitScreenTargetsAfterSelectAll(
             decision,
             explicitOverviewScreenSelectionRef.current,
           );

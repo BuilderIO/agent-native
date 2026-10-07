@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   runSelectAll,
-  screenDeletionProvenanceAfterSelectAll,
+  explicitScreenTargetsAfterSelectAll,
 } from "./select-all";
 
 const TODO_SCREEN = `<body>
@@ -76,7 +76,7 @@ describe("select-all with a layer selected", () => {
     });
 
     expect(
-      screenDeletionProvenanceAfterSelectAll(decision, ["screen-explicit"]),
+      explicitScreenTargetsAfterSelectAll(decision, ["screen-explicit"]),
     ).toEqual([]);
   });
 

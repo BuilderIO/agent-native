@@ -6,7 +6,7 @@ export type SelectAllDecision =
 
 export type SelectAllFallback = "screens" | "top-level-layers";
 
-export function screenDeletionProvenanceAfterSelectAll(
+export function explicitScreenTargetsAfterSelectAll(
   decision: SelectAllDecision,
   currentExplicitScreenIds: readonly string[],
 ): string[] {
