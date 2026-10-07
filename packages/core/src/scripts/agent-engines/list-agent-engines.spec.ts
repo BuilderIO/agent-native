@@ -15,6 +15,7 @@ describe("list-agent-engines", () => {
     vi.resetModules();
     vi.unstubAllEnvs();
     delete process.env.AGENT_ENGINE;
+    delete process.env.AGENT_MODEL;
     delete process.env.AGENT_NATIVE_WORKSPACE;
     delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
     delete process.env.ANTHROPIC_API_KEY;
@@ -52,6 +53,31 @@ describe("list-agent-engines", () => {
       readAppSecret: (...args: unknown[]) => readAppSecret(...args),
       readAppSecrets,
     }));
+  });
+
+  it("reports the configured model rather than a stored default", async () => {
+    vi.stubEnv("AGENT_ENGINE", "fixture-configured-model");
+    vi.stubEnv("AGENT_MODEL", "configured-model");
+    const { registerAgentEngine } = await import("../../agent/engine/index.js");
+    registerAgentEngine({
+      name: "fixture-configured-model",
+      label: "Fixture",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "old-model",
+      supportedModels: ["old-model", "configured-model"],
+      requiredEnvVars: [],
+      create: vi.fn() as any,
+    });
+    defaultSetting = {
+      source: "user",
+      value: { engine: "fixture-configured-model", model: "old-model" },
+    };
+    const { run } = await import("./list-agent-engines.js");
+    expect(JSON.parse(await run()).current).toEqual({
+      engine: "fixture-configured-model",
+      model: "configured-model",
+    });
   });
 
   it("prefetches installed provider keys in one catalog batch", async () => {
@@ -186,7 +212,7 @@ describe("list-agent-engines", () => {
     // No organization OpenAI key is saved, but its models still belong to the
     // organization, which is where an admin's key would go.
     expect(byName("ai-sdk:openai")).toMatchObject({
-      supportedModels: ["gpt-6-sol"],
+      supportedModels: ["gpt-6.1-sol"],
       modelSelection: { state: "selected", scope: "org" },
     });
     expect(byName("ai-sdk:google")?.modelSelection).toEqual({

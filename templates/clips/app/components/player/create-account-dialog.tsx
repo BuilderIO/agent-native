@@ -135,12 +135,20 @@ export function AccountGateDialog({
   const [magicLinkSentEmail, setMagicLinkSentEmail] = useState<string | null>(
     null,
   );
+  const [verificationPendingEmail, setVerificationPendingEmail] = useState<
+    string | null
+  >(null);
+  const [verificationBusy, setVerificationBusy] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState<{
+    kind: "error" | "success";
+    text: string;
+  } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const oauthRunRef = useRef(0);
   const oauthPopupRef = useRef<Window | null>(null);
-  const signInHref = buildSignInReturnHref({ returnTo });
+  const signInHref = buildSignInReturnHref({ returnTo: appPath(returnTo) });
   const closeOAuthPopup = useCallback(() => {
     const popup = oauthPopupRef.current;
     oauthPopupRef.current = null;
@@ -156,6 +164,9 @@ export function AccountGateDialog({
     setPassword("");
     setPasswordConfirmation("");
     setMagicLinkSentEmail(null);
+    setVerificationPendingEmail(null);
+    setVerificationBusy(false);
+    setVerificationMessage(null);
     setErrorMessage(null);
     setSubmitting(false);
     setGoogleBusy(false);
@@ -196,7 +207,7 @@ export function AccountGateDialog({
         appPath("/_agent-native/google/auth-url"),
         window.location.origin,
       );
-      authUrl.searchParams.set("return", returnTo);
+      authUrl.searchParams.set("return", appPath(returnTo));
       authUrl.searchParams.set("desktop", "1");
       authUrl.searchParams.set("flow_id", flowId);
       const authResponse = await fetch(authUrl.toString(), {
@@ -315,7 +326,10 @@ export function AccountGateDialog({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: normalizedEmail, callbackURL: returnTo }),
+        body: JSON.stringify({
+          email: normalizedEmail,
+          callbackURL: appPath(returnTo),
+        }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -361,7 +375,7 @@ export function AccountGateDialog({
           body: JSON.stringify({
             email: normalizedEmail,
             password,
-            callbackURL: returnTo,
+            callbackURL: buildCreateAccountHref(returnTo),
           }),
         },
       );
@@ -390,16 +404,59 @@ export function AccountGateDialog({
         onAuthenticated();
         return;
       }
-      if (loginResponse.status === 403) {
-        window.location.assign(buildCreateAccountHref(returnTo));
+      const loginData = await loginResponse.json();
+      const loginError = responseError(loginData);
+      if (
+        loginResponse.status === 403 &&
+        /not verified|verification/i.test(loginError ?? "")
+      ) {
+        setVerificationPendingEmail(normalizedEmail);
+        setVerificationMessage(null);
         return;
       }
-      const loginData = await loginResponse.json();
-      setErrorMessage(responseError(loginData) ?? copy.failedToConnect);
+      setErrorMessage(loginError ?? copy.failedToConnect);
     } catch {
       setErrorMessage(copy.failedToConnect);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const resendVerification = async () => {
+    if (!verificationPendingEmail || verificationBusy) return;
+    setVerificationBusy(true);
+    setVerificationMessage(null);
+    try {
+      const response = await fetch(
+        appPath("/_agent-native/auth/ba/send-verification-email"),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: verificationPendingEmail,
+            callbackURL: buildCreateAccountHref(returnTo),
+          }),
+        },
+      );
+      if (response.ok) {
+        setVerificationMessage({
+          kind: "success",
+          text: t("signInPrompt.verificationEmailResent"),
+        });
+        return;
+      }
+      setVerificationMessage({
+        kind: "error",
+        text: t("signInPrompt.verificationEmailFailed"),
+      });
+    } catch {
+      setVerificationMessage({
+        kind: "error",
+        text: t("signInPrompt.verificationEmailFailed"),
+      });
+    } finally {
+      setVerificationBusy(false);
     }
   };
 
@@ -432,7 +489,63 @@ export function AccountGateDialog({
             welcomeLabel={copy.welcomeTitle}
           />
 
-          {magicLinkSentEmail ? (
+          {verificationPendingEmail ? (
+            <div className="mt-8 grid gap-4" aria-live="polite">
+              <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
+                <p className="font-medium">
+                  {t("signInPrompt.verificationPendingTitle")}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t("signInPrompt.verificationPendingCopy", {
+                    email: verificationPendingEmail,
+                  })}
+                </p>
+              </div>
+              {verificationMessage ? (
+                <p
+                  className={
+                    verificationMessage.kind === "error"
+                      ? "text-sm text-destructive"
+                      : "text-sm text-muted-foreground"
+                  }
+                  role={
+                    verificationMessage.kind === "error" ? "alert" : "status"
+                  }
+                >
+                  {verificationMessage.text}
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                className="w-full"
+                disabled={verificationBusy}
+                onClick={() => void resendVerification()}
+              >
+                {verificationBusy
+                  ? t("signInPrompt.resendingVerification")
+                  : t("signInPrompt.resendVerification")}
+              </Button>
+              <div className="flex flex-col-reverse items-start gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
+                <Button variant="ghost" asChild className="px-0">
+                  <a href={signInHref} onClick={() => onSignIn?.()}>
+                    {copy.signIn}
+                  </a>
+                </Button>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto px-0 text-xs font-medium"
+                  onClick={() => {
+                    setVerificationPendingEmail(null);
+                    setVerificationMessage(null);
+                    setAuthMode("magic-link");
+                  }}
+                >
+                  {copy.backToMagicLink}
+                </Button>
+              </div>
+            </div>
+          ) : magicLinkSentEmail ? (
             <div className="mt-8 grid gap-4" aria-live="polite">
               <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
                 <p className="font-medium">{copy.magicLinkSent}</p>
@@ -609,6 +722,6 @@ export function AccountGateDialog({
 export const CreateAccountDialog = AccountGateDialog;
 
 export function buildCreateAccountHref(returnTo: string): string {
-  const href = buildSignInReturnHref({ returnTo });
+  const href = buildSignInReturnHref({ returnTo: appPath(returnTo) });
   return `${href}${href.includes("?") ? "&" : "?"}tab=signup&initialPrompt=1&embedded=1`;
 }

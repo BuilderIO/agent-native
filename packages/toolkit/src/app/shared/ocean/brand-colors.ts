@@ -1,4 +1,7 @@
-import { DEFAULT_OCEAN_COLORS, type OceanColors } from "./ocean-colors.js";
+import { HERO_FALLBACK_COLORS } from "./hero-layout.js";
+// Type-only: importing DEFAULT_OCEAN_COLORS (a value) would pull tuning.ts in
+// here -- see hero-layout.ts. Use HERO_FALLBACK_COLORS for the actual default.
+import type { OceanColors } from "./ocean-colors.js";
 
 // guard:allow-raw-color - These fixed values calibrate the standalone GPU shader to the docs brand.
 const DARK_COLORS = { fg: "#aeadac", bg: "#0a0a0a" };
@@ -43,7 +46,7 @@ export function readOceanColors(element: Element): OceanColors {
       : root.getAttribute("data-theme") === "dark";
   const colors = dark ? DARK_COLORS : LIGHT_COLORS;
   return {
-    fg: hexToLinearRgb(colors.fg) ?? DEFAULT_OCEAN_COLORS.fg,
-    bg: hexToLinearRgb(colors.bg) ?? DEFAULT_OCEAN_COLORS.bg,
+    fg: hexToLinearRgb(colors.fg) ?? HERO_FALLBACK_COLORS.fg,
+    bg: hexToLinearRgb(colors.bg) ?? HERO_FALLBACK_COLORS.bg,
   };
 }

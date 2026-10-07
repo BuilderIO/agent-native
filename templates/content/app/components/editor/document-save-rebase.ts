@@ -25,6 +25,7 @@ export type RebasedDocumentSaveResult =
   | { status: "saved"; document: Document; content: string }
   | { status: "displaced"; document: Document; localDraft: string }
   | { status: "superseded"; document: Document }
+  | { status: "abandoned" }
   | {
       status: "preservation";
       localDraft: string;
@@ -41,6 +42,7 @@ export async function saveDocumentWithRebase({
   persist,
   canRetry = () => true,
   confirmsWrite = () => true,
+  canContinue = () => true,
   owner,
 }: {
   base: DocumentContentBase;
@@ -56,6 +58,7 @@ export async function saveDocumentWithRebase({
   >;
   canRetry?: (winner: Document) => boolean;
   confirmsWrite?: (winner: Document) => boolean;
+  canContinue?: () => boolean;
   owner?: {
     version: number;
     observationEpoch?: number;
@@ -92,6 +95,7 @@ export async function saveDocumentWithRebase({
     return { status: "saved", document, content: document.content };
   };
   for (let attempt = 0; attempt <= 2; attempt++) {
+    if (!canContinue()) return { status: "abandoned" };
     const saved = await persist(candidate, attemptedBase);
     if (isDocumentUpdateSuperseded(saved)) {
       return { status: "superseded", document: saved.document };

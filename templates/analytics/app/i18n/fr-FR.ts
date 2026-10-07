@@ -91,7 +91,7 @@ export default {
     visibilitySharedOnly: "Partagé",
     visibilityAllDescription: "Afficher tous les éléments",
     visibilityPrivateOnlyDescription:
-      "Afficher uniquement les éléments visibles pour vous",
+      "Afficher les éléments que vous avez créés",
     visibilitySharedOnlyDescription:
       "Afficher les éléments partagés avec l’organisation et publics",
     hiddenAnalyses: "Analyses masquées",
@@ -1539,6 +1539,12 @@ export default {
       "Fragments à accès contrôlé utilisés pour reconstruire cette relecture. Les URL du fournisseur restent privées.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Télécharger la capture",
+    savingScreenshot: "Enregistrement de la capture…",
+    screenshotDownloaded: "Capture téléchargée",
+    screenshotSaveFailed: "Impossible d’enregistrer la capture",
+    screenshotUnsupportedAssets:
+      "Capture non enregistrée : certains médias intégrés ou images ne peuvent pas être capturés en toute sécurité.",
     timeline: "Chronologie des événements",
     replayTimeline: "Chronologie de relecture",
     timelineDescription:

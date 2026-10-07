@@ -357,8 +357,9 @@ follow-up ambiguity instead of resolving it.
 
 **Carry the form-factor answer through to generation — do not just ask and discard it.** Map the answer to the design's device SET, not to separate per-device screen files. Device widths of the SAME page are breakpoint frames of one document (see the `responsive-breakpoints` skill), never a `mobile.html` + `desktop.html` pair. Pass the answer through `generate-design`'s `devices` param — `("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`:
 
+- An exact pixel size in the prompt defines one fixed-size canvas. Use those exact dimensions, pass `devices: []` (or `responsive: false` to `present-design-variants`), and do not generate mobile or other device frames for it. Keep each action prompt to one distinct exact canvas size; make separate calls scoped to each screen when a request names different sizes.
 - If the prompt/answer names specific devices, generate EXACTLY those, deduped ("mobile" only → one mobile frame; "mobile, tablet, desktop" → all three).
-- If nothing about form factor is specified — or the answer is "Both / responsive" or "Decide for me" — default to `["desktop","mobile"]`: a Desktop base + a Mobile frame only. Never auto-add a tablet, a redundant desktop, or a stray duplicate frame.
+- If no exact pixel size or form factor is specified — or the answer is "Both / responsive" or "Decide for me" — default to `["desktop","mobile"]`: a Desktop base + a Mobile frame only. Never auto-add a tablet, a redundant desktop, or a stray duplicate frame.
 
 The WIDEST requested device is the base/primary frame; narrower devices become breakpoint frames (never at the primary width). Device frame sizes: mobile 390×844, tablet 768×1024, desktop 1440×900. `present-design-variants` still takes explicit `width`/`height` per variant to size its exploration screens (see Phase 2).
 
@@ -390,7 +391,7 @@ screen name.
 
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **structurally and compositionally distinct** — different layout grammars, hierarchy, density, and focal points — never just color swaps. When a design system is linked, keep its tokens, typography, components, and imagery rules fixed across variants; vary those only when the user explicitly asks to explore a replacement system. Label the directions with concrete names ("Editorial split", not "Variant A").
 
-Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When `content` is omitted, `present-design-variants` infers a size from the prompt/label/description text and the width/height you pass still wins when given.
+Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When the prompt specifies exact pixel dimensions, use that exact size on every variant and pass `responsive: false`; do not clamp or add mobile frames. When `content` is omitted, `present-design-variants` infers a size from the prompt/label/description text and the width/height you pass still wins when given.
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
@@ -424,9 +425,12 @@ Pass the `devices` param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop"
 
 #### Non-web sizes — ad units, print one-pagers, social sizes
 
-`canvasFrames` accepts any exact `width`/`height` in px, so "create a 300x250
-ad" style requests work the same way — no special action, just the pixel
-dimensions the artifact actually needs. The editor's own Frame tool preset
+`canvasFrames` accepts exact `width`/`height` in px, so "create a 300x250
+ad" style requests work the same way — use the requested dimensions verbatim
+and pass `devices: []` so the fixed-size screen has no extra mobile view. Keep
+each action prompt to one distinct exact size; use separate calls for screens
+with different dimensions. This also applies to exact-size email and social
+assets. The editor's own Frame tool preset
 list (`app/components/design/inspector/frame-size-presets.ts`) documents the
 canonical sizes to reuse instead of guessing:
 
@@ -475,7 +479,9 @@ by unlinking the system. It is the one check that can catch a design that
 looks fine and is still not the user's.
 
 After the audit is clean, call `take-design-screenshot` on each changed screen
-(default: 1280px desktop + 375px mobile). Fix everything its `diagnostics`
+(default: 1280px desktop + 375px mobile). For an exact-size screen, capture
+only its specified viewport by passing `widths: [width]` and
+`heights: [height]`. Fix everything its `diagnostics`
 report flags — real computed contrast ratios, horizontal/container overflow,
 broken images, zero-size or off-screen text, console errors — before reporting
 the design as ready; this is the same "visually inspect the result" pass, done

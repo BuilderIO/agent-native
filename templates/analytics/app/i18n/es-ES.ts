@@ -89,7 +89,7 @@ export default {
     visibilityPrivateOnly: "Míos",
     visibilitySharedOnly: "Compartido",
     visibilityAllDescription: "Mostrar todos los elementos",
-    visibilityPrivateOnlyDescription: "Mostrar solo elementos visibles para ti",
+    visibilityPrivateOnlyDescription: "Mostrar elementos que has creado",
     visibilitySharedOnlyDescription:
       "Mostrar elementos compartidos con la organización y públicos",
     hiddenAnalyses: "Análisis ocultos",
@@ -1523,6 +1523,12 @@ export default {
       "Fragmentos con acceso controlado usados para reconstruir esta reproducción. Las URL del proveedor permanecen privadas.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Descargar captura",
+    savingScreenshot: "Guardando captura…",
+    screenshotDownloaded: "Captura descargada",
+    screenshotSaveFailed: "No se pudo guardar la captura",
+    screenshotUnsupportedAssets:
+      "No se guardó la captura: algunos medios o imágenes incrustados no se pudieron capturar de forma segura.",
     timeline: "Línea de tiempo de eventos",
     replayTimeline: "Línea de tiempo de reproducción",
     timelineDescription: "Mostrando {{count}} de {{total}} eventos útiles.",

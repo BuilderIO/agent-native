@@ -171,7 +171,7 @@ describe("failed tool calls are never recorded without a reason", () => {
     );
     const span = toolSpan(spans);
     expect(span.status).toBe("error");
-    expect(span.errorMessage).toBe("Error running fetch: upstream said no");
+    expect(span.errorMessage).toBe("upstream said no");
     expect(span.errorDetail).toBe("signature");
     expect(JSON.stringify(span)).not.toContain("stack line two");
     expect(JSON.stringify(span)).not.toContain("abcdef123456");

@@ -807,7 +807,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var host = ensureEditorChromeHost();
     editorChromeHostObserver?.disconnect();
     editorChromeDocumentObserver?.disconnect();
-    editorChromeHostObserver = new MutationObserver(repairEditorChromeHost);
+    editorChromeHostObserver = new MutationObserver(function () {
+      if (
+        !editorChromeHost ||
+        editorChromeNodes.some(function (node) {
+          return node.parentNode !== editorChromeHost;
+        })
+      ) {
+        repairEditorChromeHost();
+      }
+    });
     editorChromeHostObserver.observe(host, { childList: true });
     editorChromeDocumentObserver = new MutationObserver(function () {
       if (
@@ -4193,6 +4202,199 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el.parentElement;
   }
 
+  function positionReferenceRectForElement(el: Element) {
+    var ancestor = el.parentElement;
+    while (ancestor) {
+      if (ancestor.getAttribute("data-an-primitive") === "frame") {
+        return rectInfoForElement(ancestor);
+      }
+      ancestor = ancestor.parentElement;
+    }
+    var root = el.ownerDocument.documentElement;
+    return {
+      x: 0,
+      y: 0,
+      width: root.clientWidth,
+      height: root.clientHeight,
+    };
+  }
+
+  function multiplyPositionTransforms(
+    left: { a: number; b: number; c: number; d: number },
+    right: { a: number; b: number; c: number; d: number },
+  ) {
+    return {
+      a: left.a * right.a + left.c * right.b,
+      b: left.b * right.a + left.d * right.b,
+      c: left.a * right.c + left.c * right.d,
+      d: left.b * right.c + left.d * right.d,
+    };
+  }
+
+  function positionElementTransform(styles: CSSStyleDeclaration) {
+    var transform =
+      styles.transform === "none"
+        ? { a: 1, b: 0, c: 0, d: 1 }
+        : new DOMMatrixReadOnly(styles.transform);
+    var result = {
+      a: transform.a,
+      b: transform.b,
+      c: transform.c,
+      d: transform.d,
+    };
+    var scaleValue = styles.getPropertyValue("scale");
+    if (scaleValue && scaleValue !== "none") {
+      var scaleParts = scaleValue.trim().split(/\s+/);
+      var scaleX = Number.parseFloat(scaleParts[0] || "1");
+      var scaleY = Number.parseFloat(scaleParts[1] || scaleParts[0] || "1");
+      result = multiplyPositionTransforms(
+        { a: scaleX, b: 0, c: 0, d: scaleY },
+        result,
+      );
+    }
+    var rotateValue = styles.getPropertyValue("rotate");
+    if (rotateValue && rotateValue !== "none") {
+      var rotateParts = rotateValue.trim().split(/\s+/);
+      var angle = rotateParts[rotateParts.length - 1] || "0deg";
+      var axis = rotateParts.length > 1 ? rotateParts[0] : "z";
+      var rotateFunction =
+        axis === "x" || axis === "y" ? "rotate" + axis.toUpperCase() : "rotate";
+      var rotation = new DOMMatrixReadOnly(rotateFunction + "(" + angle + ")");
+      result = multiplyPositionTransforms(
+        { a: rotation.a, b: rotation.b, c: rotation.c, d: rotation.d },
+        result,
+      );
+    }
+    var zoom = Number.parseFloat(styles.getPropertyValue("zoom"));
+    if (Number.isFinite(zoom) && zoom !== 1) {
+      result = multiplyPositionTransforms(
+        { a: zoom, b: 0, c: 0, d: zoom },
+        result,
+      );
+    }
+    return result;
+  }
+
+  function establishesPositioningContext(styles: CSSStyleDeclaration) {
+    var translate = styles.getPropertyValue("translate");
+    var rotate = styles.getPropertyValue("rotate");
+    var scale = styles.getPropertyValue("scale");
+    var backdropFilter = styles.getPropertyValue("backdrop-filter");
+    return (
+      (translate !== "" && translate !== "none") ||
+      (rotate !== "" && rotate !== "none") ||
+      (scale !== "" && scale !== "none") ||
+      styles.transform !== "none" ||
+      styles.perspective !== "none" ||
+      styles.filter !== "none" ||
+      (backdropFilter !== "" && backdropFilter !== "none") ||
+      /(?:^|\s)(?:layout|paint|strict|content)(?:\s|$)/.test(styles.contain) ||
+      /transform|perspective|filter|contain/.test(styles.willChange) ||
+      styles.contentVisibility === "auto"
+    );
+  }
+
+  type PositionComputedStylesCache = WeakMap<Element, CSSStyleDeclaration>;
+
+  function positionComputedStylesForElement(
+    el: Element,
+    cache: PositionComputedStylesCache,
+  ) {
+    var cached = cache.get(el);
+    if (cached) return cached;
+    var styles = window.getComputedStyle(el);
+    cache.set(el, styles);
+    return styles;
+  }
+
+  function positionContainingBlockForElement(
+    el: Element,
+    cache: PositionComputedStylesCache,
+  ) {
+    var fixed =
+      positionComputedStylesForElement(el, cache).position === "fixed";
+    var containingBlock: Element | null = null;
+    var ancestor = el.parentElement;
+    while (ancestor) {
+      var styles = positionComputedStylesForElement(ancestor, cache);
+      if (
+        (fixed && establishesPositioningContext(styles)) ||
+        (!fixed &&
+          (styles.position !== "static" ||
+            establishesPositioningContext(styles)))
+      ) {
+        containingBlock = ancestor;
+        break;
+      }
+      ancestor = ancestor.parentElement;
+    }
+
+    var transform = { a: 1, b: 0, c: 0, d: 1 };
+    for (
+      ancestor = containingBlock;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      transform = multiplyPositionTransforms(
+        positionElementTransform(
+          positionComputedStylesForElement(ancestor, cache),
+        ),
+        transform,
+      );
+    }
+
+    if (!containingBlock) {
+      return {
+        origin: { x: 0, y: 0 },
+        transform: transform,
+      };
+    }
+
+    var htmlContainingBlock = containingBlock as HTMLElement;
+    var quaddedContainingBlock = containingBlock as Element & {
+      getBoxQuads?: (options?: { box?: string }) => Array<{
+        p1: { x: number; y: number };
+      }>;
+    };
+    var paddingQuad = quaddedContainingBlock.getBoxQuads?.({
+      box: "padding",
+    })?.[0];
+    var scrollX = htmlContainingBlock.scrollLeft || 0;
+    var scrollY = htmlContainingBlock.scrollTop || 0;
+    if (paddingQuad) {
+      return {
+        origin: {
+          x:
+            paddingQuad.p1.x +
+            window.scrollX -
+            transform.a * scrollX -
+            transform.c * scrollY,
+          y:
+            paddingQuad.p1.y +
+            window.scrollY -
+            transform.b * scrollX -
+            transform.d * scrollY,
+        },
+        transform: transform,
+      };
+    }
+
+    var rect = rectInfoForElement(containingBlock);
+    return {
+      origin: {
+        x:
+          rect.x +
+          transform.a * (htmlContainingBlock.clientLeft - scrollX) +
+          transform.c * (htmlContainingBlock.clientTop - scrollY),
+        y:
+          rect.y +
+          transform.b * (htmlContainingBlock.clientLeft - scrollX) +
+          transform.d * (htmlContainingBlock.clientTop - scrollY),
+      },
+      transform: transform,
+    };
+  }
+
   function autoLayoutParentInfo(el: Element) {
     var parent = designParentForElement(el);
     if (
@@ -6215,8 +6417,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     el: Element,
     portableComputedStylesCache?: PortableStyleComputedStylesCache,
     includePortableStyleSnapshot = true,
+    sharedPositionComputedStylesCache?: PositionComputedStylesCache,
   ): unknown {
     var cs = window.getComputedStyle(el);
+    var positionComputedStylesCache =
+      sharedPositionComputedStylesCache || new WeakMap();
+    positionComputedStylesCache.set(el, cs);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
     var boundingRect = rectInfoForElement(el);
     var componentName = componentNameForElement(el);
@@ -6225,6 +6431,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var parentStyles = designParent
       ? window.getComputedStyle(designParent)
       : null;
+    if (designParent && parentStyles) {
+      positionComputedStylesCache.set(designParent, parentStyles);
+    }
+    var positionReferenceRect = positionReferenceRectForElement(el);
+    var positionCoordinateContext = positionContainingBlockForElement(
+      el,
+      positionComputedStylesCache,
+    );
     var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
     var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -6338,6 +6552,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       parentBoundingRect: designParent
         ? rectInfoForElement(designParent)
         : undefined,
+      positionReferenceRect: positionReferenceRect,
+      positionContainingBlockOrigin: positionCoordinateContext.origin,
+      positionContainingBlockTransform: positionCoordinateContext.transform,
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       textContentTruncated: el.textContent
         ? el.textContent.length > 200
@@ -6598,6 +6815,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     includePortableStyleSnapshot = true,
   ): unknown[] {
     var targets = collectSelectableElements(deep);
+    var positionComputedStylesCache: PositionComputedStylesCache =
+      new WeakMap();
     if (atPoint) {
       targets = targets.filter(function (el) {
         return documentSpaceBoundsContainPoint(el, atPoint);
@@ -6605,14 +6824,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (!includePortableStyleSnapshot) {
       return targets.map(function (target) {
-        return getElementInfo(target, undefined, false);
+        return getElementInfo(
+          target,
+          undefined,
+          false,
+          positionComputedStylesCache,
+        );
       });
     }
     portableStyleProbeDocument();
     var portableComputedStylesCache = createPortableStyleComputedStylesCache();
     try {
       return targets.map(function (target) {
-        return getElementInfo(target, portableComputedStylesCache, true);
+        return getElementInfo(
+          target,
+          portableComputedStylesCache,
+          true,
+          positionComputedStylesCache,
+        );
       });
     } finally {
       if (portableComputedStylesCache) {
@@ -6721,6 +6950,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:" +
       cursor +
       ";";
+    if (pos.length === 2) handle.style.zIndex = "4";
     if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
     if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
     if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -10869,6 +11099,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           pos === hoveredRadiusHandleKey || pos === activeRadiusHandleKey;
         handle.style.visibility = isRadiusHandleVisible ? "visible" : "hidden";
         handle.style.pointerEvents = isRadiusHandleVisible ? "auto" : "none";
+        handle.style.zIndex = isRadiusHandleVisible ? "5" : "2";
         handle.style.width = size + "px";
         handle.style.height = size + "px";
         handle.style.borderWidth = 1.5 * line + "px";
@@ -25943,6 +26174,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // otherwise pull focus back into the editable so the keystroke
           // lands as text — and never reaches host shortcuts.
           if (!isEditorTypingTarget(activeNow)) {
+            if (e.key === "Delete" || e.key === "Backspace") {
+              var unfocusedEditHotkey = {
+                key: e.key,
+                code: e.code,
+                metaKey: !!e.metaKey,
+                ctrlKey: !!e.ctrlKey,
+                shiftKey: !!e.shiftKey,
+                altKey: !!e.altKey,
+                repeat: !!e.repeat,
+              };
+              stopNativeInteraction(e);
+              if (finishActiveTextEdit) finishActiveTextEdit(true);
+              postDesignHotkey(unfocusedEditHotkey);
+              return;
+            }
             try {
               activeTextEditEl.focus();
               collapseSelectionIntoContents(activeTextEditEl);
@@ -28494,6 +28740,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       if (e.data.applied) {
+        if (moveWasInsert && move.el && move.el.isConnected) {
+          move.el.removeAttribute("data-agent-native-transient-drag-clone");
+        }
         if (!moveWasInsert && move.el && move.el.isConnected && move.target) {
           applyRuntimeReorder(move.el, move.target);
           selectedEl = move.el;

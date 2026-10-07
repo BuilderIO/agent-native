@@ -1,3 +1,4 @@
+import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
   useActionQuery,
@@ -890,6 +891,19 @@ export function startPageOpenReviewReads(
   }
 }
 
+export function startPageOpenCompanionReads(
+  queryClient: QueryClient,
+  documentId: string,
+  knownDocument: Document | undefined,
+  readsStartedEarly: boolean,
+) {
+  if (readsStartedEarly) return;
+  startPreviewDocumentDraftRead(queryClient, documentId, knownDocument);
+  if (knownDocument?.source?.mode !== "local-files") {
+    startPageOpenReviewReads(queryClient, documentId);
+  }
+}
+
 export interface PreviewDocumentDraftRecord {
   documentId: string;
   title: string;
@@ -948,6 +962,7 @@ export function startPreviewDocumentDraftRead(
   documentId: string,
   known?: Document,
 ) {
+  if (isOpenAiMcpAppHost()) return;
   if (
     known &&
     (isDocumentCreationPending(known) ||

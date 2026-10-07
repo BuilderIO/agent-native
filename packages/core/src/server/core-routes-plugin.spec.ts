@@ -947,6 +947,54 @@ describe("buildBuilderWaitlistFormPayload", () => {
     });
   });
 
+  it("preserves the Design Systems page waitlist use case", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design-systems",
+        source: "design_systems_page",
+        useCase: "design_system_workflows_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_systems_page",
+        useCase: "design_system_workflows_waitlist",
+      },
+      _meta: {
+        source: "design_systems_page",
+        useCase: "design_system_workflows_waitlist",
+      },
+    });
+  });
+
+  it("preserves the Design Systems empty-state use case for Slack routing", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design-systems",
+        source: "design_systems_empty_state",
+        useCase: "design_system_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_systems_empty_state",
+        useCase: "design_system_waitlist",
+      },
+      _meta: {
+        source: "design_systems_empty_state",
+        useCase: "design_system_waitlist",
+      },
+    });
+  });
+
   it("falls back to the default use case for unknown waitlist values", () => {
     const event = createMockEvent(
       "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",

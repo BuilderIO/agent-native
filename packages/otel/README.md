@@ -2,7 +2,13 @@
 
 OpenTelemetry SDK wiring for Agent-Native apps. It builds a meter provider and a tracer provider with OTLP exporters and registers them with `@agent-native/core` through `registerObservabilityProvider()`.
 
-It does nothing unless an OTLP endpoint is set, so apps can depend on it unconditionally.
+It does nothing unless an OTLP endpoint is set, so apps can depend on it unconditionally. Apps scaffolded from first-party templates already include it; to add it to another app:
+
+```sh
+pnpm add @agent-native/otel
+```
+
+Then start it from a server plugin:
 
 ```ts
 // server/plugins/otel.ts

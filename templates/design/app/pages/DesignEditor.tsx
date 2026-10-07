@@ -535,6 +535,7 @@ import {
   readDesignClipboardPayloadFromSystem,
   readSystemClipboard,
 } from "@/lib/design-clipboard";
+import { hasExplicitOverviewZoomCommand as hasExplicitOverviewZoomCommandFromSearchParams } from "@/lib/design-editor-route";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
@@ -567,6 +568,7 @@ import {
 import type { UploadedFont } from "@/lib/font-upload";
 import {
   clearPendingGeneration,
+  failPendingGenerationForMissingImagePayload,
   hasPendingGenerationOutput,
   hasFreshPendingGeneration,
   isPendingGenerationStale,
@@ -978,6 +980,7 @@ import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
   designVariantGenerationDirectives,
+  builderDesignEmbedSubmitData,
   formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles,
   loadDesignSystemGenerationContext,
@@ -1138,6 +1141,7 @@ import {
   PngCaptureError,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
+import { measurePositionCoordinateContext } from "./design-editor/position-coordinate-context";
 import { mergePresenceUsers } from "./design-editor/presence-users";
 import { openPreviewUrl } from "./design-editor/preview-navigation";
 import type { ReactGridPlacement } from "./design-editor/react-semantic-handoff";
@@ -1315,10 +1319,17 @@ function readRenderedLayerInfo(
       if (!element) continue;
       const computed = preview.getComputedStyle(element);
       const parent = element.parentElement;
+      const positionCoordinateContext = measurePositionCoordinateContext(
+        element,
+        preview,
+      );
       const parentComputed = parent
         ? preview.getComputedStyle(parent)
         : undefined;
       const rect = element.getBoundingClientRect();
+      const parentRect = parent?.getBoundingClientRect();
+      const scrollX = preview.scrollX || preview.pageXOffset || 0;
+      const scrollY = preview.scrollY || preview.pageYOffset || 0;
       if (rect.width <= 0 || rect.height <= 0) continue;
       return {
         ...base,
@@ -1329,11 +1340,20 @@ function readRenderedLayerInfo(
           zIndex: computed.zIndex,
         },
         boundingRect: {
-          x: rect.x,
-          y: rect.y,
+          x: rect.x + scrollX,
+          y: rect.y + scrollY,
           width: rect.width,
           height: rect.height,
         },
+        parentBoundingRect: parentRect
+          ? {
+              x: parentRect.x + scrollX,
+              y: parentRect.y + scrollY,
+              width: parentRect.width,
+              height: parentRect.height,
+            }
+          : undefined,
+        ...positionCoordinateContext,
         ...(parentComputed
           ? {
               parentDisplay: parentComputed.display,
@@ -3858,14 +3878,31 @@ function DesignEditor() {
     const pending = readPendingGeneration(id, { allowUntimestamped: true });
     if (!pending) return null;
     const files = pending.files ?? [];
+    let images: string[];
+    try {
+      images = imageAttachmentsFromUploadedFiles(files);
+    } catch (error) {
+      if (
+        !failPendingGenerationForMissingImagePayload(
+          id,
+          error,
+          t("promptDialog.imageAttachmentUnavailable"),
+          setGenerationIssue,
+          setHasPendingGeneration,
+        )
+      ) {
+        throw error;
+      }
+      return null;
+    }
     return {
       prompt: pending.prompt,
       designSystemId: pending.designSystemId,
-      images: imageAttachmentsFromUploadedFiles(files),
+      images,
       contextItems: pending.contextItems,
       uploadedFileContext: formatUploadedFileContext(files),
     };
-  }, [id]);
+  }, [id, t]);
   const {
     questions: pendingQuestions,
     title: pendingQuestionsTitle,
@@ -6314,6 +6351,9 @@ function DesignEditor() {
         design,
         files,
         generationModelRef,
+        imageAttachmentUnavailableMessage: t(
+          "promptDialog.imageAttachmentUnavailable",
+        ),
         id,
         markGenerationStale,
         setGenerationChatTabId,
@@ -6872,12 +6912,9 @@ function DesignEditor() {
     getOverviewDisplayZoom(overviewCanvasZoom, overviewZoomScale),
   );
   const zoom = viewMode === "overview" ? overviewZoom : screenZoom;
-  const initialOverviewZoomValue = initialSearchParams.get("zoom");
   const hasExplicitOverviewZoomCommand =
     viewMode === "overview" &&
-    initialSearchParams.get("view") === "overview" &&
-    initialOverviewZoomValue !== null &&
-    Number.isFinite(Number(initialOverviewZoomValue));
+    hasExplicitOverviewZoomCommandFromSearchParams(initialSearchParams);
   const setZoomForView = useCallback(
     (targetView: "single" | "overview", update: SetStateAction<number>) => {
       if (targetView === "overview") {
@@ -11679,6 +11716,9 @@ function DesignEditor() {
           canEditDesign,
           design,
           handleTweakPromptOpenChange,
+          imageAttachmentUnavailableMessage: t(
+            "promptDialog.imageAttachmentUnavailable",
+          ),
           id,
           tweakSelections,
           tweaks,
@@ -11694,6 +11734,7 @@ function DesignEditor() {
       design,
       handleTweakPromptOpenChange,
       id,
+      t,
       tweakSelections,
       tweaks,
     ],
@@ -13165,6 +13206,11 @@ function DesignEditor() {
                   authoredSizeStyles: elementInfo.authoredSizeStyles,
                   boundingRect: elementInfo.boundingRect,
                   parentBoundingRect: elementInfo.parentBoundingRect,
+                  positionReferenceRect: elementInfo.positionReferenceRect,
+                  positionContainingBlockOrigin:
+                    elementInfo.positionContainingBlockOrigin,
+                  positionContainingBlockTransform:
+                    elementInfo.positionContainingBlockTransform,
                 }
               : current,
           );
@@ -19072,6 +19118,9 @@ function DesignEditor() {
           clearGenerationCompleteTimer,
           design,
           generationModelRef,
+          imageAttachmentUnavailableMessage: t(
+            "promptDialog.imageAttachmentUnavailable",
+          ),
           id,
           setGenerationChatTabId,
           setGenerationIssue,
@@ -19089,6 +19138,7 @@ function DesignEditor() {
       clearGenerationCompleteTimer,
       design,
       id,
+      t,
     ],
   );
 
@@ -24193,6 +24243,14 @@ function DesignEditor() {
             boundingRect: measured.boundingRect,
             parentBoundingRect:
               measured.parentBoundingRect ?? current.parentBoundingRect,
+            positionReferenceRect:
+              measured.positionReferenceRect ?? current.positionReferenceRect,
+            positionContainingBlockOrigin:
+              measured.positionContainingBlockOrigin ??
+              current.positionContainingBlockOrigin,
+            positionContainingBlockTransform:
+              measured.positionContainingBlockTransform ??
+              current.positionContainingBlockTransform,
             computedStyles: {
               ...measured.computedStyles,
               ...current.computedStyles,
@@ -28912,11 +28970,13 @@ function DesignEditor() {
           files: UploadedFile[],
           options: PromptComposerSubmitOptions,
         ) => {
+          const images = imageAttachmentsFromUploadedFiles(files);
           if (isBuilderDesignEmbed) {
+            const data = builderDesignEmbedSubmitData(prompt, images);
             window.parent.postMessage(
               {
                 type: "agentNative.submitChat",
-                data: { message: prompt, submit: true },
+                data,
               },
               parentOriginRef.current ?? window.location.origin,
             );
@@ -28932,13 +28992,15 @@ function DesignEditor() {
           const designSystemId = selectedPromptDesignSystemId;
           persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
-          const images = imageAttachmentsFromUploadedFiles(files);
           const designSystemContext =
             await loadDesignSystemGenerationContext(designSystemId);
+          const hasReferenceImages = images.length > 0;
           const shouldExploreVariants =
-            promptRequestsVariantExploration(prompt);
+            !hasReferenceImages && promptRequestsVariantExploration(prompt);
           const intake =
-            shouldExploreVariants || !creativeContextEnabled
+            shouldExploreVariants ||
+            hasReferenceImages ||
+            !creativeContextEnabled
               ? null
               : await (async () => {
                   await creativeContextPersistRef.current?.catch(() => {});
@@ -28949,6 +29011,7 @@ function DesignEditor() {
                 })();
           const shouldSkipQuestions =
             shouldExploreVariants ||
+            hasReferenceImages ||
             (intake ? allIntakeTopicsCovered(intake.coverage) : false);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
@@ -28961,7 +29024,11 @@ function DesignEditor() {
               ? designVariantGenerationDirectives(id, designSystemId)
               : shouldSkipQuestions
                 ? [
-                    ...designGenerationDirectives(id, designSystemId),
+                    ...designGenerationDirectives(
+                      id,
+                      designSystemId,
+                      images.length,
+                    ),
                     ...(intake?.explicitContext &&
                     intake.precedent.status === "strong"
                       ? designPrecedentDirectives(
@@ -28974,7 +29041,7 @@ function DesignEditor() {
                 : designIntakeQuestionDirectives(
                     id,
                     designSystemId,
-                    0,
+                    images.length,
                     intake
                       ? {
                           coverage: intake.coverage,

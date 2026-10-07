@@ -356,6 +356,7 @@ const messages = {
     googleSlidesCreated: "Google Slides で開きました",
     googleSlidesCreatedHint:
       "このデッキのコピーを Google ドライブに作成しました。",
+    googleSlidesGoTo: "Google Slides で開く",
     duplicateDeck: "デッキを複製",
   },
   share: {

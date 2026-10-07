@@ -1431,6 +1431,30 @@ export class DesktopIdentityBroker {
       }
       const loginPayload = await readDesktopIdentityAuthResponse(loginResponse);
       if (!loginResponse.ok) {
+        if (
+          loginResponse.status === 403 &&
+          /email.*(?:not verified|isn['’]t verified)|verification link/i.test(
+            loginPayload.error ?? "",
+          )
+        ) {
+          const verification = await this.startMagicLinkRequest(
+            request.email,
+            authority,
+            generation,
+          );
+          if (verification.ok && verification.pending) {
+            return {
+              ok: false,
+              error:
+                "Account created. Check your email to verify it, then sign in.",
+            };
+          }
+          return fail(
+            verification.error ??
+              loginPayload.error ??
+              "Account created. Check your email to verify it, then sign in.",
+          );
+        }
         return fail(
           loginPayload.error ??
             "Account created. Check your email to verify it, then sign in.",
