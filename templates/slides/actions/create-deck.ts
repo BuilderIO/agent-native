@@ -687,6 +687,7 @@ export default defineAction({
         );
       }
       if (incrementalGeneration) {
+        const generationEndedAt = Date.now();
         trackGenerationEvent(
           "generation_request_accepted",
           {
@@ -698,7 +699,9 @@ export default defineAction({
             output_id: id,
             output_type: "deck",
             slide_count: slides.length,
-            duration_ms: Date.now() - generationStartedAt,
+            started_at_ms: generationStartedAt,
+            ended_at_ms: generationEndedAt,
+            duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
           },
           ctx,
         );

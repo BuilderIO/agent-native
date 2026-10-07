@@ -984,6 +984,9 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(events[1]?.properties).toMatchObject({
       generation_mode: "incremental",
       slide_count: 0,
+      started_at_ms: expect.any(Number),
+      ended_at_ms: expect.any(Number),
+      duration_ms: expect.any(Number),
     });
     expect(events[1]?.properties).not.toHaveProperty("prompt");
     expect(JSON.parse(insertedRow!.data as string).generationContext).toEqual({
