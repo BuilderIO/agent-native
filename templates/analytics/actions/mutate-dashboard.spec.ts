@@ -39,8 +39,15 @@ function defaultUpsertDashboardWithRetryOutcome(
     const { kind, body } = await mutate(existing);
     const didWrite = !sameJsonValue(existing.config, body);
     await mocks.upsertDashboard(id, kind, body, ctx);
+    const dashboard = {
+      ...existing,
+      kind,
+      config: body,
+      updatedAt: existing.updatedAt ?? "2026-10-06T00:00:00.000Z",
+    };
+    mocks.getDashboard.mockResolvedValue(dashboard);
     return {
-      dashboard: { ...existing, kind, config: body },
+      dashboard,
       didWrite,
     };
   })();
@@ -439,12 +446,16 @@ describe("mutate-dashboard", () => {
   it("returns the SQL save proof when collab sync hangs", async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let releaseCollabState!: (exists: boolean) => void;
     mocks.getDashboard.mockResolvedValue({
       kind: "sql",
       config: dashboardConfig(),
     });
     mocks.hasCollabState.mockImplementationOnce(
-      () => new Promise<boolean>(() => {}),
+      () =>
+        new Promise<boolean>((resolve) => {
+          releaseCollabState = resolve;
+        }),
     );
 
     try {
@@ -465,6 +476,8 @@ describe("mutate-dashboard", () => {
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("Dashboard collab sync timed out for traffic"),
       );
+      releaseCollabState(false);
+      await mocks.queueDashboardCollabSync.mock.results[0]?.value;
     } finally {
       warn.mockRestore();
       vi.useRealTimers();
@@ -862,6 +875,7 @@ describe("mutate-dashboard", () => {
         ...dashboardConfig(),
         panels: [...dashboardConfig().panels, panel("writer-a")],
       },
+      updatedAt: "2026-10-06T00:00:00.001Z",
     };
 
     let mutateCallCount = 0;
@@ -872,10 +886,9 @@ describe("mutate-dashboard", () => {
         mutateCallCount += 1;
         const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
-        return {
-          dashboard: { ...afterConcurrentWrite, kind, config: body },
-          didWrite: true,
-        };
+        const dashboard = { ...afterConcurrentWrite, kind, config: body };
+        mocks.getDashboard.mockResolvedValue(dashboard);
+        return { dashboard, didWrite: true };
       },
     );
 

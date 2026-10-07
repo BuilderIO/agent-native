@@ -28,7 +28,15 @@ function defaultUpsertDashboardWithRetry(
     }
     const { kind, body } = await mutate(existing);
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body, title: body.name };
+    const updated = {
+      ...existing,
+      kind,
+      config: body,
+      title: body.name,
+      updatedAt: new Date(Date.parse(existing.updatedAt) + 1).toISOString(),
+    };
+    mocks.getDashboard.mockResolvedValue(updated);
+    return updated;
   })();
 }
 

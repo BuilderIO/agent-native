@@ -541,6 +541,7 @@ export default defineAction({
     let operations!: DashboardMutationOperation[];
     let mutation!: DashboardMutationResult;
     let didWrite = false;
+    let savedUpdatedAt: string | undefined;
 
     if (args.dryRun === true) {
       const existing = await getDashboard(dashboardId, ctx);
@@ -582,6 +583,7 @@ export default defineAction({
         },
       );
       root = persisted.dashboard.config as Record<string, unknown>;
+      savedUpdatedAt = persisted.dashboard.updatedAt;
       didWrite = persisted.didWrite;
     }
 
@@ -602,7 +604,16 @@ export default defineAction({
           dashboardFieldsChanged: [],
         };
     if (args.dryRun !== true && changed) {
-      queueDashboardCollabSync(dashboardId, root, "agent");
+      if (!savedUpdatedAt) {
+        // guard:allow-bare-error — invariant: every persisted dashboard save returns updatedAt.
+        throw new Error("Could not sync the persisted dashboard version.");
+      }
+      void queueDashboardCollabSync(
+        dashboardId,
+        savedUpdatedAt,
+        () => getDashboard(dashboardId, ctx),
+        "agent",
+      );
       track(
         "dashboard_saved",
         {
