@@ -2004,6 +2004,19 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   ],
 ];
 
+const FEEDBACK_RELEASE_COVERAGE_RE =
+  /\b(?:we|you|the sweep|the review|this)\b[^.!?\n]{0,120}\b(?:aren['’]?t|are not|isn['’]?t|is not|doesn['’]?t|does not|didn['’]?t|did not|miss(?:ed|ing)?|skip(?:ped|ping)?)\b[^.!?\n]{0,160}\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b|\b(?:also\s+)?(?:add|include|check|scan|review|inspect|cover|make sure)\b[^.!?\n]{0,120}\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b|\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b[^.!?\n]{0,120}\b(?:missed|skipped|ignored|overlooked|forgot(?:ten)?|not (?:included|covered|checked|scanned|reviewed))\b/i;
+
+const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
+  [true, "We are not scanning deployment failures in the feedback review."],
+  [true, "Add failed app deploys to the sweep."],
+  [true, "Please also scan package publish failures during reviews."],
+  [true, "Make sure the review includes desktop release failures."],
+  [true, "Check the feedback sweep for failed publishes."],
+  [false, "The app deploy and package publish both succeeded."],
+  [false, "The review found an unrelated desktop bug."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -2040,6 +2053,12 @@ if (process.argv.includes("--self-test")) {
     ...BETA_OVERVERIFICATION_REGEX_CASES.filter(
       ([expected, message]) =>
         BETA_OVERVERIFICATION_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_RELEASE_COVERAGE_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -2124,7 +2143,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2398,7 +2417,7 @@ const PATTERNS = [
       "Had to ask the feedback sweep to inspect failed deploys or publishes",
     fixedBy:
       ".agents/skills/review-latest-feedback (deployment/release scan coverage, 2026-10-06)",
-    re: /\b(?:we|you|the sweep|the review|this)\b[^.!?\n]{0,120}\b(?:aren['’]?t|are not|isn['’]?t|is not|doesn['’]?t|does not|didn['’]?t|did not|miss(?:ed|ing)?|skip(?:ped|ping)?)\b[^.!?\n]{0,160}\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b|\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b[^.!?\n]{0,120}\b(?:missed|skipped|ignored|overlooked|forgot(?:ten)?|not (?:included|covered|checked|scanned|reviewed))\b/i,
+    re: FEEDBACK_RELEASE_COVERAGE_RE,
   },
   {
     key: "a2a-user-identity-boundary",

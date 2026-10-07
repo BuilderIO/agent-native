@@ -327,8 +327,8 @@ Sweep app/template, desktop build/release, and package-publish lanes; include
 run-only failures and missing/stale artifacts. Fix repo-owned causes and verify
 the target. Neither a merge nor green workflow proves delivery. Read
 [`deployment-recovery.md`](references/deployment-recovery.md) for scan,
-recovery, and lane-specific verification. Keep failed operational rows active
-until target proof passes. Measure with friction key
+recovery, and lane-specific verification. Carry active run IDs and rows until
+target proof passes. Measure with friction key
 `feedback-release-coverage`.
 
 ## Phase 2: fix
@@ -573,7 +573,7 @@ message details.
 Start cursors: product [Slack message](...) · QA [Slack message](...) · dev [Slack message](...)
 Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <timestamp>
 Messages: product N · QA N · dev N (total N)
-Deployment scan cursor (reuse next run): <timestamp>
+Deployment cursor (next run): <timestamp> · carried active run IDs/rows: <ids/count>
 Deployment/release lanes: N inspected · failed or stale N · delivered and verified N
 Reaction-gated skips: N · claimed N · answered N
 Questions asked: N/3 · Dropped at 4 days: N

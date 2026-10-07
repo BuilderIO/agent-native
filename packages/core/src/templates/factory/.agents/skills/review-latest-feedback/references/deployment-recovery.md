@@ -7,9 +7,11 @@ links a failed run.
 
 - Inspect recent deploy, release, desktop build/sign/notarize/update, and
   package-publish runs since the previous deployment cursor; on the first run,
-  use the last 7 days. Cover app/template beta, docs, and production lanes where
-  configured. Use the current workflow/target maps and provider or registry
-  state.
+  use the last 7 days. Include queued and running jobs. Carry their nonterminal
+  run IDs and every active operational row into the next sweep, and recheck them
+  regardless of age. Finish all result pages before advancing the cursor. Cover
+  app/template beta, docs, and production lanes where configured. Use current
+  workflow/target maps and provider or registry state.
 - Check deployed app revisions, desktop release assets, and package versions
   for missing or stale artifacts, including when a workflow reports success.
 - For each failure or target mismatch, inspect authoritative logs. Record the
@@ -41,8 +43,8 @@ Verify the intended source and delivery artifact at the target:
 @agent-native/core@<version>` or the documented hand edit).
 
 A green workflow, merged source, beta promise, or local scaffold alone does not
-prove delivery. Keep the operational row active until the intended artifact is
-present and its target check passes; a linked source issue can be **Fixed**
+prove delivery. Keep carrying each operational row and nonterminal run ID until
+the intended artifact is present and its target check passes; a linked source issue can be **Fixed**
 while the operational row remains open. Run-only failures get a ledger row, not
 a fabricated Slack reaction. Local proof is not **Shipped**/**Live verified**
 until the relevant artifact is published and its delivery/runtime bar passes.
