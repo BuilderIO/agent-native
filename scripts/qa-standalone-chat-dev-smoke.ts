@@ -3018,9 +3018,18 @@ async function assertAgentKitChatAcceptance(
     ),
   });
 
-  await page
-    .locator('[data-agent-composer-slot="stop-button"]')
-    .waitFor({ state: "visible" });
+  // The composer queues only while it counts a run as active, and the stop
+  // button renders from that same check; submitting earlier sends immediately.
+  try {
+    await page
+      .locator('[data-agent-composer-slot="stop-button"]')
+      .waitFor({ state: "visible" });
+  } catch (error) {
+    throw new Error(
+      "The composer no longer counts the run as active while its approval card is pending, so a follow-up would bypass the queue.",
+      { cause: error },
+    );
+  }
   await fillAndSubmitComposer(page, queuedPrompt);
   const queue = page.getByRole("region", { name: "Queued messages" });
   await queue.waitFor({ state: "visible" });

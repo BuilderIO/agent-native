@@ -6559,6 +6559,87 @@ describe("AgentKitClient", () => {
     expect(subscriptions).toBe(2);
   });
 
+  it("waits for a replacement approval run before promoting queued work", async () => {
+    const replacementStarted = Promise.withResolvers<void>();
+    const releaseReplacement = Promise.withResolvers<void>();
+    const queued: AgentQueuedMessage = {
+      id: "queued-after-replacement-approval",
+      threadId: "thread-1",
+      text: "Continue after approval",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const promoted = vi.fn(async () => ({ runId: "run-queued" }));
+    const transport: AgentTransport = {
+      capabilities: { approvals: true, messageQueue: true },
+      async startRun() {
+        return { runId: "run-approval" };
+      },
+      async queueMessage() {
+        return { message: queued };
+      },
+      steerQueuedMessage: promoted,
+      async *subscribeToRun({ runId }) {
+        if (runId === "run-approval") {
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          yield {
+            ...protocolEvent(2, {
+              type: "approval.requested",
+              request: { id: "approval-1", title: "Continue?" },
+            }),
+            runId,
+          };
+          return;
+        }
+        if (runId === "run-resumed") {
+          replacementStarted.resolve();
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          await releaseReplacement.promise;
+          yield {
+            ...protocolEvent(2, {
+              type: "approval.resolved",
+              approvalId: "approval-1",
+              response: { decision: "approve" },
+            }),
+            runId,
+          };
+          yield { ...protocolEvent(3, { type: "run.completed" }), runId };
+          return;
+        }
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+      async resumeRun() {
+        return { runId: "run-resumed" };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    const initialRun = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Wait for approval",
+    });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").runs["run-approval"]?.status).toBe(
+        "awaiting_approval",
+      ),
+    );
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+
+    await client.resolveApproval({
+      threadId: "thread-1",
+      runId: "run-approval",
+      approvalId: "approval-1",
+      response: { decision: "approve" },
+    });
+    await replacementStarted.promise;
+    expect(promoted).not.toHaveBeenCalled();
+
+    releaseReplacement.resolve();
+    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+    await initialRun.completed;
+    await client.dispose();
+  });
+
   it("reports replacement-run failures and permits an explicit reattach", async () => {
     const onError = vi.fn();
     let replacementSubscriptions = 0;
