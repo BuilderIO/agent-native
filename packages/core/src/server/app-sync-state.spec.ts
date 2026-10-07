@@ -226,3 +226,81 @@ describe("AppSyncState multi-app isolation", () => {
     expect(resolveAccess).not.toHaveBeenCalled();
   });
 });
+
+describe("AppSyncState first event after an access check miss", () => {
+  const resourceEvent = {
+    source: "collab",
+    type: "change",
+    key: "doc-1",
+    owner: "writer@example.com",
+    resourceType: "document",
+    resourceId: "doc-1",
+  };
+
+  it("delivers a resource event in the same read once its access check settles", async () => {
+    const resolveAccess = vi.fn(
+      () =>
+        new Promise<{ ok: true }>((resolve) =>
+          setTimeout(() => resolve({ ok: true }), 50),
+        ),
+    );
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      resolveAccess,
+    });
+    state.recordChange(resourceEvent);
+
+    const result = await state.getCombinedChangesSinceForUser(
+      0,
+      "reader@example.com",
+      undefined,
+      false,
+    );
+
+    expect(result.events).toMatchObject([{ resourceId: "doc-1" }]);
+    expect(result.cursorLimited).toBeUndefined();
+    expect(resolveAccess).toHaveBeenCalledOnce();
+  });
+
+  it("stops waiting after a second when the access check never settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = new AppSyncState({
+        getDb: () => makeDb(),
+        resolveAccess: () => new Promise(() => {}),
+      });
+      state.recordChange(resourceEvent);
+
+      const pending = state.getCombinedChangesSinceForUser(
+        0,
+        "reader@example.com",
+        undefined,
+        false,
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await pending;
+
+      expect(result.events).toEqual([]);
+      expect(result.cursorLimited).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not wait when the read is not blocked on an access check", async () => {
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      resolveAccess: () => new Promise(() => {}),
+    });
+    state.recordChange({ ...resourceEvent, owner: "reader@example.com" });
+
+    const result = await state.getCombinedChangesSinceForUser(
+      0,
+      "reader@example.com",
+      undefined,
+      false,
+    );
+
+    expect(result.events).toMatchObject([{ resourceId: "doc-1" }]);
+  });
+});

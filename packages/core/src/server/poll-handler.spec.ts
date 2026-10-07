@@ -619,12 +619,22 @@ describe("poll handler", () => {
       return { rows: [] };
     });
 
-    const { createPollHandler } = await import("./poll.js");
+    const { createPollHandler, getDefaultAppSyncState } =
+      await import("./poll.js");
+    // The access check never settles, so the poll must stop at the event.
+    (getDefaultAppSyncState() as any).resolveAccessFn = () =>
+      new Promise(() => {});
     const handler = createPollHandler() as any;
 
-    const result = await handler({ query: { since: "1000" } });
+    const pending = handler({ query: { since: "1000" } });
+    await vi.advanceTimersByTimeAsync(1_500);
+    const result = await pending;
 
-    expect(result).toEqual({ version: 1_999, events: [] });
+    expect(result).toEqual({
+      version: 1_999,
+      events: [],
+      cursorLimited: true,
+    });
   });
 
   it("preserves distinct durable events that share the same version", async () => {
@@ -1532,12 +1542,12 @@ describe("poll handler", () => {
 
     const result = await handler({ query: { since: "1000" } });
 
-    // The resource-scoped event is the highest version and still owned by a
-    // different user, so it's a cache-miss on the access-aware branch: it
-    // triggers a "pending" stop rather than being delivered. The two events
-    // below it (global + the caller's own) must still come back in this same
-    // poll — proving the SQL scope filter kept them off the noise-crowded
-    // page instead of deferring them behind 1500 irrelevant rows.
+    // The resource-scoped event is the highest version and owned by a
+    // different user, so it is a cache miss on the access-aware branch. The
+    // poll waits for that check, which denies it, and moves past it. The two
+    // events below it (global + the caller's own) must still come back in this
+    // same poll — proving the SQL scope filter kept them off the
+    // noise-crowded page instead of deferring them behind 1500 irrelevant rows.
     expect(result.events).toEqual([
       expect.objectContaining({ key: "*" }),
       expect.objectContaining({ key: "own-event", owner: "test@example.com" }),
@@ -1547,7 +1557,7 @@ describe("poll handler", () => {
         expect.objectContaining({ owner: "other-tenant@example.com" }),
       ]),
     );
-    expect(result.version).toBe(2_502);
+    expect(result.version).toBe(2_503);
 
     const syncCall = mockExecute.mock.calls.find(([q]) => {
       const sql = typeof q === "string" ? q : q?.sql;

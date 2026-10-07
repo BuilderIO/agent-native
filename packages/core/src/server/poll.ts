@@ -88,6 +88,7 @@ export const POLL_CHANGE_EVENT = "poll-change";
 const ACCESS_CACHE_TTL_MS = 30_000;
 const ACCESS_CACHE_DENY_TTL_MS = 5_000;
 const ACCESS_CACHE_MAX = 500;
+const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
 
@@ -426,7 +427,7 @@ export class AppSyncState {
     string,
     { allowed: boolean; checkedAt: number }
   >();
-  private readonly accessInFlight = new Set<string>();
+  private readonly accessInFlight = new Map<string, Promise<void>>();
   private readonly accessInvalidationEpoch = new Map<string, number>();
   private readonly accessAllowTtlMs: number;
 
@@ -790,7 +791,7 @@ export class AppSyncState {
     for (const key of Array.from(this.accessCache.keys())) {
       if (key.endsWith(suffix)) this.accessCache.delete(key);
     }
-    for (const key of Array.from(this.accessInFlight)) {
+    for (const key of Array.from(this.accessInFlight.keys())) {
       if (key.endsWith(suffix)) this.accessInFlight.delete(key);
     }
   }
@@ -816,10 +817,10 @@ export class AppSyncState {
     orgId: string | undefined,
   ): void {
     if (this.accessInFlight.has(key)) return;
-    this.accessInFlight.add(key);
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
-    void (async () => {
+    let settled = false;
+    const check = (async () => {
       try {
         const access = await this.resolveAccessFn(resourceType, resourceId, {
           userEmail,
@@ -835,9 +836,11 @@ export class AppSyncState {
         }
         this.setAccessCache(key, false, Date.now());
       } finally {
+        settled = true;
         this.accessInFlight.delete(key);
       }
     })();
+    if (!settled) this.accessInFlight.set(key, check);
   }
 
   __resetAccessCacheForTests(): void {
@@ -1407,6 +1410,41 @@ export class AppSyncState {
     useDurableEvents: boolean,
     cursor?: SyncCursor,
   ): Promise<ChangeReadResult> {
+    const result = await this.readCombinedChangesSinceForUser(
+      since,
+      userEmail,
+      orgId,
+      useDurableEvents,
+      cursor,
+    );
+    if (!result.cursorLimited || this.accessInFlight.size === 0) return result;
+    // A read stopped at an event whose access check had not finished. The
+    // check is already running, so waiting for it here (bounded) delivers the
+    // event now instead of one poll interval later.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.allSettled(this.accessInFlight.values()),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, ACCESS_CHECK_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    return this.readCombinedChangesSinceForUser(
+      since,
+      userEmail,
+      orgId,
+      useDurableEvents,
+      cursor,
+    );
+  }
+
+  private async readCombinedChangesSinceForUser(
+    since: number,
+    userEmail: string,
+    orgId: string | undefined,
+    useDurableEvents: boolean,
+    cursor?: SyncCursor,
+  ): Promise<ChangeReadResult> {
     const memory = this.getChangesSinceForUser(since, userEmail, orgId, cursor);
     if (!useDurableEvents) return memory;
 
@@ -1488,6 +1526,7 @@ export class AppSyncState {
               (event) => event.version <= Math.min(...limitedVersions),
             )
           : events,
+      ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
     };
   }
 
