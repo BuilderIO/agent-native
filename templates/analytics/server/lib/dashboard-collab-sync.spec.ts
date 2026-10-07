@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   applyText: vi.fn(async (..._args: unknown[]) => undefined),
+  getText: vi.fn(async (..._args: unknown[]) => ""),
 }));
 
 vi.mock("@agent-native/core/collab", () => mocks);
@@ -12,6 +13,7 @@ const { DASHBOARD_COLLAB_SYNC_TIMEOUT_MS, queueDashboardCollabSync } =
 describe("dashboard collab sync", () => {
   beforeEach(() => {
     mocks.applyText.mockClear();
+    mocks.getText.mockClear();
   });
 
   it("loads the latest dashboard before applying queued full-text syncs", async () => {
@@ -139,6 +141,41 @@ describe("dashboard collab sync", () => {
       ["dash-traffic", JSON.stringify(dashboard.config), "content", "agent"],
       ["dash-traffic", JSON.stringify(dashboard.config), "content", "agent"],
     ]);
+  });
+
+  it("refreshes persisted Yjs text before accepting a cached no-op", async () => {
+    const config = { name: "SQL dashboard" };
+    const sqlText = JSON.stringify(config);
+    let localYDocText = sqlText;
+    const persistedYDocText = JSON.stringify({ name: "Peer edit" });
+
+    mocks.getText.mockImplementation(async () => {
+      localYDocText = persistedYDocText;
+      return localYDocText;
+    });
+    mocks.applyText.mockImplementation(async (...args: unknown[]) => {
+      const requestedText = args[1] as string;
+      const options = args[4] as {
+        validateSnapshot: (snapshot: string) => void;
+      };
+      if (localYDocText !== requestedText) localYDocText = requestedText;
+      options.validateSnapshot(localYDocText);
+      return undefined;
+    });
+
+    await queueDashboardCollabSync(
+      "traffic",
+      "2026-10-06T00:00:01.000Z",
+      async () => ({ config, updatedAt: "2026-10-06T00:00:01.000Z" }),
+      "agent",
+    );
+
+    expect(mocks.getText).toHaveBeenCalledWith("dash-traffic", "content");
+    expect(mocks.applyText).toHaveBeenCalledOnce();
+    expect(mocks.getText.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.applyText.mock.invocationCallOrder[0],
+    );
+    expect(localYDocText).toBe(sqlText);
   });
 
   it("releases the document queue on timeout and repairs a late stale write", async () => {

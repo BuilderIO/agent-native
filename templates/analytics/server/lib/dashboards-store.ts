@@ -1671,10 +1671,7 @@ async function upsertDashboardWithOutcome(
         kind,
         title,
         config: configJson,
-        updatedAt:
-          expectedUpdatedAt === undefined
-            ? nowIso()
-            : nextDashboardVersion(existing.updatedAt),
+        updatedAt: nextDashboardVersion(existing.updatedAt),
         updatedBy: ctx.email,
       };
       if (expectedUpdatedAt !== undefined) {

@@ -679,16 +679,15 @@ describe("dashboards-store concurrency", () => {
       updatedAt: "2099-01-01T00:00:00.000Z",
     };
 
-    await expect(
-      upsertDashboard(
-        "traffic",
-        "sql",
-        { name: "Traffic", panels: [panel("a"), panel("legacy")] },
-        ctx,
-        // no expectedUpdatedAt — existing callers (legacy migration, revision
-        // restore) keep unconditional overwrite behavior.
-      ),
-    ).resolves.toBeDefined();
+    const saved = await upsertDashboard(
+      "traffic",
+      "sql",
+      { name: "Traffic", panels: [panel("a"), panel("legacy")] },
+      ctx,
+      // no expectedUpdatedAt — existing callers (legacy migration, revision
+      // restore) keep unconditional overwrite behavior.
+    );
+    expect(saved.updatedAt).toBe("2099-01-01T00:00:00.001Z");
     expect(existing).not.toBeNull();
     expect(readPanelIds()).toEqual(["a", "legacy"]);
   });

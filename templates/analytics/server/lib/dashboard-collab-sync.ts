@@ -1,4 +1,4 @@
-import { applyText } from "@agent-native/core/collab";
+import { applyText, getText } from "@agent-native/core/collab";
 
 export const DASHBOARD_COLLAB_SYNC_TIMEOUT_MS = 2_000;
 
@@ -67,6 +67,7 @@ async function syncDashboardToCollab(
       }
       const configStr = JSON.stringify(dashboard.config);
       try {
+        await getText(docId, "content");
         await applyText(docId, configStr, "content", requestSource, {
           validateSnapshot(snapshot) {
             if (snapshot !== configStr) {
