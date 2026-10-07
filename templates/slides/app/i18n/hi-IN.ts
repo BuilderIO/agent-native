@@ -350,6 +350,7 @@ const messages = {
       "Google Slides एक्सपोर्ट अभी अनुपलब्ध है क्योंकि Google कनेक्शन सेट अप नहीं है. इसके बजाय PPTX के रूप में एक्सपोर्ट करें और उसे Google Slides में इंपोर्ट करें.",
     googleSlidesCreated: "Google Slides में खोला गया",
     googleSlidesCreatedHint: "इस प्रस्तुति की एक प्रति आपके Google Drive में बनाई गई।",
+    googleSlidesGoTo: "Google Slides पर जाएँ",
     duplicateDeck: "डेक डुप्लिकेट करें",
   },
   share: {
@@ -436,7 +437,8 @@ const messages = {
     resolveThread: "थ्रेड हल करें",
     reopenThread: "थ्रेड फिर खोलें",
     hideReplies: "जवाब छिपाएं",
-    replyCount: "{{count}} जवाब",
+    replyCount_one: "{{count}} जवाब",
+    replyCount_other: "{{count}} जवाब",
     title: "टिप्पणियां",
     addComment: "टिप्पणी जोड़ें",
     close: "बंद करें",
@@ -957,8 +959,8 @@ const messages = {
           "दी गई कंपनी की वेबसाइट पढ़ें और कंपनी के बारे में प्रस्तुति बनाएं। तथ्य गढ़ने के बजाय पहुंच की विफलताओं की जानकारी दें।",
       },
     },
-    connectBuilderIo: "Builder.io कनेक्ट करें",
-    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
+    connectBuilderIo: "Builder.io इस्तेमाल करें",
+    connectingBuilder: "Builder.io सेट अप हो रहा है…",
     recent: "हाल के",
     starters: {
       pitch: {
@@ -996,9 +998,13 @@ const messages = {
     all: "सभी",
     showMineDecks: "मेरे बनाए डेक दिखाएं",
     mine: "मेरे",
+    ownedByAnyone: "किसी के भी स्वामित्व वाले",
+    ownedByMe: "मेरे स्वामित्व वाले",
+    sharedWithMe: "मेरे साथ साझा",
     createDeckOrVisual: "प्रेज़ेंटेशन बनाएं",
     noMineDecks: "आपने अभी तक कोई डेक नहीं बनाया है।",
     noDecksMatchSearch: "आपकी खोज से कोई डेक मेल नहीं खाता।",
+    noDecksMatchFilter: "वर्तमान फ़िल्टर से कोई डेक मेल नहीं खाता।",
     deleteDeckTitle: "डेक हटाएं?",
     deleteDeckDescription:
       "यह इस डेक और इसकी सभी स्लाइड्स को स्थायी रूप से हटा देगा। यह कार्रवाई वापस नहीं की जा सकती।",

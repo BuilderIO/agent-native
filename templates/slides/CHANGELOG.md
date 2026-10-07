@@ -3,14 +3,90 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-06
+
+### Fixed
+
+- Reopening a ChatGPT Slides widget restores the saved deck editor without a second sign-in.
+- Fixed attached images missing from visual analysis.
+- Fixed returning to shared decks after completing an account prompt
+- Generated decks from ChatGPT open in the full Slides editor.
+- Google Slides exports open the created copy directly.
+- Keep one close control in Slides export error dialogs
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- Slides applies linked design systems to deck style references
+- Slides stop cleanly when generation reaches the requested slide count.
+- Slides uses a reference deck's linked system only when available and won't guess when the reference cannot be read.
+- The Recent tab restores immediately from the last known library state and stays visible while decks load.
+- Fixed home prompts silently doing nothing instead of starting a new deck.
+
+## 2026-10-05
+
+### Improved
+
+- The home page shows both library tabs and starter prompts immediately while content loads.
+
+### Fixed
+
+- Keyboard navigation and drag edits keep styled bullet rows in place.
+- Agent links copied from a deck are shorter, so Claude can fetch them without hitting its URL length limit.
+- AI setup checks use a fresh status before sending, even when an older check is already running.
+- Image generation reaches Assets when Slides and Assets use different local organization IDs.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+- Slides keeps generation progress visible, restores pending questions when you return, and checks AI setup before sending prompts.
+- File uploads explain the free Builder.io option and how to connect S3-compatible storage.
+- Slides keeps a pending generation question and its chat available when you leave and reopen a deck.
+- Prompt-generated Slides decks remain when Cmd+Z reaches deck creation.
+- The Recent tab shows loading placeholders until your decks are ready.
+
+## 2026-10-03
+
+### Fixed
+
+- List edits keep slide layouts anchored, and long editing sessions retain undo history within a fixed memory budget.
+- Slide text edits preserve layout with inline-size containment.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup now routes account activation through the one-click flow.
+- Recent appears when you have accessible decks, and shared decks are shown when you have none of your own.
+- In-place slide editing now supports slash commands, Markdown shortcuts, and reliable list authoring while preserving text styling.
+- Slides refreshes faster when a collaborator changes the deck open in your tab.
+
+### Fixed
+
+- Markdown list shortcuts work when text inherits link formatting
+- Only one queued message action menu stays open at a time
+- Google Slides imports keep skipped slides and their images in the right place.
+- Heading text stays intact when Backspace joins it into a styled block.
+- Slide text editing now preserves formatting and caret placement across browsers.
+
 ## 2026-10-01
 
 ### Improved
 
+- Filter decks by owner with an option to view items shared with me.
+- Recover failed deck saves with explicit retry or reload
 - The observability settings tab is now labeled Observability.
 
 ### Fixed
 
+- Collaborators editing different text boxes on the same slide now keep both edits instead of hitting a text conflict, and comments, replies and resolves reach other open editors within about a second.
+- A prompt you send before connecting AI is sent automatically once you connect, and a deck generation that ends without slides shows Try again instead of an empty canvas.
+- Blank speaker notes can be edited and saved without a conflict.
+- New deck prompts no longer add a default design system unless you choose one, and empty failed generations explain what happened.
+- Home prompt suggestions no longer fail when the model's answer runs long.
+- Images can be removed from chat without opening their preview
+- Markdown bullet shortcuts work after you press Enter.
+- Preserve concurrent slide metadata edits while saving
+- Selected slide text can be linked with the keyboard shortcut
+- New slide decks are persisted only after generation setup is ready.
+- Slide edits preserve unrelated changes when another editor updates the same field
+- Slides warns before refreshing a tab with unsaved edits
+- Undoing a conflicting slide edit preserves the latest update from another editor
+- When an attached file can't be read, Slides now says so instead of showing an internal error code.
 - Importing a PDF or other file from chat no longer fails with an invalid uploaded file error, and a failed import now offers a retry instead of showing page text
 - Shift-clicking images selects them together on a slide
 - Slides keeps sidebar navigation beside the single home toolbar and shows credit usage only near the limit.

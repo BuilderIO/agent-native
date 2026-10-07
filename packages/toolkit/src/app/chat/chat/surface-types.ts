@@ -234,8 +234,12 @@ export interface AssistantChatProps {
       messageCount: number;
     },
   ) => void;
-  /** Callback to generate a title from the first user message */
-  onGenerateTitle?: (threadId: string, message: string) => void;
+  /** Callback to generate a title from the first user message, on the model it was sent with */
+  onGenerateTitle?: (
+    threadId: string,
+    message: string,
+    selection: { engine?: string; model?: string },
+  ) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
   /** App-owned context controller, mounted separately for each chat thread. */
@@ -310,6 +314,10 @@ export interface AssistantChatProps {
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
+  /** Whether the model list failed to load. */
+  modelListError?: boolean;
+  /** Retry loading a host-managed model list. */
+  onRetryModelList?: () => void;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort from the picker */
@@ -345,6 +353,8 @@ export interface AssistantChatProps {
   providerStatusChecksEnabled?: boolean;
   /** Replace the built-in transport with an AgentKit-native BYO transport. */
   createTransport?: (context: AssistantChatAdapterContext) => AgentTransport;
+  /** Hide the default guided-question card when another host owns its flow. */
+  showGuidedQuestions?: boolean;
   /**
    * Bring-your-own agent runtime. When supplied, AssistantChat keeps the
    * standard composer/transcript/tool rendering shell but sends turns through

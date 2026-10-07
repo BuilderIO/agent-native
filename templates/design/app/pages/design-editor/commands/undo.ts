@@ -22,7 +22,11 @@ import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
 import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
-import { prepareContentHistoryReplay } from "@/pages/design-editor/commands/prepare-content-history-replay";
+import {
+  prepareContentHistoryReplay,
+  STALE_CONTENT_HISTORY_REPLAY,
+} from "@/pages/design-editor/commands/prepare-content-history-replay";
+import { flushCommitsAfterPaint } from "@/pages/design-editor/commit-after-paint";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import {
   getCanvasFrameGeometry,
@@ -399,7 +403,9 @@ export interface UndoArgs {
   allowPendingLiveEdits?: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
-  codeLayerOwnerByNodeIdRef: RefObject<Map<string, { node: CodeLayerNode }>>;
+  codeLayerOwnerByNodeIdRef: RefObject<
+    ReadonlyMap<string, { node: CodeLayerNode }>
+  >;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentRedoSelectionStackRef: RefObject<
     (GeometryHistorySelection | undefined)[]
@@ -623,6 +629,7 @@ export function runUndo({
   writeFrameGeometrySnapshot,
   ydoc,
 }: UndoArgs) {
+  flushCommitsAfterPaint();
   const restoreHistorySelection = (
     selection: GeometryHistorySelection | undefined,
     replaySources: Record<string, string> = {},
@@ -1094,6 +1101,13 @@ export function runUndo({
       liveScreenSnapshotsById,
       t,
     });
+    if (preparedReplay === STALE_CONTENT_HISTORY_REPLAY) {
+      contentUndoStackRef.current.pop();
+      contentUndoSelectionStackRef.current.pop();
+      prunedUndoHistory += 1;
+      toast.info(t("designEditor.toasts.undoSkippedConcurrentEdit"));
+      return false;
+    }
     if (!preparedReplay) {
       contentReplayRefused = true;
       return false;
@@ -1118,14 +1132,14 @@ export function runUndo({
           }
           const result =
             change.fileId === activeFile?.id
-              ? applyLocalContentUpdate(change.before, {
+              ? applyLocalContentUpdate(prepared.nextContent, {
                   historyBeforeContent: prepared.historyBeforeContent,
                   refreshPreview: false,
                   forcePreviewFullDocument: true,
                   immediateSave: true,
                   recordHistory: false,
                 })
-              : applyFileContentUpdate(change.fileId, change.before, {
+              : applyFileContentUpdate(change.fileId, prepared.nextContent, {
                   historyBeforeContent: prepared.historyBeforeContent,
                   recordHistory: false,
                   refreshPreview: false,

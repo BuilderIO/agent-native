@@ -9,6 +9,7 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { SLOW_ACTION_RESPONSE_MS } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import {
   actionCircuitRemainingMs,
@@ -39,6 +40,7 @@ import {
   reloadForClientCompatibilityMismatch,
 } from "./build-compatibility.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
+import { currentRouteTemplate } from "./route-template.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
 function actionPrefix(): string {
@@ -206,6 +208,7 @@ export interface ActionFetchOptions {
   timeoutMs?: number;
   keepalive?: boolean;
   serializedBody?: string;
+  responseType?: "blob";
   includeRequestSource?: boolean;
   headers?: Record<string, string>;
 }
@@ -342,6 +345,7 @@ async function performActionFetch<T>(
 
   let res: Response;
   let raw = "";
+  let blob: Blob | undefined;
   let readFailed = false;
   let readError: unknown;
   try {
@@ -379,10 +383,19 @@ async function performActionFetch<T>(
     }
 
     throwIfAborted(outerSignal);
-    if (res.status === 204) return null as T;
+    if (res.status === 204) {
+      if (options?.responseType === "blob") {
+        throw new Error(`Action ${name} did not return a binary response.`);
+      }
+      return null as T;
+    }
 
     try {
-      raw = await Promise.race([res.text(), timedOutSignal]);
+      if (res.ok && options?.responseType === "blob") {
+        blob = await Promise.race([res.blob(), timedOutSignal]);
+      } else {
+        raw = await Promise.race([res.text(), timedOutSignal]);
+      }
     } catch (err) {
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted) throw err;
@@ -488,6 +501,14 @@ async function performActionFetch<T>(
     throw error;
   }
 
+  if (options?.responseType === "blob") {
+    if (blob === undefined) {
+      throw new Error(`Action ${name} did not return a binary response.`);
+    }
+    throwIfAborted(outerSignal);
+    return blob as T;
+  }
+
   if (parseFailed) {
     const error = new Error(
       `Action ${name} returned a non-JSON ${res.status} response: ${raw.slice(0, 200)}`,
@@ -571,12 +592,22 @@ type ActionResponseSampling = {
   sampled: boolean;
 };
 
+function actionTelemetryRoute(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    return currentRouteTemplate() ?? undefined;
+  } catch {
+    // coercion-ok: telemetry never changes the action; the event omits route.
+    return undefined;
+  }
+}
+
 function getActionResponseSampling(
   error: unknown,
   durationMs: number,
   response: Response | undefined,
 ): ActionResponseSampling {
-  if (error || durationMs >= 1_000) {
+  if (error || durationMs >= SLOW_ACTION_RESPONSE_MS) {
     return { track: true, sampleRate: 1, sampled: false };
   }
   if (response && response.status >= 400 && response.status < 500) {
@@ -602,6 +633,7 @@ async function actionFetch<T>(
 ): Promise<T> {
   assertAgentNativeApiEnabled(`${method} ${name}`);
   const startedAt = actionTelemetryNow();
+  const routeAtStart = actionTelemetryRoute();
   const hiddenEpochAtStart = pageHiddenEpoch;
   const hiddenAtStart =
     typeof document !== "undefined" && document.visibilityState !== "visible";
@@ -661,6 +693,7 @@ async function actionFetch<T>(
             response?.headers.get("x-agent-native-request-id") ?? undefined,
           action: name,
           method,
+          route: routeAtStart,
           sample_rate: sampling.sampleRate,
           sample_weight: 1 / sampling.sampleRate,
           sampled: sampling.sampled,
@@ -735,6 +768,20 @@ export function callAction<
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
+  });
+}
+
+export function callActionBlob<TName extends ActionName = ActionName>(
+  actionName: TName,
+  params?: ActionParams<TName>,
+  options: ClientActionCallOptions = {},
+): Promise<Blob> {
+  return actionFetch<Blob>(actionName, options.method ?? "POST", params, {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+    includeRequestSource: false,
+    headers: options.headers,
+    responseType: "blob",
   });
 }
 

@@ -363,15 +363,26 @@ jobs:
           if [ "$VERSION" = "latest" ]; then
             VERSION="$(npm view @agent-native/recap-cli@latest version)"
           fi
+          # playwright is an optional peer dependency of recap-cli: npm install
+          # omits optional peers by default, so install it alongside recap-cli
+          # into the same prefix, pinned to the range recap-cli declares.
+          PLAYWRIGHT_RANGE="$(npm view "@agent-native/recap-cli@$VERSION" peerDependencies.playwright 2>/dev/null || true)"
+          if [ -z "$PLAYWRIGHT_RANGE" ]; then PLAYWRIGHT_RANGE="latest"; fi
           for attempt in 1 2 3; do
-            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts "@agent-native/recap-cli@$VERSION"; then
+            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts "@agent-native/recap-cli@$VERSION" "playwright@$PLAYWRIGHT_RANGE"; then
               break
             fi
             if [ "$attempt" = "3" ]; then exit 1; fi
             sleep $((attempt * 10))
           done
           echo "RECAP_CLI_VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "RECAP_CLI=$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
+          RECAP_CLI="$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native-recap"
+          if [ ! -x "$RECAP_CLI" ]; then
+            # Pinned versions before 0.5.49 only ship the legacy agent-native bin.
+            RECAP_CLI="$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native"
+          fi
+          test -x "$RECAP_CLI"
+          echo "RECAP_CLI=$RECAP_CLI" >> "$GITHUB_ENV"
           echo "RECAP_PLAYWRIGHT=$RUNNER_TEMP/recap-cli/node_modules/.bin/playwright" >> "$GITHUB_ENV"
 
       - name: Install OpenAI-compatible provider runtime

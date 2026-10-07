@@ -1,8 +1,19 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
+import { resetAppConfigForTests } from "@agent-native/core/app-config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+
 const execute = vi.fn();
+const expressionGuard = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/agent-sql", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/agent-sql")>()),
+  verifyAgentPostgresExpressions: expressionGuard,
+}));
 const rollupMocks = vi.hoisted(() => ({
   upsert: vi.fn(),
 }));
@@ -21,6 +32,14 @@ const backendMocks = vi.hoisted(() => ({
 const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
   recordFailure: vi.fn(),
+}));
+const sessionEventIndexMocks = vi.hoisted(() => ({
+  record: vi.fn(),
+  catalog: vi.fn(),
+}));
+const performanceMocks = vi.hoisted(() => ({
+  session: vi.fn(),
+  route: vi.fn(),
 }));
 const deliveryMocks = vi.hoisted(() => ({
   queueMissing: vi.fn(),
@@ -73,7 +92,16 @@ const analyticsDbMocks = vi.hoisted(() => {
 
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
-  getDbExec: () => ({ execute }),
+  getDbExec: () => ({
+    execute,
+    transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({
+        execute: (input: { sql: string }) =>
+          input.sql === "SET TRANSACTION READ ONLY"
+            ? Promise.resolve({ rows: [], rowsAffected: 0 })
+            : execute(input),
+      }),
+  }),
 }));
 vi.mock("../db/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/index.js")>()),
@@ -86,6 +114,14 @@ vi.mock("./error-capture.js", () => ({
   EXCEPTION_EVENT_NAME: "$exception",
   ingestAnalyticsExceptionEvents: exceptionMocks.ingest,
   recordErrorIngestFailure: exceptionMocks.recordFailure,
+}));
+vi.mock("./session-event-index.js", () => ({
+  recordSessionEventIndex: sessionEventIndexMocks.record,
+  recordEventCatalog: sessionEventIndexMocks.catalog,
+}));
+vi.mock("./session-performance.js", () => ({
+  recordSessionPerformance: performanceMocks.session,
+  recordRoutePerformance: performanceMocks.route,
 }));
 vi.mock("./first-party-analytics-health.js", () => ({
   classifyFirstPartyAnalyticsQuery: healthMocks.classify,
@@ -104,19 +140,32 @@ vi.mock("./first-party-analytics-backend.js", () => ({
   queryFirstPartyAnalyticsInBigQuery: backendMocks.query,
 }));
 
+import { lexAgentSql } from "@agent-native/core/agent-sql";
+
 import {
   isMarketingWebsiteSessionEvent,
   normalizeAnalyticsTimestamp,
+  parseAnalyticsTrackPayload,
   queryFirstPartyAnalytics,
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
+  SESSION_RECORDING_FILTER_TABLES,
   touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
+import {
+  MAX_APP_LENGTH,
+  MAX_EVENT_NAME_LENGTH,
+  MAX_PATH_LENGTH,
+  MAX_USER_KEY_LENGTH,
+  boundedIdentity,
+} from "./indexed-text.js";
 
 beforeEach(() => {
   execute.mockReset();
+  expressionGuard.mockReset();
+  expressionGuard.mockResolvedValue(undefined);
   analyticsDbMocks.getDb.mockReset();
   analyticsDbMocks.getDb.mockReturnValue(analyticsDbMocks.db);
   analyticsDbMocks.db.transaction.mockClear();
@@ -158,6 +207,14 @@ beforeEach(() => {
     }));
   backendMocks.query.mockReset();
   exceptionMocks.ingest.mockReset();
+  sessionEventIndexMocks.record.mockReset();
+  sessionEventIndexMocks.record.mockResolvedValue(undefined);
+  sessionEventIndexMocks.catalog.mockReset();
+  sessionEventIndexMocks.catalog.mockResolvedValue(undefined);
+  performanceMocks.session.mockReset();
+  performanceMocks.session.mockResolvedValue(undefined);
+  performanceMocks.route.mockReset();
+  performanceMocks.route.mockResolvedValue(undefined);
   exceptionMocks.recordFailure.mockReset();
   deliveryMocks.queueMissing.mockReset();
   deliveryMocks.queueMissing.mockReturnValue(false);
@@ -264,6 +321,22 @@ describe("resolveAnalyticsEventDimensions", () => {
         hostname: "mail.agent-native.com",
       }),
     ).toEqual({ app: "clips", template: "clips" });
+  });
+
+  it("cuts app and template names to a length that fits an index entry", () => {
+    expect(
+      resolveAnalyticsEventDimensions({
+        properties: {
+          app: "中".repeat(4096),
+          template: `${"t".repeat(MAX_APP_LENGTH - 1)}\u{1F600}`,
+        },
+        context: {},
+        hostname: null,
+      }),
+    ).toEqual({
+      app: "中".repeat(MAX_APP_LENGTH),
+      template: "t".repeat(MAX_APP_LENGTH - 1),
+    });
   });
 });
 
@@ -445,6 +518,194 @@ describe("recordAnalyticsEvents", () => {
     );
   });
 
+  it.each(["postgres", "dual", "bigquery"] as const)(
+    "indexes session events in Postgres at ingest with the %s sink",
+    async (sink) => {
+      backendMocks.get.mockResolvedValueOnce({
+        sink,
+        table:
+          sink === "postgres"
+            ? null
+            : "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        backfillCursor: sink === "postgres" ? null : "evt_last",
+        backfillCompleted: sink === "bigquery",
+      });
+      let openTransactions = 0;
+      let catalogSawOpenTransaction = false;
+      let sessionPerformanceSawOpenTransaction = false;
+      let routePerformanceSawOpenTransaction = false;
+      analyticsDbMocks.db.transaction.mockImplementationOnce(
+        async (callback: (transaction: unknown) => unknown) => {
+          openTransactions += 1;
+          try {
+            return await callback(analyticsDbMocks.db);
+          } finally {
+            openTransactions -= 1;
+          }
+        },
+      );
+      sessionEventIndexMocks.catalog.mockImplementationOnce(async () => {
+        catalogSawOpenTransaction = openTransactions > 0;
+      });
+      performanceMocks.session.mockImplementationOnce(async () => {
+        sessionPerformanceSawOpenTransaction = openTransactions > 0;
+      });
+      performanceMocks.route.mockImplementationOnce(async () => {
+        routePerformanceSawOpenTransaction = openTransactions > 0;
+      });
+
+      await recordAnalyticsEvents("anpk_test", [
+        {
+          event: "recording_started",
+          properties: { sessionId: "rs_1", app: "clips" },
+        },
+      ]);
+
+      expect(sessionEventIndexMocks.record).toHaveBeenCalledOnce();
+      expect(sessionEventIndexMocks.record).toHaveBeenCalledWith(
+        analyticsDbMocks.db,
+        [
+          expect.objectContaining({
+            eventName: "recording_started",
+            ownerEmail: "owner@example.com",
+          }),
+        ],
+        expect.any(String),
+      );
+      expect(sessionEventIndexMocks.catalog).toHaveBeenCalledOnce();
+      expect(catalogSawOpenTransaction).toBe(false);
+      // Session maxima commit with the events; hot route rows wait for it.
+      expect(performanceMocks.session).toHaveBeenCalledOnce();
+      expect(sessionPerformanceSawOpenTransaction).toBe(true);
+      expect(performanceMocks.route).toHaveBeenCalledOnce();
+      expect(routePerformanceSawOpenTransaction).toBe(false);
+    },
+  );
+
+  it("replaces a lone surrogate in an event name instead of failing the batch", async () => {
+    // JSON can carry half of a surrogate pair as an escape like \ud83d.
+    const parsed = parseAnalyticsTrackPayload(
+      JSON.stringify({
+        publicKey: "anpk_test",
+        events: [{ event: "clip_\uD83D", properties: { sessionId: "rs_1" } }],
+      }),
+    );
+    await recordAnalyticsEvents(parsed.publicKey, parsed.events);
+
+    expect(sessionEventIndexMocks.record).toHaveBeenCalledWith(
+      analyticsDbMocks.db,
+      [expect.objectContaining({ eventName: "clip_\uFFFD" })],
+      expect.any(String),
+    );
+  });
+
+  it("drops NUL from every string and key so one cannot fail the batch", async () => {
+    const parsed = parseAnalyticsTrackPayload(
+      JSON.stringify({
+        publicKey: "anpk_test",
+        events: [
+          {
+            event: "clip\u0000_viewed",
+            userId: "user\u0000_1",
+            properties: {
+              path: "/clips\u0000",
+              "note\u0000": { quote: "a\u0000b", half: "x\uD83D" },
+            },
+          },
+        ],
+      }),
+    );
+    await recordAnalyticsEvents(parsed.publicKey, parsed.events);
+
+    const [rows] = rollupMocks.upsert.mock.calls[0];
+    expect(rows[0]).toMatchObject({
+      eventName: "clip_viewed",
+      userId: "user_1",
+      path: "/clips",
+    });
+    expect(JSON.parse(rows[0].properties).note).toEqual({
+      quote: "ab",
+      half: "x�",
+    });
+    expect(JSON.stringify(rows[0])).not.toMatch(/\\u0000|\\ud83d/i);
+  });
+
+  it("bounds every indexed value so one long value cannot fail the batch", async () => {
+    const long = "中".repeat(4096);
+    await recordAnalyticsEvents("anpk_test", [
+      { event: long, userId: long, properties: { app: long, path: long } },
+      { event: "pageview", userId: "user_1" },
+    ]);
+
+    const [rows] = rollupMocks.upsert.mock.calls[0];
+    expect(rows[0]).toMatchObject({
+      eventName: "中".repeat(MAX_EVENT_NAME_LENGTH),
+      app: "中".repeat(MAX_APP_LENGTH),
+      template: "中".repeat(MAX_APP_LENGTH),
+      path: "中".repeat(MAX_PATH_LENGTH),
+      userKey: boundedIdentity(long, MAX_USER_KEY_LENGTH),
+      userId: long,
+    });
+    expect(rows[1]).toMatchObject({ eventName: "pageview", userKey: "user_1" });
+  });
+
+  it("keeps two long user ids with the same prefix as two users", async () => {
+    const shared = "u".repeat(MAX_USER_KEY_LENGTH);
+    await recordAnalyticsEvents("anpk_test", [
+      { event: "pageview", userId: `${shared}-first` },
+      { event: "pageview", userId: `${shared}-second` },
+    ]);
+
+    const [rows] = rollupMocks.upsert.mock.calls[0];
+    expect(rows[0].userKey).not.toBe(rows[1].userKey);
+    expect(rows[0].userKey.length).toBeLessThanOrEqual(MAX_USER_KEY_LENGTH);
+  });
+
+  it("bounds the user id an exception indexes in its error event", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      { event: "$exception", userId: "中".repeat(4096), properties: {} },
+    ]);
+
+    const [, sources] = exceptionMocks.ingest.mock.calls[0];
+    expect(sources[0].derived.userId).toBe(
+      boundedIdentity("中".repeat(4096), MAX_USER_KEY_LENGTH),
+    );
+  });
+
+  it("rejects an unknown key as the caller's error", async () => {
+    analyticsDbMocks.selectLimit.mockResolvedValueOnce([]);
+
+    await expect(
+      recordAnalyticsEvents("anpk_unknown", [{ event: "pageview" }]),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      message: "Invalid analytics public key",
+    });
+  });
+
+  it("does not index session events when persistence fails", async () => {
+    rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow();
+
+    expect(sessionEventIndexMocks.record).not.toHaveBeenCalled();
+    expect(sessionEventIndexMocks.catalog).not.toHaveBeenCalled();
+    expect(performanceMocks.session).not.toHaveBeenCalled();
+    expect(performanceMocks.route).not.toHaveBeenCalled();
+  });
+
+  it("fails the batch when its sessions cannot be indexed or marked incomplete", async () => {
+    sessionEventIndexMocks.record.mockRejectedValueOnce(
+      new Error("gap marker write failed"),
+    );
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("gap marker write failed");
+  });
+
   it("enforces the Postgres volume limit during dual writes", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "dual",
@@ -511,6 +772,91 @@ describe("recordAnalyticsEvents", () => {
     ).resolves.toMatchObject({ accepted: 2 });
 
     expect(exceptionMocks.recordFailure).toHaveBeenCalledWith(2, failure);
+  });
+
+  it("keeps test identities out of analytics tables but routes their exceptions to error issues", async () => {
+    const result = await recordAnalyticsEvents("anpk_test", [
+      { event: "pageview", userId: "real@example.com" },
+      { event: "pageview", userId: "qa+autoz@builder.io" },
+      { event: "signup", properties: { user_email: "probe@agents.test" } },
+      { event: "$exception", properties: { error: "real", app: "analytics" } },
+      {
+        event: "$exception",
+        properties: {
+          error: "qa",
+          app: "analytics",
+          test_identity: true,
+          test_identity_email: "qa+autoz@builder.io",
+        },
+      },
+    ]);
+
+    expect(result).toMatchObject({ accepted: 2, suppressedTestIdentity: 3 });
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        eventName: "pageview",
+        userId: "real@example.com",
+      }),
+      expect.objectContaining({ eventName: "$exception" }),
+    ]);
+    expect(rollupMocks.upsert.mock.calls[0]?.[0]).toHaveLength(2);
+    const [, sources] = exceptionMocks.ingest.mock.calls[0]!;
+    expect(
+      sources.map((source: { derived: { testIdentity: boolean } }) => [
+        source.derived.testIdentity,
+      ]),
+    ).toEqual([[false], [true]]);
+  });
+
+  it("does not take a sender's test_identity flag as proof of a test identity", async () => {
+    const result = await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        userId: "real@example.com",
+        properties: { test_identity: true },
+      },
+      {
+        event: "$exception",
+        userId: "real@example.com",
+        properties: { error: "real", app: "analytics", test_identity: true },
+      },
+    ]);
+
+    expect(result).toMatchObject({ accepted: 2, suppressedTestIdentity: 0 });
+    const [, sources] = exceptionMocks.ingest.mock.calls[0]!;
+    expect(sources[0].derived.testIdentity).toBe(false);
+  });
+
+  it("checks deployment-configured test identities a browser cannot know", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "qa@corp.com");
+    resetAppConfigForTests();
+    try {
+      const result = await recordAnalyticsEvents("anpk_test", [
+        { event: "pageview", userId: "qa@corp.com" },
+        { event: "pageview", userId: "dev@corp.com" },
+      ]);
+      expect(result).toMatchObject({ accepted: 1, suppressedTestIdentity: 1 });
+    } finally {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
+  });
+
+  it("checks the identity a sender puts only in the event context", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "qa@corp.com");
+    resetAppConfigForTests();
+    try {
+      const result = await recordAnalyticsEvents("anpk_test", [
+        { event: "pageview", context: { email: "qa@corp.com" } },
+        { event: "pageview", context: { user_email: "qa@corp.com" } },
+        { event: "pageview", context: { traits: { email: "qa@corp.com" } } },
+        { event: "pageview", context: { email: "dev@corp.com" } },
+      ]);
+      expect(result).toMatchObject({ accepted: 1, suppressedTestIdentity: 3 });
+    } finally {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
   });
 
   it("preserves SQL exception issues while warehouse delivery is pending", async () => {
@@ -590,22 +936,22 @@ describe("validateFirstPartyAnalyticsSql", () => {
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(1, 10000000, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("table function pg_catalog.generate_series");
+    ).toThrow("Table functions are not supported");
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "WITH bounds AS (SELECT '2000-01-01'::timestamp AS start_date, 'infinity'::timestamp AS end_date) SELECT e.event_date FROM analytics_events e CROSS JOIN bounds CROSS JOIN LATERAL pg_catalog.generate_series(bounds.start_date, bounds.end_date, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("table function pg_catalog.generate_series");
+    ).toThrow("Table functions are not supported");
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog /* split */ . generate_series(1, 10000000, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("table function pg_catalog.generate_series");
+    ).toThrow("Table functions are not supported");
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL custom_series(1, 2) AS days(day)",
       ),
-    ).toThrow("cannot read from table function custom_series");
+    ).toThrow("Table functions are not supported");
   });
 
   it("rejects set-returning functions in SELECT and CTE expressions", () => {
@@ -676,7 +1022,9 @@ describe("validateFirstPartyAnalyticsSql", () => {
       validateFirstPartyAnalyticsSql(
         `SELECT ${expression} FROM analytics_events`,
       ),
-    ).toThrow("cannot call unapproved SQL function");
+    ).toThrow(
+      /cannot call unapproved SQL function|number must not run directly into an identifier/,
+    );
   });
 
   it("rejects direct replay chunk queries", () => {
@@ -693,6 +1041,49 @@ describe("validateFirstPartyAnalyticsSql", () => {
         "WITH session_replay_chunks AS (SELECT id FROM analytics_events) SELECT COUNT(*) FROM session_replay_chunks",
       ),
     ).toThrow("session replay chunks");
+  });
+
+  it.each([
+    "WITH session_recording_shares AS (SELECT id AS resource_id FROM session_recordings) SELECT id FROM session_recordings",
+    'WITH "session_recording_shares" AS (SELECT id AS resource_id FROM session_recordings) SELECT id FROM session_recordings',
+    "WITH Session_Recording_Shares (resource_id) AS (SELECT id FROM session_recordings) SELECT id FROM session_recordings",
+  ])(
+    "rejects recording SQL that names the table the sharing filter reads: %s",
+    (sql) => {
+      expect(() => validateFirstPartyAnalyticsSql(sql)).toThrow(
+        "cannot reference session_recording_shares",
+      );
+    },
+  );
+
+  it("rejects recording SQL the core lexer cannot read", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql('SELECT U&"id" FROM session_recordings'),
+    ).toThrow("U&");
+  });
+
+  it("names every table the injected recording filter reads", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT id FROM session_recordings",
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      "2026-07-01",
+    );
+    const tokens = lexAgentSql(scoped.sql, { dialect: "postgres" });
+    const filterTables = new Set<string>();
+    tokens.forEach((token, index) => {
+      const previous = tokens[index - 1];
+      if (
+        previous?.kind === "word" &&
+        (previous.value === "from" || previous.value === "join") &&
+        (token.kind === "word" || token.kind === "quoted-identifier") &&
+        token.value !== "session_recordings"
+      ) {
+        filterTables.add(token.value);
+      }
+    });
+    expect([...filterTables].sort()).toEqual(
+      [...SESSION_RECORDING_FILTER_TABLES].sort(),
+    );
   });
 
   it("rejects comma-separated sources instead of leaving the extra table unscoped", () => {
@@ -815,15 +1206,44 @@ describe("scopedAnalyticsSql", () => {
     expect(scoped.args).toEqual([]);
   });
 
-  it("adds freshness guards around session recording reads", () => {
+  it("reads session recordings through the sharing rule, with a freshness guard", () => {
     const scoped = scopedAnalyticsSql(
       "SELECT COUNT(*) AS recordings FROM session_recordings",
       { userEmail: "alice@example.com", orgId: null },
       "2026-07-01",
     );
 
-    expect(scoped.sql).toContain("substr(started_at, 1, 10) <= $2");
-    expect(scoped.args).toEqual(["alice@example.com", "2026-07-01"]);
+    expect(scoped.sql).toContain(
+      'lower("session_recordings"."owner_email") = $1',
+    );
+    expect(scoped.sql).toContain('from "session_recording_shares"');
+    expect(scoped.sql).toContain("substr(started_at, 1, 10) <= $3");
+    expect(scoped.sql).not.toContain("\n");
+    expect(scoped.args).toEqual([
+      "alice@example.com",
+      "alice@example.com",
+      "2026-07-01",
+    ]);
+  });
+
+  it("numbers recording binds after earlier sources in the same query", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT e.event_name FROM analytics_events e JOIN session_recordings r ON r.session_id = e.session_id",
+      { userEmail: "alice@example.com", orgId: null },
+      "2026-07-01",
+    );
+
+    expect(scoped.args).toEqual([
+      "alice@example.com",
+      "2026-07-01",
+      "alice@example.com",
+      "alice@example.com",
+      "2026-07-01",
+    ]);
+    expect(scoped.sql).toContain(
+      'lower("session_recordings"."owner_email") = $3',
+    );
+    expect(scoped.sql).toContain("substr(started_at, 1, 10) <= $5");
   });
 
   it("scopes rollups by tenant key without changing all-time lower bounds", () => {
@@ -881,13 +1301,115 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = $1 AND event_date <= $2)",
+      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = $1 AND event_date <= $2 AND NOT (",
     );
     expect(scoped.args).toEqual(["user:alice@example.com", "2026-07-01"]);
+  });
+
+  it("excludes test identities from every source that carries an identity", async () => {
+    const client = await PGlite.create("memory://");
+    try {
+      await client.query(
+        "CREATE TABLE analytics_events (org_id text, owner_email text, event_date text, timestamp text, user_id text)",
+      );
+      await client.query(
+        "CREATE TABLE session_recordings (id text, org_id text, owner_email text, started_at text, user_id text, visibility text NOT NULL DEFAULT 'private')",
+      );
+      await client.query(
+        "CREATE TABLE session_recording_shares (resource_id text, principal_type text, principal_id text, role text)",
+      );
+      for (const [index, userId] of [
+        "real@example.com",
+        null,
+        "qa+autoz@builder.io",
+        "bot@agents.test",
+      ].entries()) {
+        await client.query(
+          "INSERT INTO analytics_events VALUES (NULL, 'alice@example.com', '2026-07-01', '2026-07-01T00:00:00Z', $1)",
+          [userId],
+        );
+        await client.query(
+          "INSERT INTO session_recordings (id, org_id, owner_email, started_at, user_id) VALUES ($1, NULL, 'alice@example.com', '2026-07-01T00:00:00Z', $2)",
+          [`rec-${index}`, userId],
+        );
+      }
+      const count = async (sql: string, includeTestIdentities?: boolean) => {
+        const scoped = scopedAnalyticsSql(
+          sql,
+          { userEmail: "alice@example.com", orgId: null },
+          "2026-07-01",
+          { includeTestIdentities },
+        );
+        const result = (await client.query(scoped.sql, scoped.args)) as {
+          rows: Array<{ n: number }>;
+        };
+        return Number(result.rows[0]!.n);
+      };
+
+      expect(await count("SELECT COUNT(*) AS n FROM analytics_events")).toBe(2);
+      expect(await count("SELECT COUNT(*) AS n FROM session_recordings")).toBe(
+        2,
+      );
+      expect(
+        await count("SELECT COUNT(*) AS n FROM analytics_events", true),
+      ).toBe(4);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("leaves identity-free daily rollups unfiltered and renders the filter for BigQuery", async () => {
+    const { renderFirstPartyAnalyticsBigQuerySql } = await vi.importActual<
+      typeof import("./first-party-analytics-backend.js")
+    >("./first-party-analytics-backend.js");
+    const rollups = scopedAnalyticsSql(
+      "SELECT SUM(event_count) AS events FROM analytics_event_daily_rollups",
+      { userEmail: "alice@example.com", orgId: null },
+      "2026-07-01",
+    );
+    expect(rollups.sql).not.toContain("NOT (");
+
+    const events = scopedAnalyticsSql(
+      "SELECT COUNT(*) AS n FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+    expect(events.sql.match(/AND NOT \(strpos\(/g)).toHaveLength(2);
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      events.sql,
+      events.args,
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+    expect(rendered).toMatch(
+      /AND NOT \(strpos\(lower\(trim\(COALESCE\(user_id, ''\)\)\), '@'\) > 1 AND [^]*\)\) QUALIFY ROW_NUMBER\(\)/,
+    );
   });
 });
 
 describe("queryFirstPartyAnalytics", () => {
+  it.each([
+    "now()",
+    "to_char(CURRENT_DATE, 'YYYY-MM-DD')",
+    "date_trunc('week', event_date)",
+    "split_part(event_name, ':', 1)",
+  ])(
+    "accepts PostgreSQL translation input %s on BigQuery",
+    async (expression) => {
+      backendMocks.get.mockResolvedValueOnce({ sink: "bigquery" });
+      await queryFirstPartyAnalytics(
+        `SELECT ${expression} FROM analytics_events`,
+        { userEmail: "translation@example.test", orgId: "org_a" },
+      );
+      expect(backendMocks.query).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("routes event queries to BigQuery after the org cuts over", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",
@@ -965,6 +1487,25 @@ describe("queryFirstPartyAnalytics", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "project.dataset.helper",
+    "project.dataset.count",
+    "safe.project.helper",
+    "unapproved_helper",
+  ])(
+    "refuses BigQuery routine %s before submitting a query",
+    async (routine) => {
+      backendMocks.get.mockResolvedValueOnce({ sink: "bigquery" });
+      await expect(
+        queryFirstPartyAnalytics(
+          `SELECT ${routine}(id) FROM analytics_events`,
+          { userEmail: "alice@example.test", orgId: "org_a" },
+        ),
+      ).rejects.toThrow(/cannot call unapproved SQL function/);
+      expect(backendMocks.query).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps ad-hoc first-party reads uncached", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
 
@@ -976,10 +1517,12 @@ describe("queryFirstPartyAnalytics", () => {
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({
-        timeoutMs: 45_000,
+        timeoutMs: expect.any(Number),
         maxAttempts: 1,
       }),
     );
+    expect(execute.mock.calls[0][0].timeoutMs).toBeGreaterThan(0);
+    expect(execute.mock.calls[0][0].timeoutMs).toBeLessThanOrEqual(45_000);
   });
 
   it("marks capped Postgres reads as truncated", async () => {
@@ -1096,6 +1639,148 @@ describe("queryFirstPartyAnalytics", () => {
     }
 
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares the cache deadline with expression verification", async () => {
+    let now = 4_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    expressionGuard.mockImplementationOnce(async () => {
+      now += 450;
+    });
+    execute.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("first_party_analytics_cache")
+        ? { rows: [], rowsAffected: 0 }
+        : { rows: [{ count: "1" }], rowsAffected: 0 },
+    );
+    try {
+      await queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        { userEmail: "guard-deadline@example.test", orgId: null },
+        { cache: true, timeoutMs: 500 },
+      );
+      expect(execute.mock.calls[0][0].timeoutMs).toBe(50);
+      expect(execute.mock.calls[1][0].timeoutMs).toBe(50);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it("coalesces concurrent cached reads after verification takes different time", async () => {
+    let now = 5_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    expressionGuard.mockImplementation(async () => {
+      now += 10;
+    });
+    let releaseCache!: () => void;
+    let markCacheStarted!: () => void;
+    const cacheStarted = new Promise<void>((resolve) => {
+      markCacheStarted = resolve;
+    });
+    const cacheGate = new Promise<void>((resolve) => {
+      releaseCache = resolve;
+    });
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        markCacheStarted();
+        await cacheGate;
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    try {
+      const scope = { userEmail: "concurrent-guard@example.test", orgId: null };
+      const first = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 500 },
+      );
+      await cacheStarted;
+      const second = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 500 },
+      );
+      await vi.waitFor(() => expect(expressionGuard).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      releaseCache();
+      expect(await first).toEqual(await second);
+      expect(
+        execute.mock.calls.filter(([input]) =>
+          input.sql.includes("SELECT result FROM first_party_analytics_cache"),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      releaseCache();
+      dateNow.mockRestore();
+    }
+  });
+
+  it("bounds a coalesced cached read by the joining caller's own deadline", async () => {
+    let now = 5_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    let releaseEarlyGuard!: () => void;
+    const earlyGuardGate = new Promise<void>((resolve) => {
+      releaseEarlyGuard = resolve;
+    });
+    expressionGuard.mockImplementationOnce(() => earlyGuardGate);
+    let releaseCache!: () => void;
+    let markCacheStarted!: () => void;
+    const cacheStarted = new Promise<void>((resolve) => {
+      markCacheStarted = resolve;
+    });
+    const cacheGate = new Promise<void>((resolve) => {
+      releaseCache = resolve;
+    });
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        markCacheStarted();
+        await cacheGate;
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    try {
+      const scope = { userEmail: "deadline-join@example.test", orgId: null };
+      const early = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 500 },
+      );
+      const earlyOutcome = early.then(
+        () => "resolved",
+        (error: Error) => error.message,
+      );
+      now = 5_100;
+      const late = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 500 },
+      );
+      await cacheStarted;
+      now = 5_480;
+      releaseEarlyGuard();
+      expect(await earlyOutcome).toMatch(/timed out/);
+      releaseCache();
+      await expect(late).resolves.toMatchObject({ rows: [{ count: "1" }] });
+    } finally {
+      releaseEarlyGuard();
+      releaseCache();
+      dateNow.mockRestore();
+    }
+  });
+
+  it("refuses a cached query when expression verification is unavailable", async () => {
+    expressionGuard.mockRejectedValueOnce(new Error("metadata unavailable"));
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        { userEmail: "guard-unavailable@example.test", orgId: null },
+        { cache: true },
+      ),
+    ).rejects.toThrow("metadata unavailable");
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("does not hold a successful panel response on the cache write", async () => {

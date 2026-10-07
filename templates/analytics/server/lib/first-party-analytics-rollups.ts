@@ -1,6 +1,7 @@
 import { sql } from "@agent-native/core/db/schema";
 
 import { getDb, schema } from "../db/index.js";
+import { indexedRowId } from "./indexed-text.js";
 
 export interface NormalizedFirstPartyAnalyticsEventRow {
   eventName: string;
@@ -63,10 +64,6 @@ function compositeKey(parts: readonly string[]): string {
   return JSON.stringify(parts);
 }
 
-function stableId(prefix: string, parts: readonly string[]): string {
-  return `${prefix}_${parts.map((part) => encodeURIComponent(part)).join("|")}`;
-}
-
 export async function upsertFirstPartyAnalyticsRollups(
   rows: readonly NormalizedFirstPartyAnalyticsEventRow[],
   transaction?: any,
@@ -96,7 +93,13 @@ export async function upsertFirstPartyAnalyticsRollups(
       existingDaily.eventCount += 1;
     } else {
       dailyRollups.set(dailyKey, {
-        id: stableId("aedr", [scopeKey, eventDate, eventName, app, template]),
+        id: indexedRowId("aedr", [
+          scopeKey,
+          eventDate,
+          eventName,
+          app,
+          template,
+        ]),
         tenantKey: scopeKey,
         ownerEmail,
         orgId,
@@ -112,7 +115,7 @@ export async function upsertFirstPartyAnalyticsRollups(
       const userDayKey = compositeKey([scopeKey, eventDate, userKey]);
       if (!userDays.has(userDayKey)) {
         userDays.set(userDayKey, {
-          id: stableId("aud", [scopeKey, eventDate, userKey]),
+          id: indexedRowId("aud", [scopeKey, eventDate, userKey]),
           tenantKey: scopeKey,
           ownerEmail,
           orgId,

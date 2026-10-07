@@ -177,8 +177,15 @@ describe("getOnboardingHtml", () => {
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Clips");
     expect(readAuthPageData(html).marketing?.learnMoreUrl).toBe(
-      "https://agent-native.com/apps/clips",
+      "https://agent-native.com/apps/clips?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     );
+  });
+
+  it("lifts the auth wave above the lower marketing copy", () => {
+    const html = getOnboardingHtml({ requestHost: "slides.agent-native.com" });
+
+    expect(html).toContain(".auth-wave-background {");
+    expect(html).toContain("transform: translateY(-15vh);");
   });
 
   it("allows a hosted app to opt out of catalog auth marketing", () => {
@@ -396,20 +403,32 @@ describe("getOnboardingHtml", () => {
     expect(readAuthPageData(html).initialPrompt).toBe(false);
   });
 
-  it("uses readable text and visible control borders for branded auth in light mode", () => {
+  it("keeps branded auth readable over the wave in light color scheme", () => {
     const html = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
 
+    expect(html).toContain("color-scheme: dark;");
+    expect(html).not.toContain("--auth-marketing-foreground: CanvasText;");
+    expect(html).not.toContain("color-scheme: light;");
+    expect(html).toContain(
+      "--auth-marketing-border: color-mix(in srgb, var(--auth-marketing-foreground) 18%, transparent);",
+    );
     expect(html).toContain(
       ".auth-marketing-home .card input {\n      color: var(--auth-marketing-foreground);\n      border-color: var(--auth-marketing-border);",
     );
     expect(html).toContain(
       ".auth-marketing-home .auth-marketing-description-link {\n    color: var(--auth-marketing-muted);",
     );
-    expect(html).toContain("--auth-marketing-muted: GrayText;");
+    expect(html).toContain("--auth-marketing-muted: #9a9997;");
     expect(html).toContain(".auth-marketing-home .card input:focus {");
     expect(html).toContain(".auth-marketing-home .card input::placeholder {");
+    expect(html).toContain(
+      ".auth-marketing-home .auth-marketing-visual,\n    .auth-marketing-home .marketing-panel,\n    .auth-marketing-home .form-panel {\n      background: transparent;",
+    );
+    expect(html).toMatch(
+      /\.auth-marketing-home \.form-panel\s*\{[^}]*backdrop-filter: blur\(10px\);/,
+    );
     expect(html).toContain(
       '.auth-marketing-home .card .btn-google,\n    .auth-marketing-home .card .btn-primary,\n    .auth-marketing-home .card button[type="submit"]',
     );
@@ -919,7 +938,7 @@ describe("getOnboardingHtml", () => {
         BUILT_IN_AUTH_MARKETING[slug]!.appName,
       );
       expect(readAuthPageData(html).marketing?.learnMoreUrl).toBe(
-        `https://agent-native.com/apps/${slug}`,
+        `https://agent-native.com/apps/${slug}?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more`,
       );
     }
   });

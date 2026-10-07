@@ -227,14 +227,18 @@ function makePeerReconcileHarness(initialContent = "original body") {
   function Harness({
     value = initialContent,
     revision = "revision-1",
+    updatedAt = "2024-01-01T00:00:01.000Z",
     callbackVersion = 0,
     available = true,
     collabContentRevision,
     requestCollabSync,
     baseAware = false,
+    requestInitialSeed,
+    quietSeedEditability,
   }: {
     value?: string;
-    revision?: string;
+    revision?: string | null;
+    updatedAt?: string;
     callbackVersion?: number;
     available?: boolean;
     collabContentRevision?: string;
@@ -242,6 +246,8 @@ function makePeerReconcileHarness(initialContent = "original body") {
       status: "synced" | "failed" | "unavailable";
     }>;
     baseAware?: boolean;
+    requestInitialSeed?: () => Promise<Uint8Array>;
+    quietSeedEditability?: boolean;
   }) {
     editor = useEditor({
       extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
@@ -252,10 +258,12 @@ function makePeerReconcileHarness(initialContent = "original body") {
       awareness,
       collabSynced: true,
       value,
-      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
-      contentRevision: revision,
+      contentUpdatedAt: updatedAt,
+      contentRevision: revision ?? undefined,
       collabContentRevision,
       requestCollabSync,
+      requestInitialSeed,
+      quietSeedEditability,
       initialAppliedUpdatedAt: null,
       editable: true,
       parseValue: baseAware ? undefined : false,
@@ -426,6 +434,322 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
   });
 
   it.each([
+    [false, true],
+    [true, false],
+  ])(
+    "an editor that saves on update opts out of the update emitted when the seed settles (quiet: %s)",
+    async (quiet, emits) => {
+      vi.useFakeTimers();
+      const harness = makePeerReconcileHarness("original body");
+      const props = {
+        requestInitialSeed: async () => new Uint8Array(),
+        quietSeedEditability: quiet,
+      };
+      try {
+        act(() => root.render(React.createElement(harness.Harness, props)));
+        // The editor exists after the first render; count from there.
+        let updates = 0;
+        harness.editor().on("update", () => {
+          updates += 1;
+        });
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        expect(updates > 0).toBe(emits);
+      } finally {
+        harness.dispose();
+      }
+    },
+  );
+
+  it("catches the live document up before adopting a snapshot that carries a peer's text", async () => {
+    vi.useFakeTimers();
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    const serverDoc = new Y.Doc();
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+    const serverEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: serverDoc,
+      }),
+    });
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const stateVector = Y.encodeStateVector(harness.ydoc);
+      serverEditor.commands.insertContentAt(1, "Accepted ");
+      // The peer's text reaches SQL before the Yjs update that carries it.
+      const requestSync = vi.fn(async () => {
+        Y.applyUpdate(
+          harness.ydoc,
+          Y.encodeStateAsUpdate(serverDoc, stateVector),
+          "remote",
+        );
+        return { status: "synced" as const };
+      });
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Accepted ${baseline}`,
+            revision: null,
+            updatedAt: "2024-01-01T00:00:02.000Z",
+            requestCollabSync: requestSync,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(requestSync).toHaveBeenCalledTimes(1);
+      expect(harness.writes).toEqual([]);
+      expect(harness.markdown()).toBe(`Accepted ${baseline}`);
+    } finally {
+      serverEditor.destroy();
+      serverDoc.destroy();
+      harness.dispose();
+    }
+  });
+
+  it("catches up before merging a saved revision whose text is still in flight through Yjs", async () => {
+    vi.useFakeTimers();
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    const serverDoc = new Y.Doc();
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+    const serverEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: serverDoc,
+      }),
+    });
+    try {
+      act(() =>
+        root.render(React.createElement(harness.Harness, { baseAware: true })),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const stateVector = Y.encodeStateVector(harness.ydoc);
+      serverEditor.commands.insertContentAt(1, "Accepted ");
+      const peerUpdate = Y.encodeStateAsUpdate(serverDoc, stateVector);
+      const requestSync = vi.fn(async () => {
+        Y.applyUpdate(harness.ydoc, peerUpdate, "remote");
+        return { status: "synced" as const };
+      });
+      // A save's merged answer carries the peer's text under a revision that
+      // is not collab-backed, before the peer's Yjs update reaches this tab.
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Accepted ${baseline}`,
+            revision: "revision-2",
+            updatedAt: "2024-01-01T00:00:02.000Z",
+            requestCollabSync: requestSync,
+            baseAware: true,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      act(() => Y.applyUpdate(harness.ydoc, peerUpdate, "remote"));
+      expect(harness.markdown()).toBe(`Accepted ${baseline}`);
+      expect(requestSync).toHaveBeenCalledTimes(1);
+    } finally {
+      serverEditor.destroy();
+      serverDoc.destroy();
+      harness.dispose();
+    }
+  });
+
+  it("starts a fresh catch-up for a saved revision that arrives while an earlier one is syncing", async () => {
+    vi.useFakeTimers();
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    const serverDoc = new Y.Doc();
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+    const serverEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: serverDoc,
+      }),
+    });
+    try {
+      act(() =>
+        root.render(React.createElement(harness.Harness, { baseAware: true })),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const stateVector = Y.encodeStateVector(harness.ydoc);
+      serverEditor.commands.insertContentAt(1, "Accepted ");
+      const firstUpdate = Y.encodeStateAsUpdate(serverDoc, stateVector);
+      let finishFirst = () => {};
+      // Each catch-up reads what the server holds when it starts; the first
+      // one started before the second save's text was stored.
+      const requestSync = vi
+        .fn<() => Promise<{ status: "synced" }>>()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishFirst = () => {
+                Y.applyUpdate(harness.ydoc, firstUpdate, "remote");
+                resolve({ status: "synced" });
+              };
+            }),
+        )
+        .mockImplementation(async () => {
+          Y.applyUpdate(
+            harness.ydoc,
+            Y.encodeStateAsUpdate(serverDoc, Y.encodeStateVector(harness.ydoc)),
+            "remote",
+          );
+          return { status: "synced" };
+        });
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Accepted ${baseline}`,
+            revision: "revision-2",
+            updatedAt: "2024-01-01T00:00:02.000Z",
+            requestCollabSync: requestSync,
+            baseAware: true,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      serverEditor.commands.insertContentAt(1, "Again ");
+      const laterUpdate = Y.encodeStateAsUpdate(serverDoc, stateVector);
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Again Accepted ${baseline}`,
+            revision: "revision-3",
+            updatedAt: "2024-01-01T00:00:03.000Z",
+            requestCollabSync: requestSync,
+            baseAware: true,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      // Waiting on the first catch-up would merge "Again " from the snapshot,
+      // and the Yjs update carrying it would then insert it a second time.
+      expect(requestSync.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(harness.markdown()).toBe(`Again Accepted ${baseline}`);
+      await act(async () => finishFirst());
+      act(() => Y.applyUpdate(harness.ydoc, laterUpdate, "remote"));
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(harness.markdown()).toBe(`Again Accepted ${baseline}`);
+    } finally {
+      serverEditor.destroy();
+      serverDoc.destroy();
+      harness.dispose();
+    }
+  });
+
+  it("adopts a new value that arrives after its timestamp did", async () => {
+    // A parent can render the new timestamp next to the old value first; that
+    // render must not mark the new revision applied.
+    vi.useFakeTimers();
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const updatedAt = "2024-01-01T00:00:02.000Z";
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, { revision: null, updatedAt }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            revision: null,
+            updatedAt,
+            value: `Accepted ${baseline}`,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(harness.markdown()).toBe(`Accepted ${baseline}`);
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it("still adopts the snapshot, with a warning, when every catch-up sync fails", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const requestSync = vi.fn(async () => ({ status: "failed" as const }));
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Accepted ${baseline}`,
+            revision: null,
+            updatedAt: "2024-01-01T00:00:02.000Z",
+            requestCollabSync: requestSync,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(requestSync).toHaveBeenCalledTimes(3);
+      expect(harness.markdown()).toBe(`Accepted ${baseline}`);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      harness.dispose();
+    }
+  });
+
+  it("keeps one copy when the update a failed catch-up missed was only late", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    const serverDoc = new Y.Doc();
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+    const serverEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: serverDoc,
+      }),
+    });
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const stateVector = Y.encodeStateVector(harness.ydoc);
+      serverEditor.commands.insertContentAt(1, "Accepted ");
+      const update = Y.encodeStateAsUpdate(serverDoc, stateVector);
+      // The first catch-up fails; the next one reads the server's state.
+      const requestSync = vi
+        .fn<() => Promise<{ status: "synced" | "failed" }>>()
+        .mockResolvedValueOnce({ status: "failed" })
+        .mockImplementation(async () => {
+          Y.applyUpdate(harness.ydoc, update, "remote");
+          return { status: "synced" };
+        });
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Accepted ${baseline}`,
+            revision: null,
+            updatedAt: "2024-01-01T00:00:02.000Z",
+            requestCollabSync: requestSync,
+          }),
+        ),
+      );
+      // The collab poll delivers the same update after the peer settle wait.
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
+      act(() => Y.applyUpdate(harness.ydoc, update, "remote"));
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(harness.markdown()).toBe(`Accepted ${baseline}`);
+    } finally {
+      serverEditor.destroy();
+      serverDoc.destroy();
+      warn.mockRestore();
+      harness.dispose();
+    }
+  });
+
+  it.each([
     [false, false],
     [true, false],
     [true, true],
@@ -514,6 +838,14 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         await act(async () => vi.advanceTimersByTimeAsync(3000));
         expect(harness.writes).toEqual([]);
         expect(harness.reconciled).toEqual([]);
+        expect(harness.markdown()).toBe(
+          `Accepted ${baseline}${localTail ? " local tail" : ""}`,
+        );
+        const syncsBeforeRevision = requestSync.mock.calls.length;
+        await act(async () => finishSync({ status: "synced" }));
+        // Revision 3 is not collab-backed, so its text may still be on its
+        // way through Yjs; the editor syncs once more before merging it.
+        expect(requestSync).toHaveBeenCalledTimes(syncsBeforeRevision + 1);
         expect(harness.markdown()).toBe(
           `Accepted ${baseline}${localTail ? " local tail" : ""}`,
         );
@@ -821,6 +1153,75 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       expect(harness.writes).toEqual([]);
       await act(async () => vi.advanceTimersByTimeAsync(2));
       expect(harness.markdown()).toBe("accepted body");
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it("adopts a newer snapshot itself when the lead peer never converges the doc", async () => {
+    const harness = makePeerReconcileHarness();
+    vi.useFakeTimers();
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() => {
+        harness.awareness
+          .getStates()
+          .set(1, { user: { name: "Lead peer" }, visible: true });
+        harness.awareness.emit("change", [
+          { added: [1], updated: [], removed: [] },
+          "remote",
+        ]);
+      });
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: "accepted body",
+            revision: "revision-2",
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(4999));
+      expect(harness.markdown()).toBe("original body");
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
+      expect(harness.markdown()).toBe("accepted body");
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it("does not adopt a lagging snapshot over a live doc that holds text the snapshot lacks", async () => {
+    const harness = makePeerReconcileHarness();
+    vi.useFakeTimers();
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() => {
+        harness.awareness
+          .getStates()
+          .set(1, { user: { name: "Lead peer" }, visible: true });
+        harness.awareness.emit("change", [
+          { added: [1], updated: [], removed: [] },
+          "remote",
+        ]);
+      });
+      // This client's typing (and a peer's, merged through Yjs) is already in
+      // the live doc; the snapshot is a peer's save that predates it.
+      act(() => {
+        harness.editor().commands.setContent("original body typed here", {
+          emitUpdate: false,
+        });
+      });
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: "peer save",
+            revision: "revision-2",
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      expect(harness.markdown()).toBe("original body typed here");
     } finally {
       harness.dispose();
     }

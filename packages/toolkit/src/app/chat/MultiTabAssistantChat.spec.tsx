@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
+  type MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
 
 afterEach(() => {
@@ -81,8 +82,20 @@ const chatHandleMocks = vi.hoisted(() => ({
 
 const assistantChatMockState = vi.hoisted(() => ({
   onThreadRestoreNotFound: undefined as (() => void) | undefined,
+  onRetryModelList: undefined as (() => void) | undefined,
   onSlashCommand: undefined as ((command: string) => void) | undefined,
   onForkedThread: undefined as ((threadId: string) => void) | undefined,
+  onSaveThread: undefined as
+    | ((
+        threadId: string,
+        data: {
+          threadData: string;
+          title: string;
+          preview: string;
+          messageCount: number;
+        },
+      ) => void)
+    | undefined,
   branchNavigation: undefined as
     | {
         index: number;
@@ -335,14 +348,18 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
+        onRetryModelList?: () => void;
         onSlashCommand?: (command: string) => void;
         onForkedThread?: (threadId: string) => void;
+        onSaveThread?: typeof assistantChatMockState.onSaveThread;
         branchNavigation?: typeof assistantChatMockState.branchNavigation;
       };
       assistantChatMockState.onThreadRestoreNotFound =
         props.onThreadRestoreNotFound;
+      assistantChatMockState.onRetryModelList = props.onRetryModelList;
       assistantChatMockState.onSlashCommand = props.onSlashCommand;
       assistantChatMockState.onForkedThread = props.onForkedThread;
+      assistantChatMockState.onSaveThread = props.onSaveThread;
       assistantChatMockState.branchNavigation = props.branchNavigation;
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -393,8 +410,10 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
 
 function resetThreadMocks() {
   assistantChatMockState.onThreadRestoreNotFound = undefined;
+  assistantChatMockState.onRetryModelList = undefined;
   assistantChatMockState.onSlashCommand = undefined;
   assistantChatMockState.onForkedThread = undefined;
+  assistantChatMockState.onSaveThread = undefined;
   assistantChatMockState.branchNavigation = undefined;
   threadMocks.activeThreadId = "thread-1";
   threadMocks.evictedThreadIds = [];
@@ -495,6 +514,73 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("keeps thread saves metadata-only for built-in, runtime, and custom transports", async () => {
+    const snapshot = {
+      threadData: JSON.stringify({ messages: [{ id: "message-1" }] }),
+      title: "Saved chat",
+      preview: "Latest request",
+      messageCount: 1,
+    };
+    window.history.replaceState(null, "", "/");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat storageKey="bridge-test" threadUrlSync />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+
+    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
+      ...snapshot,
+      threadData: "",
+    });
+    expect(window.location.search).toBe("?thread=thread-1");
+
+    const createTransport = (() => ({}) as never) as NonNullable<
+      MultiTabAssistantChatProps["createTransport"]
+    >;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync
+          createTransport={createTransport}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+
+    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
+      ...snapshot,
+      threadData: "",
+    });
+    expect(window.location.search).toBe("?thread=thread-1");
+
+    const runtime = {} as NonNullable<MultiTabAssistantChatProps["runtime"]>;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync
+          runtime={runtime}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+
+    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
+      ...snapshot,
+      threadData: "",
+    });
+    expect(window.location.search).toBe("?thread=thread-1");
   });
 
   it("prefills the active composer without submitting when submit is false", () => {
@@ -957,6 +1043,29 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-model-catalog"),
     ).toBe("host:true");
+
+    await act(async () => localRoot.unmount());
+    el.remove();
+  });
+
+  it("routes host model catalog retries to the host", async () => {
+    const onRetryModelList = vi.fn();
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const localRoot = createRoot(el);
+    await act(async () => {
+      localRoot.render(
+        <MultiTabAssistantChat
+          storageKey="host-catalog-retry-test"
+          availableModels={[]}
+          modelListError
+          onRetryModelList={onRetryModelList}
+        />,
+      );
+    });
+
+    await act(async () => assistantChatMockState.onRetryModelList?.());
+    expect(onRetryModelList).toHaveBeenCalledOnce();
 
     await act(async () => localRoot.unmount());
     el.remove();

@@ -39,7 +39,30 @@ describe("Docs SSR cache key wrapper", () => {
 
     applyDocsSsrCacheKeyHeaders(headers);
 
-    expect(headers.get("netlify-vary")).toBe("query=_routes|index");
+    expect(headers.get("netlify-vary")).toBe(
+      "query=_routes|index|__agentNativeChunkRecovery",
+    );
+  });
+
+  it("preserves full-query variation for query-sensitive docs responses", () => {
+    const headers = new Headers();
+
+    applyDocsSsrCacheKeyHeaders(headers, {
+      varyByQuery: true,
+    });
+
+    expect(headers.get("netlify-vary")).toBe("query");
+  });
+
+  it("includes the fixed recovery dimension in the docs cache key", () => {
+    vi.stubEnv("NETLIFY", "true");
+    const headers = new Headers();
+
+    applyDocsSsrCacheKeyHeaders(headers);
+
+    expect(headers.get("netlify-vary")).toBe(
+      "query=_routes|index|__agentNativeChunkRecovery",
+    );
   });
 
   it("recognizes the cloud tab URL with a trailing slash or data suffix", () => {

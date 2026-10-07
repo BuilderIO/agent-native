@@ -107,6 +107,9 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
   buildCodeLayerTree,
+  cachedCodeLayerNodeById,
+  cachedCodeLayerTree,
+  pinCodeLayerDocuments,
   removeCodeLayerNodeFromHtml,
   type CodeLayerNode,
   type CodeLayerProjection,
@@ -217,6 +220,7 @@ import {
   useCallback,
   useRef,
   useMemo,
+  useId,
   type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
@@ -563,6 +567,7 @@ import {
 import type { UploadedFont } from "@/lib/font-upload";
 import {
   clearPendingGeneration,
+  failPendingGenerationForMissingImagePayload,
   hasPendingGenerationOutput,
   hasFreshPendingGeneration,
   isPendingGenerationStale,
@@ -623,14 +628,15 @@ import {
   codeLayerSelectorAliases,
   codeLayerSelectorMatches,
   previewCodeLayerTreeMove,
-  codeLayerTreeToPanelNodes,
+  cachedCodeLayerTreeToPanelNodes,
+  CodeLayerOwnerIndex,
+  type CodeLayerOwner,
   collectCodeLayerAncestors,
   collectEffectiveCodeLayerState,
   type EffectiveCodeLayerState,
   elementInfoForOwnedCodeLayerNode,
   elementInfoFromCodeLayerNode,
   findCodeLayerSiblingOrder,
-  isCodeLayerNodeRuntimeOnly,
   preferredCodeLayerSelector,
   remapLegacyCodeLayerNodeId,
   resolveCodeLayerNodeFromBridge,
@@ -777,6 +783,7 @@ import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-fr
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
 import {
+  readLocalVisualEditPendingState,
   runPublishVisualEditPending,
   shouldPublishVisualEditPending,
 } from "./design-editor/commands/publish-visual-edit-pending";
@@ -851,6 +858,10 @@ import {
   runVisualStructureChange,
 } from "./design-editor/commands/visual-structure-change";
 import { runWriteFrameGeometrySnapshot } from "./design-editor/commands/write-frame-geometry-snapshot";
+import {
+  flushCommitsAfterPaint,
+  flushCommitsOnInput,
+} from "./design-editor/commit-after-paint";
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
 import { designPrecedentDirectives } from "./design-editor/creative-context-precedent";
 import {
@@ -869,7 +880,11 @@ import {
   type PendingDesignDataOperations,
 } from "./design-editor/data-operations";
 import { deriveDesignBreakpoints } from "./design-editor/derive/design-breakpoints";
-import { buildNeededLayerModels } from "./design-editor/derive/layer-model-coverage";
+import {
+  buildNeededLayerModels,
+  nextRecentLayerModelFileIds,
+  screenBodyHasElements,
+} from "./design-editor/derive/layer-model-coverage";
 import {
   deriveOverviewScreens,
   reuseUnchangedOverviewScreens,
@@ -914,6 +929,7 @@ import {
   isSupersededSelectionEcho,
   reloadRunningAppPreviewFrames,
   runtimeMultiplicityForElementProvenance,
+  samePlainData,
   withMeasuredGeometry,
 } from "./design-editor/editor-helpers";
 import {
@@ -956,13 +972,14 @@ import { runObserveCollabText } from "./design-editor/effects/observe-collab-tex
 import { runPublishAgentSelectionContext } from "./design-editor/effects/publish-agent-selection-context";
 import { runResumePendingGeneration } from "./design-editor/effects/resume-pending-generation";
 import { runSeedCollabContent } from "./design-editor/effects/seed-collab-content";
-import { syncLatestActiveContentFromRender } from "./design-editor/effects/sync-latest-active-content";
+import { useSyncLatestActiveContent } from "./design-editor/effects/sync-latest-active-content";
 import { isCurrentRuntimeLayerSnapshot } from "./design-editor/export-snapshot-frame";
 import { resolveFigmaPasteScene } from "./design-editor/figma-paste-scene";
 import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
   designVariantGenerationDirectives,
+  builderDesignEmbedSubmitData,
   formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles,
   loadDesignSystemGenerationContext,
@@ -1013,6 +1030,8 @@ import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   layerStateIdsForScreen,
   scopedLayerStateId,
+  reconcileLayerStateIds,
+  sourceLayerStateIds,
 } from "./design-editor/layer-state-scope";
 import {
   type AlignableRect,
@@ -1037,6 +1056,7 @@ import {
   type MotionTimelineQueryResult,
   motionTimelineFingerprint,
 } from "./design-editor/motion-state";
+import { NativeExportRenderError } from "./design-editor/native-export-render";
 import {
   clampOverviewDisplayZoom,
   clampZoom,
@@ -1120,7 +1140,9 @@ import {
   PngCaptureError,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
+import { mergePresenceUsers } from "./design-editor/presence-users";
 import { openPreviewUrl } from "./design-editor/preview-navigation";
+import type { ReactGridPlacement } from "./design-editor/react-semantic-handoff";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
@@ -1141,6 +1163,7 @@ import {
 import {
   buildActiveFileNodeIdSet,
   computeOverviewScreenPickSelectionIds,
+  getContentSignature,
   getOverviewScreenContentKey,
   getOverviewScreenExportGeometryById,
   getOverviewScreenRuntimeReplacementKey,
@@ -1163,6 +1186,7 @@ import {
 import {
   resolveSourceBaseForPublication,
   designFileCodeLayerSource,
+  forgetPreparedSourcesExcept,
   prepareCanonicalSourceContent,
   preparedSourceProjection,
 } from "./design-editor/source-publication";
@@ -1190,6 +1214,7 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
   SHOW_DESIGN_SECONDARY_LEFT_PANELS,
 } from "./design-editor/types";
+import { useViewerPresence } from "./design-editor/use-viewer-presence";
 import {
   VisualEditWebMcp,
   hasNativeWebMcpHost,
@@ -1828,6 +1853,7 @@ function DesignEditor() {
   const pendingLiveEditReloadedTargetsRef = useRef<Set<string>>(new Set());
   const liveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const pendingVisualEditPublicationRevisionRef = useRef(0);
+  const pendingVisualEditBridgeRevisionSyncKeyRef = useRef<string | null>(null);
   const pendingVisualEditPublisherIdRef = useRef(crypto.randomUUID());
   const pendingVisualEditPublicationQueueRef = useRef<Promise<void>>(
     Promise.resolve(),
@@ -1848,6 +1874,7 @@ function DesignEditor() {
     useRef<VisualEditHandoffPublicationState | null>(null);
   useEffect(() => {
     pendingVisualEditPublicationRevisionRef.current = 0;
+    pendingVisualEditBridgeRevisionSyncKeyRef.current = null;
     pendingVisualEditPublisherIdRef.current = crypto.randomUUID();
     pendingVisualEditClearRequestedRef.current = null;
     pendingVisualEditHadPendingRef.current = null;
@@ -2255,6 +2282,8 @@ function DesignEditor() {
   const [contentRenderRevision, setContentRenderRevision] = useState(0);
   const [activeInspectorTab, setActiveInspectorTab] =
     useState<InspectorTab>("design");
+  const activeInspectorTabRef = useRef(activeInspectorTab);
+  activeInspectorTabRef.current = activeInspectorTab;
   const [reviewFocusRequest, setReviewFocusRequest] = useState<{
     nonce: number;
     anchor: unknown;
@@ -2265,6 +2294,10 @@ function DesignEditor() {
   const openedReviewHashRef = useRef<string | null>(null);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
+  // The workbench loads Monaco and follows the selection with source reads, so
+  // it mounts on first open and then stays mounted to keep its state.
+  const codeWorkbenchOpenedRef = useRef(false);
+  if (activeLeftPanel === "code") codeWorkbenchOpenedRef.current = true;
   const layersRevealedForFirstCreateRef = useRef(false);
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
@@ -2295,6 +2328,21 @@ function DesignEditor() {
   const rightSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const [layersSearchQuery, setLayersSearchQuery] = useState("");
   const [expandedLayerIds, setExpandedLayerIds] = useState<string[]>([]);
+  const expandedLayerIdsRef = useRef(expandedLayerIds);
+  expandedLayerIdsRef.current = expandedLayerIds;
+  // Reveals run after every selection and every edit; setting an unchanged list
+  // still re-renders the whole editor, so only a real addition sets state.
+  const revealLayerIds = useCallback((ids: Iterable<string>) => {
+    const wanted = [...ids];
+    const shown = new Set(expandedLayerIdsRef.current);
+    if (wanted.every((id) => shown.has(id))) return;
+    // Merge in the updater: the ref lags other updates queued this tick.
+    setExpandedLayerIds((current) => {
+      const next = new Set(current);
+      for (const id of wanted) next.add(id);
+      return next.size === current.length ? current : Array.from(next);
+    });
+  }, []);
   const [selectedLayerIdsState, setSelectedLayerIdsState] = useState<string[]>(
     [],
   );
@@ -2362,18 +2410,20 @@ function DesignEditor() {
     lockedIds: new Set(),
     hiddenIds: new Set(),
   });
-  const codeLayerOwnerByNodeIdRef = useRef<
-    Map<
-      string,
-      {
-        fileId: string;
-        node: CodeLayerNode;
-        sourceProjection: CodeLayerProjection;
-        tree: CodeLayerTreeNode[];
-        runtimeOnly: boolean;
-      }
-    >
-  >(new Map());
+  const codeLayerOwnerByNodeIdRef = useRef<ReadonlyMap<string, CodeLayerOwner>>(
+    new Map(),
+  );
+  const revealLayer = useCallback(
+    (layerId: string) => {
+      const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+      if (!owner) return;
+      revealLayerIds([
+        owner.fileId,
+        ...collectCodeLayerAncestors(owner.tree, layerId),
+      ]);
+    },
+    [revealLayerIds],
+  );
   const [overviewSelectedScreenIds, setOverviewSelectedScreenIds] = useState<
     string[]
   >([]);
@@ -2654,8 +2704,10 @@ function DesignEditor() {
     nodeId?: string;
     css: string;
   } | null>(null);
+  const shaderFillPreviewActiveRef = useRef(false);
+  shaderFillPreviewActiveRef.current = shaderFillPreview !== null;
   const clearShaderFillPreview = useCallback(() => {
-    setShaderFillPreview(null);
+    if (shaderFillPreviewActiveRef.current) setShaderFillPreview(null);
     postShaderFillPreviewClearToPreviewIframes();
   }, []);
 
@@ -2674,6 +2726,8 @@ function DesignEditor() {
 
   const [activeInteractionStateState, setActiveInteractionStateState] =
     useState<InteractionState | null>(null);
+  const activeInteractionStateStateRef = useRef(activeInteractionStateState);
+  activeInteractionStateStateRef.current = activeInteractionStateState;
 
   const [selectedStateId, setSelectedStateId] = useState<string | null>(null);
   const [reviewFileId, setReviewFileId] = useState<string | null>(null);
@@ -2794,7 +2848,9 @@ function DesignEditor() {
   }, [builderHostProtocolActive]);
 
   const focusDesignInspectorForSelection = useCallback(() => {
-    setActiveInspectorTab("design");
+    if (activeInspectorTabRef.current !== "design") {
+      setActiveInspectorTab("design");
+    }
   }, []);
 
   useEffect(() => {
@@ -2974,10 +3030,24 @@ function DesignEditor() {
       schedulePendingOverviewLayerSelectionClear,
     ],
   );
+  // Runs after every history push; same-value sets right after a commit still
+  // re-render the whole editor, so only real changes are published.
+  const publishedUndoRedoRef = useRef({ canUndo: false, canRedo: false });
+  const publishUndoRedo = useCallback(
+    (nextCanUndo: boolean, nextCanRedo: boolean) => {
+      const published = publishedUndoRedoRef.current;
+      if (published.canUndo !== nextCanUndo) setCanUndo(nextCanUndo);
+      if (published.canRedo !== nextCanRedo) setCanRedo(nextCanRedo);
+      publishedUndoRedoRef.current = {
+        canUndo: nextCanUndo,
+        canRedo: nextCanRedo,
+      };
+    },
+    [],
+  );
   const syncUndoRedoState = useCallback(() => {
     if (fileHistoryMutationPendingRef.current) {
-      setCanUndo(false);
-      setCanRedo(false);
+      publishUndoRedo(false, false);
       return;
     }
     if (
@@ -3022,7 +3092,7 @@ function DesignEditor() {
         localContentRedoStackRef.current,
         activeHistoryFileId,
       ) !== -1;
-    setCanUndo(
+    publishUndoRedo(
       Boolean(linkedComponentMutationQueueRef.current?.queue.hasPending()) ||
         contentUndoStackRef.current.some(
           (entry) => "linkedComponent" in entry && entry.linkedComponent,
@@ -3038,8 +3108,6 @@ function DesignEditor() {
             fileCreationUndoStackRef.current.length > 0 ||
             fileDeletionUndoStackRef.current.length > 0 ||
             selectionUndoStackRef.current.length > 0)),
-    );
-    setCanRedo(
       contentRedoStackRef.current.some(
         (entry) => "linkedComponent" in entry && entry.linkedComponent,
       ) ||
@@ -3055,7 +3123,7 @@ function DesignEditor() {
             fileDeletionRedoStackRef.current.length > 0 ||
             selectionRedoStackRef.current.length > 0)),
     );
-  }, []);
+  }, [publishUndoRedo]);
   const pushSelectionHistoryEntry = useCallback(
     (before: GeometryHistorySelection, after: GeometryHistorySelection) => {
       if (selectionHistorySnapshotsEqual(before, after)) return;
@@ -3779,14 +3847,31 @@ function DesignEditor() {
     const pending = readPendingGeneration(id, { allowUntimestamped: true });
     if (!pending) return null;
     const files = pending.files ?? [];
+    let images: string[];
+    try {
+      images = imageAttachmentsFromUploadedFiles(files);
+    } catch (error) {
+      if (
+        !failPendingGenerationForMissingImagePayload(
+          id,
+          error,
+          t("promptDialog.imageAttachmentUnavailable"),
+          setGenerationIssue,
+          setHasPendingGeneration,
+        )
+      ) {
+        throw error;
+      }
+      return null;
+    }
     return {
       prompt: pending.prompt,
       designSystemId: pending.designSystemId,
-      images: imageAttachmentsFromUploadedFiles(files),
+      images,
       contextItems: pending.contextItems,
       uploadedFileContext: formatUploadedFileContext(files),
     };
-  }, [id]);
+  }, [id, t]);
   const {
     questions: pendingQuestions,
     title: pendingQuestionsTitle,
@@ -4604,6 +4689,18 @@ function DesignEditor() {
           latestFileSaveForUnloadRef,
           rollbackPendingLocalFileContent,
           markPendingLocalFileContent,
+          getPendingBaseContent: (fileId) =>
+            pendingLocalFileContentsRef.current.get(fileId)?.baseContent,
+          readLiveFileContent: id
+            ? async (fileId) =>
+                (
+                  await callAction<{ content: string }>(
+                    "read-source-file",
+                    { designId: id, fileId },
+                    { method: "GET" },
+                  )
+                ).content
+            : undefined,
           queryClient,
           setPatchProof,
           t,
@@ -4616,6 +4713,7 @@ function DesignEditor() {
     [
       acknowledgeOutboxEntry,
       createFileSaveOutboxEntry,
+      id,
       journalOutboxEntry,
       rollbackPendingLocalFileContent,
       markPendingLocalFileContent,
@@ -4745,6 +4843,7 @@ function DesignEditor() {
     [acknowledgeOutboxEntry, createFileSaveOutboxEntry, journalOutboxEntry],
   );
 
+  useEffect(() => flushCommitsOnInput(window), []);
   useEffect(() => {
     const sendPendingKeepaliveSaves = () => {
       if (!canEditDesignRef.current) return;
@@ -4756,6 +4855,7 @@ function DesignEditor() {
       );
     };
     const handlePageHide = () => {
+      flushCommitsAfterPaint();
       sendPendingKeepaliveSaves();
     };
     window.addEventListener("pagehide", handlePageHide);
@@ -5044,6 +5144,9 @@ function DesignEditor() {
   rawServerFilesByIdRef.current = new Map(
     serverFiles.map((file) => [file.id, file]),
   );
+  useEffect(() => {
+    forgetPreparedSourcesExcept(new Set(serverFiles.map((file) => file.id)));
+  }, [serverFiles]);
   useEffect(() => {
     if (pendingLocalFileContentsRef.current.size === 0) return;
     let changed = false;
@@ -6217,6 +6320,9 @@ function DesignEditor() {
         design,
         files,
         generationModelRef,
+        imageAttachmentUnavailableMessage: t(
+          "promptDialog.imageAttachmentUnavailable",
+        ),
         id,
         markGenerationStale,
         setGenerationChatTabId,
@@ -7177,6 +7283,9 @@ function DesignEditor() {
         isSignedIn && canEditDesign && viewMode === "single"
           ? activeFileId
           : null,
+      activityResource: id
+        ? { resourceType: "design", resourceId: id }
+        : undefined,
       requestSource: TAB_ID,
       user: currentUser,
     });
@@ -7189,11 +7298,27 @@ function DesignEditor() {
     awareness: overviewAwareness,
     ydoc: overviewYdoc,
     isSynced: overviewIsSynced,
+    activeUsers: overviewActiveUsers,
+    agentPresent: overviewAgentPresent,
+    agentActive: overviewAgentActive,
   } = useCollaborativeDoc({
     docId:
       isSignedIn && canEditDesign && overviewPresenceFileId
         ? overviewPresenceFileId
         : null,
+    activityResource: id
+      ? { resourceType: "design", resourceId: id }
+      : undefined,
+    requestSource: TAB_ID,
+    user: currentUser,
+  });
+
+  useViewerPresence({
+    designId: id ?? null,
+    isSignedIn,
+    canEditDesign,
+    accessRole: designAccessRole,
+    fileId: viewMode === "single" ? activeFileId : overviewPresenceFileId,
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -7785,11 +7910,17 @@ function DesignEditor() {
   const [inspectorPopoverOpen, setInspectorPopoverOpen] = useState(false);
   useEffect(() => {
     const ATTR = "data-radix-popper-content-wrapper";
+    // Every editor commit mutates the body; setting an unchanged value here
+    // still re-renders the editor, which mutates the body again.
+    let open: boolean | null = null;
     const update = () => {
       const wrappers = document.body.querySelectorAll(`[${ATTR}]`);
-      setInspectorPopoverOpen(
-        Array.from(wrappers).some((wrapper) => isRadixOverlayOpen(wrapper)),
+      const next = Array.from(wrappers).some((wrapper) =>
+        isRadixOverlayOpen(wrapper),
       );
+      if (next === open) return;
+      open = next;
+      setInspectorPopoverOpen(next);
     };
     const observer = new MutationObserver(update);
     observer.observe(document.body, {
@@ -7963,7 +8094,14 @@ function DesignEditor() {
 
   const othersWithAgentCursor = useMemo<OtherPresence[]>(() => {
     const container = canvasContainerRef.current;
-    if (!container) return othersForOverlays;
+    if (
+      !container ||
+      !othersForOverlays.some(
+        (other) => other.isAgent && !other.presence.cursor,
+      )
+    ) {
+      return othersForOverlays;
+    }
     const containerRect = container.getBoundingClientRect();
     if (containerRect.width === 0 || containerRect.height === 0) {
       return othersForOverlays;
@@ -8170,14 +8308,12 @@ function DesignEditor() {
       hasActiveCanvasContent: Boolean(activeFile && activeContent.trim()),
       pendingGenerationActive,
     });
-  useLayoutEffect(() => {
-    syncLatestActiveContentFromRender({
-      activeContent,
-      activeFile,
-      latestActiveContentRef,
-      pendingLocalFileContents: pendingLocalFileContentsRef.current,
-    });
-  }, [activeContent, activeFile?.id, activeFile?.fileType]);
+  useSyncLatestActiveContent({
+    activeContent,
+    activeFile,
+    latestActiveContentRef,
+    pendingLocalFileContents: pendingLocalFileContentsRef.current,
+  });
   useEffect(() => {
     if (!initialGenerationChromeLimited) return;
     setActiveLeftPanel("agent");
@@ -9425,11 +9561,6 @@ function DesignEditor() {
     selectedComponentLiteralProps,
   ]);
 
-  const selectedElementOuterHtml = useMemo(() => {
-    if (!selectedElement?.selector) return null;
-    return getElementOuterHtml(activeContent, selectedElement.selector);
-  }, [activeContent, selectedElement?.selector]);
-
   const motionSelectedTarget = useMemo<{
     nodeId: string;
     label: string;
@@ -9569,8 +9700,19 @@ function DesignEditor() {
 
   const inspectCodeData = useMemo<InspectCodeData | undefined>(() => {
     if (!selectedElement) return undefined;
-    return inspectCodeDataForElement(selectedElement, selectedElementOuterHtml);
-  }, [selectedElement, selectedElementOuterHtml]);
+    const selector = selectedElement.selector;
+    let html: string | null | undefined;
+    // Parses the whole screen; only the open code popover and Code tab read it.
+    return {
+      ...inspectCodeDataForElement(selectedElement, undefined),
+      get html() {
+        if (html === undefined) {
+          html = selector ? getElementOuterHtml(activeContent, selector) : null;
+        }
+        return html;
+      },
+    };
+  }, [activeContent, selectedElement]);
 
   const handleCreateComponent = useCallback(
     (name: string) => {
@@ -11514,6 +11656,9 @@ function DesignEditor() {
           canEditDesign,
           design,
           handleTweakPromptOpenChange,
+          imageAttachmentUnavailableMessage: t(
+            "promptDialog.imageAttachmentUnavailable",
+          ),
           id,
           tweakSelections,
           tweaks,
@@ -11529,6 +11674,7 @@ function DesignEditor() {
       design,
       handleTweakPromptOpenChange,
       id,
+      t,
       tweakSelections,
       tweaks,
     ],
@@ -11788,6 +11934,8 @@ function DesignEditor() {
             pendingOverviewLayerSelectionRef,
             pendingOverviewScreenSelectionRef,
             renderedElementInfoByLayerKeyRef,
+            revealLayer,
+            selectedElementRef,
             selectedLayerIdsState,
             setActiveFileId,
             setActiveTool,
@@ -11828,6 +11976,7 @@ function DesignEditor() {
       id,
       liveScreenIds,
       rehydrateRenderedInfoAfterPreview,
+      revealLayer,
       selectedLayerIdsState,
       t,
     ],
@@ -12334,6 +12483,7 @@ function DesignEditor() {
           replacePreviewContent,
           responsiveEditScopeRef,
           selectedElement,
+          selectedElementRef,
           setCollabContent,
           setCollabContentFileId,
           setContentRenderRevision,
@@ -13904,6 +14054,8 @@ function DesignEditor() {
         files,
         getFreshActiveContent,
         getScreenContent,
+        layerOwnerFileId: (layerId) =>
+          codeLayerOwnerByNodeIdRef.current.get(layerId)?.fileId,
         liveScreenSnapshotsById,
         overviewScreens,
         runtimeLayerSnapshotsById,
@@ -15009,6 +15161,7 @@ function DesignEditor() {
       subjectLayerId: string,
       targetLayerId: string,
       placement: "before" | "after" | "inside",
+      gridPlacement?: ReactGridPlacement,
     ): boolean =>
       runSendRuntimeLayerMoveSemanticHandoff(
         {
@@ -15022,6 +15175,7 @@ function DesignEditor() {
         subjectLayerId,
         targetLayerId,
         placement,
+        gridPlacement,
       ),
     [overviewScreens, runtimeLayerSnapshotsById, t],
   );
@@ -15946,6 +16100,12 @@ function DesignEditor() {
       targetAnchorSelector?: string;
       targetAnchorPlacement?: "before" | "after" | "inside";
       targetDropMode?: "flow-insert" | "absolute-container";
+      targetGridPlacement?: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
       targetAnchorRect?: {
         left: number;
         top: number;
@@ -16265,6 +16425,7 @@ function DesignEditor() {
           remintCollidingNodeIds: request.remintCollidingNodeIds,
           requestId: details.requestId,
           transactionId: request.transactionId,
+          gridPlacement: request.gridPlacement,
         },
       );
       if (request.transactionId) {
@@ -18855,6 +19016,9 @@ function DesignEditor() {
           clearGenerationCompleteTimer,
           design,
           generationModelRef,
+          imageAttachmentUnavailableMessage: t(
+            "promptDialog.imageAttachmentUnavailable",
+          ),
           id,
           setGenerationChatTabId,
           setGenerationIssue,
@@ -18872,6 +19036,7 @@ function DesignEditor() {
       clearGenerationCompleteTimer,
       design,
       id,
+      t,
     ],
   );
 
@@ -19156,41 +19321,49 @@ function DesignEditor() {
     ) {
       return;
     }
-    const revision = pendingVisualEditPublicationRevisionRef.current + 1;
-    pendingVisualEditPublicationRevisionRef.current = revision;
-    const pending =
-      pendingVisualEditCount > 0
-        ? {
-            designId: id,
-            publisherId: pendingVisualEditPublisherIdRef.current,
-            revision,
-            pending: {
-              designId: id,
-              pendingEditCount: pendingVisualEditCount,
-              status: "ready" as const,
-              prompt: pendingVisualStylePrompt,
-            },
-          }
-        : {
-            designId: id,
-            publisherId: pendingVisualEditPublisherIdRef.current,
-            revision,
-            pending: null,
-          };
-    if (pending.pending) {
-      pendingVisualEditHandoffPublicationRef.current =
-        updateVisualEditHandoffPublication(
-          pendingVisualEditHandoffPublicationRef.current,
-          { status: "queued", designId: id, publicationRevision: revision },
-        );
-      setPendingVisualEditHandoffServerRevision(null);
-    }
+    const pendingEditCount = pendingVisualEditCount;
+    const pendingPrompt = pendingVisualStylePrompt;
+    const bridgeRevisionSyncKey =
+      activeScreenBridgeUrl &&
+      activeScreenPreviewToken &&
+      activeScreenLiveEditCapability
+        ? `${id}\u0000${activeScreenBridgeUrl}`
+        : null;
     if (pendingVisualEditCount > 0) {
       pendingVisualEditClearRequestedRef.current = null;
       pendingVisualEditHadPendingRef.current = id;
     }
-    const publish = () =>
-      runPublishVisualEditPending({
+    const publish = async () => {
+      const revision = pendingVisualEditPublicationRevisionRef.current + 1;
+      pendingVisualEditPublicationRevisionRef.current = revision;
+      const pending =
+        pendingEditCount > 0
+          ? {
+              designId: id,
+              publisherId: pendingVisualEditPublisherIdRef.current,
+              revision,
+              pending: {
+                designId: id,
+                pendingEditCount,
+                status: "ready" as const,
+                prompt: pendingPrompt,
+              },
+            }
+          : {
+              designId: id,
+              publisherId: pendingVisualEditPublisherIdRef.current,
+              revision,
+              pending: null,
+            };
+      if (pending.pending) {
+        pendingVisualEditHandoffPublicationRef.current =
+          updateVisualEditHandoffPublication(
+            pendingVisualEditHandoffPublicationRef.current,
+            { status: "queued", designId: id, publicationRevision: revision },
+          );
+        setPendingVisualEditHandoffServerRevision(null);
+      }
+      await runPublishVisualEditPending({
         activeScreenBridgeUrl,
         activeScreenPreviewToken,
         activeScreenLiveEditCapability,
@@ -19201,6 +19374,38 @@ function DesignEditor() {
         pending,
         pendingVisualEditClearRequestedRef,
         pendingVisualEditHadPendingRef,
+        prepareLocalBridgeRevision:
+          bridgeRevisionSyncKey &&
+          pendingVisualEditBridgeRevisionSyncKeyRef.current !==
+            bridgeRevisionSyncKey
+            ? async () => {
+                const bridgeState = await readLocalVisualEditPendingState({
+                  activeScreenBridgeUrl: activeScreenBridgeUrl!,
+                  activeScreenPreviewToken: activeScreenPreviewToken!,
+                  activeScreenLiveEditCapability:
+                    activeScreenLiveEditCapability!,
+                  designId: id,
+                  fetchImpl: fetch,
+                });
+                const localRevision =
+                  Math.max(revision - 1, bridgeState.revision) + 1;
+                pendingVisualEditPublicationRevisionRef.current = Math.max(
+                  pendingVisualEditPublicationRevisionRef.current,
+                  localRevision,
+                );
+                pendingVisualEditBridgeRevisionSyncKeyRef.current =
+                  bridgeRevisionSyncKey;
+                return localRevision;
+              }
+            : undefined,
+        onLocalRevisionConflict: () => {
+          if (
+            pendingVisualEditBridgeRevisionSyncKeyRef.current ===
+            bridgeRevisionSyncKey
+          ) {
+            pendingVisualEditBridgeRevisionSyncKeyRef.current = null;
+          }
+        },
         onHandoffPublicationStatusChange: (
           status,
           publicationRevision,
@@ -19264,6 +19469,7 @@ function DesignEditor() {
           );
         },
       });
+    };
     pendingVisualEditPublicationQueueRef.current =
       pendingVisualEditPublicationQueueRef.current
         .catch((error) => {
@@ -19619,10 +19825,13 @@ function DesignEditor() {
   );
   const markScreenForExport = useCallback(
     (screenId: string) => {
-      if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) {
+      if (exportPreviewScreenIdRef.current !== screenId) {
         runtimeLayerSnapshotReadinessByIdRef.current[screenId] = {
           status: "loading",
         };
+        if (activeRuntimeLayerReadinessScreenIdRef.current === screenId) {
+          setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
+        }
       }
       exportPreviewScreenIdRef.current = screenId;
       setExportPreviewScreenId(screenId);
@@ -19636,9 +19845,9 @@ function DesignEditor() {
       );
       const sourceType =
         normalizeDesignSourceType(screen?.sourceType) ?? activeCanvasSourceType;
-      if (sourceType === "inline") return;
+      if (sourceType === "inline") return null;
       markScreenForExport(screenId);
-      await resolveSnapshotExportSource(screenId);
+      return await resolveSnapshotExportSource(screenId);
     },
     [
       activeCanvasSourceType,
@@ -19653,7 +19862,7 @@ function DesignEditor() {
   }, [setExportPreviewScreenId]);
 
   const resolvePngCaptureTarget = useCallback(
-    (scope: PngCaptureScope, requestedScreenId?: string) => {
+    async (scope: PngCaptureScope, requestedScreenId?: string) => {
       let iframe = canvasIframeRef.current;
       let cropSelection: ElementInfo | readonly ElementInfo[] | null =
         viewMode === "single" || scope === "element"
@@ -19709,34 +19918,18 @@ function DesignEditor() {
             selectedElement?.sourceLayerIdentity?.screenId ??
             (selectedScreenIds.length === 1 ? selectedScreenIds[0] : null) ??
             activeFile?.id;
-          const snapshot = screenId
-            ? runtimeLayerSnapshotsByIdRef.current[screenId]
-            : undefined;
+          const snapshotSource = screenId
+            ? await prepareSelectedScreenForExport(screenId)
+            : null;
           const screen = screenId
             ? overviewScreens.find((candidate) => candidate.id === screenId)
             : undefined;
-          const baseUrl = screenId
-            ? (liveScreenSnapshotsById[screenId]?.url ??
-              previewUrlAtLiveRoute(
-                screen?.url ?? screen?.previewUrl,
-                liveRoutePathsByScreenIdRef.current[screenId],
-              ))
-            : undefined;
-          if (
-            snapshot?.html &&
-            baseUrl &&
-            isCurrentRuntimeLayerSnapshot(
-              snapshot,
-              screenId
-                ? runtimeLayerSnapshotReadinessByIdRef.current[screenId]
-                : undefined,
-            )
-          ) {
+          if (snapshotSource) {
             return {
               cropSelection,
               doc: null,
               iframe,
-              snapshotSource: { html: snapshot.html, baseUrl },
+              snapshotSource,
               snapshotWidth: screen?.width ?? iframe.clientWidth,
               snapshotHeight: screen?.height ?? iframe.clientHeight,
             };
@@ -19757,8 +19950,8 @@ function DesignEditor() {
       canvasIframeRef,
       activeFile?.id,
       boardFileId,
-      liveScreenSnapshotsById,
       overviewScreens,
+      prepareSelectedScreenForExport,
       pngSelectedElements,
       selectedElement,
       selectedScreenIds,
@@ -19808,7 +20001,6 @@ function DesignEditor() {
           canEditDesign,
           canvasFrameGeometryById: exportCanvasFrameGeometryById,
           overviewScreens,
-          prepareScreenForExport: prepareSelectedScreenForExport,
           releaseScreenFromExport,
           resolvePngCaptureTarget,
           selectedScreenIds,
@@ -19832,6 +20024,7 @@ function DesignEditor() {
   const showRasterCaptureError = useCallback(
     (error: unknown, format: "png" | "pdf" = "png") => {
       if (error instanceof PngCaptureError) {
+        console.error(`${format.toUpperCase()} capture failed:`, error);
         if (format === "pdf") {
           toast.error(t("designEditor.toasts.pdfExportError"));
           return;
@@ -19858,15 +20051,24 @@ function DesignEditor() {
         return;
       }
       console.error(`${format.toUpperCase()} capture failed:`, error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t(
-              format === "pdf"
-                ? "designEditor.toasts.pdfExportError"
-                : "designEditor.toasts.pngExportError",
-            ),
-      );
+      const exportErrorToastKeys = {
+        export_too_large: "designEditor.toasts.exportTooLarge",
+        export_resources_unavailable:
+          "designEditor.toasts.exportResourcesUnavailable",
+        export_render_timeout: "designEditor.toasts.exportTimedOut",
+        export_render_busy: "designEditor.toasts.exportBusy",
+        export_chromium_unavailable:
+          "designEditor.toasts.exportChromiumUnavailable",
+      } as const;
+      const errorCode =
+        error instanceof NativeExportRenderError ? error.code : undefined;
+      const errorKey =
+        errorCode && errorCode in exportErrorToastKeys
+          ? exportErrorToastKeys[errorCode as keyof typeof exportErrorToastKeys]
+          : format === "pdf"
+            ? "designEditor.toasts.pdfExportError"
+            : "designEditor.toasts.pngExportError";
+      toast.error(t(errorKey));
     },
     [t],
   );
@@ -19916,6 +20118,7 @@ function DesignEditor() {
           renderPngBlob,
           resolveSelectedScreensBounds,
           resolvePngCaptureTarget,
+          releaseScreenFromExport,
           setPngExporting,
           showRasterCaptureError,
           t,
@@ -19929,6 +20132,7 @@ function DesignEditor() {
       renderPngBlob,
       resolveSelectedScreensBounds,
       resolvePngCaptureTarget,
+      releaseScreenFromExport,
       t,
       triggerBlobDownload,
     ],
@@ -20521,13 +20725,11 @@ function DesignEditor() {
     viewMode,
   ]);
   const activeCodeLayerTree = useMemo(
-    () => buildCodeLayerTree(activeCodeLayerProjection),
+    () => cachedCodeLayerTree(activeCodeLayerProjection),
     [activeCodeLayerProjection],
   );
-  const activeCodeLayerNodeById = useMemo(
-    () =>
-      new Map(activeCodeLayerProjection.nodes.map((node) => [node.id, node])),
-    [activeCodeLayerProjection],
+  const activeCodeLayerNodeById = cachedCodeLayerNodeById(
+    activeCodeLayerProjection,
   );
   const overviewScreenById = useMemo(
     () => new Map(overviewScreens.map((screen) => [screen.id, screen])),
@@ -20542,12 +20744,13 @@ function DesignEditor() {
     runtimeOnly: boolean;
     structurePreviewKey: string;
     tree: CodeLayerTreeNode[];
-    nodeById: Map<string, CodeLayerNode>;
+    nodeById: ReadonlyMap<string, CodeLayerNode>;
   };
   const codeLayerModelCacheRef = useRef<Map<string, CodeLayerFileModel>>(
     new Map(),
   );
   const codeLayerModelsArrayRef = useRef<CodeLayerFileModel[]>([]);
+  const recentLayerModelFileIdsRef = useRef<string[]>([]);
   const [coveredLayerModelFileIds, setCoveredLayerModelFileIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -20559,7 +20762,6 @@ function DesignEditor() {
       layerModelsCoverAll
         ? null
         : {
-            searching: layersSearchQuery.trim() !== "",
             boardFileId,
             expandedIds: new Set(expandedLayerIds),
             lockedLayerIds,
@@ -20586,7 +20788,6 @@ function DesignEditor() {
       initialRouteScreenTarget,
       initialRouteSelectionId,
       layerModelsCoverAll,
-      layersSearchQuery,
       lockedLayerIds,
       selectedLayerIdsState,
     ],
@@ -20609,19 +20810,26 @@ function DesignEditor() {
       sourceLayerStates.set(fileId, { content, present });
       return present;
     };
+    const isFocused = (fileId: string) =>
+      fileId === activeFile?.id ||
+      fileId === demand?.boardFileId ||
+      fileId === demand?.routeSelectionFileId ||
+      Boolean(demand?.expandedIds.has(fileId)) ||
+      Boolean(layerStructurePreviewByFileId[fileId]);
+    const recentFileIds = nextRecentLayerModelFileIds(
+      recentLayerModelFileIdsRef.current,
+      files.map((file) => file.id).filter(isFocused),
+    );
+    recentLayerModelFileIdsRef.current = recentFileIds;
+    // Every other screen's model is rebuilt on demand: keeping each one a
+    // session touched grew a large board's heap past a gigabyte.
     const isNeeded = (fileId: string) =>
       !demand ||
-      demand.searching ||
-      cache.has(fileId) ||
-      fileId === activeFile?.id ||
-      fileId === demand.boardFileId ||
-      fileId === demand.routeSelectionFileId ||
+      coveredLayerModelFileIds.has(fileId) ||
+      isFocused(fileId) ||
+      recentFileIds.includes(fileId) ||
       demand.lockedLayerIds.has(fileId) ||
       demand.hiddenLayerIds.has(fileId) ||
-      demand.expandedIds.has(fileId) ||
-      Boolean(layerStructurePreviewByFileId[fileId]) ||
-      Boolean(runtimeLayerSnapshotsById[fileId]) ||
-      nonActiveProjectionCacheRef.current.has(fileId) ||
       hasSourceLayerState(fileId);
     const buildModel = (file: (typeof files)[number]): CodeLayerFileModel => {
       const sourceContent = getScreenContent(file.id);
@@ -20673,10 +20881,10 @@ function DesignEditor() {
         return cached;
       }
       const baseTree = useRuntimeProjection
-        ? buildCodeLayerTree(projection)
+        ? cachedCodeLayerTree(projection)
         : file.id === activeFile?.id
           ? activeCodeLayerTree
-          : buildCodeLayerTree(projection);
+          : cachedCodeLayerTree(projection);
       const tree = structurePreview
         ? (() => {
             const sourceNode = resolveCodeLayerNodeFromBridge(
@@ -20707,7 +20915,7 @@ function DesignEditor() {
         runtimeOnly: useRuntimeProjection,
         structurePreviewKey,
         tree,
-        nodeById: new Map(projection.nodes.map((node) => [node.id, node])),
+        nodeById: cachedCodeLayerNodeById(projection),
       };
       cache.set(file.id, model);
       return model;
@@ -20741,19 +20949,20 @@ function DesignEditor() {
         );
       },
     });
+    const builtFileIds = new Set(models.map((model) => model.fileId));
     for (const fileId of cache.keys()) {
-      if (!liveFileIds.has(fileId)) cache.delete(fileId);
+      if (!builtFileIds.has(fileId)) cache.delete(fileId);
     }
     for (const fileId of sourceLayerStates.keys()) {
       if (!liveFileIds.has(fileId)) sourceLayerStates.delete(fileId);
     }
     for (const fileId of runtimeProjectionCacheRef.current.keys()) {
-      if (!liveFileIds.has(fileId)) {
+      if (!builtFileIds.has(fileId)) {
         runtimeProjectionCacheRef.current.delete(fileId);
       }
     }
     for (const fileId of nonActiveProjectionCacheRef.current.keys()) {
-      if (!liveFileIds.has(fileId)) {
+      if (!builtFileIds.has(fileId)) {
         nonActiveProjectionCacheRef.current.delete(fileId);
       }
     }
@@ -20770,6 +20979,7 @@ function DesignEditor() {
     activeCodeLayerTree,
     activeFile?.id,
     codeLayerSourceForScreen,
+    coveredLayerModelFileIds,
     designSourceType,
     files,
     getCodeLayerProjectionForScreen,
@@ -20785,60 +20995,100 @@ function DesignEditor() {
     getCodeLayerProjectionForScreen,
   );
   getCodeLayerProjectionForScreenRef.current = getCodeLayerProjectionForScreen;
+  const getProjectionContentForScreenRef = useRef(
+    getProjectionContentForScreen,
+  );
+  getProjectionContentForScreenRef.current = getProjectionContentForScreen;
+  const coveredLayerModelFileIdsRef = useRef(coveredLayerModelFileIds);
+  coveredLayerModelFileIdsRef.current = coveredLayerModelFileIds;
+  // Only a search needs every screen's layers; building them up front holds
+  // hundreds of megabytes on a large board that a session mostly never opens.
+  const layersSearching = layersSearchQuery.trim() !== "";
+  const layersSearchQueryRef = useRef(layersSearchQuery);
+  layersSearchQueryRef.current = layersSearchQuery;
   useEffect(() => {
-    if (layerModelsCoverAll) return;
-    const projected: string[] = [];
+    if (layersSearching) return;
+    setCoveredLayerModelFileIds((covered) =>
+      covered.size === 0 ? covered : new Set(),
+    );
+  }, [layersSearching]);
+  // The worklist restarts when a screen is added, removed, or replaced; edits
+  // keep their ids, so typing never restarts it.
+  const fileIdsKey = useMemo(
+    () => files.map((file) => file.id).join("\u0000"),
+    [files],
+  );
+  useEffect(() => {
+    if (!layersSearching || layerModelsCoverAll) return;
+    let rankedQuery: string | null = null;
+    let ranked: typeof historyFilesRef.current = [];
     let next = 0;
     return runInIdleSlices((deadline) => {
-      const pending = historyFilesRef.current;
-      do {
-        const file = pending[next];
-        if (!file) {
-          setCoveredLayerModelFileIds(
-            (covered) => new Set([...covered, ...projected]),
-          );
-          return true;
-        }
+      const query = layersSearchQueryRef.current.trim();
+      if (query !== rankedQuery) {
+        rankedQuery = query;
+        next = 0;
+        // Screens whose source contains the query hold most text matches, so
+        // they build first; the rest still build for name and type matches.
+        const pattern = new RegExp(
+          query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          "i",
+        );
+        const uncovered = historyFilesRef.current.filter(
+          (file) => !coveredLayerModelFileIdsRef.current.has(file.id),
+        );
+        const likely = uncovered.filter((file) =>
+          pattern.test(getProjectionContentForScreenRef.current(file.id)),
+        );
+        ranked = [
+          ...likely,
+          ...uncovered.filter((file) => !likely.includes(file)),
+        ];
+      }
+      const projected: string[] = [];
+      while (next < ranked.length) {
+        const file = ranked[next]!;
         next += 1;
-        if (coveredLayerModelFileIds.has(file.id)) continue;
+        if (coveredLayerModelFileIdsRef.current.has(file.id)) continue;
         getCodeLayerProjectionForScreenRef.current(file.id);
         projected.push(file.id);
-      } while (performance.now() < deadline);
-      return false;
+        if (performance.now() >= deadline) break;
+      }
+      if (projected.length > 0) {
+        setCoveredLayerModelFileIds(
+          (covered) => new Set([...covered, ...projected]),
+        );
+      }
+      return next >= ranked.length;
     });
-  }, [coveredLayerModelFileIds, layerModelsCoverAll]);
+  }, [fileIdsKey, layerModelsCoverAll, layersSearching]);
   const codeLayerModelByFileId = useMemo(
     () => new Map(codeLayerModelsByFile.map((model) => [model.fileId, model])),
     [codeLayerModelsByFile],
   );
-  const codeLayerOwnerByNodeId = useMemo(() => {
-    const owners = new Map<
-      string,
-      {
-        fileId: string;
-        node: CodeLayerNode;
-        sourceProjection: CodeLayerProjection;
-        tree: CodeLayerTreeNode[];
-        runtimeOnly: boolean;
-      }
-    >();
-    codeLayerModelsByFile.forEach((model) => {
-      model.projection.nodes.forEach((node) => {
-        owners.set(node.id, {
-          fileId: model.fileId,
-          node,
-          sourceProjection: model.sourceProjection,
-          tree: model.tree,
-          runtimeOnly: isCodeLayerNodeRuntimeOnly({
-            fileIsRuntimeProjected: model.runtimeOnly,
-            nodeIdAttr: node.dataAttributes["data-agent-native-node-id"],
-            sourceNodeIdAttrs: model.sourceNodeIdAttrs,
-          }),
-        });
-      });
-    });
-    return owners;
-  }, [codeLayerModelsByFile]);
+  const projectionPinOwner = useId();
+  useEffect(() => {
+    // Only the screens in use: a layer search builds every model, and pinning
+    // all of them would hold each screen's parse outside the cache budget.
+    pinCodeLayerDocuments(projectionPinOwner, [
+      activeContent,
+      ...recentLayerModelFileIdsRef.current.map(getProjectionContentForScreen),
+    ]);
+    return () => pinCodeLayerDocuments(projectionPinOwner, []);
+  }, [
+    activeContent,
+    codeLayerModelsByFile,
+    getProjectionContentForScreen,
+    projectionPinOwner,
+  ]);
+  const codeLayerOwnerIndexRef = useRef<CodeLayerOwnerIndex | null>(null);
+  const codeLayerOwnerByNodeId = useMemo(
+    () =>
+      (codeLayerOwnerIndexRef.current ??= new CodeLayerOwnerIndex()).sync(
+        codeLayerModelsByFile,
+      ),
+    [codeLayerModelsByFile],
+  );
   const resolvedInitialRouteSelectionId = useMemo(() => {
     if (!initialRouteSelectionId) return null;
     const targetFile = initialRouteScreenTarget
@@ -21014,82 +21264,23 @@ function DesignEditor() {
     };
   }, [codeLayerOwnerByNodeId, effectiveCodeLayerState, selectedLayerIdsState]);
   useEffect(() => {
-    const fileIds = new Set(files.map((file) => file.id));
-    const lockedFromSource = new Set(
-      codeLayerModelsByFile.flatMap((model) =>
-        model.projection.nodes
-          .filter(
-            (node) =>
-              node.dataAttributes["data-agent-native-locked"] === "true",
-          )
-          .map((node) => scopedLayerStateId(model.fileId, node.id)),
-      ),
+    const liveFileIds = new Set(files.map((file) => file.id));
+    const builtStateByFileId = new Map(
+      codeLayerModelsByFile.map((model) => [
+        model.fileId,
+        sourceLayerStateIds(model.fileId, model.projection),
+      ]),
     );
-    const hiddenFromSource = new Set(
-      codeLayerModelsByFile.flatMap((model) =>
-        model.projection.nodes
-          .filter(
-            (node) =>
-              node.dataAttributes["data-agent-native-hidden"] === "true",
-          )
-          .map((node) => scopedLayerStateId(model.fileId, node.id)),
-      ),
-    );
-    const allLayerIds = new Set([
-      ...fileIds,
-      ...codeLayerModelsByFile.flatMap((model) =>
-        model.projection.nodes.map((node) =>
-          scopedLayerStateId(model.fileId, node.id),
-        ),
-      ),
-    ]);
-    const reconcile = (
-      current: Set<string>,
-      sourceIds: Set<string>,
-      kind: "hidden" | "locked",
-    ): Set<string> => {
-      const next = new Set(sourceIds);
-      current.forEach((id) => {
-        if (fileIds.has(id)) next.add(id);
+    const reconcile = (current: Set<string>, kind: "hidden" | "locked") =>
+      reconcileLayerStateIds({
+        current,
+        kind,
+        liveFileIds,
+        builtStateByFileId,
+        overrides: layerStateOverridesRef.current,
       });
-      layerStateOverridesRef.current.forEach((override, id) => {
-        if (!allLayerIds.has(id)) {
-          layerStateOverridesRef.current.delete(id);
-          return;
-        }
-        const value = override[kind];
-        if (value === undefined) return;
-        if (!fileIds.has(id) && sourceIds.has(id) === value) {
-          const remaining = { ...override };
-          delete remaining[kind];
-          if (
-            remaining.hidden === undefined &&
-            remaining.locked === undefined
-          ) {
-            layerStateOverridesRef.current.delete(id);
-          } else {
-            layerStateOverridesRef.current.set(id, remaining);
-          }
-          return;
-        }
-        if (value) next.add(id);
-        else next.delete(id);
-      });
-      if (
-        next.size === current.size &&
-        Array.from(next).every((id) => current.has(id))
-      ) {
-        return current;
-      }
-      return next;
-    };
-
-    setLockedLayerIds((current) =>
-      reconcile(current, lockedFromSource, "locked"),
-    );
-    setHiddenLayerIds((current) =>
-      reconcile(current, hiddenFromSource, "hidden"),
-    );
+    setLockedLayerIds((current) => reconcile(current, "locked"));
+    setHiddenLayerIds((current) => reconcile(current, "hidden"));
   }, [codeLayerModelsByFile, files]);
   const lockedLayerSelectors = useMemo(() => {
     const activeLayerIds = activeFile?.id
@@ -21198,7 +21389,8 @@ function DesignEditor() {
           lockable: true,
           hideable: true,
           renamable: true,
-          layers: codeLayerTreeToPanelNodes(
+          childrenPending: !model && screenBodyHasElements(file.content ?? ""),
+          layers: cachedCodeLayerTreeToPanelNodes(
             model?.tree ?? [],
             layerStateIdsForScreen(lockedLayerIds, file.id),
             layerStateIdsForScreen(hiddenLayerIds, file.id),
@@ -21217,7 +21409,7 @@ function DesignEditor() {
     if (!boardFileId) return undefined;
     const model = codeLayerModelByFileId.get(boardFileId);
     if (!model?.tree?.length) return undefined;
-    const nodes = codeLayerTreeToPanelNodes(
+    const nodes = cachedCodeLayerTreeToPanelNodes(
       model.tree,
       layerStateIdsForScreen(lockedLayerIds, boardFileId),
       layerStateIdsForScreen(hiddenLayerIds, boardFileId),
@@ -21308,7 +21500,7 @@ function DesignEditor() {
     const activeTree = activeFile?.id
       ? (codeLayerModelByFileId.get(activeFile.id)?.tree ?? activeCodeLayerTree)
       : activeCodeLayerTree;
-    return codeLayerTreeToPanelNodes(
+    return cachedCodeLayerTreeToPanelNodes(
       activeTree,
       activeFile?.id
         ? layerStateIdsForScreen(lockedLayerIds, activeFile.id)
@@ -21336,30 +21528,36 @@ function DesignEditor() {
   }, [activeFile?.id, activeLayerPanelNodes.length, layerPanelFiles, viewMode]);
 
   const selectedLayerIds = useMemo(() => {
-    const validIds = new Set(
-      (viewMode === "overview"
-        ? codeLayerModelsByFile.flatMap((model) => model.projection.nodes)
-        : activeFile?.id
-          ? (codeLayerModelByFileId.get(activeFile.id)?.projection.nodes ??
-            activeCodeLayerProjection.nodes)
-          : activeCodeLayerProjection.nodes
-      ).map((node) => node.id),
-    );
+    const activeNodeById = activeFile?.id
+      ? codeLayerModelByFileId.get(activeFile.id)?.nodeById
+      : undefined;
+    const isProjectedLayerId = (layerId: string) =>
+      viewMode === "overview"
+        ? codeLayerModelsByFile.some((model) => model.nodeById.has(layerId))
+        : activeNodeById
+          ? activeNodeById.has(layerId)
+          : activeCodeLayerProjection.nodes.some((node) => node.id === layerId);
+    const extraValidIds = new Set<string>();
     const fileIds = new Set(files.map((file) => file.id));
     const pendingOverviewScreenId = pendingOverviewScreenSelectionRef.current;
     const pendingOverviewLayerId = pendingOverviewLayerSelectionRef.current;
     if (pendingOverviewScreenId) {
-      validIds.add(pendingOverviewScreenId);
+      extraValidIds.add(pendingOverviewScreenId);
       fileIds.add(pendingOverviewScreenId);
     }
     if (pendingOverviewLayerId) {
-      validIds.add(pendingOverviewLayerId);
+      extraValidIds.add(pendingOverviewLayerId);
     }
     if (createdOverviewLayerSelection) {
-      validIds.add(createdOverviewLayerSelection.layerId);
+      extraValidIds.add(createdOverviewLayerSelection.layerId);
     }
-    if (selectedElementLayerId) validIds.add(selectedElementLayerId);
-    files.forEach((file) => validIds.add(file.id));
+    if (selectedElementLayerId) extraValidIds.add(selectedElementLayerId);
+    const validIds = {
+      has: (layerId: string) =>
+        extraValidIds.has(layerId) ||
+        fileIds.has(layerId) ||
+        isProjectedLayerId(layerId),
+    };
     const selectedStateIds = selectedLayerIdsState.filter((layerId) =>
       validIds.has(layerId),
     );
@@ -22448,6 +22646,11 @@ function DesignEditor() {
       externalPreviewUrlForContent(getScreenContent(fileId)) === null &&
       externalPreviewUrlForContent(content) === null;
 
+    const projectionOf = (fileId: string, content: string) =>
+      content === getProjectionContentForScreen(fileId)
+        ? (getCodeLayerProjectionForScreen(fileId) ?? undefined)
+        : undefined;
+
     if (selectedLayerTargets.length > 0) {
       return selectedLayerTargets.flatMap((target) => {
         const content =
@@ -22459,6 +22662,7 @@ function DesignEditor() {
               {
                 fileId: target.fileId,
                 content,
+                projection: projectionOf(target.fileId, content),
                 source: codeLayerSourceForScreen(target.fileId),
                 sourceId: bridgeSourceIdForCodeLayerNode(target.node),
                 selector: target.node.selector,
@@ -22473,6 +22677,7 @@ function DesignEditor() {
         {
           fileId: activeFile.id,
           content: activeContent,
+          projection: projectionOf(activeFile.id, activeContent),
           source: codeLayerSourceForScreen(activeFile.id),
           sourceId: selectedElement.sourceId,
           selector: selectedElement.selector,
@@ -22487,6 +22692,7 @@ function DesignEditor() {
             {
               fileId: screenId,
               content,
+              projection: projectionOf(screenId, content),
               source: codeLayerSourceForScreen(screenId),
               wholeDocument: true,
             },
@@ -22498,6 +22704,7 @@ function DesignEditor() {
     codeLayerSourceForScreen,
     designSourceType,
     activeFile?.id,
+    getCodeLayerProjectionForScreen,
     getProjectionContentForScreen,
     getScreenContent,
     overviewScreens,
@@ -22830,10 +23037,13 @@ function DesignEditor() {
   }, [files]);
 
   useEffect(() => {
+    if (
+      !selectedElementLayerId ||
+      selectedLayerIdsStateRef.current.includes(selectedElementLayerId)
+    ) {
+      return;
+    }
     setSelectedLayerIdsState((current) => {
-      if (!selectedElementLayerId) {
-        return current;
-      }
       if (current.includes(selectedElementLayerId)) return current;
       if (current.length > 1) return [...current, selectedElementLayerId];
       return [selectedElementLayerId];
@@ -22848,32 +23058,25 @@ function DesignEditor() {
       selectedElementLayerId,
     );
     if (ancestorIds.length === 0) return;
-    setExpandedLayerIds((current) => {
-      const next = new Set(current);
-      if (owner?.fileId) next.add(owner.fileId);
-      ancestorIds.forEach((ancestorId) => next.add(ancestorId));
-      return next.size === current.length ? current : Array.from(next);
-    });
-  }, [activeCodeLayerTree, codeLayerOwnerByNodeId, selectedElementLayerId]);
+    revealLayerIds(
+      owner?.fileId ? [owner.fileId, ...ancestorIds] : ancestorIds,
+    );
+  }, [
+    activeCodeLayerTree,
+    codeLayerOwnerByNodeId,
+    revealLayerIds,
+    selectedElementLayerId,
+  ]);
 
   useEffect(() => {
-    const selectedCodeLayerIds = selectedLayerIds.filter((layerId) =>
-      codeLayerOwnerByNodeId.has(layerId),
-    );
-    if (selectedCodeLayerIds.length === 0) return;
-    setExpandedLayerIds((current) => {
-      const next = new Set(current);
-      selectedCodeLayerIds.forEach((layerId) => {
-        const owner = codeLayerOwnerByNodeId.get(layerId);
-        if (!owner) return;
-        next.add(owner.fileId);
-        collectCodeLayerAncestors(owner.tree, layerId).forEach((ancestorId) =>
-          next.add(ancestorId),
-        );
-      });
-      return next.size === current.length ? current : Array.from(next);
-    });
-  }, [codeLayerOwnerByNodeId, selectedLayerIds]);
+    const ids: string[] = [];
+    for (const layerId of selectedLayerIds) {
+      const owner = codeLayerOwnerByNodeId.get(layerId);
+      if (!owner) continue;
+      ids.push(owner.fileId, ...collectCodeLayerAncestors(owner.tree, layerId));
+    }
+    if (ids.length > 0) revealLayerIds(ids);
+  }, [codeLayerOwnerByNodeId, revealLayerIds, selectedLayerIds]);
 
   useEffect(() => {
     if (!selectedElementLayerId) return;
@@ -23266,7 +23469,9 @@ function DesignEditor() {
   ]);
   const handleInteractionStateChange = useCallback(
     (next: InteractionState | null) => {
-      setActiveInteractionStateState(next);
+      if (activeInteractionStateStateRef.current !== next) {
+        setActiveInteractionStateState(next);
+      }
     },
     [],
   );
@@ -23615,8 +23820,11 @@ function DesignEditor() {
     (id) => !id.startsWith("__") && !fileIdSet.has(id),
   );
   const selectedActiveFileNodeIds = useMemo(
-    () => getActiveFileSelectedNodeIds(activeContent),
-    [activeContent, getActiveFileSelectedNodeIds],
+    () =>
+      selectedLayerIdsState.length >= 2
+        ? getActiveFileSelectedNodeIds(activeContent)
+        : [],
+    [activeContent, getActiveFileSelectedNodeIds, selectedLayerIdsState.length],
   );
   const canOfferBooleanSubtract =
     canEditDesign &&
@@ -23912,27 +24120,36 @@ function DesignEditor() {
         );
       }
       if (selectedLayerIdsStateRef.current.includes(layerId)) {
-        setSelectedElement((current) => {
+        const ownerId =
+          owner.node.dataAttributes["data-agent-native-node-id"] ??
+          bridgeSourceIdForCodeLayerNode(owner.node);
+        const mergeMeasured = (current: ElementInfo | null) => {
           if (!current) return measured;
           const currentId = current.sourceId ?? current.runtimeSourceId;
-          const ownerId =
-            owner.node.dataAttributes["data-agent-native-node-id"] ??
-            bridgeSourceIdForCodeLayerNode(owner.node);
-          return currentId === ownerId
-            ? {
-                ...measured,
-                ...current,
-                sourceLayerIdentity: measured.sourceLayerIdentity,
-                boundingRect: measured.boundingRect,
-                parentBoundingRect:
-                  measured.parentBoundingRect ?? current.parentBoundingRect,
-                computedStyles: {
-                  ...measured.computedStyles,
-                  ...current.computedStyles,
-                },
-              }
-            : current;
-        });
+          if (currentId !== ownerId) return current;
+          const merged = {
+            ...measured,
+            ...current,
+            sourceLayerIdentity: measured.sourceLayerIdentity,
+            boundingRect: measured.boundingRect,
+            parentBoundingRect:
+              measured.parentBoundingRect ?? current.parentBoundingRect,
+            computedStyles: {
+              ...measured.computedStyles,
+              ...current.computedStyles,
+            },
+          };
+          return samePlainData(merged, current) ? current : merged;
+        };
+        const rendered = selectedElementRef.current;
+        // The ref lags a selection set earlier in the same handler, so only a
+        // no-op merge into the element it already holds is safe to skip.
+        if (
+          (rendered?.sourceId ?? rendered?.runtimeSourceId) !== ownerId ||
+          mergeMeasured(rendered) !== rendered
+        ) {
+          setSelectedElement(mergeMeasured);
+        }
       }
       if (
         measured.boundingRect.width <= 0 ||
@@ -24671,7 +24888,7 @@ function DesignEditor() {
               ? previewUrlAtLiveRoute(screenPreviewUrl, currentLiveRoutePath)
               : undefined
           }
-          previewUrlSourceKey={`${screen.id}:${screenPreviewUrl ?? screenContent}`}
+          previewUrlSourceKey={`${screen.id}:${screenPreviewUrl ?? getContentSignature(screenContent)}`}
           previewFrameId={
             breakpointWidthPx === undefined
               ? undefined
@@ -26321,12 +26538,13 @@ function DesignEditor() {
           {hostEmbeddedEditor ? null : (
             <>
               <PresenceBar
-                activeUsers={[
-                  ...(currentUser ? [currentUser] : []),
-                  ...(activeUsers ?? []),
-                ]}
-                agentPresent={agentPresent}
-                agentActive={agentActive}
+                activeUsers={mergePresenceUsers(
+                  currentUser ? [currentUser] : [],
+                  activeUsers,
+                  overviewActiveUsers,
+                )}
+                agentPresent={agentPresent || overviewAgentPresent}
+                agentActive={agentActive || overviewAgentActive}
                 currentUserEmail={currentUser?.email}
                 showCurrentUser
                 followingEmail={followingEmail}
@@ -27034,7 +27252,7 @@ function DesignEditor() {
                         activeLeftPanel === "code" ? "flex" : "hidden",
                       )}
                     >
-                      {id && !shellMode ? (
+                      {id && !shellMode && codeWorkbenchOpenedRef.current ? (
                         <CodeWorkbenchLoader
                           designId={id}
                           activeFileId={routeCodeFileId}
@@ -28620,11 +28838,13 @@ function DesignEditor() {
           files: UploadedFile[],
           options: PromptComposerSubmitOptions,
         ) => {
+          const images = imageAttachmentsFromUploadedFiles(files);
           if (isBuilderDesignEmbed) {
+            const data = builderDesignEmbedSubmitData(prompt, images);
             window.parent.postMessage(
               {
                 type: "agentNative.submitChat",
-                data: { message: prompt, submit: true },
+                data,
               },
               parentOriginRef.current ?? window.location.origin,
             );
@@ -28640,13 +28860,15 @@ function DesignEditor() {
           const designSystemId = selectedPromptDesignSystemId;
           persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
-          const images = imageAttachmentsFromUploadedFiles(files);
           const designSystemContext =
             await loadDesignSystemGenerationContext(designSystemId);
+          const hasReferenceImages = images.length > 0;
           const shouldExploreVariants =
-            promptRequestsVariantExploration(prompt);
+            !hasReferenceImages && promptRequestsVariantExploration(prompt);
           const intake =
-            shouldExploreVariants || !creativeContextEnabled
+            shouldExploreVariants ||
+            hasReferenceImages ||
+            !creativeContextEnabled
               ? null
               : await (async () => {
                   await creativeContextPersistRef.current?.catch(() => {});
@@ -28657,6 +28879,7 @@ function DesignEditor() {
                 })();
           const shouldSkipQuestions =
             shouldExploreVariants ||
+            hasReferenceImages ||
             (intake ? allIntakeTopicsCovered(intake.coverage) : false);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
@@ -28669,7 +28892,11 @@ function DesignEditor() {
               ? designVariantGenerationDirectives(id, designSystemId)
               : shouldSkipQuestions
                 ? [
-                    ...designGenerationDirectives(id, designSystemId),
+                    ...designGenerationDirectives(
+                      id,
+                      designSystemId,
+                      images.length,
+                    ),
                     ...(intake?.explicitContext &&
                     intake.precedent.status === "strong"
                       ? designPrecedentDirectives(
@@ -28682,7 +28909,7 @@ function DesignEditor() {
                 : designIntakeQuestionDirectives(
                     id,
                     designSystemId,
-                    0,
+                    images.length,
                     intake
                       ? {
                           coverage: intake.coverage,
@@ -28772,7 +28999,7 @@ function DesignEditor() {
           1. Idle — confirm prompt with description of what will happen.
           2. Migrating — spinner while the Builder cloud agent accepts the job.
           3. Success — branchName + url; sourceType already flipped to fusion.
-          4. Not-configured — CTA to connect Builder.io.
+          4. Not-configured — CTA to use Builder.io.
       */}
       <MakeRealDialog
         open={makeRealDialogOpen}

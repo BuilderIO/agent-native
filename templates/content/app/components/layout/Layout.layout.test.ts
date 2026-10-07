@@ -16,7 +16,9 @@ describe("app layout", () => {
   it("exposes the sidebar width to editor content for responsive surfaces", () => {
     const source = readLayoutSource();
 
-    expect(source).toContain("const contentSidebarWidth = isCompactLayout");
+    expect(source).toMatch(
+      /contentSidebarWidth\s*=\s*openAiWidget\s*\|\|\s*isCompactLayout/,
+    );
     expect(source).toContain('"--content-sidebar-width"');
     expect(source).toContain("sidebarCollapsed");
   });
@@ -34,6 +36,13 @@ describe("app layout", () => {
       'className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"',
     );
     expect(source).not.toContain("md:hidden");
+  });
+
+  it("keeps workspace-wide sidebar data out of scoped OpenAI widgets", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain("fullWidthSettings || openAiWidget ? null");
+    expect(source).toMatch(/contentSidebarWidth\s*=\s*openAiWidget/);
   });
 
   it("persists the desktop sidebar collapse preference through the shared app shell", () => {
@@ -65,7 +74,7 @@ describe("app layout", () => {
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
     expect(source).toMatch(
-      /<DocumentEditorSkeleton\s+title=\{pendingDocumentTitle\}\s+iconRow=\{readPageIconRowHint\(pendingDocumentId\)\}/,
+      /<DocumentEditorSkeleton\s+title=\{pendingDocumentTitle\}\s+iconRow=\{readPageIconRowHint\(pendingDocumentId\)\}\s+shape=\{readPageShapeHint\(pendingDocumentId\)\}/,
     );
   });
 

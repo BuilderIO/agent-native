@@ -14,6 +14,7 @@ import {
   getQuery,
   getHeader,
   getRequestIP,
+  readBody as readH3Body,
   type H3Event,
 } from "h3";
 
@@ -89,7 +90,6 @@ import {
   executeAgentToolCall,
   filterActionsByAllowedNames,
   normalizeAgentActionSurfaceResolution,
-  toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
   abortTurnByRefDurably,
@@ -128,6 +128,7 @@ import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   type ThreadSuggestionRun,
+  type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
 import { attachToolSearch } from "../agent/tool-search.js";
@@ -203,7 +204,10 @@ import {
   normalizeMcpPrincipal,
   principalFromRequestContext,
 } from "../mcp-client/principal.js";
-import { declaredMcpToolNames } from "../mcp/build-server.js";
+import {
+  declaredMcpToolNames,
+  getMcpDirectoryWidgetResourceUri,
+} from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -226,6 +230,7 @@ import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
+import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-session.js";
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
@@ -268,7 +273,7 @@ import {
   registerAuthPublicPaths,
 } from "./auth.js";
 import { captureError } from "./capture-error.js";
-import { completeText } from "./complete-text.js";
+import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -293,6 +298,11 @@ import {
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
+type AgentChatRunTrackingSource = Pick<
+  TrackingMeta,
+  "userId" | "authUserId" | "anonymousId" | "sessionId"
+> & { isSyntheticTraffic?: boolean };
+
 export function trackAgentChatRunLifecycle(
   event: "run_started" | "run_finished" | "run_no_reply",
   threadId: string | undefined,
@@ -300,8 +310,15 @@ export function trackAgentChatRunLifecycle(
   userId?: string,
   properties: Record<string, unknown> = {},
   appId?: string,
+  trackingSource?: AgentChatRunTrackingSource,
 ): void {
-  if (!threadId?.trim() || !attemptId?.trim()) return;
+  if (
+    !threadId?.trim() ||
+    !attemptId?.trim() ||
+    trackingSource?.isSyntheticTraffic === true
+  ) {
+    return;
+  }
   track(
     event,
     {
@@ -310,7 +327,7 @@ export function trackAgentChatRunLifecycle(
       thread_id: threadId,
       attempt_id: attemptId,
     },
-    runLifecycleTrackingSource(userId),
+    trackingSource ?? runLifecycleTrackingSource(userId),
   );
 }
 
@@ -792,11 +809,20 @@ async function resolveResourceOrgId(
   return resolved === undefined ? getRequestOrgId() : resolved;
 }
 
+// Lean runs never receive the compact framework prompt, so the batching rule
+// it carries has to ride the run policy instead.
+const LEAN_PARALLEL_READS_NOTE =
+  "\n\nWhen several independent reads are needed, emit them in the same step.";
+
 export function buildLeanRunPolicyPrompt(
   codeEditingSurfaceRestriction: string,
   prodCodeExecPromptNote: string,
 ): string {
-  return codeEditingSurfaceRestriction + prodCodeExecPromptNote;
+  return (
+    LEAN_PARALLEL_READS_NOTE +
+    codeEditingSurfaceRestriction +
+    prodCodeExecPromptNote
+  );
 }
 
 export function filterPromptActionsToSurface(
@@ -1038,11 +1064,11 @@ export function resolveHostedBuilderHandoff(
 
 /** Setup CTAs that must be callable on the very first request.
  *
- *  Both are recovery actions: the agent should answer "connect Builder for me"
+ *  Both are recovery actions: the agent should answer "use Builder.io for me"
  *  or a failed upload by rendering the inline card, not by spending a turn in
  *  `tool-search` first. `connect-builder` is registered in every registry that
  *  receives `browserTools`, local dev included, so naming it only through the
- *  hosted-only handoff left local dev advertising "Connect Builder.io" in the
+ *  hosted-only handoff left local dev advertising "Use Builder.io" in the
  *  UI while the agent was never told the tool existed. Names the registry does
  *  not have are dropped by `filterInitialEngineTools`, so listing both here is
  *  safe for lean registries. */
@@ -1217,6 +1243,9 @@ export function createAgentChatPlugin(
       // `externalAgents` into `mcp`. A2A reads the same object, so the
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
+      const mcpServerName = options?.appId
+        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+        : "Agent";
       const mcpActionEntryOptions: McpActionEntryOptions =
         options?.resolveMcpActionEntry
           ? { resolveActionEntry: options.resolveMcpActionEntry }
@@ -1370,6 +1399,16 @@ export function createAgentChatPlugin(
       const docsScripts = frameworkTools.isEnabled("docs")
         ? await createDocsScriptEntries()
         : {};
+      // The compact prompt sends the model to `docs-search` for skill text, so
+      // it is the one docs tool the lean registry keeps (`framework-search`
+      // stays out of the first request). Every registry carries it through
+      // `docsScripts` or `skillReadScripts`, which is why one resolved name
+      // serves every prompt site.
+      const docsSearchEntry = docsScripts["docs-search"];
+      const skillReadScripts: Record<string, ActionEntry> = docsSearchEntry
+        ? { "docs-search": docsSearchEntry }
+        : {};
+      const skillReadTool = docsSearchEntry ? "docs-search" : null;
       const databaseToolsMode = normalizeDatabaseToolsMode(
         frameworkTools.database,
       );
@@ -2006,6 +2045,7 @@ export function createAgentChatPlugin(
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
             evaluator: productionEvaluator,
+            appActionNames: Object.keys(templateScriptsAll),
           },
         );
       const leanRunCodeTool: Record<string, ActionEntry> =
@@ -2016,6 +2056,7 @@ export function createAgentChatPlugin(
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
             evaluator: productionEvaluator,
+            appActionNames: Object.keys(templateScriptsAll),
           },
         );
 
@@ -2054,6 +2095,7 @@ export function createAgentChatPlugin(
             {
               bridgeTools: options?.codeExecution?.bridgeTools,
               evaluator: "node",
+              appActionNames: Object.keys(templateScriptsAll),
             },
           )
         : {};
@@ -2500,7 +2542,7 @@ export function createAgentChatPlugin(
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           const schemaBlock = lazyContext
             ? ""
@@ -2740,9 +2782,6 @@ export function createAgentChatPlugin(
               // scope when a processor hop or alternate runner is involved.
               ownerEmail: userEmail,
               orgId: getRequestOrgId() ?? null,
-              approvedToolCalls: context.approvedActions?.map((approved) =>
-                toolCallCacheKey(approved.tool, approved.input),
-              ),
               executionMode: "act",
               runId: context.taskId,
               networkProtocol: "a2a",
@@ -3132,11 +3171,10 @@ export function createAgentChatPlugin(
 
       if (mcpOptions.enabled) {
         // Mount MCP remote server — same action registry as A2A + agent chat
-        const { mountMCP } = await import("../mcp/server.js");
+        const { mountMCP, selectMcpDirectoryWidgetReadActions } =
+          await import("../mcp/server.js");
         mountMCP(nitroApp, {
-          name: options?.appId
-            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
-            : "Agent",
+          name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,
           description:
@@ -3149,6 +3187,10 @@ export function createAgentChatPlugin(
           icons: mcpOptions.icons,
           actions: externalActions,
           productionActions: externalFullActions,
+          widgetReadActions: selectMcpDirectoryWidgetReadActions(
+            mcpOptions.directoryProfile,
+            templateScriptsAll,
+          ),
           ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
@@ -3264,7 +3306,7 @@ export function createAgentChatPlugin(
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -3431,6 +3473,7 @@ export function createAgentChatPlugin(
         }
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
+          getOwnerContextFromEvent: resolveOwnerContext,
           getAuthUserIdFromEvent: async (event) =>
             (await resolveOwnerContext(event)).authUserId,
           getUserNameFromEvent,
@@ -3438,6 +3481,72 @@ export function createAgentChatPlugin(
           clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
+          mcpDirectoryWidgetReadActionArguments:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? Object.fromEntries(
+                  Object.entries(
+                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
+                  )
+                    .filter(
+                      ([name]) =>
+                        (mcpOptions.directoryProfile?.connectorCatalog.includes(
+                          name,
+                        ) ||
+                          mcpOptions.directoryProfile?.widgetReadPublicActions?.includes(
+                            name,
+                          ) ||
+                          mcpOptions.directoryProfile?.widgetReadAuthenticatedActions?.includes(
+                            name,
+                          ) ||
+                          mcpOptions.directoryProfile?.widgetReadPrivateActions?.includes(
+                            name,
+                          )) &&
+                        httpActions[name] &&
+                        (httpActions[name]?.readOnly === true ||
+                          mcpOptions.directoryProfile?.widgetReadOnlyActions?.includes(
+                            name,
+                          )),
+                    )
+                    .map(([name, args]) => [name, Object.keys(args)]),
+                )
+              : undefined,
+          mcpDirectoryWidgetReadActionSchemaArguments:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? Object.fromEntries(
+                  Object.entries(
+                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
+                  )
+                    .map(([name, args]) => [
+                      name,
+                      Object.entries(args)
+                        .filter(
+                          ([, argument]) =>
+                            typeof argument !== "string" &&
+                            argument.type === "actionSchema",
+                        )
+                        .map(([argumentName]) => argumentName),
+                    ])
+                    .filter(([, argumentNames]) => argumentNames.length > 0),
+                )
+              : undefined,
+          mcpDirectoryWidgetReadOnlyActions:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? mcpOptions.directoryProfile.widgetReadOnlyActions
+              : undefined,
+          mcpDirectoryWidgetReadPublicActions:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? mcpOptions.directoryProfile.widgetReadPublicActions
+              : undefined,
+          mcpDirectoryWidgetAppId:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? (options?.appId ?? mcpServerName)
+              : undefined,
+          mcpDirectoryWidgetResourceUri:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? getMcpDirectoryWidgetResourceUri(
+                  options?.appId ?? mcpServerName,
+                )
+              : undefined,
         });
       }
       // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
@@ -3497,6 +3606,7 @@ export function createAgentChatPlugin(
       const onRunComplete = async (
         run: ActiveRun,
         threadId: string | undefined,
+        trackingSource?: AgentChatRunTrackingSource,
       ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
         const chatScope = getRequestRunContext()?.chatScope;
@@ -3537,6 +3647,7 @@ export function createAgentChatPlugin(
               : {}),
           },
           options?.appId,
+          trackingSource,
         );
         if (!assistantMsg) {
           trackAgentChatRunLifecycle(
@@ -3546,6 +3657,7 @@ export function createAgentChatPlugin(
             getRequestRunContext()?.owner,
             {},
             options?.appId,
+            trackingSource,
           );
         }
         if (!threadId) {
@@ -3831,6 +3943,25 @@ export function createAgentChatPlugin(
               ? { refusedRetry: details.retryContext ?? {} }
               : {}),
           });
+          // Background agent sessions send their operation id as
+          // queuedMessageId (Content binds comment AI turns to it). It never
+          // enters the queue, so it has no promotion claim; the session's
+          // derived turn id is what marks the request as one.
+          const queuedMessage = !details.queuedMessageId
+            ? undefined
+            : details.turnId ===
+                backgroundAgentTurnIdForReceipt(
+                  threadId,
+                  details.queuedMessageId,
+                )
+              ? {
+                  kind: "background-operation" as const,
+                  id: details.queuedMessageId,
+                }
+              : {
+                  id: details.queuedMessageId,
+                  claimId: details.queuedMessageClaimId,
+                };
           let submissionFailure:
             | "already_claimed"
             | "claim_expired"
@@ -3859,12 +3990,7 @@ export function createAgentChatPlugin(
                 const result = applySubmittedUserMessage(
                   repo,
                   userMessage,
-                  details.queuedMessageId
-                    ? {
-                        id: details.queuedMessageId,
-                        claimId: details.queuedMessageClaimId,
-                      }
-                    : undefined,
+                  queuedMessage,
                 );
                 if (!("repo" in result)) {
                   submissionFailure = result.status;
@@ -4038,6 +4164,7 @@ export function createAgentChatPlugin(
       const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
+        ...skillReadScripts,
         ...workspaceFileActions,
         ...refreshScreenTool,
         ...urlTools,
@@ -4454,7 +4581,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               true,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             await emitContextXraySystemSections(event, {
               frameworkPrompt: requestLeanPrompt.slice(
@@ -4488,7 +4615,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           // In lazy context mode, skip embedding the full schema. When database
           // tools are enabled the agent can call `db-schema` on demand.
@@ -4646,9 +4773,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             { threadId, runId },
           );
         },
-        onRunComplete: async (run: ActiveRun, threadId: string | undefined) => {
+        onRunComplete: async (
+          run: ActiveRun,
+          threadId: string | undefined,
+          trackingSource?: AgentChatRunTrackingSource,
+        ) => {
           if (threadId) _runSendByThread.delete(threadId);
-          await onRunComplete(run, threadId);
+          await onRunComplete(run, threadId, trackingSource);
         },
         resolveAdditionalActions: ({ ownerEmail, orgId }) =>
           getMcpActionEntriesForPrincipal(ownerEmail, orgId),
@@ -4723,9 +4854,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               onRunComplete: async (
                 run: ActiveRun,
                 threadId: string | undefined,
+                trackingSource?: AgentChatRunTrackingSource,
               ) => {
                 if (threadId) _runSendByThread.delete(threadId);
-                await onRunComplete(run, threadId);
+                await onRunComplete(run, threadId, trackingSource);
               },
               resolveOwnerEmail: getOwnerFromEvent,
             })
@@ -4862,7 +4994,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 true,
                 options?.appId,
                 undefined,
-                { disabledFrameworkGroups },
+                { disabledFrameworkGroups, skillReadTool },
               );
               await emitContextXraySystemSections(event, {
                 frameworkPrompt: requestLeanPrompt.slice(
@@ -4893,7 +5025,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock =
               lazyContext || !databaseToolsEnabled
@@ -5002,9 +5134,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           onRunComplete: async (
             run: ActiveRun,
             threadId: string | undefined,
+            trackingSource?: AgentChatRunTrackingSource,
           ) => {
             if (threadId) _runSendByThread.delete(threadId);
-            await onRunComplete(run, threadId);
+            await onRunComplete(run, threadId, trackingSource);
           },
         });
       }
@@ -6225,43 +6358,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          const body = await readBody(event);
-          const message = body?.message;
-          if (!message || typeof message !== "string") {
+          const request = chatTitleRequestFromBody(await readBody(event));
+          if (!request) {
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
           const orgId = await getOrgIdFromEvent(event);
-          // Strip hidden context and mention markup before title generation.
-          // Never let injected prompt context become a visible tab label.
-          const cleanMessage = message
-            .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
-            .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
-            .replace(/<\/context>/gi, "")
-            .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
-            .trim();
+          await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+            requireAgentChatAiSetup(),
+          );
+
           try {
-            const result = await runWithRequestContext(
+            const title = await runWithRequestContext(
               { userEmail: ownerEmail, orgId },
-              () =>
-                completeText({
-                  appId: options?.appId,
-                  systemPrompt:
-                    "Create a concise chat tab title for the user's request. Return only 3-6 words, with no quotes, punctuation, or explanation.",
-                  input: cleanMessage.slice(0, 500),
-                  maxOutputTokens: 30,
-                  temperature: 0,
-                  timeoutMs: 10_000,
-                }),
+              () => generateChatTitle({ ...request, appId: options?.appId }),
             );
-            const title = result.text
-              .replace(/^["'`]+|["'`]+$/g, "")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 80);
             return { title };
-          } catch {
-            return { title: "" };
+          } catch (error) {
+            console.warn(
+              `[agent-chat] title generation failed (engine=${request.engine ?? "default"} model=${request.model ?? "default"}): ${error instanceof Error ? error.message : String(error)}`,
+            );
+            setResponseStatus(event, 502);
+            return { error: "Title generation failed" };
           }
         }),
       );
@@ -6613,7 +6731,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("./credential-provider.js");
 
             return {
-              active: true,
+              active: run.inFlight,
               runId: run.runId,
               threadId: run.threadId,
               turnId: run.turnId,
@@ -6797,8 +6915,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       );
 
       // ─── Thread management endpoints ──────────────────────────────────────
-      // Single handler for /threads and /threads/:id — h3's use() does prefix
-      // matching so we can't reliably split them into separate handlers.
+      // Single handler for /threads and /threads/:id. H3 2 matches mounted
+      // paths exactly, so register both the collection path and its subtree.
       const parseScopeFromQuery = (
         q: Record<string, unknown>,
       ): ChatThreadScope | null => {
@@ -6869,9 +6987,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       };
       const buildShareUrl = (event: H3Event, token: string) =>
         `${getOrigin(event)}${routePath}/shared/${encodeURIComponent(token)}`;
-      getH3App(nitroApp).use(
+      const threadRouteHandler = withTransientDatabaseFallback(
         `${routePath}/threads`,
-        withTransientDatabaseFallback(`${routePath}/threads`, async (event) => {
+        async (event) => {
           const owner = await getOwnerFromEvent(event);
           const orgId = await getOrgIdFromEvent(event);
           const method = getMethod(event);
@@ -6921,7 +7039,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // run could clobber the assistant message the server just
               // appended (and vice versa).
               return await withThreadDataLock(threadId, async () => {
-                const body = await readBody(event);
+                const rawBody = await readH3Body(event);
+                if (
+                  !rawBody ||
+                  typeof rawBody !== "object" ||
+                  Array.isArray(rawBody)
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid request body" };
+                }
+                const body = rawBody as Record<string, unknown>;
                 const bodyIncludesScope = Boolean(
                   body &&
                   typeof body === "object" &&
@@ -6959,14 +7086,48 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
                 }
-                let newThreadData = body.threadData || thread.threadData;
-                let newMessageCount = body.messageCount ?? thread.messageCount;
+                const hasThreadDataField = Boolean(
+                  body &&
+                  typeof body === "object" &&
+                  Object.prototype.hasOwnProperty.call(body, "threadData"),
+                );
+                const incomingThreadData = body.threadData;
+                if (
+                  hasThreadDataField &&
+                  typeof incomingThreadData !== "string"
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid threadData JSON" };
+                }
+                // Empty threadData is the existing metadata-only save sentinel.
+                const hasThreadData =
+                  typeof incomingThreadData === "string" &&
+                  incomingThreadData.length > 0;
+                let newThreadData = hasThreadData
+                  ? incomingThreadData
+                  : thread.threadData;
+                const requestedMessageCount = body.messageCount;
+                if (
+                  Object.prototype.hasOwnProperty.call(body, "messageCount") &&
+                  (typeof requestedMessageCount !== "number" ||
+                    !Number.isSafeInteger(requestedMessageCount) ||
+                    requestedMessageCount < 0)
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid request body" };
+                }
+                let newMessageCount =
+                  typeof requestedMessageCount === "number"
+                    ? requestedMessageCount
+                    : thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;
                 const nextPreview =
                   typeof body.preview === "string"
                     ? body.preview
                     : thread.preview;
+                const annotationConflicts: ThreadAnnotationSnapshotConflict[] =
+                  [];
                 const preserveTitleOverride = (repo: unknown) => {
                   if (
                     repo &&
@@ -6979,14 +7140,52 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     if (meta.title) nextTitle = meta.title;
                   }
                 };
-                // Merge the incoming full-thread blob over the current SQL
-                // copy. Periodic saves can be stale relative to server-side
-                // run completion, and threadRuntime.export() does not carry
-                // queuedMessages.
-                if (body.threadData) {
+                let isSnapshotDelta = false;
+                let existing: unknown;
+                try {
+                  existing = JSON.parse(thread.threadData);
+                } catch {
+                  setResponseStatus(event, 500);
+                  return { error: "Stored thread data is invalid JSON" };
+                }
+                if (
+                  !existing ||
+                  typeof existing !== "object" ||
+                  Array.isArray(existing)
+                ) {
+                  setResponseStatus(event, 500);
+                  return { error: "Stored thread data is invalid JSON" };
+                }
+                // Merge the incoming snapshot delta over the current SQL copy.
+                // Let updateThreadData apply delta markers to each latest
+                // revision if its compare-and-swap needs to retry.
+                if (hasThreadData) {
+                  let incoming: unknown;
                   try {
-                    const existing = JSON.parse(thread.threadData);
-                    const incoming = JSON.parse(newThreadData);
+                    incoming = JSON.parse(incomingThreadData as string);
+                  } catch {
+                    setResponseStatus(event, 400);
+                    return { error: "Invalid threadData JSON" };
+                  }
+                  if (
+                    !incoming ||
+                    typeof incoming !== "object" ||
+                    Array.isArray(incoming)
+                  ) {
+                    setResponseStatus(event, 400);
+                    return { error: "Invalid threadData JSON" };
+                  }
+                  const incomingAgentKit = (incoming as Record<string, unknown>)
+                    .agentKit;
+                  isSnapshotDelta =
+                    incomingAgentKit !== null &&
+                    typeof incomingAgentKit === "object" &&
+                    !Array.isArray(incomingAgentKit) &&
+                    (incomingAgentKit as Record<string, unknown>)
+                      ._snapshotDelta === true;
+                  if (isSnapshotDelta) {
+                    preserveTitleOverride(existing);
+                  } else {
                     const merged = mergeThreadDataForClientSave(
                       existing,
                       incoming,
@@ -6996,23 +7195,26 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       newMessageCount = merged.messages.length;
                     }
                     preserveTitleOverride(merged);
-                  } catch {
-                    // Invalid JSON in either side — fall back to raw body blob.
                   }
                 } else {
-                  try {
-                    preserveTitleOverride(JSON.parse(newThreadData));
-                  } catch {
-                    // Invalid JSON — keep the title supplied by the client.
-                  }
+                  preserveTitleOverride(existing);
                 }
-                await updateThreadData(
+                const updated = await updateThreadData(
                   threadId,
                   newThreadData,
                   nextTitle,
                   nextPreview,
                   newMessageCount,
+                  {
+                    preserveCurrentTitleAndPreview: isSnapshotDelta,
+                    onAnnotationConflict: (conflict) =>
+                      annotationConflicts.push(conflict),
+                  },
                 );
+                if (!updated) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.
                 // A scoped thread cannot be retagged across resources here.
@@ -7020,7 +7222,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   const incomingScope = parseScopeFromBody(body.scope);
                   await setThreadScope(threadId, owner, incomingScope);
                 }
-                return { ok: true };
+                // The scope the thread really has now (a detach can land
+                // between the read above and this save), so the client records
+                // what the server holds instead of guessing from the page.
+                const saved = await resolveThreadAccess(
+                  owner,
+                  threadId,
+                  "editor",
+                  { orgId },
+                );
+                return {
+                  ok: true,
+                  scope: saved?.scope ?? null,
+                  ...(annotationConflicts.length > 0
+                    ? { annotationConflicts }
+                    : {}),
+                };
               });
             }
 
@@ -7087,10 +7304,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   requireAgentChatAiSetup(),
                 );
               }
-              const result = await mutateThreadQueuedMessages(
-                threadId,
-                mutation,
-              );
+              let result: Awaited<
+                ReturnType<typeof mutateThreadQueuedMessages>
+              >;
+              try {
+                result = await mutateThreadQueuedMessages(threadId, mutation);
+              } catch (error) {
+                if (
+                  mutation.type === "claim" &&
+                  error instanceof Error &&
+                  error.message ===
+                    `Unknown queued message: ${mutation.messageId}`
+                ) {
+                  setResponseStatus(event, 409);
+                  return {
+                    error: error.message,
+                    code: "queued_message_missing",
+                    retryable: false,
+                  };
+                }
+                throw error;
+              }
               if (!result) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7417,8 +7651,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
-        }),
+        },
       );
+      const threadRouteApp = getH3App(nitroApp);
+      threadRouteApp.use(`${routePath}/threads`, threadRouteHandler);
+      threadRouteApp.use(`${routePath}/threads/**`, threadRouteHandler);
 
       // Shared per-request invocation: resolve auth/org/timezone context, then
       // pick the dev/prod/anonymous handler and run it inside the request
@@ -7490,7 +7727,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             message:
               error.statusMessage ??
               error.message ??
-              "Connect Builder AI or a provider API key before chatting.",
+              "Use Builder.io or a provider API key before chatting.",
           },
         });
       };
@@ -7958,7 +8195,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -8451,7 +8688,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           const schemaBlock = lazyContext
             ? ""

@@ -223,6 +223,20 @@ async function selectLayer(
   ).toHaveAttribute("aria-selected", "true");
 }
 
+async function selectedLayerIds(page: Page): Promise<string[]> {
+  return page
+    .getByRole("tree", { name: "Layers" })
+    .locator(
+      '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+    )
+    .evaluateAll((buttons) =>
+      buttons
+        .map((button) => button.getAttribute("data-layer-node-id"))
+        .filter((id): id is string => Boolean(id))
+        .sort(),
+    );
+}
+
 async function topNodeAt(page: Page, parentId: string): Promise<string | null> {
   return designFrame(page)
     .locator(`[data-agent-native-node-id="${parentId}"]`)
@@ -295,6 +309,18 @@ test("Figma G8 multi-selection preserves native order, painted order, and one-st
     await installBridge(page);
     await selectLayer(page, "A");
     await selectLayer(page, "C", true);
+    // Native notes cover order and undo, not selection after commands.
+    const expectedSelection = await Promise.all(
+      ["A", "C"].map(async (name) => {
+        const id = await layerButton(page, name).getAttribute(
+          "data-layer-node-id",
+        );
+        if (!id) throw new Error(`selected layer ${name} has no node id`);
+        return id;
+      }),
+    );
+    expectedSelection.sort();
+    await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
 
     await page.keyboard.press("]");
     await expect
@@ -304,7 +330,11 @@ test("Figma G8 multi-selection preserves native order, painted order, and one-st
         ),
       )
       .toEqual(["S", "B", "D", "A", "C"]);
+    await expect
+      .poll(() => paintedOrder(page, "stack"))
+      .toEqual(["S", "B", "D", "A", "C"]);
     await expect.poll(() => topNodeAt(page, "stack")).toBe("C");
+    await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
 
     await page.keyboard.press("[");
     await expect
@@ -314,7 +344,11 @@ test("Figma G8 multi-selection preserves native order, painted order, and one-st
         ),
       )
       .toEqual(["A", "C", "S", "B", "D"]);
+    await expect
+      .poll(() => paintedOrder(page, "stack"))
+      .toEqual(["A", "C", "S", "B", "D"]);
     await expect.poll(() => topNodeAt(page, "stack")).toBe("D");
+    await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
 
     await pressZ(page, true);
     await expect
@@ -324,7 +358,11 @@ test("Figma G8 multi-selection preserves native order, painted order, and one-st
         ),
       )
       .toEqual(["S", "B", "D", "A", "C"]);
+    await expect
+      .poll(() => paintedOrder(page, "stack"))
+      .toEqual(["S", "B", "D", "A", "C"]);
     await expect.poll(() => topNodeAt(page, "stack")).toBe("C");
+    await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
 
     await pressZ(page, true);
     await expect
@@ -334,7 +372,11 @@ test("Figma G8 multi-selection preserves native order, painted order, and one-st
         ),
       )
       .toEqual(["S", "A", "B", "C", "D"]);
+    await expect
+      .poll(() => paintedOrder(page, "stack"))
+      .toEqual(["S", "A", "B", "C", "D"]);
     await expect.poll(() => topNodeAt(page, "stack")).toBe("D");
+    await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
 
     for (const step of [
       { key: `${PRIMARY}+BracketRight`, expected: ["S", "B", "A", "D", "C"] },
@@ -351,6 +393,9 @@ test("Figma G8 multi-selection preserves native order, painted order, and one-st
       await expect
         .poll(() => paintedOrder(page, "stack"))
         .toEqual(step.expected);
+      await expect
+        .poll(() => selectedLayerIds(page))
+        .toEqual(expectedSelection);
 
       await pressZ(page, true);
       await expect
@@ -363,6 +408,9 @@ test("Figma G8 multi-selection preserves native order, painted order, and one-st
       await expect
         .poll(() => paintedOrder(page, "stack"))
         .toEqual(["S", "A", "B", "C", "D"]);
+      await expect
+        .poll(() => selectedLayerIds(page))
+        .toEqual(expectedSelection);
     }
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
@@ -380,11 +428,15 @@ test("Figma G9 Bring to Front reorders an auto-layout child and undo restores it
     await enterDirectMode(page);
     await selectLayer(page, "First");
     expect((await renderedRect(page, "first")).x).toBe(12);
+    expect((await renderedRect(page, "second")).x).toBe(124);
 
     await page.keyboard.press("]");
     await expect
       .poll(async () => (await renderedRect(page, "first")).x)
       .toBe(124);
+    await expect
+      .poll(async () => (await renderedRect(page, "second")).x)
+      .toBe(12);
     await expect
       .poll(() =>
         indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),
@@ -395,6 +447,9 @@ test("Figma G9 Bring to Front reorders an auto-layout child and undo restores it
     await expect
       .poll(async () => (await renderedRect(page, "first")).x)
       .toBe(12);
+    await expect
+      .poll(async () => (await renderedRect(page, "second")).x)
+      .toBe(124);
     await expect
       .poll(() =>
         indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),

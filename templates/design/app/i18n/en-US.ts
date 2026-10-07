@@ -214,7 +214,7 @@ export default {
       tokenLabel: "Figma access token",
       tokenPlaceholder: "Paste Figma access token",
       connecting: "Connecting…",
-      connect: "Connect",
+      connect: "Connect Figma",
       getToken: "Get token",
       importFrame: "Import frame",
       chooseFrame: "Choose frame",
@@ -1368,6 +1368,15 @@ export default {
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
       pngExportError: "Could not export PNG",
+      exportTooLarge:
+        "Export is too large. Requests are limited to 5 MB; reduce embedded assets or raster dimensions and try again.",
+      exportResourcesUnavailable:
+        "The export could not be rendered accurately because one or more images, fonts, or stylesheets are unavailable. Check those resources and try again.",
+      exportTimedOut:
+        "Export timed out. Try again, or reduce the design's size.",
+      exportBusy: "Another export is rendering. Wait a moment and try again.",
+      exportChromiumUnavailable:
+        "Export is unavailable because the renderer could not start. Try again later.",
       pdfExportError: "Could not export PDF",
       pdfDownloaded: "PDF downloaded",
       pdfAllScreensDownloaded: "PDF downloaded (all screens)",
@@ -1572,6 +1581,8 @@ export default {
     assetAdded: "Asset added",
     assetsNoImageUrl: "Assets did not return an image URL.",
     failedToUploadFile: "Failed to upload file",
+    imageAttachmentUnavailable:
+      "We couldn't prepare this image as visual input. Attach a smaller PNG, JPG, GIF, or WebP file.",
     attachmentsTooLarge:
       "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
     failedToSubmitPrompt: "Failed to submit prompt",
@@ -1731,8 +1742,8 @@ export default {
     designPromptTitle: "Let's create your first design",
     recent: "Recent",
     browseAllTemplates: "Browse all",
-    connectBuilderIo: "Connect Builder.io",
-    connectingBuilder: "Connecting Builder.io…",
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "Search designs...",
     newDesign: "New Design",
@@ -1742,6 +1753,9 @@ export default {
     allAuthors: "All authors",
     me: "Me",
     designFilter: "Design filter",
+    ownedByAnyone: "Owned by anyone",
+    ownedByMe: "Owned by me",
+    sharedWithMe: "Shared with me",
     mine: "Mine",
     all: "All",
     showMineDesigns: "Show my designs",
@@ -1775,6 +1789,7 @@ export default {
     pickStartingPoint: "Pick a starting point or write your own prompt.",
     searchNoResultsTitle: "No designs match your search",
     searchNoResultsDescription: "Try a different search.",
+    noDesignsMatchFilter: "No designs match the current filter.",
     starterSaas: "SaaS landing page",
     starterDashboard: "Dashboard",
     starterPricing: "Pricing page",
@@ -1996,6 +2011,15 @@ export default {
       "Code and repository indexing requires the Builder Enterprise plan",
   },
   designSystems: {
+    comingSoonTitle: "Design systems are coming soon",
+    waitlist: {
+      join: "Join waitlist",
+      joining: "Joining…",
+      joined: "You're on the waitlist",
+      error: "Could not join the waitlist. Please try again.",
+      unavailable:
+        "Waitlist sign-up isn't available right now. Please try again later.",
+    },
     deleteError: "Could not delete design system",
     updateSuccess: "Design system updated",
     updateError: "Could not update design system",

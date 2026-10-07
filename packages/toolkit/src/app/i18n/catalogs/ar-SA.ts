@@ -130,13 +130,22 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActiveCredits":
     "مضمّنة مع أرصدة Builder.io المجانية النشطة",
   "onboarding.builderCredits": "مضمّنة مع أرصدة Builder.io المجانية",
+  "onboarding.builderIncludedFreeWithAccount": "مُضمّن مجانًا مع حساب Builder.io",
+  "onboarding.builderMonthlyCredits": "60 رصيد Agent شهريًا",
+  "onboarding.builderIncludedFree": "مُضمّن مجانًا",
+  "onboarding.builderMoreServices": "+ {{count}} خدمات أخرى",
+  "onboarding.builderLlmCredits": "أرصدة لنماذج اللغة الكبيرة (LLM)",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "أرصدة LLM + {{count}} خدمات أخرى",
+  "onboarding.builderAccountCreated": "تم إنشاء حساب Builder.io وربطه.",
+  "onboarding.builderIncludedServices": "الخدمات المضمنة",
   "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
   "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
-  "onboarding.builderAccountExistsDescription": "سجّل الدخول لربطه.",
+  "onboarding.builderAccountExistsDescription": "سجّل الدخول لاستخدام حسابك.",
   "onboarding.builderActivationDescription":
-    "سننشئ حساب Builder.io الخاص بك تلقائيًا بنقرة واحدة.",
+    "أنشئ حساب Builder.io أو اربطه بنقرة واحدة للحصول على أرصدة مجانية.",
   "onboarding.builderOrgActivationDescription":
-    "سننشئ حساب Builder.io الخاص بك بنقرة واحدة ونربطه لمؤسستك.",
+    "سننشئ حساب Builder.io الخاص بك بنقرة واحدة ليتمكن مؤسستك من استخدامه.",
   "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
   "onboarding.builderConsentPrefix": "بإنشاء حساب Builder.io، فإنك توافق على",
   "onboarding.builderTerms": "شروط الخدمة",
@@ -144,9 +153,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لدي حساب Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
-  "onboarding.builderConnecting": "جارٍ الاتصال بأرصدة Builder.io المجانية",
+  "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":
-    "جارٍ إنشاء حساب Builder.io الخاص بك أو إعادة استخدامه. يستغرق ذلك عادةً بضع ثوانٍ.",
+    "جارٍ إنشاء حساب Builder.io الخاص بك وتفعيل الأرصدة المجانية.",
   "onboarding.builderConnectionDescription":
     "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
   "onboarding.builderReadyWithCodeChanges":
@@ -156,11 +165,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "فتح إعدادات الوكيل في الخلفية",
   "onboarding.capability.llm.keySummary": "اربط نموذج الذكاء الاصطناعي الخاص بك",
   "onboarding.capability.fileStorage.keySummary": "تحميل الملفات وتخزينها",
+  "onboarding.capability.llm.why":
+    "يستخدم الوكيل نموذجًا لغويًا لفهم الطلبات وصياغة الإجابات.",
+  "onboarding.capability.fileStorage.why":
+    "يحفظ الصور والملفات المرفوعة ليتمكن الوكيل من إعادة استخدامها في المحادثة.",
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
   "onboarding.fileStorage.statusUnavailable": "تعذّر التحقق من التخزين",
   "onboarding.fileStorage.description":
-    "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
-  "onboarding.fileStorage.reconnectBuilder": "أعد ربط Builder.io",
+    "استخدم Builder.io (مجانًا) أو أعدّ تخزين كائنات متوافقًا مع S3 خاصًا بك.",
+  "onboarding.fileStorage.reconnectBuilder": "استخدم Builder.io",
   "onboarding.fileStorage.custom": "استخدم مفاتيح مخصصة",
   "onboarding.fileStorage.customDescription":
     "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
@@ -172,6 +185,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "التضمينات",
   "onboarding.capability.embeddings.why":
     "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
+  "onboarding.capability.systemOne.why":
+    "Jev نموذج قرار اختياري يساعد في اختيار الأدوات والمهارات المناسبة قبل أول طلب للنموذج من الوكيل.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "أرصدة Builder أو مفتاح مزود صور",
@@ -383,9 +398,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.closePreview": "إغلاق المعاينة",
   "composer.configureProviderKeys": "إعداد Anthropic أو OpenAI أو مزوّد آخر",
   "composer.connectAbove": "اتصل بالذكاء الاصطناعي أعلاه للمتابعة...",
-  "composer.connectBuilder": "الاتصال بـ Builder.io",
+  "composer.connectBuilder": "استخدم Builder.io",
   "composer.connectKeys": "ربط المفاتيح",
-  "composer.connectingBuilder": "جارٍ الاتصال بـ Builder.io…",
+  "composer.connectAgent": "ربط الوكيل",
+  "composer.connectingBuilder": "جارٍ إعداد Builder.io…",
   "composer.costHigher": "تكلفة أعلى",
   "composer.costLower": "تكلفة أقل",
   "composer.costMedium": "تكلفة متوسطة",
@@ -476,6 +492,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "رفع ملف مهارة",
   "composer.upload": "رفع",
   "composer.uploadFailed": "تعذّر رفع الملف المحدد.",
+  "composer.unsupportedFileType": "نوع الملف هذا غير مدعوم.",
   "composer.useAttachedContext": "استخدم السياق المرفق.",
   "mentions.commands": "الأوامر",
   "mentions.learnMore": "معرفة المزيد",
@@ -511,7 +528,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "إملاء ({{shortcut}})",
   "voice.dictation.stopRecording": "إيقاف التسجيل",
   "voice.dictation.transcribing": "جارٍ النسخ…",
-  "voiceMode.connectBuilder": "الاتصال بـ Builder.io",
+  "voiceMode.connectBuilder": "استخدم Builder.io",
   "voiceMode.end": "إنهاء الوضع الصوتي",
   "voiceMode.entryButtonLabel": "استخدام الميكروفون",
   "voiceMode.errors.channelDisconnected":
@@ -564,7 +581,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "معبّر ومتعدد الاستخدامات",
   "voiceMode.settings.voiceStyle": "نمط الصوت",
   "voiceMode.setupDescription":
-    "اتصل بـ Builder.io لاستخدام الصوت المُدار بأرصدة مجانية، أو أضف مفاتيحك الخاصة.",
+    "استخدم Builder.io للصوت المُدار مع أرصدة مجانية، أو أضف مفاتيحك الخاصة.",
+  "transcription.builderCtaDescription":
+    "استخدم Builder.io للحصول على نسخ صوتي أعلى جودة مع أرصدة مجانية ومن دون مفتاح API.",
+  "voiceMode.googleRealtimeDescription":
+    "بيانات اعتماد Google مُعدّة. استخدم Builder.io (الخطة المجانية متاحة) لإنشاء جلسة الوقت الفعلي المُدارة.",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "ملف JSON لحساب الخدمة مُعدّ. استخدم Builder.io (الخطة المجانية متاحة) لإنشاء جلسة WebSocket مُدارة في الوقت الفعلي.",
+  "voiceMode.builderGeminiDescription":
+    "استخدم Builder.io للنسخ الصوتي عبر Gemini Flash-Lite وتنظيف النص عبر Luna. لا حاجة إلى مفتاح Google.",
   "voiceMode.setupTitle": "إعداد الوضع الصوتي",
   "voiceMode.showChat": "إظهار المحادثة",
   "voiceMode.start": "بدء محادثة صوتية",
@@ -594,7 +619,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.attachmentPasswordProtected":
     "ملف PDF هذا محمي بكلمة مرور، لذا لا يمكن قراءته. أزل الحماية بكلمة المرور أو الصق النص المطلوب، ثم أعد المحاولة.",
   "errorMessages.builderAuthentication":
-    "رفض Builder بيانات الاعتماد المتصلة. أعد الاتصال بـ Builder.io من الإعدادات، ثم أعد المحاولة.",
+    "رفض Builder بيانات الاعتماد المتصلة. استخدم Builder.io من الإعدادات مرة أخرى، ثم أعد المحاولة.",
   "errorMessages.builderModelUnauthorized":
     "رفض المزوّد الذي يشغّل هذا النموذج الطلب. اختر نموذجًا آخر، ثم أعد المحاولة.",
   "errorMessages.errorPrefix": "خطأ: {{message}}",
@@ -621,7 +646,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.malformedRequestAttachment":
     "رفض النموذج ملفًا مرفقًا، لذلك لم تُرسل هذه الرسالة إطلاقًا. أزل المرفق وأعد المحاولة — تُقرأ ملفات PDF والنصوص العادية وصور JPEG وPNG وGIF وWebP مباشرةً، أما الصيغ الأخرى فيجب رفعها والإشارة إليها برابط.",
   "errorMessages.noProviderConnected":
-    "لا يوجد مزوّد LLM متصل. افتح الإعدادات > الوكيل > مزوّدو الذكاء الاصطناعي، ثم اربط Builder.io (تتوفر خطة مجانية) أو أضف مفتاح مزوّد.",
+    "لا يوجد موفّر LLM متصل. افتح الإعدادات > الوكيل > موفّرو الذكاء الاصطناعي، ثم استخدم Builder.io (الخطة المجانية متاحة) أو أضف مفتاح موفّر.",
   "errorMessages.openBuilderSpaceSettings": "فتح إعدادات مساحة Builder",
   "errorMessages.providerAuthentication":
     "رفض مزوّد النموذج مفتاح API المحفوظ. حدّث المفتاح من الإعدادات ← عمليات التكامل ← مفاتيح API، ثم أعد المحاولة.",
@@ -1000,6 +1025,18 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "إجراءات الرسالة",
   "message.copyMessage": "نسخ الرسالة",
   "message.copyRequestId": "نسخ معرّف الطلب",
+  "message.usage": "الاستخدام",
+  "message.usageLoading": "جارٍ تحميل الاستخدام…",
+  "message.usageUnavailable": "الاستخدام غير متاح",
+  "message.usageNotRecorded": "لم يُسجّل الاستخدام",
+  "message.usageIncomplete": "تعذّر تصنيف بعض الاستخدام؛ لذلك أُخفيت الإجماليات.",
+  "message.usageReportedCost": "التكلفة {{amount}}",
+  "message.usageEstimatedCost": "التكلفة المقدّرة {{amount}}",
+  "message.usageBuilderCredits": "أرصدة Builder المستخدمة {{amount}}",
+  "message.usageEstimatedBuilderCredits": "أرصدة Builder المقدّرة {{amount}}",
+  "message.usageMixedCost": "التكلفة المبلّغ عنها والمقدّرة {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "أرصدة Builder المبلّغ عنها والمقدّرة {{amount}}",
   "message.requestIdUnavailable": "معرّف الطلب غير متاح",
   "message.unavailable": "لم تعد هذه الرسالة متاحة في هذه المحادثة.",
   "message.navigationUnavailable": "التنقل في المحادثة غير متاح.",
@@ -1097,12 +1134,11 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}} في قائمة الانتظار — أرسل متابعة...",
   "queue.remove": "إزالة من قائمة الانتظار",
   "queue.sendNow": "إرسال الآن",
-  "queue.sendNowHint": "الإرسال الآن (يوقف الرد الحالي)",
-  "queue.steer": "توجيه",
-  "queue.steerHint": "إرسال هذه الرسالة التالية",
+  "queue.sendNowHint": "يوقف الرد الحالي، ثم يرسل هذه الرسالة",
+  "queue.sendNext": "إرسال التالي",
+  "queue.sendNextHint": "إرسال بعد انتهاء الرد الحالي",
   "queue.moreActions": "إجراءات إضافية",
-  "queue.moveToTop": "نقل إلى الأعلى",
-  "recovery.connectingBuilder": "جارٍ الاتصال بـ Builder.io",
+  "recovery.connectingBuilder": "جارٍ إعداد Builder.io",
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",
   "recovery.retryAttachmentUnavailable":
@@ -1112,7 +1148,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.credentialRejected":
     "رفض مزوّد النموذج بيانات الاعتماد المحفوظة. حدّث اتصال Builder.io أو مفتاح المزوّد، ثم أعد محاولة إرسال هذه الرسالة.",
   "codeRequired.builderAgentNotConnected":
-    "خدمة Builder Cloud Agents غير متصلة. اتصل بـ Builder.io من الإعدادات لتنفيذ عملية تغيير التعليمات البرمجية المستضافة هذه. تظل مفاتيح مزوّدي النماذج صالحة للدردشة وميزات الذكاء الاصطناعي الأخرى، لكنها لا تمنح صلاحية استخدام Builder Cloud Agent.",
+    "خدمة Builder Cloud Agents غير متصلة. استخدم Builder.io من الإعدادات لتنفيذ عملية تغيير التعليمات البرمجية المستضافة هذه. تظل مفاتيح مزوّدي النماذج صالحة للدردشة وميزات الذكاء الاصطناعي الأخرى، لكنها لا تمنح صلاحية استخدام Builder Cloud Agent.",
   "recovery.diagnoseRetry": "تشخيص المشكلة وإعادة المحاولة",
   "recovery.forkDescription": "تفريع هذه المحادثة إلى سلسلة محادثة منفصلة.",
   "recovery.forkFailed": "تعذّر تفريع هذه المحادثة. جرّب بدء محادثة جديدة.",
@@ -1133,7 +1169,7 @@ const messages: ToolkitAgentChatTranslation = {
     "تعذّر الوصول إلى الخادم للتحقق مما إذا كان الوكيل لا يزال يعمل. أرسل رسالتك مجددًا لإعادة المحاولة.",
   "recovery.streamEnded":
     "انتهى تدفق الوكيل السابق أثناء استرداد التشغيل. تابع أو أعد المحاولة لإعادة الاتصال بالتشغيل.",
-  "recovery.reconnectBuilder": "إعادة الاتصال بـ Builder.io",
+  "recovery.reconnectBuilder": "استخدم Builder.io",
   "secrets.addCustomKeyNamed": 'إضافة "{{name}}" كمفتاح مخصص',
   "secrets.chooseKey": "اختر مفتاحًا",
   "secrets.customKey": "مفتاح مخصص",
@@ -1178,10 +1214,13 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "استخدم Builder.io (بأرصدة مجانية)، أو أضف مفاتيح مزوّديك الخاصة.",
   "setup.connectAi": "اتصال بالذكاء الاصطناعي",
-  "setup.connectBuilder": "الاتصال بـ Builder.io",
+  "setup.connectBuilder": "استخدم Builder.io",
+  "setup.connectionsDescription":
+    "أدر حالة الإعداد وإمكانية الوصول إلى Builder.io وأسرار التطبيق واتصالات مساحة العمل من مكان واحد.",
   "setup.connectPlaceholder": "اتصل بالذكاء الاصطناعي لبدء المحادثة...",
   "setup.connectToChat": "اتصل بالذكاء الاصطناعي للمحادثة",
   "setup.connectToStart": "اتصل بالذكاء الاصطناعي لبدء المحادثة",
+  "setup.modelListUnavailable": "تعذّر تحميل النماذج.",
   "setup.providerStatusUnavailable": "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
   "agentNativeClips.meetingAsk.placeholder": "اسأل أي شيء",
   "agentNativeClips.meetingAsk.ariaLabel": "اسأل أي شيء عن هذا الاجتماع",
@@ -1193,6 +1232,47 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.keyProvider": "مزوّد مفتاح API",
   "setup.keySaveFailed": "تعذّر حفظ المفتاح.",
   "setup.storedSecurely": "محفوظ بأمان لهذا التطبيق فقط.",
+  "accessGate.deniedTitle": "ليست لديك صلاحية الوصول",
+  "accessGate.deniedDescription": "اطلب من المالك مشاركته معك.",
+  "accessGate.missingTitle": "هذا العنصر غير موجود",
+  "accessGate.missingDescription": "قد يكون الرابط غير صحيح، أو ربما تم حذفه.",
+  "accessGate.trashedTitle": "هذا العنصر في سلة المهملات",
+  "accessGate.trashedDescription": "استعده لفتحه مرة أخرى.",
+  "accessGate.signedOutTitle": "سجّل الدخول للمتابعة",
+  "accessGate.signedOutDescription": "سجّل الدخول بحساب لديه صلاحية الوصول.",
+  "accessGate.signIn": "تسجيل الدخول",
+  "accessGate.signedInAs": "تم تسجيل الدخول باسم {{email}}",
+  "accessGate.switchAccount": "تبديل الحساب",
+  "accessGate.requestDescription": "اطلب صلاحية الوصول وسيتم إشعار المالك.",
+  "accessGate.requestSent": "تم إرسال الطلب. تم إشعار المالك.",
+  "accessGate.requestAccess": "طلب صلاحية الوصول",
+  "accessGate.requestNoteLabel": "ملاحظة (اختياري)",
+  "accessGate.requestNotePlaceholder": "أضف ملاحظة للمالك",
+  "accessGate.sendRequest": "إرسال الطلب",
+  "accessGate.cancel": "إلغاء",
+  "accessGate.requestRateLimited":
+    "عدد الطلبات كبير جدًا حاليًا. حاول مرة أخرى لاحقًا.",
+  "accessGate.requestFailed": "تعذّر إرسال طلبك. حاول مرة أخرى.",
+  "accessGate.signedOutRequestDescription": "سجّل الدخول لطلب صلاحية الوصول.",
+  "accessRequest.title": "{{name}} يطلب صلاحية الوصول",
+  "accessRequest.approvedTitle": "تم السماح بالوصول",
+  "accessRequest.declinedTitle": "تم رفض الطلب",
+  "accessRequest.allow": "سماح",
+  "accessRequest.decline": "رفض",
+  "accessRequest.unavailableTitle": "لا يمكنك مراجعة هذا الطلب",
+  "accessRequest.unavailableDescription":
+    "ربما تم سحبه، أو لا يمكن لهذا الحساب إدارة الوصول.",
+  "accessRequest.loadFailed": "تعذّر تحميل هذا الطلب.",
+  "accessRequest.retry": "إعادة المحاولة",
+  "accessRequest.decisionFailed": "تعذّر حفظ قرارك. حاول مرة أخرى.",
+  "accessRequest.stale": "تعامل شخص آخر مع هذا الطلب بالفعل، أو تم تغييره.",
+  "share.accessRequests": "طلبات الوصول",
+  "share.accessRequestsLoadFailed": "تعذّر تحميل طلبات الوصول.",
+  "share.accessRequestsNewest": "يتم عرض أحدث الطلبات ({{count}}).",
+  "accessRequest.emailFailed":
+    "تم منح {{name}} صلاحية الوصول، لكن تعذّر إرسال البريد الإلكتروني.",
+  "share.allowRequestFrom": "السماح لـ {{name}}",
+  "share.declineRequestFrom": "رفض طلب {{name}}",
   "share.add": "إضافة",
   "share.addPeopleEmail": "إضافة أشخاص بالبريد الإلكتروني",
   "share.addPeopleOrganization": "إضافة أشخاص من مؤسستك",
@@ -1278,6 +1358,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "لا تتوفر تفاصيل للخطأ.",
   "tool.input": "الإدخال",
   "tool.inputWithLabel": "الإدخال - {{label}}",
+  "tool.identifierHidden": "[تم إخفاء المعرّف]",
+  "tool.contentOmitted": "[تم حذف المحتوى]",
+  "tool.circularReference": "[مرجع دائري]",
   "tool.interrupted":
     "توقفت العملية قبل اكتمال التقرير — ربما اكتملت أو لم تكتمل. تحقّق قبل إعادة المحاولة.",
   "tool.longRunning":
@@ -1688,6 +1771,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "التطبيق",
   "settings.usage.allApps": "كل التطبيقات",
   "settings.usage.unattributedApp": "غير منسوب",
+  "settings.usage.unclassifiedUsage": "استخدام غير مصنف",
   "settings.usage.peopleFilterLabel": "الأشخاص",
   "settings.usage.everyone": "الجميع",
   "settings.usage.justYou": "أنت فقط",
@@ -2104,6 +2188,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsFootnote":
     "قد تحتوي هذه الميزات الجديدة غير المستقرة على أخطاء.",
   "settingsShell.appGroup.labsLoadError": "تعذّر تحميل المختبرات.",
+  "settingsShell.appGroup.labsReadError":
+    "تعذّرت قراءة هذا الاختيار المحفوظ. اختر تشغيل أو إيقاف لإعداده مجددًا.",
   "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
   "settingsShell.appGroup.mcpAbout":
     "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
@@ -2120,7 +2206,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "عرض كل التحديثات",
   "settingsShell.backToApp": "العودة إلى {{app}}",
   "settingsShell.breadcrumbLabel": "مسار التنقل",
-  "settingsShell.builder.connect": "ربط",
+  "settingsShell.builder.connect": "استخدم Builder.io",
   "settingsShell.builder.connected": "مرتبط",
   "settingsShell.builder.connectedTo": "مرتبط · {{space}}",
   "settingsShell.builder.connection": "الاتصال",
@@ -2131,6 +2217,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed": "تعذّر قطع اتصال Builder.io.",
   "settingsShell.builder.disconnectTitle": "هل تريد قطع اتصال Builder.io؟",
   "settingsShell.builder.grantsFailed": "تعذّرت قراءة اتصالات Builder.io.",
+  "settingsShell.builder.setupStartFailed":
+    "تعذّر بدء إعداد Builder.io. حدّث هذه الصفحة وحاول مرة أخرى.",
+  "settingsShell.builder.setupHostFailed":
+    "تعذّر فتح Builder من مضيف المحادثة هذا. افتح التطبيق في علامة تبويب بالمتصفح وأعد محاولة إعداد Builder.io (الخطة المجانية متاحة).",
+  "settingsShell.builder.setupFailed":
+    "لم يكتمل إعداد Builder.io. حاول مرة أخرى، أو استخدم مفاتيحك الخاصة.",
   "settingsShell.builder.loss.defaultStops":
     "تتوقف المحادثات حتى تضيف موفرًا للمؤسسة.",
   "settingsShell.builder.loss.defaultSwitches":
@@ -2145,9 +2237,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "يجب إعادة ربطه.",
   "settingsShell.builder.orgFallback": "مؤسستك",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "غير مرتبط. عند ربطه يمكن لكل من في {{org}} استخدامه.",
+    "غير متصل. استخدم Builder.io لتمكين الجميع في {{org}} من الوصول.",
   "settingsShell.builder.orgNotConnectedMember":
-    "غير مرتبط. يمكن للمالك أو المسؤول ربطه.",
+    "غير متصل. يمكن لمالك أو مسؤول تمكين Builder.io للجميع.",
   "settingsShell.builder.organization": "المؤسسة",
   "settingsShell.builder.personal": "شخصي",
   "settingsShell.builder.personalConnected": "مرتبط. أنت وحدك تستخدمه.",
@@ -2158,7 +2250,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "مرتبط · {{space}}. أنت وحدك تستخدمه بدلًا من اتصال المؤسسة.",
   "settingsShell.builder.personalNotConnected":
-    "اربط حسابك الخاص. أنت وحدك تستخدمه.",
+    "استخدم حساب Builder.io الخاص بك. أنت وحدك تستخدمه.",
   "settingsShell.builder.personalRestricted":
     "قيّد المالكون والمسؤولون مفاتيح API الشخصية.",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2687,7 +2779,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "متصل. رصيد حسابك يشغّل كل خدمة عليها علامة Builder.io.",
   "settingsInfra.builderNotConnected":
-    "غير متصل. أعدّ كل خدمة بنفسك، أو صِل Builder.io لاستخدام رصيد حسابك.",
+    "غير متصل. أعدّ كل خدمة بنفسك، أو استخدم Builder.io لتطبيق أرصدة حسابك.",
+  "settingsInfra.builderOverrideDescription":
+    "الرجوع إلى إعدادات النشر متاح. استخدم حساب Builder.io الخاص بك لتجاوزه.",
+  "settingsInfra.builderStorageHint":
+    "يحافظ تخزين الكائنات على الملفات المرفوعة ويجعل عناوين URL الخاصة بها قابلة لإعادة الاستخدام خلال المحادثة. استخدم Builder.io أو حاوية متوافقة مع S3 أدناه.",
   "settingsInfra.builderUnknown": "تعذّر التحقق من اتصال Builder.io.",
   "settingsInfra.manage": "إدارة",
   "settingsInfra.connect": "توصيل",
@@ -2858,13 +2954,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "متصل · {{space}}",
   "settingsModel.builderConnectedPlain": "متصل",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "غير متصل. عند توصيله، يمكن للجميع في {{org}} استخدامه.",
+    "غير متصل. استخدم Builder.io لتمكين الجميع في {{org}} من الوصول.",
   "settingsModel.builderOrgNotConnectedMember":
-    "غير متصل. يمكن لمالك أو مسؤول توصيله.",
+    "غير متصل. يمكن لمالك أو مسؤول تمكين Builder.io للجميع.",
   "settingsModel.builderPersonalConnect":
-    "صِل حسابك الخاص لاستخدام أرصدة Builder.io الخاصة بك.",
+    "استخدم حساب Builder.io الخاص بك للوصول إلى أرصدته.",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "صِل حسابك الخاص لاستخدامه بدلًا من اتصال المؤسسة.",
+    "استخدم حساب Builder.io الخاص بك بدلًا من اتصال المؤسسة.",
   "settingsModel.builderPersonalOverOrg":
     "متصل · {{space}}. يُستخدم بدلًا من اتصال المؤسسة.",
   "settingsModel.builderPersonalOverOrgPlain":
@@ -2908,8 +3004,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "جارٍ التحقق من المفتاح المحفوظ",
   "settingsModel.chooseModel": "اختر نموذجًا",
   "settingsModel.clear": "مسح",
-  "settingsModel.connect": "توصيل",
-  "settingsModel.connecting": "جارٍ التوصيل…",
   "settingsModel.defaultModelDescription":
     "يُستخدم في كل تطبيق ما لم يحدد التطبيق نموذجه الخاص.",
   "settingsModel.defaultModelNeedsProvider": "أضف مزوّدًا لاختيار نموذج افتراضي.",

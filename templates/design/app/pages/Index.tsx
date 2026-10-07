@@ -24,11 +24,8 @@ import {
 } from "@agent-native/toolkit/agentkit";
 import {
   PromptHome,
-  PromptHomeLibrary,
   TemplateLibraryGrid,
-  type PromptHomeLibraryTab,
   useHomeSearchShortcut,
-  useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
@@ -46,8 +43,8 @@ import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconArrowRight,
-  IconFilter,
   IconChecks,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconPlus,
@@ -73,6 +70,10 @@ import type {
   PromptTemplateOption,
   UploadedFile,
 } from "@/components/editor/PromptDialog";
+import {
+  DesignHomeLibrary,
+  type DesignHomeLibraryTab,
+} from "@/components/home/DesignHomeLibrary";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { DesignTemplateLibrary } from "@/components/templates/DesignTemplateLibrary";
 import {
@@ -142,23 +143,38 @@ interface DesignListResult {
 }
 
 const DESIGN_PAGE_SIZE = 50;
-const HOME_LIBRARY_TAB_STORAGE_KEY = "design:home-library-tab";
+const HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY = "design-home-has-recents";
 
-function readStoredHomeLibraryTab(): PromptHomeLibraryTab | undefined {
+function readHomeLibraryHasRecents():
+  | { status: "available"; value: boolean | null }
+  | { status: "unavailable" } {
+  if (typeof window === "undefined") return { status: "unavailable" };
+
   try {
-    const tab = window.localStorage.getItem(HOME_LIBRARY_TAB_STORAGE_KEY);
-    return tab === "templates" || tab === "recent" ? tab : undefined;
+    const value = window.localStorage.getItem(
+      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
+    );
+    return {
+      status: "available",
+      value: value === "true" ? true : value === "false" ? false : null,
+    };
   } catch {
-    // coercion-ok: the tab preference is optional when browser storage is unavailable.
-    return undefined;
+    return { status: "unavailable" };
   }
 }
 
-function writeStoredHomeLibraryTab(tab: PromptHomeLibraryTab): void {
+function writeHomeLibraryHasRecents(
+  value: boolean,
+): { status: "available" } | { status: "unavailable" } {
+  if (typeof window === "undefined") return { status: "unavailable" };
   try {
-    window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, tab);
+    window.localStorage.setItem(
+      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
+      String(value),
+    );
+    return { status: "available" };
   } catch {
-    // coercion-ok: an unavailable preference store preserves the in-memory selection.
+    return { status: "unavailable" };
   }
 }
 
@@ -178,7 +194,6 @@ type HomeSuggestionsResult =
 
 export default function Index() {
   const t = useT();
-  useHomeSearchShortcut(true);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -192,13 +207,14 @@ export default function Index() {
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const storedHomeLibraryTab = readStoredHomeLibraryTab();
-  const [homeSection, setHomeSection] = useState<PromptHomeLibraryTab>(
-    storedHomeLibraryTab ?? "templates",
+  const [storedHasAccessibleDesigns] = useState(readHomeLibraryHasRecents);
+  const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
+    storedHasAccessibleDesigns.status === "available" &&
+      storedHasAccessibleDesigns.value === true
+      ? "recent"
+      : "templates",
   );
-  const homeLibraryTabWasSelectedRef = useRef(
-    storedHomeLibraryTab !== undefined,
-  );
+  const homeLibraryTabWasSelectedRef = useRef(false);
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
@@ -229,7 +245,12 @@ export default function Index() {
     () => ({
       page,
       pageSize: DESIGN_PAGE_SIZE,
-      createdBy: designFilter === "mine" ? "me" : "all",
+      createdBy:
+        designFilter === "mine"
+          ? "me"
+          : designFilter === "not-mine"
+            ? "not-me"
+            : "all",
       search: normalizedSearch || undefined,
       includePreview: "true",
     }),
@@ -252,6 +273,11 @@ export default function Index() {
     compact: "true",
     includePreview: "false",
   });
+  const accessibleDesignCount = accessibleDesignsSummary.data?.totalCount;
+  const hasAccessibleDesigns =
+    accessibleDesignsSummary.isSuccess &&
+    accessibleDesignCount !== undefined &&
+    accessibleDesignCount > 0;
   const ownedDesignsSummary = useActionQuery<
     Pick<DesignListResult, "totalCount">
   >("list-designs", {
@@ -262,19 +288,34 @@ export default function Index() {
     includePreview: "false",
   });
   const hasSearchResultsSection = normalizedSearch.length > 0;
+  const revealRecentSearch = useCallback(() => {
+    homeLibraryTabWasSelectedRef.current = true;
+    setHomeSection("recent");
+    return true;
+  }, []);
+  useHomeSearchShortcut(true, revealRecentSearch);
   useEffect(() => {
     if (
-      accessibleDesignsSummary.isSuccess &&
-      (accessibleDesignsSummary.data?.totalCount ?? 0) > 0 &&
-      !homeLibraryTabWasSelectedRef.current
+      !accessibleDesignsSummary.isSuccess ||
+      accessibleDesignCount === undefined
     ) {
-      setHomeSection("recent");
-      writeStoredHomeLibraryTab("recent");
-      homeLibraryTabWasSelectedRef.current = true;
+      return;
     }
+
+    writeHomeLibraryHasRecents(hasAccessibleDesigns);
+    if (!hasAccessibleDesigns) {
+      setHomeSection("templates");
+      homeLibraryTabWasSelectedRef.current = false;
+      return;
+    }
+    if (homeLibraryTabWasSelectedRef.current) return;
+
+    setHomeSection("recent");
+    homeLibraryTabWasSelectedRef.current = true;
   }, [
-    accessibleDesignsSummary.data?.totalCount,
+    accessibleDesignCount,
     accessibleDesignsSummary.isSuccess,
+    hasAccessibleDesigns,
   ]);
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
@@ -329,11 +370,12 @@ export default function Index() {
   const heldDraftAfterSetupRef = useRef<ComposerDraftSnapshot | null>(null);
   const ensureAgentEngineConfigured = useCallback(
     async (draft?: ComposerDraftSnapshot) => {
-      if (agentEngineConfigured) return true;
       const requestId = ++preflightRequestIdRef.current;
       let nextState: AgentEngineConfiguredState;
       try {
-        nextState = await fetchAgentEngineConfiguredState();
+        nextState = await fetchAgentEngineConfiguredState(true, {
+          fresh: true,
+        });
       } catch {
         nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
       }
@@ -460,7 +502,12 @@ export default function Index() {
       ? chosenDesignSystemId
       : templateDesignSystemId;
 
-  const showAuthors = designFilter === "all";
+  const ownerFilterLabels: Record<DesignFilter, string> = {
+    all: t("home.ownedByAnyone"),
+    mine: t("home.ownedByMe"),
+    "not-mine": t("home.sharedWithMe"),
+  };
+  const showAuthors = designFilter !== "mine";
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
   const allVisibleSelected =
@@ -583,7 +630,7 @@ export default function Index() {
   }, []);
 
   const handleDesignFilterChange = useCallback((next: string) => {
-    if (next !== "all" && next !== "mine") return;
+    if (next !== "all" && next !== "mine" && next !== "not-mine") return;
     designFilterWasSelectedRef.current = true;
     const nextFilter: DesignFilter = next;
     setDesignFilter(nextFilter);
@@ -1141,8 +1188,8 @@ export default function Index() {
 
   useSetPageTitle(t("home.pageTitle"));
 
-  useSetHeaderActions(
-    <div className="relative w-full">
+  const searchInput = (
+    <div className="relative w-full min-w-0 sm:w-64 sm:shrink-0">
       <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
         size="sm"
@@ -1151,9 +1198,9 @@ export default function Index() {
         placeholder={t("home.searchPlaceholder")}
         aria-label={t("home.searchPlaceholder")}
         data-home-search="true"
-        className="w-full pe-3 ps-8"
+        className="h-9 w-full pe-3 ps-8"
       />
-    </div>,
+    </div>
   );
 
   return (
@@ -1307,11 +1354,14 @@ export default function Index() {
           />
         ) : null}
         <ClientOnly>
-          <PromptHomeLibrary
-            value={homeSection}
+          <DesignHomeLibrary
+            value={
+              hasAccessibleDesigns && !homeLibraryTabWasSelectedRef.current
+                ? "recent"
+                : homeSection
+            }
             onValueChange={(value) => {
               homeLibraryTabWasSelectedRef.current = true;
-              writeStoredHomeLibraryTab(value);
               setHomeSection(value);
             }}
             labels={{
@@ -1326,28 +1376,49 @@ export default function Index() {
                 </Link>
               </Button>
             }
+            search={searchInput}
             recentActions={
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
+                    type="button"
                     variant="outline"
                     size="sm"
-                    aria-label={t("home.designFilter")}
+                    aria-label={ownerFilterLabels[designFilter]}
+                    className="h-9 shrink-0 gap-2"
                   >
-                    <IconFilter />
-                    {designFilter === "mine" ? t("home.mine") : t("home.all")}
+                    <span className="grid">
+                      {Object.entries(ownerFilterLabels).map(
+                        ([filter, label]) => (
+                          <span
+                            key={filter}
+                            aria-hidden="true"
+                            className="invisible col-start-1 row-start-1 whitespace-nowrap"
+                          >
+                            {label}
+                          </span>
+                        ),
+                      )}
+                      <span className="col-start-1 row-start-1 whitespace-nowrap">
+                        {ownerFilterLabels[designFilter]}
+                      </span>
+                    </span>
+                    <IconChevronDown className="size-4" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="start">
                   <DropdownMenuRadioGroup
                     value={designFilter}
                     onValueChange={handleDesignFilterChange}
                   >
-                    <DropdownMenuRadioItem value="mine">
-                      {t("home.mine")}
+                    <DropdownMenuRadioItem value="all" indicator="check">
+                      {ownerFilterLabels.all}
                     </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="all">
-                      {t("home.all")}
+                    <DropdownMenuRadioItem value="mine" indicator="check">
+                      {ownerFilterLabels.mine}
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="not-mine" indicator="check">
+                      {ownerFilterLabels["not-mine"]}
                     </DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
@@ -1370,7 +1441,7 @@ export default function Index() {
             }
             recent={
               <>
-                {isLoading ? (
+                {isLoading || (isFetching && designs.length === 0) ? (
                   <LoadingSkeleton />
                 ) : isError ? (
                   <QueryErrorState
@@ -1378,7 +1449,13 @@ export default function Index() {
                     retrying={isFetching}
                   />
                 ) : designs.length === 0 ? (
-                  <SearchEmptyState />
+                  normalizedSearch ? (
+                    <SearchEmptyState />
+                  ) : (
+                    <div className="rounded-xl bg-card p-6 text-center text-sm text-muted-foreground">
+                      {t("home.noDesignsMatchFilter")}
+                    </div>
+                  )
                 ) : (
                   <>
                     {isSelectingDesigns ? (

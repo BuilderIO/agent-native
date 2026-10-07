@@ -213,12 +213,24 @@ export interface AgentKitLabels {
   durationSecondShort: string;
   agents: string;
   tasks: string;
+  toolInput?: string;
+  toolResult?: string;
+  activityValueIdentifierHidden?: string;
+  activityValueOmitted?: string;
+  activityValueCircular?: string;
   composerLabel: string;
   composerPlaceholder: string;
   queue: string;
+  /** @deprecated Use queueSendNow. */
   queueSteer: string;
+  /** @deprecated Use queueSendNowHint. */
   queueSteerHint: string;
+  /** @deprecated Use queueSendNext. */
   queueMoveToTop: string;
+  queueSendNow?: string;
+  queueSendNowHint?: string;
+  queueSendNext?: string;
+  queueSendNextHint?: string;
   queueRemove: string;
   queueMore: string;
   suggestions: string;
@@ -226,6 +238,17 @@ export interface AgentKitLabels {
   copied: string;
   messageActions: string;
   copyRequestId: string;
+  usage: string;
+  usageLoading: string;
+  usageUnavailable: string;
+  usageNotRecorded: string;
+  usageIncomplete: string;
+  usageReportedCost: string;
+  usageEstimatedCost: string;
+  usageMixedCost: string;
+  usageBuilderCredits: string;
+  usageEstimatedBuilderCredits: string;
+  usageMixedBuilderCredits: string;
   requestIdUnavailable: string;
   positiveFeedback: string;
   negativeFeedback: string;
@@ -251,6 +274,7 @@ export interface AgentKitLabels {
   imagePreview: string;
   closePreview: string;
   dropFilesToAttach: string;
+  dropFileFailed: string;
   scrollToBottom: string;
   formatTimestamp?: (createdAt: string) => string;
   error: string;
@@ -302,12 +326,21 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   durationSecondShort: "s",
   agents: "Agent collaboration",
   tasks: "Agent tasks",
+  toolInput: "Input",
+  toolResult: "Result",
+  activityValueIdentifierHidden: "[Identifier hidden]",
+  activityValueOmitted: "[Content omitted]",
+  activityValueCircular: "[Circular reference]",
   composerLabel: "Message agent",
   composerPlaceholder: "Ask the agent to explore, build, or explain…",
   queue: "Queued messages",
-  queueSteer: "Steer",
-  queueSteerHint: "Send this message to the active run",
-  queueMoveToTop: "Move to top",
+  queueSteer: "Send now",
+  queueSteerHint: "Stops the current response, then sends this message.",
+  queueMoveToTop: "Send next",
+  queueSendNow: "Send now",
+  queueSendNowHint: "Stops the current response, then sends this message.",
+  queueSendNext: "Send next",
+  queueSendNextHint: "Send after the current response finishes",
   queueRemove: "Remove queued message",
   queueMore: "More actions",
   suggestions: "Suggested next actions",
@@ -315,6 +348,17 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   copied: "Copied",
   messageActions: "Message actions",
   copyRequestId: "Copy request ID",
+  usage: "Usage",
+  usageLoading: "Loading usage…",
+  usageUnavailable: "Usage unavailable",
+  usageNotRecorded: "Usage not recorded",
+  usageIncomplete: "Some usage could not be classified; totals are hidden.",
+  usageReportedCost: "Cost {{amount}}",
+  usageEstimatedCost: "Estimated cost {{amount}}",
+  usageMixedCost: "Reported and estimated cost {{amount}}",
+  usageBuilderCredits: "Builder credits used {{amount}}",
+  usageEstimatedBuilderCredits: "Estimated Builder credits {{amount}}",
+  usageMixedBuilderCredits: "Reported and estimated Builder credits {{amount}}",
   requestIdUnavailable: "Request ID unavailable",
   positiveFeedback: "Helpful",
   negativeFeedback: "Not helpful",
@@ -341,6 +385,7 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   imagePreview: "Image preview",
   closePreview: "Close preview",
   dropFilesToAttach: "Drop files to attach",
+  dropFileFailed: "Could not add the dropped file. Try a different format.",
   scrollToBottom: "Scroll to bottom",
   error: "Something went wrong",
   renderError: "This content couldn’t be displayed.",
@@ -372,6 +417,22 @@ export type AgentKitCopyMessageHandler = (input: {
   text: string;
 }) => boolean | Promise<boolean>;
 
+export interface AgentKitRunUsage {
+  durationMs: number | null;
+  billing: {
+    providerCostUsd: number | null;
+    providerCostSource: "reported" | "estimated" | "mixed" | null;
+    builderCredits: number | null;
+    builderCreditsSource: "reported" | "estimated" | "mixed" | null;
+    incomplete: boolean;
+  };
+}
+
+export type AgentKitRunUsageLoader = (input: {
+  runId: RunId;
+  signal: AbortSignal;
+}) => Promise<AgentKitRunUsage | null>;
+
 export interface AgentKitProviderProps {
   controller: AgentKitController;
   threadId: ThreadId;
@@ -382,6 +443,7 @@ export interface AgentKitProviderProps {
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  loadRunUsage?: AgentKitRunUsageLoader;
   /**
    * Resolves a provider identifier through host-owned connection setup. The
    * callback, never the agent-authored request, owns OAuth URLs and scopes.
@@ -399,16 +461,24 @@ export interface AgentKitProviderProps {
   children: ReactNode;
 }
 
+interface ResolvedAgentKitLabels extends AgentKitLabels {
+  queueSendNow: string;
+  queueSendNowHint: string;
+  queueSendNext: string;
+  queueSendNextHint: string;
+}
+
 export interface AgentKitContextValue {
   controller: AgentKitController;
   threadId: ThreadId;
   slots: AgentKitSlots;
   registry: AgentKitRegistry;
-  labels: AgentKitLabels;
+  labels: ResolvedAgentKitLabels;
   onOpenObject?: (object: AgentObjectReference) => void;
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  loadRunUsage?: AgentKitRunUsageLoader;
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
@@ -427,6 +497,7 @@ export function AgentKitProvider({
   onThreadForked,
   branchNavigation,
   onCopyMessage,
+  loadRunUsage,
   onConnectionRequest,
   onRenderError,
   onClientEffect,
@@ -447,8 +518,37 @@ export function AgentKitProvider({
   const requestComposerFocus = useCallback((targetThreadId: ThreadId) => {
     composerFocusTargets.current.get(targetThreadId)?.();
   }, []);
-  const mergedLabels = useMemo(
-    () => ({ ...defaultAgentKitLabels, ...labels }),
+  const mergedLabels = useMemo<ResolvedAgentKitLabels>(
+    () => ({
+      ...defaultAgentKitLabels,
+      ...labels,
+      queueSteer:
+        labels?.queueSteer ??
+        labels?.queueSendNow ??
+        defaultAgentKitLabels.queueSteer,
+      queueSteerHint:
+        labels?.queueSteerHint ??
+        labels?.queueSendNowHint ??
+        defaultAgentKitLabels.queueSteerHint,
+      queueMoveToTop:
+        labels?.queueMoveToTop ??
+        labels?.queueSendNext ??
+        defaultAgentKitLabels.queueMoveToTop,
+      queueSendNow:
+        labels?.queueSendNow ??
+        labels?.queueSteer ??
+        defaultAgentKitLabels.queueSendNow!,
+      queueSendNowHint:
+        labels?.queueSendNowHint ??
+        labels?.queueSteerHint ??
+        defaultAgentKitLabels.queueSendNowHint!,
+      queueSendNext:
+        labels?.queueSendNext ??
+        labels?.queueMoveToTop ??
+        defaultAgentKitLabels.queueSendNext!,
+      queueSendNextHint:
+        labels?.queueSendNextHint ?? defaultAgentKitLabels.queueSendNextHint!,
+    }),
     [labels],
   );
   const value = useMemo(
@@ -462,6 +562,7 @@ export function AgentKitProvider({
       onThreadForked,
       branchNavigation,
       onCopyMessage,
+      loadRunUsage,
       onConnectionRequest,
       onRenderError,
       registerComposerFocus,
@@ -477,6 +578,7 @@ export function AgentKitProvider({
       onThreadForked,
       branchNavigation,
       onCopyMessage,
+      loadRunUsage,
       onConnectionRequest,
       onRenderError,
       registerComposerFocus,

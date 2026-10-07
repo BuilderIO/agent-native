@@ -169,6 +169,10 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       ),
   ],
   [
+    "IdentityRetiredEmails",
+    () => import("../identity/retired-emails.js").then((m) => m.ensureTable()),
+  ],
+  [
     "IdentitySso",
     () => import("./identity-sso-store.js").then((m) => m.ensureTable()),
   ],
@@ -290,6 +294,18 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       ),
   ],
   [
+    "ResourceAccessRequests",
+    () =>
+      import("../sharing/access-request-store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "ResourceChanges",
+    () =>
+      import("../resource-changes/store.js").then((m) =>
+        m.ensureResourceChangeTables(),
+      ),
+  ],
+  [
     "ResourceVersions",
     () =>
       import("../history/store.js").then((m) =>
@@ -322,6 +338,13 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
     "SchedulerHealth",
     () =>
       import("../jobs/scheduler-health.js").then((m) => m.ensureHealthTable()),
+  ],
+  [
+    "SearchIndex",
+    () =>
+      import("../search/index-store.js").then((m) =>
+        m.ensureSearchIndexTables(),
+      ),
   ],
   [
     "Settings",

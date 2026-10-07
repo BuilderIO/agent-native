@@ -3,11 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { signA2AToken } from "@agent-native/core/a2a";
+import { canonicalA2AAudience, signA2AToken } from "@agent-native/core/a2a";
 import { isActionContractError } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import {
-  getOrgA2ASecret,
   getOrgDomain,
   isWorkspaceAppAccessAllowed,
 } from "@agent-native/core/org";
@@ -108,10 +107,11 @@ class AppCreationSettingsAuthorizationError extends Error {
 }
 
 class WorkspaceAppsGatewayAuthorizationError extends Error {
-  constructor(statusCode: 401 | 403) {
-    super(
-      `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
-    );
+  constructor(
+    statusCode: 401 | 403,
+    message = `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
+  ) {
+    super(message);
     this.name = "WorkspaceAppsGatewayAuthorizationError";
     this.statusCode = statusCode;
   }
@@ -1677,41 +1677,27 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     return null;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
-  );
-
   const requestContext = getRequestContext();
   const authHeaders: Record<string, string> = {};
   if (requestContext?.userEmail) {
-    const [orgDomain, orgSecret] = requestContext.orgId
-      ? await Promise.all([
-          // coercion-ok: an unavailable org row falls back to the deployment secret.
-          getOrgDomain(requestContext.orgId).catch(() => null),
-          // coercion-ok: an unavailable org row falls back to the deployment secret.
-          getOrgA2ASecret(requestContext.orgId).catch(() => null),
-        ])
-      : [null, null];
-    const usableOrgSecret =
-      typeof orgSecret === "string" && orgSecret.trim().length > 0;
-    const usableOrgDomain =
-      typeof orgDomain === "string" && orgDomain.trim().length > 0;
+    const orgDomain = requestContext.orgId
+      ? (await getOrgDomain(requestContext.orgId))?.trim().toLowerCase()
+      : undefined;
+    if (requestContext.orgId && !orgDomain) {
+      throw new WorkspaceAppsGatewayAuthorizationError(
+        401,
+        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
+      );
+    }
     try {
       const token = await signA2AToken(
         requestContext.userEmail,
-        usableOrgDomain ? orgDomain.trim() : undefined,
-        usableOrgSecret ? orgSecret.trim() : undefined,
+        orgDomain,
+        undefined,
         {
           expiresIn: "1m",
           preferGlobalSecret: true,
-          // Keep the exact request scope even when the org-domain lookup is
-          // unavailable. The receiver must never infer a different org from
-          // the caller's email in that case.
-          ...(requestContext.orgId
-            ? { extraClaims: { org_id: requestContext.orgId } }
-            : {}),
+          audience: canonicalA2AAudience(baseUrl.toString()),
         },
       );
       authHeaders.Authorization = `Bearer ${token}`;
@@ -1722,6 +1708,12 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       // gateway will fail closed below when its action route needs identity.
     }
   }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
+  );
 
   const gatewayUrl = (pathname: string): URL => {
     const url = new URL(baseUrl.toString());
@@ -2063,29 +2055,38 @@ export async function listWorkspaceApps(
     return finalize(manifestApps, { persist: !unverified });
   }
 
-  if (gatewayDenial) throw gatewayDenial;
+  // With no local filesystem or manifest to answer, a 401 means this
+  // deployment's own credentials are wrong, which someone has to see. A 403
+  // means the registry will not show this reader its apps, so they get the
+  // deployment's own list instead, and none of it is recorded. (A manifest
+  // answers earlier for both, with the warning above.)
+  if (gatewayDenial?.statusCode === 401) throw gatewayDenial;
+  warnWorkspaceAppsGatewayDenial(gatewayDenial, "deployment's own app list");
 
   if (!workspaceRoot) {
-    return finalize([
-      {
-        id: "dispatch",
-        name: "Dispatch",
-        description: "Workspace control plane",
-        path: "/dispatch",
-        homePath: "/home",
-        url: workspaceAppUrl("/dispatch"),
-        isDispatch: true,
-        audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: [],
-        protectedPaths: [],
-        status: "ready",
-      },
-    ]);
+    return finalize(
+      [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          description: "Workspace control plane",
+          path: "/dispatch",
+          homePath: "/home",
+          url: workspaceAppUrl("/dispatch"),
+          isDispatch: true,
+          audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
+          publicPaths: [],
+          protectedPaths: [],
+          status: "ready",
+        },
+      ],
+      { persist: !unverified },
+    );
   }
 
   const apps = await readWorkspaceAppsFromFilesystem(workspaceRoot);
-  if (apps) return finalize(apps);
-  return finalize([]);
+  if (apps) return finalize(apps, { persist: !unverified });
+  return finalize([], { persist: !unverified });
 }
 
 const ADDABLE_TEMPLATES: AvailableWorkspaceTemplate[] = [
@@ -2667,7 +2668,7 @@ function buildWorkspaceAppPrompt(input: {
       "- Use Tabler Icons (@tabler/icons-react) for every icon. Never use emojis as icons.",
       `- Expose what the user is looking at via application_state (navigation.view, selection, etc.) so the agent has live context. Mirror the patterns in templates/mail or templates/slides.`,
       "- Optimistic UI for every mutation: update the React Query cache immediately, navigate immediately, run the mutation in the background, roll back on error. Don't await a server round-trip before re-rendering.",
-      `- Commit an agent-native.json at apps/${appId}/agent-native.json with { "version": 1, "onboarding": { "firstRun": { "development": "connect", "production": "connect-and-integrations" } } }. Keep the shared Connect Builder / Add your own keys onboarding visible; never build a second, custom credential form or hardcode a provider key.`,
+      `- Commit an agent-native.json at apps/${appId}/agent-native.json with { "version": 1, "onboarding": { "firstRun": { "development": "connect", "production": "connect-and-integrations" } } }. Keep the shared Use Builder.io / Add your own keys onboarding visible; never build a second, custom credential form or hardcode a provider key.`,
       "- Every AI-labeled button must call sendToAgentChat with openSidebar: true — plus submit: true for one-click work, or submit: false when the user should review/edit the proposed prompt first. Keep follow-ups in that same sidebar thread; don't add a second freeform input beside the result. Never use sparkle, wand, magic, robot, or other decorative AI icons on those buttons — a message or neutral action icon, or no icon, instead.",
       "- Choose a named visual direction in DESIGN.md before styling the first screen and build to it. Don't inherit a sibling app's palette unbuilt.",
       '- Left navigation must name real domain destinations, not "Chat" as the only or default entry.',

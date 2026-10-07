@@ -248,7 +248,7 @@ const databaseExactEnglish = {
     "साझा कुंजी के लिए दोनों स्रोतों का विश्लेषण किया जा रहा है",
   bodyDiff: "बॉडी अंतर",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder कनेक्ट नहीं है। पहले अपना खाता कनेक्ट करने के लिए वापस जाएं।",
+    "Builder कनेक्ट नहीं है। पहले Builder.io इस्तेमाल करने के लिए वापस जाएं।",
   calendarBy: "कैलेंडर इसके अनुसार",
   checkingBuilderConnection: "Builder कनेक्शन जांचा जा रहा है",
   clearAll: "सब साफ़ करें",
@@ -260,7 +260,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "सभी समूह समेटें",
   collapseAll: "सभी समेटें",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "इसके spaces और models ब्राउज़ करने के लिए अपना Builder खाता कनेक्ट करें।",
+    "इसके spaces और models ब्राउज़ करने के लिए अपने Builder खाते का इस्तेमाल करें।",
   connectedSources: "कनेक्ट किए गए स्रोत",
   couldntSyncRetry: "सिंक नहीं हो सका · फिर कोशिश करें",
   countAll: "सभी की गिनती",
@@ -937,8 +937,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "आपका पिछला पेज अब उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
-  requestedPageUnavailable:
-    "वह पेज आपके खाते के लिए उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
   saveFailed: "आपकी जगह सेव नहीं की जा सकी",
   workspaceWelcomeUnavailableTitle: "यहाँ अभी कुछ भी खुला नहीं है",
   workspaceWelcomeUnavailableDescription:
@@ -1057,6 +1055,10 @@ const exactEnglish = {
     iconPickerUploading: "अपलोड हो रहा है…",
     suggestionAmendmentEmpty:
       "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
+    suggestionUnplaceable:
+      "इस सुझाव के आसपास का टेक्स्ट बदल गया है, इसलिए इसे लागू नहीं किया जा सकता। यह अभी भी लंबित है: इसे अस्वीकार करें, या बदलाव फिर से सुझाएँ।",
+    proposalUnplaceable:
+      "इनमें से एक सुझाव के आसपास का टेक्स्ट बदल गया है, इसलिए उसे लागू नहीं किया जा सकता और कोई भी सुझाव लागू नहीं हुआ। सभी अभी भी लंबित हैं: उन्हें एक-एक करके स्वीकार या अस्वीकार करें।",
     suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
     suggestionAmendmentResolved:
       "यह सुझाव कहीं और बदल दिया गया है। आपका सेव न किया गया ड्राफ़्ट अभी भी यहाँ है।",
@@ -1325,6 +1327,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "कोई page selected नहीं",
+    pageNoAccess: "आपके पास इस पेज का एक्सेस नहीं है",
+    pageMissing: "यह पेज मौजूद नहीं है",
+    pageInTrash: "यह पेज ट्रैश में है",
+    pageInTrashAskOwner: "मालिक से इसे रीस्टोर करने के लिए कहें।",
+    openTrash: "ट्रैश खोलें",
+    goToMyPages: "मेरे पेज पर जाएं",
     noPageDescription: "sidebar से page चुनें या नया बनाएं।",
     newPage: "नया page",
     createFailed: "page create नहीं हो सका",

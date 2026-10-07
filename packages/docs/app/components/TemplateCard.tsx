@@ -3,9 +3,12 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
 import { sendAhrefsEvent } from "../lib/ahrefs-analytics";
-import { BuilderImage } from "./builder-image";
 import { sitePathForLocale } from "./docs-locale";
-import { APP_ART } from "./website-redesign/app-art";
+import {
+  getScreenshotTileScaleX,
+  TEMPLATE_SCREENSHOTS,
+} from "./template-screenshots";
+import { TemplateScreenshot } from "./TemplateScreenshot";
 import { AppStatusBadge } from "./website-redesign/ds/app-status-badge";
 import { CardArrow } from "./website-redesign/ds/card-arrow";
 
@@ -19,8 +22,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-clips-app --template clips",
     demoUrl: "https://clips.agent-native.com",
     color: "#0EA5E9",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fab7beeb1f62548fab6e2a710d880a20c?format=webp&width=800",
+    screenshot: TEMPLATE_SCREENSHOTS.clips,
   },
   {
     name: "Plans",
@@ -28,8 +30,7 @@ export const templates = [
     cliCommand: "npx @agent-native/core@latest skills add visual-plan",
     demoUrl: "https://plan.agent-native.com",
     color: "#2F6FED",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc56ca318901149dbb0cdadea94946c11",
+    screenshot: TEMPLATE_SCREENSHOTS.plan,
   },
   {
     name: "Design",
@@ -38,8 +39,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-design-app --template design",
     demoUrl: "https://design.agent-native.com",
     color: "#F472B6",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F75026532fe204acbab72d41dbeb34305?format=webp&width=800&height=1200",
+    screenshot: TEMPLATE_SCREENSHOTS.design,
   },
   {
     name: "Content",
@@ -48,8 +48,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-content-app --template content",
     demoUrl: "https://content.agent-native.com",
     color: "#7928ca",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa70f7bcdb3744d8291eb607bfda36ab0",
+    screenshot: TEMPLATE_SCREENSHOTS.content,
   },
   {
     name: "Slides",
@@ -58,8 +57,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-slides-app --template slides",
     demoUrl: "https://slides.agent-native.com",
     color: "#f59e0b",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b196d8d24c44914a021d1577f10879b",
+    screenshot: TEMPLATE_SCREENSHOTS.slides,
   },
   {
     name: "Analytics",
@@ -68,8 +66,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-analytics-app --template analytics",
     demoUrl: "https://analytics.agent-native.com",
     color: "var(--docs-accent)",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcf9102c2aa3b4de982a50ab88d07b6df",
+    screenshot: TEMPLATE_SCREENSHOTS.analytics,
   },
   {
     name: "Mail",
@@ -78,8 +75,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-mail-app --template mail",
     demoUrl: "https://mail.agent-native.com",
     color: "#0ea5e9",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F84818cf9e2fa448b84fb9f91b6f1f80b",
+    screenshot: TEMPLATE_SCREENSHOTS.mail,
   },
   {
     name: "Forms",
@@ -88,8 +84,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-forms-app --template forms",
     demoUrl: "https://forms.agent-native.com",
     color: "#06B6D4",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdae3c94347a248e385ab9981ec7921ac",
+    screenshot: TEMPLATE_SCREENSHOTS.forms,
   },
   {
     name: "Assets",
@@ -98,8 +93,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-assets-app --template assets",
     demoUrl: "https://assets.agent-native.com",
     color: "#0F766E",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9fdd5469051f421db5f1fdcc749de66b?format=webp&width=800&height=1200",
+    screenshot: TEMPLATE_SCREENSHOTS.assets,
   },
   {
     name: "Calendar",
@@ -108,8 +102,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-calendar-app --template calendar",
     demoUrl: "https://calendar.agent-native.com",
     color: "#10b981",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd43810da66d44bfc96b21255b93d4ccb",
+    screenshot: TEMPLATE_SCREENSHOTS.calendar,
   },
   {
     name: "Dispatch",
@@ -118,8 +111,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-dispatch-app --template dispatch",
     demoUrl: "https://dispatch.agent-native.com",
     color: "#14B8A6",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fea3f73fdf23240009ef0be82f7edc0fb",
+    screenshot: TEMPLATE_SCREENSHOTS.dispatch,
   },
   {
     name: "Chat",
@@ -128,8 +120,7 @@ export const templates = [
       "npx @agent-native/core@latest create my-chat-app --template chat",
     demoUrl: "https://chat.agent-native.com",
     color: "#18181B",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65323b4e4425484ab680ae3c158fd63d",
+    screenshot: TEMPLATE_SCREENSHOTS.chat,
   },
   // ── DO NOT add new templates here directly. ──
   // The public-facing template list is the strict allow-list defined in
@@ -138,7 +129,7 @@ export const templates = [
   // its `hidden` flag in that file. The CI guard `scripts/guard-template-list.mjs`
   // enforces this -- adding a slug here that isn't in the allow-list will fail
   // the build.
-];
+] as const;
 
 export type Template = (typeof templates)[number];
 
@@ -168,7 +159,6 @@ export function TemplateCard({ template }: { template: Template }) {
         : null;
   const description =
     heroCopy?.description ?? t(`templates.${template.slug}.description`);
-  const art = APP_ART[template.slug];
 
   return (
     <article className="group flex min-w-0 flex-col overflow-hidden border-e border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
@@ -184,47 +174,18 @@ export function TemplateCard({ template }: { template: Template }) {
           sendAhrefsEvent("apps_card_click", { app: template.slug });
         }}
       >
-        <div className="relative flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)]">
-          {art ? (
-            <>
-              <BuilderImage
-                src={art.imageDark}
-                crossOrigin="anonymous"
-                alt={t("templateCard.screenshotAlt", { name: template.name })}
-                loading="lazy"
-                decoding="async"
-                className="theme-img-dark relative h-full w-full object-cover"
-              />
-              <BuilderImage
-                src={art.imageLight}
-                crossOrigin="anonymous"
-                alt={t("templateCard.screenshotAlt", { name: template.name })}
-                loading="lazy"
-                decoding="async"
-                className="theme-img-light absolute inset-0 h-full w-full object-cover"
-              />
-            </>
-          ) : template.screenshot ? (
-            <BuilderImage
-              src={template.screenshot}
-              crossOrigin="anonymous"
-              alt={t("templateCard.screenshotAlt", { name: template.name })}
-              loading="lazy"
-              decoding="async"
-              className="h-full w-full object-cover object-top transition-opacity hover:opacity-90"
-            />
-          ) : (
-            <div
-              className="flex h-full w-full items-center justify-center"
-              style={{
-                background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
-              }}
-            >
-              <span className="rounded-lg bg-[var(--b-bg-page)]/80 px-4 py-2 font-[family-name:var(--b-font-sans)] text-sm font-semibold text-[var(--b-text-primary)] shadow-sm">
-                {template.name}
-              </span>
-            </div>
-          )}
+        <div className="relative aspect-[8/5] overflow-hidden bg-[var(--b-bg-page)]">
+          <TemplateScreenshot
+            alt={t("templateCard.screenshotAlt", { name: template.name })}
+            frame={template.slug === "clips"}
+            scaleX={getScreenshotTileScaleX(template.slug)}
+            sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
+            variants={TEMPLATE_SCREENSHOTS[template.slug]}
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-[var(--b-border-subtle)]"
+          />
         </div>
         <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
           <h3 className="m-0 flex items-center gap-[var(--spacing-2)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">

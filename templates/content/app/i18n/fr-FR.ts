@@ -266,7 +266,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "Builder n’est pas connecté. Revenez en arrière et utilisez d’abord Builder.io.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -278,7 +278,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "Utilisez votre compte Builder pour parcourir ses espaces et modèles.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -978,8 +978,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Votre page précédente n’est plus disponible. Nous avons donc ouvert la page de bienvenue.",
-  requestedPageUnavailable:
-    "Cette page n’est pas accessible à votre compte. Nous avons donc ouvert la page de bienvenue.",
   saveFailed: "Votre emplacement n’a pas pu être enregistré",
   workspaceWelcomeUnavailableTitle: "Rien n’est encore ouvert ici",
   workspaceWelcomeUnavailableDescription:
@@ -1100,6 +1098,10 @@ const exactEnglish = {
     iconPickerUploading: "Importation…",
     suggestionAmendmentEmpty:
       "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
+    suggestionUnplaceable:
+      "Le texte autour de cette suggestion a changé, elle ne peut donc pas être appliquée. Elle reste en attente : refusez-la ou proposez à nouveau la modification.",
+    proposalUnplaceable:
+      "L’une de ces suggestions ne peut pas être appliquée, car le texte autour d’elle a changé : aucune n’a donc été appliquée. Elles restent toutes en attente : acceptez-les ou refusez-les une par une.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
@@ -1388,6 +1390,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Aucune page sélectionnée",
+    pageNoAccess: "Vous n’avez pas accès à cette page",
+    pageMissing: "Cette page n’existe pas",
+    pageInTrash: "Cette page est dans la corbeille",
+    pageInTrashAskOwner: "Demandez au propriétaire de la restaurer.",
+    openTrash: "Ouvrir la corbeille",
+    goToMyPages: "Aller à mes pages",
     noPageDescription:
       "Sélectionnez une page dans la barre latérale ou créez-en une.",
     newPage: "Nouvelle page",

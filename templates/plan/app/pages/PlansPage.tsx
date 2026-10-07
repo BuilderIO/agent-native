@@ -13,6 +13,7 @@ import {
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import {
+  callAction,
   useActionQuery,
   useAvatarUrl,
   useSession,
@@ -227,6 +228,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   planBundleQueryKey,
+  planBundleQueryParams,
   localPlanBundleQueryKey,
   localPlanBundleQueryParams,
   ALL_PLANS_QUERY_ARGS,
@@ -241,6 +243,7 @@ import {
   usePublishVisualPlan,
   useReportVisualPlan,
   useRestorePlanVersion,
+  useSavePlanBlocks,
   useUpdatePlan,
   useUpdateLocalPlan,
   useUpdateLocalPlanComments,
@@ -281,6 +284,10 @@ import {
   type RuntimeAnnotationComment,
   type RuntimeAnnotationParticipant,
 } from "@/lib/plan-annotation-runtime";
+import {
+  saveBlocksMergingConflicts,
+  type PlanBlocksRevision,
+} from "@/lib/plan-block-save";
 import {
   appendMessageToEditor,
   canSubmitInlineCommentDraft,
@@ -344,6 +351,20 @@ export type { NativeMarkerPlacement } from "@/lib/plan-native-anchors";
 export type { PlanOrgAccessPrompt } from "@/lib/plan-access-prompt";
 export { canSubmitInlineCommentDraft, mentionQueryAtCaret };
 export type { CommentDraft } from "@/lib/plan-comment-editor-helpers";
+
+export function buildPlanEmailVerificationCallbackURL(
+  location: Pick<Location, "pathname" | "search" | "hash">,
+): string {
+  return buildSignInReturnHref({
+    returnTo: appPath(planReturnPathFromLocation(location)),
+  });
+}
+
+function isPlanEmailVerificationPendingMessage(message: string): boolean {
+  return /\b(?:email|account)\b.*\b(?:not\s+verified|isn't\s+verified|is\s+not\s+verified|unverified)\b/i.test(
+    message,
+  );
+}
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -2161,7 +2182,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const openSignIn = useCallback((returnOverride?: string) => {
     window.location.href = buildSignInReturnHref({
-      returnTo: returnOverride ?? planReturnPathFromLocation(window.location),
+      returnTo: appPath(
+        returnOverride ?? planReturnPathFromLocation(window.location),
+      ),
     });
   }, []);
   const requestCreatePlan = useCallback(() => {
@@ -2575,11 +2598,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   }, [runtimeCommentThreads]);
   const updatePlan = useUpdatePlan();
-  const blockSaveRevisionRef = useRef<{
-    planId: string;
-    sourceRevision: string;
-    latestRevision: string;
-  } | null>(null);
+  const savePlanBlocks = useSavePlanBlocks();
   const updateLocalPlan = useUpdateLocalPlan();
   const promoteLocalPlan = usePromoteLocalPlan();
   const updatePlanMutateRef = useRef(updatePlan.mutate);
@@ -4044,59 +4063,105 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  const patchStructuredContent = async (patch: PlanContentPatch) => {
-    if (!bundle) return;
-    const silentError = patch.op === "replace-blocks";
-    const previousBlockSave = blockSaveRevisionRef.current;
-    const followsBlockSave =
-      patch.op === "replace-blocks" &&
-      previousBlockSave?.planId === bundle.plan.id &&
-      (bundle.plan.updatedAt === previousBlockSave.sourceRevision ||
-        bundle.plan.updatedAt === previousBlockSave.latestRevision);
-    const expectedUpdatedAt = followsBlockSave
-      ? previousBlockSave.latestRevision
-      : bundle.plan.updatedAt;
-    try {
-      if (localPlanMode) {
-        if (!localPlanSlug || localPlanBridgeUrl) return;
-        await updateLocalPlan.mutateAsync(
-          {
-            slug: localPlanSlug,
-            ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
-            contentPatches: [patch],
-            note:
-              patch.op === "update-rich-text"
-                ? `Edited local markdown block ${patch.blockId}.`
-                : "Patched local structured visual plan content.",
-          },
-          silentError ? { onError: () => {} } : undefined,
-        );
-        return;
+  // The newest block save this tab made, with the blocks it sent. Until the
+  // open document adopts the saved result, that save (not the older revision
+  // the document still reports) is what the next edit was made on top of, and
+  // the blocks sent, not the merged result, are what the document holds.
+  const lastBlockSaveRef = useRef<{
+    planId: string;
+    updatedAt: string;
+    sent: PlanBlock[];
+  } | null>(null);
+
+  // `base` is the saved revision the open document's edits were made on top
+  // of; without a document (no live editor) the plan as loaded stands in.
+  const saveBlocks = async (
+    plan: PlanBundleWithHtml["plan"],
+    blocks: PlanBlock[],
+    documentBase: PlanBlocksRevision | null | undefined,
+  ) => {
+    const planId = plan.id;
+    const toRevision = (saved: PlanBundleWithHtml): PlanBlocksRevision => {
+      if (!saved.plan?.content) {
+        throw new Error("The saved plan has no structured content.");
       }
-      const updated = await updatePlan.mutateAsync(
+      return {
+        updatedAt: saved.plan.updatedAt,
+        blocks: saved.plan.content.blocks,
+      };
+    };
+    const loaded =
+      documentBase ??
+      (plan.content
+        ? { updatedAt: plan.updatedAt, blocks: plan.content.blocks }
+        : null);
+    const own = lastBlockSaveRef.current;
+    const base =
+      own?.planId === planId && (!loaded || own.updatedAt >= loaded.updatedAt)
+        ? { updatedAt: own.updatedAt, blocks: own.sent }
+        : loaded;
+    const saved = await saveBlocksMergingConflicts({
+      base,
+      blocks,
+      save: async (nextBlocks, expectedUpdatedAt) =>
+        toRevision(
+          await savePlanBlocks.mutateAsync({
+            planId,
+            expectedUpdatedAt,
+            contentPatches: [{ op: "replace-blocks", blocks: nextBlocks }],
+            note: "Patched structured visual plan content.",
+          }),
+        ),
+      readLatest: async () =>
+        toRevision(
+          await callAction<PlanBundleWithHtml>(
+            "get-visual-plan",
+            planBundleQueryParams(planId),
+            { method: "GET" },
+          ),
+        ),
+    });
+    lastBlockSaveRef.current = {
+      planId,
+      updatedAt: saved.updatedAt,
+      sent: blocks,
+    };
+    return saved;
+  };
+
+  const patchStructuredContent = async (
+    patch: PlanContentPatch,
+    options?: { base?: PlanBlocksRevision | null },
+  ) => {
+    if (!bundle) return;
+    if (localPlanMode) {
+      if (!localPlanSlug || localPlanBridgeUrl) return;
+      await updateLocalPlan.mutateAsync(
         {
-          planId: bundle.plan.id,
-          ...(patch.op === "replace-blocks" ? { expectedUpdatedAt } : {}),
+          slug: localPlanSlug,
+          ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
           contentPatches: [patch],
           note:
             patch.op === "update-rich-text"
-              ? `Edited markdown block ${patch.blockId}.`
-              : "Patched structured visual plan content.",
+              ? `Edited local markdown block ${patch.blockId}.`
+              : "Patched local structured visual plan content.",
         },
-        silentError ? { onError: () => {} } : undefined,
+        patch.op === "replace-blocks" ? { onError: () => {} } : undefined,
       );
-      if (patch.op === "replace-blocks" && updated.plan?.updatedAt) {
-        blockSaveRevisionRef.current = {
-          planId: bundle.plan.id,
-          sourceRevision: followsBlockSave
-            ? previousBlockSave.sourceRevision
-            : bundle.plan.updatedAt,
-          latestRevision: updated.plan.updatedAt,
-        };
-      }
-    } catch (error) {
-      throw error;
+      return;
     }
+    if (patch.op === "replace-blocks") {
+      await saveBlocks(bundle.plan, patch.blocks, options?.base);
+      return;
+    }
+    await updatePlan.mutateAsync({
+      planId: bundle.plan.id,
+      contentPatches: [patch],
+      note:
+        patch.op === "update-rich-text"
+          ? `Edited markdown block ${patch.blockId}.`
+          : "Patched structured visual plan content.",
+    });
   };
 
   const updatePlanMetadata = async (patch: {
@@ -6957,7 +7022,7 @@ function LocalPlanConnection({
   );
 }
 
-function PlanLoadError({
+export function PlanLoadError({
   error,
   planId,
   accessStatus,
@@ -6989,6 +7054,12 @@ function PlanLoadError({
   const [emailAuthError, setEmailAuthError] = useState<string | null>(null);
   const [emailAuthNotice, setEmailAuthNotice] = useState<string | null>(null);
   const [emailAuthPending, setEmailAuthPending] = useState(false);
+  const [verificationResendPending, setVerificationResendPending] =
+    useState(false);
+  const [verificationResendMessage, setVerificationResendMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
   const [googlePending, setGooglePending] = useState(false);
 
   const message =
@@ -7019,7 +7090,7 @@ function PlanLoadError({
       ? t("plansPage.loadError.orgTitle", { orgName })
       : null;
 
-  const returnPath = () => planReturnPathFromLocation(window.location);
+  const returnPath = () => appPath(planReturnPathFromLocation(window.location));
 
   const readAuthError = async (res: Response, fallback: string) => {
     const data = (await res.json().catch(() => null)) as {
@@ -7029,10 +7100,50 @@ function PlanLoadError({
     return data?.error ?? data?.message ?? fallback;
   };
 
+  const resendVerificationEmail = async () => {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail || verificationResendPending) return;
+    setVerificationResendPending(true);
+    setVerificationResendMessage(null);
+    try {
+      const response = await fetch(
+        agentNativePath("/_agent-native/auth/ba/send-verification-email"),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: normalizedEmail,
+            callbackURL: buildPlanEmailVerificationCallbackURL(window.location),
+          }),
+        },
+      );
+      setVerificationResendMessage(
+        response.ok
+          ? {
+              kind: "success",
+              text: t("plansPage.loadError.verificationEmailResent"),
+            }
+          : {
+              kind: "error",
+              text: t("plansPage.loadError.verificationEmailFailed"),
+            },
+      );
+    } catch {
+      setVerificationResendMessage({
+        kind: "error",
+        text: t("plansPage.loadError.verificationEmailFailed"),
+      });
+    } finally {
+      setVerificationResendPending(false);
+    }
+  };
+
   const submitEmailAuth = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setEmailAuthError(null);
     setEmailAuthNotice(null);
+    setVerificationResendMessage(null);
     setEmailAuthPending(true);
     const body = {
       email,
@@ -7046,7 +7157,12 @@ function PlanLoadError({
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify({
+              ...body,
+              callbackURL: buildPlanEmailVerificationCallbackURL(
+                window.location,
+              ),
+            }),
           },
         );
         if (!registerRes.ok) {
@@ -7080,7 +7196,8 @@ function PlanLoadError({
         authError instanceof Error
           ? authError.message
           : t("plansPage.loadError.emailSignInFailed");
-      if (/not verified|verification/i.test(next)) {
+      if (isPlanEmailVerificationPendingMessage(next)) {
+        setEmailMode("sign-in");
         setEmailAuthNotice(t("plansPage.loadError.verifyEmail"));
       } else {
         setEmailAuthError(next);
@@ -7261,7 +7378,10 @@ function PlanLoadError({
                           type="email"
                           autoComplete="email"
                           value={email}
-                          onChange={(event) => setEmail(event.target.value)}
+                          onChange={(event) => {
+                            setEmail(event.target.value);
+                            setVerificationResendMessage(null);
+                          }}
                           required
                         />
                       </div>
@@ -7289,9 +7409,41 @@ function PlanLoadError({
                         </p>
                       ) : null}
                       {emailAuthNotice ? (
-                        <p className="text-sm text-muted-foreground">
-                          {emailAuthNotice}
-                        </p>
+                        <div className="space-y-2" aria-live="polite">
+                          <p className="text-sm text-muted-foreground">
+                            {emailAuthNotice}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              verificationResendPending || !email.trim()
+                            }
+                            onClick={() => void resendVerificationEmail()}
+                          >
+                            {verificationResendPending
+                              ? t("plansPage.loadError.resendingVerification")
+                              : t("plansPage.loadError.resendVerification")}
+                          </Button>
+                          {verificationResendMessage ? (
+                            <p
+                              className={cn(
+                                "text-sm",
+                                verificationResendMessage.kind === "error"
+                                  ? "text-destructive"
+                                  : "text-muted-foreground",
+                              )}
+                              role={
+                                verificationResendMessage.kind === "error"
+                                  ? "alert"
+                                  : "status"
+                              }
+                            >
+                              {verificationResendMessage.text}
+                            </p>
+                          ) : null}
+                        </div>
                       ) : null}
                       <div className="flex flex-wrap items-center gap-2">
                         <Button type="submit" disabled={emailAuthPending}>
@@ -7313,6 +7465,7 @@ function PlanLoadError({
                             );
                             setEmailAuthError(null);
                             setEmailAuthNotice(null);
+                            setVerificationResendMessage(null);
                           }}
                         >
                           {emailMode === "create"

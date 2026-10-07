@@ -1,9 +1,13 @@
 // @vitest-environment happy-dom
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import { NewWorkspaceAppFlow } from "./NewWorkspaceAppFlow.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 const sendToAgentChatMock = vi.hoisted(() => vi.fn());
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
@@ -43,6 +47,7 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
     connecting: builderConnectFlowState.connecting,
     error: null,
     statusResolved: true,
+    agentNativeProvisioningEnabled: true,
     start: builderConnectFlowState.start,
   }),
 }));
@@ -190,7 +195,11 @@ describe("NewWorkspaceAppFlow", () => {
   async function renderAndSelectAccess() {
     await act(async () => {
       root.render(
-        React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+        React.createElement(
+          AgentNativeI18nProvider,
+          { catalog: toolkitI18nCatalog, persistPreference: false },
+          React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+        ),
       );
     });
 
@@ -359,7 +368,11 @@ describe("NewWorkspaceAppFlow", () => {
     vaultState.mode = "all-apps";
     await act(async () => {
       root.render(
-        React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+        React.createElement(
+          AgentNativeI18nProvider,
+          { catalog: toolkitI18nCatalog, persistPreference: false },
+          React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+        ),
       );
     });
 
@@ -388,7 +401,11 @@ describe("NewWorkspaceAppFlow", () => {
       root.unmount();
       root = createRoot(container);
       root.render(
-        React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+        React.createElement(
+          AgentNativeI18nProvider,
+          { catalog: toolkitI18nCatalog, persistPreference: false },
+          React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+        ),
       );
     });
     await act(async () => {
@@ -412,7 +429,7 @@ describe("NewWorkspaceAppFlow", () => {
     );
   });
 
-  it("renders a Connect Builder control when Builder is not connected", async () => {
+  it("renders a Use Builder.io control when Builder is not connected", async () => {
     startWorkspaceAppCreationResponse.result = {
       mode: "builder-unavailable",
       reason: "builder-not-connected",
@@ -430,11 +447,21 @@ describe("NewWorkspaceAppFlow", () => {
       );
     });
 
-    const connectButton = findButton(container, "Connect Builder");
+    const connectButton = findButton(container, "Use Builder.io");
     act(() => {
       connectButton.click();
     });
-    expect(builderConnectFlowState.start).toHaveBeenCalledTimes(1);
+    expect(builderConnectFlowState.start).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Create and activate");
+    expect(document.body.textContent).toContain("I have a Builder.io account");
+
+    const activateButton = findButton(document.body, "Create and activate");
+    act(() => {
+      activateButton.click();
+    });
+    expect(builderConnectFlowState.start).toHaveBeenCalledWith({
+      provisionAccount: true,
+    });
   });
 
   it("renders the error affordance and a Try again control for builder-error, without a Connect Builder control", async () => {
@@ -464,7 +491,7 @@ describe("NewWorkspaceAppFlow", () => {
       matchingDivs.some((el) => el.className.includes("border-destructive")),
     ).toBe(true);
 
-    expect(() => findButton(container, "Connect Builder")).toThrow();
+    expect(() => findButton(container, "Use Builder.io")).toThrow();
     expect(findButton(container, "Try again")).toBeTruthy();
   });
 
@@ -491,7 +518,7 @@ describe("NewWorkspaceAppFlow", () => {
     expect(
       matchingDivs.some((el) => el.className.includes("border-destructive")),
     ).toBe(false);
-    expect(() => findButton(container, "Connect Builder")).toThrow();
+    expect(() => findButton(container, "Use Builder.io")).toThrow();
     expect(() => findButton(container, "Try again")).toThrow();
   });
 });

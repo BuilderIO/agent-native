@@ -42,12 +42,36 @@ vi.mock("../useBuilderStatus.js", () => ({
 
 vi.mock("../deferred-builder-connect-popover.js", () => ({
   DeferredBuilderConnectPopover: ({
+    flow,
     children,
     onConnect,
   }: {
+    flow: { agentNativeProvisioningEnabled?: boolean };
     children: React.ReactElement<{ onClick?: () => void }>;
     onConnect?: (provisionAccount: boolean) => void;
-  }) => React.cloneElement(children, { onClick: () => onConnect?.(false) }),
+  }) => {
+    const [open, setOpen] = React.useState(false);
+
+    return (
+      <>
+        {React.cloneElement(children, { onClick: () => setOpen(true) })}
+        {open ? (
+          <div data-testid="builder-connect-choices">
+            <button
+              type="button"
+              disabled={!flow.agentNativeProvisioningEnabled}
+              onClick={() => onConnect?.(true)}
+            >
+              Create and activate
+            </button>
+            <button type="button" onClick={() => onConnect?.(false)}>
+              I have a Builder.io account
+            </button>
+          </div>
+        ) : null}
+      </>
+    );
+  },
 }));
 
 vi.mock("../shell/context.js", () => ({
@@ -212,6 +236,8 @@ const LISTING = {
 function builderFlow(connected: boolean) {
   return {
     hasFetchedStatus: true,
+    statusResolved: true,
+    agentNativeProvisioningEnabled: true,
     configured: connected,
     connecting: false,
     error: null,
@@ -406,10 +432,13 @@ describe("InfrastructureSettingsPage", () => {
     const primaries = [...container.querySelectorAll("button")].filter(
       (candidate) => candidate.classList.contains("bg-primary"),
     );
-    expect(primaries).toEqual([button(row("builder"), "Connect")]);
-    act(() => button(row("builder"), "Connect").click());
+    expect(primaries).toEqual([button(row("builder"), "Use Builder.io")]);
+    act(() => button(row("builder"), "Use Builder.io").click());
+    expect(state.builder.start).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Create and activate");
+    act(() => button(document.body, "Create and activate").click());
     expect(state.builder.start).toHaveBeenCalledWith({
-      provisionAccount: false,
+      provisionAccount: true,
       scope: "org",
     });
   });
@@ -426,12 +455,14 @@ describe("InfrastructureSettingsPage", () => {
       );
       expect(row(id).textContent).toContain("Available with Builder.io · ");
       expect(row(id).textContent).not.toContain("Not available");
-      const connect = button(row(id), "Connect Builder.io");
+      const connect = button(row(id), "Use Builder.io");
       expect(connect.classList.contains("border")).toBe(true);
     }
-    act(() => button(row("browser-automation"), "Connect Builder.io").click());
+    act(() => button(row("browser-automation"), "Use Builder.io").click());
+    expect(state.builder.start).not.toHaveBeenCalled();
+    act(() => button(document.body, "Create and activate").click());
     expect(state.builder.start).toHaveBeenCalledWith({
-      provisionAccount: false,
+      provisionAccount: true,
       scope: "org",
     });
     expect(navigateMock).not.toHaveBeenCalled();

@@ -89,6 +89,39 @@ export interface ShareableResourceRegistration {
     authCapability?: string;
   };
   ownerAccessIgnoresOrg?: boolean;
+  /**
+   * Whether a row still counts as an openable resource, for example not in
+   * the trash. `columns` are the resource-table keys `isAvailable` reads;
+   * they join the lightweight access projection. A row that fails the rule
+   * reads as missing to anyone who can't open it, and as trashed to anyone
+   * who can. Omit it when every row is available.
+   */
+  availability?: {
+    columns: readonly string[];
+    isAvailable: (resource: any) => boolean;
+  };
+  /**
+   * Lets signed-in people who can't open a resource of this type ask its
+   * owner and admins for access. Off by default, so an app only starts
+   * emailing owners once its access screen offers the request.
+   */
+  accessRequests?: boolean;
+  /**
+   * A context that can open the resource when the viewer's own can't, such
+   * as the authority a Content space lends its members. Only a link's status
+   * reads it, so such a viewer hears that a page is in the trash instead of
+   * missing; `resolveAccess` and the share actions use the viewer's own
+   * context, and the app applies the grant in its own access helpers.
+   * `columns` are the resource-table keys `resolve` reads; they join the
+   * lightweight access projection, so `resolve` gets the row already loaded.
+   */
+  fallbackAccessContext?: {
+    columns: readonly string[];
+    resolve: (
+      resource: any,
+      ctx: { userEmail?: string; orgId?: string },
+    ) => Promise<{ userEmail?: string; orgId?: string } | null>;
+  };
   agentReadable?:
     | false
     | {

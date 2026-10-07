@@ -5,6 +5,7 @@ import {
   getRequestOrgId,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { parseBase64DataUrl } from "@agent-native/core/shared";
 import { and, desc, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -200,11 +201,7 @@ export function isSafeSvg(data: Uint8Array): boolean {
     /(?:href|xlink:href)\s*=\s*(?:(['"])(.*?)\1|([^\s>]+))/gi,
   )) {
     const target = (match[2] ?? match[3] ?? match[4] ?? "").trim();
-    if (
-      target &&
-      !target.startsWith("#") &&
-      !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(target)
-    ) {
+    if (target && !target.startsWith("#") && !isAllowedInlineSvgAsset(target)) {
       return false;
     }
   }
@@ -212,15 +209,21 @@ export function isSafeSvg(data: Uint8Array): boolean {
     /url\(\s*(["']?)(.*?)\1\s*\)/gi,
   )) {
     const target = match[2]?.trim() ?? "";
-    if (
-      target &&
-      !target.startsWith("#") &&
-      !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(target)
-    ) {
+    if (target && !target.startsWith("#") && !isAllowedInlineSvgAsset(target)) {
       return false;
     }
   }
   return true;
+}
+
+function isAllowedInlineSvgAsset(target: string): boolean {
+  const dataUrl = parseBase64DataUrl(target);
+  return Boolean(
+    dataUrl &&
+    ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+      dataUrl.mediaType,
+    ),
+  );
 }
 
 export function canSaveAsUploadedAsset(args: {
@@ -278,7 +281,7 @@ export async function uploadImageAsset(args: {
 
   if (!result) {
     const err: Error & { statusCode?: number } = new Error(
-      "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+      "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
     );
     err.statusCode = 503;
     throw err;

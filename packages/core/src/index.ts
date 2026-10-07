@@ -207,6 +207,7 @@ export { createExperimentsPlugin } from "./experiments/server.js";
 export {
   agentChat,
   isQaTestEmail,
+  isTestIdentityEmail,
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./shared/index.js";
@@ -261,6 +262,7 @@ export {
   BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER,
   BUILDER_AGENT_CREDITS_PER_USD,
   BUILDER_CREDIT_USAGE_BILLING,
+  UNKNOWN_USAGE_BILLING,
   USD_USAGE_BILLING,
   type UsageRecord,
   type UsageCostSource,

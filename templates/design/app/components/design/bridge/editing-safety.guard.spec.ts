@@ -85,6 +85,17 @@ describe("editing safety bridge", () => {
         expect(appInteractions.pointerDowns).toBe(0);
         expect(appInteractions.clicks).toBe(0);
 
+        await iframe.evaluate(() => {
+          (window as any).__spaceForwardingModeReceived = false;
+          window.addEventListener("message", (event) => {
+            if (
+              event.data?.type === "embedded-canvas-gesture-mode" &&
+              event.data.spaceKeyForwardingEnabled === true
+            ) {
+              (window as any).__spaceForwardingModeReceived = true;
+            }
+          });
+        });
         await page.evaluate(() => {
           document
             .querySelector<HTMLIFrameElement>("#preview")
@@ -97,7 +108,9 @@ describe("editing safety bridge", () => {
               "*",
             );
         });
-        await page.waitForTimeout(0);
+        await iframe.waitForFunction(
+          () => (window as any).__spaceForwardingModeReceived === true,
+        );
         await page.keyboard.down("Space");
         await page.mouse.down();
         await page.mouse.move(x + 72, y + 24, { steps: 2 });

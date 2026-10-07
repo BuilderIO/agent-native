@@ -54,9 +54,24 @@ describe("upload-image idempotency receipts", () => {
       action.run({ data: "data:image/png;base64,AQ==", filename: "image.png" }),
     ).resolves.toEqual({
       error:
-        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+        "No object storage is connected. Use Builder.io's managed storage (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
       configured: false,
     });
+  });
+
+  it("uploads parameterized data URLs with the normalized media type", async () => {
+    await action.run({
+      data: "data:IMAGE/PNG;charset=binary;base64,AQ==",
+      filename: "image.png",
+    });
+
+    expect(mocks.uploadFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: new Uint8Array([1]),
+        filename: "image.png",
+        mimeType: "image/png",
+      }),
+    );
   });
 
   it("replays a stored provider result instead of uploading twice", async () => {

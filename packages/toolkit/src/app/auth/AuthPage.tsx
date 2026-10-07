@@ -18,8 +18,9 @@ import type {
   AuthPageProps,
   AuthView,
 } from "@agent-native/core/shared/auth-page-types";
+import { resolveLaneEndpoint } from "@agent-native/core/shared/environment-lanes";
 import { toPublicFrameworkPath } from "@agent-native/core/shared/framework-route-prefix";
-import { isQaTestEmail } from "@agent-native/core/shared/qa-test-email";
+import { isTestIdentityEmail } from "@agent-native/core/shared/qa-test-email";
 import { DEPLOY_SETTINGS_REQUIRED_CODE } from "@agent-native/core/shared/runtime-config";
 import {
   isVerificationLinkInvalid,
@@ -31,7 +32,7 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
-import { StarfieldBackground } from "../shared/StarfieldBackground.js";
+import { WaveBackground } from "../shared/WaveBackground.js";
 
 export type {
   AuthLegalNotice,
@@ -240,7 +241,7 @@ function trackAuth(
   properties: Record<string, unknown> = {},
   email: string,
 ): void {
-  if (!isValidEmail(email) || isQaTestEmail(email)) return;
+  if (!isValidEmail(email) || isTestIdentityEmail(email)) return;
   if (
     isSyntheticTrafficValue(
       (
@@ -272,9 +273,11 @@ function trackAuth(
         return "";
       }
     })();
-    const endpoint =
+    const endpoint = resolveLaneEndpoint(
       config.agentNativeAnalyticsEndpoint ??
-      "https://analytics.agent-native.com/track";
+        "https://analytics.agent-native.com/track",
+      window.location.hostname,
+    );
     const legacyProperties = { app, ...properties };
     const events: Array<{
       name: string;
@@ -589,16 +592,6 @@ export function shouldStartWithLocalDev(
     !isVerificationLinkInvalid(params.get("error")) &&
     !path.endsWith("/login") &&
     !path.endsWith("/signup")
-  );
-}
-
-function AuthMarketingBackground() {
-  return (
-    <div
-      aria-hidden="true"
-      className="auth-marketing-screenshot"
-      data-agent-native-marketing-background
-    />
   );
 }
 
@@ -2346,15 +2339,6 @@ export function AuthPage(props: AuthPageProps) {
       </span>
     </p>
   ) : null;
-  const signupWave =
-    usesMarketingWelcome && view === "signup" ? (
-      <div className="auth-marketing-signup-wave">
-        <StarfieldBackground
-          className="auth-marketing-signup-wave-canvas"
-          transparent
-        />
-      </div>
-    ) : null;
   const signupForm = (
     <AuthForm
       id="signup-form"
@@ -2420,7 +2404,6 @@ export function AuthPage(props: AuthPageProps) {
       footer={
         <>
           {legalNote}
-          {signupWave}
           {localModeNote}
         </>
       }
@@ -3049,12 +3032,7 @@ export function AuthPage(props: AuthPageProps) {
             {authCard}
           </aside>
           <section className="marketing-panel">
-            <div className="auth-marketing-visual">
-              <div className="auth-marketing-screenshot-wrap">
-                <AuthMarketingBackground />
-              </div>
-              {marketingContent}
-            </div>
+            <div className="auth-marketing-visual">{marketingContent}</div>
           </section>
         </div>
       </div>
@@ -3126,13 +3104,19 @@ export function AuthPage(props: AuthPageProps) {
     </div>
   );
   return (
-    <>
-      {localePicker}
-      {initialPrompt ? (
-        <div className="auth-centered">{authCard}</div>
-      ) : (
-        marketingSurface
-      )}
-    </>
+    <div
+      className="auth-page"
+      data-auth-marketing={marketingCopy && !initialPrompt ? "true" : undefined}
+    >
+      <WaveBackground className="auth-wave-background" />
+      <div className="auth-page-content">
+        {localePicker}
+        {initialPrompt ? (
+          <div className="auth-centered">{authCard}</div>
+        ) : (
+          marketingSurface
+        )}
+      </div>
+    </div>
   );
 }

@@ -49,7 +49,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (ask, adhoc, analyses, extensions, sessions, monitoring, agents, data-dictionary, data-sources, settings)",
+        "View to navigate to (ask, adhoc, analyses, extensions, sessions, event-catalog, performance, monitoring, agents, data-dictionary, data-sources, settings). event-catalog and performance (per-route Web Vitals and request percentiles) require the Sessions triage Lab.",
       ),
     dashboardId: z
       .string()

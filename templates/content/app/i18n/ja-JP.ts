@@ -255,7 +255,7 @@ const databaseExactEnglish = {
   analyzingBothSourcesForASharedKey: "正在分析两个来源的共享键",
   bodyDiff: "正文差异",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder 未连接。请先返回并连接你的账户。",
+    "Builder は未接続です。戻ってから Builder.io をご利用ください。",
   calendarBy: "日历依据",
   checkingBuilderConnection: "正在检查 Builder 连接",
   clearAll: "全部清除",
@@ -267,7 +267,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "折叠所有分组",
   collapseAll: "全部折叠",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "连接你的 Builder 账户以浏览其空间和模型。",
+    "Builder アカウントを使ってスペースとモデルを閲覧できます。",
   connectedSources: "已连接的来源",
   couldntSyncRetry: "无法同步 · 重试",
   countAll: "全部计数",
@@ -952,8 +952,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "前回のページを利用できないため、ようこそページを開きました。",
-  requestedPageUnavailable:
-    "そのページはお使いのアカウントでは利用できないため、ようこそページを開きました。",
   saveFailed: "現在位置を保存できませんでした",
   workspaceWelcomeUnavailableTitle: "まだ何も開かれていません",
   workspaceWelcomeUnavailableDescription:
@@ -1070,6 +1068,10 @@ const exactEnglish = {
     iconPickerUploading: "アップロード中…",
     suggestionAmendmentEmpty:
       "この編集は現在のページと同じです。提案を削除するには却下してください。",
+    suggestionUnplaceable:
+      "この提案の周囲のテキストが変更されたため、適用できません。提案は保留中のままです。却下するか、もう一度編集を提案してください。",
+    proposalUnplaceable:
+      "周囲のテキストが変更されたため適用できない提案があり、どの提案も適用されませんでした。すべて保留中のままです。1 件ずつ承認または却下してください。",
     suggestionAmendmentFailed: "提案を保存できませんでした",
     suggestionAmendmentResolved:
       "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",
@@ -1350,6 +1352,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "ページが選択されていません",
+    pageNoAccess: "このページへのアクセス権がありません",
+    pageMissing: "このページは存在しません",
+    pageInTrash: "このページはゴミ箱にあります",
+    pageInTrashAskOwner: "所有者に復元を依頼してください。",
+    openTrash: "ゴミ箱を開く",
+    goToMyPages: "自分のページへ",
     noPageDescription:
       "サイドバーからページを選ぶか、新しいページを作成してください。",
     newPage: "新しいページ",

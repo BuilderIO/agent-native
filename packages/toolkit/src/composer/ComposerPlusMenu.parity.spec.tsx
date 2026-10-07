@@ -645,7 +645,7 @@ describe("shared default action preservation", () => {
     expect(dialogProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
         open: true,
-        defaultScope: "user",
+        defaultScope: "org",
         hasOrg: true,
         canCreateOrgMcp: false,
       }),

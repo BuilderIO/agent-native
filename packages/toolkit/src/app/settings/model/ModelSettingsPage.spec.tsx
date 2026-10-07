@@ -85,14 +85,11 @@ vi.mock("@agent-native/core/client/oauth-popup", () => ({
 }));
 
 vi.mock("../deferred-builder-connect-popover.js", () => ({
-  // The real popover asks whether to create an account, then calls onConnect.
   DeferredBuilderConnectPopover: ({
     children,
-    onConnect,
   }: {
     children: React.ReactElement<{ onClick?: () => void }>;
-    onConnect?: (provisionAccount: boolean) => void;
-  }) => React.cloneElement(children, { onClick: () => onConnect?.(false) }),
+  }) => React.cloneElement(children, { onClick: () => {} }),
 }));
 
 vi.mock("../shell/context.js", () => ({
@@ -182,6 +179,7 @@ function listing(
     providers: PROVIDERS.map((provider) => ({
       provider,
       label: LABELS[provider],
+      deploymentConfigured: false,
       org: null,
       personal: null,
       ...entries[provider],
@@ -209,7 +207,7 @@ function models(): ProviderModelsRead {
       })),
       {
         provider: "builder",
-        recommendedModels: ["auto", "gpt-5.6-luna"],
+        recommendedModels: ["auto", "gpt-6-luna"],
         rows: { user: { models: null }, org: { models: null } },
       },
     ],
@@ -383,18 +381,14 @@ describe("ModelSettingsPage", () => {
     expect(buttons(row("provider-org-groq"))).toEqual([]);
 
     expect(row("provider-personal-builder").textContent).toContain(
-      "Connect your own account to use it instead of the organization's.",
+      "Use your own Builder.io account instead of the organization's connection.",
     );
-    expect(buttons(row("provider-personal-builder"))).toEqual(["Connect"]);
-    act(() => {
-      (
-        row("provider-personal-builder").querySelector("button") as HTMLElement
-      ).click();
-    });
-    expect(state.builder.start).toHaveBeenCalledWith({
-      provisionAccount: false,
-      scope: "personal",
-    });
+    expect(buttons(row("provider-personal-builder"))).toEqual([
+      "Use Builder.io",
+    ]);
+    expect(
+      row("provider-personal-builder").querySelector("button")?.disabled,
+    ).toBe(false);
     expect(row("provider-personal-anthropic").textContent).toContain(
       "••••1234 · 2 models",
     );
@@ -625,7 +619,7 @@ describe("ModelSettingsPage", () => {
     state.listing = listing({
       canManageOrg: true,
       canUpdateDefault: true,
-      defaultModel: null,
+      defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-sol" },
     });
     state.builder = builderFlow({
       configured: false,
@@ -640,7 +634,7 @@ describe("ModelSettingsPage", () => {
       "The agent needs a provider to respond. We recommend Builder.io for model access, browser automation, file storage, and workspace identity. Free tier available.",
     );
     expect(prominence(empty)).toEqual([
-      "Connect Builder.io:primary",
+      "Use Builder.io:primary",
       "Add provider:outline",
     ]);
     // The empty state holds the page's one primary, so the header is empty.
@@ -648,6 +642,11 @@ describe("ModelSettingsPage", () => {
     expect(document.getElementById("provider-org-builder")).toBeNull();
 
     const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(
+        defaultRow.querySelector("[data-default-model-loading]"),
+      ).toBeNull();
+    });
     expect(defaultRow.textContent).toContain(
       "Add a provider to choose a default model.",
     );
@@ -655,7 +654,10 @@ describe("ModelSettingsPage", () => {
       defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
         ?.disabled,
     ).toBe(true);
-    expect(defaultRow.textContent).not.toContain("Not set");
+    expect(defaultRow.textContent).not.toContain("gpt-5.6-sol");
+    expect(
+      defaultRow.querySelector('[role="combobox"]')?.textContent?.trim(),
+    ).toBe("");
 
     await act(async () => {
       (
@@ -667,17 +669,242 @@ describe("ModelSettingsPage", () => {
     expect(
       document.querySelector('[data-testid="provider-dialog"]'),
     ).not.toBeNull();
-    act(() => {
-      (
-        [...empty.querySelectorAll("button")].find(
-          (button) => button.textContent === "Connect Builder.io",
-        ) as HTMLElement
-      ).click();
+    const builderButton = [...empty.querySelectorAll("button")].find(
+      (button) => button.textContent === "Use Builder.io",
+    );
+    expect(builderButton?.disabled).toBe(false);
+  });
+
+  it("keeps a stored deployment-configured provider default visible and upgrades it", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: true,
+        canUpdateDefault: true,
+        defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-sol" },
+      },
+      { openai: { deploymentConfigured: true } },
+    );
+    state.models = {
+      providers: models().providers.map((provider) =>
+        provider.provider === "openai"
+          ? { ...provider, recommendedModels: ["gpt-6-sol", "gpt-6.1-sol"] }
+          : provider,
+      ),
+    };
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
     });
-    expect(state.builder.start).toHaveBeenCalledWith({
-      provisionAccount: false,
-      scope: "org",
+    await render();
+
+    const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(defaultRow.textContent).toContain("gpt-6.1-sol · OpenAI");
     });
+    expect(
+      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
+        ?.disabled,
+    ).toBe(false);
+    expect(row("llm").textContent).not.toContain("Add a model provider");
+  });
+
+  it("offers a deployment-configured provider when there is no saved key or default", async () => {
+    state.listing = listing(
+      { canManageOrg: true, canUpdateDefault: true, defaultModel: null },
+      { anthropic: { deploymentConfigured: true } },
+    );
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    await render();
+
+    expect(row("llm").textContent).not.toContain("Add a model provider");
+    const defaultRow = row("default-model");
+    expect(defaultRow.textContent).toContain("Choose a model");
+    expect(
+      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
+        ?.disabled,
+    ).toBe(false);
+  });
+
+  it("preserves a deployment OpenAI model when its saved model selection allows custom IDs", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: true,
+        canUpdateDefault: true,
+        defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+      },
+      { openai: { deploymentConfigured: true } },
+    );
+    state.models = {
+      providers: models().providers.map((provider) =>
+        provider.provider === "openai"
+          ? {
+              ...provider,
+              recommendedModels: ["gpt-6-luna", "gpt-6.1-luna"],
+              rows: {
+                ...provider.rows,
+                org: { models: null, preserveCustomModels: true },
+              },
+            }
+          : provider,
+      ),
+    };
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    await render();
+
+    const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(defaultRow.textContent).toContain("gpt-5.6-luna · OpenAI");
+    });
+  });
+
+  it("keeps an OpenAI default hidden when the engine is not configured", async () => {
+    state.listing = listing({
+      canManageOrg: true,
+      canUpdateDefault: true,
+      defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-sol" },
+    });
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    callActionMock.mockResolvedValue({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          configured: false,
+          credentialRejected: false,
+        },
+      ],
+    });
+    await render();
+
+    const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(
+        defaultRow.querySelector("[data-default-model-loading]"),
+      ).toBeNull();
+    });
+    expect(defaultRow.textContent).not.toContain("gpt-5.6-sol");
+    expect(
+      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
+        ?.disabled,
+    ).toBe(true);
+    expect(row("llm").textContent).toContain("Add a model provider");
+  });
+
+  it("keeps custom OpenAI endpoint model IDs when displaying a stored default", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: true,
+        canUpdateDefault: true,
+        defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+      },
+      {
+        openai: {
+          org: {
+            scope: "org",
+            endpoint: "https://gateway.example/v1",
+            updatedAt: 1,
+          },
+        },
+      },
+    );
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+    });
+    state.models = {
+      providers: [
+        {
+          provider: "openai",
+          recommendedModels: ["gpt-5.6-luna", "gpt-6-luna"],
+          rows: {
+            org: { models: null, preserveCustomModels: true },
+          },
+        },
+      ],
+    };
+    await render();
+
+    const defaultRow = row("default-model");
+    expect(defaultRow.textContent).toContain("gpt-5.6-luna");
+    expect(defaultRow.textContent).not.toContain("gpt-6-luna");
+  });
+
+  it("keeps custom endpoint defaults for members who cannot see the endpoint", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: false,
+        canUpdateDefault: true,
+        defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+      },
+      {
+        openai: { org: { scope: "org", updatedAt: 1 } },
+      },
+    );
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+    });
+    state.models = {
+      providers: [
+        {
+          provider: "openai",
+          recommendedModels: ["gpt-5.6-luna", "gpt-6-luna"],
+          rows: {
+            org: { models: null, preserveCustomModels: true },
+          },
+        },
+      ],
+    };
+    await render();
+
+    const defaultRow = row("default-model");
+    expect(defaultRow.textContent).toContain("gpt-5.6-luna");
+    expect(defaultRow.textContent).not.toContain("gpt-6-luna");
+  });
+
+  it("hides a stored default whose provider key was rejected", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: true,
+        canUpdateDefault: true,
+        defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-sol" },
+      },
+      {
+        openai: {
+          org: { scope: "org", rejectedAt: 1, updatedAt: 1 },
+        },
+      },
+    );
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+    });
+    await render();
+
+    expect(row("provider-org-openai").textContent).toContain("rejected");
+    const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(
+        defaultRow.querySelector("[data-default-model-loading]"),
+      ).toBeNull();
+    });
+    expect(defaultRow.textContent).not.toContain("gpt-5.6-sol");
+    expect(
+      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
+        ?.disabled,
+    ).toBe(true);
   });
 
   it("tells a restricted member with no provider to ask an admin", async () => {
@@ -738,7 +965,7 @@ describe("ModelSettingsPage", () => {
     );
     const builderRow = row("provider-org-builder");
     expect(builderRow.textContent).toContain("Recommended");
-    expect(prominence(builderRow)).toEqual(["Connect:outline"]);
+    expect(prominence(builderRow)).toEqual(["Use Builder.io:outline"]);
   });
 
   it("doesn't recommend a member's own Builder.io over the organization's connection", async () => {

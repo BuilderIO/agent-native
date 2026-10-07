@@ -44,6 +44,40 @@ const BOARD_HTML = `<!doctype html>
        style="position:absolute;left:-280px;top:140px;width:120px;height:30px;box-sizing:border-box;background:#fef3c7;color:#111827">Board text</div>
 </body></html>`;
 
+const G4_CROSSED_FRAME_SCREEN_HTML = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>G4 crossed frame</title></head>
+<body style="margin:0;position:relative;width:800px;height:600px;background:#fff">
+  <div data-agent-native-node-id="outer-frame" data-agent-native-layer-name="Outer frame" data-an-primitive="frame"
+       style="position:absolute;left:80px;top:80px;width:560px;height:420px;box-sizing:border-box;background:#dbeafe;padding:24px">
+    <div data-agent-native-node-id="middle-frame" data-agent-native-layer-name="Middle frame" data-an-primitive="frame"
+         style="position:absolute;left:100px;top:80px;width:280px;height:220px;box-sizing:border-box;background:#bfdbfe">
+      <div data-agent-native-node-id="nested-frame" data-agent-native-layer-name="Nested frame" data-an-primitive="frame"
+           style="position:absolute;left:20px;top:20px;width:240px;height:180px;box-sizing:border-box;background:#93c5fd">
+        <div data-agent-native-node-id="nested-anchor" data-agent-native-layer-name="Existing child"
+             style="position:absolute;left:16px;top:100px;width:80px;height:40px;background:#2563eb"></div>
+      </div>
+    </div>
+    <div data-agent-native-node-id="auto-frame" data-agent-native-layer-name="Auto frame"
+         style="position:absolute;left:120px;top:330px;width:280px;height:70px;box-sizing:border-box;display:flex;flex-direction:row;gap:12px;padding:12px;background:#bfdbfe">
+      <div data-agent-native-node-id="auto-first" data-agent-native-layer-name="First item"
+           style="flex:0 0 auto;width:100px;height:40px;background:#2563eb"></div>
+      <div data-agent-native-node-id="auto-second" data-agent-native-layer-name="Second item"
+           style="flex:0 0 auto;width:100px;height:40px;background:#7c3aed"></div>
+    </div>
+    <div data-agent-native-node-id="short-frame" data-agent-native-layer-name="Short frame" data-an-primitive="frame"
+         style="position:absolute;left:12px;top:330px;width:80px;height:50px;background:#93c5fd"></div>
+    <div data-agent-native-node-id="narrow-frame" data-agent-native-layer-name="Narrow frame" data-an-primitive="frame"
+         style="position:absolute;left:430px;top:240px;width:120px;height:100px;background:#ef4444"></div>
+  </div>
+</body></html>`;
+
+const G4_CROSSED_FRAME_BOARD_HTML = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>G4 board</title></head>
+<body style="margin:0;position:relative;width:1800px;height:900px;overflow:visible;background:transparent">
+  <div data-agent-native-node-id="board-source" data-agent-native-layer-name="Board source" data-an-primitive="frame"
+       style="position:absolute;left:-400px;top:140px;width:100px;height:80px;box-sizing:border-box;background:#f97316"></div>
+</body></html>`;
+
 async function action(
   request: APIRequestContext,
   name: string,
@@ -59,7 +93,11 @@ async function action(
   return response.json();
 }
 
-async function createDesign(request: APIRequestContext): Promise<string> {
+async function createDesign(
+  request: APIRequestContext,
+  screenHtml = SCREEN_HTML,
+  boardHtml = BOARD_HTML,
+): Promise<string> {
   const created = await action(request, "create-design", {
     title: `Design interaction report ${Date.now()}`,
     projectType: "prototype",
@@ -69,7 +107,7 @@ async function createDesign(request: APIRequestContext): Promise<string> {
   const screen = await action(request, "create-file", {
     designId,
     filename: "index.html",
-    content: SCREEN_HTML,
+    content: screenHtml,
     fileType: "html",
   });
   const screenFileId = screen?.id ?? screen?.data?.id;
@@ -77,7 +115,7 @@ async function createDesign(request: APIRequestContext): Promise<string> {
   const board = await action(request, "create-file", {
     designId,
     filename: "__board__.html",
-    content: BOARD_HTML,
+    content: boardHtml,
     fileType: "html",
   });
   const boardFileId = board?.id ?? board?.data?.id;
@@ -118,6 +156,37 @@ async function fileContent(
     (record.files ?? []).find((file: any) => file.filename === filename)
       ?.content ?? ""
   );
+}
+
+async function nodePlacement(page: Page, html: string, nodeId: string) {
+  return page.evaluate(
+    ({ html, nodeId }) => {
+      const node = new DOMParser()
+        .parseFromString(html, "text/html")
+        .querySelector(`[data-agent-native-node-id="${nodeId}"]`);
+      if (!node?.parentElement) return null;
+      const parent = node.parentElement;
+      return {
+        parent:
+          parent.tagName === "BODY"
+            ? "BODY"
+            : parent.getAttribute("data-agent-native-node-id"),
+        siblingIndex: Array.from(parent.children).indexOf(node),
+        left: (node as HTMLElement).style.left,
+        top: (node as HTMLElement).style.top,
+      };
+    },
+    { html, nodeId },
+  );
+}
+
+async function topLevelNodeIds(page: Page, html: string): Promise<string[]> {
+  return page.evaluate((html) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return Array.from(doc.body.children)
+      .map((node) => node.getAttribute("data-agent-native-node-id"))
+      .filter((nodeId): nodeId is string => nodeId !== null);
+  }, html);
 }
 
 async function designData(
@@ -270,6 +339,14 @@ async function dragBoardSourceIntoNestedFrame(page: Page): Promise<{
     { steps: 4 },
   );
   await page.mouse.move(release.x, release.y, { steps: 24 });
+  const ghost = page.locator("[data-cross-screen-drag-ghost]");
+  await expect(ghost).toBeVisible();
+  await expect
+    .poll(async () => (await ghost.boundingBox())?.x ?? null)
+    .toBeCloseTo(release.x - grabOffset.x, 0);
+  await expect
+    .poll(async () => (await ghost.boundingBox())?.y ?? null)
+    .toBeCloseTo(release.y - grabOffset.y, 0);
   await page.mouse.up();
   return { release, sourceBefore, grabOffset };
 }
@@ -352,6 +429,27 @@ test("report path: board frame drops directly into a nested screen frame and sur
   const designId = await createDesign(request);
   try {
     await gotoEditor(page, designId);
+    const originalBoardHtml = await fileContent(
+      request,
+      designId,
+      "__board__.html",
+    );
+    const originalBoardPlacement = await nodePlacement(
+      page,
+      originalBoardHtml,
+      "board-source",
+    );
+    expect(originalBoardPlacement).toEqual({
+      parent: "BODY",
+      siblingIndex: 0,
+      left: "-400px",
+      top: "140px",
+    });
+    expect(await topLevelNodeIds(page, originalBoardHtml)).toEqual([
+      "board-source",
+      "board-text",
+    ]);
+
     const { release, sourceBefore, grabOffset } =
       await dragBoardSourceIntoNestedFrame(page);
 
@@ -383,9 +481,27 @@ test("report path: board frame drops directly into a nested screen frame and sur
     await expect(moved).toHaveCount(1);
     const movedBox = await moved.boundingBox();
     expect(movedBox).not.toBeNull();
-    expect(movedBox!.x).toBeCloseTo(release.x - grabOffset.x, -1);
-    expect(movedBox!.y).toBeCloseTo(release.y - grabOffset.y, -1);
+    expect(
+      Math.abs(movedBox!.x - (release.x - grabOffset.x)),
+    ).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(movedBox!.y - (release.y - grabOffset.y)),
+    ).toBeLessThanOrEqual(2);
     expect(movedBox!.x).toBeGreaterThan(sourceBefore.x);
+
+    const movedHtml = await fileContent(request, designId, "index.html");
+    const movedPlacement = await nodePlacement(page, movedHtml, "board-source");
+    expect(movedPlacement).not.toBeNull();
+    expect(movedPlacement).toMatchObject({
+      parent: "nested-frame",
+      siblingIndex: 1,
+    });
+    expect(
+      await topLevelNodeIds(
+        page,
+        await fileContent(request, designId, "__board__.html"),
+      ),
+    ).toEqual(["board-text"]);
 
     await expandAllLayers(page);
     const selected = page
@@ -402,10 +518,26 @@ test("report path: board frame drops directly into a nested screen frame and sur
     });
     await page.keyboard.press(`${MOD}+z`);
     await expect
-      .poll(() => fileContent(request, designId, "__board__.html"), {
-        timeout: 20_000,
-      })
-      .toContain('data-agent-native-node-id="board-source"');
+      .poll(
+        async () =>
+          nodePlacement(
+            page,
+            await fileContent(request, designId, "__board__.html"),
+            "board-source",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(originalBoardPlacement);
+    await expect
+      .poll(
+        async () =>
+          topLevelNodeIds(
+            page,
+            await fileContent(request, designId, "__board__.html"),
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["board-source", "board-text"]);
     await expect
       .poll(
         async () =>
@@ -430,6 +562,18 @@ test("report path: board frame drops directly into a nested screen frame and sur
         },
       )
       .toEqual(["nested-anchor", "board-source"]);
+    await expect
+      .poll(
+        async () =>
+          nodePlacement(
+            page,
+            await fileContent(request, designId, "index.html"),
+            "board-source",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(movedPlacement);
+
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect
       .poll(
@@ -441,6 +585,27 @@ test("report path: board frame drops directly into a nested screen frame and sur
         { timeout: 20_000 },
       )
       .toEqual(["nested-anchor", "board-source"]);
+    await expect
+      .poll(
+        async () =>
+          nodePlacement(
+            page,
+            await fileContent(request, designId, "index.html"),
+            "board-source",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(movedPlacement);
+    await expect
+      .poll(
+        async () =>
+          topLevelNodeIds(
+            page,
+            await fileContent(request, designId, "__board__.html"),
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["board-text"]);
     await expect(
       page
         .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
@@ -448,6 +613,279 @@ test("report path: board frame drops directly into a nested screen frame and sur
         .contentFrame()
         .locator('[data-agent-native-node-id="board-source"]'),
     ).toBeVisible();
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("report path: a board layer crossing a nested frame lands directly above it in the outer frame", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(
+    request,
+    G4_CROSSED_FRAME_SCREEN_HTML,
+    G4_CROSSED_FRAME_BOARD_HTML,
+  );
+  try {
+    await gotoEditor(page, designId);
+    const initialBoardHtml = await fileContent(
+      request,
+      designId,
+      "__board__.html",
+    );
+    const initialScreenHtml = await fileContent(
+      request,
+      designId,
+      "index.html",
+    );
+    const initialPlacement = await nodePlacement(
+      page,
+      initialBoardHtml,
+      "board-source",
+    );
+    expect(initialPlacement).toMatchObject({
+      parent: "BODY",
+      siblingIndex: 0,
+      left: "-400px",
+      top: "140px",
+    });
+    expect(childNodeIds(initialScreenHtml, "outer-frame")).toEqual([
+      "middle-frame",
+      "auto-frame",
+      "short-frame",
+      "narrow-frame",
+    ]);
+
+    const source = boardFrame(page)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="board-source"]');
+    const outer = screenFrame(page)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="outer-frame"]');
+    const middle = screenFrame(page)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="middle-frame"]');
+    const nested = screenFrame(page)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="nested-frame"]');
+    const narrow = screenFrame(page)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="narrow-frame"]');
+    await expect(source).toBeVisible();
+    await expect(outer).toBeVisible();
+    await expect(nested).toBeVisible();
+    const [sourceBox, outerBox, middleBox, nestedBox, narrowBox] =
+      await Promise.all([
+        source.boundingBox(),
+        outer.boundingBox(),
+        middle.boundingBox(),
+        nested.boundingBox(),
+        narrow.boundingBox(),
+      ]);
+    if (!sourceBox || !outerBox || !middleBox || !nestedBox || !narrowBox) {
+      throw new Error("G4 path-crossing fixture needs rendered bounds");
+    }
+
+    const grabOffset = { x: 24, y: 20 };
+    const start = {
+      x: sourceBox.x + grabOffset.x,
+      y: sourceBox.y + grabOffset.y,
+    };
+    const crossedNested = {
+      x: nestedBox.x + nestedBox.width / 2,
+      y: nestedBox.y + nestedBox.height / 2,
+    };
+    const crossedMiddle = {
+      x: middleBox.x + 8,
+      y: middleBox.y + middleBox.height / 2,
+    };
+    const release = {
+      x: outerBox.x + outerBox.width * 0.75,
+      y: outerBox.y + outerBox.height * 0.5,
+    };
+    expect(crossedNested.x).toBeGreaterThan(nestedBox.x);
+    expect(crossedNested.x).toBeLessThan(nestedBox.x + nestedBox.width);
+    expect(crossedNested.y).toBeGreaterThan(nestedBox.y);
+    expect(crossedNested.y).toBeLessThan(nestedBox.y + nestedBox.height);
+    expect(release.x).toBeGreaterThan(nestedBox.x + nestedBox.width);
+    expect(release.x).toBeLessThan(outerBox.x + outerBox.width);
+    expect(crossedMiddle.x).toBeLessThan(nestedBox.x);
+    expect(crossedMiddle.x).toBeGreaterThan(middleBox.x);
+    expect(release.x).toBeGreaterThan(middleBox.x + middleBox.width);
+    expect(release.y).toBeGreaterThan(outerBox.y);
+    expect(release.y).toBeLessThan(outerBox.y + outerBox.height);
+    expect(release.x).toBeLessThan(narrowBox.x);
+
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(crossedNested.x, crossedNested.y, { steps: 24 });
+    await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
+      timeout: 5_000,
+    });
+    await page.mouse.move(crossedMiddle.x, crossedMiddle.y, { steps: 8 });
+    await expect
+      .poll(async () => {
+        const guide = await page
+          .locator("[data-cross-screen-drop-guide]")
+          .boundingBox();
+        return Boolean(
+          guide &&
+          Math.abs(guide.x - middleBox.x) < 3 &&
+          Math.abs(guide.y - middleBox.y) < 3 &&
+          Math.abs(guide.width - middleBox.width) < 3 &&
+          Math.abs(guide.height - middleBox.height) < 3,
+        );
+      })
+      .toBe(true);
+    await page.mouse.move(release.x, release.y, { steps: 24 });
+    await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible();
+    await expect
+      .poll(async () => {
+        const guide = await page
+          .locator("[data-cross-screen-drop-guide]")
+          .boundingBox();
+        return Boolean(
+          guide &&
+          Math.abs(guide.x - outerBox.x) < 3 &&
+          Math.abs(guide.y - outerBox.y) < 3 &&
+          Math.abs(guide.width - outerBox.width) < 3 &&
+          Math.abs(guide.height - outerBox.height) < 3,
+        );
+      })
+      .toBe(true);
+    await expect
+      .poll(async () => ({
+        board: await fileContent(request, designId, "__board__.html"),
+        screen: await fileContent(request, designId, "index.html"),
+      }))
+      .toEqual({ board: initialBoardHtml, screen: initialScreenHtml });
+    await page.mouse.up();
+
+    const finalScreenOrder = [
+      "middle-frame",
+      "board-source",
+      "auto-frame",
+      "short-frame",
+      "narrow-frame",
+    ];
+    await expect
+      .poll(
+        async () =>
+          childNodeIds(
+            await fileContent(request, designId, "index.html"),
+            "outer-frame",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(finalScreenOrder);
+    await expect
+      .poll(() => fileContent(request, designId, "__board__.html"), {
+        timeout: 20_000,
+      })
+      .not.toContain('data-agent-native-node-id="board-source"');
+    const movedHtml = await fileContent(request, designId, "index.html");
+    const movedPlacement = await nodePlacement(page, movedHtml, "board-source");
+    expect(movedPlacement).toMatchObject({
+      parent: "outer-frame",
+      siblingIndex: 1,
+    });
+    expect(
+      await page.evaluate((html) => {
+        const moved = new DOMParser()
+          .parseFromString(html, "text/html")
+          .querySelector<HTMLElement>(
+            '[data-agent-native-node-id="board-source"]',
+          );
+        return moved?.style.position;
+      }, movedHtml),
+    ).toBe("absolute");
+
+    const paintOrder = await screenFrame(page)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="board-source"]')
+      .evaluate((moved) => {
+        const narrow = moved.ownerDocument.querySelector<HTMLElement>(
+          '[data-agent-native-node-id="narrow-frame"]',
+        );
+        if (!narrow) return null;
+        const movedBox = moved.getBoundingClientRect();
+        const narrowRect = narrow.getBoundingClientRect();
+        const left = Math.max(movedBox.left, narrowRect.left);
+        const top = Math.max(movedBox.top, narrowRect.top);
+        const right = Math.min(movedBox.right, narrowRect.right);
+        const bottom = Math.min(movedBox.bottom, narrowRect.bottom);
+        if (right <= left || bottom <= top) return null;
+        const stack = moved.ownerDocument.elementsFromPoint(
+          (left + right) / 2,
+          (top + bottom) / 2,
+        );
+        const firstLayerId = stack
+          .map((element) =>
+            element
+              .closest<HTMLElement>("[data-agent-native-node-id]")
+              ?.getAttribute("data-agent-native-node-id"),
+          )
+          .find((id) => id === "board-source" || id === "narrow-frame");
+        return {
+          overlapWidth: right - left,
+          overlapHeight: bottom - top,
+          firstLayerId,
+        };
+      });
+    expect(paintOrder).toEqual({
+      overlapWidth: expect.any(Number),
+      overlapHeight: expect.any(Number),
+      firstLayerId: "narrow-frame",
+    });
+    expect(paintOrder!.overlapWidth).toBeGreaterThan(0);
+    expect(paintOrder!.overlapHeight).toBeGreaterThan(0);
+
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(async () => ({
+        board: await fileContent(request, designId, "__board__.html"),
+        order: await childNodeIds(
+          await fileContent(request, designId, "index.html"),
+          "outer-frame",
+        ),
+      }))
+      .toEqual({
+        board: initialBoardHtml,
+        order: ["middle-frame", "auto-frame", "short-frame", "narrow-frame"],
+      });
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect
+      .poll(async () => ({
+        board: await fileContent(request, designId, "__board__.html"),
+        order: await childNodeIds(
+          await fileContent(request, designId, "index.html"),
+          "outer-frame",
+        ),
+      }))
+      .toMatchObject({
+        board: expect.not.stringContaining(
+          'data-agent-native-node-id="board-source"',
+        ),
+        order: finalScreenOrder,
+      });
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect
+      .poll(
+        async () =>
+          childNodeIds(
+            await fileContent(request, designId, "index.html"),
+            "outer-frame",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(finalScreenOrder);
+    await expect(
+      screenFrame(page)
+        .contentFrame()
+        .locator('[data-agent-native-node-id="board-source"]'),
+    ).toHaveCSS("position", "absolute");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

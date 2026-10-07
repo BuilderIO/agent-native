@@ -104,6 +104,10 @@ export const hitTestBridgeScript: string = `"use strict";
       if (!el || el === document.documentElement) return false;
       if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
       if (el === document.body) return true;
+      var primitiveKind = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (primitiveKind && !BRIDGE_ADOPTING_PRIMITIVES[primitiveKind]) {
+        return false;
+      }
       var tag = (el.tagName || "").toLowerCase();
       if (BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 || BRIDGE_TEXT_TAGS.indexOf(tag) !== -1)
         return false;
@@ -114,6 +118,40 @@ export const hitTestBridgeScript: string = `"use strict";
       if (cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid")
         return true;
       return BRIDGE_CONTAINER_TAGS.indexOf(tag) !== -1;
+    }
+    function dropContentSize(el) {
+      var html = el;
+      var style = window.getComputedStyle(el);
+      var rect = el.getBoundingClientRect();
+      var scaleX = html.offsetWidth ? rect.width / html.offsetWidth : 1;
+      var scaleY = html.offsetHeight ? rect.height / html.offsetHeight : 1;
+      var paddingLeft = parseFloat(style.paddingLeft) || 0;
+      var paddingRight = parseFloat(style.paddingRight) || 0;
+      var paddingTop = parseFloat(style.paddingTop) || 0;
+      var paddingBottom = parseFloat(style.paddingBottom) || 0;
+      return {
+        width: (html.clientWidth - paddingLeft - paddingRight) * scaleX,
+        height: (html.clientHeight - paddingTop - paddingBottom) * scaleY
+      };
+    }
+    function dropFitsContainer(container, sourceWidth, sourceHeight) {
+      var size = dropContentSize(container);
+      return size.width >= sourceWidth && size.height >= sourceHeight;
+    }
+    function dropFitsAutoLayoutFallback(container, sourceWidth, sourceHeight) {
+      if (dropFitsContainer(container, sourceWidth, sourceHeight)) return true;
+      var style = window.getComputedStyle(container);
+      var singleLineFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
+      if (!singleLineFlex) return false;
+      var size = dropContentSize(container);
+      var mainAxis = flexMainAxis(style);
+      if (mainAxis === "x") {
+        return size.width >= sourceWidth;
+      }
+      if (mainAxis === "y") {
+        return size.height >= sourceHeight;
+      }
+      return false;
     }
     function elementFromEditorPoint(clientX, clientY) {
       var targets = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [document.elementFromPoint(clientX, clientY)];
@@ -129,16 +167,37 @@ export const hitTestBridgeScript: string = `"use strict";
     function parentFlowAxis(parent) {
       var cs = window.getComputedStyle(parent);
       if (cs.display === "flex" || cs.display === "inline-flex") {
-        var isRow = cs.flexDirection && cs.flexDirection.indexOf("row") === 0;
+        var mainAxis = flexMainAxis(cs);
         var wraps = cs.flexWrap === "wrap" || cs.flexWrap === "wrap-reverse";
-        if (isRow && !wraps) return "x";
-        return "y";
+        if (!mainAxis) return "y";
+        if (!wraps) return mainAxis;
+        return mainAxis === "x" ? "y" : "x";
       }
       if (cs.display === "grid" || cs.display === "inline-grid") {
-        var cols = (cs.gridTemplateColumns || "").split(" ").filter(Boolean).length;
+        var cols = hitTestGridTracks(cs.gridTemplateColumns || "").length;
         return cols > 1 ? "x" : "y";
       }
       return "y";
+    }
+    function flexMainAxis(styles) {
+      var writingMode = styles.writingMode || "horizontal-tb";
+      if (writingMode !== "horizontal-tb" && writingMode !== "vertical-rl" && writingMode !== "vertical-lr") {
+        return null;
+      }
+      if (styles.flexDirection === "row" || styles.flexDirection === "row-reverse") {
+        return writingMode === "horizontal-tb" ? "x" : "y";
+      }
+      if (styles.flexDirection === "column" || styles.flexDirection === "column-reverse") {
+        return writingMode === "horizontal-tb" ? "y" : "x";
+      }
+      return null;
+    }
+    function isFlexContainer(el) {
+      var display = window.getComputedStyle(el).display;
+      return display === "flex" || display === "inline-flex";
+    }
+    function hasKnownFlexMainAxis(el) {
+      return !isFlexContainer(el) || flexMainAxis(window.getComputedStyle(el)) !== null;
     }
     function wrappedFlexMainAxis(parent) {
       var cs = window.getComputedStyle(parent);
@@ -148,7 +207,280 @@ export const hitTestBridgeScript: string = `"use strict";
       if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
         return null;
       }
-      return cs.flexDirection && cs.flexDirection.indexOf("row") === 0 ? "x" : "y";
+      return flexMainAxis(cs);
+    }
+    function hitTestGridTracks(template) {
+      if (!template || template === "none") return [];
+      var tracks = [];
+      var tokens = template.trim().match(/\\[[^\\]]*\\]|[^\\s]+/g) || [];
+      for (var index = 0; index < tokens.length; index += 1) {
+        var token = tokens[index];
+        if (token.charAt(0) === "[" && token.charAt(token.length - 1) === "]") {
+          continue;
+        }
+        if (!/^-?(?:\\d+\\.?\\d*|\\.\\d+)px$/.test(token)) return [];
+        var size = parseFloat(token);
+        if (!Number.isFinite(size) || size < 0) return [];
+        tracks.push(size);
+      }
+      return tracks;
+    }
+    function hitTestGridGap(value, contentSize) {
+      if (!value || value === "normal") return 0;
+      var match = value.trim().match(/^(-?(?:\\d+\\.?\\d*|\\.\\d+))(px|%)$/);
+      if (!match) return null;
+      var amount = Number(match[1]);
+      if (!Number.isFinite(amount) || amount < 0) return null;
+      return match[2] === "%" ? amount * contentSize / 100 : amount;
+    }
+    function hitTestGridItemRange(styles, axis, trackCount) {
+      var startValue = axis === "column" ? styles.gridColumnStart : styles.gridRowStart;
+      var endValue = axis === "column" ? styles.gridColumnEnd : styles.gridRowEnd;
+      var startSpan = startValue.trim().match(/^span\\s+(\\d+)$/);
+      var endSpan = endValue.trim().match(/^span\\s+(\\d+)$/);
+      var startValueMatch = startValue.trim().match(/^-?\\d+$/);
+      var endValueMatch = endValue.trim().match(/^-?\\d+$/);
+      if (startValue.trim() !== "auto" && !startSpan && !startValueMatch || endValue.trim() !== "auto" && !endSpan && !endValueMatch) {
+        return null;
+      }
+      var startLine = startValueMatch ? Number(startValueMatch[0]) : null;
+      var endLine = endValueMatch ? Number(endValueMatch[0]) : null;
+      if (startLine !== null && startLine < 0)
+        startLine = trackCount + 2 + startLine;
+      if (endLine !== null && endLine < 0) endLine = trackCount + 2 + endLine;
+      var span = Number((endSpan || startSpan)?.[1] || 0);
+      if (!span) {
+        span = startLine !== null && endLine !== null ? Math.abs(endLine - startLine) : 1;
+      }
+      if (!Number.isSafeInteger(span) || span < 1) return null;
+      var start = startLine !== null ? startLine : endLine !== null ? endLine - span : null;
+      if (start === null) return null;
+      if (startLine !== null && endLine !== null) {
+        start = Math.min(startLine, endLine);
+        span = Math.abs(endLine - startLine);
+      }
+      if (!Number.isSafeInteger(start) || start < 1 || span < 1) return null;
+      return { start, end: start + span };
+    }
+    function hitTestGridDistribution(tracks, contentSize, gap, distribution, reverse) {
+      var used = gap * Math.max(0, tracks.length - 1);
+      for (var index = 0; index < tracks.length; index += 1) {
+        used += tracks[index];
+      }
+      var leftover = contentSize - used;
+      var alignment = (distribution || "normal").trim().split(/\\s+/);
+      var mode = alignment.pop() || "normal";
+      if (leftover < -0.01) {
+        if (alignment.indexOf("safe") !== -1) {
+          return { offset: 0, gap };
+        }
+        if (mode === "center") return { offset: leftover / 2, gap };
+        if (mode === "end" || mode === "flex-end") {
+          return { offset: leftover, gap };
+        }
+        if (mode === "right") {
+          return { offset: reverse ? 0 : leftover, gap };
+        }
+        if (mode === "left") {
+          return { offset: reverse ? leftover : 0, gap };
+        }
+        return { offset: 0, gap };
+      }
+      if (!(leftover > 0.01)) return { offset: 0, gap };
+      if (mode === "center") return { offset: leftover / 2, gap };
+      if (mode === "end" || mode === "flex-end") {
+        return { offset: leftover, gap };
+      }
+      if (mode === "right") {
+        return { offset: reverse ? 0 : leftover, gap };
+      }
+      if (mode === "left") {
+        return { offset: reverse ? leftover : 0, gap };
+      }
+      if (mode === "space-between" && tracks.length > 1) {
+        return { offset: 0, gap: gap + leftover / (tracks.length - 1) };
+      }
+      if (mode === "space-around" && tracks.length > 0) {
+        var around = leftover / tracks.length;
+        return { offset: around / 2, gap: gap + around };
+      }
+      if (mode === "space-evenly" && tracks.length > 0) {
+        var evenly = leftover / (tracks.length + 1);
+        return { offset: evenly, gap: gap + evenly };
+      }
+      return { offset: 0, gap };
+    }
+    function hasTransformedGridAncestor(container) {
+      var current = container;
+      while (current) {
+        var styles = window.getComputedStyle(current);
+        if (styles.transform !== "none" || styles.translate !== "none" || styles.rotate !== "none" || styles.scale !== "none" || styles.zoom !== "1" && styles.zoom !== "normal") {
+          return true;
+        }
+        current = current.parentElement;
+      }
+      return false;
+    }
+    function gridEmptyCellInsertionTarget(container, clientX, clientY, sourceGridSpan) {
+      var styles = window.getComputedStyle(container);
+      if (styles.display !== "grid" && styles.display !== "inline-grid" || styles.writingMode !== "horizontal-tb") {
+        return null;
+      }
+      if (hasTransformedGridAncestor(container)) return null;
+      var scrollableContainer = container;
+      if (scrollableContainer.scrollLeft !== 0 || scrollableContainer.scrollTop !== 0) {
+        return null;
+      }
+      var columns = hitTestGridTracks(styles.gridTemplateColumns);
+      var rows = hitTestGridTracks(styles.gridTemplateRows);
+      if (!columns.length || !rows.length) return null;
+      var columnSpan = sourceGridSpan?.columns ?? 1;
+      var rowSpan = sourceGridSpan?.rows ?? 1;
+      if (!Number.isSafeInteger(columnSpan) || !Number.isSafeInteger(rowSpan) || columnSpan < 1 || rowSpan < 1) {
+        return null;
+      }
+      var rect = container.getBoundingClientRect();
+      var px = function(value) {
+        var parsed = parseFloat(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+      var contentLeft = rect.left + px(styles.borderLeftWidth) + px(styles.paddingLeft);
+      var contentTop = rect.top + px(styles.borderTopWidth) + px(styles.paddingTop);
+      var contentWidth = rect.width - px(styles.borderLeftWidth) - px(styles.borderRightWidth) - px(styles.paddingLeft) - px(styles.paddingRight);
+      var contentHeight = rect.height - px(styles.borderTopWidth) - px(styles.borderBottomWidth) - px(styles.paddingTop) - px(styles.paddingBottom);
+      var reservedScrollbarWidth = scrollableContainer.offsetWidth - scrollableContainer.clientWidth - px(styles.borderLeftWidth) - px(styles.borderRightWidth);
+      var reservedScrollbarHeight = scrollableContainer.offsetHeight - scrollableContainer.clientHeight - px(styles.borderTopWidth) - px(styles.borderBottomWidth);
+      if (reservedScrollbarWidth > 1 || reservedScrollbarHeight > 1) {
+        return null;
+      }
+      var direction = styles.direction === "rtl";
+      var columnGap = hitTestGridGap(styles.columnGap, contentWidth);
+      var rowGap = hitTestGridGap(styles.rowGap, contentHeight);
+      if (columnGap === null || rowGap === null) return null;
+      var columnFlow = hitTestGridDistribution(
+        columns,
+        contentWidth,
+        columnGap,
+        styles.justifyContent,
+        direction
+      );
+      var rowFlow = hitTestGridDistribution(
+        rows,
+        contentHeight,
+        rowGap,
+        styles.alignContent,
+        false
+      );
+      var columnBounds = [];
+      var columnStart = direction ? contentLeft + contentWidth - columnFlow.offset : contentLeft + columnFlow.offset;
+      for (var columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+        if (direction) {
+          columnBounds.push({
+            start: columnStart - columns[columnIndex],
+            end: columnStart
+          });
+          columnStart -= columns[columnIndex] + columnFlow.gap;
+        } else {
+          columnBounds.push({
+            start: columnStart,
+            end: columnStart + columns[columnIndex]
+          });
+          columnStart += columns[columnIndex] + columnFlow.gap;
+        }
+      }
+      var rowBounds = [];
+      var rowStart = contentTop + rowFlow.offset;
+      for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        rowBounds.push({ start: rowStart, end: rowStart + rows[rowIndex] });
+        rowStart += rows[rowIndex] + rowFlow.gap;
+      }
+      var column = columnBounds.findIndex(
+        (bound) => clientX >= bound.start && clientX <= bound.end
+      );
+      var row = rowBounds.findIndex(
+        (bound) => clientY >= bound.start && clientY <= bound.end
+      );
+      if (column < 0 || row < 0 || column + columnSpan > columnBounds.length || row + rowSpan > rowBounds.length) {
+        return null;
+      }
+      var firstColumn = columnBounds[column];
+      var lastColumn = columnBounds[column + columnSpan - 1];
+      var firstRow = rowBounds[row];
+      var lastRow = rowBounds[row + rowSpan - 1];
+      var cell = {
+        left: Math.min(firstColumn.start, lastColumn.start),
+        top: Math.min(firstRow.start, lastRow.start),
+        width: Math.max(firstColumn.end, lastColumn.end) - Math.min(firstColumn.start, lastColumn.start),
+        height: Math.max(firstRow.end, lastRow.end) - Math.min(firstRow.start, lastRow.start)
+      };
+      for (var pseudo of ["::before", "::after"]) {
+        var pseudoStyles = window.getComputedStyle(container, pseudo);
+        if (pseudoStyles.content !== "none" && pseudoStyles.content !== "normal" && pseudoStyles.display !== "none" && pseudoStyles.position !== "absolute" && pseudoStyles.position !== "fixed") {
+          return null;
+        }
+      }
+      var children = Array.prototype.slice.call(container.children);
+      var childNodes = Array.prototype.slice.call(container.childNodes);
+      for (var nodeIndex = 0; nodeIndex < childNodes.length; nodeIndex += 1) {
+        var node = childNodes[nodeIndex];
+        if (node.nodeType === 3 && node.textContent?.trim()) return null;
+        if (node.nodeType === 1 && window.getComputedStyle(node).display === "contents") {
+          return null;
+        }
+      }
+      for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
+        var child = children[childIndex];
+        if (isOverlayElement(child) || isTransientCloneElement(child)) continue;
+        var childStyles = window.getComputedStyle(child);
+        if (childStyles.display === "none" || childStyles.position === "absolute" || childStyles.position === "fixed") {
+          continue;
+        }
+        var childColumnRange = hitTestGridItemRange(
+          childStyles,
+          "column",
+          columns.length
+        );
+        var childRowRange = hitTestGridItemRange(childStyles, "row", rows.length);
+        if (!childColumnRange || !childRowRange) {
+          return null;
+        }
+        if (column < childColumnRange.end - 1 && column + columnSpan > childColumnRange.start - 1 && // i18n-ignore non-user-facing grid occupancy math
+        row < childRowRange.end - 1 && row + rowSpan > childRowRange.start - 1) {
+          return null;
+        }
+      }
+      var autoFlow = (styles.gridAutoFlow || "row").split(/\\s+/);
+      return {
+        anchor: container,
+        placement: "inside",
+        axis: autoFlow[0] === "column" ? "y" : "x",
+        dropMode: "flow-insert",
+        gridPlacement: {
+          column: column + 1,
+          columnEnd: column + columnSpan + 1,
+          row: row + 1,
+          rowEnd: row + rowSpan + 1
+        },
+        guideRect: cell
+      };
+    }
+    function isReverseFlexFlow(styles, axis) {
+      if (styles.display !== "flex" && styles.display !== "inline-flex") {
+        return false;
+      }
+      var mainAxis = flexMainAxis(styles);
+      if (!mainAxis || axis !== mainAxis) return false;
+      if (styles.flexDirection === "row" || styles.flexDirection === "row-reverse") {
+        return styles.flexDirection === "row-reverse" !== (styles.direction === "rtl");
+      }
+      return styles.flexDirection === "column-reverse" !== ((styles.writingMode || "horizontal-tb") === "vertical-rl");
+    }
+    function flowPlacementsForSide(parent, axis, guidePlacement) {
+      var reverseFlow = isReverseFlexFlow(window.getComputedStyle(parent), axis);
+      return {
+        placement: reverseFlow ? guidePlacement === "before" ? "after" : "before" : guidePlacement,
+        guidePlacement
+      };
     }
     function isAutoLayoutElement(el) {
       if (!el) return false;
@@ -418,16 +750,31 @@ export const hitTestBridgeScript: string = `"use strict";
       parts.unshift("body");
       return parts.join(" > ");
     }
-    function nearestChildInsertionTarget(container, clientX, clientY) {
+    function isMultiTrackGrid(container) {
+      var styles = window.getComputedStyle(container);
+      return (styles.display === "grid" || styles.display === "inline-grid") && (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+    }
+    function nearestChildInsertionTarget(container, clientX, clientY, sourceGridSpan) {
+      if (!hasKnownFlexMainAxis(container)) return null;
+      var gridTarget = gridEmptyCellInsertionTarget(
+        container,
+        clientX,
+        clientY,
+        sourceGridSpan
+      );
+      if (gridTarget) return gridTarget;
       var children = draggableElementChildren(container);
       if (!children.length) return null;
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var containerStyles = window.getComputedStyle(container);
-      var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      var columns = hitTestGridTracks(containerStyles.gridTemplateColumns || "");
+      var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && columns.length > 1;
+      var reverseFlow = !multiTrackGrid && isReverseFlexFlow(containerStyles, axis);
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
+      var guidePlacement = "after";
       for (var j = 0; j < children.length; j += 1) {
         var rect = children[j].getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) continue;
@@ -441,27 +788,36 @@ export const hitTestBridgeScript: string = `"use strict";
           bestDistance = distance;
           best = children[j];
           var placementPointer = axis === "x" ? clientX : clientY;
-          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
+          guidePlacement = placementPointer < center ? "before" : "after";
+          var before = guidePlacement === "before";
+          if (reverseFlow) before = !before;
+          placement = before ? "before" : "after";
         }
       }
       if (!best) return null;
       return {
         anchor: best,
         placement,
+        guidePlacement,
         axis,
         dropMode: "flow-insert"
       };
     }
-    function screenRootFlowInsertionTargetForPoint(clientX, clientY) {
+    function screenRootFlowInsertionTargetForPoint(clientX, clientY, sourceGridSpan) {
       if (!isAutoLayoutElement(document.body)) return null;
       var bodyRect = document.body.getBoundingClientRect();
       if (bodyRect.width <= 0 || bodyRect.height <= 0 || clientX < bodyRect.left || clientX > bodyRect.right || // i18n-ignore non-user-facing pointer geometry condition
       clientY < bodyRect.top || clientY > bodyRect.bottom) {
         return null;
       }
-      return nearestChildInsertionTarget(document.body, clientX, clientY);
+      return nearestChildInsertionTarget(
+        document.body,
+        clientX,
+        clientY,
+        sourceGridSpan
+      );
     }
-    function resolveHitTarget(clientX, clientY, forceNestedAutoLayout = false) {
+    function resolveHitTarget(clientX, clientY, forceNestedAutoLayout = false, sourceGridSpan) {
       var hit = elementFromEditorPoint(clientX, clientY);
       if (!hit || hit === document.documentElement) return null;
       var cursor = hit;
@@ -471,7 +827,13 @@ export const hitTestBridgeScript: string = `"use strict";
             return null;
           }
           if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
-            return nearestChildInsertionTarget(cursor, clientX, clientY) || {
+            if (!hasKnownFlexMainAxis(cursor)) return null;
+            return nearestChildInsertionTarget(
+              cursor,
+              clientX,
+              clientY,
+              sourceGridSpan
+            ) || {
               anchor: cursor,
               placement: "inside",
               axis: parentFlowAxis(cursor),
@@ -486,11 +848,20 @@ export const hitTestBridgeScript: string = `"use strict";
         if (isLayerInteractionBlocked(cursor)) return null;
         var parent = cursor.parentElement;
         if (parent && isAutoLayoutElement(parent)) {
+          if (!hasKnownFlexMainAxis(parent)) return null;
+          var emptyGridCell = gridEmptyCellInsertionTarget(
+            parent,
+            clientX,
+            clientY,
+            sourceGridSpan
+          );
+          if (emptyGridCell) return emptyGridCell;
           if (isTransientCloneElement(cursor)) {
             var cloneFallback = nearestChildInsertionTarget(
               parent,
               clientX,
-              clientY
+              clientY,
+              sourceGridSpan
             );
             if (cloneFallback) return cloneFallback;
             return {
@@ -502,25 +873,33 @@ export const hitTestBridgeScript: string = `"use strict";
           }
           var wrappedParentAxis = wrappedFlexMainAxis(parent);
           if (wrappedParentAxis) {
-            var wrappedParentSlot = nearestChildInsertionTarget(
+            return nearestChildInsertionTarget(
               parent,
               clientX,
-              clientY
+              clientY,
+              sourceGridSpan
             );
-            if (wrappedParentSlot) return wrappedParentSlot;
           }
           var parentAxis = parentFlowAxis(parent);
           var childRect = cursor.getBoundingClientRect();
           var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
           var childPointer = parentAxis === "x" ? clientX : clientY;
+          var guidePlacement = childPointer < childCenter ? "before" : "after";
+          var flowPlacements = flowPlacementsForSide(
+            parent,
+            parentAxis,
+            guidePlacement
+          );
           return {
             anchor: cursor,
-            placement: childPointer < childCenter ? "before" : "after",
+            placement: flowPlacements.placement,
+            guidePlacement: flowPlacements.guidePlacement,
             axis: parentAxis,
             dropMode: "flow-insert"
           };
         }
         if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
+          if (!hasKnownFlexMainAxis(cursor)) return null;
           var containerRect = cursor.getBoundingClientRect();
           var edgeAxis = parent ? parentFlowAxis(parent) : parentFlowAxis(cursor);
           var edgePlacement = edgePlacementForRect(
@@ -530,9 +909,17 @@ export const hitTestBridgeScript: string = `"use strict";
             clientY
           );
           if (edgePlacement && parent && isAutoLayoutElement(parent)) {
+            if (!hasKnownFlexMainAxis(parent)) return null;
+            if (wrappedFlexMainAxis(parent)) return null;
+            var edgeFlowPlacements = flowPlacementsForSide(
+              parent,
+              edgeAxis,
+              edgePlacement
+            );
             return {
               anchor: cursor,
-              placement: edgePlacement,
+              placement: edgeFlowPlacements.placement,
+              guidePlacement: edgeFlowPlacements.guidePlacement,
               axis: edgeAxis,
               dropMode: "flow-insert"
             };
@@ -540,7 +927,8 @@ export const hitTestBridgeScript: string = `"use strict";
           var betweenChildren = nearestChildInsertionTarget(
             cursor,
             clientX,
-            clientY
+            clientY,
+            sourceGridSpan
           );
           if (betweenChildren) return betweenChildren;
           return {
@@ -562,7 +950,8 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       var screenRootTarget = screenRootFlowInsertionTargetForPoint(
         clientX,
-        clientY
+        clientY,
+        sourceGridSpan
       );
       if (screenRootTarget) return screenRootTarget;
       var absoluteTarget = absolutePrimitiveContainerTargetForPoint(
@@ -573,6 +962,14 @@ export const hitTestBridgeScript: string = `"use strict";
       var blockCursor = hit;
       while (blockCursor) {
         if (isContainerDropTarget(blockCursor)) {
+          if (!hasKnownFlexMainAxis(blockCursor)) return null;
+          var emptyContainerGridCell = gridEmptyCellInsertionTarget(
+            blockCursor,
+            clientX,
+            clientY,
+            sourceGridSpan
+          );
+          if (emptyContainerGridCell) return emptyContainerGridCell;
           return {
             anchor: blockCursor,
             placement: "inside",
@@ -598,28 +995,70 @@ export const hitTestBridgeScript: string = `"use strict";
       };
     }
     function applyHitTestSizeGuard(target, clientX, clientY, sourceElementSize, modifiers) {
-      if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert" || !sourceElementSize || modifiers?.metaKey || modifiers?.ctrlKey || modifiers?.ignoreAutoLayout) {
+      if (!target || target.dropMode !== "flow-insert" && target.dropMode !== "absolute-container" || !sourceElementSize || modifiers?.metaKey || modifiers?.ctrlKey || modifiers?.ignoreAutoLayout) {
         return target;
       }
-      var container = target.anchor;
-      if (container === document.body || container === document.documentElement || !isAutoLayoutElement(container)) {
+      var container = target.placement === "inside" ? target.anchor : target.anchor.parentElement;
+      if (!container || container === document.body || container === document.documentElement || !isContainerDropTarget(container)) {
         return target;
       }
-      var crect = container.getBoundingClientRect();
-      if (crect.width >= sourceElementSize.width && crect.height >= sourceElementSize.height) {
+      if (dropFitsContainer(
+        container,
+        sourceElementSize.width,
+        sourceElementSize.height
+      )) {
         return target;
       }
       var parent = container.parentElement;
-      if (!parent) return null;
-      var pAxis = parentFlowAxis(parent);
-      var center = pAxis === "x" ? crect.left + crect.width / 2 : crect.top + crect.height / 2;
-      var pointer = pAxis === "x" ? clientX : clientY;
-      return {
-        anchor: container,
-        placement: pointer < center ? "before" : "after",
-        axis: pAxis,
-        dropMode: "flow-insert"
-      };
+      while (parent && parent !== document.documentElement && parent !== document.body) {
+        var parentIsFlow = isAutoLayoutElement(parent);
+        var parentIsAbsolute = isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent);
+        if (parentIsFlow && !hasKnownFlexMainAxis(parent)) return null;
+        if (isContainerDropTarget(parent) && parent !== container && (parentIsFlow || parentIsAbsolute)) {
+          var parentFits = parentIsFlow ? dropFitsAutoLayoutFallback(
+            parent,
+            sourceElementSize.width,
+            sourceElementSize.height
+          ) : dropFitsContainer(
+            parent,
+            sourceElementSize.width,
+            sourceElementSize.height
+          );
+          if (parentFits) {
+            if (parentIsFlow) {
+              if (isMultiTrackGrid(parent)) {
+                var gridAwareInsertionTarget = window.__agentNativeDesignNearestChildInsertionTarget;
+                var gridTarget = gridAwareInsertionTarget?.(
+                  parent,
+                  clientX,
+                  clientY
+                );
+                if (gridTarget) return gridTarget;
+                parent = parent.parentElement;
+                continue;
+              }
+              return nearestChildInsertionTarget(parent, clientX, clientY) || {
+                anchor: parent,
+                placement: "inside",
+                axis: parentFlowAxis(parent),
+                dropMode: "flow-insert"
+              };
+            }
+            return {
+              anchor: parent,
+              placement: "inside",
+              axis: "y",
+              dropMode: "absolute-container"
+            };
+          }
+        }
+        parent = parent.parentElement;
+      }
+      var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
+        return nearestChildInsertionTarget(document.body, clientX, clientY);
+      }
+      return null;
     }
     function showInsertionGuideFor(target) {
       if (!target || !target.anchor) {
@@ -627,13 +1066,15 @@ export const hitTestBridgeScript: string = `"use strict";
         return;
       }
       var guide = ensureInsertionGuide();
-      var rect = target.anchor.getBoundingClientRect();
+      var anchorRect = target.anchor.getBoundingClientRect();
+      var guidePlacement = target.guidePlacement || target.placement;
       guide.style.display = "block";
       guide.style.background = "var(--design-editor-accent-color)";
       guide.style.border = "0";
       guide.style.borderRadius = "999px";
       guide.style.boxShadow = "0 0 0 1px var(--design-editor-accent-color)";
-      if (target.placement === "inside") {
+      if (guidePlacement === "inside") {
+        var rect = target.guideRect || anchorRect;
         guide.style.left = rect.left + "px";
         guide.style.top = rect.top + "px";
         guide.style.width = rect.width + "px";
@@ -645,16 +1086,16 @@ export const hitTestBridgeScript: string = `"use strict";
         return;
       }
       if (target.axis === "x") {
-        var x = target.placement === "before" ? rect.left : rect.right;
+        var x = guidePlacement === "before" ? anchorRect.left : anchorRect.right;
         guide.style.left = x + "px";
-        guide.style.top = rect.top + "px";
+        guide.style.top = anchorRect.top + "px";
         guide.style.width = "2px";
-        guide.style.height = rect.height + "px";
+        guide.style.height = anchorRect.height + "px";
       } else {
-        var y = target.placement === "before" ? rect.top : rect.bottom;
-        guide.style.left = rect.left + "px";
+        var y = guidePlacement === "before" ? anchorRect.top : anchorRect.bottom;
+        guide.style.left = anchorRect.left + "px";
         guide.style.top = y + "px";
-        guide.style.width = rect.width + "px";
+        guide.style.width = anchorRect.width + "px";
         guide.style.height = "2px";
       }
     }
@@ -891,12 +1332,18 @@ export const hitTestBridgeScript: string = `"use strict";
         width: sourceElementSize.width,
         height: sourceElementSize.height
       } : void 0;
+      var rawSourceGridSpan = e.data.sourceGridSpan;
+      var sourceGridSpan = rawSourceGridSpan && Number.isSafeInteger(rawSourceGridSpan.columns) && Number.isSafeInteger(rawSourceGridSpan.rows) && rawSourceGridSpan.columns > 0 && rawSourceGridSpan.rows > 0 ? {
+        columns: rawSourceGridSpan.columns,
+        rows: rawSourceGridSpan.rows
+      } : void 0;
       var result = ignoreAutoLayoutHitTarget(
         applyHitTestSizeGuard(
           resolveHitTarget(
             x,
             y,
-            e.data.modifiers?.forceNestedAutoLayout === true
+            e.data.modifiers?.forceNestedAutoLayout === true,
+            sourceGridSpan
           ),
           x,
           y,
@@ -917,6 +1364,7 @@ export const hitTestBridgeScript: string = `"use strict";
       );
       var anchorSelector = needsSourceSelector ? buildSourceEquivalentSelector(result ? result.anchor : null) : "";
       var placement = result ? result.placement : "inside";
+      var guidePlacement = result ? result.guidePlacement || result.placement : "inside";
       var axis = result ? result.axis : "y";
       var dropMode = result ? result.dropMode : "flow-insert";
       var anchorRect = result ? result.anchor.getBoundingClientRect() : null;
@@ -926,19 +1374,23 @@ export const hitTestBridgeScript: string = `"use strict";
             type: "agent-native:hit-test-result",
             correlationId,
             anchorNodeId,
+            anchorParentNodeId: result && result.anchor.parentElement ? getNodeId(result.anchor.parentElement) || void 0 : void 0,
             targetAnchorProvenance,
             pendingNodeId: pendingNodeId || void 0,
             anchorSelector: anchorSelector || void 0,
             placement,
+            guidePlacement,
             axis,
             dropMode,
+            gridPlacement: result ? result.gridPlacement : void 0,
             layerName: result ? layerNameForElement(result.anchor) || void 0 : void 0,
             anchorRect: anchorRect ? {
               left: anchorRect.left,
               top: anchorRect.top,
               width: anchorRect.width,
               height: anchorRect.height
-            } : void 0
+            } : void 0,
+            guideRect: result ? result.guideRect : void 0
           },
           "*"
         );

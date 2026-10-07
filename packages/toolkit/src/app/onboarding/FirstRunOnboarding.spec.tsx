@@ -89,7 +89,7 @@ describe("FirstRunOnboarding", () => {
       hasFetchedStatus: false,
       statusResolved: true,
       configured: false,
-      agentNativeProvisioningEnabled: false,
+      agentNativeProvisioningEnabled: true,
       error: null,
       start: vi.fn(),
       retry: vi.fn(),
@@ -109,6 +109,7 @@ describe("FirstRunOnboarding", () => {
             required: true,
             builderIncluded: true,
             keySummary: "LLM provider key",
+            whyKey: "agentChat.onboarding.capability.llm.why",
             why: "Needed for chat",
           },
           {
@@ -331,7 +332,7 @@ describe("FirstRunOnboarding", () => {
     });
     await act(async () => {
       document.body
-        .querySelector('[data-testid="first-run-builder-create-account"]')
+        .querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
@@ -394,7 +395,7 @@ describe("FirstRunOnboarding", () => {
     });
     await act(async () => {
       document.body
-        .querySelector('[data-testid="first-run-builder-create-account"]')
+        .querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
@@ -456,7 +457,7 @@ describe("FirstRunOnboarding", () => {
     });
     await act(async () => {
       document.body
-        .querySelector('[data-testid="first-run-builder-create-account"]')
+        .querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
@@ -469,7 +470,16 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("renders the create-account and sign-in Builder buttons", () => {
+  it("hides create-account when one-click provisioning is unavailable", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
     act(() => {
       root.render(
         <TooltipProvider>
@@ -488,14 +498,14 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector(
         '[data-testid="first-run-builder-create-account"]',
       )?.textContent,
-    ).toBe("Create Builder.io account");
+    ).toBeUndefined();
     expect(
       document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.textContent,
     ).toBe("Sign in with Builder.io account");
   });
 
-  it("starts the Builder connection directly when no provisioning choice is needed", () => {
+  it("keeps existing-account sign-in available when provisioning is unavailable", () => {
     const start = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
@@ -524,11 +534,14 @@ describe("FirstRunOnboarding", () => {
 
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-builder-create-account']")
+        .querySelector("[data-testid='first-run-builder-sign-in']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(start).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: false }),
+    );
   });
 
   it("lets users cancel a direct Builder connect during first run", () => {
@@ -536,7 +549,7 @@ describe("FirstRunOnboarding", () => {
       hasFetchedStatus: true,
       statusResolved: true,
       configured: false,
-      agentNativeProvisioningEnabled: false,
+      agentNativeProvisioningEnabled: true,
       connecting: false,
       error: null,
       start: vi.fn(),
@@ -612,7 +625,7 @@ describe("FirstRunOnboarding", () => {
       "Activating Builder.io free credits",
     );
     expect(document.body.textContent).toContain(
-      "Creating or reusing your Builder.io account",
+      "Creating your Builder.io account and activating free credits.",
     );
     expect(
       document.body.querySelector('[role="status"][aria-busy="true"]'),
@@ -832,7 +845,7 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("lists the included Builder.io services from the app profile", () => {
+  it("shows included Builder.io services with descriptions in tooltips", () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -850,9 +863,11 @@ describe("FirstRunOnboarding", () => {
     const builderCard = document.body
       .querySelector("[data-testid='first-run-builder-create-account']")
       ?.closest("section");
-    const included = [...(builderCard?.querySelectorAll("span") ?? [])].map(
-      (node) => node.textContent?.trim(),
+    const services = builderCard?.querySelector<HTMLElement>(
+      "[data-testid='first-run-builder-services']",
     );
+    expect(services?.querySelector("details, summary")).toBeNull();
+    const included = services?.textContent ?? "";
     // Every shared service, whether or not the app recommends it, plus the
     // app's own headline capability Builder.io covers.
     for (const service of [
@@ -866,6 +881,23 @@ describe("FirstRunOnboarding", () => {
     ]) {
       expect(included).toContain(service);
     }
+    expect(included).not.toContain("Needed for chat");
+    expect(included).not.toContain("Turns speech into text");
+    expect(
+      services?.querySelectorAll("button[aria-label^='About']").length,
+    ).toBe(1);
+    const manualCard = document.body
+      .querySelector("[data-testid='first-run-open-key-settings']")
+      ?.closest("section");
+    expect(builderCard?.textContent).not.toContain(
+      "Configure using Builder.io and use your account credits to power the app’s services.",
+    );
+    expect(manualCard?.textContent).not.toContain(
+      "Configure your own API keys and credentials to power the app’s services.",
+    );
+    expect(manualCard?.textContent).not.toContain("Design system intelligence");
+    expect(manualCard?.textContent).not.toContain("Background agents");
+    expect(manualCard?.querySelector("svg.tabler-icon-x")).toBeNull();
     // Not Builder.io capabilities, and no per-app extras.
     for (const missing of [
       "Connected agents",
@@ -874,11 +906,6 @@ describe("FirstRunOnboarding", () => {
     ]) {
       expect(document.body.textContent).not.toContain(missing);
     }
-    expect(
-      [...document.body.querySelectorAll("button")].find((button) =>
-        button.textContent?.trim().endsWith("more"),
-      ),
-    ).toBeUndefined();
   });
 
   it("does not ask Mail users to connect Gmail again in manual setup", () => {
@@ -990,7 +1017,7 @@ describe("FirstRunOnboarding", () => {
       provisionAccount: false,
     });
     expect(document.body.textContent).toContain(
-      "Connecting Builder.io free credits",
+      "Setting up Builder.io credits",
     );
   });
 
@@ -1106,7 +1133,7 @@ describe("FirstRunOnboarding", () => {
     });
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-builder-create-account']")
+        .querySelector("[data-testid='first-run-builder-sign-in']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -1436,7 +1463,7 @@ describe("FirstRunOnboarding", () => {
     });
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-builder-create-account']")
+        .querySelector("[data-testid='first-run-builder-sign-in']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 

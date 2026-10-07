@@ -1,10 +1,17 @@
-import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
+import {
+  BuilderConnectPopover,
+  SettingsGroup,
+  SettingsRow,
+  useBuilderConnectFlow,
+  type BuilderConnectFlowOptions,
+  type BuilderStatus,
+} from "@agent-native/toolkit/app/settings";
 import {
   IconChevronDown,
   IconChevronRight,
   IconLoader2,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
   SubscriptionProviderId,
@@ -12,8 +19,6 @@ import type {
 } from "../../../shared/subscription-status.js";
 
 type ProviderStatusTone = "ok" | "offline";
-const PENDING_BUILDER_CONNECT_RELOAD_KEY =
-  "agent-native:pending-builder-connect-after-reload";
 
 const EMPTY_PROVIDER_DRAFTS: Record<CodeAgentProviderCredentialKey, string> = {
   ANTHROPIC_API_KEY: "",
@@ -103,15 +108,24 @@ function providerStatusCopy(provider: CodeAgentProviderStatus | undefined): {
     const source =
       provider.source === "desktop-settings"
         ? "Desktop settings"
-        : provider.source === "environment"
-          ? "environment"
-          : provider.source === "local-codex"
-            ? "local Codex CLI login"
-            : "settings and environment";
+        : provider.source === "desktop-managed"
+          ? "Desktop settings"
+          : provider.source === "environment"
+            ? "environment"
+            : provider.source === "local-codex"
+              ? "local Codex CLI login"
+              : "settings and environment";
     return {
       label: "Connected",
       description: `Ready from ${source}.`,
       tone: "ok",
+    };
+  }
+  if (provider.error) {
+    return {
+      label: "Unavailable",
+      description: provider.error,
+      tone: "offline",
     };
   }
   return {
@@ -122,39 +136,6 @@ function providerStatusCopy(provider: CodeAgentProviderStatus | undefined): {
         : "Key needed.",
     tone: "offline",
   };
-}
-
-function builderConnectErrorMessage(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  if (message.includes("ERR_ABORTED") || message.includes("loading 'http")) {
-    return "Builder.io connect was opened. Finish the browser flow to continue.";
-  }
-  if (
-    message.includes("No handler registered") ||
-    message.includes("code-agents:provider-builder:connect")
-  ) {
-    return "Restart Agent-Native Desktop to finish enabling Builder connect.";
-  }
-  return message;
-}
-
-function markPendingBuilderConnectReload() {
-  try {
-    window.sessionStorage.setItem(PENDING_BUILDER_CONNECT_RELOAD_KEY, "1");
-  } catch {
-    // Ignore storage failures; the fallback message below still tells the user.
-  }
-}
-
-function consumePendingBuilderConnectReload(): boolean {
-  try {
-    const pending =
-      window.sessionStorage.getItem(PENDING_BUILDER_CONNECT_RELOAD_KEY) === "1";
-    window.sessionStorage.removeItem(PENDING_BUILDER_CONNECT_RELOAD_KEY);
-    return pending;
-  } catch {
-    return false;
-  }
 }
 
 interface CodeProviderSettingsProps {
@@ -176,8 +157,56 @@ export function CodeProviderSettings({
     useState<CodeAgentProviderId>("anthropic");
   const [providerSavingId, setProviderSavingId] =
     useState<CodeAgentProviderId | null>(null);
-  const [builderConnecting, setBuilderConnecting] = useState(false);
   const [providerMessage, setProviderMessage] = useState<string | null>(null);
+  const refreshBuilderProviderSettings = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api) return;
+    onSettingsChanged(await api.getProviderSettings());
+    onProvidersChanged?.();
+  }, [onProvidersChanged, onSettingsChanged]);
+  const builderTransport = useMemo<BuilderConnectFlowOptions["transport"]>(
+    () => ({
+      readStatus: async ({ connectAttemptId }) => {
+        const result =
+          await window.electronAPI?.codeAgents.getBuilderConnectionStatus(
+            connectAttemptId,
+          );
+        if (!result || result.state === "unavailable") return null;
+        return result.status as BuilderStatus;
+      },
+      activateAccount: async (request) => {
+        const api = window.electronAPI?.codeAgents;
+        if (!api) {
+          return {
+            ok: false,
+            code: "desktop_bridge_unavailable",
+            message: "Restart Agent-Native Desktop to continue.",
+          };
+        }
+        return api.activateBuilderAccount({
+          ...request,
+          scope: request.scope ?? undefined,
+        });
+      },
+      openConnectUrl: (request) => {
+        const api = window.electronAPI?.codeAgents;
+        return api
+          ? api.openBuilderConnectUrl(request)
+          : Promise.resolve({
+              ok: false as const,
+              error: "Restart Agent-Native Desktop to continue.",
+            });
+      },
+    }),
+    [],
+  );
+  const builderConnectFlow = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: "desktop_code_provider_settings",
+    trackingFlow: "code_provider_setup",
+    transport: builderTransport,
+    onConnected: refreshBuilderProviderSettings,
+  });
 
   const builderProvider = settings.providers.find(
     (provider) => provider.id === "builder",
@@ -213,49 +242,6 @@ export function CodeProviderSettings({
     },
     [],
   );
-
-  const handleConnectBuilder = useCallback(
-    async (allowShellReload = true) => {
-      const api = window.electronAPI?.codeAgents;
-      setProviderMessage(null);
-      if (!api?.connectBuilderProvider) {
-        if (allowShellReload) {
-          markPendingBuilderConnectReload();
-          setProviderMessage("Refreshing Agent-Native Desktop...");
-          window.setTimeout(() => window.location.reload(), 50);
-          return;
-        }
-        setProviderMessage(
-          "Restart Agent-Native Desktop to finish enabling Builder connect.",
-        );
-        return;
-      }
-      setBuilderConnecting(true);
-      setProviderMessage(
-        "Opened Builder.io in your browser. Finish the flow there to continue.",
-      );
-      try {
-        const result = await api.connectBuilderProvider();
-        onSettingsChanged(result.settings);
-        setProviderMessage(
-          result.error
-            ? builderConnectErrorMessage(result.error)
-            : result.message,
-        );
-        onProvidersChanged?.();
-      } catch (err) {
-        setProviderMessage(builderConnectErrorMessage(err));
-      } finally {
-        setBuilderConnecting(false);
-      }
-    },
-    [onProvidersChanged, onSettingsChanged],
-  );
-
-  useEffect(() => {
-    if (!consumePendingBuilderConnectReload()) return;
-    void handleConnectBuilder(false);
-  }, [handleConnectBuilder]);
 
   const handleSaveProvider = useCallback(
     async (providerId: CodeAgentProviderId) => {
@@ -336,21 +322,29 @@ export function CodeProviderSettings({
               ? builderProvider?.source === "environment"
                 ? "Connected through environment credentials."
                 : "Connected for Agent tasks."
-              : "Includes a free tier for managed AI - no API key needed."
+              : (builderProvider?.error ??
+                "Includes a free tier for managed AI - no API key needed.")
           }
           control={
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                className="settings-btn settings-btn--primary"
-                onClick={() => handleConnectBuilder()}
-                disabled={builderConnecting}
+              <BuilderConnectPopover
+                flow={builderConnectFlow}
+                onConnect={(provisionAccount) => {
+                  setProviderMessage(null);
+                  builderConnectFlow.start({ provisionAccount });
+                }}
               >
-                {builderConnecting ? (
-                  <IconLoader2 size={14} className="settings-update-spin" />
-                ) : null}
-                {builderConnected ? "Reconnect" : "Connect Builder.io"}
-              </button>
+                <button
+                  type="button"
+                  className="settings-btn settings-btn--primary"
+                  disabled={builderConnectFlow.connecting}
+                >
+                  {builderConnectFlow.connecting ? (
+                    <IconLoader2 size={14} className="settings-update-spin" />
+                  ) : null}
+                  Use Builder.io
+                </button>
+              </BuilderConnectPopover>
               {builderSavedKeys ? (
                 <button
                   type="button"
@@ -479,6 +473,11 @@ export function CodeProviderSettings({
 
       <SubscriptionSettings />
 
+      {builderConnectFlow.error ? (
+        <p className="settings-provider-message" role="alert">
+          {builderConnectFlow.error}
+        </p>
+      ) : null}
       {providerMessage ? (
         <p className="settings-provider-message" role="status">
           {providerMessage}

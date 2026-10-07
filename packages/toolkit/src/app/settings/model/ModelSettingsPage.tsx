@@ -1,5 +1,6 @@
 import type { ProviderKeyPolicyStatus } from "@agent-native/core/agent/actions/manage-provider-key-policy";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
+import { upgradeModelToLatestSupportedVersion } from "@agent-native/core/agent/model-version";
 import {
   setAgentEngineDefaultModel,
   type AgentEngineKeyScope,
@@ -347,6 +348,9 @@ function hasAnyProvider(
   builder: BuilderConnectFlow,
   chatgptConnected: boolean | null,
 ): boolean {
+  if (listing.providers.some((provider) => provider.deploymentConfigured)) {
+    return true;
+  }
   if (chatgptConnected !== false || !builder.hasFetchedStatus) return true;
   if (!listing.hasOrganization) {
     return builder.configured || rows.personal.length > 0;
@@ -397,7 +401,7 @@ function NoProviderEmpty({
       <Button type="button" size="sm" disabled={builder.connecting}>
         {builder.connecting ? <Spinner /> : null}
         {builder.connecting
-          ? t(`${K}connecting`)
+          ? t("agentChat.composer.connectingBuilder")
           : t("agentChat.setup.connectBuilder")}
       </Button>
     </DeferredBuilderConnectPopover>
@@ -608,7 +612,9 @@ function BuilderRow({
             disabled={flow.connecting}
           >
             {flow.connecting ? <Spinner /> : null}
-            {flow.connecting ? t(`${K}connecting`) : t(`${K}connect`)}
+            {flow.connecting
+              ? t("agentChat.composer.connectingBuilder")
+              : t("agentChat.setup.connectBuilder")}
           </Button>
         </DeferredBuilderConnectPopover>
       );
@@ -785,16 +791,26 @@ function DefaultModelRow({
     chatgpt: chatgpt.status === "ready" ? chatgpt.catalog : undefined,
   });
   const stored = listing.defaultModel
-    ? {
-        engine: listing.defaultModel.engine,
-        model:
-          listing.defaultModel.model ??
-          groups.find((group) => group.engine === listing.defaultModel?.engine)
-            ?.models[0] ??
-          "",
-      }
+    ? (() => {
+        const group = groups.find(
+          (candidate) => candidate.engine === listing.defaultModel?.engine,
+        );
+        const supportedModels = group?.models ?? [];
+        const preserveCustomModels = group?.preserveCustomModels;
+        const model = listing.defaultModel.model ?? supportedModels[0] ?? "";
+        return {
+          engine: listing.defaultModel.engine,
+          model:
+            (!preserveCustomModels &&
+              upgradeModelToLatestSupportedVersion(model, supportedModels)) ||
+            model,
+        };
+      })()
     : null;
-  const current = pending ?? stored;
+  const storedGroup = stored
+    ? groups.find((group) => group.engine === stored.engine)
+    : undefined;
+  const current = pending ?? (storedGroup ? stored : null);
   const engineLabel = (engine: string) => {
     const provider = providerForEngine(engine);
     if (provider === "builder") return BUILDER_LABEL;
@@ -809,8 +825,8 @@ function DefaultModelRow({
         })
       : engineLabel(current.engine)
     : t(`${K}notSet`);
-  // A stored default no longer offered (personal, rejected, or unchecked)
-  // still shows as the value, so the select never reads blank.
+  // Keep a stored model visible if its provider is available but the model is
+  // no longer in that provider's checked list.
   const offered =
     current &&
     groups.some(
@@ -882,7 +898,13 @@ function DefaultModelRow({
               aria-label={t(DEFAULT_MODEL_LABEL)}
             >
               <SelectValue
-                placeholder={current ? currentLabel : t(`${K}chooseModel`)}
+                placeholder={
+                  current
+                    ? currentLabel
+                    : waitingForProvider
+                      ? ""
+                      : t(`${K}chooseModel`)
+                }
               />
             </SelectTrigger>
           </Select>

@@ -185,6 +185,8 @@ const messages = {
       changeStatistics: "Anderungsstatistiken",
       untitledPlan: "Unbenannter Plan",
       saveFailed: "Speichern fehlgeschlagen",
+      openFailed:
+        "Dieser Plan konnte nicht zum Bearbeiten geöffnet werden. Laden Sie die Seite neu und versuchen Sie es erneut.",
     },
     imageViewer: {
       actualSize: "Originalgrosse",
@@ -652,7 +654,12 @@ const messages = {
       createAccountFailed: "Konto kann nicht erstellt werden.",
       emailSignInFailed: "Anmeldung per E-Mail nicht möglich.",
       verifyEmail:
-        "Bitte überprüfen Sie Ihre E-Mails, um Ihr Konto zu bestätigen, und öffnen Sie diesen Link erneut.",
+        "Öffnen Sie den Bestätigungslink in Ihrer E-Mail. Danach kehren Sie zu diesem Plan zurück. Falls Sie sich anmelden müssen, verwenden Sie unten dieselbe E-Mail-Adresse.",
+      resendVerification: "Bestätigungs-E-Mail erneut senden",
+      resendingVerification: "Bestätigungs-E-Mail wird gesendet…",
+      verificationEmailResent: "Bestätigungs-E-Mail gesendet.",
+      verificationEmailFailed:
+        "Bestätigungs-E-Mail konnte nicht erneut gesendet werden. Bitte versuchen Sie es erneut.",
       notFoundTitle: "Plan nicht gefunden",
       requestAccessTitle: "Fordern Sie Zugriff auf dieses Programm an",
       signInTitle: "Melden Sie sich an, um diesen Plan anzuzeigen",

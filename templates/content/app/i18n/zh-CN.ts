@@ -236,7 +236,7 @@ const databaseExactEnglish = {
   analyzingBothSourcesForASharedKey: "正在分析两个来源的共享键",
   bodyDiff: "正文差异",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder 未连接。请先返回并连接你的账户。",
+    "Builder 尚未连接。请返回并先使用 Builder.io。",
   calendarBy: "日历依据",
   checkingBuilderConnection: "正在检查 Builder 连接",
   clearAll: "全部清除",
@@ -248,7 +248,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "折叠所有分组",
   collapseAll: "全部折叠",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "连接你的 Builder 账户以浏览其空间和模型。",
+    "使用 Builder 账户浏览其空间和模型。",
   connectedSources: "已连接的来源",
   couldntSyncRetry: "无法同步 · 重试",
   countAll: "全部计数",
@@ -1038,7 +1038,6 @@ const rawLiterals = {
 
 const landing = {
   previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
-  requestedPageUnavailable: "该页面对你的账户不可用，因此我们打开了欢迎页面。",
   saveFailed: "无法保存您的位置",
   workspaceWelcomeUnavailableTitle: "此处尚未打开任何内容",
   workspaceWelcomeUnavailableDescription:
@@ -1153,6 +1152,10 @@ const exactEnglish = {
     iconPickerUpload: "上传",
     iconPickerUploading: "正在上传…",
     suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
+    suggestionUnplaceable:
+      "此建议周围的文本已更改，因此无法应用。它仍处于待处理状态：请拒绝它，或重新建议此修改。",
+    proposalUnplaceable:
+      "其中一条建议周围的文本已更改，无法应用，因此所有建议均未应用。它们仍处于待处理状态：请逐条接受或拒绝。",
     suggestionAmendmentFailed: "无法保存建议",
     suggestionAmendmentResolved:
       "此建议已在其他地方更改。你未保存的草稿仍保留在这里。",
@@ -1413,6 +1416,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未选择页面",
+    pageNoAccess: "你没有此页面的访问权限",
+    pageMissing: "此页面不存在",
+    pageInTrash: "此页面在回收站中",
+    pageInTrashAskOwner: "请让所有者恢复它。",
+    openTrash: "打开回收站",
+    goToMyPages: "前往我的页面",
     noPageDescription: "从侧边栏选择页面，或创建新页面开始。",
     newPage: "新页面",
     createFailed: "创建页面失败",

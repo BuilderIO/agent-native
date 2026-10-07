@@ -5,10 +5,13 @@ import {
   assertByteIdenticalHtml,
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
+  AUTHORING_FUZZ_STYLE_PROPERTIES,
+  authoringFuzzLineNavigationKeys,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
+  isCaretScrollOnlyChange,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
   runAuthoringFuzz,
@@ -22,20 +25,47 @@ it("requires a markdown shortcut to add its result markup", () => {
   );
 });
 
-const authoringSnapshot = (y: number, color: string): Snapshot => ({
+const authoringSnapshot = (
+  y: number,
+  color: string,
+  props: Record<string, string> = {},
+): Snapshot => ({
   records: [
     {
       key: "box:div#0",
       kind: "box",
       inside: false,
-      props: { color },
+      props: { color, ...props },
       rect: { x: 0, y, width: 100, height: 80 },
     },
   ],
   inventory: { elements: 1, visible: 1, hidden: 0, svg: 0, img: 0, style: 0 },
   text: "",
   editedRect: null,
+  editedBoxRect: null,
   editedText: null,
+});
+
+const protectedMarkerSnapshot = (
+  className: string,
+  inlineStyle: string,
+  props: Record<string, string>,
+  protectedStructure = false,
+): Snapshot => ({
+  ...authoringSnapshot(64, "rgb(0, 0, 0)"),
+  records: [
+    {
+      key: "box:span#0",
+      kind: "box",
+      inside: true,
+      protectedStyle: true,
+      ...(protectedStructure ? { protectedStructure: true } : {}),
+      className,
+      inlineStyle,
+      props,
+      rect: { x: 0, y: 0, width: 12, height: 12 },
+    },
+  ],
 });
 
 it("gates outside style changes and unmodeled geometry changes", () => {
@@ -51,6 +81,165 @@ it("gates outside style changes and unmodeled geometry changes", () => {
       authoringSnapshot(64, "rgb(255, 0, 0)"),
     ),
   ).toHaveLength(1);
+});
+
+it("tracks computed style properties beyond typography and box paint", () => {
+  expect(AUTHORING_FUZZ_STYLE_PROPERTIES).toEqual(
+    expect.arrayContaining([
+      "filter",
+      "position",
+      "text-decoration-color",
+      "text-decoration-style",
+      "text-underline-offset",
+      "transform",
+      "vertical-align",
+    ]),
+  );
+});
+
+it("gates styled bullet marker restyles inside the edited row", () => {
+  const changes = outsideAuthoringChangesFor(
+    protectedMarkerSnapshot("marker", "color: red", {
+      color: "rgb(255, 0, 0)",
+    }),
+    protectedMarkerSnapshot("marker-changed", "color: blue", {
+      color: "rgb(0, 0, 255)",
+    }),
+  );
+
+  expect(
+    changes.flatMap((change) =>
+      "prop" in change ? [{ prop: change.prop, inside: change.inside }] : [],
+    ),
+  ).toEqual(
+    expect.arrayContaining([
+      { prop: "class", inside: false },
+      { prop: "style", inside: false },
+      { prop: "color", inside: false },
+    ]),
+  );
+});
+
+it("gates removal or replacement of a marker the edit must preserve", () => {
+  const marker = protectedMarkerSnapshot(
+    "marker",
+    "color: red",
+    { color: "rgb(255, 0, 0)" },
+    true,
+  );
+  const empty = { ...protectedMarkerSnapshot("", "", {}), records: [] };
+
+  expect(outsideAuthoringChangesFor(marker, empty)).toHaveLength(1);
+  expect(outsideAuthoringChangesFor(empty, marker)).toHaveLength(1);
+});
+
+it("allows a block conversion to remove a marker when the row may change", () => {
+  const marker = protectedMarkerSnapshot("marker", "color: red", {
+    color: "rgb(255, 0, 0)",
+  });
+  const empty = { ...protectedMarkerSnapshot("", "", {}), records: [] };
+
+  expect(outsideAuthoringChangesFor(marker, empty)).toHaveLength(0);
+});
+
+it("ignores one CSS pixel-quantization step in anchored position styles", () => {
+  const before = authoringSnapshot(64, "rgb(0, 0, 0)", {
+    top: "386.938px",
+    "transform-origin": "135px 74.875px",
+    transform: "matrix(1, 0, 0, 1, 0, -74.875)",
+  });
+  const after = authoringSnapshot(64, "rgb(0, 0, 0)", {
+    top: "386.922px",
+    "transform-origin": "135px 74.883px",
+    transform: "matrix(1, 0, 0, 1, 0, -74.883)",
+  });
+
+  expect(outsideAuthoringChangesFor(before, after)).toHaveLength(0);
+  expect(
+    outsideAuthoringChangesFor(
+      before,
+      authoringSnapshot(64, "rgb(0, 0, 0)", {
+        top: "386.8125px",
+        "transform-origin": "135px 74.875px",
+        transform: "matrix(1, 0, 0, 1, 0, -74.875)",
+      }),
+    ),
+  ).toHaveLength(1);
+});
+
+it.each(["transform", "filter", "position", "--fmd-fit-scale"])(
+  "gates outside computed-style changes to %s",
+  (property) => {
+    const before = authoringSnapshot(64, "rgb(0, 0, 0)", {
+      [property]: "before",
+    });
+    const after = authoringSnapshot(64, "rgb(0, 0, 0)", {
+      [property]: "after",
+    });
+
+    expect(outsideAuthoringChangesFor(before, after)).toContainEqual(
+      expect.objectContaining({ prop: property, inside: false }),
+    );
+  },
+);
+
+it("allows only the matching native caret scroll in an overflowing slide", () => {
+  const change = [
+    {
+      key: "box:div.fmd-autofit-scale#0",
+      prop: "y",
+      a: "64",
+      b: "-300",
+    },
+  ];
+  const options = {
+    scrollDelta: 364,
+    contentGrew: true,
+    containerOverflows: true,
+    containerStationary: true,
+    fitPositionStylesUnchanged: true,
+    fitSizeUnchanged: true,
+  };
+  expect(isCaretScrollOnlyChange(change, options)).toBe(true);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, scrollDelta: 362 }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange([{ ...change[0], b: "-118" }], {
+      ...options,
+      scrollDelta: 182,
+    }),
+  ).toBe(true);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, contentGrew: false }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      containerOverflows: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      containerStationary: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      fitPositionStylesUnchanged: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, fitSizeUnchanged: false }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(
+      [...change, { key: "box:p#0", prop: "y", a: "0", b: "1" }],
+      options,
+    ),
+  ).toBe(false);
 });
 
 function pageAtScale(scale: number) {
@@ -212,6 +401,14 @@ it.each([
   ["win32", "Home", "End"],
 ])("uses platform line navigation keys on %s", (platform, start, end) => {
   expect(lineNavigationKeys(platform)).toEqual({ start, end });
+});
+
+it("uses the caller's line navigation keys for fuzz operations", () => {
+  const macKeys = lineNavigationKeys("darwin");
+  expect(authoringFuzzLineNavigationKeys("linux", macKeys)).toEqual(macKeys);
+  expect(authoringFuzzLineNavigationKeys("linux")).toEqual(
+    lineNavigationKeys("linux"),
+  );
 });
 
 it("maps absolute seeds to stable synthetic and committed layout profiles", () => {

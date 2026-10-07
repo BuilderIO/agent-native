@@ -11,6 +11,24 @@ const accountHealthSkill = readFileSync(
   new URL("../../.agents/skills/account-health/SKILL.md", import.meta.url),
   "utf8",
 );
+const readMarkdown = (relativePath: string) =>
+  readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(
+    /\s+/g,
+    " ",
+  );
+const agentsGuide = readMarkdown("../../AGENTS.md");
+const dashboardSkill = readMarkdown(
+  "../../.agents/skills/dashboard-management/SKILL.md",
+);
+const customBlocksSkill = readMarkdown(
+  "../../.agents/skills/custom-blocks/SKILL.md",
+);
+const incidentSkill = readMarkdown(
+  "../../.agents/skills/incident-investigation/SKILL.md",
+);
+const analysisWorkspaceSkill = readMarkdown(
+  "../../.agents/skills/analysis-workspace/SKILL.md",
+);
 
 const {
   agentChatPluginOptions,
@@ -136,20 +154,11 @@ import {
   looksLikeAnalyticsDataRequest,
 } from "../lib/real-data-actions";
 import {
-  analyticsDataDictionaryRoutingContext,
-  analyticsSourceGuidanceOpening,
-  ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
-  ANALYTICS_CROSS_APP_ROUTING_GUIDANCE,
-  ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
-  ANALYTICS_ACCOUNT_HEALTH_GUIDANCE,
-  INTERNAL_PRODUCT_USAGE_GUIDANCE,
-  BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
-  DASHBOARD_REFERENCE_GUIDANCE,
-  BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
+  ANALYTICS_PROMPT_RULES,
+  analyticsExtraContext,
   NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
   NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
-  NON_ANALYTICS_REQUEST_GUIDANCE,
   realDataFinalGuard,
 } from "./agent-chat";
 
@@ -298,55 +307,146 @@ describe("Analytics agent Plan mode policy", () => {
     expect(ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS).toBe(3 * 60_000);
   });
 
-  it("injects the bounded structured lookup fast path into source guidance", () => {
-    const guidance = analyticsSourceGuidanceOpening();
+  it("renders every always-on rule inside one guidance block", () => {
+    const context = analyticsExtraContext();
 
-    expect(guidance).toContain("<data-source-guidance>");
-    expect(guidance).toContain(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE);
-    expect(guidance).toContain(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE);
-    expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
-    expect(guidance).toContain(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE);
-    expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
-    expect(guidance).toContain(NON_ANALYTICS_REQUEST_GUIDANCE);
-    expect(guidance).toContain("run one bounded query");
-    expect(guidance).toContain("Once the query succeeds");
-    expect(guidance).toContain("never answer from a guess");
-    expect(guidance).toContain(
-      "This does not replace or restrict external sources",
-    );
-    expect(guidance).toContain("When the user names an external provider");
-    expect(guidance).toContain("[Connect data sources](");
-    expect(guidance).toContain(
-      "Chat remains available when no external data source is connected",
+    expect(context.startsWith("<data-source-guidance>")).toBe(true);
+    expect(context.endsWith("</data-source-guidance>")).toBe(true);
+    for (const rule of ANALYTICS_PROMPT_RULES) {
+      expect(context).toContain(rule.text);
+    }
+    expect(new Set(ANALYTICS_PROMPT_RULES.map((rule) => rule.id)).size).toBe(
+      ANALYTICS_PROMPT_RULES.length,
     );
   });
 
-  it("keeps ordinary structured lookups on one authoritative source", () => {
-    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
-      "search-analytics-query-catalog",
+  it("hands the plugin the same rules as extraContext", async () => {
+    const extraContext = agentChatPluginOptions[0]?.extraContext as
+      | (() => Promise<string> | string)
+      | undefined;
+
+    expect(await extraContext?.()).toBe(analyticsExtraContext());
+  });
+
+  const ruleText = (id: string) => {
+    const rule = ANALYTICS_PROMPT_RULES.find((entry) => entry.id === id);
+    if (!rule) throw new Error(`missing prompt rule ${id}`);
+    return rule.text;
+  };
+
+  it("keeps ordinary lookups on one authoritative source", () => {
+    expect(ruleText("references")).toContain("search-analytics-query-catalog");
+    expect(ruleText("references")).toContain(
+      "do not by themselves make a question a corpus investigation",
     );
-    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
-      "run one bounded query",
+    expect(ruleText("failed-calls")).toContain(
+      "never repeat an identical failed call",
     );
-    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
-      "do not by themselves make it a corpus investigation",
+    expect(ruleText("failed-calls")).toContain(
+      "Never ask the user for internal",
     );
-    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
-      "Never repeat an identical invalid or failed tool call",
+    expect(ruleText("real-data")).toContain("live data-source query");
+    expect(ruleText("sources")).toContain("authoritative for the turn");
+  });
+
+  it("routes built-in product metrics to the first-party query action", () => {
+    expect(ruleText("sources")).toContain("query-agent-native-analytics");
+    expect(ruleText("sources")).toContain("never call it disconnected");
+    expect(ruleText("sources")).toContain("[Connect data sources](");
+  });
+
+  it("routes internal usage and sibling-app questions without user-supplied SQL", () => {
+    const routing = ruleText("workspace-routing");
+
+    expect(routing).toContain("agent-native signups");
+    expect(routing).toContain("built-in source and query catalog");
+    expect(routing).toContain("list-dispatch-usage-metrics");
+    expect(routing).toContain(
+      "Do not ask for a user export or BigQuery schema",
     );
+    expect(routing).toContain("never substitute workspace metrics");
+    expect(routing).toContain("`call-agent` with agent `brain`");
+    expect(routing).toContain("Brain is not in `list-extensions`");
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Pull AI credit usage and branch creation data by user for each month",
+      ),
+    ).toBe(true);
+  });
+
+  it("tells explicit dashboard requests to finish non-destructive build steps", () => {
+    const builds = ruleText("dashboard-builds");
+
+    expect(builds).toContain("Do not ask 'want me to proceed?'");
+    expect(builds).toContain("its dashboard id is authoritative");
+  });
+
+  it("routes each moved procedure to a skill the runtime agent can read", () => {
+    const skills = ruleText("skills");
+
+    for (const skill of [
+      "dashboard-management",
+      "custom-blocks",
+      "account-health",
+      "incident-investigation",
+      "analysis-workspace",
+    ]) {
+      expect(skills).toContain(`\`${skill}\``);
+    }
+  });
+
+  it("states the dashboard verification invariant once, in AGENTS.md", () => {
+    expect(agentsGuide).toContain(
+      "A dashboard edit is done only when `mutate-dashboard` returns `verified: true`.",
+    );
+    expect(agentsGuide).toContain("call `inspect-dashboard-panel`");
+    expect(analyticsExtraContext()).not.toContain("verified: true");
+    expect(agentsGuide).not.toMatch(/run it once,? and stop/i);
+    expect(dashboardSkill).toContain("only `verified: true` is");
+  });
+
+  it("keeps the dashboard procedures in the dashboard-management skill", () => {
+    expect(dashboardSkill).toContain('`panelIds: ["panel-id"]`');
+    expect(dashboardSkill).toContain("Ignored missing result columns");
+    expect(dashboardSkill).toContain("`config.yKeys`");
+    expect(dashboardSkill).toContain('`chartType: "combo"`');
+    expect(dashboardSkill).toContain("remove `pivot`");
+    expect(dashboardSkill).toContain(
+      "Replicating Or Adapting Another Dashboard",
+    );
+    expect(dashboardSkill).not.toContain("reliable-mutations");
+  });
+
+  it("moves Custom Block rules into a skill and keeps native panels first", () => {
+    expect(customBlocksSkill).toContain(
+      "native dashboard panels and Data Programs first",
+    );
+    expect(customBlocksSkill).toContain("only actions that are HTTP-mounted");
+    expect(customBlocksSkill).toContain(
+      "never call `query-agent-native-analytics`",
+    );
+    expect(customBlocksSkill).toContain("canonical `bigquery` action");
+    expect(customBlocksSkill).toContain("only when the user explicitly asks");
+    expect(customBlocksSkill).toContain("intended scope is this dashboard");
+    expect(customBlocksSkill).toContain("nativeGapReason");
+    expect(customBlocksSkill).toContain("never put prompt text, customer data");
+    expect(customBlocksSkill).toContain("call `connect-builder`");
+    expect(customBlocksSkill).toContain("preserve the existing Custom Block");
+    expect(customBlocksSkill).not.toContain("automatically create");
   });
 
   it("guards named account health against scope and metric-definition drift", () => {
+    const normalized = accountHealthSkill.replace(/\s+/g, " ");
     for (const phrase of [
-      "org ID as a lookup key",
-      "different customer, mixed IDs",
+      "lookup key, not as proof",
+      "mixed organization IDs",
       "deprecated or retired",
       "current partial-period snapshot",
-      "total distinct contracted users",
+      "total distinct contracted/eligible users",
       "utilization at or above 100%",
       "each requested product or feature dimension separately",
     ]) {
-      expect(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE).toContain(phrase);
+      expect(normalized).toContain(phrase);
     }
   });
 
@@ -356,78 +456,24 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
-  it("routes built-in product metrics to the first-party query action", () => {
-    expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain(
-      "query-agent-native-analytics",
-    );
-    expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain(
-      "Do not report the first-party source as disconnected",
-    );
-    expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain("analytics_events");
-  });
-
-  it("routes internal product usage through schema discovery instead of user-supplied SQL", () => {
-    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain("search-bigquery-schema");
-    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
-      "list-dispatch-usage-metrics",
-    );
-    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
-      "named customer or account such as OCBC",
-    );
-    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
-      "do not ask the user for identifiers",
-    );
-    expect(
-      looksLikeAnalyticsDataRequest(
-        "Pull AI credit usage and branch creation data by user for each month",
-      ),
-    ).toBe(true);
-  });
-
-  it("advertises Analytics as the owner for curated first-party product metrics", () => {
-    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
-      "agent-native signups",
-    );
-    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
-      "built-in first-party source and query catalog",
-    );
-    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
-      "list-dispatch-usage-metrics",
-    );
-    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain("call-agent");
-  });
-
   it("discovers incident sessions without requiring a JavaScript error count", () => {
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
-      "Do not require hasErrors=true for this initial lookup",
-    );
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+    for (const phrase of [
+      "Do not require `hasErrors=true` for this initial lookup",
       "agent_chat_stuck_detected",
-    );
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
-      "create-session-replay-agent-link first",
-    );
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "call `create-session-replay-agent-link` first",
       "detailed error text, stacks, request metadata",
-    );
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
-      "read-only investigation tools remain available in Plan mode",
-    );
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "remain available in Plan mode",
       "run the query instead of deferring it",
-    );
+    ]) {
+      expect(incidentSkill).toContain(phrase);
+    }
   });
 
-  it("routes data-dictionary lookup on demand with compact guidance", () => {
-    const context = analyticsDataDictionaryRoutingContext();
-
-    expect(context).toContain("system may preload a small set");
-    expect(context).toContain("`list-data-dictionary`");
-    expect(context).toContain(
-      "Call `list-data-dictionary` separately when the catalog has no usable match",
+  it("delivers requested files in the same turn through the workspace skill", () => {
+    expect(analysisWorkspaceSkill).toContain("`show-workspace-file`");
+    expect(analysisWorkspaceSkill).toContain(
+      "never an error or failed response",
     );
-    expect(context).toContain("approved entries as canonical");
-    expect(context.length).toBeLessThan(1_000);
   });
 
   it("leaves representative read-only Analytics tools available to the shared Plan-mode policy", () => {
@@ -441,153 +487,48 @@ describe("Analytics agent Plan mode policy", () => {
       expect(pluginActions[name]).not.toHaveProperty("allowInPlanMode", false);
     }
   });
-  it("keeps bulk corpus tools on the initial tool surface", () => {
+
+  it("hands the plugin the receipt-aware guard", () => {
+    expect(agentChatPluginOptions[0]?.finalResponseGuard).toBe(
+      realDataFinalGuard,
+    );
+  });
+
+  it("starts with the core dashboard and query tools, leaving heavyweights lazy", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
-        "bigquery",
+        "get-sql-dashboard",
+        "mutate-dashboard",
+        "inspect-dashboard-panel",
+        "search-dashboard-references",
         "search-analytics-query-catalog",
+        "query-agent-native-analytics",
+        "bigquery",
         "search-bigquery-schema",
         "list-data-dictionary",
-        "provider-api-request",
-        "provider-corpus-job",
-        "query-staged-dataset",
+        "view-screen",
+        "call-agent",
       ]),
     );
-    expect(INITIAL_TOOL_NAMES).not.toEqual(
-      expect.arrayContaining([
-        "provider-api-catalog",
-        "provider-api-docs",
-        "run-code",
-        "get-code-execution",
-        "account-deep-dive",
-        "gong-calls",
-        "gong-native-insights",
-        "github-repo-files",
-        "hubspot-deals",
-        "hubspot-records",
-        "hubspot-pipelines",
-        "jira-search",
-        "slack-messages",
-        "sentry",
-      ]),
-    );
-  });
-
-  it("keeps named-session incident evidence on the initial tool surface", () => {
-    expect(INITIAL_TOOL_NAMES).toEqual(
-      expect.arrayContaining([
-        "create-session-replay-agent-link",
-        "get-session-replay-events",
-        "get-error-issue",
-        "get-session-replay-summary",
-        "get-session-replay-timeline",
-        "list-error-issues",
-        "list-session-recordings",
-      ]),
-    );
-  });
-
-  it("keeps the first-party query action on the initial tool surface", () => {
-    expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
-  });
-
-  it("keeps the chat file delivery path on the initial tool surface", async () => {
-    expect(INITIAL_TOOL_NAMES).toContain("show-workspace-file");
-
-    const extraContext = agentChatPluginOptions[0]?.extraContext as
-      | (() => Promise<string>)
-      | undefined;
-    const context = await extraContext?.();
-    expect(context).toContain("EXPORT DELIVERY");
-    expect(context).toContain("call `show-workspace-file`");
-    expect(context).toContain("Never save an error or failed response");
-  });
-
-  it("keeps dashboard replication discovery bounded and reference-only", async () => {
-    expect(INITIAL_TOOL_NAMES).toContain("search-dashboard-references");
-    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
-      "search-dashboard-references",
-    );
-    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
-      "not as proof that its source is authoritative",
-    );
-    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain("get-explorer-dashboard");
-    const context = await (
-      agentChatPluginOptions[0]?.extraContext as () => Promise<string>
-    )?.();
-    expect(context).toContain("DASHBOARD REFERENCE DISCOVERY");
-  });
-
-  it("keeps Brain handoff tools on the initial tool surface", async () => {
-    expect(INITIAL_TOOL_NAMES).toEqual(
-      expect.arrayContaining(["describe-workspace-apps", "call-agent"]),
-    );
-
-    const extraContext = agentChatPluginOptions[0]?.extraContext as
-      | (() => Promise<string>)
-      | undefined;
-    const context = await extraContext?.();
-    expect(context).toContain("Brain is the sibling app");
-    expect(context).toContain("Do not use `list-extensions` to find Brain");
-    expect(context).toContain("use `call-agent` with agent `brain`");
-  });
-
-  it("keeps the complete dashboard build path on the initial tool surface", () => {
-    expect(INITIAL_TOOL_NAMES).toEqual(
-      expect.arrayContaining([
-        "get-explorer-dashboard",
-        "update-dashboard",
-        "mutate-dashboard",
-        "compose-dashboard",
-        "create-extension",
-        "extension-data-set",
-      ]),
-    );
-  });
-
-  it("tells explicit dashboard requests to finish non-destructive build steps", async () => {
-    const extraContext = agentChatPluginOptions[0]?.extraContext as
-      | (() => Promise<string>)
-      | undefined;
-    expect(extraContext).toBeDefined();
-    const context = await extraContext?.();
-    expect(context).toContain("EXECUTION CONTINUITY");
-    expect(context).toContain("Do not ask 'want me to proceed?'");
-    expect(context).toContain("APPROVED MUTATION CONTINUITY");
-    expect(context).toContain("saved: true");
-    expect(context).toContain("changed: true");
-  });
-
-  it("makes Custom Blocks a deliberate one-off exception to native dashboards", () => {
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "native dashboard panels and Data Programs first",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "only actions that are HTTP-mounted",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "never call `query-agent-native-analytics`",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "canonical `bigquery` action",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "only when the user explicitly asks",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "intended scope is this dashboard",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain("nativeGapReason");
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "never put prompt text, customer data",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain("call `connect-builder`");
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "preserve the existing Custom Block",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).not.toContain(
-      "automatically create",
-    );
+    for (const lazy of [
+      "provider-api-request",
+      "provider-corpus-job",
+      "query-staged-dataset",
+      "update-dashboard",
+      "compose-dashboard",
+      "generate-chart",
+      "create-extension",
+      "update-extension",
+      "show-workspace-file",
+      "list-session-recordings",
+      "list-error-issues",
+      "run-code",
+      "provider-api-catalog",
+      "account-deep-dive",
+      "gong-calls",
+    ]) {
+      expect(INITIAL_TOOL_NAMES).not.toContain(lazy);
+    }
   });
 
   it("explicitly keeps extension creation enabled for Analytics Custom Blocks", async () => {

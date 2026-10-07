@@ -3,14 +3,72 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-06
+
+### Added
+
+- Save a screenshot of any visible moment in a session replay.
+- Save exact session replay screens as PNG screenshots.
+- Session replays can be saved as screenshots without the replay controls.
+
+### Fixed
+
+- Collaborators see a consistent dashboard after simultaneous edits
+- Dashboard edits stay in sync when simultaneous updates occur.
+- Dashboard filter "Mine" now lists every dashboard you own (including ones you've shared) and no longer includes installed demos or items shared with you
+- Return each dashboard mutation's own written value even when another update lands immediately afterward
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- Dashboard edits now report no change when the selected panels already match the requested values or order.
+- Dashboard mutation results now report only changes that were actually saved.
+- Refreshing a BigQuery dashboard panel now fetches current data.
+
+## 2026-10-05
+
+### Improved
+
+- Custom date controls stay beside the range selector, and dashboards can save a shared default view.
+
+### Fixed
+
+- Session replay agent links stay usable with large event lists and longer agent names.
+- Agent links copied from a dashboard, analysis, or session replay are shorter, so Claude can fetch them without hitting its URL length limit.
+- Analytics keeps workspace access working across apps with different local organization IDs.
+- BigQuery dashboard filters work with values that contain apostrophes or backslashes
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Added
+
+- With the Sessions triage Lab on, filter sessions by speed, see page vitals and slow requests on replays, and compare p50 and p95 load, interaction, and request times per route
+- With the Sessions triage Lab on, rank and filter sessions by friction signals like dead clicks, error toasts, retry loops, failed actions, and agent failures, and open their Monitoring issues from the list.
+
+### Improved
+
+- Builder.io setup now explains free credits and the existing-account option.
+- Owners and admins can save data source credentials for the whole organization or just for themselves.
+- Retention reports now compare returns from paid and untagged signups.
+
+### Fixed
+
+- Dashboard queries preserve recording permissions across supported SQL formats
+- Events with a very long name, app, or page path no longer cause the rest of their batch to be lost
+
 ## 2026-10-01
 
 ### Improved
 
+- Clear all resets every Sessions filter in one click.
+- The first-party retention chart now splits 1-7d return into paid and untagged signups, and a Chat Readiness at Prompt panel shows whether AI was ready and how many prompts got no reply.
 - Error issues in Monitoring link straight to the chat thread that failed, and one underlying error now stays a single issue instead of splitting after each deploy
 - The observability settings tab is now labeled Observability.
 
 ## 2026-09-30
+
+### Added
+
+- External agents connected over MCP can read dashboards, saved analyses, the data dictionary, blog articles and provider data directly, without handing the question to the Analytics agent.
+- With the Sessions triage Lab on, filter sessions by events they did or didn't send, see app events and failed actions on replay timelines, and browse an event catalog.
 
 ### Improved
 
@@ -949,7 +1007,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Agents can search and read connected GitHub repositories when auditing tracking events.
 - Dashboards can now include extension panels that embed a sandboxed extension inline instead of a SQL chart
-- Set up session replay storage from settings: connect Builder.io or add S3-compatible storage
+- Set up session replay storage from settings: use Builder.io or add S3-compatible storage
 
 ### Improved
 

@@ -64,6 +64,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  isSupportedChatImageType,
+  isVisualImageAttachment,
+  MissingVisualImagePayloadError,
+} from "@/lib/chat-image-attachments";
 import { createDesignPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
@@ -82,13 +87,6 @@ export interface UploadedFile {
 const RAW_CHAT_IMAGE_ATTACHMENT_BYTES = 512 * 1024;
 const MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES = 3_000_000;
 const DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES = 1_250_000;
-const CHAT_IMAGE_ATTACHMENT_TYPES = new Set([
-  "image/gif",
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-]);
 const IMAGE_COMPRESSION_PASSES = [
   { maxDimension: 1400, jpegQuality: 0.76 },
   { maxDimension: 1024, jpegQuality: 0.7 },
@@ -164,9 +162,12 @@ async function readChatImageAttachment(
   file: File,
   maxDataUrlBytes = DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
 ): Promise<string | null> {
-  if (!CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase())) return null;
+  if (!isVisualImageAttachment(file)) return null;
 
-  if (file.size <= RAW_CHAT_IMAGE_ATTACHMENT_BYTES) {
+  if (
+    isSupportedChatImageType(file.type) &&
+    file.size <= RAW_CHAT_IMAGE_ATTACHMENT_BYTES
+  ) {
     const raw = await readFileDataUrl(file);
     if (raw && dataUrlBytes(raw) <= maxDataUrlBytes) return raw;
   }
@@ -436,6 +437,26 @@ export default function PromptPopover({
           t("promptDialog.attachmentsTooLarge", { max: MAX_UPLOAD_MB }),
         );
       }
+      const imageFileCount = files.filter(isVisualImageAttachment).length || 1;
+      const maxImageDataUrlBytes = Math.min(
+        DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+        Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
+      );
+      const visualAttachments = await Promise.all(
+        files.map((file) =>
+          isVisualImageAttachment(file)
+            ? readChatImageAttachment(file, maxImageDataUrlBytes)
+            : Promise.resolve(null),
+        ),
+      );
+      if (
+        files.some(
+          (file, index) =>
+            isVisualImageAttachment(file) && !visualAttachments[index],
+        )
+      ) {
+        throw new MissingVisualImagePayloadError();
+      }
       const formData = new FormData();
       files.forEach((f) => formData.append("files", f));
       const res = await fetch(`${appBasePath()}/api/uploads`, {
@@ -452,24 +473,16 @@ export default function PromptPopover({
         );
       }
       const uploaded = (await res.json()) as UploadedFile[];
-      const imageFileCount =
-        files.filter((file) =>
-          CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase()),
-        ).length || 1;
-      const maxImageDataUrlBytes = Math.min(
-        DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
-        Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
-      );
-      const visualAttachments = await Promise.all(
-        files.map((file) =>
-          readChatImageAttachment(file, maxImageDataUrlBytes),
-        ),
-      );
-      return uploaded.map((file, index) =>
-        visualAttachments[index]
-          ? { ...file, dataUrl: visualAttachments[index] }
-          : file,
-      );
+      if (!Array.isArray(uploaded) || uploaded.length !== files.length) {
+        throw new Error(t("promptDialog.failedToUploadFile"));
+      }
+      return uploaded.map((uploadedFile, index) => ({
+        ...uploadedFile,
+        ...(files[index]?.type ? { type: files[index].type } : {}),
+        ...(visualAttachments[index]
+          ? { dataUrl: visualAttachments[index] }
+          : {}),
+      }));
     },
     [t],
   );
@@ -517,9 +530,11 @@ export default function PromptPopover({
       syncFiles(files);
       void uploadFiles(files).catch((error) => {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : t("promptDialog.failedToUploadFile"),
+          error instanceof MissingVisualImagePayloadError
+            ? t("promptDialog.imageAttachmentUnavailable")
+            : error instanceof Error
+              ? error.message
+              : t("promptDialog.failedToUploadFile"),
         );
       });
     },
@@ -560,9 +575,11 @@ export default function PromptPopover({
           restorePromptText(recoveryText);
         onSubmitError?.();
         toast.error(
-          error instanceof Error
-            ? error.message
-            : t("promptDialog.failedToUploadFile"),
+          error instanceof MissingVisualImagePayloadError
+            ? t("promptDialog.imageAttachmentUnavailable")
+            : error instanceof Error
+              ? error.message
+              : t("promptDialog.failedToUploadFile"),
         );
         throw error;
       }
@@ -581,9 +598,11 @@ export default function PromptPopover({
           restorePromptText(recoveryText);
         onSubmitError?.();
         toast.error(
-          error instanceof Error
-            ? error.message
-            : t("promptDialog.failedToSubmitPrompt"),
+          error instanceof MissingVisualImagePayloadError
+            ? t("promptDialog.imageAttachmentUnavailable")
+            : error instanceof Error
+              ? error.message
+              : t("promptDialog.failedToSubmitPrompt"),
         );
         throw error;
       }

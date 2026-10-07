@@ -1,13 +1,13 @@
 import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
-  sendToAgentChat,
+  sendToAgentChatAndConfirm,
   type AgentChatSubmitResult,
 } from "@agent-native/core/client/agent-chat";
 import {
   getAnalyticsSessionId,
   trackEvent,
 } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -514,6 +514,25 @@ export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const routeGenerationSubmitId = searchParams.get("generationSubmitId");
+  const isNewDeckGenerationRouteFromUrl =
+    searchParams.get("generating") === "1" || Boolean(routeGenerationSubmitId);
+  const {
+    generating: newDeckGenerationGenerating,
+    submitMessageId: restoredGenerationSubmitId,
+    tabId: newDeckGenerationTabId,
+    conversationThreadId: newDeckGenerationThreadId,
+    questionContinuationPending,
+    submitQuestionContinuation: submitTrackedQuestionContinuation,
+  } = useNewDeckGenerationRun(
+    id ?? "",
+    isNewDeckGenerationRouteFromUrl,
+    routeGenerationSubmitId,
+  );
+  const generationSubmitId =
+    routeGenerationSubmitId ?? restoredGenerationSubmitId;
+  const isNewDeckGenerationRoute =
+    isNewDeckGenerationRouteFromUrl || Boolean(restoredGenerationSubmitId);
   const { session, isLoading: sessionLoading } = useSession();
   const {
     getDeck,
@@ -537,6 +556,7 @@ export default function DeckEditor() {
     loading,
     loadError,
   } = useDecks();
+  const deck = getDeck(id || "");
   const canUndo = undoAvailability[id ?? ""]?.canUndo ?? false;
   const canRedo = undoAvailability[id ?? ""]?.canRedo ?? false;
   const deckAccessStatusQuery = useDeckAccessStatus(id);
@@ -564,6 +584,8 @@ export default function DeckEditor() {
   const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
   const inlineEditFlushRef = useRef<(() => boolean) | null>(null);
   const presentNavigationRef = useRef(false);
+  const generationHomeNavigationRef = useRef(false);
+  const generationHomeExitInFlightRef = useRef(false);
   const presentInFlightRef = useRef(false);
   const presentAttemptRef = useRef(0);
   useEffect(() => {
@@ -578,16 +600,27 @@ export default function DeckEditor() {
     useCallback(
       ({ currentLocation, nextLocation }) =>
         shouldBlockPendingDeckNavigation({
-          hasPendingEdits: hasPendingDeckEdits,
+          hasPendingEdits:
+            hasPendingDeckEdits ||
+            (isNewDeckGenerationRoute &&
+              (deck?.slides.length ?? 0) === 0 &&
+              nextLocation.pathname === "/home"),
           currentPathname: currentLocation.pathname,
           nextPathname: nextLocation.pathname,
-          allowPendingEdits: presentNavigationRef.current,
+          allowPendingEdits:
+            presentNavigationRef.current || generationHomeNavigationRef.current,
         }),
-      [hasPendingDeckEdits],
+      [deck?.slides.length, hasPendingDeckEdits, isNewDeckGenerationRoute],
     ),
   );
+  const isRestoringPromptBeforeLeavingGeneration =
+    pendingDeckNavigationBlocker.state === "blocked" &&
+    isNewDeckGenerationRoute &&
+    (deck?.slides.length ?? 0) === 0 &&
+    pendingDeckNavigationBlocker.location.pathname === "/home";
   const pendingDeckNavigationWarningOpen =
-    pendingDeckNavigationBlocker.state === "blocked";
+    pendingDeckNavigationBlocker.state === "blocked" &&
+    !isRestoringPromptBeforeLeavingGeneration;
   const keepEditingAfterNavigationAttempt = useCallback(() => {
     if (pendingDeckNavigationBlocker.state !== "blocked") return;
     pendingDeckNavigationBlocker.reset();
@@ -599,28 +632,24 @@ export default function DeckEditor() {
   const { generating } = useAgentGenerating();
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
-  const generationSubmitId = searchParams.get("generationSubmitId");
-  const isNewDeckGenerationRoute =
-    searchParams.get("generating") === "1" || Boolean(generationSubmitId);
   const retryEmptyGenerationInFlightRef = useRef(false);
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
     useState(false);
-  const {
-    generating: newDeckGenerationGenerating,
-    tabId: newDeckGenerationTabId,
-    questionContinuationPending,
-    submitQuestionContinuation: submitTrackedQuestionContinuation,
-  } = useNewDeckGenerationRun(
-    id ?? "",
-    isNewDeckGenerationRoute,
-    generationSubmitId,
-  );
+  const questionFlowTargetTabIdRef = useRef<string | null>(null);
   const submitQuestionContinuation = useCallback(
     ({ message, context }: { message: string; context: string }) => {
       if (!generationSubmitId) {
-        sendToAgentChat({ message, context, submit: true });
-        return;
+        return sendToAgentChatAndConfirm({
+          message,
+          context,
+          submit: true,
+          chatTarget: "local",
+          openSidebar: true,
+          ...(questionFlowTargetTabIdRef.current
+            ? { targetTabId: questionFlowTargetTabIdRef.current }
+            : {}),
+        });
       }
       return submitTrackedQuestionContinuation({ message, context });
     },
@@ -892,7 +921,6 @@ export default function DeckEditor() {
     storageQuery.data?.configured === true && !storageQuery.isError;
   const [showUploadStorageSetup, setShowUploadStorageSetup] = useState(false);
 
-  const deck = getDeck(id || "");
   const retryRecoveryStorageKey = id
     ? `slides:empty-generation-retry-recovery:${id}`
     : null;
@@ -938,6 +966,44 @@ export default function DeckEditor() {
     (generationContext !== null &&
       "generationFailureAttemptId" in generationContext &&
       generationContext.generationFailureAttemptId !== generationAttemptId);
+  useEffect(() => {
+    if (
+      !isRestoringPromptBeforeLeavingGeneration ||
+      !id ||
+      generationHomeExitInFlightRef.current
+    ) {
+      return;
+    }
+    generationHomeExitInFlightRef.current = true;
+    void flushDeckSave(id).then(
+      () => {
+        generationHomeNavigationRef.current = true;
+        generationHomeExitInFlightRef.current = false;
+        pendingDeckNavigationBlocker.reset();
+        const retryPrompt =
+          typeof generationContext?.originalPrompt === "string"
+            ? generationContext.originalPrompt
+            : undefined;
+        void navigate("/home", {
+          replace: true,
+          ...(retryPrompt ? { state: { retryPrompt } } : {}),
+        });
+      },
+      () => {
+        generationHomeExitInFlightRef.current = false;
+        pendingDeckNavigationBlocker.reset();
+        toast.error(t("settings.saveFailed"));
+      },
+    );
+  }, [
+    flushDeckSave,
+    generationContext,
+    id,
+    isRestoringPromptBeforeLeavingGeneration,
+    navigate,
+    pendingDeckNavigationBlocker,
+    t,
+  ]);
   useEffect(() => {
     if (!id || !retryRecoveryStorageKey || !generationContext) return;
 
@@ -1808,6 +1874,7 @@ export default function DeckEditor() {
   } = useGuidedQuestionFlow({
     stateKey: "guided-questions",
     browserTabId: TAB_ID,
+    threadId: newDeckGenerationThreadId ?? undefined,
     queryKey: ["guided-questions"],
     submitMessage: "Here are my answers — go ahead and create the slides.",
     skipMessage:
@@ -1830,8 +1897,22 @@ export default function DeckEditor() {
     onSubmitMessage: submitQuestionContinuation,
     onSkipMessage: submitQuestionContinuation,
   });
+  questionFlowTargetTabIdRef.current = newDeckGenerationTabId;
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const pendingQuestionKey =
+    questionFlowQuestions?.map((question) => question.id).join(":") ?? "";
+  useEffect(() => {
+    if (!pendingQuestionKey) return;
+    if (newDeckGenerationTabId) {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: newDeckGenerationTabId },
+        }),
+      );
+    }
+    window.dispatchEvent(new Event("agent-panel:open"));
+  }, [id, newDeckGenerationTabId, pendingQuestionKey]);
   const waitingOnNewDeckQuestions =
     showQuestionFlow || questionContinuationPending;
   const { isNewDeckCreation, phase: newDeckGenerationPhase } =
@@ -1868,7 +1949,6 @@ export default function DeckEditor() {
   });
   const generatingSlideVisible =
     canEdit &&
-    !showQuestionFlow &&
     (isNewDeckGenerating ||
       (addSlideGenerating && !fillingPlaceholderSlideId) ||
       showNewDeckGeneratingOverlay);
@@ -1943,7 +2023,7 @@ export default function DeckEditor() {
 
   const openSignIn = useCallback(() => {
     window.location.href = buildSignInReturnHref({
-      returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/home",
+      returnTo: appPath(id ? `/deck/${encodeURIComponent(id)}` : "/home"),
     });
   }, [id]);
 
@@ -2119,10 +2199,9 @@ export default function DeckEditor() {
   ]);
 
   useEffect(() => {
-    const submitMessageId = searchParams.get("generationSubmitId");
     if (
       !id ||
-      !submitMessageId ||
+      !generationSubmitId ||
       !shouldClearNewDeckGenerationRun({
         generating: newDeckGenerationGenerating || newDeckGenerationSignal,
         waitingOnQuestions: waitingOnNewDeckQuestions,
@@ -2134,7 +2213,7 @@ export default function DeckEditor() {
     let cancelled = false;
     void refetchPendingQuestion().then((stillWaiting) => {
       if (cancelled || stillWaiting) return;
-      clearNewDeckGenerationRun(id, submitMessageId);
+      clearNewDeckGenerationRun(id, generationSubmitId);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -2148,6 +2227,7 @@ export default function DeckEditor() {
       cancelled = true;
     };
   }, [
+    generationSubmitId,
     id,
     newDeckGenerationGenerating,
     newDeckGenerationSignal,
@@ -3368,6 +3448,7 @@ export default function DeckEditor() {
     agentPresent: slideAgentPresent,
   } = useCollaborativeDoc({
     docId: slideDocId,
+    activityResource: id ? { resourceType: "deck", resourceId: id } : undefined,
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -3519,7 +3600,7 @@ export default function DeckEditor() {
         requestAccessDialogError={requestAccessDialogError}
         signedIn={Boolean(session) && !sessionLoading}
         signInHref={buildSignInReturnHref({
-          returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/home",
+          returnTo: appPath(id ? `/deck/${encodeURIComponent(id)}` : "/home"),
         })}
         viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
         refreshing={retryingMissingDeck}
@@ -3955,6 +4036,18 @@ export default function DeckEditor() {
           </>
         )}
 
+        {generatingSlideSelected && generatingSlideVisible && (
+          <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
+            <div className="m-auto w-full max-w-6xl">
+              <GeneratingSlidePreview
+                aspectRatio={deck.aspectRatio}
+                designSystem={designSystem}
+                thumbnail={false}
+              />
+            </div>
+          </div>
+        )}
+
         {showQuestionFlow && (
           <QuestionFlow
             questions={questionFlowQuestions ?? []}
@@ -3972,21 +4065,8 @@ export default function DeckEditor() {
           />
         )}
 
-        {generatingSlideSelected && generatingSlideVisible && (
-          <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
-            <div className="m-auto w-full max-w-6xl">
-              <GeneratingSlidePreview
-                aspectRatio={deck.aspectRatio}
-                designSystem={designSystem}
-                thumbnail={false}
-              />
-            </div>
-          </div>
-        )}
-
         {!generatingSlideSelected &&
           deck.slides.length === 0 &&
-          !showQuestionFlow &&
           (generationFailed ? (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div
@@ -4020,8 +4100,7 @@ export default function DeckEditor() {
 
         {deck.slides.length === 0 &&
           !generationFailed &&
-          !generatingSlideVisible &&
-          !showQuestionFlow && (
+          !generatingSlideVisible && (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div className="m-auto w-full max-w-6xl">
                 <GeneratingSlidePreview
@@ -4218,6 +4297,11 @@ export default function DeckEditor() {
             currentUserEmail={session?.email ?? null}
             selectedThreadId={selectedCommentThreadId}
             selectedThreadRequestId={selectedCommentThreadRequestId}
+            onThreadResolved={(threadId) =>
+              setSelectedCommentThreadId((current) =>
+                current === threadId ? null : current,
+              )
+            }
             onBeforeCommentSubmit={flushCommentWrites}
             onSelectSlide={handleSlideSelection}
             pendingComment={

@@ -165,7 +165,6 @@ import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_MODE_PARAM,
   BUILDER_AGENT_NATIVE_PROVISION_MODE,
-  BUILDER_PROVISIONING_TOKEN_PARAM,
   BUILDER_CONNECT_ATTEMPT_PARAM,
   BUILDER_CONNECT_STATE_COOKIE,
   BUILDER_ENV_KEYS,
@@ -182,6 +181,7 @@ import {
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
   createBuilderRelayRequest,
+  getBuilderConnectCallbackOriginFromUrl,
   getBuilderConnectTrackingParams,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
@@ -209,6 +209,7 @@ import {
   type BuilderRelayCredentials,
   type BuilderPreviewRelayState,
 } from "./builder-browser.js";
+import { createBuilderDesktopMessagesHandler } from "./builder-desktop-messages-route.js";
 import {
   BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
@@ -576,15 +577,15 @@ export async function resolveBuilderOrgMutation(
 const BUILDER_ORG_CONNECTION_DENIED =
   "Only an organization owner or admin can change the shared Builder connection.";
 export const BUILDER_CONNECT_NEEDS_ORGANIZATION =
-  "Builder.io connects through an organization. Switch to one you belong to, or ask an organization owner or admin to invite you, then connect Builder again.";
+  "Builder.io access is managed through an organization. Switch to one you belong to, or ask an organization owner or admin to invite you, then set up Builder.io again.";
 export const BUILDER_CONNECT_SESSION_NOT_SHARED =
-  "This window can't see your sign-in, which happens in previews and embedded browsers. Open the app in its own browser tab, sign in, then connect Builder there.";
+  "This window can't see your sign-in, which happens in previews and embedded browsers. Open the app in its own browser tab, sign in, then set up Builder.io there.";
 export const BUILDER_ORG_MEMBERSHIP_UNREADABLE =
-  "Couldn't check your organization membership. Try connecting Builder again in a moment.";
+  "Couldn't check your organization membership. Try starting Builder.io setup again in a moment.";
 export const BUILDER_ORG_ALREADY_CONNECTED =
-  "Your organization already has a Builder.io connection, and a new account would take its place. An organization owner or admin can reconnect it in Settings.";
+  "Your organization already has a Builder.io connection, and a new account would take its place. An organization owner or admin can sign in to Builder.io again in Settings.";
 export const BUILDER_ORG_RECONNECT_BY_LOGIN =
-  "Your organization already has a Builder.io account. Log in to Builder to reconnect it.";
+  "Your organization already has a Builder.io account. Sign in to Builder.io to use it.";
 
 /** Query/body field naming which Builder.io connection a request targets. */
 export const BUILDER_CONNECTION_SCOPE_PARAM = "scope";
@@ -602,9 +603,9 @@ export function parseBuilderConnectionScope(
 }
 
 const BUILDER_PERSONAL_CONNECTION_DENIED =
-  "Owners and admins connect Builder.io for the organization.";
+  "Owners and admins set up Builder.io for the organization.";
 const BUILDER_CONNECTION_MEMBERSHIP_ENDED =
-  "You're no longer a member of the organization this Builder.io connection started in. Restart it from Settings.";
+  "You're no longer a member of the organization this Builder.io setup started in. Start it again from Settings.";
 
 /**
  * Who may start a connect for the named Builder.io connection. The org
@@ -1370,6 +1371,8 @@ const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
   "design_make_real_waitlist",
+  "design_system_workflows_waitlist",
+  "design_system_waitlist",
   "docs_build_online_waitlist",
   "docs_edit_online_waitlist",
 ]);
@@ -2540,14 +2543,14 @@ export async function activateBuilderAccount(
   ) {
     return fail(
       403,
-      "This activation link is expired. Close this popup and click Activate again.",
+      "This activation link is expired. Refresh Builder.io setup and try again.",
       "provision_token_invalid",
     );
   }
   if (session.emailVerified !== true) {
     return fail(
       403,
-      "Verify your email before connecting Builder.",
+      "Verify your email before using Builder.io.",
       "email_not_verified",
     );
   }
@@ -2611,51 +2614,17 @@ export async function activateBuilderAccount(
     if (isBuilderAccountAlreadyExistsError(error)) {
       return fail(
         409,
-        "A Builder account already exists for this email. Log in to connect it.",
+        "A Builder.io account already exists for this email. Sign in to Builder.io to use it.",
         "account_exists",
         "account_exists",
       );
     }
     return fail(
       BUILDER_UPSTREAM_FAILURE_STATUS,
-      "Couldn't create your Builder account. Try again or connect an existing account.",
+      "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
       "provision_failed",
     );
   }
-}
-
-/**
- * The popup-era account activation: answers with a page that hands the result
- * to its opener and closes. The error row is the opener's fallback channel,
- * read by its status poll when the page's message never arrives.
- */
-export async function sendBuilderActivationPopup(
-  event: H3Event,
-  input: BuilderAccountActivationInput,
-): Promise<string> {
-  const result = await activateBuilderAccount(event, input);
-  const parentOrigin = getBuilderBrowserOriginForEvent(event);
-  const attempt = input.connectAttemptId
-    ? { attemptId: input.connectAttemptId }
-    : {};
-  if (!result.ok) {
-    const code = result.code ? { code: result.code } : {};
-    await putSetting(
-      getBuilderConnectErrorKey(input.ownerEmail, input.connectAttemptId),
-      { message: result.message, at: Date.now(), ...code, ...attempt },
-    ).catch(() => {});
-    return sendBuilderPopupErrorPage(event, result.status, result.message, {
-      parentOrigin,
-      ...attempt,
-      ...code,
-    });
-  }
-  setResponseHeader(event, "Cache-Control", "no-store");
-  setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-  return createBuilderBrowserCallbackPage(
-    `${parentOrigin}${getAppBasePath() || "/"}`,
-    { parentOrigin, ...attempt },
-  );
 }
 
 const builderProvisionBodySchema = z.object({
@@ -4235,7 +4204,7 @@ export function createCoreRoutesPlugin(
                         ? "Builder connection status could not be read. Retry in a moment."
                         : error instanceof Error
                           ? error.message
-                          : "Builder access expired. Reconnect Builder.io.",
+                          : "Builder access expired. Sign in to Builder.io again.",
                     at: Date.now(),
                   },
                 });
@@ -4445,10 +4414,10 @@ export function createCoreRoutesPlugin(
               "text/html; charset=utf-8",
             );
             return createBuilderBrowserCallbackErrorPage(
-              "Sign in to connect Builder.",
+              "Sign in to use Builder.io.",
               {
                 title: "Sign in required",
-                body: "Builder OAuth is tied to a signed-in account. Sign in, then try Connect Builder again.",
+                body: "Builder OAuth is tied to a signed-in account. Sign in, then start Builder.io setup again.",
                 parentOrigin: getBuilderBrowserOriginForEvent(event),
                 ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
               },
@@ -4475,8 +4444,8 @@ export function createCoreRoutesPlugin(
           // local desktop popups stamped as same-site/cross-site by the browser.
           if (!isSameOriginConnect(event) && !hasValidConnectToken) {
             const crossOriginMessage = connectToken
-              ? "This Builder connect link is expired or belongs to a different deployment. Close this popup and click Connect account again."
-              : "Builder connect opened without a fresh signed link. Close this popup and click Connect account again.";
+              ? "This Builder.io setup link is expired or belongs to a different deployment. Close this popup and start Builder.io setup again from the app."
+              : "Builder.io setup opened without a fresh signed link. Close this popup and start setup again from the app.";
             await trackBuilderLifecycle(
               event,
               "builder connect failed",
@@ -4512,10 +4481,10 @@ export function createCoreRoutesPlugin(
               "text/html; charset=utf-8",
             );
             return createBuilderBrowserCallbackErrorPage(crossOriginMessage, {
-              title: "Couldn't start Builder connection",
-              body: "The connect popup did not include a valid signed link for this app.",
+              title: "Couldn't start Builder.io setup",
+              body: "The Builder.io setup popup did not include a valid signed link for this app.",
               closeHint:
-                "Close this popup, refresh the app, and try Connect account again.",
+                "Close this popup, refresh the app, and start Builder.io setup again.",
               parentOrigin: getBuilderBrowserOriginForEvent(event),
               ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
@@ -4525,6 +4494,7 @@ export function createCoreRoutesPlugin(
             status: number,
             message: string,
             reason: string,
+            title = "Not allowed to use Builder.io for this organization",
           ) => {
             await putSetting(
               getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
@@ -4551,7 +4521,7 @@ export function createCoreRoutesPlugin(
               "text/html; charset=utf-8",
             );
             return createBuilderBrowserCallbackErrorPage(message, {
-              title: "Not allowed to connect Builder for this organization",
+              title,
               body: message,
               parentOrigin: getBuilderBrowserOriginForEvent(event),
               ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
@@ -4587,20 +4557,15 @@ export function createCoreRoutesPlugin(
             );
           }
           const scopedConnectAuthorization = scopeAuthorization.member;
-          // Clients that still open a popup to create an account land here;
-          // current clients call POST /builder/provision instead.
+          // Account creation always uses POST /builder/provision so it never
+          // depends on a popup or a browser's popup policy.
           if (shouldProvisionAgentNativeAccount) {
-            return sendBuilderActivationPopup(event, {
-              ownerEmail,
-              session: ownerContext.session,
-              provisioningToken: requestUrl.searchParams.get(
-                BUILDER_PROVISIONING_TOKEN_PARAM,
-              ),
-              requestedScope: requestedConnectionScope,
-              member: scopedConnectAuthorization,
-              connectAttemptId,
-              tracking: connectTracking,
-            });
+            return denyConnect(
+              400,
+              "Use Builder.io setup in the app to create or activate an account.",
+              "popup_provision_not_supported",
+              "Use Builder.io setup in the app",
+            );
           }
 
           // Clear any prior failure row from a previous attempt — otherwise
@@ -4710,7 +4675,7 @@ export function createCoreRoutesPlugin(
               },
             );
             const msg =
-              "Could not initiate Builder connect — storage unavailable. Try again.";
+              "Could not start Builder.io setup — storage unavailable. Try again.";
             console.error(
               "[builder] Could not store pending-connect state:",
               (err as Error)?.message ?? err,
@@ -4759,6 +4724,14 @@ export function createCoreRoutesPlugin(
         createBuilderProvisionHandler((event) =>
           resolveBuilderOwnerContext(event),
         ),
+      );
+
+      // Desktop Code Agents speak Anthropic Messages locally, but Builder
+      // Gateway credentials live on the server. This same-origin route keeps
+      // their signed-in session as the only client-side credential.
+      getH3App(nitroApp).use(
+        `${P}/builder/desktop/messages`,
+        createBuilderDesktopMessagesHandler(),
       );
 
       getH3App(nitroApp).use(
@@ -5058,7 +5031,7 @@ export function createCoreRoutesPlugin(
                 "text/html; charset=utf-8",
               );
               return createBuilderBrowserCallbackErrorPage(
-                "Builder didn't return credentials. Restart the connect flow from settings.",
+                "Builder didn't return credentials. Start Builder.io setup again from Settings.",
                 {
                   parentOrigin: relayParentOrigin,
                   ...(requestConnectAttemptId
@@ -5160,7 +5133,8 @@ export function createCoreRoutesPlugin(
               queryState,
               liveStates ? liveStates.join(",") : rawStateCookie,
             );
-          const parentOrigin = getBuilderBrowserOriginForEvent(event);
+          let parentOrigin = getBuilderBrowserOriginForEvent(event);
+          let callbackOriginOverride: string | undefined;
           let callbackAttemptId = requestConnectAttemptId;
           // A finished attempt — succeeded or failed — must not leave its
           // state in the cookie, or the next restart resolves against two
@@ -5182,8 +5156,11 @@ export function createCoreRoutesPlugin(
             setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remaining, {
               httpOnly: true,
               secure: (
-                resolveBuilderConnectCallbackUrl(event, finishedState) ??
-                parentOrigin
+                resolveBuilderConnectCallbackUrl(
+                  event,
+                  finishedState,
+                  callbackOriginOverride,
+                ) ?? parentOrigin
               ).startsWith("https://"),
               sameSite: "lax",
               path: "/",
@@ -5239,7 +5216,7 @@ export function createCoreRoutesPlugin(
             }
             return fail(
               403,
-              "No active Builder connect flow found. Restart the connection from Settings.",
+              "No active Builder.io setup was found. Start it again from Settings.",
             );
           }
 
@@ -5247,7 +5224,7 @@ export function createCoreRoutesPlugin(
           if (!pending) {
             return fail(
               403,
-              "No active Builder connect flow found. Restart the connection from Settings.",
+              "No active Builder.io setup was found. Start it again from Settings.",
             );
           }
 
@@ -5273,9 +5250,17 @@ export function createCoreRoutesPlugin(
             typeof pending.redirectUri === "string"
               ? pending.redirectUri
               : null;
+          const storedCallbackOrigin = redirectUri
+            ? getBuilderConnectCallbackOriginFromUrl(redirectUri)
+            : null;
+          if (storedCallbackOrigin) {
+            callbackOriginOverride = storedCallbackOrigin;
+            parentOrigin = storedCallbackOrigin;
+          }
           const expectedRedirectUri = resolveBuilderConnectCallbackUrl(
             event,
             state,
+            callbackOriginOverride,
           );
 
           if (
@@ -5286,7 +5271,11 @@ export function createCoreRoutesPlugin(
             !redirectUri ||
             !expectedRedirectUri ||
             redirectUri !== expectedRedirectUri ||
-            !isBuilderConnectCallbackUrlAllowed(redirectUri, event)
+            !isBuilderConnectCallbackUrlAllowed(
+              redirectUri,
+              event,
+              callbackOriginOverride,
+            )
           ) {
             if (Date.now() >= expiresAt) {
               await deleteSetting(`builder-connect-pending:${state}`).catch(
@@ -5295,7 +5284,7 @@ export function createCoreRoutesPlugin(
             }
             return fail(
               403,
-              "Builder connect callback could not be verified. Restart the connection.",
+              "Builder.io setup could not be verified. Start the setup again.",
               ownerEmail ?? undefined,
               "callback_verification_failed",
               tracking,
@@ -5333,7 +5322,7 @@ export function createCoreRoutesPlugin(
           } catch {
             return fail(
               BUILDER_UPSTREAM_FAILURE_STATUS,
-              "Builder could not exchange the authorization code. Restart the connection.",
+              "Builder could not exchange the authorization code. Start Builder.io setup again.",
               ownerEmail,
               "code_exchange_failed",
               tracking,
@@ -5346,7 +5335,7 @@ export function createCoreRoutesPlugin(
           if (requestedConnectionScope === "invalid") {
             return fail(
               403,
-              "Builder connect callback could not be verified. Restart the connection.",
+              "Builder.io setup could not be verified. Start the setup again.",
               ownerEmail,
               "callback_verification_failed",
               tracking,
@@ -5397,7 +5386,7 @@ export function createCoreRoutesPlugin(
           } catch {
             return fail(
               500,
-              "Builder credentials could not be saved. Restart the connection.",
+              "Builder credentials could not be saved. Start Builder.io setup again.",
               ownerEmail,
               "credential_write_failed",
               tracking,
@@ -5408,7 +5397,7 @@ export function createCoreRoutesPlugin(
           if (!consumed) {
             return fail(
               403,
-              "No active Builder connect flow found. Restart the connection from Settings.",
+              "No active Builder.io setup was found. Start it again from Settings.",
               ownerEmail,
               "callback_verification_failed",
               tracking,
@@ -5432,7 +5421,7 @@ export function createCoreRoutesPlugin(
           } catch {
             return fail(
               500,
-              "Builder credentials could not be saved. Restart the connection.",
+              "Builder credentials could not be saved. Start Builder.io setup again.",
               ownerEmail,
               "credential_write_failed",
               tracking,
@@ -6200,7 +6189,7 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 503);
           return {
             error:
-              "No object storage is connected. Connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
+              "No object storage is connected. Use Builder.io's managed storage (free) or add your own S3-compatible storage keys in Settings → File uploads.",
           };
         }),
       );

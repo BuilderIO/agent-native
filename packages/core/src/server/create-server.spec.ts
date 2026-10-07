@@ -73,6 +73,34 @@ describe("createServer", () => {
     expect(app).toBeDefined();
   });
 
+  it("answers MCP directory preflights before authentication", async () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://chatgpt.com");
+    const { app } = createServer();
+    let directoryHandlerReached = false;
+    app.use(
+      "/mcp/directory",
+      defineEventHandler(() => {
+        directoryHandlerReached = true;
+        return new Response(null, { status: 401 });
+      }),
+    );
+
+    const response = await app.request("http://localhost/mcp/directory", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://chatgpt.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type",
+      },
+    });
+
+    expect(response.status).toBe(204);
+    expect(directoryHandlerReached).toBe(false);
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "https://chatgpt.com",
+    );
+  });
+
   it("accepts custom jsonLimit", () => {
     const { app } = createServer({ jsonLimit: "1mb" });
     expect(app).toBeDefined();

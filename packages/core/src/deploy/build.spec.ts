@@ -23,6 +23,15 @@ import {
   ssrCacheHeadersForPolicy,
 } from "../shared/cache-control.js";
 import {
+  EMBED_TARGET_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+import {
+  CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
+import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
@@ -1668,6 +1677,31 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expect(html).toContain('"appHomePath":"/inbox"');
   });
 
+  it("includes configured app identity in the generated worker shell config", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "identity-config.mjs");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCharCode(0x2028), workspaceId: "workspace-calendar" } });
+`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain(
+      '"appId":"calendar\\u003c/script\\u003e\\u0026\\u2028"',
+    );
+    expect(html).toContain('"workspaceAppId":"workspace-calendar"');
+    expect(html).toContain('"workspaceRuntime":true');
+  });
+
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -1846,7 +1880,7 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
 
     const source = generateWorkerEntry([], []);
     expect(source).toContain(
-      'const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index"};',
+      `const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}"};`,
     );
 
     const worker = await importGeneratedWorker(source);
@@ -1856,7 +1890,48 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       {},
     );
 
-    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+    expect(response.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    const recoveryUrl = new URL("https://app.test/docs/inbox");
+    recoveryUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      CHUNK_RECOVERY_QUERY_VALUE,
+    );
+    recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
+    const recovery = await worker.fetch(
+      new Request(recoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(recovery.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(recovery.headers.get("cdn-cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
+    );
+    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+    );
+    expect(recovery.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    recoveryUrl.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, "arbitrary");
+    const arbitrary = await worker.fetch(
+      new Request(recoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(arbitrary.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(arbitrary.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
   });
 
   it("uses the full Netlify query key for marked public redirects", async () => {
@@ -1873,6 +1948,28 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       {},
       {},
     );
+
+    expect(response.headers.get("netlify-vary")).toBe("query");
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
+  });
+
+  it("preserves full-query variation for query-sensitive recovery responses", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const source = generateWorkerEntry([], []);
+    const worker = await importGeneratedWorker(source, {
+      responseHeaders: {
+        [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+      },
+    });
+    const recoveryUrl = new URL("https://app.test/redirect");
+    recoveryUrl.searchParams.set("from", "home");
+    recoveryUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      CHUNK_RECOVERY_QUERY_VALUE,
+    );
+    recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
+
+    const response = await worker.fetch(new Request(recoveryUrl), {}, {});
 
     expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
@@ -2261,6 +2358,39 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       {},
     );
     expect(missingApi.status).toBe(404);
+  });
+
+  it("filters embed auth metadata from generated GET action arguments", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "list-things-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `export default { run: async (params) => ({ ok: true, params }) };\n`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "list-things", absPath: actionPath, method: "get" }],
+      ),
+    );
+    const url = new URL("https://app.test/_agent-native/actions/list-things");
+    url.searchParams.set("q", "hello");
+    url.searchParams.append(EMBED_TOKEN_QUERY_PARAM, "embed-test-token");
+    url.searchParams.append(`${EMBED_TOKEN_QUERY_PARAM}[]`, "embed-test-array");
+    url.searchParams.append(EMBED_TARGET_QUERY_PARAM, "/design/1");
+    url.searchParams.append(`${EMBED_TARGET_QUERY_PARAM}[]`, "/design/2");
+    url.searchParams.append("tag[]", "one");
+    url.searchParams.append("tag[]", "two");
+
+    const response = await worker.fetch(new Request(url), {}, {});
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      params: { q: "hello", tag: ["one", "two"] },
+    });
   });
 
   it("strips mounted base path for auto-mounted action routes under /_agent-native/actions/", async () => {

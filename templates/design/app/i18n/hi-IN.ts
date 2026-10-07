@@ -212,7 +212,7 @@ export default {
       tokenLabel: "Figma एक्सेस टोकन",
       tokenPlaceholder: "Figma access token paste करें",
       connecting: "कनेक्ट हो रहा है…",
-      connect: "कनेक्ट करें",
+      connect: "Figma कनेक्ट करें",
       getToken: "Token पाएँ",
       importFrame: "Frame import करें",
       chooseFrame: "Frame चुनें",
@@ -1352,6 +1352,16 @@ export default {
       pngReadOnlyUnavailable: "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
       pngSaveError: "PNG सहेजा नहीं जा सका",
       pngExportError: "PNG निर्यात नहीं किया जा सका",
+      exportTooLarge:
+        "निर्यात बहुत बड़ा है। अनुरोध की सीमा 5 MB है; एम्बेड किए गए संसाधन या रास्टर आयाम कम करके फिर कोशिश करें।",
+      exportResourcesUnavailable:
+        "एक या अधिक छवियाँ, फ़ॉन्ट या स्टाइलशीट उपलब्ध न होने के कारण निर्यात सही ढंग से रेंडर नहीं हो सका। इन संसाधनों की जाँच करके फिर कोशिश करें।",
+      exportTimedOut:
+        "निर्यात का समय समाप्त हो गया। फिर कोशिश करें या डिज़ाइन का आकार कम करें।",
+      exportBusy:
+        "एक अन्य निर्यात अभी रेंडर हो रहा है। थोड़ा इंतज़ार करें और फिर कोशिश करें।",
+      exportChromiumUnavailable:
+        "रेंडरर शुरू न हो पाने के कारण निर्यात उपलब्ध नहीं है। बाद में फिर कोशिश करें।",
       pdfExportError: "PDF निर्यात नहीं किया जा सका",
       pdfDownloaded: "PDF डाउनलोड किया गया",
       pdfAllScreensDownloaded: "PDF डाउनलोड किया गया (सभी स्क्रीन)",
@@ -1556,6 +1566,8 @@ export default {
     assetAdded: "संपत्ति जोड़ी गई",
     assetsNoImageUrl: "Assets ने कोई छवि URL नहीं लौटाया।",
     failedToUploadFile: "फ़ाइल अपलोड करने में विफल",
+    imageAttachmentUnavailable:
+      "इस छवि को दृश्य इनपुट के रूप में तैयार नहीं किया जा सका। छोटी PNG, JPG, GIF या WebP फ़ाइल जोड़ें।",
     attachmentsTooLarge:
       "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
     failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
@@ -1714,8 +1726,8 @@ export default {
     designPromptTitle: "आइए अपना पहला डिज़ाइन बनाएं",
     recent: "हाल के",
     browseAllTemplates: "सभी ब्राउज़ करें",
-    connectBuilderIo: "Builder.io कनेक्ट करें",
-    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
+    connectBuilderIo: "Builder.io इस्तेमाल करें",
+    connectingBuilder: "Builder.io सेट अप हो रहा है…",
     pageTitle: "Designs",
     searchPlaceholder: "डिज़ाइन खोजें...",
     newDesign: "नया Design",
@@ -1725,6 +1737,9 @@ export default {
     allAuthors: "सभी लेखक",
     me: "मैं",
     designFilter: "डिज़ाइन फ़िल्टर",
+    ownedByAnyone: "किसी के भी स्वामित्व वाले",
+    ownedByMe: "मेरे स्वामित्व वाले",
+    sharedWithMe: "मेरे साथ साझा",
     mine: "मेरे",
     all: "सभी",
     showMineDesigns: "मेरे डिज़ाइन दिखाएं",
@@ -1758,6 +1773,7 @@ export default {
     pickStartingPoint: "एक प्रारंभिक बिंदु चुनें या अपना स्वयं का संकेत लिखें।",
     searchNoResultsTitle: "इस खोज से मेल खाने वाला कोई डिज़ाइन नहीं है",
     searchNoResultsDescription: "कोई दूसरी खोज आज़माएँ।",
+    noDesignsMatchFilter: "वर्तमान फ़िल्टर से कोई डिज़ाइन मेल नहीं खाता।",
     starterSaas: "सास लैंडिंग पृष्ठ",
     starterDashboard: "डैशबोर्ड",
     starterPricing: "मूल्य निर्धारण पृष्ठ",
@@ -1975,6 +1991,15 @@ export default {
       "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Builder Enterprise योजना आवश्यक है",
   },
   designSystems: {
+    comingSoonTitle: "डिज़ाइन सिस्टम जल्द आ रहे हैं",
+    waitlist: {
+      join: "प्रतीक्षा सूची में शामिल हों",
+      joining: "शामिल हो रहे हैं…",
+      joined: "आप प्रतीक्षा सूची में हैं",
+      error: "प्रतीक्षा सूची में शामिल नहीं हो सके। कृपया फिर से कोशिश करें।",
+      unavailable:
+        "प्रतीक्षा सूची में शामिल होना अभी उपलब्ध नहीं है। कृपया बाद में फिर से कोशिश करें।",
+    },
     deleteError: "डिज़ाइन सिस्टम को हटाया नहीं जा सका",
     updateSuccess: "डिज़ाइन सिस्टम अपडेट किया गया",
     updateError: "डिज़ाइन सिस्टम अपडेट नहीं किया जा सका",

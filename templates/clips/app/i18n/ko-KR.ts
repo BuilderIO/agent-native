@@ -2,7 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
   agentChat: {
     setup: {
-      connectBuilder: "Builder.io 연결",
+      connectBuilder: "Builder.io 사용",
       providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
     common: { retry: "다시 시도" },
@@ -219,7 +219,7 @@ const messages = {
     sharedWithYou: "나에게 공유됨",
     storageStillDisconnected: "저장소가 아직 연결되지 않았습니다.",
     finishBuilderOrS3:
-      "Builder.io 팝업을 완료하거나 S3 스토리지를 구성한 후 다시 시도하세요.",
+      "Builder.io 스토리지를 사용하거나 S3 호환 스토리지를 구성한 다음 다시 시도하세요.",
     loomImportResumed: "Loom 가져오기가 재개되었습니다.",
     clipUploadResumed: "클립 업로드가 재개되었습니다.",
     couldNotRetryLoom: "Loom 가져오기를 다시 시도할 수 없습니다.",
@@ -264,9 +264,9 @@ const messages = {
     savingWentWrong: "이 클립을 저장하는 중에 문제가 발생했습니다.",
     finishingClip: "클립을 마무리하는 중…",
     loomSourcePreserved:
-      "Loom 소스 링크는 유지됩니다. Builder.io 또는 S3 스토리지를 연결하면 Clips가 자체 복사본 저장을 다시 시도합니다.",
+      "Loom 소스 링크가 보존됩니다. Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용하면 Clips가 자체 복사본 저장을 다시 시도합니다.",
     clipDataPreserved:
-      "클립 데이터는 계속 보존됩니다. Builder.io 또는 S3 스토리지를 연결하면 Clips가 자동으로 업로드합니다.",
+      "클립 데이터가 보존됩니다. Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용하면 Clips가 자동으로 업로드합니다.",
     details: "세부",
     importingLoom: "Loom 가져오는 중...",
     uploadingSavedClip: "저장된 클립 업로드 중…",
@@ -389,13 +389,13 @@ const messages = {
     savingWentWrong: "이 클립을 저장하는 중에 문제가 발생했습니다.",
     finishingClip: "이번 클립을 마무리하며...",
     loomPreservedManage:
-      "Loom 소스 링크는 유지됩니다. Builder.io 또는 S3 스토리지를 연결한 후 가져오기를 다시 시도하세요.",
+      "Loom 소스 링크가 보존됩니다. Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용한 후 가져오기를 다시 시도하세요.",
     videoPreservedManage:
-      "영상은 보존됩니다. Builder.io 또는 S3 스토리지를 연결하면 Clips가 업로드를 완료합니다.",
+      "영상이 보존됩니다. Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용하면 Clips가 업로드를 완료합니다.",
     creatorNeedsStorage:
-      "이 클립을 완료하려면 제작자가 Builder.io 또는 S3 저장소를 연결해야 합니다.",
+      "이 클립을 완료하려면 제작자가 Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용해야 합니다.",
     signInStorage:
-      "이것이 귀하의 클립이라면 여기에서 로그인하여 Builder.io 또는 S3 저장소를 연결하고 업로드를 완료하세요.",
+      "본인의 클립이라면 여기에서 로그인해 Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용하고 업로드를 완료하세요.",
     uploadNotCompleteSession:
       "아직 업로드가 완료되지 않았습니다. 이 클립의 대시보드를 열거나 제작자에게 저장 공간 확인을 요청하세요.",
     uploadNotCompleteSignIn:
@@ -533,9 +533,8 @@ const messages = {
     cleanupBuilderFailed:
       "Builder.io가 연결되어 있어도 정리를 완료할 수 없습니다. 원어민 성적표가 보관되었습니다.",
     cleanupPaused:
-      "정리가 일시중지되었습니다. 설정에서 AI를 연결하세요: Builder.io(무료 크레딧) 또는 직접 보유한 LLM 키.",
-    builderNoResponse:
-      "Builder로부터 답변을 듣지 못했습니다. 팝업을 허용하고 다시 시도하세요.",
+      "정리가 일시중지되었습니다. 설정에서 AI에 Builder.io를 사용하세요(무료 크레딧). 또는 직접 보유한 LLM 키를 추가하세요.",
+    builderNoResponse: "Builder에서 응답이 없습니다. 다시 시도하세요.",
     saveFailed: "저장 실패({{status}})",
     savedRetrying: "저장되었습니다. 텍스트 변환 재시도 중…",
     getGroqKey: "Groq 키 받기",
@@ -1096,7 +1095,7 @@ const messages = {
     pickAtLeastTwo: "이어붙일 녹화를 2개 이상 선택하세요",
     videoUrlMissing: "하나 이상의 녹화에 준비된 동영상 URL이 아직 없습니다",
     connectStorage:
-      "녹화를 이어붙이기 전에 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지.",
+      "녹화를 이어 붙이기 전에 Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용하세요.",
     created: "이어붙인 녹화가 생성됨",
     failed: "녹화 이어붙이기 실패",
     noOtherRecordings: "사용 가능한 다른 녹화가 없습니다.",
@@ -1368,6 +1367,14 @@ const messages = {
     agentTitle: "대화에 참여하려면 무료 Clips 계정을 만드세요",
     genericTitle: "계속하려면 무료 Clips 계정을 만드세요",
     description: "완료하면 이 클립으로 돌아옵니다.",
+    verificationPendingTitle: "이메일을 인증하세요",
+    verificationPendingCopy:
+      "{{email}}(으)로 인증 이메일을 보냈습니다. 이메일을 열어 계정 생성을 완료하고 이 클립으로 돌아오세요.",
+    resendVerification: "인증 이메일 다시 보내기",
+    resendingVerification: "인증 이메일 보내는 중...",
+    verificationEmailResent: "새 인증 이메일을 보냈습니다.",
+    verificationEmailFailed:
+      "인증 이메일을 다시 보내지 못했습니다. 다시 시도하거나 이메일 링크로 로그인하세요.",
     passwordsMismatch: "비밀번호가 일치하지 않습니다.",
     commentIntent: "댓글을 작성",
     reactIntent: "반응을 추가",
@@ -1444,12 +1451,11 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 이 사이트의 팝업을 허용한 후 다시 시도하세요.",
+      "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 다시 시도하세요.",
     builderConnectError:
-      "Builder.io에 연결하지 못했습니다. 다시 시도하거나 지원팀에 문의해 주세요.",
+      "Builder.io를 설정하지 못했습니다. 다시 시도하거나 지원팀에 문의해 주세요.",
     checkingBuilderConnection: "Builder 연결을 확인하는 중…",
-    builderTimeout:
-      "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
+    builderTimeout: "5분 동안 Builder 응답이 없습니다. 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
     description:
@@ -1459,7 +1465,7 @@ const messages = {
     free: "무료",
     whyPrompt: "왜 이 화면이 보이나요?",
     whyDescription:
-      "Clips는 100% 무료 오픈 소스 앱이므로 클립을 저장할 방법을 연결해야 합니다. Builder.io로 무료 티어 스토리지와 AI를 사용하거나, S3 호환 객체 스토리지와 직접 보유한 LLM 키를 사용하세요.",
+      "Clips는 100% 무료 오픈 소스 앱이므로 클립을 저장할 방법이 필요합니다. 무료 티어 스토리지와 AI에는 Builder.io를 사용하거나 S3 호환 객체 스토리지와 직접 보유한 LLM 키를 사용하세요.",
   },
   captureInstall: {
     title: "Choose your recorder (현지화됨)",
@@ -1791,9 +1797,9 @@ const messages = {
     storageConnectedReopeningRecorder:
       "저장소가 연결되었습니다. 녹화 도구를 다시 여는 중...",
     connectStorageToFinish:
-      "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
+      "다음 화면에서 Builder.io 스토리지(무료 티어 스토리지 및 AI)를 사용하거나 S3 호환 스토리지를 구성하세요. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
-      "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
+      "다음 화면에서 Builder.io 스토리지(무료 티어 스토리지 및 AI)를 사용하거나 S3 호환 스토리지를 구성하세요. Clips가 가져오기를 다시 시도합니다.",
     leaveConfirmTitle: "이 녹화에서 나갈까요?",
     leaveConfirmDescription:
       "이 녹화는 이 탭에만 있습니다. 먼저 사본을 다운로드하지 않으면 나갈 때 삭제됩니다.",

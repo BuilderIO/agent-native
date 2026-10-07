@@ -213,7 +213,7 @@ export default {
       tokenLabel: "Figma 액세스 토큰",
       tokenPlaceholder: "Figma 액세스 토큰 붙여넣기",
       connecting: "연결 중…",
-      connect: "연결",
+      connect: "Figma 연결",
       getToken: "토큰 받기",
       importFrame: "프레임 가져오기",
       chooseFrame: "프레임 선택",
@@ -1358,6 +1358,16 @@ export default {
         "읽기 전용 미리보기에서는 PNG 캡처를 사용할 수 없음",
       pngSaveError: "PNG를 저장할 수 없음",
       pngExportError: "PNG를 내보낼 수 없음",
+      exportTooLarge:
+        "내보내기 크기가 너무 큽니다. 요청 한도는 5MB입니다. 포함된 리소스나 래스터 크기를 줄이고 다시 시도하세요.",
+      exportResourcesUnavailable:
+        "하나 이상의 이미지, 글꼴 또는 스타일시트를 사용할 수 없어 정확히 렌더링하지 못했습니다. 해당 리소스를 확인하고 다시 시도하세요.",
+      exportTimedOut:
+        "내보내기 시간이 초과되었습니다. 다시 시도하거나 디자인 크기를 줄이세요.",
+      exportBusy:
+        "다른 내보내기를 렌더링 중입니다. 잠시 기다린 후 다시 시도하세요.",
+      exportChromiumUnavailable:
+        "렌더러를 시작할 수 없어 내보내기를 사용할 수 없습니다. 나중에 다시 시도하세요.",
       pdfExportError: "PDF를 내보낼 수 없습니다.",
       pdfDownloaded: "PDF 다운로드됨",
       pdfAllScreensDownloaded: "PDF 다운로드됨 (모든 화면)",
@@ -1565,6 +1575,8 @@ export default {
     assetAdded: "자산이 추가됨",
     assetsNoImageUrl: "Assets에서 이미지 URL을 반환하지 않았습니다.",
     failedToUploadFile: "파일을 업로드하지 못했습니다.",
+    imageAttachmentUnavailable:
+      "이 이미지를 시각 입력으로 준비하지 못했습니다. 더 작은 PNG, JPG, GIF 또는 WebP 파일을 첨부하세요.",
     attachmentsTooLarge:
       "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
     failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
@@ -1723,8 +1735,8 @@ export default {
     designPromptTitle: "첫 번째 디자인을 만들어 볼까요?",
     recent: "최근",
     browseAllTemplates: "모두 둘러보기",
-    connectBuilderIo: "Builder.io 연결",
-    connectingBuilder: "Builder.io 연결 중…",
+    connectBuilderIo: "Builder.io 사용",
+    connectingBuilder: "Builder.io 설정 중…",
     pageTitle: "Design",
     searchPlaceholder: "디자인 검색...",
     newDesign: "새로운 Design",
@@ -1734,6 +1746,9 @@ export default {
     allAuthors: "모든 작성자",
     me: "나",
     designFilter: "디자인 필터",
+    ownedByAnyone: "소유자 전체",
+    ownedByMe: "내가 소유",
+    sharedWithMe: "나와 공유됨",
     mine: "내 디자인",
     all: "전체",
     showMineDesigns: "내 디자인 보기",
@@ -1767,6 +1782,7 @@ export default {
     pickStartingPoint: "시작점을 선택하거나 자신만의 프롬프트를 작성하세요.",
     searchNoResultsTitle: "이 검색과 일치하는 디자인이 없습니다",
     searchNoResultsDescription: "다른 검색어를 입력해 보세요.",
+    noDesignsMatchFilter: "현재 필터와 일치하는 디자인이 없습니다.",
     starterSaas: "SaaS 랜딩 페이지",
     starterDashboard: "대시보드",
     starterPricing: "가격 페이지",
@@ -1990,6 +2006,15 @@ export default {
       "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
   },
   designSystems: {
+    comingSoonTitle: "디자인 시스템이 곧 제공됩니다",
+    waitlist: {
+      join: "대기 목록 등록",
+      joining: "등록 중…",
+      joined: "대기 목록에 등록되었습니다",
+      error: "대기 목록에 등록할 수 없습니다. 다시 시도해 주세요.",
+      unavailable:
+        "대기 목록 등록을 지금 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
+    },
     deleteError: "디자인 시스템을 삭제할 수 없습니다.",
     updateSuccess: "디자인 시스템 업데이트",
     updateError: "디자인 시스템을 업데이트할 수 없습니다.",

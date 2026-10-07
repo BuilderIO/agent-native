@@ -51,6 +51,10 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import {
+  EMBED_TARGET_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
@@ -1469,6 +1473,10 @@ function normalizeAppBasePath(value) {
 // CLASSIFICATION happens here; the h3 boundary inside the handler is what
 // translates the public prefix to the internal one, exactly once.
 const builtFrameworkRoutePrefix = ${JSON.stringify(builtFrameworkRoutePrefix)};
+const embedActionQueryParams = new Set(${JSON.stringify([
+    EMBED_TARGET_QUERY_PARAM,
+    EMBED_TOKEN_QUERY_PARAM,
+  ])});
 
 function getAppBasePath() {
   const builtAppBasePath = ${JSON.stringify(builtAppBasePath)};
@@ -1495,9 +1503,10 @@ function parseActionSearchParams(searchParams) {
   const params = {};
   for (const [rawKey, value] of searchParams.entries()) {
     const isArrayKey = rawKey.endsWith("[]");
+    const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
+    if (embedActionQueryParams.has(key)) continue;
     // The core client serializes arrays as key[]=value so one-item arrays
     // survive GET action parsing in generated worker deployments.
-    const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
     const current = params[key];
     if (current === undefined) {
       params[key] = isArrayKey ? [value] : value;
@@ -1777,9 +1786,9 @@ function getRealtimeClientConfigScript() {
 function getAppOriginClientConfigScript() {
   // MUST stay consistent with resolvePublicAppOriginConfig in
   // server/app-origin-config.ts, and with the alias order declared on
-  // app.url / workspace.* in app-config (worker bundles a string copy; it
-  // can't import them). Impersonal values only — this ships into the
-  // CDN-cached shell.
+  // app.id / app.workspaceId / app.url / workspace.* in app-config (worker
+  // bundles a string copy; it can't import them). Impersonal values only —
+  // this ships into the CDN-cached shell.
   const env = globalThis.process?.env || {};
   const appUrl = firstNonEmpty(
     env.APP_URL,
@@ -1842,23 +1851,37 @@ function getAppOriginClientConfigScript() {
       return;
     }
   })();
-  const appHomePath = resolveAgentNativeAppHomePath(
-    getAgentNativeAppConfig().app,
-    getAgentNativeAppConfig().workspace,
-  );
+  const appConfig = getAgentNativeAppConfig();
   const config = {
-    appHomePath,
+    ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
+    ...(appConfig.app.workspaceId
+      ? { workspaceAppId: appConfig.app.workspaceId }
+      : {}),
+    appHomePath: resolveAgentNativeAppHomePath(
+      appConfig.app,
+      appConfig.workspace,
+    ),
     ...(appUrl ? { appUrl } : {}),
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
     ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
   };
+  const toUnicodeEscape = (character) =>
+    String.fromCharCode(92) +
+    "u" +
+    character.charCodeAt(0).toString(16).padStart(4, "0");
+  let serializedConfig = JSON.stringify(config).replace(/[<>&]/g, toUnicodeEscape);
+  for (const character of [String.fromCharCode(0x2028), String.fromCharCode(0x2029)]) {
+    serializedConfig = serializedConfig
+      .split(character)
+      .join(toUnicodeEscape(character));
+  }
   if (Object.keys(config).length === 0) return null;
   return (
     '<script data-agent-native-app-origin-config>' +
     'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
-    JSON.stringify(config) +
+    serializedConfig +
     ");</script>"
   );
 }
@@ -1990,7 +2013,9 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
     headers.set(name, value);
   }
   const netlifyVary = varyByQuery
-    ? SSR_CACHE_KEY_HEADERS["netlify-vary"] ? "query" : undefined
+    ? SSR_CACHE_KEY_HEADERS["netlify-vary"]
+      ? "query"
+      : undefined
     : SSR_CACHE_KEY_HEADERS["netlify-vary"];
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");

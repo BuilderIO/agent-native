@@ -870,6 +870,74 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
+  it("attaches dropped SVGs and names rejected drops without the accept list", async () => {
+    const transport: AgentTransport = {
+      capabilities: { uploads: true },
+      async startRun() {
+        return { runId: "run-svg" };
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const onAttachmentError = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const dropOnChat = async (file: File) => {
+      const drop = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, "dataTransfer", {
+        value: { types: ["Files"], files: [file], dropEffect: "none" },
+      });
+      await act(async () => {
+        container.querySelector(".agentkit-chat")?.dispatchEvent(drop);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-svg">
+            <AgentKitChat composerProps={{ onAttachmentError }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      await dropOnChat(
+        new File(['<svg xmlns="http://www.w3.org/2000/svg"/>'], "logo.svg", {
+          type: "image/svg+xml",
+        }),
+      );
+      expect(container.textContent).toContain("logo.svg");
+      expect(onAttachmentError).not.toHaveBeenCalled();
+
+      await dropOnChat(
+        new File(["zip"], "archive.zip", { type: "application/zip" }),
+      );
+      expect(onAttachmentError).toHaveBeenCalledWith(
+        "archive.zip: Could not add the dropped file. Try a different format.",
+      );
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it("disables transcript file drops when the host disables uploads", async () => {
     const transport: AgentTransport = {
       capabilities: { uploads: true },
@@ -1344,7 +1412,7 @@ describe("AgentKitChat interactions", () => {
         container.querySelectorAll<HTMLButtonElement>(
           'section[data-agent-message-queue="true"] button',
         ),
-      ).find((button) => button.textContent?.trim() === "Steer");
+      ).find((button) => button.textContent?.trim() === "Send now");
       expect(steerButton?.disabled).toBe(false);
 
       await act(async () => {
@@ -1359,7 +1427,7 @@ describe("AgentKitChat interactions", () => {
         container.querySelectorAll<HTMLButtonElement>(
           'section[data-agent-message-queue="true"] button',
         ),
-      ).find((button) => button.textContent?.trim() === "Steer");
+      ).find((button) => button.textContent?.trim() === "Send now");
       expect(blockedSteerButton).toBeUndefined();
       expect(
         container.querySelector<HTMLButtonElement>(
@@ -1376,11 +1444,19 @@ describe("AgentKitChat interactions", () => {
         await Promise.resolve();
       });
 
+      const queueRows = container.querySelectorAll(
+        'section[data-agent-message-queue="true"] li',
+      );
+      expect(
+        queueRows[0]?.querySelector('button[aria-label="More actions"]'),
+      ).toBeNull();
+
       const moreActions = container.querySelectorAll<HTMLButtonElement>(
         'section[data-agent-message-queue="true"] button[aria-label="More actions"]',
       );
+      expect(moreActions).toHaveLength(2);
       await act(async () => {
-        moreActions[1]?.dispatchEvent(
+        moreActions[0]?.dispatchEvent(
           new PointerEvent("pointerdown", {
             bubbles: true,
             button: 0,
@@ -1392,7 +1468,7 @@ describe("AgentKitChat interactions", () => {
       await act(async () => {
         const moveToTop =
           document.body.querySelector<HTMLElement>('[role="menuitem"]');
-        expect(moveToTop?.textContent).toContain("Move to top");
+        expect(moveToTop?.textContent).toContain("Send next");
         moveToTop?.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
@@ -1413,7 +1489,7 @@ describe("AgentKitChat interactions", () => {
             'section[data-agent-message-queue="true"] button',
           ),
         )
-          .find((button) => button.textContent?.trim() === "Steer")
+          .find((button) => button.textContent?.trim() === "Send now")
           ?.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
       });

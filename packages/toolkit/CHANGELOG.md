@@ -1,5 +1,115 @@
 # @agent-native/toolkit
 
+## 0.203.0
+
+### Patch Changes
+
+- 8944abb: Accept SVG files in agent chat again, as reference attachments. A dropped file that can't be added now shows a short, wrapping error naming the file instead of a clipped list of accepted types, and prompt composers without their own error surface show the rejection inline instead of ignoring the file.
+- 6b0f888: Show per-run provider or Builder credit costs in chat, and keep historical usage without billing metadata unclassified across usage dashboards.
+- d317d31: Keep model choices current and show the Builder.io included-services count immediately.
+- Release all public npm packages with a patch version bump.
+- 6f748b3: Keep ocean renderer tuning and color modules out of the signup hydration entry chunk.
+- de755c7: Keep signup wave backgrounds empty until the ocean is ready and position them clear of the marketing copy.
+- Updated dependencies [3d573d7]
+- Updated dependencies
+- Updated dependencies [3d573d7]
+- Updated dependencies [4738d38]
+  - @agent-native/agentkit@0.203.0
+
+## 0.202.0
+
+### Minor Changes
+
+- c8fa837: Render hosted sign-in pages on the server, blur the signup form panel backdrop, and use the shared Calendar wave across signup pages and the homepage hero.
+
+### Patch Changes
+
+- b22060c: Report why agent runs fail. `agent_run_outcome` now carries a `cause` (one of `AGENT_TROUBLE_CAUSES`) for a failed or interrupted run whose error code names one. It never carries the run's error message, and a code that is not an identifier, such as a sentence a route error set as its `data.code`, is sent as `unrecognized_code` (`agentErrorCodeForTelemetry`), so Analytics groups every other failure by its code. Stopped runs are reported unsampled under their own per-page cap, thumbs-up or thumbs-down feedback sends `agent_feedback_submitted` with the browser session, and every pageview carries `agent_signals: 1` so Analytics counts cancelled runs, thumbs-down, and quick backs only for sessions whose client reports them. Every pageview also carries a `page_load_id` that stays the same until the page reloads, so Analytics can tell a return to the previous page from a page another tab opened.
+
+  A turn the server refuses at its start, such as a chat with no model connected (`AGENT_CHAT_AI_SETUP_REQUIRED`, now named `no_model_connected`), reports its outcome under the turn id the server recorded. Framework route errors now keep a thrown error's `data.code` as `code` in the JSON body; before, the client only saw the HTTP status, so a chat with no model connected read as `forbidden`. A provider error whose HTTP status sits on a wrapped cause, like the Ollama provider's `status_code`, is now classified as `http_<status>`, so it reads as `provider_error` and gets the same retry handling as any other provider's status. `agent_chat_stuck_detected` now fires once per run, and only while the stuck banner shows. A session replay's console errors now carry `exception: false` for a plain `console.error` and `exception: true` for an exception Monitoring captured, so Analytics can tell which errors could have become issues. A session replay network event for a request the browser cancelled because the page was navigating or reloading now carries `pageLeaving: true`, so Analytics doesn't read it as a network failure.
+
+- a983e22: Wrap agent prompt suggestions onto up to two lines, and fade the edge of the row when more suggestions are scrolled out of view.
+- 123cf36: Keep Builder setup CTAs on the shared account chooser with one-click activation.
+- a652cbc: Make agent activity details readable, bounded, and keyboard accessible.
+- ef0662e: A collaborative editor no longer doubles a peer's text when a saved revision carrying it arrives before the peer's Yjs update. The editor now catches its live document up before merging any snapshot that is not collab-backed, not only revision-less ones. A failed catch-up is retried twice before the editor merges the snapshot without it.
+- ae80a65: Use a subtle dark surface for chat composers instead of an idle border.
+- a9879f8: Status checks that get refreshed mid-request now return the fresh answer instead of reporting the server as unreachable, so chat no longer gets stuck on "Couldn't confirm AI is ready" with prompts waiting to send. Retry on that message now clears the stuck state.
+- Release all public npm packages with a patch version bump.
+- edc7f35: Shareable resources can take access requests. Set `accessRequests: true` on `registerShareableResource`, and a signed-in viewer who gets `denied` from `get-resource-access-status` sees `canRequest` and can call `request-resource-access` with an optional note. The owner and people shared directly as Admin, while their access still resolves, get an inbox notification and the `core.access-requested` email, which link to `/access-requests/<id>`; `approve-resource-access-request` grants through the same organization and recipient rules as `share-resource`, never lowers a stronger role, even one granted mid-approval, and emails the requester `core.access-granted`, returning `email` as `sent`, `skipped` (no email set up, or a test identity), or `failed`, while `decline-resource-access-request` records the decision without telling the requester, who can ask again after seven days. Requests are capped per requester and per owner each day, and asking again while a request is open notifies no one twice; a request whose send was cut off before anyone was told can be asked again, which sends it again under the same idempotency keys. `useResourceAccessGate` now offers `requestAccess` and checks the status every half minute while a request is open; `useAccessRequestReview` and `useResourceAccessRequests` read requests for review, the list returning the newest 50 with `hasMore`. Toolkit's `ResourceAccessScreen` takes a `request` prop for Request access with a note, `AccessRequestApprovalPage` is the review page an app mounts at `/access-requests/:requestId`, and the share panels of `ShareButton` and `ShareDialog` list pending requests with Allow and Decline for people who manage access.
+- 053539c: Add `get-resource-access-status`, which tells an app what a link the viewer can't open should say: `denied` (it exists, but not for them), `missing`, `trashed` (only to people who could open it), `signed-out`, or `allowed`. It never returns the resource's title, owner, visibility, or workspace, and signed-out callers learn nothing about existence. Shareable resources can declare an `availability` rule, such as not being in the trash, which joins the lightweight access projection. Apps read the status with `useResourceAccessGate` from `@agent-native/core/client/sharing` and render Toolkit's `ResourceAccessScreen`. A registration's `canManageAccess` hook now always receives the whole row, including during lightweight access checks. A registration can also declare a `fallbackAccessContext: { columns, resolve }`, such as the authority a space lends its members, which the status uses when the viewer's own context can't open the resource. Its columns join the lightweight projection, so `resolve` gets the row already loaded; `resolveAccess` and the share actions don't read it.
+- 84e173d: Agent chat rechecks provider readiness before submission and shows pending feedback while it checks.
+- fa322d4: Route explicit local chat handoffs through the ChatGPT MCP App host.
+- dfff955: Chat and composer pieces no longer make large host editors re-render in a loop: a closed file storage setup popover stops measuring its anchor on every render, and the assistant chat reports its message count only when the count changes.
+- Updated dependencies
+  - @agent-native/agentkit@0.202.0
+
+## 0.201.1
+
+### Patch Changes
+
+- 88908c5: Fix Builder OAuth origins and status checks for hosted previews, preserve signup errors when Sentry is unavailable, and bind organization A2A identities to verified membership.
+- cc3c820: Explain Builder.io's included services in first-run onboarding and keep the list collapsed until expanded.
+- a78f2a0: Clarify queued-message controls with Send now and Send next labels and contextual tooltips.
+- bdb9e68: Keep explicit light mode on the shared composer border tokens.
+- bb72f96: Give shared chat composers a subtle border in dark mode.
+- Release all public npm packages with a patch version bump.
+- 5d05eb6: Keep queued messages attached to the composer without a vertical scrollbar.
+- cbfea3c: Restore storage connection guidance and spacing in the file upload popover.
+- b88b078: Declare the Tailwind typography plugin imported by the toolkit stylesheet and
+  show a localized unsupported-file message in the shared composer. Keep Core's
+  sync guard aligned with the Design and Slides tab variants already in main.
+- Updated dependencies
+  - @agent-native/agentkit@0.201.1
+
+## 0.201.0
+
+### Patch Changes
+
+- 2e9fa5f: Continue an AgentKit chat turn automatically, in the same turn, when the server stopped it at its run time limit: at most three times per message, counted durably on the server, never after an error, stop, or credential or rate limit. Finished steps and cross-app delegations are reused instead of sent again, the chat shows a Resuming status with Stop still available, and past the cap the turn ends with Continue.
+- 1bbb9fa: Send first-party analytics events, sign-in and sign-up events, replay uploads, and server events from hosted beta apps to beta Analytics instead of production Analytics.
+- 43694e6: Use Builder.io wording and one-click account activation across setup, recovery, voice, files, design, and Code Agents.
+- 7c73c56: Generate chat titles on the engine and model the first prompt was sent with, and report a failed title call instead of returning an empty title.
+- af93f72: A non-lead collaborative editor no longer adopts a newer snapshot over a live document that already holds typing the snapshot predates. The lead-failover adoption deleted a collaborator's concurrently typed text for every peer, because a peer's save lags the shared Yjs state.
+- af93f72: `useCollaborativeDoc` returns `flushUpdates()`, which resolves once every local edit has reached the server (or `false` when delivery failed), so a caller that also saves the same edit to SQL can send it through the document first and peers never apply the text twice. `SharedRichEditor` accepts `requestInitialSeed` and `onInitialSeedError`, so an editor that is not Content's can have the server seed an empty live document once instead of every client seeding its own copy; while that seed is pending the editor is read-only, and it does not emit an `update` for the editability change.
+- af93f72: `useCollabReconcile` takes `quietSeedEditability`, which `SharedRichEditor` sets for a server-seeded document. Without it the editability flips around the initial seed emit `update` again, as they did before server seeding was shared, which Content relies on to report an edit typed before the seed settled; with it they stay silent, so Plan's save-on-update does not save an unchanged document.
+- af93f72: `SharedRichEditor` takes `onRemoteSnapshotChange` and reports a collaborator's text arriving through the live document, so an editor that saves from the document can save what their typing left unsaved. `useCollabReconcile` also adopts a new `value` that arrives after its `contentUpdatedAt` did; the render in between used to mark that revision applied and the new value was never adopted.
+- af93f72: `SharedRichEditor` accepts `requestCollabSync`. For a snapshot without a revision, an editor on a live document now catches up with the server's Yjs state before adopting the snapshot, because on a polling-only host a collaborator's saved text reaches a tab before the Yjs updates that carry it, and applying the snapshot first inserted that text twice.
+- af93f72: Actions can declare `changeResource(input, result)` so their `action` change event also reaches every collaborator who can read that resource, not only the actor. A collaborative editor that never adopts a newer snapshot because its lead peer was not notified now adopts it itself after a grace period, and a server-merged save is no longer mistaken for the editor's own echo.
+- Release all public npm packages with a patch version bump.
+- 2e9fa5f: Owners and admins now run on their organization's credentials (Builder.io connection, model provider keys, and other keys) ahead of their own, which stay as the fallback; members keep their own first. Key saves default to the organization for owners and admins and ask who can use the key. When the role can't be read, every key form, Email included, says so with a retry instead of saving.
+- c46307b: Keep one queued message action menu open at a time and clear stale selections when rows or actions disappear.
+- 81a5946: Upgrade Tiptap to 3.31.4 so shared editors no longer freeze and crash the tab on Macs whose Chromium reports touch support when a code block or another React node view is inserted while the editor is focused.
+- Updated dependencies
+  - @agent-native/agentkit@0.201.0
+
+## 0.200.0
+
+### Minor Changes
+
+- 53f0c01: Default direct Anthropic and OpenRouter connections to Claude Sonnet 5.5, align the Builder model picker with the current gateway catalog, and refresh model labels.
+
+### Patch Changes
+
+- 4aa4088: Keep AgentKit activity icons beside their labels.
+- bf2b2ae: Add `useAgentKitStopButton` so hosts that render AgentKitChat directly, like the Chat app, can stop an active run.
+- 73c2373: Report a chat send that failed because an attached file had nothing to upload with the `attachment-unreadable` submit reason, so hosts can say which part failed.
+- 563e22a: Creating a Builder.io account from "Create and activate" or "Create Builder.io account" is now one `POST /_agent-native/builder/provision` request with no popup window, so popup blockers no longer stop it; only connecting an existing account opens Builder's sign-in window, and composer runtimes without the consent popover never create an account.
+- 73c2373: Add an optional `submit()` to the composer handle so a host can send the current draft (with its attachments) as if send were pressed, used to resume a prompt held back by missing AI setup.
+- 0c17540: Allow image attachments to be removed without opening the preview.
+- Release all public npm packages with a patch version bump.
+- 5113a23: Make follow-up queueing reliable, preserve each prompt's run options, and keep internal context out of user-visible text.
+- 9a09590: Keep useful agent activity labels visible while a run is active.
+- 73c2373: A prompt refused for missing AI setup now keeps what its retry needs (references, model, engine, effort, request mode) and a refusal marker in the thread, so the setup card finds it after a reload; the server lets only one tab send the after-setup resend of a refused run. The composer's `onBeforeSubmit` receives the draft it is holding and the handle gains `getDraftSnapshot()`, so a host resumes only a draft that was not edited while connecting. An unreadable provider 403 during a key check is retryable instead of a rejected key, and a misconfigured Builder host is no longer reported as a credit-service outage.
+- 73c2373: A refused prompt's refusal marker and retry context now survive a client thread save and reload, and the references stored with it are validated against the composer's bounded reference shape. The after-setup resend claim is released when the thread's run slot is busy and swept with a compare-and-delete, provider 408 and 425 answers during a key check are retryable, and the composer's draft snapshot tells apart a replaced attachment that has the same name and compares every field of each reference, so a held-back draft is resumed only when nothing it would submit changed.
+- 73c2373: Answer chat turns the server refuses before a run starts (AI setup missing, no usable model credential) in the thread itself: the prompt and a typed failed run are persisted server-side, the chat shows the connect card with a retry, and the refused prompt is sent again once after Builder or a provider key is connected. Run lifecycle analytics now carry the canonical user id from the request context and count refused turns as `run_no_reply`.
+- 73c2373: `onAgentRunComplete` now receives `{ turnContinues }` so an observer can tell a finished turn from a run that handed off to a continuation run. The retry marker on a recovery message now survives a reload, so a refused prompt is sent again only once across cards, tabs, and reloads, and only AI-setup refusal cards are hidden once a later run starts.
+- 4bee69d: Explain oversized agent chat requests and improve actionable failure recovery feedback.
+- 7ec9079: Align the composer context menu spacing and text contrast with its nested menus.
+- 73c2373: Report Builder credit-service outages and unverifiable provider key checks as typed, retryable failures instead of generic 500s and "rejected key" 400s, and accept OpenAI project keys restricted from listing models.
+- Updated dependencies
+- Updated dependencies [5113a23]
+  - @agent-native/agentkit@0.200.0
+
 ## 0.199.0
 
 ### Minor Changes
@@ -976,47 +1086,5 @@
 
 - 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
   inside blocks created through the shared slash-command menu.
-
-## 0.10.3
-
-### Patch Changes
-
-- 180b41d: Preserve native pointer, keyboard, accessibility, and ref props when legacy Toolkit buttons are composed as menu triggers.
-
-## 0.10.2
-
-### Patch Changes
-
-- 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
-
-## 0.10.1
-
-### Patch Changes
-
-- c15d20f: Harden browser and CLI error handling and hide editor commands for disabled features.
-- c15d20f: Expand design-system conformance coverage for uncontrolled tooltip and menu
-  opening, and align the example adapters with those default-open semantics.
-- c15d20f: Show a soft rotating blue glow for live realtime voice sessions and brighten it while the agent is working.
-
-## 0.10.0
-
-### Minor Changes
-
-- f0da2e0: Add the styling-runtime-agnostic custom design system contract, safe component adapters, semantic theme tokens, and build-time theme CSS generation. New scaffolded apps now include the explicit design-system module, ToolkitProvider seam, and toolkit dependency so custom adapters can be registered from the first render.
-
-### Patch Changes
-
-- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add public conformance coverage and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
-- f0da2e0: Preserve normalized core control icon sizing and semantic button styling while keeping settings defaults and sharing overlays consistent.
-- f0da2e0: Serialize realtime voice responses and recover from overlapping response requests without ending the voice session.
-- f0da2e0: Make the Dispatch chat composer recover from unavailable AI status checks and keep its Add menu clickable.
-- f0da2e0: Route the Builder connection card and chat history rail through semantic design-system components while preserving their default presentation and shared controller paths.
-
-## 0.9.1
-
-### Patch Changes
-
-- 03a043e: Make realtime voice the clear primary microphone action, remember the selected input mode, improve speech waveform responsiveness, and show a shine while the voice agent is working.
-- 03a043e: Prevent reasoning messages from losing their assistant UI provider, and add a progressively disclosed recent-chat rail for app sidebars.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -142,6 +142,13 @@ function wrapDefaultExport(
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
   if (
+    entry.schema &&
+    typeof entry.schema === "object" &&
+    "~standard" in entry.schema
+  ) {
+    out.schema = entry.schema;
+  }
+  if (
     entry.access &&
     typeof entry.access === "object" &&
     !Array.isArray(entry.access)
@@ -181,6 +188,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   }
   if (typeof entry.changeEvents === "boolean") {
     out.changeEvents = entry.changeEvents;
+  }
+  if (typeof entry.changeResource === "function") {
+    out.changeResource = entry.changeResource;
   }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
@@ -482,6 +492,30 @@ export async function mergeCoreSharingActions(
     [
       "list-resource-shares",
       () => import("../sharing/actions/list-resource-shares.js"),
+    ],
+    [
+      "get-resource-access-status",
+      () => import("../sharing/actions/get-resource-access-status.js"),
+    ],
+    [
+      "request-resource-access",
+      () => import("../sharing/actions/request-resource-access.js"),
+    ],
+    [
+      "get-resource-access-request",
+      () => import("../sharing/actions/get-resource-access-request.js"),
+    ],
+    [
+      "list-resource-access-requests",
+      () => import("../sharing/actions/list-resource-access-requests.js"),
+    ],
+    [
+      "approve-resource-access-request",
+      () => import("../sharing/actions/approve-resource-access-request.js"),
+    ],
+    [
+      "decline-resource-access-request",
+      () => import("../sharing/actions/decline-resource-access-request.js"),
     ],
     [
       "set-resource-visibility",

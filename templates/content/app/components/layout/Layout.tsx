@@ -1,4 +1,7 @@
-import type { AssistantChatHistoryVersion } from "@agent-native/core/client/agent-chat";
+import {
+  isOpenAiMcpAppHost,
+  type AssistantChatHistoryVersion,
+} from "@agent-native/core/client/agent-chat";
 import { isAssistantChatHistoryVersion } from "@agent-native/core/client/assistant-chat-history-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -38,8 +41,11 @@ import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
 } from "@/lib/document-history-restore-controller";
-import { readPageIconRowHint } from "@/lib/page-icon-row-hint";
 import { retirePageOpenReads } from "@/lib/page-open-reads";
+import {
+  readPageIconRowHint,
+  readPageShapeHint,
+} from "@/lib/page-startup-hints";
 
 import { Header } from "./Header";
 import { isContentSettingsRoute } from "./settings-route-policy";
@@ -95,6 +101,7 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const openAiWidget = isOpenAiMcpAppHost();
   const navigation = useNavigation();
   const pendingPathname = navigation.location?.pathname ?? null;
   const chromePathname = pendingPathname ?? location.pathname;
@@ -243,26 +250,24 @@ export function Layout({ children }: LayoutProps) {
     setMobileSidebarOpen(false);
   }, [location.key]);
 
-  const mobileSidebarTrigger = isCompactLayout ? (
-    <Button
-      ref={sidebarTriggerRef}
-      type="button"
-      variant="ghost"
-      size="icon-lg"
-      aria-label={t("navigation.openSidebar")}
-      aria-expanded={mobileSidebarOpen}
-      aria-haspopup="dialog"
-      className="shrink-0 rounded-lg text-muted-foreground"
-      onClick={() => setMobileSidebarOpen(true)}
-    >
-      <IconMenu2 size={18} />
-    </Button>
-  ) : null;
-  const contentSidebarWidth = isCompactLayout
-    ? 0
-    : sidebarCollapsed
-      ? 48
-      : sidebarWidth;
+  const mobileSidebarTrigger =
+    isCompactLayout && !openAiWidget ? (
+      <Button
+        ref={sidebarTriggerRef}
+        type="button"
+        variant="ghost"
+        size="icon-lg"
+        aria-label={t("navigation.openSidebar")}
+        aria-expanded={mobileSidebarOpen}
+        aria-haspopup="dialog"
+        className="shrink-0 rounded-lg text-muted-foreground"
+        onClick={() => setMobileSidebarOpen(true)}
+      >
+        <IconMenu2 size={18} />
+      </Button>
+    ) : null;
+  const contentSidebarWidth =
+    openAiWidget || isCompactLayout ? 0 : sidebarCollapsed ? 48 : sidebarWidth;
 
   return (
     <HeaderActionsProvider>
@@ -292,16 +297,18 @@ export function Layout({ children }: LayoutProps) {
                 <SheetTitle className="sr-only">
                   {t("navigation.openSidebar")}
                 </SheetTitle>
-                <DocumentSidebar
-                  activeDocumentId={activeDocumentId}
-                  collapsed={false}
-                  onToggleCollapsed={() => setMobileSidebarOpen(false)}
-                  onNavigate={() => setMobileSidebarOpen(false)}
-                  onOpenSearch={() => {
-                    openSearchAfterSidebarCloseRef.current = true;
-                    setMobileSidebarOpen(false);
-                  }}
-                />
+                {!openAiWidget ? (
+                  <DocumentSidebar
+                    activeDocumentId={activeDocumentId}
+                    collapsed={false}
+                    onToggleCollapsed={() => setMobileSidebarOpen(false)}
+                    onNavigate={() => setMobileSidebarOpen(false)}
+                    onOpenSearch={() => {
+                      openSearchAfterSidebarCloseRef.current = true;
+                      setMobileSidebarOpen(false);
+                    }}
+                  />
+                ) : null}
               </SheetContent>
             </Sheet>
             {showHeader ||
@@ -318,7 +325,7 @@ export function Layout({ children }: LayoutProps) {
               </button>
             )}
           </>
-        ) : fullWidthSettings ? null : (
+        ) : fullWidthSettings || openAiWidget ? null : (
           <div className="agent-layout-left-drawer flex shrink-0">
             <DocumentSidebar
               activeDocumentId={activeDocumentId}
@@ -360,13 +367,14 @@ export function Layout({ children }: LayoutProps) {
               <Header sidebarTrigger={mobileSidebarTrigger} />
             ) : null}
             <InvitationBanner
-              className={`${showHeader || fullWidthSettings ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
+              className={`${showHeader || fullWidthSettings || openAiWidget ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
             />
             <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
               {showPendingDocumentSkeleton && pendingDocumentId ? (
                 <DocumentEditorSkeleton
                   title={pendingDocumentTitle}
                   iconRow={readPageIconRowHint(pendingDocumentId)}
+                  shape={readPageShapeHint(pendingDocumentId)}
                 />
               ) : (
                 children

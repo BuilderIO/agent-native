@@ -218,7 +218,7 @@ export default {
       tokenLabel: "Figma アクセストークン",
       tokenPlaceholder: "Figma アクセストークンを貼り付け",
       connecting: "接続中…",
-      connect: "接続",
+      connect: "Figmaに接続",
       getToken: "トークンを取得",
       importFrame: "フレームをインポート",
       chooseFrame: "フレームを選択",
@@ -1376,6 +1376,16 @@ export default {
         "読み取り専用プレビューでは PNG キャプチャを利用できません",
       pngSaveError: "PNG を保存できませんでした",
       pngExportError: "PNG をエクスポートできませんでした",
+      exportTooLarge:
+        "エクスポートが大きすぎます。リクエストの上限は 5 MB です。埋め込みリソースかラスター寸法を小さくして、もう一度お試しください。",
+      exportResourcesUnavailable:
+        "画像、フォント、スタイルシートのいずれかを利用できないため、正確にレンダリングできませんでした。リソースを確認して、もう一度お試しください。",
+      exportTimedOut:
+        "エクスポートがタイムアウトしました。もう一度試すか、デザインのサイズを小さくしてください。",
+      exportBusy:
+        "別のエクスポートをレンダリング中です。少し待ってからもう一度お試しください。",
+      exportChromiumUnavailable:
+        "レンダラーを起動できないため、エクスポートを利用できません。しばらくしてからもう一度お試しください。",
       pdfExportError: "PDF をエクスポートできませんでした",
       pdfDownloaded: "PDF をダウンロードしました",
       pdfAllScreensDownloaded: "PDFがダウンロードされました（すべての画面）",
@@ -1586,6 +1596,8 @@ export default {
     assetAdded: "アセットが追加されました",
     assetsNoImageUrl: "Assets が画像 URL を返しませんでした。",
     failedToUploadFile: "ファイルのアップロードに失敗しました",
+    imageAttachmentUnavailable:
+      "この画像を視覚入力として準備できませんでした。より小さい PNG、JPG、GIF、WebP ファイルを添付してください。",
     attachmentsTooLarge:
       "添付ファイルが大きすぎます。アップロードは合計 {{max}} MB までです。ファイル数を減らすか、より小さいファイルを添付してください。",
     failedToSubmitPrompt: "プロンプトを送信できませんでした",
@@ -1745,8 +1757,8 @@ export default {
     designPromptTitle: "最初のデザインを作りましょう",
     recent: "最近",
     browseAllTemplates: "すべて見る",
-    connectBuilderIo: "Builder.io に接続",
-    connectingBuilder: "Builder.io に接続中…",
+    connectBuilderIo: "Builder.io を使う",
+    connectingBuilder: "Builder.io を設定中…",
     pageTitle: "Design",
     searchPlaceholder: "デザインを検索...",
     newDesign: "新しいDesign",
@@ -1756,6 +1768,9 @@ export default {
     allAuthors: "すべての作成者",
     me: "自分",
     designFilter: "デザインのフィルター",
+    ownedByAnyone: "所有者を問わない",
+    ownedByMe: "自分が所有",
+    sharedWithMe: "自分と共有",
     mine: "自分のデザイン",
     all: "すべて",
     showMineDesigns: "自分のデザインを表示",
@@ -1789,6 +1804,7 @@ export default {
     pickStartingPoint: "開始点を選択するか、独自のプロンプトを作成します。",
     searchNoResultsTitle: "この検索に一致するデザインはありません",
     searchNoResultsDescription: "別の検索をお試しください。",
+    noDesignsMatchFilter: "現在のフィルターに一致するデザインはありません。",
     starterSaas: "SaaS ランディング ページ",
     starterDashboard: "ダッシュボード",
     starterPricing: "価格ページ",
@@ -2018,6 +2034,15 @@ export default {
       "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
   },
   designSystems: {
+    comingSoonTitle: "デザインシステムは近日公開予定です",
+    waitlist: {
+      join: "ウェイトリストに登録",
+      joining: "登録中…",
+      joined: "ウェイトリストに登録されました",
+      error: "ウェイトリストに登録できませんでした。もう一度お試しください。",
+      unavailable:
+        "ウェイトリストへの登録は現在利用できません。後でもう一度お試しください。",
+    },
     deleteError: "デザインシステムを削除できませんでした",
     updateSuccess: "デザインシステムが更新されました",
     updateError: "デザインシステムを更新できませんでした",

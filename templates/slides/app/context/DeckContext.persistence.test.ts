@@ -131,6 +131,7 @@ function setupFetch(options?: {
   getDeckFailures?: { deckId: string; count: number };
   putFailures?: { deckId: string; count: number };
   patchStatus?: number;
+  patchHeaders?: Record<string, string>;
   patchResponse?: unknown | ((body: Record<string, unknown>) => unknown);
   putResponse?: unknown | ((body: Record<string, unknown>) => unknown);
 }) {
@@ -745,7 +746,10 @@ function setupFetch(options?: {
         accessibleDeck = applied.deck;
       }
       return Promise.resolve(
-        new Response(JSON.stringify(response), { status }),
+        new Response(JSON.stringify(response), {
+          status,
+          headers: options?.patchHeaders,
+        }),
       );
     }
 
@@ -1953,6 +1957,10 @@ describe("DeckContext deck creation persistence", () => {
     ).toBe("Local notes");
     expect(hasFailedDeckSave(deckId)).toBe(true);
     expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+    expect(getDeckSaveError(deckId)).toMatchObject({
+      errorCode: "slide_field_conflict",
+      retryable: false,
+    });
 
     const requestsBeforeReplacement = fetchMock.mock.calls.length;
     act(() => {
@@ -2241,6 +2249,213 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(getPatchAttempts(initial.id)).toBe(4);
     expect(getDeckSaveError(initial.id)).toBeUndefined();
+  });
+
+  describe("terminal 4xx saves versus merge and retry recovery", () => {
+    const deckId = "terminal-4xx-deck";
+    const slideHtml = (title: string, body: string) =>
+      `<div class="fmd-slide"><h1 data-slide-object-id="title">${title}</h1><p data-slide-object-id="body">${body}</p></div>`;
+    const initial: Deck = {
+      id: deckId,
+      title: "Terminal 4xx deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: slideHtml("Title", "Body"),
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+
+    async function renderWithDeck(options: Parameters<typeof setupFetch>[0]) {
+      window.history.pushState({}, "", `/deck/${deckId}`);
+      const fetchHarness = setupFetch(options);
+      const hook = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(hook.result.current.loading).toBe(false));
+      fetchHarness.setAccessibleDeck(initial);
+      await act(async () => hook.result.current.reloadDecks());
+      return { ...fetchHarness, ...hook };
+    }
+
+    it("merges and retries a stale-content 409 instead of failing it as a terminal 4xx", async () => {
+      const { result, setAccessibleDeck, getAccessibleDeck, getPatchAttempts } =
+        await renderWithDeck({ staleContentConflicts: true });
+      setAccessibleDeck({
+        ...initial,
+        updatedAt: "2026-05-12T00:01:00.000Z",
+        slides: [
+          {
+            ...initial.slides[0]!,
+            content: slideHtml("Title", "Body by remote"),
+          },
+        ],
+      });
+
+      act(() => {
+        result.current.updateSlide(deckId, "slide-1", {
+          content: slideHtml("Title by local", "Body"),
+        });
+      });
+      await act(async () => {
+        await result.current.flushDeckSave(deckId);
+      });
+
+      expect(getPatchAttempts(deckId)).toBe(2);
+      expect(getAccessibleDeck()?.slides[0]?.content).toBe(
+        slideHtml("Title by local", "Body by remote"),
+      );
+      expect(hasFailedDeckSave(deckId)).toBe(false);
+      expect(getDeckSaveError(deckId)).toBeUndefined();
+    });
+
+    it("retries a refreshed revision conflict instead of failing it as a terminal 4xx", async () => {
+      const { result, getPatchAttempts } = await renderWithDeck({
+        revisionConflicts: { deckId, count: 1 },
+        serverFaithfulClientWrites: true,
+      });
+
+      act(() => {
+        result.current.updateSlide(
+          deckId,
+          "slide-1",
+          { notes: "Changed" },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave(deckId);
+      });
+
+      expect(getPatchAttempts(deckId)).toBe(2);
+      expect(getDeckSaveError(deckId)).toBeUndefined();
+    });
+
+    it.each([
+      [400, "slide_content_hash_required"],
+      [403, "forbidden"],
+      [404, "not_found"],
+      [409, "deck_write_conflict"],
+    ])(
+      "fails a %i %s save once with a non-retryable typed error",
+      async (status, errorCode) => {
+        const { result, getPatchAttempts } = await renderWithDeck({
+          patchStatus: status,
+          patchResponse: { error: "Rejected", errorCode },
+        });
+
+        vi.useFakeTimers();
+        act(() => {
+          result.current.updateSlide(
+            deckId,
+            "slide-1",
+            { notes: "Changed" },
+            { persistence: "immediate" },
+          );
+        });
+        await act(async () => {
+          await expect(
+            result.current.flushDeckSave(deckId),
+          ).rejects.toBeInstanceOf(DeckSaveError);
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2_000);
+        });
+
+        expect(getPatchAttempts(deckId)).toBe(1);
+        expect(getDeckSaveError(deckId)).toMatchObject({
+          status,
+          errorCode,
+          retryable: false,
+        });
+        expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+      },
+    );
+
+    it.each([408, 429])(
+      "keeps retrying a transient %i save",
+      async (status) => {
+        const { result, getPatchAttempts } = await renderWithDeck({
+          patchStatus: status,
+          patchResponse: { error: "Try again" },
+        });
+
+        vi.useFakeTimers();
+        act(() => {
+          result.current.updateSlide(
+            deckId,
+            "slide-1",
+            { notes: "Changed" },
+            { persistence: "immediate" },
+          );
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2_000);
+        });
+
+        expect(getPatchAttempts(deckId)).toBe(3);
+        expect(getDeckSaveError(deckId)).toMatchObject({
+          status,
+          retryable: true,
+        });
+      },
+    );
+
+    it("fails a client build mismatch once, keeps the edit, and carries the reload target", async () => {
+      window.sessionStorage.removeItem(
+        "__agentNativeClientCompatibilityReload",
+      );
+      const { result, getPatchAttempts } = await renderWithDeck({
+        patchStatus: 409,
+        patchResponse: {
+          error: "Refresh required",
+          code: "client_build_mismatch",
+        },
+        patchHeaders: {
+          "X-Agent-Native-Client-Mismatch": "1",
+          "X-Agent-Native-Build-Id": "build-next",
+          "X-Agent-Native-Client-Compatibility": "slides-write-v1",
+        },
+      });
+
+      vi.useFakeTimers();
+      act(() => {
+        result.current.updateSlide(
+          deckId,
+          "slide-1",
+          { notes: "Unsaved note" },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await expect(
+          result.current.flushDeckSave(deckId),
+        ).rejects.toBeInstanceOf(DeckSaveError);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(getPatchAttempts(deckId)).toBe(1);
+      expect(getDeckSaveError(deckId)).toMatchObject({
+        status: 409,
+        errorCode: "client_build_mismatch",
+        serverBuildId: "build-next",
+        requiredCompatibility: "slides-write-v1",
+        retryable: false,
+      });
+      expect(
+        window.sessionStorage.getItem("__agentNativeClientCompatibilityReload"),
+      ).toBe("slides-write-v1:build-next");
+      expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+      expect(
+        result.current.decks
+          .find((deck) => deck.id === deckId)
+          ?.slides.find((slide) => slide.id === "slide-1")?.notes,
+      ).toBe("Unsaved note");
+    });
   });
 
   it("hashes successive inline drafts from the last persisted draft", async () => {
@@ -3668,6 +3883,231 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
       "Local edit",
     );
+  });
+
+  it("re-reads the deck once local editing settles after a remote structural change", async () => {
+    window.history.pushState({}, "", "/deck/deferred-sync-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "deferred-sync-deck",
+      title: "Deferred sync deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "One", notes: "", layout: "title" },
+        { id: "slide-2", content: "Two", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    markSlideEditingActive(initial.id, "slide-2");
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [initial.slides[1]!],
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id);
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
+
+    act(() => clearSlideEditingActive(initial.id, "slide-2"));
+    await waitFor(() =>
+      expect(
+        result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+      ).toEqual(["slide-2"]),
+    );
+  });
+
+  describe("concurrent edits to different objects of one slide", () => {
+    const slideHtml = (title: string, body: string) =>
+      `<div class="fmd-slide"><h1 data-slide-object-id="title">${title}</h1><p data-slide-object-id="body">${body}</p></div>`;
+    const initial: Deck = {
+      id: "merge-deck",
+      title: "Merge deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: slideHtml("Title", "Body"),
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const patchBodies = (
+      fetchMock: ReturnType<typeof setupFetch>["fetchMock"],
+    ) =>
+      fetchMock.mock.calls
+        .filter(([url]) =>
+          requestString(url).includes("/_agent-native/actions/patch-deck"),
+        )
+        .map(([, init]) => actionCallBody(init));
+
+    it("merges the other writer's saved edit instead of raising a conflict", async () => {
+      window.history.pushState({}, "", "/deck/merge-deck");
+      const { fetchMock, setAccessibleDeck, getAccessibleDeck } = setupFetch({
+        staleContentConflicts: true,
+      });
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      setAccessibleDeck(initial);
+      await act(async () => result.current.reloadDecks());
+      setAccessibleDeck({
+        ...initial,
+        updatedAt: "2026-05-12T00:01:00.000Z",
+        slides: [
+          {
+            ...initial.slides[0]!,
+            content: slideHtml("Title", "Body by remote"),
+          },
+        ],
+      });
+
+      act(() => {
+        result.current.updateSlide(initial.id, "slide-1", {
+          content: slideHtml("Title by local", "Body"),
+        });
+      });
+      await act(async () => {
+        await result.current.flushDeckSave(initial.id);
+      });
+
+      const merged = slideHtml("Title by local", "Body by remote");
+      const [first, second] = patchBodies(fetchMock);
+      expect(first?.operations).toMatchObject([
+        { fields: { content: slideHtml("Title by local", "Body") } },
+      ]);
+      expect(second?.operations).toMatchObject([
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          baseContentHash: hashSlideContent(
+            slideHtml("Title", "Body by remote"),
+          ),
+          fields: { content: merged },
+        },
+      ]);
+      expect(getAccessibleDeck()?.slides[0]?.content).toBe(merged);
+      expect(hasFailedDeckSave(initial.id)).toBe(false);
+      expect(getStaleContentDraft(initial.id, "slide-1")).toBeUndefined();
+
+      await act(async () => {
+        await result.current.refreshOpenDeck(initial.id);
+      });
+      await waitFor(() =>
+        expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+          merged,
+        ),
+      );
+    });
+
+    it("bases the next draft on the local draft so it cannot overwrite the merged-in edit", async () => {
+      window.history.pushState({}, "", "/deck/merge-deck");
+      const { fetchMock, setAccessibleDeck, getAccessibleDeck } = setupFetch({
+        staleContentConflicts: true,
+      });
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      setAccessibleDeck(initial);
+      await act(async () => result.current.reloadDecks());
+      setAccessibleDeck({
+        ...initial,
+        updatedAt: "2026-05-12T00:01:00.000Z",
+        slides: [
+          {
+            ...initial.slides[0]!,
+            content: slideHtml("Title", "Body by remote"),
+          },
+        ],
+      });
+
+      markSlideEditingActive(initial.id, "slide-1");
+      const firstDraft = slideHtml("Title by local", "Body");
+      act(() => {
+        result.current.updateSlide(
+          initial.id,
+          "slide-1",
+          { content: firstDraft },
+          { preserveLocalState: true },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave(initial.id);
+      });
+      expect(getAccessibleDeck()?.slides[0]?.content).toBe(
+        slideHtml("Title by local", "Body by remote"),
+      );
+
+      // The editor still shows its own draft, so the next keystroke save is
+      // computed from it and carries no trace of "Body by remote".
+      const secondDraft = slideHtml("Title by local, typing", "Body");
+      act(() => {
+        result.current.updateSlide(
+          initial.id,
+          "slide-1",
+          { content: secondDraft },
+          { preserveLocalState: true },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave(initial.id);
+      });
+
+      const bodies = patchBodies(fetchMock);
+      expect(bodies[2]?.operations).toMatchObject([
+        { baseContentHash: hashSlideContent(firstDraft) },
+      ]);
+      expect(getAccessibleDeck()?.slides[0]?.content).toBe(
+        slideHtml("Title by local, typing", "Body by remote"),
+      );
+      expect(hasFailedDeckSave(initial.id)).toBe(false);
+      clearSlideEditingActive(initial.id, "slide-1");
+    });
+
+    it("still holds a conflict when both writers edit the same object", async () => {
+      window.history.pushState({}, "", "/deck/merge-deck");
+      const { setAccessibleDeck } = setupFetch({
+        staleContentConflicts: true,
+      });
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      setAccessibleDeck(initial);
+      await act(async () => result.current.reloadDecks());
+      setAccessibleDeck({
+        ...initial,
+        updatedAt: "2026-05-12T00:01:00.000Z",
+        slides: [
+          {
+            ...initial.slides[0]!,
+            content: slideHtml("Title by remote", "Body"),
+          },
+        ],
+      });
+
+      act(() => {
+        result.current.updateSlide(initial.id, "slide-1", {
+          content: slideHtml("Title by local", "Body"),
+        });
+      });
+      await act(async () => {
+        await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+          "Failed to save deck",
+        );
+      });
+
+      expect(hasFailedDeckSave(initial.id)).toBe(true);
+      expect(getStaleContentDraft(initial.id, "slide-1")).toBe(
+        slideHtml("Title by local", "Body"),
+      );
+    });
   });
 
   it("retries unaffected slide content and bundled fields after a stale batch", async () => {
@@ -6012,6 +6452,60 @@ describe("DeckContext deck creation persistence", () => {
       result.current.redo();
     });
     expect(result.current.getDeck(deckId)?.title).toBe("Draft");
+  });
+
+  it("keeps prompt-generated slides when Cmd+Z reaches deck creation", async () => {
+    window.history.pushState({}, "", "/");
+    const { resolveCreate, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deck: Deck | undefined;
+    act(() => {
+      deck = result.current.createDeck("Generated", {
+        noDefaultSlides: true,
+        undoableCreation: false,
+      });
+    });
+    expect(deck).toBeDefined();
+
+    await act(async () => {
+      resolveCreate(new Response("", { status: 200 }));
+      await result.current.ensureDeckPersisted(deck!.id);
+    });
+
+    const generatedDeck: Deck = {
+      ...deck!,
+      updatedAt: "2026-10-05T19:00:00.000Z",
+      slides: [
+        {
+          id: "generated-slide",
+          content: "<h1>Generated slide</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    setAccessibleDeck(generatedDeck);
+    window.history.pushState({}, "", `/deck/${deck!.id}`);
+    await act(async () => {
+      await result.current.refreshOpenDeck(deck!.id);
+    });
+
+    const undoEvent = new KeyboardEvent("keydown", {
+      key: "z",
+      metaKey: true,
+      cancelable: true,
+    });
+    act(() => {
+      window.dispatchEvent(undoEvent);
+    });
+
+    expect(undoEvent.defaultPrevented).toBe(true);
+    expect(result.current.getDeck(deck!.id)).toMatchObject({
+      id: deck!.id,
+      slides: [{ id: "generated-slide" }],
+    });
   });
 
   it("waits for an in-flight create before deleting an undone optimistic deck", async () => {

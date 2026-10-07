@@ -216,7 +216,7 @@ export default {
       tokenLabel: "Jeton d’accès Figma",
       tokenPlaceholder: "Collez le jeton d’accès Figma",
       connecting: "Connexion…",
-      connect: "Connecter",
+      connect: "Connecter Figma",
       getToken: "Obtenir un jeton",
       importFrame: "Importer la frame",
       chooseFrame: "Choisir une frame",
@@ -1386,6 +1386,16 @@ export default {
         "La capture PNG n’est pas disponible dans les aperçus en lecture seule",
       pngSaveError: "Impossible d’enregistrer PNG",
       pngExportError: "Impossible d’exporter PNG",
+      exportTooLarge:
+        "L’export est trop volumineux. Les requêtes sont limitées à 5 Mo ; réduisez les ressources intégrées ou les dimensions de rastérisation, puis réessayez.",
+      exportResourcesUnavailable:
+        "L’export n’a pas pu être rendu fidèlement, car une ou plusieurs images, polices ou feuilles de style sont indisponibles. Vérifiez ces ressources, puis réessayez.",
+      exportTimedOut:
+        "Le délai d’export a expiré. Réessayez ou réduisez la taille du design.",
+      exportBusy:
+        "Un autre export est en cours de rendu. Patientez un instant, puis réessayez.",
+      exportChromiumUnavailable:
+        "L’export est indisponible, car le moteur de rendu n’a pas pu démarrer. Réessayez plus tard.",
       pdfExportError: "Impossible d’exporter le PDF",
       pdfDownloaded: "PDF téléchargé",
       pdfAllScreensDownloaded: "PDF téléchargé (tous les écrans)",
@@ -1599,6 +1609,8 @@ export default {
     assetAdded: "Actif ajouté",
     assetsNoImageUrl: "Assets n'a pas renvoyé d'URL d'image.",
     failedToUploadFile: "Échec du téléchargement du fichier",
+    imageAttachmentUnavailable:
+      "Impossible de préparer cette image comme référence visuelle. Joignez un fichier PNG, JPG, GIF ou WebP plus petit.",
     attachmentsTooLarge:
       "Ces pièces jointes sont trop volumineuses. Les téléversements sont limités à {{max}} Mo au total : joignez moins de fichiers ou des fichiers plus petits.",
     failedToSubmitPrompt: "Impossible d’envoyer le prompt",
@@ -1761,8 +1773,8 @@ export default {
     designPromptTitle: "Créons votre premier design",
     recent: "Récents",
     browseAllTemplates: "Tout parcourir",
-    connectBuilderIo: "Connecter Builder.io",
-    connectingBuilder: "Connexion à Builder.io…",
+    connectBuilderIo: "Utiliser Builder.io",
+    connectingBuilder: "Configuration de Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "Rechercher des modèles...",
     newDesign: "Nouveau Design",
@@ -1772,6 +1784,9 @@ export default {
     allAuthors: "Tous les auteurs",
     me: "Moi",
     designFilter: "Filtre de designs",
+    ownedByAnyone: "À tout le monde",
+    ownedByMe: "À moi",
+    sharedWithMe: "Partagés avec moi",
     mine: "Les miens",
     all: "Tous",
     showMineDesigns: "Afficher mes designs",
@@ -1806,6 +1821,7 @@ export default {
       "Choisissez un point de départ ou rédigez votre propre invite.",
     searchNoResultsTitle: "Aucun design ne correspond à cette recherche",
     searchNoResultsDescription: "Essayez une autre recherche.",
+    noDesignsMatchFilter: "Aucun design ne correspond au filtre actuel.",
     starterSaas: "Page de destination SaaS",
     starterDashboard: "Tableau de bord",
     starterPricing: "Page de tarification",
@@ -2037,6 +2053,15 @@ export default {
       "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "Les systèmes de conception arrivent bientôt",
+    waitlist: {
+      join: "Rejoindre la liste d’attente",
+      joining: "Inscription…",
+      joined: "Vous êtes sur la liste d’attente",
+      error: "Impossible de rejoindre la liste d’attente. Réessayez.",
+      unavailable:
+        "Les inscriptions à la liste d’attente sont indisponibles pour le moment. Réessayez plus tard.",
+    },
     deleteError: "Impossible de supprimer le système de conception",
     updateSuccess: "Système de conception mis à jour",
     updateError: "Impossible de mettre à jour le système de conception",

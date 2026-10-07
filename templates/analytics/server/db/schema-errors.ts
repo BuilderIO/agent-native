@@ -54,6 +54,8 @@ export const errorIssues = table(
     assignee: text("assignee"),
     app: text("app"),
     template: text("template"),
+    /** True until a non-test identity hits the issue; hidden from lists. */
+    testIdentityOnly: boolean("test_identity_only").notNull().default(false),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
     ...ownableColumns(),
@@ -73,6 +75,9 @@ export const errorIssues = table(
       issue.status,
       issue.lastSeenAt,
     ),
+    lastSessionRecordingIdx: index(
+      "error_issues_last_session_recording_idx",
+    ).on(issue.lastSessionRecordingId),
   }),
 );
 
@@ -108,6 +113,7 @@ export const errorEvents = table(
     extra: text("extra").notNull().default("{}"),
     breadcrumbs: text("breadcrumbs").notNull().default("[]"),
     occurredAt: text("occurred_at").notNull(),
+    testIdentity: boolean("test_identity").notNull().default(false),
     createdAt: text("created_at").notNull().default(now()),
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
     orgId: text("org_id"),
@@ -121,6 +127,9 @@ export const errorEvents = table(
       event.ownerEmail,
       event.orgId,
       event.occurredAt,
+    ),
+    clientRecordingIdx: index("error_events_client_recording_idx").on(
+      event.clientRecordingId,
     ),
   }),
 );

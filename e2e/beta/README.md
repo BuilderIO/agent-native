@@ -320,10 +320,10 @@ feature the e2e account was never given is not a product regression and must
 not read as one, but it must not pass silently either. Today that is private
 file storage: when Slides' `/api/uploads/status` says `referenceStorageReady`
 is false, the three `[slides-import]` tests skip with
-`[env] e2e account has no private storage; connect Builder storage to the e2e
+`[env] e2e account has no private storage; use Builder.io storage for the e2e
 account`. The report lists every skip whose reason starts `[env]` as **NOT
 TESTED** (a line in the issue and in Slack, and a table in the issue), so the
-gap stays visible until someone connects storage to the account. A status that
+gap stays visible until someone uses Builder.io storage for the account. A status that
 cannot be read, or one that says ready while the upload is then refused, still
 fails.
 

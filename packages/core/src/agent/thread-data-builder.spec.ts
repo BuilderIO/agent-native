@@ -25,7 +25,7 @@ describe("foldUnstartedTurnFailure", () => {
       threadId: "thread-1",
       turnId: "turn-1",
       code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-      message: "Connect Builder AI or a provider API key before chatting.",
+      message: "Use Builder.io or a provider API key before chatting.",
     };
     const withPrompt = upsertUserMessage(
       {},
@@ -1655,6 +1655,1188 @@ describe("buildUserMessage", () => {
 });
 
 describe("mergeThreadDataForClientSave", () => {
+  it("merges widgets by globally unique ID across message changes", () => {
+    const existingWidget = {
+      messageId: "assistant-before-continuation",
+      widget: {
+        id: "tool-1:chat-ui",
+        kind: "release.summary",
+        state: "active",
+      },
+    };
+    const incomingWidget = {
+      messageId: "assistant-after-continuation",
+      widget: { id: "tool-1:chat-ui", kind: "release.summary", state: "ready" },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      { agentKit: { widgets: [existingWidget] } },
+      { agentKit: { widgets: [incomingWidget] } },
+    );
+
+    expect(merged.agentKit.widgets).toEqual([incomingWidget]);
+  });
+
+  it("keeps run status from the highest sequence across stale snapshots", () => {
+    const run = (status: string, lastSequence: number) => ({
+      id: "run-1",
+      threadId: "thread-1",
+      status,
+      lastSequence,
+    });
+    const merge = (
+      existingRun: ReturnType<typeof run>,
+      incomingRun: ReturnType<typeof run>,
+    ) =>
+      mergeThreadDataForClientSave(
+        {
+          agentKit: { runs: [existingRun], activeRunIds: ["run-1"] },
+        },
+        {
+          agentKit: { runs: [incomingRun], activeRunIds: ["run-1"] },
+        },
+      ).agentKit;
+
+    expect(merge(run("running", 5), run("completed", 4))).toMatchObject({
+      runs: [{ status: "running", lastSequence: 5 }],
+      activeRunIds: ["run-1"],
+    });
+    expect(merge(run("completed", 4), run("running", 5))).toMatchObject({
+      runs: [{ status: "running", lastSequence: 5 }],
+      activeRunIds: ["run-1"],
+    });
+    expect(merge(run("running", 5), run("completed", 5))).toMatchObject({
+      runs: [{ status: "completed", lastSequence: 5 }],
+      activeRunIds: [],
+    });
+  });
+
+  it("accepts suggestions only from a newer completed-run snapshot", () => {
+    const run = (lastSequence: number) => ({
+      id: "run-1",
+      threadId: "thread-1",
+      status: "completed",
+      startedAt: "2026-10-01T00:00:00.000Z",
+      lastSequence,
+    });
+    const previousSuggestions = [
+      { id: "suggestion-old", runId: "run-1", label: "Old" },
+    ];
+    const existing = {
+      messages: [],
+      agentKit: {
+        runs: [run(6)],
+        suggestions: previousSuggestions,
+      },
+    };
+    const save = (lastSequence: number, suggestions: unknown[]) =>
+      mergeThreadDataForClientSave(existing, {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [run(lastSequence)],
+          suggestions,
+        },
+      }).agentKit.suggestions;
+
+    expect(
+      save(7, [{ id: "suggestion-new", runId: "run-1", label: "New" }]),
+    ).toEqual([{ id: "suggestion-new", runId: "run-1", label: "New" }]);
+    expect(
+      save(5, [{ id: "suggestion-stale", runId: "run-1", label: "Stale" }]),
+    ).toEqual(previousSuggestions);
+    expect(
+      save(6, [{ id: "suggestion-retry", runId: "run-1", label: "Retry" }]),
+    ).toEqual(previousSuggestions);
+
+    const absentSuggestions = mergeThreadDataForClientSave(
+      { messages: [], agentKit: { runs: [run(6)] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [run(5)],
+          suggestions: [
+            { id: "suggestion-stale", runId: "run-1", label: "Stale" },
+          ],
+        },
+      },
+    ).agentKit;
+    expect(absentSuggestions).not.toHaveProperty("suggestions");
+  });
+
+  it("upserts event deltas, restores contiguous run sequences, and keeps annotations", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        events: [
+          {
+            id: "event-1",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 1,
+            occurredAt: "2026-10-01T00:00:00.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-2",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 2,
+            occurredAt: "2026-10-01T00:00:01.000Z",
+            type: "run.status",
+            status: "running",
+          },
+        ],
+        annotations: [
+          {
+            messageId: "assistant-1",
+            annotation: {
+              id: "source-1",
+              kind: "source",
+              label: "First source",
+            },
+          },
+        ],
+      },
+    };
+    const delta = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        annotationMessageIdsToReplace: [
+          {
+            messageId: "assistant-1",
+            annotationsToRemove: [],
+          },
+        ],
+        events: [
+          {
+            id: "event-1",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 1,
+            occurredAt: "2026-10-01T00:00:00.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-2",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 2,
+            occurredAt: "2026-10-01T00:00:01.000Z",
+            type: "run.status",
+            status: "running",
+          },
+          {
+            id: "event-3",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 3,
+            occurredAt: "2025-10-01T00:00:02.000Z",
+            type: "run.completed",
+          },
+        ],
+        annotations: [
+          {
+            messageId: "assistant-1",
+            annotation: {
+              id: "source-1",
+              kind: "source",
+              label: "First source",
+            },
+          },
+          {
+            messageId: "assistant-1",
+            annotation: {
+              id: "source-2",
+              kind: "source",
+              label: "Second source",
+            },
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, delta);
+    const retried = mergeThreadDataForClientSave(merged, delta);
+    const initialized = mergeThreadDataForClientSave({}, delta);
+
+    expect(retried.agentKit.events).toMatchObject([
+      { id: "event-1", sequence: 1 },
+      { id: "event-2", sequence: 2 },
+      { id: "event-3", sequence: 3 },
+    ]);
+    expect(retried.agentKit.annotations).toHaveLength(2);
+    expect(initialized.agentKit).not.toHaveProperty("_snapshotDelta");
+    expect(initialized.agentKit).not.toHaveProperty(
+      "annotationMessageIdsToReplace",
+    );
+  });
+
+  it("replaces compacted events for represented runs and retains absent runs", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 3, "run-2": 2 },
+        events: [
+          {
+            id: "run-1-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "run-1-compacted-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.updated",
+          },
+          {
+            id: "run-1-completed",
+            runId: "run-1",
+            sequence: 3,
+            type: "run.completed",
+          },
+          {
+            id: "run-2-start",
+            runId: "run-2",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "run-2-completed",
+            runId: "run-2",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "run-1-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "run-1-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(
+      merged.agentKit.events
+        .filter((event: any) => event.runId === "run-1")
+        .map((event: any) => event.id),
+    ).toEqual(["run-1-start", "run-1-completed"]);
+    expect(
+      merged.agentKit.events
+        .filter((event: any) => event.runId === "run-2")
+        .map((event: any) => event.id),
+    ).toEqual(["run-2-start", "run-2-completed"]);
+  });
+
+  it("keeps later event chunks after replacing a compacted run", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "old-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "old-run-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.updated",
+          },
+        ],
+      },
+    };
+    const firstChunk = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 2 }],
+        events: [
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const secondChunk = mergeThreadDataForClientSave(firstChunk, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 2 }],
+        events: [
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(secondChunk.agentKit.events.map((event: any) => event.id)).toEqual([
+      "new-run-start",
+      "new-run-completed",
+    ]);
+    expect(secondChunk.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+    expect(secondChunk.agentKit).not.toHaveProperty(
+      "eventRunSnapshotWatermarks",
+    );
+  });
+
+  it("keeps a run's prior events until all staged snapshot chunks arrive", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "old-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "old-run-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.updated",
+          },
+        ],
+      },
+    };
+    const batch = {
+      runId: "run-1",
+      snapshotId: "snapshot-1",
+      lastSequence: 3,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const firstChunk = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batch],
+        events: [
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+
+    expect(firstChunk.agentKit.events.map((event: any) => event.id)).toEqual([
+      "old-run-start",
+      "old-run-event",
+    ]);
+    expect(firstChunk.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+    expect(
+      firstChunk.agentKit._pendingEventRunSnapshots["run-1"]["snapshot-1"]
+        .events,
+    ).toHaveLength(1);
+
+    const retriedFirstChunk = mergeThreadDataForClientSave(firstChunk, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batch],
+        events: [
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    expect(
+      retriedFirstChunk.agentKit._pendingEventRunSnapshots["run-1"][
+        "snapshot-1"
+      ].events,
+    ).toHaveLength(1);
+    expect(() =>
+      mergeThreadDataForClientSave(retriedFirstChunk, {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotBatches: [{ ...batch, complete: true }],
+          events: [
+            {
+              id: "new-run-start",
+              runId: "run-1",
+              sequence: 1,
+              type: "run.started",
+            },
+          ],
+        },
+      }),
+    ).toThrow("Agent chat event snapshot ended before all events arrived.");
+
+    const completed = mergeThreadDataForClientSave(retriedFirstChunk, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batch, complete: true }],
+        events: [
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(completed.agentKit.events.map((event: any) => event.id)).toEqual([
+      "new-run-start",
+      "new-run-completed",
+    ]);
+    expect(completed.agentKit._eventRunWatermarks).toEqual({ "run-1": 3 });
+    expect(completed.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+    expect(completed.agentKit).not.toHaveProperty("eventRunSnapshotBatches");
+
+    const retriedFinalChunk = mergeThreadDataForClientSave(completed, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batch, complete: true }],
+        events: [
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+    expect(retriedFinalChunk.agentKit.events).toEqual(
+      completed.agentKit.events,
+    );
+    expect(retriedFinalChunk.agentKit._eventRunSnapshotCommits).toEqual(
+      completed.agentKit._eventRunSnapshotCommits,
+    );
+  });
+
+  it("repairs a legacy event snapshot at the same sequence", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "partial-old-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+    const batch = {
+      runId: "run-1",
+      snapshotId: "repair-snapshot",
+      lastSequence: 2,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const partial = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batch],
+        events: [
+          {
+            id: "repaired-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const completed = mergeThreadDataForClientSave(partial, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batch, complete: true }],
+        events: [
+          {
+            id: "repaired-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(completed.agentKit.events.map((event: any) => event.id)).toEqual([
+      "repaired-event-1",
+      "repaired-event-2",
+    ]);
+    expect(completed.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+  });
+
+  it("drops incomplete older event batches after a newer snapshot commits", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 2,
+          },
+        ],
+        events: [
+          {
+            id: "old-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+    const staleBatch = {
+      runId: "run-1",
+      snapshotId: "stale-snapshot",
+      lastSequence: 3,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const staged = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [staleBatch],
+        events: [
+          {
+            id: "stale-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const newer = mergeThreadDataForClientSave(staged, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 4 }],
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 4 }],
+        events: [
+          {
+            id: "newer-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "newer-event-4",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "completed",
+            lastSequence: 4,
+          },
+        ],
+      },
+    });
+    expect(newer.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+    const retriedOldBatch = mergeThreadDataForClientSave(newer, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...staleBatch, complete: true }],
+        events: [
+          {
+            id: "stale-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    });
+
+    expect(
+      retriedOldBatch.agentKit.events.map((event: any) => event.id),
+    ).toEqual(["newer-event-1", "newer-event-4"]);
+    expect(retriedOldBatch.agentKit._eventRunWatermarks).toEqual({
+      "run-1": 4,
+    });
+    expect(retriedOldBatch.agentKit).not.toHaveProperty(
+      "_pendingEventRunSnapshots",
+    );
+  });
+
+  it("replaces an abandoned partial event batch without mixing its events", () => {
+    const partial = mergeThreadDataForClientSave(
+      { messages: [], agentKit: { events: [] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotBatches: [
+            {
+              runId: "run-1",
+              snapshotId: "abandoned",
+              lastSequence: 2,
+              expectedEventCount: 2,
+              complete: false,
+            },
+          ],
+          events: [
+            {
+              id: "abandoned-event",
+              runId: "run-1",
+              sequence: 1,
+              type: "run.started",
+            },
+          ],
+        },
+      },
+    );
+    const retried = mergeThreadDataForClientSave(partial, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [
+          {
+            runId: "run-1",
+            snapshotId: "complete-retry",
+            lastSequence: 2,
+            expectedEventCount: 2,
+            complete: true,
+          },
+        ],
+        events: [
+          {
+            id: "retry-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "retry-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(retried.agentKit.events.map((event: any) => event.id)).toEqual([
+      "retry-event-1",
+      "retry-event-2",
+    ]);
+    expect(retried.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+    expect(retried.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+  });
+
+  it("does not let equal-sequence event batches replace one another", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "old-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+    const batchA = {
+      runId: "run-1",
+      snapshotId: "snapshot-a",
+      lastSequence: 3,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const batchB = {
+      ...batchA,
+      snapshotId: "snapshot-b",
+    };
+    const partialA = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batchA],
+        events: [
+          {
+            id: "snapshot-a-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const partialB = mergeThreadDataForClientSave(partialA, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batchB],
+        events: [
+          {
+            id: "snapshot-b-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const completeB = mergeThreadDataForClientSave(partialB, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batchB, complete: true }],
+        events: [
+          {
+            id: "snapshot-b-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+    const lateLegacyReplacement = mergeThreadDataForClientSave(completeB, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 3 }],
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "legacy-equal-sequence-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    expect(
+      lateLegacyReplacement.agentKit.events.map((event: any) => event.id),
+    ).toEqual(["snapshot-b-start", "snapshot-b-completed"]);
+
+    const lateCompleteA = mergeThreadDataForClientSave(lateLegacyReplacement, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batchA, complete: true }],
+        events: [
+          {
+            id: "snapshot-a-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(lateCompleteA.agentKit.events.map((event: any) => event.id)).toEqual(
+      ["snapshot-b-start", "snapshot-b-completed"],
+    );
+    expect(lateCompleteA.agentKit._eventRunWatermarks).toEqual({
+      "run-1": 3,
+    });
+    expect(lateCompleteA.agentKit).not.toHaveProperty(
+      "_pendingEventRunSnapshots",
+    );
+  });
+
+  it("protects a committed event snapshot from a stale full thread save", () => {
+    const runId = "run-committed-full-save";
+    const committed = mergeThreadDataForClientSave(
+      {
+        messages: [],
+        agentKit: {
+          _eventRunWatermarks: { [runId]: 1 },
+          events: [
+            {
+              id: "previous-event",
+              runId,
+              sequence: 1,
+              type: "run.started",
+            },
+          ],
+        },
+      },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotBatches: [
+            {
+              runId,
+              snapshotId: "committed-snapshot",
+              lastSequence: 3,
+              expectedEventCount: 2,
+              complete: true,
+            },
+          ],
+          events: [
+            {
+              id: "committed-event-1",
+              runId,
+              sequence: 1,
+              type: "run.started",
+            },
+            {
+              id: "committed-event-3",
+              runId,
+              sequence: 2,
+              type: "run.completed",
+            },
+          ],
+        },
+      },
+    );
+    const staleFullSave = mergeThreadDataForClientSave(committed, {
+      messages: [],
+      agentKit: {
+        runs: [
+          {
+            id: runId,
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 2,
+          },
+        ],
+        events: [
+          {
+            id: "stale-full-save-event",
+            runId,
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+
+    expect(staleFullSave.agentKit.events.map((event: any) => event.id)).toEqual(
+      ["committed-event-1", "committed-event-3"],
+    );
+    expect(staleFullSave.agentKit._eventRunSnapshotCommits[runId]).toEqual(
+      committed.agentKit._eventRunSnapshotCommits[runId],
+    );
+  });
+
+  it("keeps newer same-run events when a stale snapshot retries after a write", () => {
+    const latest = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 4 },
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 4,
+          },
+        ],
+        events: [
+          {
+            id: "latest-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "latest-event-4",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    };
+
+    const retried = mergeThreadDataForClientSave(latest, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "stale-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "stale-event-3",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    });
+
+    expect(retried.agentKit.events.map((event: any) => event.id)).toEqual([
+      "latest-event-1",
+      "latest-event-4",
+    ]);
+    expect(retried.agentKit._eventRunWatermarks).toEqual({ "run-1": 4 });
+    expect(retried.agentKit).not.toHaveProperty("eventRunReplacements");
+  });
+
+  it("drops stale continuation events after a newer run snapshot is saved", () => {
+    const latest = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 4 },
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 4,
+          },
+        ],
+        events: [
+          {
+            id: "run-1-event-2",
+            runId: "run-1",
+            sequence: 1,
+            type: "activity.updated",
+            label: "newer payload",
+          },
+          {
+            id: "run-1-event-4",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(latest, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "run-1-event-2",
+            runId: "run-1",
+            sequence: 1,
+            type: "activity.updated",
+            label: "stale payload",
+          },
+          {
+            id: "stale-only-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.started",
+          },
+        ],
+      },
+    });
+
+    expect(merged.agentKit.events).toEqual(latest.agentKit.events);
+    expect(merged.agentKit._eventRunWatermarks).toEqual({ "run-1": 4 });
+    expect(merged.agentKit).not.toHaveProperty("_snapshotDelta");
+    expect(merged.agentKit).not.toHaveProperty("eventRunReplacements");
+    expect(merged.agentKit).not.toHaveProperty("eventRunSnapshotWatermarks");
+  });
+
+  it("does not remove annotations changed or added during a snapshot retry", () => {
+    const baseline = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const removal = {
+      key: JSON.stringify(["id", "source-1"]),
+      baseline,
+    };
+    const delta = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        annotationMessageIdsToReplace: [
+          {
+            messageId: "assistant-1",
+            annotationsToRemove: [removal],
+          },
+        ],
+        annotations: [],
+      },
+    };
+    const concurrentAddition = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-2",
+        kind: "source",
+        label: "Concurrent source",
+      },
+    };
+    const concurrentEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Updated source",
+      },
+    };
+
+    const added = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [baseline, concurrentAddition] } },
+      delta,
+    );
+    const edited = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          annotations: [concurrentEdit, concurrentAddition],
+        },
+      },
+      delta,
+    );
+
+    expect(added.agentKit.annotations).toEqual([concurrentAddition]);
+    expect(edited.agentKit.annotations).toEqual([
+      concurrentEdit,
+      concurrentAddition,
+    ]);
+  });
+
+  it("does not overwrite an annotation changed or added after its snapshot", () => {
+    const baseline = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const desired = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Snapshot edit",
+      },
+    };
+    const concurrentEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Concurrent edit",
+      },
+    };
+    const delta = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        annotations: [],
+        annotationUpserts: [{ entry: desired, baseline }],
+      },
+    };
+    const added = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [concurrentEdit] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          annotations: [],
+          annotationUpserts: [{ entry: desired, baseline: null }],
+        },
+      },
+    );
+    const annotationConflicts: Array<{
+      messageId: string;
+      annotationId?: string;
+      operation: "upsert" | "remove";
+    }> = [];
+    const edited = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [concurrentEdit] } },
+      delta,
+      {
+        onAnnotationConflict: (conflict) => annotationConflicts.push(conflict),
+      },
+    );
+    const applied = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [baseline] } },
+      delta,
+    );
+    const retried = mergeThreadDataForClientSave(applied, delta);
+    const concurrentlyDeleted = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [] } },
+      delta,
+    );
+
+    expect(added.agentKit.annotations).toEqual([concurrentEdit]);
+    expect(edited.agentKit.annotations).toEqual([concurrentEdit]);
+    expect(annotationConflicts).toEqual([
+      {
+        messageId: "assistant-1",
+        annotationId: "source-1",
+        operation: "upsert",
+      },
+    ]);
+    expect(applied.agentKit.annotations).toEqual([desired]);
+    expect(retried.agentKit.annotations).toEqual([desired]);
+    expect(concurrentlyDeleted.agentKit.annotations).toEqual([]);
+    expect(applied.agentKit).not.toHaveProperty("annotationUpserts");
+  });
+
   it("preserves a saved run duration when a later client copy omits it", () => {
     const existing = {
       messages: [
@@ -1899,7 +3081,403 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.queuedMessages).toBeUndefined();
   });
 
-  it("does not restore a queued message after the server claimed it", () => {
+  // The chat UI saves AgentKit messages into `messages` under their own ids and
+  // without a runId; only the AgentKit events say which run produced them.
+  const clientSavedReply = (status: string, text: string) => ({
+    message: {
+      id: "agentkit-reply",
+      role: "assistant",
+      status,
+      content: [{ type: "text", text }],
+    },
+    parentId: "user-1",
+  });
+  const userEntry = {
+    message: {
+      id: "user-1",
+      role: "user",
+      content: [{ type: "text", text: "Write forty lines" }],
+    },
+    parentId: null,
+  };
+  const replyEvents = {
+    events: [
+      {
+        type: "message.completed",
+        runId: "run-1",
+        message: { id: "agentkit-reply", role: "assistant" },
+      },
+    ],
+  };
+
+  it("folds a finished run into the reply the chat UI already saved for it", () => {
+    const serverReply = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "L1 one\nL40 forty" } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-1",
+      { turnId: "turn-1" },
+    );
+
+    const folded = foldAssistantTurn(
+      {
+        messages: [userEntry, clientSavedReply("streaming", "L1 one")],
+        agentKit: replyEvents,
+      },
+      serverReply!,
+      { turnId: "turn-1", runId: "run-1" },
+    );
+
+    const replies = folded.messages.filter(
+      (entry: any) => entry.message.role === "assistant",
+    );
+    expect(replies).toHaveLength(1);
+    expect(replies[0].message.status).toMatchObject({ type: "complete" });
+    expect(replies[0].message.content).toEqual([
+      { type: "text", text: "L1 one\nL40 forty" },
+    ]);
+  });
+
+  it("drops a stale mid-stream copy the chat UI saves after the server folded the run", () => {
+    const serverReply = {
+      message: {
+        id: "server-run-1",
+        role: "assistant",
+        status: { type: "complete", reason: "stop" },
+        content: [{ type: "text", text: "L1 one\nL40 forty" }],
+        metadata: { runId: "run-1", custom: { foldedRunIds: ["run-1"] } },
+      },
+      parentId: "user-1",
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      { messages: [userEntry, serverReply] },
+      {
+        messages: [userEntry, clientSavedReply("streaming", "L1 one")],
+        agentKit: replyEvents,
+      },
+    );
+
+    expect(
+      merged.messages.filter(
+        (entry: any) => entry.message.role === "assistant",
+      ),
+    ).toEqual([serverReply]);
+  });
+
+  it("leaves one reply for a run whose server and chat UI copies are both already stored", () => {
+    const serverReply = {
+      message: {
+        id: "server-run-1",
+        role: "assistant",
+        status: { type: "complete", reason: "stop" },
+        content: [{ type: "text", text: "L1 one\nL40 forty" }],
+        metadata: { runId: "run-1", custom: { foldedRunIds: ["run-1"] } },
+      },
+      parentId: "user-1",
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        messages: [
+          userEntry,
+          serverReply,
+          clientSavedReply("streaming", "L1 one"),
+        ],
+      },
+      {
+        messages: [
+          userEntry,
+          clientSavedReply("complete", "L1 one\nL40 forty"),
+        ],
+        agentKit: replyEvents,
+      },
+    );
+
+    expect(
+      merged.messages.filter(
+        (entry: any) => entry.message.role === "assistant",
+      ),
+    ).toEqual([serverReply]);
+  });
+
+  // Beta thread 57d652b5 (analytics): the page saved its reply mid-stream,
+  // reloaded, replayed the run into a new message, and the stored partial
+  // came back as a second reply next to the full one.
+  const reloadUser = {
+    id: "message-9f5d83d4",
+    role: "user",
+    parts: [{ type: "text", text: "Write exactly 40 lines." }],
+  };
+  const reloadPartial = {
+    id: "message-2d1fbdfa",
+    role: "assistant",
+    status: "streaming",
+    parts: [{ type: "text", text: "927A6CBCE7-L1: Number one begins" }],
+  };
+  const reloadReplayed = {
+    id: "message-96e6985a",
+    role: "assistant",
+    status: "streaming",
+    parts: [
+      {
+        type: "text",
+        text: "927A6CBCE7-L1: Number one begins every counting sequence.\n927A6CBCE7-L2: Two",
+      },
+    ],
+  };
+  const runStarted = {
+    id: "run-1:1",
+    runId: "run-1",
+    sequence: 1,
+    type: "run.started",
+  };
+  const messageCreated = (id: string, runId = "run-1") => ({
+    id: `${runId}:${id}`,
+    runId,
+    type: "message.created",
+    message: { id, role: "assistant", parts: [] },
+  });
+  const entry = (message: any, parentId: string | null) => ({
+    message: {
+      id: message.id,
+      role: message.role,
+      status: message.status,
+      content: message.parts,
+    },
+    parentId,
+  });
+
+  // As stored: only the prompt records its run; compacted events no longer
+  // name the partial's.
+  const submittedPrompt = {
+    message: {
+      ...entry(reloadUser, null).message,
+      metadata: { custom: { submittedRunId: "run-1" } },
+    },
+    parentId: null,
+  };
+
+  it("drops the partial reply a reloaded page replaced by replaying the run", () => {
+    const user = reloadUser;
+    const partial = reloadPartial;
+    const replayed = { ...reloadReplayed, status: "complete" };
+
+    const beforeReload = {
+      messages: [submittedPrompt, entry(partial, user.id)],
+      agentKit: { messages: [user, partial], events: [runStarted] },
+    };
+    const afterReload = mergeThreadDataForClientSave(beforeReload, {
+      messages: [submittedPrompt, entry(replayed, user.id)],
+      agentKit: {
+        messages: [user, replayed],
+        events: [runStarted, messageCreated(replayed.id)],
+      },
+    });
+
+    expect(afterReload.agentKit.messages.map((m: any) => m.id)).toEqual([
+      user.id,
+      replayed.id,
+    ]);
+    expect(afterReload.messages.map((e: any) => e.message.id)).toEqual([
+      user.id,
+      replayed.id,
+    ]);
+  });
+
+  it("drops the partial reply once the replayed reply finishes, even when a save still carries both", () => {
+    const finished = { ...reloadReplayed, status: "complete" };
+    const merged = mergeThreadDataForClientSave(
+      {
+        messages: [
+          entry(reloadUser, null),
+          entry(reloadPartial, reloadUser.id),
+        ],
+        agentKit: {
+          messages: [reloadUser, reloadPartial],
+          events: [runStarted, messageCreated(reloadPartial.id)],
+        },
+      },
+      {
+        messages: [
+          entry(reloadUser, null),
+          entry(reloadPartial, reloadUser.id),
+          entry(finished, reloadUser.id),
+        ],
+        agentKit: {
+          messages: [reloadUser, reloadPartial, finished],
+          events: [
+            runStarted,
+            messageCreated(reloadPartial.id),
+            messageCreated(finished.id),
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit.messages.map((m: any) => m.id)).toEqual([
+      reloadUser.id,
+      finished.id,
+    ]);
+    expect(merged.messages.map((e: any) => e.message.id)).toEqual([
+      reloadUser.id,
+      finished.id,
+    ]);
+  });
+
+  it("keeps a streaming reply a save carries while its prompt's newer reply is unfinished or from another run", () => {
+    const otherRun = {
+      ...reloadReplayed,
+      id: "message-other-run",
+      status: "complete",
+    };
+    const unfinished = { ...reloadReplayed, status: "streaming" };
+    for (const [newer, runId] of [
+      [otherRun, "run-2"],
+      [unfinished, "run-1"],
+    ] as const) {
+      const merged = mergeThreadDataForClientSave(
+        {
+          messages: [
+            entry(reloadUser, null),
+            entry(reloadPartial, reloadUser.id),
+          ],
+          agentKit: {
+            messages: [reloadUser, reloadPartial],
+            events: [runStarted, messageCreated(reloadPartial.id)],
+          },
+        },
+        {
+          messages: [
+            entry(reloadUser, null),
+            entry(reloadPartial, reloadUser.id),
+            entry(newer, reloadUser.id),
+          ],
+          agentKit: {
+            messages: [reloadUser, reloadPartial, newer],
+            events: [
+              runStarted,
+              messageCreated(reloadPartial.id),
+              messageCreated(newer.id, runId),
+            ],
+          },
+        },
+      );
+
+      expect(merged.agentKit.messages.map((m: any) => m.id)).toEqual([
+        reloadUser.id,
+        reloadPartial.id,
+        newer.id,
+      ]);
+      expect(merged.messages.map((e: any) => e.message.id)).toEqual([
+        reloadUser.id,
+        reloadPartial.id,
+        newer.id,
+      ]);
+    }
+  });
+
+  it("keeps the replayed reply when a stale tab saves the old partial after it", () => {
+    for (const status of ["streaming", "complete"]) {
+      const replayed = { ...reloadReplayed, status };
+      const merged = mergeThreadDataForClientSave(
+        {
+          messages: [submittedPrompt, entry(replayed, reloadUser.id)],
+          agentKit: {
+            messages: [reloadUser, replayed],
+            events: [runStarted, messageCreated(replayed.id)],
+          },
+        },
+        {
+          messages: [submittedPrompt, entry(reloadPartial, reloadUser.id)],
+          agentKit: {
+            messages: [reloadUser, reloadPartial],
+            events: [runStarted, messageCreated(reloadPartial.id)],
+          },
+        },
+      );
+
+      const kept =
+        status === "complete" ? [replayed.id] : [replayed.id, reloadPartial.id];
+      expect(merged.agentKit.messages.map((m: any) => m.id)).toEqual([
+        reloadUser.id,
+        ...kept,
+      ]);
+      expect(merged.messages.map((e: any) => e.message.id)).toEqual([
+        reloadUser.id,
+        ...kept,
+      ]);
+    }
+  });
+
+  it("keeps an active reply when another run answers the same prompt", () => {
+    const otherRun = {
+      ...reloadReplayed,
+      id: "message-other-run",
+      status: "complete",
+    };
+    const merged = mergeThreadDataForClientSave(
+      {
+        messages: [submittedPrompt, entry(reloadPartial, reloadUser.id)],
+        agentKit: {
+          messages: [reloadUser, reloadPartial],
+          events: [runStarted, messageCreated(reloadPartial.id)],
+        },
+      },
+      {
+        messages: [submittedPrompt, entry(otherRun, reloadUser.id)],
+        agentKit: {
+          messages: [reloadUser, otherRun],
+          events: [messageCreated(otherRun.id, "run-2")],
+        },
+      },
+    );
+
+    expect(merged.agentKit.messages.map((m: any) => m.id)).toEqual([
+      reloadUser.id,
+      reloadPartial.id,
+      otherRun.id,
+    ]);
+    expect(merged.messages.map((e: any) => e.message.id)).toEqual([
+      reloadUser.id,
+      reloadPartial.id,
+      otherRun.id,
+    ]);
+  });
+
+  it("keeps a stored mid-stream reply a save that never saw it does not answer", () => {
+    const user = {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Write forty lines" }],
+    };
+    const streaming = {
+      id: "agentkit-reply",
+      role: "assistant",
+      status: "streaming",
+      parts: [{ type: "text", text: "L1 one" }],
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        messages: [userEntry, clientSavedReply("streaming", "L1 one")],
+        agentKit: { messages: [user, streaming] },
+      },
+      { messages: [userEntry], agentKit: { messages: [user] } },
+    );
+
+    expect(merged.agentKit.messages.map((m: any) => m.id)).toEqual([
+      "user-1",
+      "agentkit-reply",
+    ]);
+    expect(merged.messages.map((e: any) => e.message.id)).toEqual([
+      "user-1",
+      "agentkit-reply",
+    ]);
+  });
+
+  it("keeps the durable queue over a stale save's copy of it", () => {
     const existing = {
       _claimedQueuedMessageIds: ["queued-1"],
       queuedMessages: [],
@@ -1922,9 +3500,7 @@ describe("mergeThreadDataForClientSave", () => {
     const merged = mergeThreadDataForClientSave(existing, staleIncoming);
 
     expect(merged._claimedQueuedMessageIds).toEqual(["queued-1"]);
-    expect(merged.queuedMessages).toEqual([
-      { id: "queued-2", text: "send the summary" },
-    ]);
+    expect(merged.queuedMessages).toEqual([]);
   });
 
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {
@@ -2586,6 +4162,61 @@ describe("upsertUserMessage", () => {
     }
     expect(result.repo.messages).toHaveLength(2);
     expect(result.repo.queuedMessages).toEqual([]);
+  });
+
+  it("submits a background operation once and reports a later run as already claimed", () => {
+    const operation = {
+      kind: "background-operation" as const,
+      id: "operation-1",
+    };
+    const first = applySubmittedUserMessage(
+      {},
+      buildUserMessage({
+        text: "Suggest changes",
+        runId: "run-1",
+        queuedMessageId: operation.id,
+      }),
+      operation,
+    );
+    if (!("repo" in first)) throw new Error("Expected a submitted result.");
+
+    const retry = applySubmittedUserMessage(
+      first.repo,
+      buildUserMessage({
+        text: "Suggest changes",
+        runId: "run-2",
+        queuedMessageId: operation.id,
+      }),
+      operation,
+    );
+
+    expect(first.status).toBe("submitted");
+    expect(first.repo.messages).toHaveLength(1);
+    expect(retry).toEqual({ status: "already_claimed" });
+  });
+
+  it("holds a background operation id that names a queued message to its promotion claim", () => {
+    const repo = {
+      queuedMessages: [
+        {
+          id: "queued-1",
+          text: "Run once",
+          promotionClaim: { id: "tab-1", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    };
+
+    const result = applySubmittedUserMessage(
+      repo,
+      buildUserMessage({
+        text: "Run once",
+        runId: "run-1",
+        queuedMessageId: "queued-1",
+      }),
+      { kind: "background-operation", id: "queued-1" },
+    );
+
+    expect(result).toEqual({ status: "claim_expired" });
   });
 
   it("persists submitted AgentKit and queue identities on a user message", () => {

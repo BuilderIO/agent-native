@@ -128,13 +128,23 @@ const messages: ToolkitAgentChatTranslation = {
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderCredits": "Builder.io के मुफ़्त क्रेडिट में शामिल",
+  "onboarding.builderIncludedFreeWithAccount": "Builder.io खाते के साथ मुफ़्त शामिल",
+  "onboarding.builderMonthlyCredits": "हर महीने 60 Agent Credits",
+  "onboarding.builderIncludedFree": "मुफ़्त में शामिल",
+  "onboarding.builderMoreServices": "+ {{count}} और सेवाएँ",
+  "onboarding.builderLlmCredits": "LLM क्रेडिट",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM क्रेडिट + {{count}} और सेवाएँ",
+  "onboarding.builderAccountCreated": "Builder.io खाता बनाया और कनेक्ट किया गया।",
+  "onboarding.builderIncludedServices": "शामिल सेवाएँ",
   "onboarding.builderActivateTitle": "मुफ़्त क्रेडिट सक्रिय करें",
   "onboarding.builderAccountExistsTitle": "आपके पास पहले से Builder.io खाता है",
-  "onboarding.builderAccountExistsDescription": "इसे कनेक्ट करने के लिए लॉग इन करें।",
+  "onboarding.builderAccountExistsDescription":
+    "अपने खाते का उपयोग करने के लिए लॉग इन करें।",
   "onboarding.builderActivationDescription":
-    "हम एक क्लिक में आपके लिए Builder.io खाता अपने-आप बनाएँगे।",
+    "मुफ़्त क्रेडिट पाने के लिए एक क्लिक में Builder.io खाता बनाएँ या कनेक्ट करें।",
   "onboarding.builderOrgActivationDescription":
-    "हम एक क्लिक में आपका Builder.io खाता बनाएँगे और उसे आपके संगठन के लिए कनेक्ट करेंगे।",
+    "हम एक क्लिक में आपका Builder.io खाता बनाएँगे, ताकि आपका संगठन इसका उपयोग कर सके।",
   "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
   "onboarding.builderConsentPrefix": "Builder.io खाता बनाकर, आप हमारी",
   "onboarding.builderTerms": "सेवा की शर्तों",
@@ -142,9 +152,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
-  "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट कनेक्ट किए जा रहे हैं",
+  "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
-    "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
+    "आपका Builder.io खाता बनाया जा रहा है और मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं।",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
   "onboarding.builderReadyWithCodeChanges":
@@ -154,11 +164,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "Background Agent सेटिंग्स खोलें",
   "onboarding.capability.llm.keySummary": "अपना स्वयं का AI मॉडल कनेक्ट करें",
   "onboarding.capability.fileStorage.keySummary": "फ़ाइल अपलोड और स्टोरेज",
+  "onboarding.capability.llm.why":
+    "एजेंट अनुरोध समझने और जवाब देने के लिए भाषा मॉडल का उपयोग करता है।",
+  "onboarding.capability.fileStorage.why":
+    "अपलोड की गई छवियों और फ़ाइलों को सहेजता है, ताकि एजेंट उन्हें बातचीत में फिर से इस्तेमाल कर सके।",
   "onboarding.fileStorage.title": "फ़ाइलें अपलोड करने के लिए स्टोरेज कनेक्ट करें",
   "onboarding.fileStorage.statusUnavailable": "स्टोरेज की जांच नहीं हो सकी",
   "onboarding.fileStorage.description":
-    "Builder.io (मुफ़्त) कनेक्ट करें या अपना S3-संगत ऑब्जेक्ट स्टोरेज कॉन्फ़िगर करें।",
-  "onboarding.fileStorage.reconnectBuilder": "Builder.io फिर से कनेक्ट करें",
+    "Builder.io (मुफ़्त) का उपयोग करें या अपना S3-संगत ऑब्जेक्ट स्टोरेज कॉन्फ़िगर करें।",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io इस्तेमाल करें",
   "onboarding.fileStorage.custom": "कस्टम कुंजियों का उपयोग करें",
   "onboarding.fileStorage.customDescription":
     "स्थिर सार्वजनिक URL वाला S3-संगत बकेट कॉन्फ़िगर करें।",
@@ -170,6 +184,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "एंबेडिंग",
   "onboarding.capability.embeddings.why":
     "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
+  "onboarding.capability.systemOne.why":
+    "Jev एक वैकल्पिक निर्णय मॉडल है, जो एजेंट के पहले मॉडल अनुरोध से पहले प्रासंगिक टूल और स्किल चुनने में मदद करता है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder क्रेडिट या इमेज प्रदाता की कुंजी",
@@ -382,9 +398,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.configureProviderKeys":
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
   "composer.connectAbove": "जारी रखने के लिए ऊपर AI कनेक्ट करें...",
-  "composer.connectBuilder": "Builder.io कनेक्ट करें",
+  "composer.connectBuilder": "Builder.io इस्तेमाल करें",
   "composer.connectKeys": "कुंजियाँ कनेक्ट करें",
-  "composer.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है…",
+  "composer.connectAgent": "एजेंट कनेक्ट करें",
+  "composer.connectingBuilder": "Builder.io सेट अप हो रहा है…",
   "composer.costHigher": "अधिक लागत",
   "composer.costLower": "कम लागत",
   "composer.costMedium": "मध्यम लागत",
@@ -477,6 +494,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "स्किल फ़ाइल अपलोड करें",
   "composer.upload": "अपलोड करें",
   "composer.uploadFailed": "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+  "composer.unsupportedFileType": "यह फ़ाइल प्रकार समर्थित नहीं है।",
   "composer.useAttachedContext": "अटैच किए गए संदर्भ का उपयोग करें।",
   "mentions.commands": "कमांड",
   "mentions.learnMore": "और जानें",
@@ -504,7 +522,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "बोलकर लिखें ({{shortcut}})",
   "voice.dictation.stopRecording": "रिकॉर्डिंग रोकें",
   "voice.dictation.transcribing": "लिखित रूप में बदला जा रहा है…",
-  "voiceMode.connectBuilder": "Builder.io कनेक्ट करें",
+  "voiceMode.connectBuilder": "Builder.io इस्तेमाल करें",
   "voiceMode.end": "वॉइस मोड समाप्त करें",
   "voiceMode.entryButtonLabel": "माइक्रोफ़ोन का उपयोग करें",
   "voiceMode.errors.channelDisconnected":
@@ -557,7 +575,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "अभिव्यंजक और बहुमुखी",
   "voiceMode.settings.voiceStyle": "आवाज़ की शैली",
   "voiceMode.setupDescription":
-    "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस का उपयोग करने के लिए Builder.io कनेक्ट करें, या अपनी कुंजियाँ जोड़ें।",
+    "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस के लिए Builder.io का उपयोग करें या अपनी कुंजियाँ जोड़ें।",
+  "transcription.builderCtaDescription":
+    "बेहतर गुणवत्ता वाले ट्रांसक्रिप्शन के लिए मुफ़्त क्रेडिट और बिना API कुंजी के Builder.io का उपयोग करें।",
+  "voiceMode.googleRealtimeDescription":
+    "Google क्रेडेंशियल सेट हैं। प्रबंधित रीयलटाइम सत्र बनाने के लिए Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें।",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "सर्विस-अकाउंट JSON सेट है। प्रबंधित रीयलटाइम WebSocket सत्र बनाने के लिए Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें।",
+  "voiceMode.builderGeminiDescription":
+    "Gemini Flash-Lite ट्रांसक्रिप्शन और Luna टेक्स्ट क्लीनअप के लिए Builder.io का उपयोग करें। Google कुंजी की ज़रूरत नहीं।",
   "voiceMode.setupTitle": "वॉइस मोड सेट अप करें",
   "voiceMode.showChat": "चैट दिखाएँ",
   "voiceMode.start": "वॉइस चैट शुरू करें",
@@ -588,7 +614,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.attachmentPasswordProtected":
     "यह PDF पासवर्ड-सुरक्षित है, इसलिए इसे पढ़ा नहीं जा सकता। पासवर्ड सुरक्षा हटाएँ या संबंधित टेक्स्ट पेस्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderAuthentication":
-    "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग्स में Builder.io को दोबारा कनेक्ट करें, फिर से प्रयास करें।",
+    "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग में फिर से Builder.io का उपयोग करें, फिर दोबारा कोशिश करें।",
   "errorMessages.builderModelUnauthorized":
     "इस मॉडल के पीछे मौजूद प्रदाता ने अनुरोध अस्वीकार कर दिया। कोई दूसरा मॉडल चुनें, फिर से प्रयास करें।",
   "errorMessages.errorPrefix": "त्रुटि: {{message}}",
@@ -614,7 +640,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.malformedRequestAttachment":
     "मॉडल ने एक संलग्न फ़ाइल अस्वीकार कर दी, इसलिए यह संदेश कभी भेजा ही नहीं गया। अटैचमेंट हटाकर दोबारा प्रयास करें — PDF, सादा टेक्स्ट फ़ाइल, या JPEG, PNG, GIF या WebP छवि सीधे पढ़ी जाती है; अन्य फ़ॉर्मैट अपलोड करके लिंक करने होंगे।",
   "errorMessages.noProviderConnected":
-    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग्स > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें (मुफ़्त स्तर उपलब्ध है) या प्रदाता कुंजी जोड़ें।",
+    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
   "errorMessages.providerAuthentication":
     "मॉडल प्रदाता ने सहेजी गई API कुंजी अस्वीकार कर दी। सेटिंग्स → इंटीग्रेशन → API कुंजियाँ में कुंजी अपडेट करें, फिर से प्रयास करें।",
@@ -975,6 +1001,19 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "संदेश की कार्रवाइयाँ",
   "message.copyMessage": "संदेश कॉपी करें",
   "message.copyRequestId": "अनुरोध ID कॉपी करें",
+  "message.usage": "उपयोग",
+  "message.usageLoading": "उपयोग लोड हो रहा है…",
+  "message.usageUnavailable": "उपयोग उपलब्ध नहीं है",
+  "message.usageNotRecorded": "उपयोग रिकॉर्ड नहीं किया गया",
+  "message.usageIncomplete":
+    "कुछ उपयोग का वर्गीकरण नहीं हो सका; कुल राशि छिपाई गई है।",
+  "message.usageReportedCost": "लागत {{amount}}",
+  "message.usageEstimatedCost": "अनुमानित लागत {{amount}}",
+  "message.usageBuilderCredits": "इस्तेमाल किए गए Builder क्रेडिट {{amount}}",
+  "message.usageEstimatedBuilderCredits": "अनुमानित Builder क्रेडिट {{amount}}",
+  "message.usageMixedCost": "रिपोर्ट की गई और अनुमानित लागत {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "रिपोर्ट किए गए और अनुमानित Builder क्रेडिट {{amount}}",
   "message.requestIdUnavailable": "अनुरोध ID उपलब्ध नहीं है",
   "message.unavailable": "यह संदेश अब इस बातचीत में उपलब्ध नहीं है।",
   "message.navigationUnavailable": "बातचीत में नेविगेशन उपलब्ध नहीं है।",
@@ -1071,12 +1110,11 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "कतार में {{count}} — अगला संदेश भेजें...",
   "queue.remove": "कतार से हटाएँ",
   "queue.sendNow": "अभी भेजें",
-  "queue.sendNowHint": "अभी भेजें (मौजूदा जवाब रुक जाएगा)",
-  "queue.steer": "दिशा दें",
-  "queue.steerHint": "यह संदेश अगला भेजें",
+  "queue.sendNowHint": "वर्तमान उत्तर रोकता है, फिर यह संदेश भेजता है",
+  "queue.sendNext": "अगला भेजें",
+  "queue.sendNextHint": "वर्तमान उत्तर समाप्त होने के बाद भेजें",
   "queue.moreActions": "अन्य कार्रवाइयाँ",
-  "queue.moveToTop": "सबसे ऊपर ले जाएँ",
-  "recovery.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है",
+  "recovery.connectingBuilder": "Builder.io सेट अप हो रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
   "recovery.retryAttachmentUnavailable":
@@ -1086,7 +1124,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.credentialRejected":
     "मॉडल प्रदाता ने सहेजे गए क्रेडेंशियल अस्वीकार कर दिए। अपना Builder.io कनेक्शन या प्रदाता कुंजी अपडेट करें, फिर इस संदेश को दोबारा आज़माएँ।",
   "codeRequired.builderAgentNotConnected":
-    "Builder Cloud Agents कनेक्ट नहीं हैं। इस होस्टेड कोड-चेंज ऑपरेशन को चलाने के लिए सेटिंग्स में Builder.io कनेक्ट करें। मॉडल-प्रदाता कुंजियाँ चैट और अन्य AI सुविधाओं के लिए काम करती हैं, लेकिन Builder Cloud Agent को अधिकृत नहीं करतीं।",
+    "Builder Cloud Agents कनेक्ट नहीं हैं। इस होस्ट किए गए कोड बदलाव को चलाने के लिए सेटअप में Builder.io का उपयोग करें। मॉडल प्रदाता कुंजियाँ चैट और अन्य AI सुविधाओं के लिए काम करती हैं, लेकिन Builder Cloud Agent को अधिकृत नहीं करतीं।",
   "recovery.diagnoseRetry": "समस्या जाँचें और फिर प्रयास करें",
   "recovery.forkDescription": "इस बातचीत को एक अलग चैट थ्रेड में शाखित करें।",
   "recovery.forkFailed": "इस चैट की शाखा नहीं बनाई जा सकी। नई चैट शुरू करके देखें।",
@@ -1107,7 +1145,7 @@ const messages: ToolkitAgentChatTranslation = {
     "यह जाँचने के लिए सर्वर से संपर्क नहीं हो सका कि एजेंट अभी काम कर रहा है या नहीं। दोबारा प्रयास करने के लिए अपना संदेश फिर भेजें।",
   "recovery.streamEnded":
     "पिछला एजेंट स्ट्रीम रन की रिकवरी के दौरान समाप्त हो गया। रन से दोबारा जुड़ने के लिए जारी रखें या फिर प्रयास करें।",
-  "recovery.reconnectBuilder": "Builder.io को दोबारा कनेक्ट करें",
+  "recovery.reconnectBuilder": "Builder.io इस्तेमाल करें",
   "secrets.addCustomKeyNamed": '"{{name}}" को कस्टम कुंजी के रूप में जोड़ें',
   "secrets.chooseKey": "कुंजी चुनें",
   "secrets.customKey": "कस्टम कुंजी",
@@ -1149,10 +1187,13 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "Builder.io (मुफ़्त क्रेडिट) का उपयोग करें या अपनी प्रदाता कुंजियाँ जोड़ें।",
   "setup.connectAi": "AI कनेक्ट करें",
-  "setup.connectBuilder": "Builder.io कनेक्ट करें",
+  "setup.connectBuilder": "Builder.io इस्तेमाल करें",
+  "setup.connectionsDescription":
+    "सेटअप स्थिति, Builder.io पहुँच, ऐप सीक्रेट और वर्कस्पेस कनेक्शन एक ही मानक सतह से प्रबंधित करें।",
   "setup.connectPlaceholder": "चैट शुरू करने के लिए AI कनेक्ट करें...",
   "setup.connectToChat": "चैट करने के लिए AI कनेक्ट करें",
   "setup.connectToStart": "चैट शुरू करने के लिए AI कनेक्ट करें",
+  "setup.modelListUnavailable": "मॉडल लोड नहीं हो सके।",
   "setup.providerStatusUnavailable": "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
   "agentNativeClips.meetingAsk.placeholder": "कुछ भी पूछें",
   "agentNativeClips.meetingAsk.ariaLabel": "इस मीटिंग के बारे में कुछ भी पूछें",
@@ -1164,6 +1205,50 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.keyProvider": "API कुंजी प्रदाता",
   "setup.keySaveFailed": "कुंजी सहेजी नहीं जा सकी।",
   "setup.storedSecurely": "केवल इस ऐप के लिए सुरक्षित रूप से संग्रहीत।",
+  "accessGate.deniedTitle": "आपके पास एक्सेस नहीं है",
+  "accessGate.deniedDescription": "मालिक से इसे आपके साथ शेयर करने के लिए कहें।",
+  "accessGate.missingTitle": "यह मौजूद नहीं है",
+  "accessGate.missingDescription":
+    "लिंक गलत हो सकता है, या इसे हटा दिया गया हो सकता है।",
+  "accessGate.trashedTitle": "यह ट्रैश में है",
+  "accessGate.trashedDescription": "इसे फिर से खोलने के लिए रीस्टोर करें।",
+  "accessGate.signedOutTitle": "जारी रखने के लिए साइन इन करें",
+  "accessGate.signedOutDescription": "ऐसे खाते से साइन इन करें जिसके पास एक्सेस हो।",
+  "accessGate.signIn": "साइन इन करें",
+  "accessGate.signedInAs": "आप {{email}} के रूप में साइन इन हैं",
+  "accessGate.switchAccount": "खाता बदलें",
+  "accessGate.requestDescription":
+    "एक्सेस का अनुरोध करें, मालिक को सूचित कर दिया जाएगा।",
+  "accessGate.requestSent": "अनुरोध भेज दिया गया। मालिक को सूचित कर दिया गया है।",
+  "accessGate.requestAccess": "एक्सेस का अनुरोध करें",
+  "accessGate.requestNoteLabel": "नोट (वैकल्पिक)",
+  "accessGate.requestNotePlaceholder": "मालिक के लिए एक नोट जोड़ें",
+  "accessGate.sendRequest": "अनुरोध भेजें",
+  "accessGate.cancel": "रद्द करें",
+  "accessGate.requestRateLimited":
+    "अभी बहुत ज़्यादा अनुरोध हो रहे हैं। बाद में फिर से प्रयास करें।",
+  "accessGate.requestFailed": "आपका अनुरोध नहीं भेजा जा सका। फिर से प्रयास करें।",
+  "accessGate.signedOutRequestDescription":
+    "एक्सेस का अनुरोध करने के लिए साइन इन करें।",
+  "accessRequest.title": "{{name}} एक्सेस का अनुरोध कर रहे हैं",
+  "accessRequest.approvedTitle": "एक्सेस की अनुमति दी गई",
+  "accessRequest.declinedTitle": "अनुरोध अस्वीकार किया गया",
+  "accessRequest.allow": "अनुमति दें",
+  "accessRequest.decline": "अस्वीकार करें",
+  "accessRequest.unavailableTitle": "आप इस अनुरोध की समीक्षा नहीं कर सकते",
+  "accessRequest.unavailableDescription":
+    "हो सकता है इसे वापस ले लिया गया हो, या यह खाता एक्सेस प्रबंधित नहीं कर सकता।",
+  "accessRequest.loadFailed": "यह अनुरोध लोड नहीं किया जा सका।",
+  "accessRequest.retry": "फिर से प्रयास करें",
+  "accessRequest.decisionFailed": "आपका निर्णय सहेजा नहीं जा सका। फिर से प्रयास करें।",
+  "accessRequest.stale": "किसी ने यह अनुरोध पहले ही संभाल लिया है, या यह बदल गया है।",
+  "share.accessRequests": "एक्सेस अनुरोध",
+  "share.accessRequestsLoadFailed": "एक्सेस अनुरोध लोड नहीं किए जा सके।",
+  "share.accessRequestsNewest": "सबसे नए {{count}} अनुरोध दिखाए जा रहे हैं।",
+  "accessRequest.emailFailed":
+    "{{name}} को एक्सेस मिल गया है, लेकिन हम उन्हें ईमेल नहीं भेज सके।",
+  "share.allowRequestFrom": "{{name}} को अनुमति दें",
+  "share.declineRequestFrom": "{{name}} को अस्वीकार करें",
   "share.add": "जोड़ें",
   "share.addPeopleEmail": "ईमेल से लोगों को जोड़ें",
   "share.addPeopleOrganization": "अपने संगठन से लोगों को जोड़ें",
@@ -1248,6 +1333,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",
+  "tool.identifierHidden": "[पहचानकर्ता छिपाया गया]",
+  "tool.contentOmitted": "[सामग्री छोड़ी गई]",
+  "tool.circularReference": "[चक्रीय संदर्भ]",
   "tool.interrupted":
     "रिपोर्ट पूरी होने से पहले प्रक्रिया रुक गई — संभव है कि कार्य पूरा हुआ हो या न हुआ हो। दोबारा प्रयास करने से पहले जाँच लें।",
   "tool.longRunning": "काम अभी जारी है। बड़े अपडेट में एक-दो मिनट लग सकते हैं।",
@@ -1540,6 +1628,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "ऐप",
   "settings.usage.allApps": "सभी ऐप",
   "settings.usage.unattributedApp": "अनिर्दिष्ट",
+  "settings.usage.unclassifiedUsage": "अवर्गीकृत उपयोग",
   "settings.usage.peopleFilterLabel": "लोग",
   "settings.usage.everyone": "सभी",
   "settings.usage.justYou": "केवल आप",
@@ -1916,6 +2005,8 @@ const messages: ToolkitAgentChatTranslation = {
     "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
   "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
   "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
+  "settingsShell.appGroup.labsReadError":
+    "इस सहेजे गए विकल्प को पढ़ा नहीं जा सका। इसे फिर से सेट करने के लिए चालू या बंद चुनें।",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
   "settingsShell.appGroup.mcpAbout":
@@ -1933,7 +2024,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "सभी अपडेट देखें",
   "settingsShell.backToApp": "{{app}} पर वापस जाएँ",
   "settingsShell.breadcrumbLabel": "ब्रेडक्रंब",
-  "settingsShell.builder.connect": "कनेक्ट करें",
+  "settingsShell.builder.connect": "Builder.io इस्तेमाल करें",
   "settingsShell.builder.connected": "कनेक्ट है",
   "settingsShell.builder.connectedTo": "कनेक्ट है · {{space}}",
   "settingsShell.builder.connection": "कनेक्शन",
@@ -1945,6 +2036,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io को डिस्कनेक्ट नहीं किया जा सका।",
   "settingsShell.builder.disconnectTitle": "Builder.io डिस्कनेक्ट करें?",
   "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन पढ़े नहीं जा सके।",
+  "settingsShell.builder.setupStartFailed":
+    "Builder.io सेटअप शुरू नहीं हो सका। इस पेज को रीफ़्रेश करके फिर कोशिश करें।",
+  "settingsShell.builder.setupHostFailed":
+    "इस चैट होस्ट से Builder नहीं खुल सका। इस ऐप को ब्राउज़र टैब में खोलें और Builder.io सेटअप फिर से आज़माएँ (मुफ़्त टियर उपलब्ध)।",
+  "settingsShell.builder.setupFailed":
+    "Builder.io सेटअप पूरा नहीं हुआ। फिर कोशिश करें या अपनी कुंजियाँ इस्तेमाल करें।",
   "settingsShell.builder.loss.defaultStops":
     "जब तक आप संगठन प्रदाता नहीं जोड़ते, चैट रुकी रहती हैं।",
   "settingsShell.builder.loss.defaultSwitches":
@@ -1960,9 +2057,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "फिर से कनेक्ट करना होगा।",
   "settingsShell.builder.orgFallback": "आपका संगठन",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "कनेक्ट नहीं है। कनेक्ट करने पर {{org}} में सभी इसका इस्तेमाल कर सकते हैं।",
+    "कनेक्ट नहीं है। {{org}} में सभी को पहुँच देने के लिए Builder.io का उपयोग करें।",
   "settingsShell.builder.orgNotConnectedMember":
-    "कनेक्ट नहीं है। कोई ओनर या एडमिन इसे कनेक्ट कर सकता है।",
+    "कनेक्ट नहीं है। कोई स्वामी या व्यवस्थापक सभी के लिए Builder.io सक्षम कर सकता है।",
   "settingsShell.builder.organization": "संगठन",
   "settingsShell.builder.personal": "व्यक्तिगत",
   "settingsShell.builder.personalConnected":
@@ -1974,7 +2071,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "कनेक्ट है · {{space}}। संगठन के कनेक्शन की जगह सिर्फ़ आप इसका इस्तेमाल करते हैं।",
   "settingsShell.builder.personalNotConnected":
-    "अपना खाता कनेक्ट करें। सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+    "अपने Builder.io खाते का उपयोग करें। इसका उपयोग केवल आप करेंगे।",
   "settingsShell.builder.personalRestricted":
     "ओनर और एडमिन ने व्यक्तिगत API कुंजियों को सीमित किया है।",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2501,7 +2598,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "कनेक्ट है। Builder.io वाली हर सेवा आपके खाते के क्रेडिट से चलती है।",
   "settingsInfra.builderNotConnected":
-    "कनेक्ट नहीं है। हर सेवा खुद सेट अप करें, या अपने खाते के क्रेडिट इस्तेमाल करने के लिए Builder.io कनेक्ट करें।",
+    "कनेक्ट नहीं है। हर सेवा को स्वयं सेट अप करें या अपने खाते के क्रेडिट इस्तेमाल करने के लिए Builder.io का उपयोग करें।",
+  "settingsInfra.builderOverrideDescription":
+    "डिप्लॉयमेंट फ़ॉलबैक उपलब्ध है। इसे बदलने के लिए अपने Builder.io खाते का उपयोग करें।",
+  "settingsInfra.builderStorageHint":
+    "ऑब्जेक्ट स्टोरेज अपलोड की गई फ़ाइलों को सुरक्षित रखता है और पूरे थ्रेड में उनके URL फिर से इस्तेमाल करने देता है। नीचे Builder.io या S3-संगत बकेट का उपयोग करें।",
   "settingsInfra.builderUnknown": "Builder.io कनेक्शन जाँचा नहीं जा सका।",
   "settingsInfra.manage": "प्रबंधित करें",
   "settingsInfra.connect": "कनेक्ट करें",
@@ -2668,13 +2769,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "कनेक्टेड · {{space}}",
   "settingsModel.builderConnectedPlain": "कनेक्टेड",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "कनेक्ट नहीं है। कनेक्ट करने पर {{org}} के सभी लोग इसका इस्तेमाल कर सकते हैं।",
+    "कनेक्ट नहीं है। {{org}} में सभी को पहुँच देने के लिए Builder.io का उपयोग करें।",
   "settingsModel.builderOrgNotConnectedMember":
-    "कनेक्ट नहीं है। कोई मालिक या एडमिन इसे कनेक्ट कर सकता है।",
+    "कनेक्ट नहीं है। कोई स्वामी या व्यवस्थापक सभी के लिए Builder.io सक्षम कर सकता है।",
   "settingsModel.builderPersonalConnect":
-    "अपने Builder.io क्रेडिट इस्तेमाल करने के लिए अपना खाता कनेक्ट करें।",
+    "अपने Builder.io खाते के क्रेडिट इस्तेमाल करने के लिए उसका उपयोग करें।",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "संगठन के कनेक्शन की जगह इस्तेमाल करने के लिए अपना खाता कनेक्ट करें।",
+    "संगठन के कनेक्शन की जगह अपने Builder.io खाते का उपयोग करें।",
   "settingsModel.builderPersonalOverOrg":
     "कनेक्टेड · {{space}}। संगठन के कनेक्शन की जगह इस्तेमाल होता है।",
   "settingsModel.builderPersonalOverOrgPlain":
@@ -2719,8 +2820,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "सहेजी गई कुंजी जाँची जा रही है",
   "settingsModel.chooseModel": "मॉडल चुनें",
   "settingsModel.clear": "साफ़ करें",
-  "settingsModel.connect": "कनेक्ट करें",
-  "settingsModel.connecting": "कनेक्ट हो रहा है…",
   "settingsModel.defaultModelDescription":
     "हर ऐप में इस्तेमाल होता है, जब तक ऐप अपना मॉडल सेट न करे।",
   "settingsModel.defaultModelNeedsProvider":

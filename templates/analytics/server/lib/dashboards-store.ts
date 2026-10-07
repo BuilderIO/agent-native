@@ -595,6 +595,19 @@ function accessFields(role?: AccessRole): {
   };
 }
 
+// A legacy migration insert is a no-op when the id already exists. Only a row
+// with the migrating owner and org belongs to the caller; any other row with
+// that id is someone else's resource.
+function isMigratedLegacyRow(
+  row: any,
+  ownerEmail: string,
+  orgId: string | null,
+): boolean {
+  return (
+    !!row && row.ownerEmail === ownerEmail && (row.orgId ?? null) === orgId
+  );
+}
+
 function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
   const certification = parseDashboardCertification(row.certification);
   const rawConfig =
@@ -702,7 +715,7 @@ async function migrateDashboardFromSettings(
   orgId: string | null,
   visibility: DashboardRecord["visibility"],
   role?: AccessRole,
-): Promise<DashboardRecord> {
+): Promise<DashboardRecord | null> {
   const { title, config } = configFromSettings(settingsValue, kind);
   const db = getDb() as any;
   const createdAt =
@@ -730,13 +743,14 @@ async function migrateDashboardFromSettings(
       updatedBy: ownerEmail,
     })
     .onConflictDoNothing();
-  // guard:allow-unscoped — read-after-write of the row just inserted above
-  // with ownerEmail from ctx; eq(id) is sufficient because we know the id we
-  // just wrote and onConflictDoNothing leaves any pre-existing row untouched.
+  // guard:allow-unscoped — read-after-write of the row just inserted above;
+  // isMigratedLegacyRow rejects a pre-existing row that onConflictDoNothing
+  // left untouched.
   const [row] = await db
     .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
+  if (!isMigratedLegacyRow(row, ownerEmail, orgId)) return null;
   recordScopedChange("dashboards", "change", id, ownerEmail, orgId, visibility);
   return rowToDashboard(row, role);
 }
@@ -798,7 +812,7 @@ export async function getDashboard(
   if (access) return rowToDashboard(access.resource, access.role);
   const legacy = await findLegacyDashboard(id, ctx);
   if (!legacy) return null;
-  return migrateDashboardFromSettings(
+  const migrated = await migrateDashboardFromSettings(
     id,
     legacy.kind,
     legacy.data,
@@ -807,6 +821,16 @@ export async function getDashboard(
     legacy.visibility,
     "owner",
   );
+  if (migrated) return migrated;
+  // Another org member may have migrated the same legacy dashboard first. Read
+  // their row through the normal access check so the caller gets their own role.
+  const migratedByOther = await resolveAccess("dashboard", id, {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  return migratedByOther
+    ? rowToDashboard(migratedByOther.resource, migratedByOther.role)
+    : null;
 }
 
 export type DashboardReviewScope =
@@ -939,7 +963,7 @@ export async function listDashboards(
         orgId,
         visibility,
       );
-      out.push(rec);
+      if (rec) out.push(rec);
     }
   } catch {
     // Legacy scan is best-effort.
@@ -1563,6 +1587,20 @@ async function snapshotDashboardRevision(
   return id;
 }
 
+/**
+ * The edit check `upsertDashboard` makes, for callers that must know the
+ * caller can edit before they run anything on the dashboard's behalf.
+ */
+export async function assertDashboardEditable(
+  dashboardId: string,
+  ctx: AccessCtx,
+): Promise<void> {
+  await assertAccess("dashboard", dashboardId, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+}
+
 export async function createDashboardRevisionSnapshot(
   dashboardId: string,
   ctx: AccessCtx,
@@ -1593,17 +1631,24 @@ export async function createDashboardRevisionSnapshot(
  * in between, the fenced UPDATE affects zero rows and this throws
  * `DashboardConflictError` instead of silently clobbering their write. Omit
  * it (the default) to keep the prior unconditional last-write-wins behavior,
- * which existing callers (legacy migration, revision restore, and any
- * one-shot write that isn't a read-modify-write) still rely on.
+ * which existing callers (legacy migration, revision restore, and one-shot
+ * writes) still rely on. Those saves retry the same requested body against the
+ * latest revision so every successful write advances its version token.
  */
-export async function upsertDashboard(
+export interface DashboardUpsertOutcome {
+  dashboard: DashboardRecord;
+  didWrite: boolean;
+}
+
+async function upsertDashboardWithOutcome(
   id: string,
   kind: DashboardKind,
   body: Record<string, unknown>,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
-): Promise<DashboardRecord> {
+): Promise<DashboardUpsertOutcome> {
   const existing = await getDashboard(id, ctx);
+  const observedUpdatedAt = expectedUpdatedAt ?? existing?.updatedAt;
   if (!existing && expectedUpdatedAt !== undefined) {
     throw new DashboardConflictError(id);
   }
@@ -1616,12 +1661,20 @@ export async function upsertDashboard(
       orgId: ctx.orgId ?? undefined,
     });
   }
+  if (
+    existing &&
+    observedUpdatedAt !== undefined &&
+    existing.updatedAt !== observedUpdatedAt
+  ) {
+    throw new DashboardConflictError(id);
+  }
   const changed =
     !existing ||
     existing.kind !== kind ||
     existing.title !== title ||
     stableStringify(existing.config) !== configJson;
-  if (existing && !changed) return existing;
+  if (existing && !changed) return { dashboard: existing, didWrite: false };
+  let persistedDashboard: DashboardRecord | undefined;
   const nameChanged =
     !existing ||
     normalizeDashboardName(existing.title) !== normalizeDashboardName(title);
@@ -1634,31 +1687,27 @@ export async function upsertDashboard(
         kind,
         title,
         config: configJson,
-        updatedAt: nowIso(),
+        updatedAt: nextDashboardVersion(existing.updatedAt),
         updatedBy: ctx.email,
       };
-      if (expectedUpdatedAt !== undefined) {
+      if (observedUpdatedAt !== undefined) {
         // Fenced write. Snapshot the revision only after we know this exact
         // write actually landed — otherwise a lost race would record a
         // revision for a save that never happened.
-        const updateResult = await writeDb
+        const [row] = await writeDb
           .update(schema.dashboards)
           .set(setValues)
           .where(
             and(
               eq(schema.dashboards.id, id),
-              eq(schema.dashboards.updatedAt, expectedUpdatedAt),
+              eq(schema.dashboards.updatedAt, observedUpdatedAt),
             ),
-          );
-        const affected = affectedRowCount(updateResult);
-        if (affected === undefined) {
-          throw new Error(
-            "The Postgres update did not report an affected-row count for the fenced dashboard update.",
-          );
-        }
-        if (affected === 0) {
+          )
+          .returning();
+        if (!row) {
           throw new DashboardConflictError(id);
         }
+        persistedDashboard = rowToDashboard(row);
         if (changed)
           await snapshotDashboardRevision(
             writeDb,
@@ -1674,23 +1723,37 @@ export async function upsertDashboard(
             ctx,
             requestRevisionChatContext(),
           );
-        await writeDb
+        const [row] = await writeDb
           .update(schema.dashboards)
           .set(setValues)
-          .where(eq(schema.dashboards.id, id));
+          .where(eq(schema.dashboards.id, id))
+          .returning();
+        if (!row) {
+          throw new Error(
+            `Dashboard "${id}" disappeared before its update completed.`,
+          );
+        }
+        persistedDashboard = rowToDashboard(row);
       }
     } else {
-      await writeDb.insert(schema.dashboards).values({
-        id,
-        kind,
-        title,
-        config: configJson,
-        ownerEmail: ctx.email,
-        orgId: ctx.orgId,
-        visibility: "private",
-        createdBy: ctx.email,
-        updatedBy: ctx.email,
-      });
+      const [row] = await writeDb
+        .insert(schema.dashboards)
+        .values({
+          id,
+          kind,
+          title,
+          config: configJson,
+          ownerEmail: ctx.email,
+          orgId: ctx.orgId,
+          visibility: "private",
+          createdBy: ctx.email,
+          updatedBy: ctx.email,
+        })
+        .returning();
+      if (!row) {
+        throw new Error(`Dashboard "${id}" insert returned no row.`);
+      }
+      persistedDashboard = rowToDashboard(row);
     }
   };
   if (nameChanged) {
@@ -1705,11 +1768,10 @@ export async function upsertDashboard(
   } else {
     await persist(db);
   }
-  const [row] = await db
-    .select()
-    .from(schema.dashboards)
-    .where(eq(schema.dashboards.id, id));
-  const dashboard = rowToDashboard(row);
+  if (!persistedDashboard) {
+    throw new Error(`Dashboard "${id}" write returned no persisted row.`);
+  }
+  const dashboard = persistedDashboard;
   recordScopedChange(
     "dashboards",
     "change",
@@ -1718,10 +1780,73 @@ export async function upsertDashboard(
     dashboard.orgId,
     dashboard.visibility,
   );
-  return dashboard;
+  return { dashboard, didWrite: true };
+}
+
+export async function upsertDashboardOutcome(
+  id: string,
+  kind: DashboardKind,
+  body: Record<string, unknown>,
+  ctx: AccessCtx,
+  expectedUpdatedAt?: string,
+): Promise<DashboardUpsertOutcome> {
+  return expectedUpdatedAt === undefined
+    ? await upsertDashboardLastWriteWins(id, kind, body, ctx)
+    : await upsertDashboardWithOutcome(id, kind, body, ctx, expectedUpdatedAt);
+}
+
+export async function upsertDashboard(
+  id: string,
+  kind: DashboardKind,
+  body: Record<string, unknown>,
+  ctx: AccessCtx,
+  expectedUpdatedAt?: string,
+): Promise<DashboardRecord> {
+  const outcome = await upsertDashboardOutcome(
+    id,
+    kind,
+    body,
+    ctx,
+    expectedUpdatedAt,
+  );
+  return outcome.dashboard;
 }
 
 export const DASHBOARD_SAVE_MAX_ATTEMPTS = 3;
+
+async function upsertDashboardLastWriteWins(
+  id: string,
+  kind: DashboardKind,
+  body: Record<string, unknown>,
+  ctx: AccessCtx,
+): Promise<DashboardUpsertOutcome> {
+  let lastConflict: unknown;
+  for (let attempt = 0; attempt < DASHBOARD_SAVE_MAX_ATTEMPTS; attempt++) {
+    const existing = await getDashboard(id, ctx);
+    try {
+      return await upsertDashboardWithOutcome(
+        id,
+        kind,
+        body,
+        ctx,
+        existing?.updatedAt,
+      );
+    } catch (err) {
+      if (err instanceof DashboardConflictError) {
+        lastConflict = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  const finalError = new Error(
+    `Could not save dashboard "${id}" after ${DASHBOARD_SAVE_MAX_ATTEMPTS} attempt(s); it kept changing concurrently. Re-read the dashboard and try again.`,
+  );
+  if (lastConflict !== undefined) {
+    (finalError as Error & { cause?: unknown }).cause = lastConflict;
+  }
+  throw finalError;
+}
 
 /**
  * Read-modify-write helper for the four action call sites that fetch a
@@ -1742,7 +1867,7 @@ export const DASHBOARD_SAVE_MAX_ATTEMPTS = 3;
  * times before failing loud with a clear error so callers never silently
  * drop a write or loop forever.
  */
-export async function upsertDashboardWithRetry(
+export async function upsertDashboardWithRetryOutcome(
   id: string,
   ctx: AccessCtx,
   mutate: (existing: DashboardRecord) =>
@@ -1755,7 +1880,7 @@ export async function upsertDashboardWithRetry(
         body: Record<string, unknown>;
       }>,
   maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
-): Promise<DashboardRecord> {
+): Promise<DashboardUpsertOutcome> {
   let lastConflict: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const existing = await getDashboard(id, ctx);
@@ -1767,7 +1892,13 @@ export async function upsertDashboardWithRetry(
     const result = await mutate(existing);
     const { kind, body } = result;
     try {
-      return await upsertDashboard(id, kind, body, ctx, existing.updatedAt);
+      return await upsertDashboardWithOutcome(
+        id,
+        kind,
+        body,
+        ctx,
+        existing.updatedAt,
+      );
     } catch (err) {
       if (err instanceof DashboardConflictError) {
         lastConflict = err;
@@ -1783,6 +1914,29 @@ export async function upsertDashboardWithRetry(
     (finalError as Error & { cause?: unknown }).cause = lastConflict;
   }
   throw finalError;
+}
+
+export async function upsertDashboardWithRetry(
+  id: string,
+  ctx: AccessCtx,
+  mutate: (existing: DashboardRecord) =>
+    | {
+        kind: DashboardKind;
+        body: Record<string, unknown>;
+      }
+    | Promise<{
+        kind: DashboardKind;
+        body: Record<string, unknown>;
+      }>,
+  maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
+): Promise<DashboardRecord> {
+  const outcome = await upsertDashboardWithRetryOutcome(
+    id,
+    ctx,
+    mutate,
+    maxAttempts,
+  );
+  return outcome.dashboard;
 }
 
 function nextDashboardVersion(updatedAt: string): string {
@@ -2385,7 +2539,7 @@ async function migrateAnalysisFromSettings(
   orgId: string | null,
   visibility: AnalysisRecord["visibility"],
   role?: AccessRole,
-): Promise<AnalysisRecord> {
+): Promise<AnalysisRecord | null> {
   const db = getDb() as any;
   const createdAt =
     (typeof data.createdAt === "string" && data.createdAt) || nowIso();
@@ -2410,10 +2564,12 @@ async function migrateAnalysisFromSettings(
       updatedAt,
     })
     .onConflictDoNothing();
+  // guard:allow-unscoped — read-after-write; see isMigratedLegacyRow.
   const [row] = await db
     .select()
     .from(schema.analyses)
     .where(eq(schema.analyses.id, id));
+  if (!isMigratedLegacyRow(row, ownerEmail, orgId)) return null;
   const analysis = rowToAnalysis(row, role);
   recordScopedChange(
     "analyses",
@@ -2437,7 +2593,7 @@ export async function getAnalysis(
   if (access) return rowToAnalysis(access.resource, access.role);
   const legacy = await findLegacyAnalysis(id, ctx);
   if (!legacy) return null;
-  return migrateAnalysisFromSettings(
+  const migrated = await migrateAnalysisFromSettings(
     id,
     legacy.data,
     legacy.ownerEmail,
@@ -2445,6 +2601,15 @@ export async function getAnalysis(
     legacy.visibility,
     "owner",
   );
+  if (migrated) return migrated;
+  // Another org member may have migrated the same legacy analysis first.
+  const migratedByOther = await resolveAccess("analysis", id, {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  return migratedByOther
+    ? rowToAnalysis(migratedByOther.resource, migratedByOther.role)
+    : null;
 }
 
 export type AnalysisReviewScope = DashboardReviewScope;
@@ -2537,7 +2702,7 @@ export async function listAnalyses(
       orgId,
       visibility,
     );
-    out.push(rec);
+    if (rec) out.push(rec);
   }
   return out;
 }
@@ -3115,16 +3280,21 @@ export interface DashboardViewRecord {
   dashboardId: string;
   name: string;
   filters: Record<string, string>;
+  isDefault: boolean;
   createdBy: string | null;
   createdAt: string;
 }
 
 function rowToView(row: any): DashboardViewRecord {
+  if (typeof row.isDefault !== "boolean") {
+    throw new Error("Dashboard view is missing its default status");
+  }
   return {
     id: row.id,
     dashboardId: row.dashboardId,
     name: row.name,
     filters: safeJsonParse(row.filters, {} as Record<string, string>),
+    isDefault: row.isDefault,
     createdBy: row.createdBy ?? null,
     createdAt: row.createdAt,
   };
@@ -3146,7 +3316,7 @@ export async function listDashboardViews(
   if (!access) {
     const legacy = await findLegacyDashboard(dashboardId, ctx);
     if (!legacy) return [];
-    await migrateDashboardFromSettings(
+    const migrated = await migrateDashboardFromSettings(
       dashboardId,
       legacy.kind,
       legacy.data,
@@ -3155,6 +3325,18 @@ export async function listDashboardViews(
       legacy.visibility,
       "owner",
     );
+    // Another org member may have migrated the same legacy dashboard first.
+    if (
+      !migrated &&
+      !(await resolveAccess(
+        "dashboard",
+        dashboardId,
+        { userEmail: ctx.email, orgId: ctx.orgId ?? undefined },
+        { skipResourceBody: true },
+      ))
+    ) {
+      return [];
+    }
   }
   const db = getDb() as any;
   const rows = await db
@@ -3166,7 +3348,12 @@ export async function listDashboardViews(
 
 export async function saveDashboardView(
   dashboardId: string,
-  view: { id?: string; name: string; filters: Record<string, string> },
+  view: {
+    id?: string;
+    name: string;
+    filters: Record<string, string>;
+    isDefault?: boolean;
+  },
   ctx: AccessCtx,
 ): Promise<DashboardViewRecord> {
   await assertAccess("dashboard", dashboardId, "editor", {
@@ -3174,55 +3361,80 @@ export async function saveDashboardView(
     orgId: ctx.orgId ?? undefined,
   });
   const db = getDb() as any;
-  let id = view.id ?? nanoidFallback();
-  let existing = false;
-  if (view.id) {
-    const [existingRow] = await db
-      .select({
-        id: schema.dashboardViews.id,
-        dashboardId: schema.dashboardViews.dashboardId,
-      })
-      .from(schema.dashboardViews)
-      .where(eq(schema.dashboardViews.id, view.id))
-      .limit(1);
-    if (existingRow?.dashboardId === dashboardId) {
-      existing = true;
-    } else if (existingRow) {
-      id = nanoidFallback();
+  const row = await db.transaction(async (tx: any) => {
+    if (view.isDefault) {
+      await tx
+        .select({ id: schema.dashboards.id })
+        .from(schema.dashboards)
+        .where(eq(schema.dashboards.id, dashboardId))
+        .for("update");
+      await tx
+        .update(schema.dashboardViews)
+        .set({ isDefault: false })
+        .where(
+          and(
+            eq(schema.dashboardViews.dashboardId, dashboardId),
+            eq(schema.dashboardViews.isDefault, true),
+          ),
+        );
     }
-  }
 
-  if (existing) {
-    await db
-      .update(schema.dashboardViews)
-      .set({ name: view.name, filters: JSON.stringify(view.filters) })
+    let id = view.id ?? nanoidFallback();
+    let existing = false;
+    if (view.id) {
+      const [existingRow] = await tx
+        .select({
+          id: schema.dashboardViews.id,
+          dashboardId: schema.dashboardViews.dashboardId,
+        })
+        .from(schema.dashboardViews)
+        .where(eq(schema.dashboardViews.id, view.id))
+        .limit(1);
+      if (existingRow?.dashboardId === dashboardId) {
+        existing = true;
+      } else if (existingRow) {
+        id = nanoidFallback();
+      }
+    }
+
+    if (existing) {
+      await tx
+        .update(schema.dashboardViews)
+        .set({
+          name: view.name,
+          filters: JSON.stringify(view.filters),
+          ...(view.isDefault ? { isDefault: true } : {}),
+        })
+        .where(
+          and(
+            eq(schema.dashboardViews.id, id),
+            eq(schema.dashboardViews.dashboardId, dashboardId),
+          ),
+        );
+    } else {
+      await tx.insert(schema.dashboardViews).values({
+        id,
+        dashboardId,
+        name: view.name,
+        filters: JSON.stringify(view.filters),
+        isDefault: view.isDefault === true,
+        createdBy: ctx.email || null,
+      });
+    }
+    const [saved] = await tx
+      .select()
+      .from(schema.dashboardViews)
       .where(
         and(
           eq(schema.dashboardViews.id, id),
           eq(schema.dashboardViews.dashboardId, dashboardId),
         ),
       );
-  } else {
-    await db.insert(schema.dashboardViews).values({
-      id,
-      dashboardId,
-      name: view.name,
-      filters: JSON.stringify(view.filters),
-      createdBy: ctx.email || null,
-    });
-  }
-  const [row] = await db
-    .select()
-    .from(schema.dashboardViews)
-    .where(
-      and(
-        eq(schema.dashboardViews.id, id),
-        eq(schema.dashboardViews.dashboardId, dashboardId),
-      ),
-    );
-  if (!row) {
-    throw new Error("Dashboard view was not persisted");
-  }
+    if (!saved) {
+      throw new Error("Dashboard view was not persisted");
+    }
+    return saved;
+  });
   const dash = await getDashboard(dashboardId, ctx);
   if (dash) {
     recordScopedChange(

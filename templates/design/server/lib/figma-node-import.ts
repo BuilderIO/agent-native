@@ -367,7 +367,7 @@ async function mirrorFigmaImageUrls(
       }
       if (!uploaded?.url || /^(?:data|blob):/i.test(uploaded.url)) {
         failFigmaImport(
-          "Figma import needs durable file storage for rendered images. Connect Builder.io (free tier available) in Settings > File uploads, or configure S3, R2, GCS, or another file upload provider, then try again. No image bytes were stored in SQL.",
+          "Figma import needs durable file storage for rendered images. Use Builder.io (free tier available) in Settings > File uploads, or configure S3, R2, GCS, or another file upload provider, then try again. No image bytes were stored in SQL.",
           FIGMA_IMPORT_ERROR_CODES.storageUnavailable,
         );
       }

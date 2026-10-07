@@ -25,6 +25,25 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  useOnboarding: () => ({
+    loading: false,
+    error: null,
+    profile: {
+      capabilities: [
+        {
+          id: "decision-model",
+          label: "Decision model",
+          builderIncluded: true,
+          service: "decision-model",
+          whyKey: "decisionModel.why",
+          why: "The agent can use a decision model.",
+        },
+      ],
+    },
+  }),
+}));
+
 // The real consent popover, so these tests prove the card's account creation
 // goes through it rather than through a stand-in.
 vi.mock("@agent-native/toolkit/app/settings", async (importOriginal) => ({
@@ -133,9 +152,7 @@ describe("StorageSetupCard", () => {
   it("shows one Builder action and no inline terms or icons", async () => {
     await renderCard();
 
-    expect(container.textContent).toContain(
-      "storageSetup.createBuilderAccount",
-    );
+    expect(container.textContent).toContain("agentChat.setup.connectBuilder");
     expect(container.textContent).toContain("storageSetup.description");
     expect(container.textContent).not.toContain(CONSENT);
     expect(container.querySelector('a[href*="builder.io/legal"]')).toBeNull();
@@ -156,9 +173,7 @@ describe("StorageSetupCard", () => {
       flowState({ accountExists: true }),
     );
     await renderCard();
-    expect(container.textContent).toContain(
-      "storageSetup.signInWithBuilderAccount",
-    );
+    expect(container.textContent).toContain("agentChat.setup.connectBuilder");
   });
 
   it("creates an account only from the consent popover", async () => {
@@ -173,6 +188,25 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: true,
     });
+  });
+
+  it("expands included services with help tooltips in the shared popover", async () => {
+    await renderCard();
+
+    await clickConnect();
+    const includedServices = bodyButton(
+      "agentChat.onboarding.builderLlmCreditsAndMoreServices",
+    );
+    expect(includedServices).toBeDefined();
+
+    await act(async () => includedServices?.click());
+
+    expect(document.body.textContent).toContain("Decision model");
+    expect(
+      document.body.querySelector(
+        'button[aria-label="agentChat.onboarding.capability.about"]',
+      ),
+    ).toBeDefined();
   });
 
   it("keeps connecting an existing account in the popover", async () => {
@@ -198,14 +232,18 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("signs in without a popover when account creation is unavailable", async () => {
+  it("keeps the chooser and disables activation when provisioning is unavailable", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ agentNativeProvisioningEnabled: false }),
     );
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
+    expect(document.body.textContent).toContain(CONSENT);
+    expect(bodyButton(CREATE)?.disabled).toBe(true);
+    expect(bodyButton(EXISTING_ACCOUNT)?.disabled).toBe(false);
+
+    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
     });
@@ -221,36 +259,47 @@ describe("StorageSetupCard", () => {
     await renderCard();
 
     await clickConnect();
-    expect(mocks.retry).toHaveBeenCalledOnce();
+    expect(document.body.textContent).toContain(CONSENT);
+    expect(bodyButton(CREATE)?.disabled).toBe(true);
+    expect(bodyButton(EXISTING_ACCOUNT)?.disabled).toBe(false);
+    expect(mocks.retry).not.toHaveBeenCalled();
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("offers Log in when account creation found an existing account", async () => {
+  it("keeps the same two-choice popover when activation finds an existing account", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ accountExists: true }),
     );
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
-    await act(async () => bodyButton("agentChat.auth.logIn")?.click());
+    expect(document.body.textContent).toContain(CONSENT);
+    expect(document.body.textContent).toContain(
+      "agentChat.onboarding.builderIncludedFree",
+    );
+    expect(bodyButton(CREATE)).toBeDefined();
+    expect(bodyButton(EXISTING_ACCOUNT)).toBeDefined();
+    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
     });
   });
 
-  it("offers Log in for an existing Builder credential", async () => {
+  it("keeps the same two-choice popover for an existing Builder credential", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ configured: true, credentialSource: "user" }),
     );
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
-    expect(bodyButton("agentChat.auth.logIn")).toBeDefined();
-    expect(bodyButton(CREATE)).toBeUndefined();
+    expect(document.body.textContent).toContain(CONSENT);
+    expect(document.body.textContent).toContain(
+      "agentChat.onboarding.builderIncludedFree",
+    );
+    expect(bodyButton(CREATE)).toBeDefined();
+    expect(bodyButton(EXISTING_ACCOUNT)).toBeDefined();
 
-    await act(async () => bodyButton("agentChat.auth.logIn")?.click());
+    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
     });
@@ -421,7 +470,7 @@ describe("StorageSetupCard", () => {
       statusReadSettledCount: 1,
       hasFetchedStatus: true,
       error:
-        "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder again.",
+        "Couldn't open Builder from this chat host. Open this app in a browser tab and try Use Builder.io again.",
     });
 
     act(() => {

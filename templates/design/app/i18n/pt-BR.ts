@@ -216,7 +216,7 @@ export default {
       tokenLabel: "Token de acesso do Figma",
       tokenPlaceholder: "Cole o token de acesso do Figma",
       connecting: "Conectando…",
-      connect: "Conectar",
+      connect: "Conectar ao Figma",
       getToken: "Obter token",
       importFrame: "Importar frame",
       chooseFrame: "Escolher frame",
@@ -1374,6 +1374,16 @@ export default {
         "A captura PNG não está disponível em visualizações somente leitura",
       pngSaveError: "Não foi possível salvar PNG",
       pngExportError: "Não foi possível exportar PNG",
+      exportTooLarge:
+        "A exportação é grande demais. As solicitações têm limite de 5 MB; reduza os recursos incorporados ou as dimensões rasterizadas e tente novamente.",
+      exportResourcesUnavailable:
+        "Não foi possível renderizar a exportação com precisão porque uma ou mais imagens, fontes ou folhas de estilo estão indisponíveis. Verifique esses recursos e tente novamente.",
+      exportTimedOut:
+        "A exportação atingiu o tempo limite. Tente novamente ou reduza o tamanho do design.",
+      exportBusy:
+        "Outra exportação está sendo renderizada. Aguarde um momento e tente novamente.",
+      exportChromiumUnavailable:
+        "A exportação está indisponível porque o renderizador não conseguiu iniciar. Tente novamente mais tarde.",
       pdfExportError: "Não foi possível exportar PDF",
       pdfDownloaded: "PDF baixado",
       pdfAllScreensDownloaded: "PDF baixado (todas as telas)",
@@ -1583,6 +1593,8 @@ export default {
     assetAdded: "Recurso adicionado",
     assetsNoImageUrl: "Assets não retornou uma URL de imagem.",
     failedToUploadFile: "Falha ao carregar o arquivo",
+    imageAttachmentUnavailable:
+      "Não foi possível preparar esta imagem como referência visual. Anexe um arquivo PNG, JPG, GIF ou WebP menor.",
     attachmentsTooLarge:
       "Esses anexos são grandes demais. Os envios são limitados a {{max}} MB no total — anexe menos arquivos ou arquivos menores.",
     failedToSubmitPrompt: "Não foi possível enviar o prompt",
@@ -1744,8 +1756,8 @@ export default {
     designPromptTitle: "Vamos criar seu primeiro design",
     recent: "Recentes",
     browseAllTemplates: "Ver todos",
-    connectBuilderIo: "Conectar o Builder.io",
-    connectingBuilder: "Conectando ao Builder.io…",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando o Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "Pesquisar desenhos...",
     newDesign: "Novo Design",
@@ -1755,6 +1767,9 @@ export default {
     allAuthors: "Todos os autores",
     me: "Eu",
     designFilter: "Filtro de designs",
+    ownedByAnyone: "De qualquer pessoa",
+    ownedByMe: "Meus",
+    sharedWithMe: "Compartilhado comigo",
     mine: "Meus",
     all: "Todos",
     showMineDesigns: "Mostrar meus designs",
@@ -1789,6 +1804,7 @@ export default {
       "Escolha um ponto de partida ou escreva seu próprio prompt.",
     searchNoResultsTitle: "Nenhum design corresponde a esta busca",
     searchNoResultsDescription: "Tente outra busca.",
+    noDesignsMatchFilter: "Nenhum design corresponde ao filtro atual.",
     starterSaas: "Página de destino SaaS",
     starterDashboard: "Painel",
     starterPricing: "Página de preços",
@@ -2018,6 +2034,15 @@ export default {
       "A indexação de código e repositórios requer o plano Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "Os sistemas de design chegarão em breve",
+    waitlist: {
+      join: "Entrar na lista de espera",
+      joining: "Entrando…",
+      joined: "Você entrou na lista de espera",
+      error: "Não foi possível entrar na lista de espera. Tente novamente.",
+      unavailable:
+        "A inscrição na lista de espera não está disponível agora. Tente novamente mais tarde.",
+    },
     deleteError: "Não foi possível excluir o sistema de design",
     updateSuccess: "Sistema de design atualizado",
     updateError: "Não foi possível atualizar o sistema de design",

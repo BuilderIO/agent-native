@@ -106,6 +106,7 @@ import {
   MissingAuthSecretError,
 } from "./deploy-settings.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import { emailAuthLinkLandingUrl } from "./email-auth-links.js";
 import {
   getDeploymentEmailReadiness,
   sendEmail,
@@ -2176,7 +2177,8 @@ async function createBetterAuthInstance(
           urlQueryKeys,
         });
       }
-      const deliveredMagicLinkUrl = desktopMagicLinkLandingUrl(url) ?? url;
+      const deliveredMagicLinkUrl =
+        desktopMagicLinkLandingUrl(url) ?? emailAuthLinkLandingUrl(url) ?? url;
       const { subject, html, text, appSender } = await renderTransactionalEmail(
         CORE_MAGIC_LINK_EMAIL_ID,
         {
@@ -2192,6 +2194,7 @@ async function createBetterAuthInstance(
         appSender,
         disableClickTracking: true,
         templateId: CORE_MAGIC_LINK_EMAIL_ID,
+        authCritical: true,
       });
     },
   });
@@ -2232,6 +2235,7 @@ async function createBetterAuthInstance(
           appSender,
           disableClickTracking: true,
           templateId: CORE_RESET_PASSWORD_EMAIL_ID,
+          authCritical: true,
         });
       },
     },
@@ -2239,14 +2243,7 @@ async function createBetterAuthInstance(
       sendOnSignUp: requireEmailVerification,
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url, token }) => {
-        const verifyBasePath = (
-          process.env.VITE_APP_BASE_PATH ||
-          process.env.APP_BASE_PATH ||
-          ""
-        ).replace(/\/$/, "");
-        const verifyUrl = verifyBasePath
-          ? url.replace(/(\/\/[^/]+)(\/)/, `$1${verifyBasePath}$2`)
-          : url;
+        const deliveredVerifyUrl = emailAuthLinkLandingUrl(url) ?? url;
         const emailChange = await verifiedEmailChangeFromToken(
           token,
           secret,
@@ -2261,7 +2258,7 @@ async function createBetterAuthInstance(
           emailChange
             ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
             : CORE_VERIFY_SIGNUP_EMAIL_ID,
-          { email: user.email, verifyUrl },
+          { email: user.email, verifyUrl: deliveredVerifyUrl },
         );
         await sendEmail({
           to: user.email,
@@ -2270,6 +2267,7 @@ async function createBetterAuthInstance(
           templateId: emailChange
             ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
             : CORE_VERIFY_SIGNUP_EMAIL_ID,
+          authCritical: true,
         });
       },
       afterEmailVerification: async (user, request) => {
@@ -2305,10 +2303,7 @@ async function createBetterAuthInstance(
         updateEmailWithoutVerification: false,
         sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
           await preflightEmailIdentityRekey(user.email, newEmail);
-          const confirmationBasePath = getConfiguredAppBasePath();
-          const confirmationUrl = confirmationBasePath
-            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${confirmationBasePath}$2`)
-            : url;
+          const confirmationUrl = emailAuthLinkLandingUrl(url) ?? url;
           const renderedEmail = await renderTransactionalEmail(
             CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
             { email: user.email, newEmail, confirmationUrl },
@@ -2318,6 +2313,7 @@ async function createBetterAuthInstance(
             ...renderedEmail,
             disableClickTracking: true,
             templateId: CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+            authCritical: true,
           });
         },
       },
@@ -2525,6 +2521,8 @@ async function createBetterAuthInstance(
     },
     advanced: {
       cookiePrefix: cookieNamespace.betterAuthCookiePrefix,
+      // Keep callback URL validation active in test runs as well as production.
+      disableOriginCheck: false,
       ...(appUrl.startsWith("https://") || isBuilderPreviewHttpsEnvironment()
         ? {
             defaultCookieAttributes: {
@@ -2586,8 +2584,12 @@ export async function buildDatabaseConfig(): Promise<
   assertHostedRuntimeDatabase();
 
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
-  const { buildResilientNeonPool, buildResilientPostgresJsClient, isNeonUrl } =
-    await import("../db/create-get-db.js");
+  const {
+    buildResilientNeonPool,
+    buildResilientPostgresJsClient,
+    isNeonUrl,
+    scopeDbToPoolTransactions,
+  } = await import("../db/create-get-db.js");
 
   if (isPgliteUrl(url)) {
     const { drizzle } = await loadPgliteDrizzle();
@@ -2614,9 +2616,12 @@ export async function buildDatabaseConfig(): Promise<
     );
     guardNeonPool(_neonAuthPool, url, "db/neon-auth");
     const { drizzle } = await import("drizzle-orm/neon-serverless");
-    const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
-      schema: pgAuthSchema,
-    });
+    const db = scopeDbToPoolTransactions(
+      drizzle(buildResilientNeonPool(_neonAuthPool), {
+        schema: pgAuthSchema,
+      }),
+      _neonAuthPool,
+    );
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
       provider: "pg",
@@ -2631,9 +2636,12 @@ export async function buildDatabaseConfig(): Promise<
     postgres(url, pgPoolOptions(url)),
   );
   const { drizzle } = await import("drizzle-orm/postgres-js");
-  const db = drizzle(buildResilientPostgresJsClient(sql), {
-    schema: pgAuthSchema,
-  });
+  const db = scopeDbToPoolTransactions(
+    drizzle(buildResilientPostgresJsClient(sql), {
+      schema: pgAuthSchema,
+    }),
+    sql,
+  );
   const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
   return drizzleAdapter(db, {
     provider: "pg",

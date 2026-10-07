@@ -352,6 +352,7 @@ const messages = {
     googleSlidesCreated: "تم الفتح في Google Slides",
     googleSlidesCreatedHint:
       "تم إنشاء نسخة من هذا العرض في Google Drive الخاص بك.",
+    googleSlidesGoTo: "الانتقال إلى Google Slides",
     duplicateDeck: "تكرار العرض",
   },
   share: {
@@ -438,7 +439,12 @@ const messages = {
     resolveThread: "حل المحادثة",
     reopenThread: "إعادة فتح المحادثة",
     hideReplies: "إخفاء الردود",
-    replyCount: "{{count}} ردود",
+    replyCount_zero: "{{count}} ردود",
+    replyCount_one: "{{count}} رد",
+    replyCount_two: "{{count}} ردان",
+    replyCount_few: "{{count}} ردود",
+    replyCount_many: "{{count}} ردًا",
+    replyCount_other: "{{count}} رد",
     title: "التعليقات",
     addComment: "إضافة تعليق",
     close: "إغلاق",
@@ -978,8 +984,8 @@ const messages = {
           "اقرأ موقع الشركة المقدم وأنشئ عرضًا عن الشركة. أبلغ عن تعذر الوصول بدلًا من اختلاق الحقائق.",
       },
     },
-    connectBuilderIo: "ربط Builder.io",
-    connectingBuilder: "جارٍ ربط Builder.io…",
+    connectBuilderIo: "استخدم Builder.io",
+    connectingBuilder: "جارٍ إعداد Builder.io…",
     recent: "الأخيرة",
     starters: {
       pitch: {
@@ -1017,9 +1023,13 @@ const messages = {
     all: "الكل",
     showMineDecks: "إظهار العروض التي أنشأتها",
     mine: "عروضي",
+    ownedByAnyone: "مملوك لأي شخص",
+    ownedByMe: "مملوك لي",
+    sharedWithMe: "تمت مشاركته معي",
     createDeckOrVisual: "إنشاء عرض تقديمي",
     noMineDecks: "لم تنشئ أي عروض بعد.",
     noDecksMatchSearch: "لا تتطابق أي عروض مع بحثك.",
+    noDecksMatchFilter: "لا تتطابق أي عروض مع عامل التصفية الحالي.",
     deleteDeckTitle: "حذف العرض؟",
     deleteDeckDescription:
       "سيؤدي هذا إلى حذف هذا العرض وكل شرائحه نهائيًا. لا يمكن التراجع عن هذا الإجراء.",

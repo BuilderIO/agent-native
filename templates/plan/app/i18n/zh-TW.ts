@@ -179,6 +179,7 @@ const messages = {
       changeStatistics: "變更統計",
       untitledPlan: "未命名計畫",
       saveFailed: "無法儲存",
+      openFailed: "無法開啟此計畫進行編輯。請重新整理頁面後再試一次。",
     },
     imageViewer: {
       actualSize: "實際大小",
@@ -461,7 +462,12 @@ const messages = {
       signInWithEmail: "使用電子郵件登入",
       signedInAs: "登入身分",
       switchAccount: "切換帳戶",
-      verifyEmail: "檢查您的電子郵件以驗證帳戶，然後重新開啟此連結。",
+      verifyEmail:
+        "請檢查您的電子郵件並開啟驗證連結。驗證後會返回此計畫；若系統要求登入，請在下方使用相同電子郵件登入。",
+      resendVerification: "重新寄送驗證郵件",
+      resendingVerification: "正在傳送驗證郵件…",
+      verificationEmailResent: "驗證郵件已寄出。",
+      verificationEmailFailed: "無法重新寄送驗證郵件，請重試。",
     },
     localMode: {
       badge: "本機模式",

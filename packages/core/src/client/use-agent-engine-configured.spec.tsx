@@ -494,6 +494,38 @@ describe("useAgentEngineConfigured", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("rechecks after a passive probe is superseded by a fresh preflight", async () => {
+    let resolvePassive!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolvePassive = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ chatEligible: false }));
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    await expect(
+      fetchAgentEngineConfiguredState(true, { fresh: true }),
+    ).resolves.toBe("missing");
+    resolvePassive(jsonResponse({ chatEligible: true }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe("missing");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("retries a failed check instead of latching a dead state", async () => {
     vi.useFakeTimers();
     let failing = true;

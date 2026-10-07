@@ -199,8 +199,8 @@ describe("/api/uploads/:recordingId/abort route", () => {
     );
   });
 
-  it("classifies aborts without a normalized cause as unknown", async () => {
-    mockReadBody.mockResolvedValue({ failureCode: "upload_failed" });
+  it("classifies aborts without a normalized cause as upload-aborted", async () => {
+    mockReadBody.mockResolvedValue({});
 
     await handler({} as any);
 
@@ -208,7 +208,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
       expect.arrayContaining([
         expect.objectContaining({
           status: "failed",
-          failureCode: "unknown",
+          failureCode: "upload_aborted",
           failureReason: "unknown",
         }),
       ]),
@@ -238,7 +238,22 @@ describe("/api/uploads/:recordingId/abort route", () => {
 
     expect(mockUpdateSets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ failureCode: "unknown" }),
+        expect.objectContaining({ failureCode: "upload_aborted" }),
+      ]),
+    );
+  });
+
+  it("classifies a legacy interruption as recording-interrupted", async () => {
+    mockReadBody.mockResolvedValue({
+      reason: "Recording interruption has unknown cause",
+      failureCode: "unknown",
+    });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ failureCode: "recording_interrupted" }),
       ]),
     );
   });
@@ -440,6 +455,21 @@ describe("/api/uploads/:recordingId/abort route", () => {
       "<!DOCTYPE html>",
     );
     expect(JSON.stringify(mockUpdateSets)).not.toContain("<!DOCTYPE html>");
+  });
+
+  it("keeps HTML responses classified when the abort payload has no useful code", async () => {
+    mockReadBody.mockResolvedValue({
+      reason: "Upload failed: <!DOCTYPE html><html>",
+      failureCode: "unknown",
+    });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ failureCode: "chunk_html_error" }),
+      ]),
+    );
   });
 
   it("does not let an older client abort durable media verification", async () => {

@@ -6,6 +6,11 @@ import {
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 
+import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../shared/session-events.js";
+import {
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+  SESSION_REPLAY_VITALS_EVENT_TAG,
+} from "../../shared/session-performance.js";
 import {
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
   SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
@@ -465,6 +470,12 @@ function capReplayTimelineMarkers(
   return [...kept].sort((a, b) => a.offsetMs - b.offsetMs);
 }
 
+const SESSIONS_TRIAGE_MARKER_TAGS = new Set<string>([
+  SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+  SESSION_REPLAY_VITALS_EVENT_TAG,
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+]);
+
 function buildReplayTimeline(events: AgentReplayEvent[]) {
   const startedAt = replayStartedAt(events);
   const markers: ReplayTimelineMarker[] = [];
@@ -564,7 +575,13 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         label: event.data.type === MOUSE_INTERACTION.Focus ? "Focus" : "Click",
         detail: null,
       });
-    } else if (event.type === RRWEB_EVENT_TYPE.Custom) {
+    } else if (
+      event.type === RRWEB_EVENT_TYPE.Custom &&
+      // App event, Web Vitals and slow-request markers belong to the Sessions
+      // triage Lab; agent timelines keep their existing shape until that Lab
+      // covers agent surfaces.
+      !SESSIONS_TRIAGE_MARKER_TAGS.has(String(event.data?.tag))
+    ) {
       markers.push({
         timestamp,
         offsetMs: Math.max(0, timestamp - startedAt),
@@ -621,12 +638,12 @@ export function verifySessionReplayAgentAccess(
 export function resolveSessionReplayAgentAccess(
   recordingId: string,
   token: string,
-): { viewerEmail: string } | null {
+): { viewerEmail?: string } | null {
   const result = verifyScopedAgentAccessToken(token, {
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recordingId,
   });
-  if (!result.ok || !result.viewerEmail) return null;
+  if (!result.ok) return null;
   return { viewerEmail: result.viewerEmail };
 }
 
@@ -643,7 +660,6 @@ export async function createSessionReplayAgentLink({
   const grant = createScopedAgentAccessGrant({
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recording.id,
-    viewerEmail: scope.userEmail,
     ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
   });
   const resolvedOrigin = appOrigin(origin);

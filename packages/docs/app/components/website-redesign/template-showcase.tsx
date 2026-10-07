@@ -14,14 +14,16 @@ import {
 import { Link } from "react-router";
 
 import { sendAhrefsEvent } from "../../lib/ahrefs-analytics";
-import { BuilderImage } from "../builder-image";
 import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
 import { sitePathForLocale } from "../docs-locale";
-import { APP_ART } from "./app-art";
+import {
+  getScreenshotTileScaleX,
+  TEMPLATE_SCREENSHOTS,
+} from "../template-screenshots";
+import { TemplateScreenshot } from "../TemplateScreenshot";
 import { AppStatusBadge } from "./ds/app-status-badge";
 import { Button } from "./ds/button";
 import { CardArrow } from "./ds/card-arrow";
-import { ImgPlaceholder } from "./ds/img-placeholder";
 import { GridInner, PageSection } from "./page-grid";
 
 const CARD_IMAGE_SIZES = "(max-width: 768px) 320px, 433px";
@@ -33,7 +35,7 @@ const CARD_CLASS = [
 ].join(" ");
 
 interface ShowcaseApp {
-  slug: string;
+  slug: keyof typeof TEMPLATE_SCREENSHOTS;
   name: string;
   href: string;
 }
@@ -143,7 +145,6 @@ export function TemplateShowcase() {
         >
           <div className="app-carousel-track flex w-max border-t border-solid border-[var(--b-border-subtle)]">
             {APPS.map((app) => {
-              const art = APP_ART[app.slug];
               return (
                 <Link
                   key={app.slug}
@@ -155,49 +156,16 @@ export function TemplateShowcase() {
                     })
                   }
                 >
-                  {/* `relative` anchors the theme-img-light overlay, which is
-                    absolutely positioned so it can sit exactly on top of the
-                    in-flow dark variant. */}
-                  <div className="relative flex aspect-[320/256] items-center justify-center overflow-hidden bg-[var(--b-bg-page)]">
-                    {art ? (
-                      <>
-                        {/* Dark variant is the in-flow one so it establishes the
-                          box; the light variant overlays it. Both stay mounted
-                          with real geometry (theme-img-* toggles opacity, not
-                          display) so loading="lazy" will still fetch whichever
-                          one is currently hidden. */}
-                        <BuilderImage
-                          className="theme-img-dark relative h-full w-full object-cover"
-                          src={art.imageDark}
-                          alt={t("templateCard.screenshotAlt", {
-                            name: app.name,
-                          })}
-                          sizes={CARD_IMAGE_SIZES}
-                          crossOrigin="anonymous"
-                          loading="lazy"
-                          decoding="async"
-                        />
-                        <BuilderImage
-                          className="theme-img-light absolute inset-0 h-full w-full object-cover"
-                          src={art.imageLight}
-                          alt={t("templateCard.screenshotAlt", {
-                            name: app.name,
-                          })}
-                          sizes={CARD_IMAGE_SIZES}
-                          crossOrigin="anonymous"
-                          loading="lazy"
-                          decoding="async"
-                        />
-                      </>
-                    ) : (
-                      <ImgPlaceholder
-                        aspectRatio="320 / 256"
-                        label=""
-                        rounded={false}
-                        background="var(--b-bg-raised)"
-                        bordered={false}
-                      />
-                    )}
+                  <div className="relative aspect-[8/5] overflow-hidden bg-[var(--b-bg-page)]">
+                    <TemplateScreenshot
+                      alt={t("templateCard.screenshotAlt", {
+                        name: app.name,
+                      })}
+                      frame={app.slug === "clips"}
+                      scaleX={getScreenshotTileScaleX(app.slug)}
+                      sizes={CARD_IMAGE_SIZES}
+                      variants={TEMPLATE_SCREENSHOTS[app.slug]}
+                    />
                   </div>
                   <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
                     <h3 className="m-0 flex items-center gap-[var(--spacing-2)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">

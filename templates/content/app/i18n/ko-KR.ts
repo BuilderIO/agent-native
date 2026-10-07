@@ -251,7 +251,7 @@ const databaseExactEnglish = {
   analyzingBothSourcesForASharedKey: "正在分析两个来源的共享键",
   bodyDiff: "正文差异",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder 未连接。请先返回并连接你的账户。",
+    "Builder가 연결되지 않았습니다. 돌아가서 먼저 Builder.io를 사용하세요.",
   calendarBy: "日历依据",
   checkingBuilderConnection: "正在检查 Builder 连接",
   clearAll: "全部清除",
@@ -263,7 +263,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "折叠所有分组",
   collapseAll: "全部折叠",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "连接你的 Builder 账户以浏览其空间和模型。",
+    "Builder 계정을 사용해 스페이스와 모델을 둘러보세요.",
   connectedSources: "已连接的来源",
   couldntSyncRetry: "无法同步 · 重试",
   countAll: "全部计数",
@@ -946,8 +946,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "이전 페이지를 더 이상 사용할 수 없어 시작 페이지를 열었습니다.",
-  requestedPageUnavailable:
-    "해당 페이지는 이 계정에서 사용할 수 없어 시작 페이지를 열었습니다.",
   saveFailed: "현재 위치를 저장하지 못했습니다",
   workspaceWelcomeUnavailableTitle: "아직 열린 콘텐츠가 없습니다",
   workspaceWelcomeUnavailableDescription:
@@ -1064,6 +1062,10 @@ const exactEnglish = {
     iconPickerUploading: "업로드 중…",
     suggestionAmendmentEmpty:
       "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
+    suggestionUnplaceable:
+      "이 제안 주변의 텍스트가 변경되어 적용할 수 없습니다. 제안은 계속 대기 중입니다. 거부하거나 수정 사항을 다시 제안하세요.",
+    proposalUnplaceable:
+      "이 제안 중 하나는 주변 텍스트가 변경되어 적용할 수 없으므로 아무것도 적용되지 않았습니다. 모든 제안은 계속 대기 중입니다. 하나씩 수락하거나 거부하세요.",
     suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
     suggestionAmendmentResolved:
       "이 제안은 다른 곳에서 변경되었습니다. 저장하지 않은 초안은 여기에 그대로 있습니다.",
@@ -1337,6 +1339,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "선택된 페이지 없음",
+    pageNoAccess: "이 페이지에 접근 권한이 없습니다",
+    pageMissing: "이 페이지는 존재하지 않습니다",
+    pageInTrash: "이 페이지는 휴지통에 있습니다",
+    pageInTrashAskOwner: "소유자에게 복원을 요청하세요.",
+    openTrash: "휴지통 열기",
+    goToMyPages: "내 페이지로 이동",
     noPageDescription: "사이드바에서 페이지를 선택하거나 새로 만드세요.",
     newPage: "새 페이지",
     createFailed: "페이지를 만들지 못했습니다",

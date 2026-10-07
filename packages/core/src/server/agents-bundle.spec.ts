@@ -4,9 +4,17 @@ import path from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-const labsMock = vi.hoisted(() => ({ getUserLabs: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getUserLabStates: vi.fn(),
+  captureError: vi.fn(),
+}));
 
-vi.mock("../labs/store.js", () => labsMock);
+vi.mock("../labs/store.js", () => ({
+  getUserLabStates: mocks.getUserLabStates,
+}));
+vi.mock("./capture-error.js", () => ({
+  captureError: mocks.captureError,
+}));
 
 import {
   readAgentsBundleFromFs,
@@ -233,6 +241,47 @@ describe("getRuntimeSkills", () => {
       .sort();
     expect(names).toEqual(["b", "r"]);
   });
+
+  it.each([
+    "templates/analytics",
+    "templates/assets",
+    "templates/brain",
+    "templates/calendar",
+    "templates/chat",
+    "templates/clips",
+    "templates/content",
+    "templates/crm",
+    "templates/design",
+    "templates/dispatch",
+    "templates/factory",
+    "templates/forms",
+    "templates/mail",
+    "templates/plan",
+    "templates/slides",
+    "templates/tasks",
+    "packages/core/src/templates/chat",
+    "packages/core/src/templates/default",
+    "packages/core/src/templates/factory",
+    "packages/core/src/templates/headless",
+    "packages/core/src/templates/workspace-core",
+    "packages/core/src/templates/workspace-root",
+  ])("keeps implementation guidance out of runtime skills for %s", (root) => {
+    const implementationSkills = [
+      "delegate-to-agent",
+      "performance",
+      "reliable-mutations",
+      "secrets",
+      "security",
+      "shadcn-ui",
+    ];
+    const runtimeNames = getRuntimeSkills(
+      readAgentsBundleFromFs(repoPath(root)),
+    ).map((item) => item.meta.name);
+
+    expect(runtimeNames).not.toEqual(
+      expect.arrayContaining(implementationSkills),
+    );
+  });
 });
 
 describe("getDevelopmentSkills", () => {
@@ -300,10 +349,23 @@ describe("generateDevelopmentSkillsPromptBlock scope filtering", () => {
 
 describe("per-user Labs skill visibility", () => {
   it("filters gated skills per user without mutating the shared bundle", async () => {
-    labsMock.getUserLabs.mockImplementation(async (email: string) =>
+    mocks.getUserLabStates.mockImplementation(async (email: string) =>
       email === "enabled@example.test"
-        ? { "creative-context.library": true }
-        : { "creative-context.library": false },
+        ? {
+            "creative-context.library": {
+              enabled: true,
+              source: "choice",
+              mixed: false,
+            },
+            "unrelated.corrupt": { error: "invalid-choice" },
+          }
+        : {
+            "creative-context.library": {
+              enabled: false,
+              source: "choice",
+              mixed: false,
+            },
+          },
     );
     const bundle = bundleWith([
       skill("ordinary", "both"),
@@ -330,6 +392,49 @@ describe("per-user Labs skill visibility", () => {
     ]);
     expect(bundle.skills["creative-context"]?.meta.requiresLab).toBe(
       "creative-context.library",
+    );
+  });
+
+  it("suppresses only skills gated by a Lab with an unreadable choice", async () => {
+    mocks.getUserLabStates.mockResolvedValue({
+      "creative-context.library": { error: "invalid-choice" },
+      "clips.recording": {
+        enabled: true,
+        source: "choice",
+        mixed: false,
+      },
+    });
+    const ordinary = skill("ordinary", "both");
+    const creative = {
+      ...skill("creative-context", "both"),
+      meta: {
+        ...skill("creative-context", "both").meta,
+        requiresLab: "creative-context.library",
+      },
+    };
+    const recording = {
+      ...skill("recording-tools", "both"),
+      meta: {
+        ...skill("recording-tools", "both").meta,
+        requiresLab: "clips.recording",
+      },
+    };
+    const bundle = bundleWith([ordinary, creative, recording]);
+
+    await expect(
+      getRuntimeSkillsForUser(bundle, "enabled@example.test"),
+    ).resolves.toEqual([ordinary, recording]);
+    expect(mocks.captureError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Invalid saved lab choice: creative-context.library",
+      }),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          source: "agent-skills",
+          op: "get-enabled-skill-labs",
+          lab: "creative-context.library",
+        }),
+      }),
     );
   });
 
@@ -593,40 +698,33 @@ describe("readAgentsBundleFromFs", () => {
     expect(promptBlock).toContain("[skill-visual-edit]");
   });
 
-  it("exposes workflow packaging skills to the app runtime skill picker", () => {
+  it("exposes build-an-app to the Chat runtime skill picker", () => {
     const bundle = readAgentsBundleFromFs(repoPath("templates", "chat"));
     const runtimeSkills = getRuntimeSkills(bundle);
 
-    for (const name of ["turn-into-app", "turn-into-skill"]) {
-      const skill = runtimeSkills.find(
-        (candidate) => candidate.meta.name === name,
-      );
-      expect(skill, `expected runtime skill ${name}`).toBeDefined();
-      expect(skill!.meta.scope).toBe("both");
-      expect(skill!.meta.description).toContain("Use when");
-    }
-
-    const turnIntoApp = runtimeSkills.find(
-      (candidate) => candidate.meta.name === "turn-into-app",
+    const skill = runtimeSkills.find(
+      (candidate) => candidate.meta.name === "build-an-app",
     );
-    expect(turnIntoApp!.content).toContain(
-      "A fresh Claude or ChatGPT Project is a valid source",
-    );
-    expect(turnIntoApp!.content).toContain(
-      "MCP connector does not read hidden",
-    );
-    expect(turnIntoApp!.content).toContain("Spreadsheet sources");
-    expect(turnIntoApp!.content).toContain(
-      "A Google Sheets URL is not proof the sheet is readable",
-    );
-    expect(turnIntoApp!.content).toContain("Never use a public export URL");
-    expect(turnIntoApp!.extraFiles).toContain("references/fresh-project.md");
-    expect(turnIntoApp!.extraFiles).toContain(
-      "references/spreadsheet-source.md",
-    );
+    expect(skill, "expected runtime skill build-an-app").toBeDefined();
+    expect(skill!.meta.scope).toBe("both");
+    expect(skill!.meta.description).toContain("Use when");
 
     const promptBlock = generateSkillsPromptBlock(bundle);
-    expect(promptBlock).toContain("`turn-into-app`");
-    expect(promptBlock).toContain("`turn-into-skill`");
+    expect(promptBlock).not.toContain("`turn-into-app`");
+    expect(promptBlock).not.toContain("`turn-into-skill`");
+    expect(promptBlock).toContain("`build-an-app`");
+  });
+
+  it("keeps app-creation skills in Dispatch and Factory", () => {
+    for (const template of ["dispatch", "factory"]) {
+      const bundle = readAgentsBundleFromFs(repoPath("templates", template));
+      const runtimeSkills = getRuntimeSkills(bundle);
+
+      expect(
+        runtimeSkills.some(
+          (candidate) => candidate.meta.name === "turn-into-app",
+        ),
+      ).toBe(true);
+    }
   });
 });

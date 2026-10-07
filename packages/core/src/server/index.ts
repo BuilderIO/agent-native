@@ -20,6 +20,7 @@ export {
   type AppConfigInput,
 } from "../app-config/index.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
+export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
@@ -86,6 +87,7 @@ export {
   type VerifyEmbedSessionTokenResult,
 } from "./embed-session.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
+export { isCredentialMembershipUnavailable } from "./credential-membership-unavailable.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,
@@ -179,6 +181,7 @@ export type { AgentActionScope } from "../agent/types.js";
 export {
   actionsToEngineTools,
   executeAgentToolCall,
+  filterInitialEngineTools,
   getJevContextCredentials,
   getOwnerActiveApiKey,
   getOwnerApiKeyForEngine,
@@ -279,6 +282,7 @@ export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
+  loadResourcesForPrompt,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 export { refreshMcpManagerForPrincipal } from "./agent-chat/mcp-glue.js";
@@ -471,6 +475,7 @@ export {
   type ResolvedFrameworkTools,
 } from "../framework-tools.js";
 export {
+  buildCompactSkillsSummary,
   registerPromptContextProvider,
   type PromptContextProvider,
   type PromptContextProviderContext,

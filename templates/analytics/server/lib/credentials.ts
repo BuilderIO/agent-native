@@ -25,6 +25,7 @@ export {
   hasCredential,
   saveCredential,
   deleteCredential,
+  deleteResolvedCredential,
   type CredentialContext,
 } from "@agent-native/core/credentials";
 import {

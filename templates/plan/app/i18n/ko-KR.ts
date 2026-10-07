@@ -183,6 +183,8 @@ const messages = {
       changeStatistics: "变更统计",
       untitledPlan: "未命名计划",
       saveFailed: "无法保存",
+      openFailed:
+        "이 계획을 편집용으로 열 수 없습니다. 페이지를 새로 고친 후 다시 시도하세요.",
     },
     imageViewer: {
       actualSize: "实际大小",
@@ -618,7 +620,13 @@ const messages = {
       orgTitle: "加入 {{orgName}} 以查看此计划",
       createAccountFailed: "无法创建账户。",
       emailSignInFailed: "无法使用邮箱登录。",
-      verifyEmail: "请检查邮箱验证账户，然后重新打开此链接。",
+      verifyEmail:
+        "이메일에서 인증 링크를 열어 주세요. 이 플랜으로 돌아옵니다. 로그인하라는 메시지가 표시되면 아래에서 같은 이메일 주소로 로그인하세요.",
+      resendVerification: "인증 이메일 다시 보내기",
+      resendingVerification: "인증 이메일 보내는 중…",
+      verificationEmailResent: "인증 이메일을 보냈습니다.",
+      verificationEmailFailed:
+        "인증 이메일을 다시 보내지 못했습니다. 다시 시도해 주세요.",
       notFoundTitle: "未找到计划",
       requestAccessTitle: "请求访问此计划",
       signInTitle: "登录以查看此计划",

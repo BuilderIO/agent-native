@@ -125,13 +125,23 @@ const messages: ToolkitAgentChatTranslation = {
     "只要按一下即可建立或重新使用您的 Builder.io 帳戶，並啟用免費額度。",
   "onboarding.builderActiveCredits": "包含於有效的 Builder.io 免費額度",
   "onboarding.builderCredits": "包含於 Builder.io 免費額度",
+  "onboarding.builderIncludedFreeWithAccount":
+    "擁有 Builder.io 帳戶即可免費使用",
+  "onboarding.builderMonthlyCredits": "每月 60 點 Agent Credits",
+  "onboarding.builderIncludedFree": "免費包含",
+  "onboarding.builderMoreServices": "+ {{count}} 項其他服務",
+  "onboarding.builderLlmCredits": "LLM 點數",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM 點數 + {{count}} 項其他服務",
+  "onboarding.builderAccountCreated": "已建立並連結 Builder.io 帳戶。",
+  "onboarding.builderIncludedServices": "包含的服務",
   "onboarding.builderActivateTitle": "啟用免費額度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 帳戶",
-  "onboarding.builderAccountExistsDescription": "登入以連接該帳戶。",
+  "onboarding.builderAccountExistsDescription": "登入以使用您的帳戶。",
   "onboarding.builderActivationDescription":
-    "我們會按一下自動為您建立 Builder.io 帳戶。",
+    "按一下即可建立或連接 Builder.io 帳戶，取得免費額度。",
   "onboarding.builderOrgActivationDescription":
-    "我們會一鍵為您建立 Builder.io 帳戶，並為您的組織連接它。",
+    "我們會一鍵建立您的 Builder.io 帳戶，讓您的組織可以使用。",
   "onboarding.builderCreateAndActivate": "建立並啟用",
   "onboarding.builderConsentPrefix": "建立 Builder.io 帳戶即表示您同意我們的",
   "onboarding.builderTerms": "服務條款",
@@ -139,9 +149,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
-  "onboarding.builderConnecting": "正在連線至 Builder.io 免費額度",
+  "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
   "onboarding.builderProvisioningDescription":
-    "正在建立或重新使用您的 Builder.io 帳戶，通常需要幾秒鐘。",
+    "正在建立您的 Builder.io 帳戶並啟用免費額度。",
   "onboarding.builderConnectionDescription": "在新視窗中按一下即可完成連線。",
   "onboarding.builderReadyWithCodeChanges":
     "AI 點數與雲端程式碼變更已準備就緒。",
@@ -150,11 +160,14 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "開啟背景代理程式設定",
   "onboarding.capability.llm.keySummary": "連線您自己的 AI 模型",
   "onboarding.capability.fileStorage.keySummary": "檔案上傳與儲存",
+  "onboarding.capability.llm.why": "代理程式使用語言模型理解要求並產生回答。",
+  "onboarding.capability.fileStorage.why":
+    "儲存上傳的圖片和檔案，讓代理程式能在對話中再次使用。",
   "onboarding.fileStorage.title": "連接儲存空間以上傳檔案",
   "onboarding.fileStorage.statusUnavailable": "無法檢查儲存空間",
   "onboarding.fileStorage.description":
-    "連接 Builder.io（免費）或設定自己的相容 S3 物件儲存空間。",
-  "onboarding.fileStorage.reconnectBuilder": "重新連接 Builder.io",
+    "使用 Builder.io（免費）或設定自己的相容 S3 物件儲存空間。",
+  "onboarding.fileStorage.reconnectBuilder": "使用 Builder.io",
   "onboarding.fileStorage.custom": "使用自訂金鑰",
   "onboarding.fileStorage.customDescription":
     "設定具有穩定公開 URL 的相容 S3 儲存桶。",
@@ -166,6 +179,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
+  "onboarding.capability.systemOne.why":
+    "Jev 是一個選用的決策模型，可在代理首次要求模型前協助選擇相關工具與技能。",
   "onboarding.capability.assetsImageGeneration.label": "影像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 點數或影像提供者金鑰",
@@ -371,9 +386,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.closePreview": "關閉預覽",
   "composer.configureProviderKeys": "設定 Anthropic、OpenAI 或其他供應商",
   "composer.connectAbove": "請在上方連線 AI 以繼續...",
-  "composer.connectBuilder": "連線至 Builder.io",
+  "composer.connectBuilder": "使用 Builder.io",
   "composer.connectKeys": "連線金鑰",
-  "composer.connectingBuilder": "正在連線至 Builder.io…",
+  "composer.connectAgent": "連線代理程式",
+  "composer.connectingBuilder": "正在設定 Builder.io…",
   "composer.costHigher": "較高費用",
   "composer.costLower": "較低費用",
   "composer.costMedium": "中等費用",
@@ -463,6 +479,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上傳技能檔案",
   "composer.upload": "上傳",
   "composer.uploadFailed": "無法上傳所選檔案。",
+  "composer.unsupportedFileType": "不支援此檔案類型。",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",
   "mentions.learnMore": "深入瞭解",
@@ -487,7 +504,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "聽寫（{{shortcut}}）",
   "voice.dictation.stopRecording": "停止錄音",
   "voice.dictation.transcribing": "正在轉錄…",
-  "voiceMode.connectBuilder": "連線至 Builder.io",
+  "voiceMode.connectBuilder": "使用 Builder.io",
   "voiceMode.end": "結束語音模式",
   "voiceMode.entryButtonLabel": "使用麥克風",
   "voiceMode.errors.channelDisconnected": "即時語音控制頻道已中斷連線。",
@@ -536,7 +553,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "富有表現力且多元",
   "voiceMode.settings.voiceStyle": "語音風格",
   "voiceMode.setupDescription":
-    "連線至 Builder.io 以使用含免費額度的代管語音，或加入您自己的金鑰。",
+    "使用 Builder.io 享有含免費額度的代管語音，或加入您自己的金鑰。",
+  "transcription.builderCtaDescription":
+    "使用 Builder.io 取得更高品質的轉錄，享有免費額度且無需 API 金鑰。",
+  "voiceMode.googleRealtimeDescription":
+    "Google 憑證已設定。使用 Builder.io（提供免費方案）建立代管即時工作階段。",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "服務帳戶 JSON 已設定。使用 Builder.io（提供免費方案）建立代管即時 WebSocket 工作階段。",
+  "voiceMode.builderGeminiDescription":
+    "使用 Builder.io 進行 Gemini Flash-Lite 轉錄與 Luna 文字清理。無需 Google 金鑰。",
   "voiceMode.setupTitle": "設定語音模式",
   "voiceMode.showChat": "顯示聊天",
   "voiceMode.start": "開始語音對話",
@@ -565,7 +590,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.attachmentPasswordProtected":
     "此 PDF 受密碼保護，無法讀取。請移除密碼保護或貼上相關文字後重試。",
   "errorMessages.builderAuthentication":
-    "Builder 拒絕了已連線的憑證。請在設定中重新連線至 Builder.io，然後重試。",
+    "Builder 拒絕了已連線的憑證。請在設定中再次使用 Builder.io，然後重試。",
   "errorMessages.builderModelUnauthorized":
     "這個模型背後的供應商拒絕了要求。請選擇其他模型後重試。",
   "errorMessages.errorPrefix": "錯誤：{{message}}",
@@ -591,7 +616,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.malformedRequestAttachment":
     "模型拒絕了一個附加檔案，因此這則訊息並未送出。請移除附件後重試：PDF、純文字檔案以及 JPEG、PNG、GIF、WebP 圖片可直接讀取；其他格式需要先上傳再以連結引用。",
   "errorMessages.noProviderConnected":
-    "尚未連接任何 LLM 提供商。開啟設定 > 代理程式 > AI 提供商，然後連接 Builder.io（提供免費方案）或新增提供商金鑰。",
+    "尚未連線 LLM 供應商。開啟設定 > 代理 > AI 供應商，然後使用 Builder.io（提供免費方案）或新增供應商金鑰。",
   "errorMessages.openBuilderSpaceSettings": "開啟 Builder 空間設定",
   "errorMessages.providerAuthentication":
     "模型供應商拒絕了已儲存的 API 金鑰。請在設定 → 整合 → API 金鑰中更新金鑰，然後重試。",
@@ -932,6 +957,17 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "訊息操作",
   "message.copyMessage": "複製訊息",
   "message.copyRequestId": "複製要求 ID",
+  "message.usage": "用量",
+  "message.usageLoading": "正在載入用量…",
+  "message.usageUnavailable": "無法取得用量",
+  "message.usageNotRecorded": "未記錄用量",
+  "message.usageIncomplete": "部分用量無法分類，因此已隱藏總計。",
+  "message.usageReportedCost": "費用 {{amount}}",
+  "message.usageEstimatedCost": "預估費用 {{amount}}",
+  "message.usageBuilderCredits": "已使用的 Builder 點數 {{amount}}",
+  "message.usageEstimatedBuilderCredits": "預估的 Builder 點數 {{amount}}",
+  "message.usageMixedCost": "已回報與預估費用 {{amount}}",
+  "message.usageMixedBuilderCredits": "已回報與預估的 Builder 點數 {{amount}}",
   "message.requestIdUnavailable": "要求 ID 無法使用",
   "message.unavailable": "此訊息在此對話中已無法使用。",
   "message.navigationUnavailable": "對話導覽無法使用。",
@@ -1027,12 +1063,11 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}} 則排隊中——傳送後續訊息...",
   "queue.remove": "從佇列中移除",
   "queue.sendNow": "立即傳送",
-  "queue.sendNowHint": "立即傳送（停止目前的回應）",
-  "queue.steer": "引導",
-  "queue.steerHint": "下一則傳送此訊息",
+  "queue.sendNowHint": "停止目前的回應，然後傳送此訊息",
+  "queue.sendNext": "下一則傳送",
+  "queue.sendNextHint": "在目前的回應結束後傳送",
   "queue.moreActions": "更多操作",
-  "queue.moveToTop": "移至頂端",
-  "recovery.connectingBuilder": "正在連線至 Builder.io",
+  "recovery.connectingBuilder": "正在設定 Builder.io",
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
   "recovery.retryAttachmentUnavailable":
@@ -1042,7 +1077,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.credentialRejected":
     "模型供應商拒絕了已儲存的憑證。請更新 Builder.io 連線或供應商金鑰，然後重試這則訊息。",
   "codeRequired.builderAgentNotConnected":
-    "Builder Cloud Agents 尚未連線。請在設定中連線 Builder.io，以執行這項託管程式碼變更作業。模型供應商金鑰仍可用於聊天和其他 AI 功能，但不能授權使用 Builder Cloud Agent。",
+    "Builder Cloud Agents 尚未連線。請在設定中使用 Builder.io，以執行這項託管程式碼變更作業。模型供應商金鑰仍可用於聊天和其他 AI 功能，但不能授權使用 Builder Cloud Agent。",
   "recovery.diagnoseRetry": "診斷並重試",
   "recovery.forkDescription": "將這段對話建立為獨立的聊天討論串。",
   "recovery.forkFailed": "無法建立這個聊天的分支。請嘗試開始新聊天。",
@@ -1063,7 +1098,7 @@ const messages: ToolkitAgentChatTranslation = {
     "無法連線至伺服器以檢查代理是否仍在工作。請重新傳送訊息以重試。",
   "recovery.streamEnded":
     "上一次代理串流在復原執行時結束。請繼續或重試以重新連線至該執行。",
-  "recovery.reconnectBuilder": "重新連線至 Builder.io",
+  "recovery.reconnectBuilder": "使用 Builder.io",
   "secrets.addCustomKeyNamed": "新增「{{name}}」作為自訂金鑰",
   "secrets.chooseKey": "選擇金鑰",
   "secrets.customKey": "自訂金鑰",
@@ -1102,10 +1137,13 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "使用 Builder.io（含免費額度），或加入您自己的供應商金鑰。",
   "setup.connectAi": "連線 AI",
-  "setup.connectBuilder": "連線至 Builder.io",
+  "setup.connectBuilder": "使用 Builder.io",
+  "setup.connectionsDescription":
+    "在同一處管理設定狀態、Builder.io 存取權、應用程式密碼與工作區連線。",
   "setup.connectPlaceholder": "連線 AI 以開始聊天...",
   "setup.connectToChat": "連線 AI 以聊天",
   "setup.connectToStart": "連線 AI 以開始聊天",
+  "setup.modelListUnavailable": "無法載入模型。",
   "setup.providerStatusUnavailable": "無法確認 AI 是否已就緒。",
   "agentNativeClips.meetingAsk.placeholder": "隨便問些什麼",
   "agentNativeClips.meetingAsk.ariaLabel": "詢問這場會議的任何問題",
@@ -1116,6 +1154,46 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.keyProvider": "API 金鑰供應商",
   "setup.keySaveFailed": "無法儲存金鑰。",
   "setup.storedSecurely": "僅為這個應用程式安全儲存。",
+  "accessGate.deniedTitle": "你沒有存取權",
+  "accessGate.deniedDescription": "請擁有者與你共用。",
+  "accessGate.missingTitle": "此內容不存在",
+  "accessGate.missingDescription": "連結可能有誤，或內容已被刪除。",
+  "accessGate.trashedTitle": "此內容在垃圾桶中",
+  "accessGate.trashedDescription": "還原後即可再次開啟。",
+  "accessGate.signedOutTitle": "登入以繼續",
+  "accessGate.signedOutDescription": "請使用具有存取權的帳號登入。",
+  "accessGate.signIn": "登入",
+  "accessGate.signedInAs": "目前登入帳號：{{email}}",
+  "accessGate.switchAccount": "切換帳號",
+  "accessGate.requestDescription": "申請存取權後，擁有者會收到通知。",
+  "accessGate.requestSent": "申請已傳送，已通知擁有者。",
+  "accessGate.requestAccess": "申請存取權",
+  "accessGate.requestNoteLabel": "備註（選填）",
+  "accessGate.requestNotePlaceholder": "為擁有者新增備註",
+  "accessGate.sendRequest": "傳送申請",
+  "accessGate.cancel": "取消",
+  "accessGate.requestRateLimited": "目前要求過多，請稍後再試。",
+  "accessGate.requestFailed": "無法傳送你的申請，請再試一次。",
+  "accessGate.signedOutRequestDescription": "登入後即可申請存取權。",
+  "accessRequest.title": "{{name}} 正在申請存取權",
+  "accessRequest.approvedTitle": "已允許存取",
+  "accessRequest.declinedTitle": "申請已拒絕",
+  "accessRequest.allow": "允許",
+  "accessRequest.decline": "拒絕",
+  "accessRequest.unavailableTitle": "你無法審核此申請",
+  "accessRequest.unavailableDescription":
+    "申請可能已被撤回，或此帳號無權管理存取權。",
+  "accessRequest.loadFailed": "無法載入此申請。",
+  "accessRequest.retry": "重試",
+  "accessRequest.decisionFailed": "無法儲存你的決定，請再試一次。",
+  "accessRequest.stale": "其他人已處理此申請，或申請已有變更。",
+  "share.accessRequests": "存取申請",
+  "share.accessRequestsLoadFailed": "無法載入存取申請。",
+  "share.accessRequestsNewest": "顯示最新的 {{count}} 筆申請。",
+  "accessRequest.emailFailed":
+    "{{name}} 已取得存取權，但無法寄送電子郵件給對方。",
+  "share.allowRequestFrom": "允許 {{name}}",
+  "share.declineRequestFrom": "拒絕 {{name}}",
   "share.add": "加入",
   "share.addPeopleEmail": "透過電子郵件加入人員",
   "share.addPeopleOrganization": "從您的組織加入人員",
@@ -1200,6 +1278,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "沒有可用的錯誤詳細資料。",
   "tool.input": "輸入",
   "tool.inputWithLabel": "輸入 - {{label}}",
+  "tool.identifierHidden": "[識別碼已隱藏]",
+  "tool.contentOmitted": "[內容已省略]",
+  "tool.circularReference": "[循環參照]",
   "tool.interrupted":
     "在完成回報前遭到中斷——操作可能已完成，也可能尚未完成。重試前請先檢查。",
   "tool.longRunning": "仍在處理。大型更新可能需要一兩分鐘。",
@@ -1460,6 +1541,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "應用程式",
   "settings.usage.allApps": "所有應用程式",
   "settings.usage.unattributedApp": "未歸屬",
+  "settings.usage.unclassifiedUsage": "未分類的用量",
   "settings.usage.peopleFilterLabel": "成員",
   "settings.usage.everyone": "所有人",
   "settings.usage.justYou": "僅限你",
@@ -1814,6 +1896,8 @@ const messages: ToolkitAgentChatTranslation = {
     "在此瀏覽器中使用範例資料進行簡報。",
   "settingsShell.appGroup.labsFootnote": "這些新功能尚不穩定，可能會有錯誤。",
   "settingsShell.appGroup.labsLoadError": "無法載入實驗室功能。",
+  "settingsShell.appGroup.labsReadError":
+    "無法讀取已儲存的選項。請選擇開啟或關閉以重新設定。",
   "settingsShell.appGroup.labsSaveError": "無法變更 {{lab}}。請再試一次。",
   "settingsShell.appGroup.mcpAbout":
     "將 {{app}} 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 {{app}} 中工作。它只能看到你有權看到的內容。",
@@ -1830,7 +1914,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "查看所有更新",
   "settingsShell.backToApp": "返回 {{app}}",
   "settingsShell.breadcrumbLabel": "階層式導覽",
-  "settingsShell.builder.connect": "連結",
+  "settingsShell.builder.connect": "使用 Builder.io",
   "settingsShell.builder.connected": "已連結",
   "settingsShell.builder.connectedTo": "已連結 · {{space}}",
   "settingsShell.builder.connection": "連結",
@@ -1841,6 +1925,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed": "無法中斷 Builder.io 的連結。",
   "settingsShell.builder.disconnectTitle": "要中斷 Builder.io 的連結嗎？",
   "settingsShell.builder.grantsFailed": "無法讀取 Builder.io 連結。",
+  "settingsShell.builder.setupStartFailed":
+    "無法啟動 Builder.io 設定。請重新整理此頁面後再試一次。",
+  "settingsShell.builder.setupHostFailed":
+    "無法從此聊天主機開啟 Builder。請在瀏覽器分頁中開啟此應用程式，然後重試 Builder.io 設定（提供免費方案）。",
+  "settingsShell.builder.setupFailed":
+    "Builder.io 設定尚未完成。請重試，或使用您自己的金鑰。",
   "settingsShell.builder.loss.defaultStops":
     "在你新增組織提供者之前，聊天會停止。",
   "settingsShell.builder.loss.defaultSwitches": "預設模型切換為 {{next}}。",
@@ -1854,9 +1944,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "需要重新連結。",
   "settingsShell.builder.orgFallback": "你的組織",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "未連結。連結後，{{org}} 中的所有人都能使用。",
+    "尚未連線。使用 Builder.io 即可讓 {{org}} 中的所有人使用。",
   "settingsShell.builder.orgNotConnectedMember":
-    "未連結。擁有者或管理員可以連結。",
+    "尚未連線。擁有者或管理員可以為所有人啟用 Builder.io。",
   "settingsShell.builder.organization": "組織",
   "settingsShell.builder.personal": "個人",
   "settingsShell.builder.personalConnected": "已連結。只有你使用。",
@@ -1867,7 +1957,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "已連結 · {{space}}。只有你使用，取代組織的連結。",
   "settingsShell.builder.personalNotConnected":
-    "連結你自己的帳戶。只有你使用。",
+    "使用您自己的 Builder.io 帳戶。只有您可以使用。",
   "settingsShell.builder.personalRestricted":
     "擁有者和管理員已限制個人 API 金鑰。",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2338,7 +2428,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "已連線。標示 Builder.io 的每項服務都使用你的帳戶額度。",
   "settingsInfra.builderNotConnected":
-    "未連線。自行設定每項服務，或連線 Builder.io 以使用你的帳戶額度。",
+    "尚未連線。自行設定每項服務，或使用 Builder.io 套用帳戶額度。",
+  "settingsInfra.builderOverrideDescription":
+    "可使用部署備援設定。使用您自己的 Builder.io 帳戶即可覆寫。",
+  "settingsInfra.builderStorageHint":
+    "物件儲存空間會保留上傳檔案，並讓網址在整個對話中重複使用。請使用下方的 Builder.io 或相容 S3 的儲存貯體。",
   "settingsInfra.builderUnknown": "無法檢查 Builder.io 連線。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "連線",
@@ -2496,13 +2590,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "已連線 · {{space}}",
   "settingsModel.builderConnectedPlain": "已連線",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "尚未連線。連線後，{{org}} 中的所有人都可以使用。",
+    "尚未連線。使用 Builder.io 即可讓 {{org}} 中的所有人使用。",
   "settingsModel.builderOrgNotConnectedMember":
-    "尚未連線。擁有者或管理員可以連線。",
+    "尚未連線。擁有者或管理員可以為所有人啟用 Builder.io。",
   "settingsModel.builderPersonalConnect":
-    "連結您自己的帳戶，以使用您的 Builder.io 點數。",
+    "使用您自己的 Builder.io 帳戶來使用帳戶額度。",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "連結您自己的帳戶，以取代組織的連線使用。",
+    "使用您自己的 Builder.io 帳戶，取代組織連線。",
   "settingsModel.builderPersonalOverOrg":
     "已連線 · {{space}}。取代組織的連線使用。",
   "settingsModel.builderPersonalOverOrgPlain": "已連線。取代組織的連線使用。",
@@ -2545,8 +2639,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "正在檢查已儲存的金鑰",
   "settingsModel.chooseModel": "選擇模型",
   "settingsModel.clear": "清除",
-  "settingsModel.connect": "連線",
-  "settingsModel.connecting": "正在連線…",
   "settingsModel.defaultModelDescription":
     "除非應用程式自行設定，否則所有應用程式都會使用此模型。",
   "settingsModel.defaultModelNeedsProvider": "新增供應商後即可選擇預設模型。",

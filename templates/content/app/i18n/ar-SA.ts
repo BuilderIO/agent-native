@@ -250,7 +250,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "Builder غير متصل. ارجع لاستخدام Builder.io أولاً.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -262,7 +262,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "استخدم حساب Builder لتصفح مساحاته ونماذجه.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -939,8 +939,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "لم تعد صفحتك السابقة متاحة، لذلك فتحنا صفحة الترحيب.",
-  requestedPageUnavailable:
-    "هذه الصفحة غير متاحة لحسابك، لذلك فتحنا صفحة الترحيب.",
   saveFailed: "تعذر حفظ موضعك",
   workspaceWelcomeUnavailableTitle: "لا يوجد شيء مفتوح هنا بعد",
   workspaceWelcomeUnavailableDescription:
@@ -1067,6 +1065,10 @@ const exactEnglish = {
     iconPickerUploading: "جارٍ الرفع…",
     suggestionAmendmentEmpty:
       "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
+    suggestionUnplaceable:
+      "تغيّر النص المحيط بهذا الاقتراح، لذا لا يمكن تطبيقه. لا يزال معلّقًا: ارفضه أو اقترح التعديل مرة أخرى.",
+    proposalUnplaceable:
+      "تغيّر النص المحيط بأحد هذه الاقتراحات فلا يمكن تطبيقه، لذا لم يُطبَّق أي منها. لا تزال جميعها معلّقة: اقبلها أو ارفضها واحدًا تلو الآخر.",
     suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
     suggestionAmendmentResolved:
       "تم تغيير هذا الاقتراح في مكان آخر. لا تزال مسودتك غير المحفوظة هنا.",
@@ -1338,6 +1340,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "لم يتم تحديد صفحة",
+    pageNoAccess: "ليست لديك صلاحية الوصول إلى هذه الصفحة",
+    pageMissing: "هذه الصفحة غير موجودة",
+    pageInTrash: "هذه الصفحة في المهملات",
+    pageInTrashAskOwner: "اطلب من المالك استعادتها.",
+    openTrash: "فتح المهملات",
+    goToMyPages: "الانتقال إلى صفحاتي",
     noPageDescription: "اختر صفحة من الشريط الجانبي أو أنشئ واحدة جديدة.",
     newPage: "صفحة جديدة",
     createFailed: "فشل إنشاء الصفحة",

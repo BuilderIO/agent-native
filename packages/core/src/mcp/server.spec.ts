@@ -1,13 +1,22 @@
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
 import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { CHATGPT_DIRECTORY_PROFILE as contentDirectoryProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
+import { CHATGPT_DIRECTORY_PROFILE as designDirectoryProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
+import { CHATGPT_DIRECTORY_PROFILE as slidesDirectoryProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { listResourceSuggestions } from "../review/suggestions/actions.js";
+import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { createMCPServerForRequest } from "./build-server.js";
 import * as mcpBuildServer from "./build-server.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
@@ -144,9 +153,13 @@ vi.mock("./builtin-tools.js", () => ({
   }),
 }));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn(async () => null));
+const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
+  resolveA2AOrganizationMetadataById: (
+    ...args: Parameters<typeof resolveA2AOrganizationMetadataByIdMock>
+  ) => resolveA2AOrganizationMetadataByIdMock(...args),
   resolveOrgIdForEmail: (
     ...args: Parameters<typeof resolveOrgIdForEmailMock>
   ) => resolveOrgIdForEmailMock(...args),
@@ -197,6 +210,22 @@ vi.mock("./oauth-store.js", () => ({
     return mockOAuthClients.get(clientId) ?? null;
   }),
 }));
+
+// The real membership check, with a switch to force its answer.
+const membershipOverride = vi.hoisted(() => ({
+  answer: null as null | "not-member" | "unavailable",
+}));
+vi.mock("./credential-membership.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./credential-membership.js")>();
+  return {
+    ...actual,
+    checkCredentialOrgMembership: async (
+      input: Parameters<typeof actual.checkCredentialOrgMembership>[0],
+    ) =>
+      membershipOverride.answer ?? actual.checkCredentialOrgMembership(input),
+  };
+});
 
 const { handleMcpRequest } = await import("./server.js");
 
@@ -284,6 +313,7 @@ vi.mock("h3", () => ({
   getQuery: (event: any) => event._query ?? {},
   setResponseStatus: (event: any, code: number) => {
     event._status = code;
+    if (event.res) event.res.status = code;
   },
   setResponseHeader: (event: any, name: string, value: string) => {
     event._responseHeaders ??= {};
@@ -292,7 +322,10 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
-  readBody: vi.fn(async (event: any) => event._body ?? {}),
+  readBody: vi.fn(async (event: any) => {
+    if (event._bodyError) throw event._bodyError;
+    return event._body ?? {};
+  }),
 }));
 
 vi.mock("../server/framework-request-handler.js", () => ({
@@ -494,6 +527,7 @@ async function createModernClient(
     manualInputRequired?: boolean;
     supportsElicitation?: boolean;
     requestHeaders?: Record<string, string>;
+    routePath?: string;
   } = {},
 ): Promise<{
   client: Client;
@@ -523,7 +557,11 @@ async function createModernClient(
           headers: Object.fromEntries(request.headers),
           body,
         });
-        const result = await handleMcpRequest(event, serverConfig as any);
+        const result = await handleMcpRequest(
+          event,
+          serverConfig as any,
+          options.routePath,
+        );
         if (!(result instanceof Response)) {
           throw new Error("Expected MCP handler to return a Response");
         }
@@ -573,6 +611,7 @@ async function mcpAppsAuthHeaders(
     ownerEmail?: string;
     scope?: string;
     resource?: string;
+    issuer?: string;
   } = {},
 ) {
   process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
@@ -583,7 +622,7 @@ async function mcpAppsAuthHeaders(
     scope: options.scope ?? "mcp:read mcp:write mcp:apps",
     resource:
       options.resource ?? "https://mail.agent-native.com/_agent-native/mcp",
-    issuer: "https://mail.agent-native.com",
+    issuer: options.issuer ?? "https://mail.agent-native.com",
   });
   return { authorization: `Bearer ${token}` };
 }
@@ -616,6 +655,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     approvalStoreMocks.grants.clear();
     resolveOrgIdForEmailMock.mockReset();
     resolveOrgIdForEmailMock.mockResolvedValue(null);
+    resolveA2AOrganizationMetadataByIdMock.mockReset();
+    resolveA2AOrganizationMetadataByIdMock.mockImplementation(
+      async (orgId: string) =>
+        orgId === "org_123" ? { orgId, orgDomain: null } : null,
+    );
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
@@ -639,6 +683,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const directoryOnlyAction = defineAction({
       description: "A tool reserved for the ChatGPT directory profile.",
       parameters: {},
+      readOnly: true,
       mcpAnnotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -731,6 +776,628 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(directoryInitialize.result.instructions).not.toMatch(
       /view-screen|ask_app|tool-search|WebMCP/i,
     );
+  });
+
+  it("keeps a legacy directory catalog discoverable without unscoped widgets", async () => {
+    const legacyWidget = defineAction({
+      description: "Read one legacy directory record.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://mail/legacy-widget",
+          title: "Legacy record",
+          html: "<!doctype html><html><body>Record</body></html>",
+        },
+      },
+      run: async () => ({ id: "record-1" }),
+    });
+    const legacyConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      widgetDomain: "https://mail.agent-native.com",
+      directoryProfile: { connectorCatalog: ["legacy-widget"] },
+      actions: { "legacy-widget": legacyWidget },
+    };
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 135, method: "tools/list", params: {} },
+      {
+        headers: await mcpAppsAuthHeaders({
+          resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+        }),
+        config: legacyConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(listed.error).toBeUndefined();
+    expect(listed.result.tools.map((tool: any) => tool.name)).toEqual([
+      "legacy-widget",
+    ]);
+    expect(listed.result.tools[0]._meta?.ui).toBeUndefined();
+    expect(
+      listed.result.tools[0]._meta?.["openai/outputTemplate"],
+    ).toBeUndefined();
+  });
+
+  it("replays the ChatGPT dashboard scan sequence on each directory profile", async () => {
+    const requestLogs: Array<Record<string, any>> = [];
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: any[]) => {
+        if (args[0] === "[mcp:directory] request") requestLogs.push(args[1]);
+      });
+    try {
+      const repoRoot = path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../../../../",
+      );
+      const profiles = [
+        { appId: "slides", profile: slidesDirectoryProfile },
+        { appId: "design", profile: designDirectoryProfile },
+        { appId: "content", profile: contentDirectoryProfile },
+      ] as const;
+      const expectedWidgetToolNames = {
+        slides: ["add-slide", "create-deck", "get-deck"],
+        design: [
+          "create-design",
+          "create-design-from-template",
+          "generate-design",
+          "get-design-snapshot",
+          "present-design-variants",
+        ],
+        content: ["create-content-database", "create-document"],
+      };
+
+      for (const { appId, profile } of profiles) {
+        const logStart = requestLogs.length;
+        const projectRoot = path.join(repoRoot, "templates", appId);
+        const actionNames = [
+          ...new Set([
+            ...profile.connectorCatalog,
+            ...Object.keys(profile.widgetReadActionArguments ?? {}),
+          ]),
+        ];
+        const sharedActions =
+          appId === "content"
+            ? { "list-resource-suggestions": listResourceSuggestions }
+            : {};
+        const modules = Object.fromEntries(
+          await Promise.all(
+            actionNames.map(async (name) => {
+              if (Object.hasOwn(sharedActions, name)) {
+                return [
+                  name,
+                  sharedActions[name as keyof typeof sharedActions],
+                ];
+              }
+              const actionUrl =
+                pathToFileURL(path.join(projectRoot, "actions", `${name}.ts`))
+                  .href + `?scannerReplay=${Date.now()}`;
+              return [name, await import(actionUrl)];
+            }),
+          ),
+        );
+        const loadedActions = loadActionsFromStaticRegistry(modules);
+        const safeReadTool = profile.connectorCatalog.find(
+          (name) => loadedActions[name]?.mcpAnnotations?.readOnlyHint === true,
+        );
+        expect(safeReadTool, `${appId} has a safe read tool`).toBeTruthy();
+        const actions = {
+          ...loadedActions,
+          [safeReadTool!]: {
+            ...loadedActions[safeReadTool!],
+            run: async () => ({ scannerReplay: true }),
+          },
+        };
+        const serverConfig = {
+          ...config,
+          name: `agent-native-${appId}`,
+          appId,
+          description: `Agent-Native ${appId} scanner replay`,
+          instructions: profile.instructions,
+          actions,
+          productionActions: actions,
+          widgetReadActions: Object.fromEntries(
+            (profile.widgetReadPrivateActions ?? []).map((name) => [
+              name,
+              loadedActions[name],
+            ]),
+          ),
+          builtinCrossAppTools: false,
+          directoryProfile: profile,
+        };
+        const host = `${appId}.preview.invalid`;
+        const authHeaders = {
+          ...(await mcpAppsAuthHeaders({
+            ownerEmail: "scanner+autoz@example.test",
+            resource: `https://${host}${MCP_DIRECTORY_ROUTE_PREFIX}`,
+          })),
+          host,
+          "x-forwarded-proto": "https",
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        };
+        const responses: Array<{
+          status: number;
+          contentType: string;
+          hasSessionId: boolean;
+          body: any;
+          raw: string;
+        }> = [];
+        const send = async (
+          message: Record<string, unknown>,
+          requestHeaders: Record<string, string> = {},
+        ) => {
+          const event = makeWebEvent({
+            method: "POST",
+            headers: { ...authHeaders, ...requestHeaders },
+            body: message,
+          });
+          const result = await handleMcpRequest(
+            event,
+            serverConfig as any,
+            MCP_DIRECTORY_ROUTE_PREFIX,
+          );
+          expect(result).toBeInstanceOf(Response);
+          const response = result as Response;
+          const contentType = response.headers.get("content-type") ?? "";
+          const raw = await response.text();
+          let body: any;
+          if (raw.trim()) {
+            body = contentType.includes("text/event-stream")
+              ? JSON.parse(
+                  raw
+                    .split("\n")
+                    .find((line) => line.startsWith("data:"))
+                    ?.slice(5)
+                    .trim() ?? "{}",
+                )
+              : JSON.parse(raw);
+          }
+          const summary = {
+            status: response.status,
+            contentType,
+            hasSessionId: Boolean(response.headers.get("mcp-session-id")),
+            body,
+            raw,
+          };
+          responses.push(summary);
+          return summary;
+        };
+        const protocolVersion = "2025-11-25";
+        const init = await send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion,
+            capabilities: {},
+            clientInfo: { name: "openai-review-scan", version: "1.0.0" },
+          },
+        });
+        const initialized = await send(
+          {
+            jsonrpc: "2.0",
+            method: "notifications/initialized",
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const tools = await send(
+          {
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/list",
+            params: {},
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const resourcesSupported = Boolean(
+          init.body?.result?.capabilities?.resources,
+        );
+        const resources = resourcesSupported
+          ? await send(
+              {
+                jsonrpc: "2.0",
+                id: 3,
+                method: "resources/list",
+                params: {},
+              },
+              { "mcp-protocol-version": protocolVersion },
+            )
+          : { body: { result: { resources: [] } } };
+        const resourceTemplates = resourcesSupported
+          ? await send(
+              {
+                jsonrpc: "2.0",
+                id: 4,
+                method: "resources/templates/list",
+                params: {},
+              },
+              { "mcp-protocol-version": protocolVersion },
+            )
+          : { body: { result: { resourceTemplates: [] } } };
+        const listedTools = tools.body?.result?.tools ?? [];
+        const widgetTools = listedTools.filter(
+          (tool: any) => typeof tool._meta?.ui?.resourceUri === "string",
+        );
+        const linkedUris = [
+          ...new Set(
+            listedTools.flatMap((tool: any) =>
+              [
+                tool._meta?.ui?.resourceUri,
+                tool._meta?.["openai/outputTemplate"],
+              ].filter((uri): uri is string => typeof uri === "string"),
+            ),
+          ),
+        ];
+        const reads = [];
+        for (const [index, uri] of (resourcesSupported
+          ? linkedUris
+          : []
+        ).entries()) {
+          reads.push(
+            await send(
+              {
+                jsonrpc: "2.0",
+                id: 10 + index,
+                method: "resources/read",
+                params: { uri },
+              },
+              { "mcp-protocol-version": protocolVersion },
+            ),
+          );
+        }
+        const prompts = await send(
+          {
+            jsonrpc: "2.0",
+            id: 5,
+            method: "prompts/list",
+            params: {},
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const ping = await send(
+          {
+            jsonrpc: "2.0",
+            id: 6,
+            method: "ping",
+            params: {},
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const safeRead = await send(
+          {
+            jsonrpc: "2.0",
+            id: 7,
+            method: "tools/call",
+            params: { name: safeReadTool, arguments: {} },
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const currentProtocolPromptProbe = await send(
+          {
+            jsonrpc: "2.0",
+            id: 8,
+            method: "prompts/list",
+            params: {
+              _meta: {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {
+                  name: "openai-review-scan",
+                  version: "1.0.0",
+                },
+                "io.modelcontextprotocol/clientCapabilities": {},
+              },
+            },
+          },
+          {
+            "mcp-protocol-version": "2026-07-28",
+            "mcp-method": "prompts/list",
+          },
+        );
+        const resourceContents = reads.flatMap(
+          (response) => response.body?.result?.contents ?? [],
+        );
+        const expectedOrigin = profile.widgetDomain;
+        expect(expectedOrigin).toBe(`https://${appId}.agent-native.com`);
+        expect(init.body?.result?.protocolVersion).toBe(protocolVersion);
+        expect(init.body?.result?.instructions).toBe(profile.instructions);
+        expect(init.body?.result?.capabilities?.prompts).toBeUndefined();
+        expect(resourcesSupported).toBe(profile.widgets !== false);
+        const modelVisibleTools = listedTools.filter((tool: any) => {
+          const visibility = tool._meta?.ui?.visibility;
+          return !(
+            Array.isArray(visibility) &&
+            visibility.includes("app") &&
+            !visibility.includes("model")
+          );
+        });
+        expect(modelVisibleTools.map((tool: any) => tool.name).sort()).toEqual(
+          [...profile.connectorCatalog].sort(),
+        );
+        expect(Object.keys(profile.toolDescriptions).sort()).toEqual(
+          [...profile.connectorCatalog].sort(),
+        );
+        const directiveCopyPattern =
+          /\b(?:follow|then call|must|always|before reporting|ask (?:the )?user|surface|show (?:the )?user|tell (?:the )?user)\b/i;
+        const schemaDescriptions: Array<{
+          surface: string;
+          text: string;
+        }> = [];
+        const collectSchemaDescriptions = (value: any, surface: string) => {
+          if (Array.isArray(value)) {
+            value.forEach((item, index) =>
+              collectSchemaDescriptions(item, `${surface}[${index}]`),
+            );
+            return;
+          }
+          if (!value || typeof value !== "object") return;
+          if (typeof value.description === "string") {
+            schemaDescriptions.push({
+              surface: `${surface}.description`,
+              text: value.description,
+            });
+          }
+          for (const [key, nested] of Object.entries(value)) {
+            if (key !== "description") {
+              collectSchemaDescriptions(nested, `${surface}.${key}`);
+            }
+          }
+        };
+        for (const tool of modelVisibleTools) {
+          collectSchemaDescriptions(
+            tool.inputSchema,
+            `tool:${tool.name}.inputSchema`,
+          );
+        }
+        const directiveCopy = [
+          {
+            surface: "instructions",
+            text: init.body?.result?.instructions,
+          },
+          ...modelVisibleTools.map((tool: any) => ({
+            surface: `tool:${tool.name}`,
+            text: tool.description,
+          })),
+          ...schemaDescriptions,
+        ].filter(
+          (entry) =>
+            typeof entry.text === "string" &&
+            directiveCopyPattern.test(entry.text),
+        );
+        expect(directiveCopy).toEqual([]);
+        if (profile.widgets === false) {
+          expect(linkedUris).toEqual([]);
+          expect(JSON.stringify(listedTools)).not.toMatch(
+            /ui:\/\/|openai\/(?:ui|outputTemplate|widget)/,
+          );
+        } else {
+          const sessionTool = listedTools.find(
+            (tool: any) => tool.name === "create_embed_session",
+          );
+          expect(sessionTool?._meta?.ui?.visibility).toEqual(["app"]);
+          expect(widgetTools.length).toBeGreaterThan(0);
+          expect(widgetTools.map((tool: any) => tool.name).sort()).toEqual(
+            expectedWidgetToolNames[appId],
+          );
+          expect(linkedUris).toEqual([`ui://${appId}/shell-v67`]);
+          for (const tool of widgetTools) {
+            const uri = tool._meta.ui.resourceUri;
+            expect(Object.keys(tool._meta).sort()).toEqual([
+              "openai/outputTemplate",
+              "openai/toolInvocation/invoked",
+              "openai/toolInvocation/invoking",
+              "ui",
+            ]);
+            expect(tool._meta.ui).toEqual({ resourceUri: uri });
+            expect(tool._meta["openai/outputTemplate"]).toBe(uri);
+            expect(tool._meta["openai/toolInvocation/invoking"]).toEqual(
+              expect.any(String),
+            );
+            expect(tool._meta["openai/toolInvocation/invoked"]).toEqual(
+              expect.any(String),
+            );
+            expect(tool._meta).not.toHaveProperty("ui/resourceUri");
+            expect(tool._meta).not.toHaveProperty("openai/ui");
+            expect(
+              Object.keys(tool._meta).filter((key: string) =>
+                key.startsWith("openai/widget"),
+              ),
+            ).toEqual([]);
+            expect(tool.outputSchema).toEqual({
+              type: "object",
+              additionalProperties: true,
+            });
+            expect(tool.annotations).not.toHaveProperty(
+              "agent-native/producesOpenLink",
+            );
+          }
+        }
+        expect(
+          listedTools.some(
+            (tool: any) =>
+              tool.annotations?.["agent-native/producesOpenLink"] === true,
+          ),
+        ).toBe(false);
+        expect(resources.body?.result?.resources).toHaveLength(
+          linkedUris.length,
+        );
+        expect(resourceTemplates.body?.result?.resourceTemplates).toEqual([]);
+        expect(resourceContents).toHaveLength(linkedUris.length);
+        for (const resource of resourceContents) {
+          expect(resource.mimeType).toBe("text/html;profile=mcp-app");
+          expect(resource._meta?.["openai/ui"]?.availableDisplayModes).toEqual([
+            "inline",
+            "fullscreen",
+          ]);
+          expect(resource._meta?.["openai/widgetDescription"]).toEqual(
+            expect.any(String),
+          );
+          expect(
+            resource._meta?.["openai/widgetDescription"].length,
+          ).toBeGreaterThan(0);
+          expect(resource._meta?.ui?.csp?.connectDomains).toContain(
+            `https://${host}`,
+          );
+          expect(resource._meta?.ui?.csp?.resourceDomains).toContain(
+            `https://${host}`,
+          );
+          expect(resource._meta?.ui?.csp).not.toHaveProperty("baseUriDomains");
+          expect(
+            resource._meta?.["openai/widgetCSP"]?.redirect_domains,
+          ).toEqual([expectedOrigin]);
+          expect(resource._meta?.ui?.domain).toBe(expectedOrigin);
+          expect(resource._meta?.["openai/widgetDomain"]).toBe(expectedOrigin);
+          expect(resource._meta?.ui?.csp?.frameDomains).toContain(
+            `https://${host}`,
+          );
+          expect(resource.text).toMatch(/<\/body>\n<\/html>$/);
+          expect(resource.text).not.toContain("https://esm.sh");
+          expect(resource.text).toContain('<section class="stage" data-stage>');
+          expect(resource.text).toContain(
+            'data-start-tool="create_embed_session"',
+          );
+          expect(resource.text).toContain("function hostState()");
+          expect(resource.text).toContain("window.openai");
+        }
+        expect(responses.every((response) => !response.hasSessionId)).toBe(
+          true,
+        );
+        expect(initialized).toMatchObject({
+          status: 202,
+          contentType: "",
+          raw: "",
+        });
+        for (const response of [
+          init,
+          tools,
+          ...(resourcesSupported
+            ? [resources, resourceTemplates, ...reads]
+            : []),
+          prompts,
+          ping,
+          safeRead,
+        ]) {
+          expect(response.status).toBe(200);
+          expect(response.contentType).toContain("text/event-stream");
+        }
+        expect(prompts.body?.error).toMatchObject({ code: -32601 });
+        expect(ping.body?.result).toEqual({});
+        expect(safeRead.body?.result?.structuredContent).toMatchObject({
+          scannerReplay: true,
+        });
+        expect(currentProtocolPromptProbe.status).toBe(404);
+        expect(currentProtocolPromptProbe.body?.error?.code).toBe(-32601);
+        const appLogs = requestLogs.slice(logStart);
+        expect(appLogs).toHaveLength(responses.length);
+        expect(appLogs.map((entry) => entry.method)).toEqual([
+          "initialize",
+          "notifications/initialized",
+          "tools/list",
+          ...(resourcesSupported
+            ? [
+                "resources/list",
+                "resources/templates/list",
+                ...linkedUris.map(() => "resources/read"),
+              ]
+            : []),
+          "prompts/list",
+          "ping",
+          "tools/call",
+          "prompts/list",
+        ]);
+        expect(appLogs.map((entry) => entry.status)).toEqual(
+          responses.map((response) => response.status),
+        );
+        for (const log of appLogs) {
+          expect(Object.keys(log).sort()).toEqual([
+            "durationMs",
+            "method",
+            "status",
+          ]);
+          expect(log.durationMs).toEqual(expect.any(Number));
+          expect(log.durationMs).toBeGreaterThanOrEqual(0);
+        }
+      }
+      expect(profiles.map(({ appId }) => appId)).toEqual([
+        "slides",
+        "design",
+        "content",
+      ]);
+    } finally {
+      consoleInfo.mockRestore();
+    }
+  }, 60_000);
+
+  it("logs web-runtime response statuses for directory errors", async () => {
+    const requestLogs: Array<Record<string, any>> = [];
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: any[]) => {
+        if (args[0] === "[mcp:directory] request") requestLogs.push(args[1]);
+      });
+    try {
+      const event = makeWebEvent({
+        headers: { authorization: "" },
+      });
+      event.res = { status: 200 };
+      const directoryConfig = {
+        ...config,
+        directoryProfile: slidesDirectoryProfile,
+      };
+
+      const result = await handleMcpRequest(
+        event,
+        directoryConfig as any,
+        MCP_DIRECTORY_ROUTE_PREFIX,
+      );
+
+      expect(result).toMatchObject({ error: "Unauthorized" });
+      expect(event.res.status).toBe(401);
+      expect(requestLogs).toEqual([
+        { method: "POST", status: 401, durationMs: expect.any(Number) },
+      ]);
+    } finally {
+      consoleInfo.mockRestore();
+    }
+  });
+
+  it("logs the status from thrown H3 errors in directory mode", async () => {
+    const requestLogs: Array<Record<string, any>> = [];
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: any[]) => {
+        if (args[0] === "[mcp:directory] request") requestLogs.push(args[1]);
+      });
+    try {
+      const event = makeWebEvent({});
+      event._bodyError = Object.assign(new Error("Malformed request body"), {
+        status: 400,
+      });
+      const directoryConfig = {
+        ...config,
+        directoryProfile: slidesDirectoryProfile,
+      };
+
+      await expect(
+        handleMcpRequest(
+          event,
+          directoryConfig as any,
+          MCP_DIRECTORY_ROUTE_PREFIX,
+        ),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(requestLogs).toEqual([
+        { method: "POST", status: 400, durationMs: expect.any(Number) },
+      ]);
+    } finally {
+      consoleInfo.mockRestore();
+    }
   });
 
   it("returns a typed 503 for broken directory annotations while regular MCP works", async () => {
@@ -901,7 +1568,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const directoryConfig = {
       ...config,
       catalogMode: "directory" as const,
-      directoryProfile: { connectorCatalog: ["directory-context"] },
+      directoryProfile: {
+        connectorCatalog: ["directory-context"],
+        widgetTargets: {
+          "directory-context": () => ({
+            targetPath: "/",
+            resourceIds: { id: "context" },
+          }),
+        },
+      },
       actions: { "directory-context": directoryAction },
       productionActions: { "directory-context": directoryAction },
     };
@@ -1010,7 +1685,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           title: "Created artifact",
           html: "<!doctype html><html><body>Created</body></html>",
           _meta: {
-            ui: { domain: "https://stale.example.com" },
+            ui: {
+              domain: "https://stale.example.com",
+              csp: {
+                connectDomains: ["https://slides.agent-native.com"],
+                baseUriDomains: ["https://stale.example.com"],
+              },
+            },
             "openai/widgetDomain": "https://stale.example.com",
           },
         },
@@ -1026,19 +1707,46 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       ...config,
       catalogMode: "directory" as const,
       connectorCatalog: ["directory-action"],
+      directoryProfile: {
+        connectorCatalog: ["directory-action"],
+        widgetTargets: {
+          "directory-action": () => ({
+            targetPath: "/slides",
+            resourceIds: { deckId: "deck-1" },
+          }),
+        },
+      },
       widgetDomain: "https://slides.agent-native.com",
       actions: {
         "directory-action": directoryAction,
         "hidden-action": hiddenAction,
       },
     };
-    const { client } = await createModernClient(directoryConfig);
+    const { client } = await createModernClient(directoryConfig, {
+      routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      requestHeaders: await mcpAppsAuthHeaders({
+        resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      }),
+    });
     try {
       const listed = await client.listTools();
-      expect(listed.tools.map((tool) => tool.name)).toEqual([
-        "directory-action",
-      ]);
-      expect(listed.tools[0]?.annotations).toMatchObject({
+      expect(
+        listed.tools
+          .filter(
+            (tool) =>
+              !tool._meta?.ui?.visibility?.includes("app") ||
+              tool._meta?.ui?.visibility?.includes("model"),
+          )
+          .map((tool) => tool.name),
+      ).toEqual(["directory-action"]);
+      expect(
+        listed.tools.find((tool) => tool.name === "create_embed_session")?._meta
+          ?.ui?.visibility,
+      ).toEqual(["app"]);
+      expect(
+        listed.tools.find((tool) => tool.name === "directory-action")
+          ?.annotations,
+      ).toMatchObject({
         readOnlyHint: false,
         destructiveHint: false,
         openWorldHint: false,
@@ -1047,9 +1755,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       const resource = await client.readResource({
         uri: "ui://slides/directory-action/shell-v65",
       });
-      expect((resource.contents[0] as any)._meta).toMatchObject({
+      const resourceMeta = (resource.contents[0] as any)._meta;
+      expect(resourceMeta).toMatchObject({
         ui: { domain: "https://slides.agent-native.com" },
         "openai/widgetDomain": "https://slides.agent-native.com",
+      });
+      expect(resourceMeta.ui.csp).toEqual({
+        connectDomains: ["https://slides.agent-native.com"],
       });
 
       const hiddenCall = await client.callTool({
@@ -1060,6 +1772,152 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     } finally {
       await client.close();
     }
+  });
+
+  it("can omit widgets from one directory profile without changing /mcp", async () => {
+    const directoryAction = defineAction({
+      description: "Create one workspace artifact.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/directory-action/shell-v65",
+          title: "Created artifact",
+          html: "<!doctype html><html><body>Created</body></html>",
+        },
+      },
+      run: async () => ({ ok: true }),
+    });
+    (directoryAction.tool as any)._meta = {
+      ui: { resourceUri: "ui://content/directory-action/shell-v65" },
+      "openai/ui": { entrypoints: [{ type: "thread" }] },
+      "openai/outputTemplate": "ui://content/directory-action/shell-v65",
+      "openai/widgetDomain": "https://content.agent-native.com",
+      "openai/widgetCSP": {
+        frameDomains: ["https://content.agent-native.com"],
+      },
+      "agent-native/retained": true,
+    };
+    const profileConfig = {
+      ...config,
+      catalogMode: undefined,
+      directoryProfile: {
+        connectorCatalog: ["directory-action"],
+        widgets: false,
+      },
+      actions: { "directory-action": directoryAction },
+    };
+    const directoryHeaders = await mcpAppsAuthHeaders({
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+    const normalHeaders = await mcpAppsAuthHeaders({
+      resource: "https://mail.agent-native.com/_agent-native/mcp",
+    });
+
+    const directoryTools = await callWeb(
+      { jsonrpc: "2.0", id: 160, method: "tools/list", params: {} },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryTools.result.tools).toHaveLength(1);
+    expect(directoryTools.result.tools[0]._meta).toEqual({
+      "agent-native/retained": true,
+    });
+
+    const directoryResources = await callWeb(
+      { jsonrpc: "2.0", id: 161, method: "resources/list", params: {} },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryResources.error.code).toBe(-32601);
+
+    const directoryTemplates = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 162,
+        method: "resources/templates/list",
+        params: {},
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryTemplates.error.code).toBe(-32601);
+
+    const hiddenResource = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 163,
+        method: "resources/read",
+        params: { uri: "ui://content/directory-action/shell-v65" },
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(hiddenResource.error.code).toBe(-32601);
+
+    const directoryInitialize = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 166,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "widget-disabled-test", version: "1.0.0" },
+        },
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryInitialize.result.capabilities.resources).toBeUndefined();
+    expect(directoryInitialize.result.capabilities.extensions).toBeUndefined();
+
+    const directoryCall = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "directory-action", arguments: {} },
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(JSON.stringify(directoryCall)).not.toMatch(
+      /ui:\/\/|openai\/(?:ui|outputTemplate|widget)/,
+    );
+
+    const normalTools = await callWeb(
+      { jsonrpc: "2.0", id: 165, method: "tools/list", params: {} },
+      { headers: normalHeaders, config: profileConfig },
+    );
+    expect(normalTools.result.tools[0]._meta.ui.resourceUri).toBe(
+      "ui://content/directory-action/shell-v65",
+    );
+    expect(normalTools.result.tools[0]._meta["openai/outputTemplate"]).toBe(
+      "ui://content/directory-action/shell-v65",
+    );
   });
 
   it("rejects directory actions without complete annotations", async () => {
@@ -1081,7 +1939,31 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ).rejects.toThrow(/must declare boolean readOnlyHint/);
   });
 
-  it("mints a directory widget embed ticket from an action link without a hidden tool", async () => {
+  it("rejects directory actions whose read-only hint disagrees with the action", async () => {
+    const configWithReadOnlyMismatch = {
+      ...config,
+      catalogMode: "directory" as const,
+      connectorCatalog: ["mismatched-action"],
+      widgetDomain: "https://slides.agent-native.com",
+      actions: {
+        "mismatched-action": {
+          tool: { description: "Mismatched tool", parameters: {} },
+          mcpAnnotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            openWorldHint: false,
+          },
+          run: async () => ({ ok: true }),
+        },
+      },
+    };
+
+    await expect(
+      createMCPServerForRequest(configWithReadOnlyMismatch as any, undefined),
+    ).rejects.toThrow(/readOnlyHint must match its readOnly action setting/);
+  });
+
+  it("mints a regular MCP widget embed ticket from an action link", async () => {
     const createArtifact = defineAction({
       description: "Create one editable document.",
       parameters: {},
@@ -1092,41 +1974,36 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       mcpApp: {
         resource: {
-          uri: "ui://content/create-document/shell-v65",
+          uri: "ui://mail/create-document/shell-v65",
           title: "Created document",
           html: "<!doctype html><html><body>Created</body></html>",
         },
       },
-      run: async () => ({ id: "doc-1", title: "Launch plan" }),
+      run: async () => ({
+        id: "doc-1",
+        title: "Launch plan",
+        embed: true,
+        url: "/documents/doc-1",
+      }),
       link: () => ({
         url: "/documents/doc-1",
         label: "Open document",
         view: "editor",
       }),
     });
-    const directoryConfig = {
+    const regularConfig = {
       ...config,
-      catalogMode: "directory" as const,
-      connectorCatalog: ["create-document"],
-      directoryProfile: { connectorCatalog: ["create-document"] },
-      widgetDomain: "https://mail.agent-native.com",
       actions: { "create-document": createArtifact },
     };
-    const headers = await mcpAppsAuthHeaders({
-      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
-    });
+    const headers = await mcpAppsAuthHeaders();
 
     const listed = await callWeb(
       { jsonrpc: "2.0", id: 137, method: "tools/list", params: {} },
-      {
-        headers,
-        config: directoryConfig,
-        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
-      },
+      { headers, config: regularConfig },
     );
     expect(
       listed.result.tools.map((tool: { name: string }) => tool.name),
-    ).toEqual(["create-document"]);
+    ).toContain("create-document");
 
     const called = await callWeb(
       {
@@ -1137,8 +2014,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       {
         headers,
-        config: directoryConfig,
-        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+        config: regularConfig,
       },
     );
 
@@ -1163,8 +2039,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       {
         headers,
-        config: directoryConfig,
-        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+        config: regularConfig,
       },
     );
     expect(legacyToolCall.result.isError).toBe(true);
@@ -1175,7 +2050,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const wrongAudience = await handleMcpRequest(
       makeWebEvent({
         method: "POST",
-        headers,
+        headers: await mcpAppsAuthHeaders({
+          resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+        }),
         body: {
           jsonrpc: "2.0",
           id: 140,
@@ -1188,49 +2065,121 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(wrongAudience).toMatchObject({ error: "Unauthorized" });
   });
 
-  it("does not mint an unrestricted embed ticket from a read-only directory link", async () => {
-    const readArtifact = defineAction({
-      description: "Read one workspace document.",
+  it("renews a scoped directory widget ticket after a saved-chat reload without embed metadata", async () => {
+    const createDocument = defineAction({
+      description: "Create one editable document.",
       parameters: {},
-      readOnly: true,
       mcpAnnotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         destructiveHint: false,
         openWorldHint: false,
       },
       mcpApp: {
         resource: {
-          uri: "ui://content/get-document/shell-v65",
+          uri: "ui://mail/create-document/shell-v65",
           title: "Document",
           html: "<!doctype html><html><body>Document</body></html>",
         },
       },
       run: async () => ({ id: "doc-1", title: "Launch plan" }),
-      link: () => ({
-        url: "/documents/doc-1",
-        label: "Open document",
-        view: "editor",
-      }),
+    });
+    const getDocument = defineAction({
+      description: "Read one workspace document.",
+      parameters: { type: "object", properties: { id: { type: "string" } } },
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async (args: Record<string, unknown>) => ({ id: args.id }),
     });
     const directoryConfig = {
       ...config,
       catalogMode: "directory" as const,
-      connectorCatalog: ["get-document"],
-      directoryProfile: { connectorCatalog: ["get-document"] },
+      appId: "mail",
+      directoryProfile: {
+        connectorCatalog: ["create-document", "get-document"],
+        widgetDomain: "https://mail.agent-native.com",
+        widgetTargets: {
+          "create-document": (_args: unknown, result: unknown) => {
+            const record = result as { id?: unknown };
+            return typeof record.id === "string"
+              ? {
+                  targetPath: `/page/${encodeURIComponent(record.id)}`,
+                  resourceIds: { documentId: record.id },
+                }
+              : null;
+          },
+        },
+        widgetReadActionArguments: {
+          "get-document": { id: "documentId" },
+        },
+      },
       widgetDomain: "https://mail.agent-native.com",
-      actions: { "get-document": readArtifact },
+      actions: {
+        "create-document": createDocument,
+        "get-document": getDocument,
+      },
     };
     const headers = await mcpAppsAuthHeaders({
-      scope: "mcp:read mcp:apps",
       resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
     });
 
-    const called = await callWeb(
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 142, method: "tools/list", params: {} },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    const sessionTool = listed.result.tools.find(
+      (tool: any) => tool.name === "create_embed_session",
+    );
+    expect(sessionTool._meta.ui.visibility).toEqual(["app"]);
+    expect(sessionTool.inputSchema.properties).not.toHaveProperty("path");
+    expect(sessionTool.inputSchema.properties).not.toHaveProperty("url");
+
+    const originalCall = await callWeb(
       {
         jsonrpc: "2.0",
-        id: 142,
+        id: 143,
         method: "tools/call",
-        params: { name: "get-document", arguments: {} },
+        params: { name: "create-document", arguments: {} },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(originalCall.result.isError).not.toBe(true);
+    expect(originalCall.result._meta["agent-native/widgetSource"]).toEqual({
+      toolName: "create-document",
+    });
+    expect(originalCall.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl: expect.stringContaining("minted-picker-ticket"),
+    });
+
+    const savedMetadata = { ...originalCall.result._meta };
+    delete savedMetadata["agent-native/embedStart"];
+    delete savedMetadata["agent-native/widgetSource"];
+    expect(savedMetadata).not.toHaveProperty("agent-native/embedStart");
+    expect(savedMetadata).not.toHaveProperty("agent-native/widgetSource");
+    const reloadArguments = {
+      toolInput: {},
+      toolOutput: originalCall.result.structuredContent,
+      chrome: "full",
+    };
+    const reopened = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 144,
+        method: "tools/call",
+        params: { name: "create_embed_session", arguments: reloadArguments },
       },
       {
         headers,
@@ -1239,9 +2188,730 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     );
 
-    expect(called.result.isError).not.toBe(true);
+    expect(reopened.result.isError).not.toBe(true);
+    expect(reopened.result.structuredContent).toMatchObject({
+      startUrl: expect.stringContaining("minted-picker-ticket"),
+      targetPath: "/page/doc-1?__an_mcp_chat_bridge=1",
+    });
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(2);
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenLastCalledWith(
+      {
+        ownerEmail: "oauth@example.com",
+        orgId: undefined,
+        targetPath: "/page/doc-1?__an_mcp_chat_bridge=1",
+        scope: expect.stringContaining("capability:mcp-directory-widget-read:"),
+      },
+    );
+  });
+
+  it("does not publish directory widgets or embed tickets to non-user principals", async () => {
+    const createDocument = defineAction({
+      description: "Create one editable document.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://mail/create-document/shell-v65",
+          title: "Document",
+          html: "<!doctype html><html><body>Document</body></html>",
+        },
+      },
+      run: async () => ({
+        id: "doc-1",
+        embedStartUrl: "/_agent-native/embed/start?ticket=example",
+        embedTargetPath: "/documents/doc-1",
+        embedExpiresAt: 1_735_689_600_000,
+      }),
+    });
+    const getDocument = defineAction({
+      description: "Read one workspace document.",
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async (args: Record<string, unknown>) => ({ id: args.id }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      connectorCatalog: ["create-document", "get-document"],
+      directoryProfile: {
+        connectorCatalog: ["create-document", "get-document"],
+        widgetDomain: "https://mail.agent-native.com",
+        widgetTargets: {
+          "create-document": () => ({
+            targetPath: "/documents/doc-1",
+            resourceIds: { documentId: "doc-1" },
+          }),
+        },
+        widgetReadActionArguments: {
+          "get-document": { id: "documentId" },
+        },
+      },
+      widgetDomain: "https://mail.agent-native.com",
+      actions: {
+        "create-document": createDocument,
+        "get-document": getDocument,
+      },
+    };
+
+    for (const identity of [
+      {
+        userEmail: "service@example.test",
+        identityAssurance: "service" as const,
+        orgId: "org-example",
+        orgDomain: "example.test",
+      },
+      {
+        userEmail: "organization@example.test",
+        identityAssurance: "organization" as const,
+        orgId: "org-example",
+        orgDomain: "example.test",
+      },
+    ]) {
+      const server = await createMCPServerForRequest(
+        directoryConfig as any,
+        identity,
+        { origin: "https://mail.agent-native.com", transport: "http" },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "test-client", version: "1.0.0" });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+
+      try {
+        expect(client.getServerCapabilities()?.resources).toBeUndefined();
+        const { tools } = await client.listTools();
+        const createTool = tools.find(
+          (tool) => tool.name === "create-document",
+        );
+        expect(createTool).toBeDefined();
+        expect(createTool?._meta).toBeUndefined();
+        expect(tools.map((tool) => tool.name)).not.toContain(
+          "create_embed_session",
+        );
+
+        const result = await client.callTool({
+          name: "create-document",
+          arguments: {},
+        });
+        expect(JSON.stringify(result)).not.toContain("embedStartUrl");
+        expect(JSON.stringify(result)).not.toContain("embedTargetPath");
+        expect(result._meta).toBeUndefined();
+        expect(
+          embedSessionMocks.createEmbedSessionTicket,
+        ).not.toHaveBeenCalled();
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+      }
+    }
+  });
+
+  it("renews a read-only directory widget ticket after reload", async () => {
+    const getDesign = defineAction({
+      description: "Read the design editor bootstrap record.",
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: false,
+      run: async (args: Record<string, unknown>) => ({ id: args.id }),
+    });
+    const getDesignSnapshot = defineAction({
+      description: "Read one saved design.",
+      parameters: {
+        type: "object",
+        properties: { designId: { type: "string" } },
+        required: ["designId"],
+      },
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://design/shell-v67",
+          title: "Design",
+          html: "<!doctype html><html><body>Design</body></html>",
+        },
+      },
+      run: async (args: Record<string, unknown>) => ({
+        designId: args.designId,
+        title: "Launch concept",
+      }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "design",
+      directoryProfile: {
+        connectorCatalog: ["get-design-snapshot"],
+        widgetTargets: {
+          "get-design-snapshot": (
+            args: Record<string, unknown>,
+            result: unknown,
+          ) => {
+            const record = result as { designId?: unknown };
+            const designId =
+              typeof args.designId === "string"
+                ? args.designId
+                : record.designId;
+            return typeof designId === "string"
+              ? {
+                  targetPath: `/design/${encodeURIComponent(designId)}`,
+                  resourceIds: { designId },
+                }
+              : null;
+          },
+        },
+        widgetReadActionArguments: {
+          "get-design-snapshot": { designId: "designId" },
+          "get-design": { id: "designId" },
+        },
+        widgetReadPublicActions: ["get-design"],
+      },
+      widgetDomain: "https://design.agent-native.com",
+      actions: {
+        "get-design-snapshot": getDesignSnapshot,
+        "get-design": getDesign,
+      },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      issuer: "https://design.agent-native.com",
+    });
+    const requestHeaders = { ...headers, host: "design.agent-native.com" };
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 145, method: "tools/list", params: {} },
+      {
+        headers: requestHeaders,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    const listedToolNames = listed.result.tools.map((tool: any) => tool.name);
+    expect(listedToolNames).toContain("get-design-snapshot");
+    expect(listedToolNames).toContain("create_embed_session");
+    expect(listedToolNames).not.toContain("get-design");
+    const originalCall = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 146,
+        method: "tools/call",
+        params: {
+          name: "get-design-snapshot",
+          arguments: { designId: "design-42" },
+        },
+      },
+      {
+        headers: requestHeaders,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(originalCall.result.isError).not.toBe(true);
+    expect(originalCall.result._meta["agent-native/widgetSource"]).toEqual({
+      toolName: "get-design-snapshot",
+    });
+    expect(originalCall.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl: expect.stringContaining("minted-picker-ticket"),
+    });
+
+    const savedMetadata = { ...originalCall.result._meta };
+    delete savedMetadata["agent-native/embedStart"];
+    expect(savedMetadata).not.toHaveProperty("agent-native/embedStart");
+    const reopened = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 147,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: {
+            sourceTool: savedMetadata["agent-native/widgetSource"].toolName,
+            toolInput: { designId: "design-42" },
+            toolOutput: originalCall.result.structuredContent,
+            chrome: "full",
+          },
+        },
+      },
+      {
+        headers: requestHeaders,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(reopened.result.isError).not.toBe(true);
+    expect(reopened.result.structuredContent).toMatchObject({
+      startUrl: expect.stringContaining("minted-picker-ticket"),
+      targetPath: "/design/design-42?__an_mcp_chat_bridge=1",
+    });
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(2);
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenLastCalledWith(
+      {
+        ownerEmail: "oauth@example.com",
+        orgId: undefined,
+        targetPath: "/design/design-42?__an_mcp_chat_bridge=1",
+        scope: expect.stringContaining("capability:mcp-directory-widget-read:"),
+      },
+    );
+    const { allowsMcpDirectoryWidgetReadAction } =
+      await import("../shared/embed-auth.js");
+    const renewalCapability =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewalCapability, {
+        actionName: "get-design",
+        appId: "design",
+        resourceUri: "ui://design/shell-v67",
+        args: { id: "design-42" },
+        allowedArgumentNames: ["id"],
+      }),
+    ).toBe(true);
+    expect(new URL(reopened.result.structuredContent.startUrl).origin).toBe(
+      "https://design.agent-native.com",
+    );
+  });
+
+  it("renews a hidden Content collection query capability after widget reload", async () => {
+    const createDatabase = defineAction({
+      description: "Create one Content collection.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/shell-v67",
+          title: "Open database",
+          html: "<!doctype html><html><body>Content</body></html>",
+        },
+      },
+      run: async () => ({
+        database: { id: "database-7", documentId: "document-7" },
+      }),
+    });
+    const createDocument = defineAction({
+      description: "Create one Content document.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/shell-v67",
+          title: "Open document",
+          html: "<!doctype html><html><body>Content</body></html>",
+        },
+      },
+      run: async () => ({ id: "document-8", spaceId: "space-7" }),
+    });
+    const queryDatabaseItems = {
+      tool: {
+        description: "Query one Content collection page.",
+        parameters: {
+          type: "object",
+          properties: {
+            databaseId: { type: "string" },
+            documentId: { type: "string" },
+            limit: { type: "integer" },
+            tableQuery: { type: "object" },
+          },
+        },
+      },
+      schema: z.object({
+        databaseId: z.string(),
+        documentId: z.string(),
+        limit: z.coerce.number().int().min(1).max(5_000),
+        tableQuery: z
+          .object({ search: z.string().max(500).optional() })
+          .optional(),
+      }),
+      readOnly: true,
+      requiresAuth: true,
+      http: { method: "GET" },
+      agentTool: false,
+      run: async () => ({ items: [] }),
+    };
+    const listComments = defineAction({
+      description: "Read comments for one Content document.",
+      parameters: {
+        type: "object",
+        properties: { documentId: { type: "string" } },
+        required: ["documentId"],
+      },
+      http: { method: "GET" },
+      requiresAuth: true,
+      run: async (args: Record<string, unknown>) => ({
+        documentId: args.documentId,
+      }),
+    });
+    const getDatabasePersonalView = defineAction({
+      description: "Read the caller's personal Content database view.",
+      parameters: {
+        type: "object",
+        properties: { databaseId: { type: "string" } },
+        required: ["databaseId"],
+      },
+      http: { method: "GET" },
+      requiresAuth: true,
+      run: async (args: Record<string, unknown>) => ({
+        databaseId: args.databaseId,
+      }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "content",
+      widgetDomain: "https://content.agent-native.com",
+      actions: {
+        "create-content-database": createDatabase,
+        "create-document": createDocument,
+        "get-content-database-personal-view": getDatabasePersonalView,
+        "list-comments": listComments,
+      },
+      widgetReadActions: {
+        "query-content-database-items": queryDatabaseItems,
+      },
+      directoryProfile: {
+        connectorCatalog: ["create-content-database", "create-document"],
+        widgetDomain: "https://content.agent-native.com",
+        widgetResourceTitle: false as const,
+        widgetTargets: {
+          "create-content-database": (_args: unknown, result: unknown) => {
+            const database = (result as { database?: Record<string, unknown> })
+              .database;
+            return database?.id === "database-7" &&
+              database.documentId === "document-7"
+              ? {
+                  targetPath: "/page/document-7",
+                  resourceIds: {
+                    databaseId: "database-7",
+                    documentId: "document-7",
+                    resourceType: "document",
+                    spaceId: "space-7",
+                  },
+                }
+              : null;
+          },
+          "create-document": (_args: unknown, result: unknown) => {
+            const document = result as { id?: unknown; spaceId?: unknown };
+            return document.id === "document-8"
+              ? {
+                  targetPath: "/page/document-8",
+                  resourceIds: {
+                    documentId: "document-8",
+                    resourceType: "document",
+                    spaceId: document.spaceId,
+                  },
+                }
+              : null;
+          },
+        },
+        widgetReadActionArguments: {
+          "list-comments": { documentId: "documentId" },
+          "get-content-database-personal-view": {
+            databaseId: "databaseId",
+          },
+          "query-content-database-items": {
+            documentId: "documentId",
+            limit: { type: "integerRange" as const, min: 1, max: 5_000 },
+            tableQuery: { type: "actionSchema" as const },
+          },
+        },
+        widgetReadOnlyActions: [
+          "get-content-database-personal-view",
+          "list-comments",
+        ],
+        widgetReadAuthenticatedActions: [
+          "get-content-database-personal-view",
+          "list-comments",
+        ],
+        widgetReadPrivateActions: ["query-content-database-items"],
+      },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://content.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      issuer: "https://content.agent-native.com",
+    });
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 148, method: "tools/list", params: {} },
+      {
+        headers: { ...headers, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    const listedToolNames = listed.result.tools.map((tool: any) => tool.name);
+    expect(listedToolNames).toContain("create-content-database");
+    expect(listedToolNames).toContain("create-document");
+    expect(listedToolNames).toContain("create_embed_session");
+    expect(listedToolNames).not.toContain("query-content-database-items");
+    expect(
+      listed.result.tools.find((tool: any) => tool.name === "create-document")
+        ._meta["openai/toolInvocation/invoking"],
+    ).toBe("Opening Open document");
+    expect(
+      listed.result.tools.find(
+        (tool: any) => tool.name === "create-content-database",
+      )._meta["openai/toolInvocation/invoking"],
+    ).toBe("Opening Open database");
+
+    const resources = await callWeb(
+      { jsonrpc: "2.0", id: 152, method: "resources/list", params: {} },
+      {
+        headers: { ...headers, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(resources.result.resources).toHaveLength(1);
+    expect(resources.result.resources[0]).not.toHaveProperty("title");
+    expect(resources.result.resources[0].name).not.toBe("Open database");
+
+    const originalCall = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 149,
+        method: "tools/call",
+        params: {
+          name: "create-content-database",
+          arguments: {},
+        },
+      },
+      {
+        headers: { ...headers, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(originalCall.result.isError).not.toBe(true);
+    expect(originalCall.result._meta["agent-native/embedStart"]).toBeDefined();
+
+    const reopened = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 150,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: {
+            sourceTool: "create-content-database",
+            toolInput: {},
+            toolOutput: originalCall.result.structuredContent,
+            chrome: "full",
+          },
+        },
+      },
+      {
+        headers: { ...headers, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(reopened.result.isError).not.toBe(true);
+    expect(reopened.result.structuredContent).toMatchObject({
+      startUrl: expect.stringContaining("minted-picker-ticket"),
+      targetPath: "/page/document-7?__an_mcp_chat_bridge=1",
+    });
+
+    const { allowsMcpDirectoryWidgetReadAction } =
+      await import("../shared/embed-auth.js");
+    const renewedCapability =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const baseArgs = {
+      documentId: "document-7",
+      limit: "50",
+      tableQuery: { search: "launch" },
+    };
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "list-comments",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { documentId: "document-7" },
+        allowedArgumentNames: ["documentId"],
+      }),
+    ).toBe(true);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "list-comments",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { documentId: "another-document" },
+        allowedArgumentNames: ["documentId"],
+      }),
+    ).toBe(false);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "get-content-database-personal-view",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { databaseId: "database-7" },
+        allowedArgumentNames: ["databaseId"],
+      }),
+    ).toBe(true);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "get-content-database-personal-view",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { databaseId: "another-database" },
+        allowedArgumentNames: ["databaseId"],
+      }),
+    ).toBe(false);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "query-content-database-items",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: baseArgs,
+        allowedArgumentNames: ["documentId", "limit", "tableQuery"],
+      }),
+    ).toBe(true);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "query-content-database-items",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { ...baseArgs, documentId: "another-document" },
+        allowedArgumentNames: ["documentId", "limit", "tableQuery"],
+      }),
+    ).toBe(false);
+
+    const ticketCountBeforeWriteOnlyCall =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.length;
+    const writeOnlyHeaders = await mcpAppsAuthHeaders({
+      ownerEmail: "write-only@example.com",
+      scope: "mcp:write",
+      resource: `https://content.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      issuer: "https://content.agent-native.com",
+    });
+    const writeOnlyCall = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 151,
+        method: "tools/call",
+        params: {
+          name: "create-content-database",
+          arguments: {},
+        },
+      },
+      {
+        headers: { ...writeOnlyHeaders, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(writeOnlyCall.result.isError).not.toBe(true);
+    expect(
+      writeOnlyCall.result._meta?.["agent-native/embedStart"],
+    ).toBeUndefined();
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(
+      ticketCountBeforeWriteOnlyCall,
+    );
+  });
+
+  it("does not turn a completed action into an error when a widget target is missing", async () => {
+    const createDocument = defineAction({
+      description: "Create one editable document.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://mail/create-document",
+          title: "Document",
+          html: "<!doctype html><html><body>Document</body></html>",
+        },
+      },
+      run: async () => ({ id: "doc-1", saved: true }),
+    });
+    const getDocument = defineAction({
+      description: "Read one workspace document.",
+      parameters: { type: "object", properties: { id: { type: "string" } } },
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ id: "doc-1" }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "mail",
+      directoryProfile: {
+        connectorCatalog: ["create-document", "get-document"],
+        widgetDomain: "https://mail.agent-native.com",
+        widgetTargets: { "create-document": () => null },
+        widgetReadActionArguments: {
+          "get-document": { id: "documentId" },
+        },
+      },
+      widgetDomain: "https://mail.agent-native.com",
+      actions: {
+        "create-document": createDocument,
+        "get-document": getDocument,
+      },
+    };
+    const result = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 145,
+        method: "tools/call",
+        params: { name: "create-document", arguments: {} },
+      },
+      {
+        headers: await mcpAppsAuthHeaders({
+          resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+        }),
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(result.result.isError).not.toBe(true);
+    expect(result.result.content[0].text).toContain(
+      "create-document completed for doc-1.",
+    );
+    expect(result.result._meta?.["agent-native/embedStart"]).toBeUndefined();
     expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
-    expect(called.result._meta["agent-native/embedStart"]).toBeUndefined();
   });
 
   it("handles `initialize` without a 501", async () => {
@@ -1350,6 +3020,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const { client } = await createModernClient(approvalConfig, {
       manualInputRequired: true,
       supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
     });
     try {
       const first = (await client.callTool(
@@ -1425,6 +3096,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     };
     const { client, wireResponses } = await createModernClient(approvalConfig, {
       approvalDecision: "deny",
+      requestHeaders: await mcpAppsAuthHeaders(),
     });
     try {
       const denied = await client.callTool({
@@ -1471,6 +3143,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const { client } = await createModernClient(approvalConfig, {
       manualInputRequired: true,
       supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
     });
     try {
       const first = (await client.callTool(
@@ -1593,6 +3266,33 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("does not accept action approval from a static-token caller", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "publish-draft": {
+          tool: { description: "Publish a draft" },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const { client } = await createModernClient(approvalConfig, {
+      approvalDecision: "approve",
+    });
+    try {
+      const result = await client.callTool({
+        name: "publish-draft",
+        arguments: {},
+      });
+      expect(result.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
   it("runs a false approval predicate normally and fails closed when it throws", async () => {
     const ordinaryRun = vi.fn(async () => ({ ok: true }));
     const throwingRun = vi.fn(async () => ({ ok: true }));
@@ -1613,7 +3313,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         },
       },
     };
-    const { client } = await createModernClient(approvalConfig);
+    const { client } = await createModernClient(approvalConfig, {
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
     try {
       const ordinary = await client.callTool({
         name: "ordinary",
@@ -3580,6 +5282,181 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("keeps external action links external for desktop clients", async () => {
+    const projectUrl =
+      "https://beta.builder.io/app/projects/test-project/test-app?spaceId=test-space";
+    const externalLinkConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "echo-thing": {
+          ...config.actions["echo-thing"],
+          link: () => ({
+            label: "Open project",
+            view: "project",
+            url: projectUrl,
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 32,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-full-catalog": "1",
+          "x-agent-native-open-target": "desktop",
+        },
+        config: externalLinkConfig,
+      },
+    );
+
+    expect(out.result.content[1].text).toBe(
+      `\n\n[Open project →](${projectUrl})`,
+    );
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: projectUrl,
+      desktopUrl: projectUrl,
+    });
+  });
+
+  it("keeps foreign open-route URLs external for desktop clients", async () => {
+    const externalUrl =
+      "https://outside.example/_agent-native/open?view=project&id=test";
+    const externalLinkConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "echo-thing": {
+          ...config.actions["echo-thing"],
+          link: () => ({ label: "Open project", url: externalUrl }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 33,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-full-catalog": "1",
+          "x-agent-native-open-target": "desktop",
+        },
+        config: externalLinkConfig,
+      },
+    );
+
+    expect(out.result.content[1].text).toBe(
+      `\n\n[Open project →](${externalUrl})`,
+    );
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: externalUrl,
+      desktopUrl: externalUrl,
+    });
+  });
+
+  it("resolves protocol-relative external open routes for desktop clients", async () => {
+    const externalUrl =
+      "https://outside.example/_agent-native/open?view=project&id=test";
+    const externalLinkConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "echo-thing": {
+          ...config.actions["echo-thing"],
+          link: () => ({
+            label: "Open project",
+            url: "//outside.example/_agent-native/open?view=project&id=test",
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 37,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-full-catalog": "1",
+          "x-agent-native-open-target": "desktop",
+        },
+        config: externalLinkConfig,
+      },
+    );
+
+    expect(out.result.content[1].text).toBe(
+      `\n\n[Open project →](${externalUrl})`,
+    );
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: externalUrl,
+      desktopUrl: externalUrl,
+    });
+  });
+
+  it("recognizes open routes under a configured framework prefix", async () => {
+    const originalPrefix =
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      "/_platform";
+    try {
+      const customPrefixConfig = {
+        ...config,
+        actions: {
+          ...config.actions,
+          "echo-thing": {
+            ...config.actions["echo-thing"],
+            link: () => ({
+              label: "Open project",
+              url: "/_platform/open?view=project&id=test",
+            }),
+          },
+        },
+      };
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 35,
+          method: "tools/call",
+          params: { name: "echo-thing", arguments: { value: "hello" } },
+        },
+        {
+          headers: {
+            "x-agent-native-mcp-full-catalog": "1",
+            "x-agent-native-open-target": "desktop",
+          },
+          config: customPrefixConfig,
+        },
+      );
+
+      expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+        webUrl:
+          "https://mail.agent-native.com/_platform/open?view=project&id=test&agentSidebar=closed",
+        desktopUrl:
+          "agentnative://open?view=project&id=test&agentSidebar=closed",
+      });
+    } finally {
+      if (originalPrefix === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+          originalPrefix;
+      }
+    }
+  });
+
   it("serializes bounded action images as MCP image content without exposing base64 in text or structured content", async () => {
     const png = "aGVsbG8=";
     const imageConfig = {
@@ -3671,6 +5548,56 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
     expect(actionChangeMocks.writeMarker).toHaveBeenCalledWith({
       actionName: "update-thing",
+      owner: "oauth@example.com",
+      orgId: "org-from-email",
+    });
+  });
+
+  it("scopes a direct MCP call's action change to the resource it declares", async () => {
+    actionChangeMocks.writeMarker.mockClear();
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
+    const scopedConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: {
+              type: "object" as const,
+              properties: { id: { type: "string" } },
+            },
+          },
+          readOnly: false,
+          changeResource: (
+            _input: { id: string },
+            result: { thingId: string },
+          ) => ({
+            resourceType: "thing",
+            resourceId: result.thingId,
+          }),
+          run: async () => ({ updated: true, thingId: "thing-1" }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 304,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: { id: "thing-1" } },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: scopedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(actionChangeMocks.writeMarker).toHaveBeenCalledWith({
+      actionName: "update-thing",
+      resourceType: "thing",
+      resourceId: "thing-1",
       owner: "oauth@example.com",
       orgId: "org-from-email",
     });
@@ -4115,6 +6042,54 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(out.result.structuredContent)).not.toContain(
       "test-ticket",
     );
+  });
+
+  it("resolves protocol-relative foreign open routes in MCP App metadata", async () => {
+    const externalUrl =
+      "https://outside.example/_agent-native/open?view=project&id=test";
+    const externalNetworkPath =
+      "//outside.example/_agent-native/open?view=project&id=test";
+    const embedConfig = {
+      ...config,
+      actions: {
+        "open-app-embed": {
+          tool: { description: "Open a project" },
+          run: async () => ({
+            app: "mail",
+            url: "/_agent-native/embed/start?ticket=test-ticket",
+            embedStartUrl: "/_agent-native/embed/start?ticket=test-ticket",
+            deepLinkUrl: externalNetworkPath,
+            embed: true,
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open app",
+              description: "Open the app inline.",
+              html: "<!doctype html><html><body>Open app</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 36,
+        method: "tools/call",
+        params: { name: "open-app-embed", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: externalUrl,
+      desktopUrl: externalUrl,
+    });
   });
 
   it("mints hidden embed-session metadata for same-origin MCP App path results", async () => {
@@ -4986,6 +6961,45 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect((res as any).message).toContain(
       "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
+  });
+
+  it("answers 503 without an auth challenge when the token's org membership cannot be checked", async () => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgId: "org_123",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+    const request = () =>
+      makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 11, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+    try {
+      membershipOverride.answer = "unavailable";
+      const unavailable = request();
+      const res = await handleMcpRequest(unavailable, config as any);
+      expect(unavailable._status).toBe(503);
+      expect(
+        unavailable._responseHeaders?.["www-authenticate"],
+      ).toBeUndefined();
+      expect(unavailable._responseHeaders?.["retry-after"]).toBe("5");
+      expect(res).toMatchObject({ error: "Service Unavailable" });
+
+      membershipOverride.answer = "not-member";
+      const removed = request();
+      await handleMcpRequest(removed, config as any);
+      expect(removed._status).toBe(401);
+      expect(removed._responseHeaders?.["www-authenticate"]).toBeTruthy();
+    } finally {
+      membershipOverride.answer = null;
+      delete process.env.BETTER_AUTH_SECRET;
+    }
   });
 
   it("preserves the legacy MCP resource in its OAuth challenge", async () => {

@@ -90,11 +90,12 @@ export function QuestionFlow({
   );
 
   return (
-    <div className="slides-question-flow absolute inset-0 z-50 bg-background">
+    <div className="slides-question-flow absolute inset-0 z-50 bg-transparent">
       <GuidedQuestionFlow
         questions={visibleQuestions as GuidedQuestion[]}
         onSubmit={onSubmit}
         onSkip={onSkip}
+        className="bg-background/65 backdrop-blur-sm"
         title={title ?? "Shape the deck first"}
         description={
           description ??

@@ -361,6 +361,7 @@ const messages = {
     googleSlidesCreated: "Abierto en Google Slides",
     googleSlidesCreatedHint:
       "Se creó una copia de esta presentación en tu Google Drive.",
+    googleSlidesGoTo: "Ir a Google Slides",
     duplicateDeck: "Duplicar deck",
   },
   share: {
@@ -448,7 +449,9 @@ const messages = {
     resolveThread: "Resolver hilo",
     reopenThread: "Reabrir hilo",
     hideReplies: "Ocultar respuestas",
-    replyCount: "{{count}} respuestas",
+    replyCount_one: "{{count}} respuesta",
+    replyCount_many: "{{count}} respuestas",
+    replyCount_other: "{{count}} respuestas",
     title: "Comentarios",
     addComment: "Añadir comentario",
     close: "Cerrar",
@@ -993,8 +996,8 @@ const messages = {
           "Lee la web de la empresa indicada y crea una presentación sobre ella. Informa de errores de acceso en lugar de inventar datos.",
       },
     },
-    connectBuilderIo: "Conectar Builder.io",
-    connectingBuilder: "Conectando Builder.io…",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando Builder.io…",
     recent: "Recientes",
     starters: {
       pitch: {
@@ -1033,9 +1036,13 @@ const messages = {
     all: "Todos",
     showMineDecks: "Mostrar decks creados por mí",
     mine: "Míos",
+    ownedByAnyone: "De cualquiera",
+    ownedByMe: "Míos",
+    sharedWithMe: "Compartido conmigo",
     createDeckOrVisual: "Crear una presentación",
     noMineDecks: "Aún no has creado decks.",
     noDecksMatchSearch: "Ningún deck coincide con tu búsqueda.",
+    noDecksMatchFilter: "Ningún deck coincide con el filtro actual.",
     deleteDeckTitle: "¿Eliminar deck?",
     deleteDeckDescription:
       "Esto eliminará permanentemente este deck y todas sus diapositivas. Esta acción no se puede deshacer.",

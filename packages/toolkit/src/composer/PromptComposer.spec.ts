@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildPromptComposerSubmission,
+  createChatAttachmentAdapter,
   PromptComposer,
   resolveComposerModelStatusChecksEnabled,
   shouldGateComposerForEngine,
@@ -232,5 +233,84 @@ describe("PromptComposer scoped runtime", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(attachedFiles).toHaveLength(0);
+  });
+});
+
+describe("PromptComposer attachment policy", () => {
+  it("keeps SVGs out of standalone prompts while chat stages them as documents", async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(PromptComposer, {
+          attachmentsEnabled: true,
+          includeDefaultSlashSkills: false,
+          onSubmit: () => {},
+          plusMenuMode: "upload-only",
+          showModelSelector: false,
+          voiceEnabled: false,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const standaloneAccept = container
+      .querySelector<HTMLInputElement>('input[type="file"]')
+      ?.getAttribute("accept")
+      ?.split(",");
+    expect(standaloneAccept).toContain(".pdf");
+    expect(standaloneAccept).not.toContain(".svg");
+
+    const chatAdapter = createChatAttachmentAdapter();
+    expect(chatAdapter.accept.split(",")).toEqual(
+      expect.arrayContaining(["image/svg+xml", ".svg", ".png", ".pdf"]),
+    );
+    await expect(
+      chatAdapter.add({
+        file: new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" }),
+      }),
+    ).resolves.toMatchObject({
+      type: "document",
+      name: "logo.svg",
+      contentType: "image/svg+xml",
+    });
+    await expect(
+      chatAdapter.add({
+        file: new File(["png"], "logo.png", { type: "image/png" }),
+      }),
+    ).resolves.toMatchObject({ type: "image", name: "logo.png" });
+  });
+
+  it("shows why a file was rejected when the host passes no error handler", async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(PromptComposer, {
+          attachmentsEnabled: true,
+          includeDefaultSlashSkills: false,
+          onSubmit: () => {},
+          plusMenuMode: "upload-only",
+          showModelSelector: false,
+          voiceEnabled: false,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const editor = container.querySelector<HTMLElement>(
+      ".agent-composer-prosemirror",
+    );
+    expect(editor).not.toBeNull();
+    const pasteEvent = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(pasteEvent, "clipboardData", {
+      value: {
+        files: [new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" })],
+        getData: () => "",
+      },
+    });
+
+    await act(async () => {
+      editor?.dispatchEvent(pasteEvent);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Could not attach the pasted image. Try a different format.",
+    );
   });
 });

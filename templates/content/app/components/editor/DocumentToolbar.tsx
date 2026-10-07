@@ -135,7 +135,6 @@ import {
   contentNavigationBranchFilter,
   useContentActionMutation,
 } from "@/hooks/use-content-action-mutation";
-import { useContentDatabasePersonalView } from "@/hooks/use-content-database";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
@@ -151,10 +150,7 @@ import {
 } from "@/hooks/use-notion";
 import { contentAgentPromptValues } from "@/lib/content-agent-prompt";
 import { documentQueryFilter } from "@/lib/document-query";
-import {
-  filesNavigationOrder,
-  filesNavigationPageParams,
-} from "@/lib/files-navigation";
+import { filesNavigationPageParams } from "@/lib/files-navigation";
 import {
   localSourceAbsolutePath,
   revealLinkedLocalSourceFile,
@@ -655,27 +651,15 @@ function useBreadcrumbSiblingPage(
   siblings: ToolbarBreadcrumbSiblings,
   options: { enabled: boolean; cursor?: string },
 ) {
-  const personalView = useContentDatabasePersonalView(
-    siblings.filesDatabaseId,
+  return useActionQuery<ContentDatabaseNavigationPageResponse>(
+    "query-content-database-items",
+    filesNavigationPageParams({
+      databaseId: siblings.filesDatabaseId,
+      parentId: siblings.parentId,
+      cursor: options.cursor,
+    }),
     { enabled: options.enabled },
   );
-  const order = personalView.data
-    ? filesNavigationOrder(personalView.data.overrides)
-    : null;
-  const page = useActionQuery<ContentDatabaseNavigationPageResponse>(
-    "query-content-database-items",
-    order
-      ? filesNavigationPageParams({
-          databaseId: siblings.filesDatabaseId,
-          parentId: siblings.parentId,
-          sort: order.order.mode,
-          viewId: order.activeViewId,
-          cursor: options.cursor,
-        })
-      : undefined,
-    { enabled: options.enabled && order !== null },
-  );
-  return { personalView, page };
 }
 
 // Reads the sidebar's cached page for the branch without fetching, so an item
@@ -684,7 +668,7 @@ function useCachedBreadcrumbPeerCount(
   siblings: ToolbarBreadcrumbSiblings,
   documentId: string | undefined,
 ) {
-  const { page } = useBreadcrumbSiblingPage(siblings, { enabled: false });
+  const page = useBreadcrumbSiblingPage(siblings, { enabled: false });
   if (!page.data) return null;
   if (page.data.pagination.hasMore) return Number.POSITIVE_INFINITY;
   const peers = page.data.items.filter((peer) => peer.sourceKind !== "folder");
@@ -711,16 +695,16 @@ function ToolbarBreadcrumbSiblingPage({
 }) {
   const t = useT();
   const [nextPageVisible, setNextPageVisible] = useState(false);
-  const { personalView, page } = useBreadcrumbSiblingPage(siblings, {
+  const page = useBreadcrumbSiblingPage(siblings, {
     enabled: true,
     cursor,
   });
-  if (personalView.isError || page.isError) {
+  if (page.isError) {
     return (
       <DropdownMenuItem
         onSelect={(event) => {
           event.preventDefault();
-          void (personalView.isError ? personalView.refetch() : page.refetch());
+          void page.refetch();
         }}
       >
         {t("database.retry")}
@@ -811,6 +795,7 @@ interface DocumentToolbarProps {
   agentActive?: boolean;
   currentUserEmail?: string;
   canEdit?: boolean;
+  readOnly?: boolean;
   hideFromSearch?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
@@ -854,6 +839,7 @@ export function DocumentToolbar({
   agentActive,
   currentUserEmail,
   canEdit = true,
+  readOnly = false,
   hideFromSearch = false,
   source,
   canDelete = false,
@@ -888,6 +874,7 @@ export function DocumentToolbar({
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =
+    !readOnly &&
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
@@ -1391,7 +1378,7 @@ export function DocumentToolbar({
             currentUserEmail={currentUserEmail}
             className="mr-1"
           />
-          {isLocalFileDocument ? (
+          {!readOnly && isLocalFileDocument ? (
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <ShareTrigger
@@ -1413,7 +1400,7 @@ export function DocumentToolbar({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : (
+          ) : !readOnly ? (
             <Suspense fallback={unopenedShareControl}>
               {shareRequested || openShareOnLoad ? (
                 <ShareButton
@@ -1521,9 +1508,9 @@ export function DocumentToolbar({
                 restoreUnavailableReason={restoreUnavailableReason}
               />
             </Suspense>
-          )}
+          ) : null}
 
-          {suggesting ? (
+          {!readOnly && suggesting ? (
             <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
               <IconPencil aria-hidden="true" className="size-3.5" />
               <span>{t("editor.toolbar.suggesting")}</span>
@@ -1653,7 +1640,7 @@ export function DocumentToolbar({
               data-database-preview-portal={compact ? "" : undefined}
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              {canSuggest ? (
+              {!readOnly && canSuggest ? (
                 <>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -1698,7 +1685,7 @@ export function DocumentToolbar({
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                {onToggleFavorite ? (
+                {!readOnly && onToggleFavorite ? (
                   <DropdownMenuItem
                     onSelect={() => onToggleFavorite(!isFavorite)}
                   >

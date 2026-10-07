@@ -238,8 +238,8 @@ const ORDERED_TYPE_MARKER: Record<string, string> = {
 };
 const PLACEHOLDER_ONLY = new RegExp(`^${ZERO_WIDTH_SPACE}+$`);
 const ALL_ZWSP = new RegExp(ZERO_WIDTH_SPACE, "g");
-export const IN_PLACE_TEXT_UNDO_LIMIT = 512;
-export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 32 * 1024 * 1024;
+export const IN_PLACE_TEXT_UNDO_LIMIT = 2048;
+export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 64 * 1024 * 1024;
 /** How far Tab nests a legacy bullet row, the way generated decks draw sub-bullets. */
 const LEGACY_ROW_INDENT_PX = 24;
 const TYPING_RUN_MS = 1000;
@@ -328,6 +328,16 @@ const PASTE_INPUTS = new Set([
   "insertFromYank",
 ]);
 
+function isStructuralInputType(inputType: string) {
+  return (
+    inputType.startsWith("delete") ||
+    inputType === "insertParagraph" ||
+    inputType === "insertLineBreak" ||
+    inputType === "insertReplacementText" ||
+    PASTE_INPUTS.has(inputType)
+  );
+}
+
 const COMPOSITION_INPUTS = new Set([
   "insertCompositionText",
   "deleteCompositionText",
@@ -350,6 +360,8 @@ interface Snapshot extends TextOffsets {
   attributes: [string, string][];
   html: string;
   byteSize: number;
+  /** Whether the session's temporary layout reservation is applied. */
+  layoutReservationApplied: boolean;
   /** Which of the element's zero-width spaces, in text order, are the author's. */
   authorZwsp: number[];
 }
@@ -501,6 +513,145 @@ function placeCaret(node: Node, offset: number) {
   range.collapse(true);
   selection.removeAllRanges();
   selection.addRange(range);
+}
+
+function textNodesInRange(range: Range): Text[] {
+  const root = range.commonAncestorContainer;
+  if (root instanceof Text) return [root];
+  const nodes: Text[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    nodes.push(node as Text);
+  }
+  return nodes;
+}
+
+function rowTextPoint(
+  range: Range,
+  marker: HTMLElement | null,
+  row: HTMLElement,
+  edge: "start" | "end",
+): [Node, number] {
+  let last: [Node, number] | null = null;
+  for (const text of textNodesInRange(range)) {
+    let nestedRow = false;
+    for (
+      let parent = text.parentElement;
+      parent && parent !== row;
+      parent = parent.parentElement
+    ) {
+      if (
+        parent.tagName === "UL" ||
+        parent.tagName === "OL" ||
+        parent.tagName === "LI" ||
+        isBulletRow(parent)
+      ) {
+        nestedRow = true;
+        break;
+      }
+    }
+    if (nestedRow || marker?.contains(text) || !range.intersectsNode(text)) {
+      continue;
+    }
+    const start = text === range.startContainer ? range.startOffset : 0;
+    const end = text === range.endContainer ? range.endOffset : text.length;
+    if (end <= start) continue;
+    if (edge === "start") return [text, start];
+    last = [text, end];
+  }
+  return last ?? [range.startContainer, range.startOffset];
+}
+
+function rowTextVisualLinePoint(
+  textRange: Range,
+  marker: HTMLElement | null,
+  row: HTMLElement,
+  caret: Range,
+  edge: "start" | "end",
+): [Node, number] | null {
+  let lineTop: number | null = null;
+  if (caret.startContainer instanceof Text) {
+    const text = caret.startContainer;
+    let offset = Math.min(caret.startOffset, text.length - 1);
+    if (
+      offset > 0 &&
+      text.data.charCodeAt(offset) >= 0xdc00 &&
+      text.data.charCodeAt(offset) <= 0xdfff &&
+      text.data.charCodeAt(offset - 1) >= 0xd800 &&
+      text.data.charCodeAt(offset - 1) <= 0xdbff
+    ) {
+      offset -= 1;
+    }
+    if (offset >= 0) {
+      const character = document.createRange();
+      character.setStart(text, offset);
+      character.setEnd(
+        text,
+        offset + ((text.data.codePointAt(offset) ?? 0) > 0xffff ? 2 : 1),
+      );
+      const rect = character.getBoundingClientRect();
+      if (rect.height > 0) lineTop = rect.top;
+    }
+  }
+  if (lineTop === null) {
+    const caretRect = caret.getBoundingClientRect();
+    if (caretRect.height > 0) lineTop = caretRect.top;
+  }
+  if (lineTop === null) return null;
+
+  let first: [Node, number] | null = null;
+  let firstVisible: [Node, number] | null = null;
+  let last: [Node, number] | null = null;
+  let lastVisible: [Node, number] | null = null;
+  for (const text of textNodesInRange(textRange)) {
+    let nestedRow = false;
+    for (
+      let parent = text.parentElement;
+      parent && parent !== row;
+      parent = parent.parentElement
+    ) {
+      if (
+        parent.tagName === "UL" ||
+        parent.tagName === "OL" ||
+        parent.tagName === "LI" ||
+        isBulletRow(parent)
+      ) {
+        nestedRow = true;
+        break;
+      }
+    }
+    if (
+      nestedRow ||
+      marker?.contains(text) ||
+      !textRange.intersectsNode(text)
+    ) {
+      continue;
+    }
+    const start = text === textRange.startContainer ? textRange.startOffset : 0;
+    const end =
+      text === textRange.endContainer ? textRange.endOffset : text.length;
+    for (let offset = start; offset < end; ) {
+      const width = (text.data.codePointAt(offset) ?? 0) > 0xffff ? 2 : 1;
+      const character = document.createRange();
+      character.setStart(text, offset);
+      character.setEnd(text, Math.min(end, offset + width));
+      const rect = character.getBoundingClientRect();
+      if (rect.height > 0 && Math.abs(rect.top - lineTop) <= 1) {
+        const startPoint: [Node, number] = [text, offset];
+        const endPoint: [Node, number] = [text, Math.min(end, offset + width)];
+        // Wrapped whitespace can keep a Range rect after the visible line edge.
+        const visible = !/^[\t\n\v\f\r ]+$/u.test(
+          text.data.slice(offset, Math.min(end, offset + width)),
+        );
+        first ??= startPoint;
+        if (visible) firstVisible ??= startPoint;
+        last = endPoint;
+        if (visible) lastVisible = endPoint;
+      }
+      offset += width;
+    }
+  }
+  return edge === "start" ? (firstVisible ?? first) : (lastVisible ?? last);
 }
 
 /**
@@ -1029,9 +1180,9 @@ function pastedLists(lines: PastedLine[]): DocumentFragment {
 }
 
 /**
- * Makes `element` editable in place and returns the session that owns every
- * edit to it until `end()`. Only `contenteditable` and `data-editing-block`
- * change on the element; with no input, `end()` leaves its markup identical.
+ * Makes element editable in place and returns the session that owns every
+ * edit to it until end(). Changed content reserves its original intrinsic
+ * size so the surrounding slide layout stays in place.
  */
 export function startInPlaceTextSession(
   element: HTMLElement,
@@ -1053,6 +1204,207 @@ export function startInPlaceTextSession(
       attribute.value,
     ]),
   );
+  const computedStyle = window.getComputedStyle(el);
+  const cssPixels = (value: string) => Number.parseFloat(value) || 0;
+  const contentSize = (
+    dimension: "width" | "height",
+    clientSize: number,
+    beforePadding: string,
+    afterPadding: string,
+    beforeBorder: string,
+    afterBorder: string,
+  ) => {
+    const padding = cssPixels(beforePadding) + cssPixels(afterPadding);
+    const computedValue = computedStyle[dimension].trim();
+    const computedSize = /^(?:-?\d*\.?\d+px|0)$/u.test(computedValue)
+      ? Number.parseFloat(computedValue)
+      : Number.NaN;
+    const size = Number.isFinite(computedSize)
+      ? computedStyle.boxSizing === "border-box"
+        ? computedSize -
+          padding -
+          cssPixels(beforeBorder) -
+          cssPixels(afterBorder)
+        : computedSize
+      : clientSize - padding;
+    return Math.max(0, size);
+  };
+  const initialLayout = {
+    width: contentSize(
+      "width",
+      el.clientWidth,
+      computedStyle.paddingLeft,
+      computedStyle.paddingRight,
+      computedStyle.borderLeftWidth,
+      computedStyle.borderRightWidth,
+    ),
+    height: contentSize(
+      "height",
+      el.clientHeight,
+      computedStyle.paddingTop,
+      computedStyle.paddingBottom,
+      computedStyle.borderTopWidth,
+      computedStyle.borderBottomWidth,
+    ),
+    renderedWidth: el.offsetWidth,
+    renderedHeight: el.offsetHeight,
+    contain: el.style.getPropertyValue("contain"),
+    containPriority: el.style.getPropertyPriority("contain"),
+    intrinsicSize: el.style.getPropertyValue("contain-intrinsic-size"),
+    intrinsicSizePriority: el.style.getPropertyPriority(
+      "contain-intrinsic-size",
+    ),
+    computedContain: computedStyle.contain || "none",
+    display: computedStyle.display || "block",
+    position: computedStyle.position || "static",
+  };
+  const layoutBorderHeight = (target: HTMLElement) => {
+    const style = window.getComputedStyle(target);
+    const height = Number.parseFloat(style.height);
+    if (!Number.isFinite(height)) return target.offsetHeight;
+    if (style.boxSizing === "border-box") return height;
+    return (
+      height +
+      cssPixels(style.paddingTop) +
+      cssPixels(style.paddingBottom) +
+      cssPixels(style.borderTopWidth) +
+      cssPixels(style.borderBottomWidth)
+    );
+  };
+  const reservationEnabled =
+    initialLayout.renderedWidth > 0 &&
+    initialLayout.renderedHeight > 0 &&
+    typeof CSS !== "undefined" &&
+    CSS.supports("contain-intrinsic-size", "1px 1px") &&
+    !["inline", "contents", "none"].includes(initialLayout.display) &&
+    !/(^|\s)(size|strict|content)(\s|$)/u.test(initialLayout.computedContain);
+  const reservedIntrinsicSize =
+    String(initialLayout.width) + "px " + String(initialLayout.height) + "px";
+  let reservedHeight = initialLayout.height;
+  let reservationParent: HTMLElement | null = el.parentElement;
+  let parentHeightAtStart = 0;
+  let parentHeightCaptured = false;
+  let layoutAdjustmentFrame = 0;
+  let layoutAdjustmentSettled = false;
+  let layoutReservationApplied = false;
+  let restoringHistory = false;
+  // A missed frame must not reset the parent-size anchor to a shrunken value.
+  const captureReservationParentHeight = () => {
+    if (!reservationEnabled || parentHeightCaptured) return;
+    parentHeightCaptured = true;
+    reservationParent = el.parentElement;
+    parentHeightAtStart = ["absolute", "fixed"].includes(initialLayout.position)
+      ? 0
+      : reservationParent
+        ? layoutBorderHeight(reservationParent)
+        : 0;
+  };
+  const cancelLayoutAdjustment = () => {
+    if (!layoutAdjustmentFrame) return;
+    window.cancelAnimationFrame(layoutAdjustmentFrame);
+    layoutAdjustmentFrame = 0;
+  };
+  const adjustReservationForParent = () => {
+    layoutAdjustmentFrame = 0;
+    if (
+      layoutAdjustmentSettled ||
+      !active ||
+      !layoutReservationApplied ||
+      !reservationParent?.isConnected ||
+      parentHeightAtStart <= 0
+    ) {
+      return;
+    }
+    layoutAdjustmentSettled = true;
+    const parentHeight = layoutBorderHeight(reservationParent);
+    const adjustment = parentHeightAtStart - parentHeight;
+    if (!Number.isFinite(adjustment) || Math.abs(adjustment) <= 0.5) return;
+    reservedHeight = Math.max(0, reservedHeight + adjustment);
+    el.style.setProperty(
+      "contain-intrinsic-size",
+      `${initialLayout.width}px ${reservedHeight}px`,
+      initialLayout.intrinsicSizePriority,
+    );
+  };
+  const scheduleLayoutAdjustment = (structural = false) => {
+    if (structural) layoutAdjustmentSettled = false;
+    if (
+      layoutAdjustmentSettled ||
+      !layoutReservationApplied ||
+      !reservationParent?.isConnected ||
+      !parentHeightAtStart
+    ) {
+      return;
+    }
+    cancelLayoutAdjustment();
+    layoutAdjustmentFrame = window.requestAnimationFrame(
+      adjustReservationForParent,
+    );
+  };
+  const restoreLayoutReservation = () => {
+    if (!layoutReservationApplied) return;
+    cancelLayoutAdjustment();
+    el.style.cssText = el.getAttribute("style") ?? "";
+    if (el.style.getPropertyValue("contain") !== initialLayout.contain) {
+      if (initialLayout.contain) {
+        el.style.setProperty(
+          "contain",
+          initialLayout.contain,
+          initialLayout.containPriority,
+        );
+      } else {
+        el.style.removeProperty("contain");
+      }
+    }
+    if (
+      el.style.getPropertyValue("contain-intrinsic-size") !==
+      initialLayout.intrinsicSize
+    ) {
+      if (initialLayout.intrinsicSize) {
+        el.style.setProperty(
+          "contain-intrinsic-size",
+          initialLayout.intrinsicSize,
+          initialLayout.intrinsicSizePriority,
+        );
+      } else {
+        el.style.removeProperty("contain-intrinsic-size");
+      }
+    }
+    reservedHeight = initialLayout.height;
+    parentHeightAtStart = 0;
+    parentHeightCaptured = false;
+    layoutAdjustmentSettled = false;
+    layoutReservationApplied = false;
+  };
+  const preserveLayoutReservation = (structural = false) => {
+    if (!reservationEnabled) return;
+    captureReservationParentHeight();
+    if (!layoutReservationApplied) {
+      const contain = initialLayout.computedContain
+        .split(/\s+/u)
+        .filter((value) => value && value !== "none")
+        .map((value) => (value === "inline-size" ? "size" : value));
+      const reservedContain = [...new Set([...contain, "size"])].join(" ");
+      if (!CSS.supports("contain", reservedContain)) return;
+      el.style.setProperty(
+        "contain",
+        reservedContain,
+        initialLayout.containPriority,
+      );
+      if (
+        !el.style.getPropertyValue("contain").split(/\s+/u).includes("size")
+      ) {
+        return;
+      }
+      el.style.setProperty(
+        "contain-intrinsic-size",
+        reservedIntrinsicSize,
+        initialLayout.intrinsicSizePriority,
+      );
+      layoutReservationApplied = true;
+    }
+    scheduleLayoutAdjustment(structural);
+  };
   const restoreSessionMenuAria = () => {
     for (const name of SESSION_MENU_ATTRIBUTES) {
       const value = startAttributes.get(name);
@@ -1080,6 +1432,7 @@ export function startInPlaceTextSession(
   let pointerFocusPending = false;
   let edited = false;
   const enterCreatedListItems = new WeakSet<HTMLElement>();
+  const editorCreatedTextNodes = new WeakSet<Text>();
   /** A drag-move's deletion, which its drop joins into one undo step. */
   let dragDeleted = false;
   /** The text a drag-move deleted from, reshaped once the drop has landed. */
@@ -1218,6 +1571,7 @@ export function startInPlaceTextSession(
         ? range.startOffset
         : null;
     const copy = text.cloneNode() as Text;
+    if (editorCreatedTextNodes.has(text)) editorCreatedTextNodes.add(copy);
     text.replaceWith(copy);
     if (caret !== null) placeCaret(copy, caret);
   }
@@ -1227,8 +1581,9 @@ export function startInPlaceTextSession(
     if (range?.collapsed) reshape(range.startContainer);
   }
 
-  const notify = () => {
+  const notify = (structural = false) => {
     authorZwspOrdinals();
+    if (edited && !restoringHistory) preserveLayoutReservation(structural);
     unscroll();
     focusSelection = selectionOffsets(true);
     if (lastEdit) lastEdit.after = focusSelection;
@@ -1244,6 +1599,15 @@ export function startInPlaceTextSession(
       : null;
   }
 
+  function selectionFocusRange(): Range | null {
+    const selection = window.getSelection();
+    if (!selection?.focusNode || !el.contains(selection.focusNode)) return null;
+    const range = document.createRange();
+    range.setStart(selection.focusNode, selection.focusOffset);
+    range.collapse(true);
+    return range;
+  }
+
   function selectionOffsets(breaks = false): TextOffsets {
     const selection = window.getSelection();
     const range = selectionRange();
@@ -1257,11 +1621,17 @@ export function startInPlaceTextSession(
       };
     }
     const { startContainer, startOffset, endContainer, endOffset } = range;
+    const from = textOffset(el, startContainer, startOffset, breaks);
+    const fromBefore = endsText(startContainer, startOffset);
     return {
-      from: textOffset(el, startContainer, startOffset, breaks),
-      to: textOffset(el, endContainer, endOffset, breaks),
-      fromBefore: endsText(startContainer, startOffset),
-      toBefore: endsText(endContainer, endOffset),
+      from,
+      to: range.collapsed
+        ? from
+        : textOffset(el, endContainer, endOffset, breaks),
+      fromBefore,
+      toBefore: range.collapsed
+        ? fromBefore
+        : endsText(endContainer, endOffset),
       backward:
         !range.collapsed &&
         selection?.anchorNode === endContainer &&
@@ -1374,7 +1744,8 @@ export function startInPlaceTextSession(
             size + utf8ByteLength(name) + utf8ByteLength(value),
           0,
         ) +
-        64,
+        65,
+      layoutReservationApplied,
       authorZwsp: Array.from(authorZwspOrdinals()),
       ...selection,
     };
@@ -1430,6 +1801,30 @@ export function startInPlaceTextSession(
     selectOffsets(state, true);
   }
 
+  function restoreHistory(state: Snapshot) {
+    captureReservationParentHeight();
+    restore(state);
+    if (reservationEnabled && state.layoutReservationApplied) {
+      el.style.cssText = el.getAttribute("style") ?? "";
+    }
+    layoutReservationApplied =
+      reservationEnabled && state.layoutReservationApplied;
+    layoutAdjustmentSettled = false;
+    const restoredHeight = Number.parseFloat(
+      el.style
+        .getPropertyValue("contain-intrinsic-size")
+        .trim()
+        .split(/\s+/u)[1] ?? "",
+    );
+    reservedHeight =
+      layoutReservationApplied && Number.isFinite(restoredHeight)
+        ? Math.max(0, restoredHeight)
+        : initialLayout.height;
+    if (reservationEnabled && state.html !== startHtml) {
+      preserveLayoutReservation(true);
+    }
+  }
+
   /** Records the pre-change state; a run of typing or deleting is one step. */
   function checkpoint(kind: EditKind, boundary = false, before?: Snapshot) {
     edited = true;
@@ -1453,6 +1848,7 @@ export function startInPlaceTextSession(
   }
 
   function edit(kind: EditKind, mutate: () => void | boolean) {
+    captureReservationParentHeight();
     if (kind === "delete") {
       const before = snapshot();
       if (mutate() === false) return;
@@ -1462,11 +1858,12 @@ export function startInPlaceTextSession(
       mutate();
     }
     reshapeAtCaret();
-    notify();
+    notify(kind === "command");
   }
 
   function command(mutate: () => boolean): boolean {
     if (!active) return false;
+    captureReservationParentHeight();
     const before = snapshot();
     edited = true;
     lastEdit = {
@@ -1479,7 +1876,7 @@ export function startInPlaceTextSession(
     redoStack.length = 0;
     undoStack.push(before);
     trimHistory();
-    notify();
+    notify(true);
     return true;
   }
 
@@ -1488,9 +1885,14 @@ export function startInPlaceTextSession(
     if (!state) return false;
     redoStack.push(snapshot());
     trimHistory();
-    restore(state);
-    lastEdit = null;
-    notify();
+    restoringHistory = true;
+    try {
+      restoreHistory(state);
+      lastEdit = null;
+      notify();
+    } finally {
+      restoringHistory = false;
+    }
     return true;
   }
 
@@ -1499,9 +1901,14 @@ export function startInPlaceTextSession(
     if (!state) return false;
     undoStack.push(snapshot());
     trimHistory();
-    restore(state);
-    lastEdit = null;
-    notify();
+    restoringHistory = true;
+    try {
+      restoreHistory(state);
+      lastEdit = null;
+      notify();
+    } finally {
+      restoringHistory = false;
+    }
     return true;
   }
 
@@ -1522,7 +1929,11 @@ export function startInPlaceTextSession(
   }
 
   /** A styled bullet row (marker span + text) whose list lies inside `el`. */
-  function legacyRowAt(node: Node): HTMLElement | null {
+  function legacyRowAt(
+    node: Node,
+    boundaryOffset?: number,
+    boundaryDirection?: DeleteDirection,
+  ): HTMLElement | null {
     const start = node instanceof HTMLElement ? node : node.parentElement;
     if (!start) return null;
     for (
@@ -1531,6 +1942,38 @@ export function startInPlaceTextSession(
       row = row.parentElement
     ) {
       if (row.hasAttribute("data-slide-plain-row")) return row;
+      if (row === el && isBulletRow(row)) return row;
+      if (
+        row !== el &&
+        row.parentElement &&
+        el.contains(row.parentElement) &&
+        isBulletRow(row) &&
+        !["UL", "OL"].includes(row.parentElement.tagName)
+      ) {
+        return row;
+      }
+    }
+    if (boundaryOffset !== undefined && node instanceof HTMLElement) {
+      const adjacentNodes =
+        boundaryDirection === "forward"
+          ? [node.childNodes[boundaryOffset]]
+          : boundaryDirection === "backward"
+            ? [node.childNodes[boundaryOffset - 1]]
+            : [
+                node.childNodes[boundaryOffset - 1],
+                node.childNodes[boundaryOffset],
+              ];
+      for (const adjacent of adjacentNodes) {
+        if (
+          adjacent instanceof HTMLElement &&
+          el.contains(adjacent) &&
+          (adjacent.hasAttribute("data-slide-plain-row") ||
+            (isBulletRow(adjacent) &&
+              !["UL", "OL"].includes(adjacent.parentElement?.tagName ?? "")))
+        ) {
+          return adjacent;
+        }
+      }
     }
     const list = findEnclosingList(start, el);
     if (
@@ -1898,8 +2341,27 @@ export function startInPlaceTextSession(
    * the previous row; Delete at its end still pulls the next one in.
    */
   function deleteAtRowEdge(caret: Range, direction: DeleteDirection) {
-    const row = legacyRowAt(caret.startContainer);
+    const row = legacyRowAt(caret.startContainer, caret.startOffset, direction);
     if (!row) return false;
+    if (!row.contains(caret.startContainer)) {
+      const content = rowTextRange(row, rowMarker(row));
+      const contentStart = textOffset(
+        row,
+        content.startContainer,
+        content.startOffset,
+      );
+      const contentEnd = textOffset(
+        row,
+        content.endContainer,
+        content.endOffset,
+      );
+      const point =
+        direction === "backward"
+          ? textPoint(row, contentEnd, true)
+          : textPoint(row, contentStart);
+      placeCaret(point[0], point[1]);
+      caret = selectionRange() ?? caret;
+    }
     const list = row.parentElement!;
     const rows = legacyRows(list);
     if (
@@ -1923,6 +2385,8 @@ export function startInPlaceTextSession(
     if (direction === "backward" && !row.hasAttribute("data-slide-plain-row")) {
       rowMarker(row)?.remove();
       row.setAttribute("data-slide-plain-row", "true");
+      const text = rowTextRange(row, null);
+      placeCaret(text.startContainer, text.startOffset);
       return true;
     }
     if (direction === "backward" && index === 0) {
@@ -2166,6 +2630,7 @@ export function startInPlaceTextSession(
       range.collapsed &&
       text instanceof Text &&
       text.length > 0 &&
+      !editorCreatedTextNodes.has(text) &&
       !placeholderFlags(text)?.some((author) => !author) &&
       !atRowTextStart(range)
     );
@@ -2216,6 +2681,7 @@ export function startInPlaceTextSession(
       return;
     }
     const text = document.createTextNode(insertion);
+    editorCreatedTextNodes.add(text);
     caret.insertNode(text);
     placeCaret(text, insertion.length);
   }
@@ -2268,6 +2734,13 @@ export function startInPlaceTextSession(
       return;
     }
     // Typing on the new line continues the inline style the caret was in.
+    if (!hasRenderedContent(clone)) {
+      for (const link of Array.from(clone.querySelectorAll("a"))) {
+        if (!hasRenderedContent(link)) {
+          link.removeAttribute("href");
+        }
+      }
+    }
     let target: Element = clone;
     for (
       let child = target.firstElementChild;
@@ -2790,8 +3263,18 @@ export function startInPlaceTextSession(
         return;
       }
     }
-    const row = legacyRowAt(caret.startContainer);
+    const row = legacyRowAt(caret.startContainer, caret.startOffset);
     if (row) {
+      if (!row.contains(caret.startContainer)) {
+        const atRowStart =
+          row.parentNode === caret.startContainer &&
+          caret.startContainer.childNodes[caret.startOffset] === row;
+        const content = rowTextRange(row, rowMarker(row));
+        const point: [Node, number] = atRowStart
+          ? [content.startContainer, content.startOffset]
+          : [content.endContainer, content.endOffset];
+        placeCaret(point[0], point[1]);
+      }
       const list = row.parentElement!;
       const rows = legacyRows(list);
       if (row === rows[rows.length - 1] && isEmptyRow(row)) {
@@ -3707,29 +4190,34 @@ export function startInPlaceTextSession(
     formattedRange: Range,
     format: InlineTextFormat,
   ) {
+    const ownsFormat = (current: HTMLElement) =>
+      (format === "code" && current.tagName === "CODE") ||
+      (format === "bold" && !!current.style.fontWeight) ||
+      (format === "italic" && !!current.style.fontStyle) ||
+      (format === "strike" &&
+        /line-through/.test(
+          `${current.style.textDecoration} ${current.style.textDecorationLine}`,
+        ));
     const node = formattedRange.endContainer;
     const position = formattedRange.endOffset;
+    let current: HTMLElement | null = null;
     if (node instanceof Text && position === node.length) {
-      for (
-        let current = node.parentElement;
-        current && current !== block;
-        current = current.parentElement
-      ) {
-        const ownsFormat =
-          (format === "code" && current.tagName === "CODE") ||
-          (format === "bold" && !!(current as HTMLElement).style.fontWeight) ||
-          (format === "italic" && !!(current as HTMLElement).style.fontStyle) ||
-          (format === "strike" &&
-            /line-through/.test(
-              `${(current as HTMLElement).style.textDecoration} ${(current as HTMLElement).style.textDecorationLine}`,
-            ));
-        if (ownsFormat && current.parentNode) {
-          placeCaret(
-            current.parentNode,
-            Array.from(current.parentNode.childNodes).indexOf(current) + 1,
-          );
-          return;
-        }
+      current = node.parentElement;
+    } else if (node instanceof HTMLElement) {
+      const previous = node.childNodes[position - 1];
+      current =
+        previous instanceof HTMLElement
+          ? previous
+          : (previous?.parentElement ??
+            (position === node.childNodes.length ? node : null));
+    }
+    for (; current && current !== block; current = current.parentElement) {
+      if (ownsFormat(current) && current.parentNode) {
+        placeCaret(
+          current.parentNode,
+          Array.from(current.parentNode.childNodes).indexOf(current) + 1,
+        );
+        return;
       }
     }
     placeCaret(node, position);
@@ -4153,8 +4641,13 @@ export function startInPlaceTextSession(
 
   function onBeforeInput(event: InputEvent) {
     const type = event.inputType;
-    if (COMPOSITION_INPUTS.has(type)) return;
+    const range = selectionRange();
+    if (COMPOSITION_INPUTS.has(type)) {
+      captureReservationParentHeight();
+      return;
+    }
     if (event.isComposing) {
+      captureReservationParentHeight();
       // Enter that confirms an IME composition must not also split a line.
       if (type === "insertParagraph" || type === "insertLineBreak") {
         event.preventDefault();
@@ -4169,10 +4662,10 @@ export function startInPlaceTextSession(
       return;
     }
     if (!event.cancelable) {
+      captureReservationParentHeight();
       checkpoint(type.startsWith("delete") ? "delete" : "typing");
       return;
     }
-    const range = selectionRange();
     const dropJoins = dragDeleted && type === "insertFromDrop";
     dragDeleted = false;
     if (!dropJoins) dragSource = null;
@@ -4182,6 +4675,7 @@ export function startInPlaceTextSession(
       // drops the doubled space; anywhere else it would add its markup.
       const dragged = targetRange(event) ?? range;
       if (dragged && isNativeDelete(type, dragged)) {
+        captureReservationParentHeight();
         checkpoint("command");
         dragDeleted = true;
         return;
@@ -4189,10 +4683,11 @@ export function startInPlaceTextSession(
       event.preventDefault();
       if (!dragged) return;
       // Not edit(): its reshape would move Chrome's live drop point.
+      captureReservationParentHeight();
       checkpoint("command");
       deleteRange(dragged);
       dragSource = selectionRange()?.startContainer ?? null;
-      notify();
+      notify(true);
       dragDeleted = true;
       return;
     }
@@ -4200,6 +4695,7 @@ export function startInPlaceTextSession(
       const data =
         event.data ?? event.dataTransfer?.getData("text/plain") ?? "";
       if (type === "insertText" && range && isNativeInsert(range)) {
+        captureReservationParentHeight();
         checkpoint("typing", /\s/.test(data));
         return;
       }
@@ -4215,6 +4711,7 @@ export function startInPlaceTextSession(
     }
     if (type.startsWith("delete")) {
       if (range && isNativeDelete(type, range)) {
+        captureReservationParentHeight();
         checkpoint("delete");
         return;
       }
@@ -4303,7 +4800,7 @@ export function startInPlaceTextSession(
     } else if (!input.isComposing) {
       reshapeAtCaret();
     }
-    notify();
+    notify(isStructuralInputType(input.inputType));
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -4323,6 +4820,54 @@ export function startInPlaceTextSession(
       return;
     }
     const key = event.key.toLowerCase();
+    if (
+      event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      (key === "arrowleft" || key === "arrowright")
+    ) {
+      const range = selectionFocusRange();
+      const row = range && legacyRowAt(range.startContainer);
+      if (range && row) {
+        event.preventDefault();
+        const marker = rowMarker(row);
+        const text = rowTextRange(row, marker);
+        if (key === "arrowleft") {
+          placeCaret(
+            ...(rowTextVisualLinePoint(text, marker, row, range, "start") ??
+              rowTextPoint(text, marker, row, "start")),
+          );
+        } else {
+          placeCaret(
+            ...(rowTextVisualLinePoint(text, marker, row, range, "end") ??
+              rowTextPoint(text, marker, row, "end")),
+          );
+        }
+        return;
+      }
+    }
+    if (
+      event.key === "Home" &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      !/Mac|iPhone|iPad/.test(navigator.platform)
+    ) {
+      const range = selectionFocusRange();
+      const row = range && legacyRowAt(range.startContainer);
+      if (range && row) {
+        event.preventDefault();
+        const marker = rowMarker(row);
+        const text = rowTextRange(row, marker);
+        placeCaret(
+          ...(rowTextVisualLinePoint(text, marker, row, range, "start") ??
+            rowTextPoint(text, marker, row, "start")),
+        );
+        return;
+      }
+    }
     const macControl =
       event.ctrlKey &&
       !event.metaKey &&
@@ -4387,10 +4932,28 @@ export function startInPlaceTextSession(
     ) {
       event.preventDefault();
       commands.toggleList(event.code === "Digit7" ? "ordered" : "bullet");
-    } else if (event.key === "End" && !mod && !event.shiftKey) {
-      // One character in, the caret is on the text's own line for End.
-      const range = selectionRange();
-      if (range && atRowTextStart(range)) placeCaret(range.startContainer, 1);
+    } else if (
+      event.key === "End" &&
+      !mod &&
+      !event.altKey &&
+      !event.shiftKey
+    ) {
+      const range = selectionFocusRange();
+      const row = range && legacyRowAt(range.startContainer);
+      if (range && row && !/Mac|iPhone|iPad/.test(navigator.platform)) {
+        event.preventDefault();
+        const marker = rowMarker(row);
+        const text = rowTextRange(row, marker);
+        placeCaret(
+          ...(rowTextVisualLinePoint(text, marker, row, range, "end") ??
+            rowTextPoint(text, marker, row, "end")),
+        );
+      } else {
+        // One character in, the caret is on the text's own line for End.
+        const selection = selectionRange();
+        if (selection && atRowTextStart(selection))
+          placeCaret(selection.startContainer, 1);
+      }
     } else if (event.key === "Tab" && !mod) {
       // Tab never moves focus out of the text being edited; Escape ends it.
       event.preventDefault();
@@ -4521,6 +5084,7 @@ export function startInPlaceTextSession(
    * session deletes it first, the way it does for typing.
    */
   function onCompositionStart() {
+    captureReservationParentHeight();
     const range = selectionRange();
     if (range && atRowTextStart(range)) {
       checkpoint("typing");
@@ -4679,6 +5243,10 @@ export function startInPlaceTextSession(
 
   function end() {
     if (!active) return;
+    if (layoutAdjustmentFrame) {
+      cancelLayoutAdjustment();
+      adjustReservationForParent();
+    }
     restoreSessionMenuAria();
     active = false;
     unlisten(el);
@@ -4707,6 +5275,9 @@ export function startInPlaceTextSession(
       // reshapeAtCaret); the markup stays identical.
       el.normalize();
       for (const text of textNodesIn(el)) text.replaceWith(text.cloneNode());
+    }
+    if (el.tagName === initialRootTagName && el.innerHTML === startHtml) {
+      restoreLayoutReservation();
     }
     if (initialContentEditable === null) el.removeAttribute("contenteditable");
     else el.setAttribute("contenteditable", initialContentEditable);

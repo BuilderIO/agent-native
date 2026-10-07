@@ -22,6 +22,7 @@ export type ActionCaller =
   | "tool"
   | "http"
   | "frontend"
+  | "mcp-widget"
   | "cli"
   | "mcp"
   | "webmcp"
@@ -61,6 +62,8 @@ export interface ActionRunContext {
   attachments?: AgentChatAttachment[];
   signal?: AbortSignal;
   actionName?: string;
+  /** Present only on frontend GETs authorized by a scoped directory-widget read capability. */
+  mcpDirectoryWidgetReadOnly?: true;
   threadId?: string;
   runId?: string;
   turnId?: string;
@@ -125,6 +128,35 @@ export function fail(message: string, options: FailOptions = {}): never {
     statusCode: options.statusCode ?? 400,
     ...(options.details === undefined ? {} : { details: options.details }),
   });
+}
+
+/**
+ * What a write action verified about its own effect. An action opts in by
+ * returning a plain-object result with a reserved `_receipt: WriteReceipt`.
+ * The agent loop reads it before the result is stringified and truncated, so
+ * the final answer is reconciled with what the write did instead of with the
+ * model's reading of a JSON string.
+ *
+ * - `changed: false`: nothing was written (a no-op); not a completed side effect.
+ * - `verified: true`: the effect was observed. `false`: it was checked and did
+ *   not hold. `"unverified"`: it could not be checked.
+ * - `subject`: the stable target of the write, such as a dashboard id. Later
+ *   receipts from the same action with the same subject that are `changed` and
+ *   `verified: true` supersede this one, so a no-op that was then fixed does
+ *   not flag the answer. A receipt with failing checks is superseded only when
+ *   those later receipts carry an `ok` check with the same `id` for every
+ *   check that failed here, because a verified write speaks only for what it
+ *   checked. Without a subject a receipt is never superseded.
+ * - Bounds, enforced by the loop: summary and subject 200 chars, 8 checks, 5
+ *   warnings.
+ */
+export interface WriteReceipt {
+  changed: boolean;
+  verified: true | false | "unverified";
+  summary: string;
+  subject?: string;
+  checks?: Array<{ id: string; ok: boolean; detail?: string }>;
+  warnings?: string[];
 }
 
 export class AgentActionStopError extends Error {
@@ -216,6 +248,11 @@ export interface PublicAgentActionConfig {
 
 export type ActionPlanModeEffect = "read" | "write" | "unknown";
 
+export interface ActionChangeResource {
+  resourceType: string;
+  resourceId: string;
+}
+
 export interface ActionPlanModeConfig<TInput = unknown> {
   effect: ActionPlanModeEffect | ((args: TInput) => ActionPlanModeEffect);
   allowedValues?: Record<string, readonly string[]>;
@@ -273,6 +310,7 @@ export type ActionMcpAppHtmlBuilder = (ctx: {
   appId?: string;
   requestOrigin?: string;
   catalogMode?: "app" | "directory";
+  startToolName?: string;
 }) => string;
 
 export interface ActionMcpAppResourceConfig {
@@ -377,6 +415,16 @@ interface DefineActionWithSchema<
    *  needs to see, such as telemetry. Defaults to publishing; read-only
    *  actions never publish. */
   changeEvents?: boolean;
+  /** Names the shareable resource a mutating call changes so the `action`
+   *  change event also reaches every collaborator who can read it, not only the
+   *  actor. Without it other open sessions are never told and show stale data
+   *  until they reload. Receives the call's raw input and what the action
+   *  returned (for a call keyed by a child id whose resource only the result
+   *  names); return `null` when the call touches no resource or changed nothing. */
+  changeResource?: (
+    input: StandardSchemaV1.InferInput<TSchema>,
+    result: TReturn,
+  ) => ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
   endsTurn?: boolean;
   dedupe?: boolean;
@@ -454,6 +502,10 @@ interface DefineActionWithParams<
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
   changeEvents?: boolean;
+  changeResource?: (
+    input: InferParams<TParams>,
+    result: TReturn,
+  ) => ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
   endsTurn?: boolean;
   dedupe?: boolean;
@@ -497,6 +549,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly changeEvents?: boolean;
+  readonly changeResource?: (
+    input: TInput,
+    result: TReturn,
+  ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
@@ -726,6 +782,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof options.changeEvents === "boolean"
       ? { changeEvents: options.changeEvents }
+      : {}),
+    ...(typeof options.changeResource === "function"
+      ? { changeResource: options.changeResource }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),

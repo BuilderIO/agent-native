@@ -4,6 +4,7 @@ import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  isTestIdentity,
 } from "@agent-native/core/server";
 import { getOrgSetting, putOrgSetting } from "@agent-native/core/settings";
 
@@ -376,12 +377,23 @@ async function applyDestinationDelete(
   return existing;
 }
 
+export function approverRecipients(emails: string[]): string[] {
+  const recipients = emails.filter((email) => !isTestIdentity(email));
+  if (recipients.length < emails.length) {
+    console.info(
+      `[dispatch] suppressed: test identity (${emails.length - recipients.length} approver email(s))`,
+    );
+  }
+  return recipients;
+}
+
 async function notifyApprovers(requestId: string, summary: string) {
   const policy = await getApprovalPolicy();
   const apiKey = process.env.SENDGRID_API_KEY;
   const from = process.env.SENDGRID_FROM_EMAIL;
   const appUrl = process.env.APP_URL;
-  if (!apiKey || !from || !appUrl || policy.approverEmails.length === 0) return;
+  const recipients = approverRecipients(policy.approverEmails);
+  if (!apiKey || !from || !appUrl || recipients.length === 0) return;
 
   await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
@@ -392,7 +404,7 @@ async function notifyApprovers(requestId: string, summary: string) {
     body: JSON.stringify({
       personalizations: [
         {
-          to: policy.approverEmails.map((email) => ({ email })),
+          to: recipients.map((email) => ({ email })),
           subject: "Dispatch approval requested",
         },
       ],

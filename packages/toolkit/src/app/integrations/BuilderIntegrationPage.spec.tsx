@@ -31,12 +31,60 @@ vi.mock("@agent-native/core/client/org/hooks", () => ({
 }));
 vi.mock("../settings/deferred-builder-connect-popover.js", () => ({
   DeferredBuilderConnectPopover: ({
+    flow,
     children,
     onConnect,
+    openOnMount,
   }: {
+    flow: BuilderConnectFlow;
     children: React.ReactElement<{ onClick?: () => void }>;
     onConnect: (provisionAccount: boolean) => void;
-  }) => React.cloneElement(children, { onClick: () => onConnect(false) }),
+    openOnMount?: boolean;
+  }) => {
+    const [open, setOpen] = React.useState(Boolean(openOnMount));
+
+    return (
+      <>
+        {React.cloneElement(children, { onClick: () => setOpen(true) })}
+        {open ? (
+          <div data-testid="open-builder-connect">
+            <button
+              type="button"
+              disabled={!flow.agentNativeProvisioningEnabled}
+              onClick={() => onConnect(true)}
+            >
+              Create and activate
+            </button>
+            <button type="button" onClick={() => onConnect(false)}>
+              I have a Builder.io account
+            </button>
+          </div>
+        ) : null}
+      </>
+    );
+  },
+  DeferredBuilderConnectChoicePanel: ({
+    canProvisionAccount,
+    onCreateAndActivate,
+    onExistingAccount,
+  }: {
+    canProvisionAccount: boolean;
+    onCreateAndActivate: () => void;
+    onExistingAccount: () => void;
+  }) => (
+    <div>
+      <button
+        type="button"
+        disabled={!canProvisionAccount}
+        onClick={onCreateAndActivate}
+      >
+        Create and activate
+      </button>
+      <button type="button" onClick={onExistingAccount}>
+        I have a Builder.io account
+      </button>
+    </div>
+  ),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
@@ -148,6 +196,7 @@ describe("BuilderIntegrationPage", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    window.history.replaceState({}, "", "/settings/integrations/builder");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -204,17 +253,45 @@ describe("BuilderIntegrationPage", () => {
     await render(member);
 
     expect(row("builder-organization")?.textContent).toContain(
-      "Not connected. An owner or admin can connect it.",
+      "Not connected. An owner or admin can enable Builder.io for everyone.",
     );
-    expect(button("Connect", row("builder-organization")!)).toBeUndefined();
+    expect(
+      button("Use Builder.io", row("builder-organization")!),
+    ).toBeUndefined();
     expect(row("builder-personal")?.textContent).toContain(
-      "Connect your own account. Only you use it.",
+      "Use your own Builder.io account. Only you use it.",
     );
 
-    await act(async () => button("Connect", row("builder-personal")!)?.click());
+    await act(async () =>
+      button("Use Builder.io", row("builder-personal")!).click(),
+    );
+    expect(flowMock.current.start).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Create and activate");
+    await act(async () =>
+      button("I have a Builder.io account", document.body).click(),
+    );
     expect(flowMock.current.start).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "personal", provisionAccount: false }),
     );
+  });
+
+  it("opens the two-choice chooser for Builder setup deep links", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/settings/integrations/builder?builderConnect=1",
+    );
+    flowMock.current = flow({
+      canConnect: { org: false, personal: true },
+      agentNativeProvisioningEnabled: true,
+    });
+    await render(member);
+
+    const chooser = container.querySelector(
+      '[data-testid="open-builder-connect"]',
+    );
+    expect(chooser?.textContent).toContain("Create and activate");
+    expect(chooser?.textContent).toContain("I have a Builder.io account");
   });
 
   it("tells a member their connection is unused while personal keys are restricted", async () => {
@@ -238,22 +315,27 @@ describe("BuilderIntegrationPage", () => {
     expect(row("builder-personal")?.textContent).toContain(
       "Owners and admins restricted personal API keys.",
     );
-    expect(button("Connect", row("builder-personal")!)).toBeUndefined();
+    expect(button("Use Builder.io", row("builder-personal")!)).toBeUndefined();
   });
 
   it("gives an admin the organization connect and no personal row", async () => {
-    flowMock.current = flow({ canConnect: { org: true, personal: false } });
+    flowMock.current = flow({
+      canConnect: { org: true, personal: false },
+      agentNativeProvisioningEnabled: true,
+    });
     await render(admin);
 
     expect(row("builder-organization")?.textContent).toContain(
-      "Not connected. When you connect it, everyone in Acme can use it.",
+      "Not connected. Use Builder.io to enable access for everyone in Acme.",
     );
     expect(row("builder-personal")).toBeNull();
     await act(async () =>
-      button("Connect", row("builder-organization")!)?.click(),
+      button("Use Builder.io", row("builder-organization")!).click(),
     );
+    expect(flowMock.current.start).not.toHaveBeenCalled();
+    await act(async () => button("Create and activate", document.body).click());
     expect(flowMock.current.start).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: "org" }),
+      expect.objectContaining({ scope: "org", provisionAccount: true }),
     );
   });
 
@@ -273,10 +355,71 @@ describe("BuilderIntegrationPage", () => {
       container.querySelector('[data-builder-manage="personal"]'),
     ).not.toBeNull();
     await openMenu("personal");
-    const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
-    expect(items.map((item) => item.textContent?.trim())).toEqual([
-      "Disconnect",
-    ]);
+    expect(button("Disconnect", document.body)).not.toBeUndefined();
+  });
+
+  it("opens the account chooser before reconnecting from Manage", async () => {
+    const start = vi.fn();
+    flowMock.current = flow({
+      configured: true,
+      effective: "personal",
+      grants: {
+        personal: { connectedAt: 1, needsReconnect: false, restricted: false },
+      },
+      canConnect: { org: true, personal: true },
+      agentNativeProvisioningEnabled: true,
+      start,
+    });
+    await render(admin);
+
+    await openMenu("personal");
+    await act(async () => button("Reconnect", document.body)?.click());
+    expect(button("Create and activate", document.body)).toBeDefined();
+    expect(button("I have a Builder.io account", document.body)).toBeDefined();
+
+    await act(async () =>
+      button("Create and activate", document.body)?.click(),
+    );
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "personal", provisionAccount: true }),
+    );
+  });
+
+  it("reopens the scoped chooser when activation finds an existing account", async () => {
+    const start = vi.fn(() => {
+      flowMock.current = { ...flowMock.current, connecting: true };
+    });
+    flowMock.current = flow({
+      configured: true,
+      effective: "personal",
+      grants: {
+        personal: { connectedAt: 1, needsReconnect: false, restricted: false },
+      },
+      canConnect: { org: true, personal: true },
+      agentNativeProvisioningEnabled: true,
+      start,
+    });
+    await render(admin);
+
+    await openMenu("personal");
+    await act(async () => button("Reconnect", document.body)?.click());
+    await act(async () =>
+      button("Create and activate", document.body)?.click(),
+    );
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "personal", provisionAccount: true }),
+    );
+    expect(button("Create and activate", document.body)).toBeUndefined();
+
+    flowMock.current = {
+      ...flowMock.current,
+      connecting: false,
+      accountExists: true,
+    };
+    await render(admin);
+
+    expect(button("Create and activate", document.body)).toBeDefined();
+    expect(button("I have a Builder.io account", document.body)).toBeDefined();
   });
 
   it("confirms an organization disconnect with what stops working", async () => {
@@ -306,14 +449,7 @@ describe("BuilderIntegrationPage", () => {
     );
 
     await openMenu("org");
-    const disconnectItem = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Disconnect"));
-    await act(async () => {
-      disconnectItem?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
-      );
-    });
+    await act(async () => button("Disconnect", document.body)?.click());
 
     const dialog = document.querySelector('[role="alertdialog"]');
     expect(dialog?.textContent).toContain("Disconnect Builder.io?");
@@ -338,14 +474,7 @@ describe("BuilderIntegrationPage", () => {
 
   async function openOrgDisconnect() {
     await openMenu("org");
-    const disconnectItem = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Disconnect"));
-    await act(async () => {
-      disconnectItem?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
-      );
-    });
+    await act(async () => button("Disconnect", document.body)?.click());
     return document.querySelector('[role="alertdialog"]');
   }
 
@@ -424,14 +553,7 @@ describe("BuilderIntegrationPage", () => {
     await render(admin);
 
     await openMenu("org");
-    const disconnectItem = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Disconnect"));
-    await act(async () => {
-      disconnectItem?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
-      );
-    });
+    await act(async () => button("Disconnect", document.body)?.click());
     const dialog = document.querySelector('[role="alertdialog"]');
     await act(async () => button("Disconnect", dialog!)?.click());
 
@@ -453,14 +575,7 @@ describe("BuilderIntegrationPage", () => {
       "Connected. Only you use it.",
     );
     await openMenu("personal");
-    const disconnectItem = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Disconnect"));
-    await act(async () => {
-      disconnectItem?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
-      );
-    });
+    await act(async () => button("Disconnect", document.body)?.click());
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(disconnectMock).toHaveBeenCalledWith({ disconnect: "personal" });
     // Members don't get the Infrastructure footnote.

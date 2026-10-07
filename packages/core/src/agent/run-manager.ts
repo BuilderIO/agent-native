@@ -4,6 +4,7 @@ import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { recordAgentRun } from "../observability/metrics.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -15,6 +16,7 @@ import {
   describeErrorWithCauses,
   isProviderConnectionError,
 } from "./engine/error-detail.js";
+import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
 import {
@@ -582,6 +584,20 @@ function emitRunTerminalTrackingEvent(args: {
   userId?: string;
   attemptCount?: number;
 }): void {
+  try {
+    recordAgentRun({
+      status: args.status,
+      terminalReason: args.terminalReason,
+      requestModel: args.model,
+      providerName: args.engineName,
+      supportedModels: args.engineName
+        ? getAgentEngineEntry(args.engineName)?.supportedModels
+        : undefined,
+    });
+    // coercion-ok: metrics must never affect the agent run or its status.
+  } catch {
+    // Metrics must never affect the agent run or its persisted status.
+  }
   const properties: Record<string, unknown> = {
     source: "agent_run_manager",
     run_id: args.runId,
@@ -2323,6 +2339,13 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   threadId: string;
   turnId: string;
   status: string;
+  /**
+   * The one answer to "is a run in flight on this thread". A terminal run is
+   * still returned inside `TERMINAL_RUN_RECONNECT_WINDOW_MS` so a reconnecting
+   * client can replay it, which is why `status` alone being present means
+   * nothing; `/runs/active` reports this as its `active` flag.
+   */
+  inFlight: boolean;
   heartbeatAt: number;
   lastProgressAt: number | null;
   dispatchMode?: string | null;
@@ -2362,6 +2385,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
           threadId: successor.threadId,
           turnId: successor.turnId ?? successor.id,
           status: successor.status,
+          inFlight: true,
           heartbeatAt: successor.heartbeatAt ?? successor.startedAt,
           lastProgressAt: successor.lastProgressAt,
           dispatchMode: successor.dispatchMode,
@@ -2387,6 +2411,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       threadId: memRun.threadId,
       turnId: memRun.turnId,
       status,
+      inFlight: status === "running",
       heartbeatAt,
       lastProgressAt: sqlSnapshot?.lastProgressAt ?? null,
       dispatchMode: sqlSnapshot?.dispatchMode ?? null,
@@ -2452,6 +2477,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         threadId: sqlRun.threadId,
         turnId: sqlRun.turnId ?? sqlRun.id,
         status: sqlRun.status,
+        inFlight: true,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,
@@ -2476,6 +2502,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         threadId: sqlRun.threadId,
         turnId: sqlRun.turnId ?? sqlRun.id,
         status: legacyWireRunStatus(sqlRun.status),
+        inFlight: false,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,

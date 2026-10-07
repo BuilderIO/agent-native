@@ -75,9 +75,7 @@ import {
   getAgentChatViewTransitionStyle,
 } from "@agent-native/core/client/agent-chat";
 import { useDevMode } from "@agent-native/core/client/agent-chat";
-import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
-import { fetchBuilderStatus } from "@agent-native/core/client/client-status-requests";
 import { getFramePostMessageTargetOrigin } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { isFirstRunOnboardingEnabled } from "@agent-native/core/client/onboarding";
@@ -87,8 +85,10 @@ import { cn } from "@agent-native/toolkit/utils";
 
 import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
 import {
+  BuilderConnectPopover,
   SETTINGS_SECTION_STATE_KEY,
-  withBuilderConnectTrackingParams,
+  useBuilderConnectFlow,
+  type BuilderConnectTransport,
 } from "../settings/index.js";
 import { RouterSidebarLink } from "../shared/index.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
@@ -529,85 +529,6 @@ export interface AgentPanelCodeAccess {
   unavailableComposerPlaceholder?: string;
 }
 
-function useBuilderConnectUrl() {
-  const [connectUrl, setConnectUrl] = useState<string | null>(null);
-  const [configured, setConfigured] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    let lastConfigured = false;
-    const refresh = () => {
-      fetchBuilderStatus<{
-        connectUrl?: string;
-        configured?: boolean;
-      }>()
-        .then((result) => (result.state === "available" ? result.value : null))
-        .then((data) => {
-          if (cancelled || !data) return;
-          const nextConnectUrl = data.connectUrl;
-          if (nextConnectUrl) setConnectUrl(nextConnectUrl);
-          const nextConfigured = !!data.configured;
-          setConfigured(nextConfigured);
-          if (nextConfigured && !lastConfigured) {
-            lastConfigured = true;
-            window.dispatchEvent(
-              new CustomEvent("agent-engine:configured-changed", {
-                detail: { source: "builder-status" },
-              }),
-            );
-          } else if (!nextConfigured) {
-            lastConfigured = false;
-          }
-        })
-        .catch(() => {});
-    };
-    refresh();
-    const onFocus = () => refresh();
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    const onConfigured = (e: Event) => {
-      const detail = (e as CustomEvent).detail as
-        | { source?: string }
-        | undefined;
-      if (detail?.source === "builder-status") return;
-      refresh();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("agent-engine:configured-changed", onConfigured);
-    let channel: BroadcastChannel | null = null;
-    try {
-      channel = new BroadcastChannel(`builder-connect:${window.location.host}`);
-      channel.onmessage = (e: MessageEvent) => {
-        const data = e.data as { type?: string } | undefined;
-        if (data?.type === "builder-connect-success") refresh();
-      };
-    } catch {
-      // BroadcastChannel missing — focus/visibility refresh still covers it.
-    }
-    const onMessage = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return;
-      const data = e.data as { type?: string } | undefined;
-      if (data?.type === "builder-connect-success") refresh();
-    };
-    window.addEventListener("message", onMessage);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener(
-        "agent-engine:configured-changed",
-        onConfigured,
-      );
-      window.removeEventListener("message", onMessage);
-      channel?.close();
-    };
-  }, []);
-
-  return { connectUrl, configured };
-}
-
 export interface AgentPanelProps extends Omit<
   AssistantChatProps,
   "onSwitchToCli"
@@ -650,6 +571,7 @@ export interface AgentPanelProps extends Omit<
   chatOnly?: boolean;
   agentPageHref?: string;
   codeAccess?: AgentPanelCodeAccess;
+  builderConnectTransport?: BuilderConnectTransport;
 }
 
 function useClientOnly() {
@@ -706,32 +628,32 @@ function CodeAccessUnavailablePanel({
   description,
   ctaLabel,
   ctaHref,
-  secondaryCtaLabel = "Use Builder",
+  secondaryCtaLabel,
   secondaryCtaHref,
   compact = false,
+  builderConnectTransport,
 }: {
   title: string;
   description: string;
   ctaLabel: string;
   ctaHref?: string;
-  secondaryCtaLabel?: string;
+  secondaryCtaLabel: string;
   secondaryCtaHref?: string;
   compact?: boolean;
+  builderConnectTransport?: BuilderConnectTransport;
 }) {
-  const { connectUrl: builderConnectUrl } = useBuilderConnectUrl();
-  const builderHref = secondaryCtaHref
+  const builderFlow = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: "code_access_unavailable_panel",
+    trackingFlow: "background_agent",
+    transport: builderConnectTransport,
+  });
+  const secondaryHref = secondaryCtaHref
     ? withBuilderUtmTrackingParams(secondaryCtaHref, {
         campaign: "product",
         content: "code_access_unavailable_panel",
       })
-    : builderConnectUrl
-      ? withBuilderConnectTrackingParams(builderConnectUrl, {
-          source: "code_access_unavailable_panel",
-          flow: "background_agent",
-        })
-      : withBuilderUtmTrackingParams("https://builder.io", {
-          content: "code_access_unavailable_panel",
-        });
+    : null;
 
   return (
     <div
@@ -769,23 +691,26 @@ function CodeAccessUnavailablePanel({
             <IconExternalLink className="h-3 w-3" />
           </a>
         ) : null}
-        <a
-          href={builderHref}
-          target="_blank"
-          rel="noreferrer"
-          onClick={() => {
-            trackEvent("builder connect clicked", {
-              feature: "builder",
-              stage: "client",
-              source: "code_access_unavailable_panel",
-              flow: "background_agent",
-              connect_url_kind: builderConnectUrl ? "provided" : "fallback",
-            });
-          }}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-        >
-          {secondaryCtaLabel}
-        </a>
+        {secondaryHref ? (
+          <a
+            href={secondaryHref}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+          >
+            {secondaryCtaLabel}
+            <IconExternalLink className="h-3 w-3" />
+          </a>
+        ) : (
+          <BuilderConnectPopover flow={builderFlow}>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+            >
+              {secondaryCtaLabel}
+            </button>
+          </BuilderConnectPopover>
+        )}
       </div>
     </div>
   );
@@ -836,6 +761,7 @@ function AgentPanelInner({
   chatOnly = false,
   agentPageHref,
   codeAccess,
+  builderConnectTransport,
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
@@ -1098,7 +1024,8 @@ function AgentPanelInner({
   const codeUnavailableCtaHref =
     codeAccess?.unavailableCtaHref ?? "https://www.agent-native.com/download";
   const codeUnavailableSecondaryCtaLabel =
-    codeAccess?.unavailableSecondaryCtaLabel ?? t("agentPanel.useBuilder");
+    codeAccess?.unavailableSecondaryCtaLabel ??
+    t("agentPanel.connectBuilderIo");
   const codeUnavailableSecondaryCtaHref =
     codeAccess?.unavailableSecondaryCtaHref;
   const canUseCodeTools =
@@ -2546,6 +2473,7 @@ function AgentPanelInner({
               ctaHref={codeAccessEnabled ? undefined : codeUnavailableCtaHref}
               secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
               secondaryCtaHref={codeUnavailableSecondaryCtaHref}
+              builderConnectTransport={builderConnectTransport}
             />
           </div>
         )}

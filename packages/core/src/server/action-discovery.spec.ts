@@ -71,6 +71,24 @@ describe("action discovery", () => {
     expect(registry["mutating-read"].readOnly).toBe(false);
   });
 
+  it("preserves Standard Schema metadata from static action entries", () => {
+    const schema = {
+      "~standard": { validate: async () => ({ value: {} }) },
+    };
+    const registry = loadActionsFromStaticRegistry({
+      "schema-read": {
+        default: {
+          tool: { description: "Schema read", parameters: {} },
+          schema,
+          readOnly: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["schema-read"].schema).toBe(schema);
+  });
+
   it("preserves explicit MCP annotations from static action entries", () => {
     const mcpAnnotations = {
       readOnlyHint: false,
@@ -172,6 +190,24 @@ describe("action discovery", () => {
     });
 
     expect(registry["save-position"].changeEvents).toBe(false);
+  });
+
+  it("preserves the declared changeResource", () => {
+    const changeResource = (input: { id: string }) => ({
+      resourceType: "document",
+      resourceId: input.id,
+    });
+    const registry = loadActionsFromStaticRegistry({
+      "update-doc": {
+        default: {
+          tool: { description: "Update doc", parameters: {} },
+          changeResource,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["update-doc"].changeResource).toBe(changeResource);
   });
 
   it("preserves request-scoped action discovery predicates", () => {

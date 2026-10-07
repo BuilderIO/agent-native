@@ -125,20 +125,19 @@ export async function getOrganizationDefaultVisibility(
 ): Promise<RecordingVisibility> {
   if (!organizationId) return DEFAULT_RECORDING_VISIBILITY;
 
-  try {
-    return (
-      (await readOrganizationDefaultVisibility(organizationId)) ??
-      DEFAULT_RECORDING_VISIBILITY
-    );
-  } catch {
-    return DEFAULT_RECORDING_VISIBILITY;
-  }
+  return (
+    (await readOrganizationDefaultVisibility(organizationId)) ??
+    DEFAULT_RECORDING_VISIBILITY
+  );
 }
 
 export async function getDefaultRecordingVisibility(
   organizationId: string | null | undefined,
   userEmail: string | null | undefined = getRequestUserEmail(),
+  explicit?: RecordingVisibility | null,
 ): Promise<RecordingVisibility> {
+  if (explicit) return explicit;
+
   const email = userEmail;
   if (email) {
     const prefs = (await getUserSetting(

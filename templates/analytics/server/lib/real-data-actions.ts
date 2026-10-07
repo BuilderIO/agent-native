@@ -30,14 +30,6 @@ export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "get-extension",
 ]);
 
-export const DASHBOARD_MUTATION_ACTIONS = new Set([
-  "mutate-dashboard",
-  "update-dashboard",
-  "compose-dashboard",
-  "create-extension",
-  "update-extension",
-]);
-
 export const CATALOG_DISCOVERY_ACTIONS = new Set([
   "search-analytics-query-catalog",
   "search-dashboard-references",
@@ -128,10 +120,6 @@ function isGroundingActionName(name: string): boolean {
 
 function isDashboardConstructionActionName(name: string): boolean {
   return DASHBOARD_CONSTRUCTION_ACTIONS.has(normalizeActionToolName(name));
-}
-
-function isDashboardMutationActionName(name: string): boolean {
-  return DASHBOARD_MUTATION_ACTIONS.has(normalizeActionToolName(name));
 }
 
 function isCatalogDiscoveryActionName(name: string): boolean {
@@ -390,17 +378,6 @@ export function hasDashboardConstructionAttempt(
   return (toolResults ?? []).some((result) => {
     if (result.isError) return false;
     return isDashboardConstructionActionName(String(result.name ?? ""));
-  });
-}
-
-export function hasDashboardMutationAttempt(
-  toolResults:
-    | Array<{ name?: string; isError?: boolean; content?: string }>
-    | undefined,
-): boolean {
-  return (toolResults ?? []).some((result) => {
-    if (result.isError) return false;
-    return isDashboardMutationActionName(String(result.name ?? ""));
   });
 }
 
@@ -1282,7 +1259,10 @@ function actionEvidenceTextForSourceRecords(result: {
       transcripts: record.transcripts,
     });
   }
-  if (normalizedName === "gong-native-insights") {
+  if (
+    normalizedName === "gong-native-insights" ||
+    normalizedName === "run-gong-native-insight"
+  ) {
     return "";
   }
   if (normalizedName === "run-code") {

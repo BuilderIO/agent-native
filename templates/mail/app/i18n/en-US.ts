@@ -463,7 +463,7 @@ const messages = {
         "Finish adding or clear the recipient text before sending.",
       pleaseAddRecipient: "Please add at least one recipient",
       aiEngineRequired:
-        "Connect Builder (free tier available) or another AI engine before using Generate.",
+        "Use Builder.io (free tier available) or another AI engine before using Generate.",
       couldNotUnsubscribe: "Could not unsubscribe",
       unsubscribeSent: "Unsubscribe request sent",
       draftQueued: "Draft queued.",
@@ -709,7 +709,7 @@ const messages = {
       connectJevToRunTriage: "Connect Jev to run triage",
       freeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
       jevAvailabilityFailed: "Could not check whether Jev is available.",
-      connectBuilder: "Connect Builder.io",
+      connectBuilder: "Use Builder.io",
       addJevApiKey: "Add API key",
     },
     draftQueue: {

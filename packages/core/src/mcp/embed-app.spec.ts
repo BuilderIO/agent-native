@@ -20,6 +20,7 @@ describe("embedApp", () => {
         : resource.csp;
 
     expect(html).toContain("create_embed_session");
+    expect(html).toContain('frame.allow = "clipboard-read; clipboard-write";');
     expect(html).toContain("app.callServerTool");
     expect(html).toContain("app.updateModelContext");
     expect(html).toContain("app.sendMessage");
@@ -35,6 +36,12 @@ describe("embedApp", () => {
     expect(html).toContain("bridge.toolInput");
     expect(html).toContain("bridge.toolOutput");
     expect(html).toContain("bridge.toolResponseMetadata");
+    expect(html).toContain('toolResponseMetadata["agent-native/openLink"]');
+    expect(html).toMatch(/record\.label \|\| openLink\.label \|\| record\.app/);
+    const syncSignature = html.match(
+      /signature = JSON\.stringify\(\[\s*toolInput,[\s\S]*?\]\);/,
+    );
+    expect(syncSignature?.[0]).toContain("openLinkLabel");
     expect(html).toContain("openAiBridge.callTool(startTool, args)");
     expect(html).toContain("openAiBridge.openExternal");
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
@@ -423,11 +430,36 @@ describe("embedApp", () => {
         ? await resource.csp(context)
         : resource.csp;
 
-    expect(html).toContain("const remoteBridgeFallbackEnabled = false");
-    expect(html).toContain("if (!remoteBridgeFallbackEnabled) throw nativeErr");
+    expect(html).not.toContain("startMcpAppsBridge");
+    expect(html).not.toContain("https://esm.sh");
+    expect(html).not.toContain(
+      'frame.allow = "clipboard-read; clipboard-write";',
+    );
     expect(html.endsWith("</body>\n</html>")).toBe(true);
     expect(csp?.connectDomains).not.toContain("https://esm.sh");
     expect(csp?.resourceDomains).not.toContain("https://esm.sh");
+  });
+
+  it("renews directory widget sessions from saved tool output without embedStart metadata", () => {
+    const resource = embedApp({ title: "Directory widget" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({
+            actionName: "create-document",
+            appId: "content",
+            catalogMode: "directory",
+            startToolName: "create_embed_session",
+          })
+        : resource.html;
+
+    expect(html).toContain('data-start-tool="create_embed_session"');
+    expect(html).toContain('data-catalog-mode="directory"');
+    expect(html).toContain('toolResponseMetadata["agent-native/widgetSource"]');
+    expect(html).toContain("toolOutput: toolResultData");
+    expect(html).toContain(
+      "const result = await callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
+    );
+    expect(html).toContain("openStartUrl || openUrl");
   });
 
   it("renders the shared MCP App document without trailing characters", () => {

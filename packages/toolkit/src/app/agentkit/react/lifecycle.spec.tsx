@@ -9,7 +9,10 @@ import {
 } from "@agent-native/agentkit/client";
 import { createAgentKitHttpHandler } from "@agent-native/agentkit/http";
 import type {
+  AgentActivity,
   AgentEvent,
+  AgentObjectReference,
+  AgentTask,
   AgentToolCall,
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
@@ -32,12 +35,14 @@ import {
   AgentConnectionRequestCard,
   AgentKitChat,
   AgentMessageActions,
+  AgentTaskGroup,
   formatAgentKitDuration,
 } from "./components.js";
 import {
   AgentKitProvider,
   useAgentKit,
   useAgentKitSelector,
+  type AgentKitRunUsageLoader,
 } from "./context.js";
 import { AgentKitRoot } from "./root.js";
 
@@ -2249,7 +2254,7 @@ describe("AgentChat lifecycle", () => {
     ).find(
       (row) =>
         row.querySelector(".agentkit-activity-label")?.textContent ===
-        "update-slide",
+        "Update Slide",
     );
     expect(failedToolRow?.textContent).not.toContain(
       "slide_content_edit_failed",
@@ -2699,6 +2704,155 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
+  it("preserves distinct agent sources and hides UUID-only labels", async () => {
+    const threadId = "thread-agent-sources";
+    const runId = "run-agent-sources";
+    const internalId = "550e8400-e29b-41d4-a716-446655440000";
+    const source: AgentObjectReference = {
+      id: "source-agent",
+      kind: "agent",
+      label: "Source Agent",
+    };
+    const activities: AgentActivity[] = [
+      ...["activity-1", "activity-2"].map((id) => ({
+        id,
+        kind: "read",
+        label: "Read files",
+        status: "completed" as const,
+        agentId: "actor-agent",
+        runId,
+        source,
+      })),
+      {
+        id: "activity-uuid-label",
+        kind: internalId,
+        label: internalId,
+        status: "completed",
+        runId,
+        object: { id: internalId, kind: internalId, label: internalId },
+      },
+    ];
+    const interaction = {
+      id: "interaction-source",
+      kind: internalId,
+      agentId: "actor-agent",
+      targetAgentId: "target-agent",
+      source,
+    } as const;
+    const task: AgentTask = {
+      id: "task-source",
+      title: "Review report",
+      status: "completed",
+      assignedAgentId: "actor-agent",
+      runId,
+      source,
+    };
+    const events: AgentEvent[] = [
+      ...activities.map(
+        (activity, index): AgentEvent => ({
+          id: `event-${activity.id}`,
+          threadId,
+          runId,
+          sequence: index + 1,
+          occurredAt: `2026-10-01T00:00:0${index + 1}.000Z`,
+          type: "activity.completed",
+          activity,
+        }),
+      ),
+      {
+        id: "event-interaction-source",
+        threadId,
+        runId,
+        sequence: 4,
+        occurredAt: "2026-10-01T00:00:04.000Z",
+        type: "agent.interaction",
+        interaction,
+      },
+      {
+        id: "event-task-source",
+        threadId,
+        runId,
+        sequence: 5,
+        occurredAt: "2026-10-01T00:00:05.000Z",
+        type: "task.created",
+        task,
+      },
+    ];
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events,
+      activities: Object.fromEntries(
+        activities.map((activity) => [activity.id, activity]),
+      ),
+      tasks: { [task.id]: task },
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 5,
+          startedAt: "2026-10-01T00:00:00.000Z",
+          completedAt: "2026-10-01T00:00:06.000Z",
+        },
+      },
+    };
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+        <AgentCollaborationFeed runId={runId} />
+        <AgentTaskGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const cluster = tree.container.querySelector(".agentkit-activity-cluster");
+    expect(
+      cluster?.querySelector("summary .agentkit-agent-name")?.textContent,
+    ).toBe("Assistant");
+    expect(
+      cluster?.querySelector("summary .agentkit-object-label")?.textContent,
+    ).toBe("Source Agent");
+    expect(
+      cluster?.querySelector(
+        ".agentkit-activity-cluster-items .agentkit-object-label",
+      )?.textContent,
+    ).toBe("Source Agent");
+
+    const interactionRow = tree.container.querySelector(
+      ".agentkit-agent-interaction",
+    );
+    expect(
+      interactionRow?.querySelector(".agentkit-agent-interaction-label")
+        ?.textContent,
+    ).toBe("Working");
+    expect(
+      interactionRow?.querySelector(".agentkit-object-label")?.textContent,
+    ).toBe("Source Agent");
+
+    expect(
+      tree.container.querySelector(".agentkit-task-row .agentkit-object-label")
+        ?.textContent,
+    ).toBe("Source Agent");
+    const uuidActivity = Array.from(
+      tree.container.querySelectorAll<HTMLElement>(".agentkit-activity-item"),
+    ).find((item) => item.dataset.activityKind === internalId);
+    expect(
+      uuidActivity?.querySelector(".agentkit-activity-label")?.textContent,
+    ).toBe("Working");
+    expect(
+      uuidActivity?.querySelector(".agentkit-object-label")?.textContent,
+    ).toBe("Assistant");
+    expect(tree.container.textContent).not.toContain(internalId);
+    await tree.unmount();
+  });
+
   it("keeps generic tool results in collapsed history but preserves rich surfaces", async () => {
     const threadId = "thread-collapsed-tool-results";
     const runId = "run-collapsed-tool-results";
@@ -2853,6 +3007,339 @@ describe("AgentChat lifecycle", () => {
     expect(
       failedTool?.querySelector(".agentkit-activity-summary")?.textContent,
     ).toBe("The file could not be saved.");
+  });
+
+  it("sanitizes and bounds expanded tool details for keyboard access", async () => {
+    const threadId = "thread-bounded-tool-details";
+    const runId = "run-bounded-tool-details";
+    const internalId = "550e8400-e29b-41d4-a716-446655440000";
+    const sparseOutput = new Array(100_000);
+    sparseOutput[99_999] = "beyond preview";
+    const tool: AgentToolCall = {
+      id: "tool-read-file",
+      name: "read-file",
+      status: "completed",
+      input: {
+        documentId: internalId,
+        resource: `document_${internalId}_revision`,
+        empty: "",
+        whitespace: "  ",
+      },
+      output: {
+        documentId: internalId,
+        resource: `document_${internalId}_revision`,
+        entries: sparseOutput,
+      },
+    };
+    const thread = reduceAgentEvent(createAgentThreadState(threadId), {
+      id: "event-read-file",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-10-01T00:00:00.000Z",
+      type: "tool.updated",
+      toolCall: tool,
+    });
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    await act(async () => work?.querySelector("summary")?.click());
+    const row = Array.from(
+      work?.querySelectorAll<HTMLElement>(".agentkit-activity-item") ?? [],
+    ).find(
+      (item) =>
+        item.querySelector(".agentkit-activity-label")?.textContent ===
+        "Read File",
+    );
+    expect(row?.textContent).not.toContain(internalId);
+    await act(async () => row?.querySelector("button")?.click());
+
+    const details = Array.from(
+      row?.querySelectorAll<HTMLPreElement>(
+        ".agentkit-activity-summary-value",
+      ) ?? [],
+    );
+    expect(details.map((detail) => detail.getAttribute("aria-label"))).toEqual([
+      "Input",
+      "Result",
+    ]);
+    expect(
+      details.every((detail) => detail.getAttribute("role") === "region"),
+    ).toBe(true);
+    expect(details.every((detail) => detail.tabIndex === 0)).toBe(true);
+    expect(details[0]?.textContent).toContain("[Identifier hidden]");
+    expect(details[1]?.textContent).toContain("[Identifier hidden]");
+    expect(details[0]?.textContent).toContain(
+      '"resource": "document__revision"',
+    );
+    expect(details[0]?.textContent).toContain('"empty": ""');
+    expect(details[0]?.textContent).toContain('"whitespace": "  "');
+    expect(details[1]?.textContent).toContain("[Content omitted]");
+    expect(details[1]?.textContent).not.toContain(internalId);
+    expect(details[1]?.textContent).not.toContain("beyond preview");
+    await tree.unmount();
+  });
+
+  it("keeps the omission marker visible when formatted tool output expands", async () => {
+    const threadId = "thread-expanded-tool-output";
+    const runId = "run-expanded-tool-output";
+    const output = Object.fromEntries(
+      Array.from({ length: 79 }, (_, index) => [
+        `field-${index}-${"x".repeat(20)}`,
+        "",
+      ]),
+    );
+    const tool: AgentToolCall = {
+      id: "tool-large-output",
+      name: "read-records",
+      input: { query: "all records" },
+      output,
+      status: "completed",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: { [tool.id]: tool },
+      events: [
+        {
+          id: "event-large-output",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-10-01T00:00:01.000Z",
+          type: "tool.started" as const,
+          toolCall: { ...tool, status: "running" as const },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 1,
+          startedAt: "2026-10-01T00:00:00.000Z",
+          completedAt: "2026-10-01T00:00:02.000Z",
+        },
+      },
+    };
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    await act(async () => work?.querySelector("summary")?.click());
+    const row = tree.container.querySelector<HTMLElement>(
+      ".agentkit-activity-item",
+    );
+    await act(async () => row?.querySelector("button")?.click());
+    const result = row?.querySelector<HTMLPreElement>('[aria-label="Result"]');
+    expect(result?.textContent?.length).toBeLessThanOrEqual(2_000);
+    expect(result?.textContent).toContain("[Content omitted]");
+    expect(result?.textContent).toMatch(/…\n\[Content omitted\]$/);
+    await tree.unmount();
+  });
+
+  it("keeps distinct agent sources visible and sanitizes fallback labels", async () => {
+    const threadId = "thread-agent-source-labels";
+    const runId = "run-agent-source-labels";
+    const internalId = "550e8400-e29b-41d4-a716-446655440000";
+    const source = {
+      id: "external-agent",
+      kind: "agent",
+      label: "Different source agent",
+    };
+    const repeatedActivity = (id: string): AgentActivity => ({
+      id,
+      kind: "read",
+      label: "Reading a file",
+      status: "completed",
+      agentId: "displayed-agent",
+      source,
+    });
+    const sourceEvents: AgentEvent[] = ["source-a", "source-b"].map(
+      (id, index) => ({
+        id: `event-${id}`,
+        threadId,
+        runId,
+        sequence: index + 1,
+        occurredAt: `2026-10-01T00:00:0${index + 1}.000Z`,
+        type: "activity.completed",
+        activity: repeatedActivity(id),
+      }),
+    );
+    const privateLabelActivity: AgentActivity = {
+      id: "activity-private-label",
+      kind: internalId,
+      label: internalId,
+      status: "running",
+      agentId: "displayed-agent",
+      object: { id: "private-object", kind: internalId, label: internalId },
+    };
+    const events: AgentEvent[] = [
+      ...sourceEvents,
+      {
+        id: "event-private-label",
+        threadId,
+        runId,
+        sequence: 3,
+        occurredAt: "2026-10-01T00:00:03.000Z",
+        type: "activity.started",
+        activity: privateLabelActivity,
+      },
+    ];
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events,
+      activities: {
+        [privateLabelActivity.id]: privateLabelActivity,
+      },
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 3,
+          startedAt: "2026-10-01T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    expect(
+      work?.querySelectorAll(
+        ".agentkit-activity-cluster summary .agentkit-object-label",
+      ),
+    ).toHaveLength(1);
+    expect(
+      work?.querySelector(
+        ".agentkit-activity-cluster summary .agentkit-object-label",
+      )?.textContent,
+    ).toBe("Different source agent");
+    const privateRow = Array.from(
+      work?.querySelectorAll<HTMLElement>(".agentkit-activity-item") ?? [],
+    ).find((row) => row.dataset.activityKind === internalId);
+    expect(
+      privateRow?.querySelector(".agentkit-activity-label")?.textContent,
+    ).toBe("Working");
+    expect(
+      privateRow?.querySelector(".agentkit-object-label")?.textContent,
+    ).toBe("Assistant");
+    expect(work?.textContent).not.toContain(internalId);
+    await tree.unmount();
+  });
+
+  it("keeps the omission marker after pretty-print expansion exceeds its budget", async () => {
+    const threadId = "thread-formatted-tool-budget";
+    const runId = "run-formatted-tool-budget";
+    const formattedOutput = Object.fromEntries(
+      Array.from({ length: 38 }, (_, index) => [
+        `property_${String(index).padStart(2, "0")}_long_name_for_serialization`,
+        "0123456789",
+      ]),
+    );
+    const tool: AgentToolCall = {
+      id: "tool-formatted-output",
+      name: "read-file",
+      input: { path: "guide.md" },
+      output: formattedOutput,
+      status: "completed",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: { [tool.id]: tool },
+      events: [
+        {
+          id: "event-formatted-output",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-10-01T00:00:00.000Z",
+          type: "tool.updated" as const,
+          toolCall: tool,
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 1,
+          startedAt: "2026-10-01T00:00:00.000Z",
+          completedAt: "2026-10-01T00:00:01.000Z",
+        },
+      },
+    };
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    await act(async () => work?.querySelector("summary")?.click());
+    const row = Array.from(
+      tree.container.querySelectorAll<HTMLElement>(".agentkit-activity-item"),
+    ).find(
+      (item) =>
+        item.querySelector(".agentkit-activity-label")?.textContent ===
+        "Read File",
+    );
+    await act(async () => row?.querySelector("button")?.click());
+    const result = row?.querySelectorAll<HTMLPreElement>(
+      ".agentkit-activity-summary-value",
+    )[1]?.textContent;
+    expect(result).toBeDefined();
+    expect(result!.length).toBeLessThanOrEqual(2_000);
+    expect(result).toMatch(/\[Content omitted\]$/);
+    await tree.unmount();
   });
 
   it("resets disclosure state when switching threads with reused run ids", async () => {
@@ -4184,6 +4671,285 @@ describe("AgentKit subscriptions and recovery", () => {
       } else {
         Reflect.deleteProperty(navigator, "clipboard");
       }
+      await tree.unmount();
+    }
+  });
+
+  it("retries usage details after a streaming run completes", async () => {
+    const thread = createAgentThreadState("thread-run-usage");
+    const message = {
+      id: "assistant-run-usage",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Ready." }],
+      metadata: { runId: "run-usage" },
+    };
+    thread.messages = [message];
+    thread.events = [
+      {
+        id: "run-usage-started",
+        threadId: thread.id,
+        runId: "run-usage",
+        sequence: 1,
+        occurredAt: "2026-10-06T00:00:00.000Z",
+        type: "run.started",
+      },
+    ];
+    const initialSnapshot: AgentKitSnapshot = {
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    };
+    const store = observableController(initialSnapshot);
+    const loadRunUsage = vi
+      .fn<AgentKitRunUsageLoader>()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        durationMs: 1_000,
+        billing: {
+          providerCostUsd: 0.02,
+          providerCostSource: "mixed",
+          builderCredits: 2,
+          builderCreditsSource: "mixed",
+          incomplete: false,
+        },
+      });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId={thread.id}
+          loadRunUsage={loadRunUsage}
+        >
+          <AgentMessageActions threadId={thread.id} value={message} />
+        </AgentKitProvider>,
+      );
+      const trigger = tree.container.querySelector(
+        'button[aria-label="Message actions"]',
+      );
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      await flush();
+
+      expect(loadRunUsage).toHaveBeenCalledTimes(1);
+      expect(
+        document.body.querySelector(".agentkit-message-menu")?.textContent,
+      ).toContain("Usage not recorded");
+
+      const completedEvent: AgentEvent = {
+        id: "run-usage-completed",
+        threadId: thread.id,
+        runId: "run-usage",
+        sequence: 2,
+        occurredAt: "2026-10-06T00:00:01.000Z",
+        type: "run.completed",
+      };
+      store.update({
+        ...initialSnapshot,
+        revision: 1,
+        threads: {
+          [thread.id]: {
+            ...thread,
+            events: [...thread.events, completedEvent],
+          },
+        },
+      });
+      await flush();
+
+      expect(loadRunUsage).toHaveBeenCalledTimes(2);
+      const menuText = document.body.querySelector(
+        ".agentkit-message-menu",
+      )?.textContent;
+      expect(menuText).toContain("Worked for 1s");
+      expect(menuText).toContain("Reported and estimated cost $0.02");
+      expect(menuText).toContain("Reported and estimated Builder credits 2");
+    } finally {
+      await tree.unmount();
+    }
+  });
+
+  it("refreshes partial usage details when a streaming run completes", async () => {
+    const thread = createAgentThreadState("thread-partial-run-usage");
+    const message = {
+      id: "assistant-partial-run-usage",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Ready." }],
+      metadata: { runId: "run-partial-usage" },
+    };
+    thread.messages = [message];
+    thread.events = [
+      {
+        id: "partial-run-started",
+        threadId: thread.id,
+        runId: "run-partial-usage",
+        sequence: 1,
+        occurredAt: "2026-10-06T00:00:00.000Z",
+        type: "run.started",
+      },
+    ];
+    const initialSnapshot: AgentKitSnapshot = {
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    };
+    const store = observableController(initialSnapshot);
+    const loadRunUsage = vi
+      .fn<AgentKitRunUsageLoader>()
+      .mockResolvedValueOnce({
+        durationMs: 1_000,
+        billing: {
+          providerCostUsd: 0.01,
+          providerCostSource: "estimated",
+          builderCredits: 1,
+          builderCreditsSource: "estimated",
+          incomplete: false,
+        },
+      })
+      .mockResolvedValueOnce({
+        durationMs: 2_000,
+        billing: {
+          providerCostUsd: 0.05,
+          providerCostSource: "reported",
+          builderCredits: 6,
+          builderCreditsSource: "reported",
+          incomplete: false,
+        },
+      });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId={thread.id}
+          loadRunUsage={loadRunUsage}
+        >
+          <AgentMessageActions threadId={thread.id} value={message} />
+        </AgentKitProvider>,
+      );
+      const trigger = tree.container.querySelector(
+        'button[aria-label="Message actions"]',
+      );
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      await flush();
+
+      expect(loadRunUsage).toHaveBeenCalledTimes(1);
+      expect(
+        document.body.querySelector(".agentkit-message-menu")?.textContent,
+      ).toContain("Estimated cost $0.01");
+
+      const completedEvent: AgentEvent = {
+        id: "partial-run-completed",
+        threadId: thread.id,
+        runId: "run-partial-usage",
+        sequence: 2,
+        occurredAt: "2026-10-06T00:00:02.000Z",
+        type: "run.completed",
+      };
+      store.update({
+        ...initialSnapshot,
+        revision: 1,
+        threads: {
+          [thread.id]: {
+            ...thread,
+            events: [...thread.events, completedEvent],
+          },
+        },
+      });
+      await flush();
+
+      expect(loadRunUsage).toHaveBeenCalledTimes(2);
+      const menuText = document.body.querySelector(
+        ".agentkit-message-menu",
+      )?.textContent;
+      expect(menuText).toContain("Worked for 2s");
+      expect(menuText).toContain("$0.05");
+      expect(menuText).toContain("Builder credits used 6");
+    } finally {
+      await tree.unmount();
+    }
+  });
+
+  it("explains when per-message usage totals are incomplete", async () => {
+    const thread = createAgentThreadState("thread-incomplete-run-usage");
+    const message = {
+      id: "assistant-incomplete-run-usage",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Ready." }],
+      metadata: { runId: "run-incomplete-usage" },
+    };
+    thread.messages = [message];
+    const initialSnapshot: AgentKitSnapshot = {
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    };
+    const store = observableController(initialSnapshot);
+    const loadRunUsage = vi.fn<AgentKitRunUsageLoader>().mockResolvedValue({
+      durationMs: 1_000,
+      billing: {
+        providerCostUsd: null,
+        providerCostSource: null,
+        builderCredits: null,
+        builderCreditsSource: null,
+        incomplete: true,
+      },
+    });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId={thread.id}
+          loadRunUsage={loadRunUsage}
+        >
+          <AgentMessageActions threadId={thread.id} value={message} />
+        </AgentKitProvider>,
+      );
+      const trigger = tree.container.querySelector(
+        'button[aria-label="Message actions"]',
+      );
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      await flush();
+
+      expect(
+        document.body.querySelector(".agentkit-message-menu")?.textContent,
+      ).toContain("Some usage could not be classified; totals are hidden.");
+    } finally {
       await tree.unmount();
     }
   });

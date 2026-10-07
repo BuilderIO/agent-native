@@ -207,6 +207,7 @@ describe("countRecordingViews", () => {
 describe("getDefaultRecordingVisibility", () => {
   beforeEach(() => {
     mocks.getDb.mockClear();
+    mocks.getUserSetting.mockClear();
   });
 
   it("prefers the personal default over the organization default", async () => {
@@ -222,6 +223,14 @@ describe("getDefaultRecordingVisibility", () => {
       "owner@example.test",
       "clips-user-prefs",
     );
+  });
+
+  it("uses explicit visibility without reading personal or organization defaults", async () => {
+    await expect(
+      getDefaultRecordingVisibility("org-1", "owner@example.com", "org"),
+    ).resolves.toBe("org");
+    expect(mocks.getUserSetting).not.toHaveBeenCalled();
+    expect(mocks.getDb).not.toHaveBeenCalled();
   });
 
   it("falls back to the organization default when no preference is set", async () => {
@@ -256,6 +265,23 @@ describe("getDefaultRecordingVisibility", () => {
     await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
       "public",
     );
+  });
+
+  it("propagates organization settings read failures", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.getUserSetting.mockResolvedValue(null);
+    const failure = new Error("database unavailable");
+    mocks.getDb.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: vi.fn().mockRejectedValue(failure),
+          }),
+        }),
+      }),
+    });
+
+    await expect(getDefaultRecordingVisibility("org-1")).rejects.toBe(failure);
   });
 
   it("honors an explicit personal public preference", async () => {

@@ -244,7 +244,7 @@ CREATE TEMPORARY VIEW "notes" AS
 
 INSERT statements get `owner_email` auto-injected when the column isn't already present.
 
-The `db-query` / `db-exec` tools reject schema-qualified table references (`public.<table>`) — a qualified name resolves to the base table and would bypass the temporary view above. Agents use bare table names; scoping is applied automatically.
+The `db-query`, `db-exec`, and `db-patch` tools check SQL token boundaries and verify, inside the transaction, that each relation name resolves to one of the temporary views above. They refuse schema- or database-qualified names (`public.<table>`), relations the views do not cover, names matching functions or operators outside `pg_catalog` (including extensions), and selected built-ins that execute SQL text or access server, session, or sequence state. PostgreSQL escape-string continuation is unsupported and refused. `db-query` runs read-only. Agents use bare table names. Scoping is applied automatically. These guards scope direct SQL reads and writes and reject unapproved explicit routines and type conversions; reviewed schema defaults, constraints, triggers, casts and type I/O remain trusted database behavior. Apps can reuse these checks through `@agent-native/core/agent-sql`. Its `readAgentSqlQuery()` identifies table sources and their exact text spans in supported `SELECT`/`WITH` queries, and `rewriteAgentSqlQuerySources()` replaces those spans. Callers must enforce allowed sources and read-only execution.
 
 ### Per-Org Scoping (`org_id`)
 
@@ -392,7 +392,7 @@ Google Drive `changes.watch` notifications don't go through that generic adapter
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` is **not** set unless your org actually shares workspace keys — see [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] In multi-tenant deployments, **users bring their own `ANTHROPIC_API_KEY`** — the framework refuses to fall back to the deploy-level env var
 
-Run `agent-native doctor` (`pnpm doctor` in a scaffolded app) to check the schema, credential, and environment-variable items on this checklist automatically — every finding names the guard, file, and line. See the [Doctor](/docs/doctor) docs.
+Run `agent-native doctor` (`pnpm agent-native:doctor` in a scaffolded app) to check the schema, credential, and environment-variable items on this checklist automatically — every finding names the guard, file, and line. See the [Doctor](/docs/doctor) docs.
 
 ---
 
