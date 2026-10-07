@@ -552,16 +552,21 @@ pub(crate) fn set_monitor_picker_escape(app: &AppHandle, active: bool) {
     MONITOR_PICKER_ESCAPE_ACTIVE.store(active, Ordering::SeqCst);
     let app = app.clone();
     thread::spawn(move || {
+        // Workers can run out of order, so act on the flag as it is now, not
+        // the value this call captured.
+        static SYNC_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = SYNC_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let shortcut = escape_shortcut();
         let gs = app.global_shortcut();
-        if active {
+        if MONITOR_PICKER_ESCAPE_ACTIVE.load(Ordering::SeqCst) {
             if !gs.is_registered(shortcut) {
                 if let Err(err) = gs.register(shortcut) {
                     eprintln!("[clips-tray] failed to register monitor picker Escape: {err}");
                 }
             }
-        } else if !MONITOR_PICKER_ESCAPE_ACTIVE.load(Ordering::SeqCst)
-            && !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
+        } else if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
             && !COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
             && !DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
             && gs.is_registered(shortcut)
@@ -597,6 +602,7 @@ fn sync_dictation_escape_shortcut(app: AppHandle, active: bool) {
         }
         if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
             && !COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
+            && !MONITOR_PICKER_ESCAPE_ACTIVE.load(Ordering::SeqCst)
             && gs.is_registered(shortcut)
         {
             let _ = gs.unregister(shortcut);
