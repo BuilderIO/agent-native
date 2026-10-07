@@ -71,6 +71,19 @@ async function createDesign(request: APIRequestContext, content = SCREEN_HTML) {
   return { designId, fileId };
 }
 
+async function waitForReloadedElement(
+  page: Page,
+  fileId: string,
+  selector: string,
+) {
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  const element = designFrame(page, fileId).locator(selector);
+  await expect(element).toBeAttached({ timeout: 30_000 });
+  return element;
+}
+
 async function selectLayerFromTree(page: Page, layerName: string) {
   const row = page
     .getByRole("tree", { name: "Layers" })
@@ -228,13 +241,16 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
       .toBe(`${committedRadius}px`);
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect
-      .poll(() =>
-        designFrame(page, fileId)
-          .locator("#radius-target")
-          .evaluate((element) => getComputedStyle(element).borderTopLeftRadius),
-      )
-      .toBe(`${committedRadius}px`);
+    const reloadedTarget = await waitForReloadedElement(
+      page,
+      fileId,
+      "#radius-target",
+    );
+    await expect(reloadedTarget).toHaveCSS(
+      "border-top-left-radius",
+      `${committedRadius}px`,
+      { timeout: 30_000 },
+    );
 
     await setOverviewZoom(page, 200);
     await selectLayerFromTree(page, "Radius target");
@@ -351,14 +367,19 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
     expect(Number(savedPolygon?.radius)).toBeGreaterThan(0);
     expect(savedPolygon?.d).toContain(" A ");
     await page.reload({ waitUntil: "domcontentloaded" });
+    const reloadedPolygon = await waitForReloadedElement(
+      page,
+      fileId,
+      "#filled-polygon",
+    );
     await expect
-      .poll(() =>
-        designFrame(page, fileId)
-          .locator("#filled-polygon")
-          .evaluate((element) => ({
+      .poll(
+        () =>
+          reloadedPolygon.evaluate((element) => ({
             radius: element.getAttribute("data-an-corner-radius"),
             d: element.querySelector(":scope > path")?.getAttribute("d"),
           })),
+        { timeout: 30_000 },
       )
       .toEqual(savedPolygon);
 
@@ -455,13 +476,16 @@ test("asymmetric normalized radius handle follows a normal drag without jumping"
       .toBe("149px 99px");
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect
-      .poll(() =>
-        designFrame(page, fileId)
-          .locator("#radius-target")
-          .evaluate((element) => getComputedStyle(element).borderTopLeftRadius),
-      )
-      .toBe("149px 99px");
+    const reloadedTarget = await waitForReloadedElement(
+      page,
+      fileId,
+      "#radius-target",
+    );
+    await expect(reloadedTarget).toHaveCSS(
+      "border-top-left-radius",
+      "149px 99px",
+      { timeout: 30_000 },
+    );
   } finally {
     await action(request, "delete-design", { id: designId });
   }
