@@ -1,11 +1,9 @@
 import { spawn } from "node:child_process";
-import { once } from "node:events";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { Worker } from "node:worker_threads";
 
 import { describe, expect, it } from "vitest";
 
@@ -16,11 +14,11 @@ const repoRoot = path.resolve(
 const clientModule = pathToFileURL(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "client.ts"),
 ).href;
-const builtClientModule = pathToFileURL(
-  path.join(repoRoot, "packages/core/dist/db/client.js"),
-).href;
-const builtDevDatabaseLifecycleModule = pathToFileURL(
-  path.join(repoRoot, "packages/core/dist/server/dev-database-lifecycle.js"),
+const devDatabaseLifecycleModule = pathToFileURL(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../server/dev-database-lifecycle.ts",
+  ),
 ).href;
 const childSource = `
   import fs from "node:fs";
@@ -30,7 +28,18 @@ const childSource = `
   const marker = (name) => path.join(dir, name);
   const { closePgliteClients, getPgliteClient } = await import(${JSON.stringify(clientModule)});
   try {
-    if (process.env.PGLITE_LOCK_MODE === "owner") {
+    if (process.env.PGLITE_LOCK_MODE === "close-hook") {
+      const { installDevDatabaseCloseHook } = await import(${JSON.stringify(devDatabaseLifecycleModule)});
+      let close;
+      installDevDatabaseCloseHook({ hooks: { hook(name, handler) { if (name === "close") close = handler; } } });
+      const client = await getPgliteClient("pglite:" + path.join(dir, "db"));
+      await client.exec("CREATE TABLE probe_rows (id integer primary key, who text not null)");
+      await client.exec("INSERT INTO probe_rows (id, who) VALUES (1, CHR(65))");
+      fs.writeFileSync(marker("owner-ready"), "ready");
+      while (!fs.existsSync(marker("close-now"))) await sleep(25);
+      await close();
+      fs.writeFileSync(marker("owner-closed"), "closed");
+    } else if (process.env.PGLITE_LOCK_MODE === "owner") {
       const client = await getPgliteClient("pglite:" + path.join(dir, "db"));
       await client.exec("CREATE TABLE probe_rows (id integer primary key, who text not null)");
       await client.exec("INSERT INTO probe_rows (id, who) VALUES (1, CHR(65))");
@@ -71,7 +80,12 @@ function spawnChild(dir: string, mode: string, stdout: "ignore" | "pipe") {
     ["--import", "tsx", "--input-type=module", "--eval", childSource],
     {
       cwd: repoRoot,
-      env: { ...process.env, PGLITE_LOCK_DIR: dir, PGLITE_LOCK_MODE: mode },
+      env: {
+        ...process.env,
+        NODE_ENV: mode === "close-hook" ? "development" : process.env.NODE_ENV,
+        PGLITE_LOCK_DIR: dir,
+        PGLITE_LOCK_MODE: mode,
+      },
       stdio: ["ignore", stdout, "inherit"],
     },
   );
@@ -97,52 +111,15 @@ describe("PGlite persistent process ownership", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "pglite-worker-close-"));
     const dbDir = path.join(dir, "db");
     const lockPath = `${dbDir}.agent-native-pglite.lock`;
-    const worker = new Worker(
-      `
-        import { parentPort, workerData } from "node:worker_threads";
-        process.env.NODE_ENV = "development";
-        const { getPgliteClient } = await import(workerData.clientModule);
-        const { installDevDatabaseCloseHook } = await import(workerData.devDatabaseLifecycleModule);
-        let close;
-        installDevDatabaseCloseHook({ hooks: { hook(name, handler) { if (name === "close") close = handler; } } });
-        const client = await getPgliteClient("pglite:" + workerData.dbDir);
-        await client.exec("CREATE TABLE probe_rows (id integer primary key, who text not null)");
-        await client.exec("INSERT INTO probe_rows (id, who) VALUES (1, CHR(65))");
-        parentPort.postMessage("ready");
-        await new Promise((resolve, reject) => {
-          parentPort.once("message", async (message) => {
-            if (message !== "close") return;
-            try {
-              await close();
-              parentPort.postMessage("closed");
-              resolve();
-            } catch (error) {
-              reject(error);
-            }
-          });
-        });
-      `,
-      {
-        eval: true,
-        execArgv: ["--import", "tsx", "--input-type=module"],
-        workerData: {
-          clientModule: builtClientModule,
-          devDatabaseLifecycleModule: builtDevDatabaseLifecycleModule,
-          dbDir,
-        },
-      },
-    );
-    const exited = once(worker, "exit");
+    const owner = spawnChild(dir, "close-hook", "pipe");
     try {
-      const [ready] = await once(worker, "message");
-      expect(ready).toBe("ready");
-      expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
-
-      worker.postMessage("close");
-      const [closed] = await once(worker, "message");
-      expect(closed).toBe("closed");
-      const [exitCode] = await exited;
-      expect(exitCode).toBe(0);
+      await waitFor(path.join(dir, "owner-ready"));
+      expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(
+        owner.child.pid,
+      );
+      writeFileSync(path.join(dir, "close-now"), "close");
+      await owner.exited;
+      expect(existsSync(path.join(dir, "owner-closed"))).toBe(true);
       expect(existsSync(lockPath)).toBe(false);
 
       const { closePgliteClients, getPgliteClient } =
@@ -154,7 +131,10 @@ describe("PGlite persistent process ownership", () => {
       expect(result.rows).toEqual([{ id: 1, who: "A" }]);
       await closePgliteClients();
     } finally {
-      if (worker.threadId !== -1) await worker.terminate();
+      if (owner.child.exitCode === null && owner.child.signalCode === null) {
+        owner.child.kill("SIGKILL");
+      }
+      await owner.exited.catch(() => {});
       await rm(dir, { recursive: true, force: true });
     }
   }, 90_000);
