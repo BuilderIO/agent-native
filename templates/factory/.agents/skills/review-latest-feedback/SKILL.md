@@ -1,10 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Review Slack/GitHub, Sentry, Analytics, tracker, and operational feedback,
-  including app, desktop, and package deploy/release failures. Use when running
-  manual or scheduled sweeps to answer reporters, fix repo-owned defects,
-  recover failed lanes, verify targets, and recap dispositions.
+  Sweep Slack, GitHub, Sentry, Analytics, trackers, and automated diagnostics,
+  plus app/template, desktop, and package deploy/release/publish lanes. Fix
+  verified defects, verify recovery targets, and recap. Use for scheduled or
+  manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -36,14 +36,13 @@ is a default input, not a special-case exclusion.
 
 ## Slack ownership gate
 
-Before reading a Slack message or using a search hit, check the message and
-parent reactions. Any pre-existing `👀` or checkmark (`✅`, `✔️`) from anyone,
-including us, means skip it: don't read it or its replies, open its thread,
-inspect linked work, investigate, react, reply, or record its details. New
-replies, evidence, and upvotes do not override the gate. In every phase, inspect
-reactions before search text; apply the same rule to thread replies. Only this
-run may handle the `👀` it adds to an unmarked item; later runs skip it. Stop
-if anyone else adds a mark during the run.
+Before reading Slack, inspect message and parent reactions. Skip checkmarks and
+`👀` owned by another task, including replies and linked work. Only the active
+task named in status may resume its own `👀`: verify ownership, reread thread
+and reactions, then continue only its scope. Handoffs require the current
+owner's explicit reply naming the new task and scope. Claims never expire. Ask
+Steve if ownership is unclear; stop if another mark appears. For continuing
+work, post one status reply with task link and remaining scope.
 
 ## Phase 0: claim what you are taking
 
@@ -95,12 +94,14 @@ For clusters, post one owner status with each source permalink and
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
 - **Owned elsewhere:** use only for an unmarked item when accessible evidence
-  confirms an active owner; pre-existing marks are skipped by the ownership gate.
+  confirms an active owner; marks owned by another task are skipped by the
+  ownership gate.
 
-After merge, **Fixed** closes the source issue. Track release/runtime
-separately; normal rollout and optional live checks neither reopen it nor
-warrant `🎫`. Follow up only on accepted work outside this run; record source,
-target, owner, exact action, and verification. Don't reopen closed fixes.
+After merge, mark **Fixed** when the source fix is verified. Track
+release/runtime separately; normal rollout and optional live checks neither
+reopen it nor warrant `🎫`. Follow up only on accepted work outside this run;
+record source, target, owner, exact action, and verification. Don't reopen
+closed fixes.
 **Clustered** closes one row but retains it.
 
 Enumerate channel parents newest backward through `next_cursor` until older
@@ -113,8 +114,8 @@ and put their count in the recap. Sort targeted searches oldest-first and follow
 Search hits are often replies; resolve `thread_ts` and check parent reactions
 before reading the hit or opening the thread.
 
-Read back each `👀` this run added once before investigation. Never resume a
-pre-existing `👀` or checkmark.
+Read back each new `👀` once. Resume only through the verified owner or handoff
+above; never resume checkmarked items.
 
 Claiming does not investigate. Read back new claims. Do not claim out-of-scope
 items. If a current-run claim proves out of scope, keep `👀` and post **Skipped**
@@ -217,10 +218,10 @@ Phase 2 reapplies these rules after full-thread review.
 Use `## Slack channels` unless the invocation narrows scope.
 
 **Automated diagnostics count as feedback regardless of author.** Claim
-actionable CI/Beta E2E, monitoring, deployment, desktop-release, and
-package-publish alerts with `👀` after the ownership gate, then inspect linked
-runs, builds/commits, job logs, test results, artifacts, and issue state. Treat
-labels/counts as leads. Fix verified repo-owned causes; for other causes,
+actionable CI/Beta E2E, monitoring, app/template deployment, desktop-release,
+and package-publish alerts with `👀` after the ownership gate, then inspect
+linked runs, builds/commits, job logs, test results, artifacts, and issue state.
+Treat labels/counts as leads. Fix verified repo-owned causes; for other causes,
 record evidence and the next owner/action. Don't ask bots; ask a person only
 when a fact blocks a fix. If our report lacks evidence, improve its
 checks/report with concise context and links; avoid duplicate details and
@@ -277,7 +278,7 @@ delegation and read it back. Keep an evidence-limited disposition until Phase
 2's four bars hold; then use **Shipped**, adding `✅` only if it also meets
 **Fixed**.
 
-Do not search `has::eyes:` to resume work.
+Don't search `has::eyes:`; use the owner or handoff path above.
 
 For GitHub, Sentry, and first-party Agent-Native Analytics, use native state as
 the cursor: recent open or unresolved items with no maintainer disposition,
@@ -289,8 +290,9 @@ query.
 
 Read each issue's body, comments, author, labels, linked PRs. Treat
 prior `fixed`, `shipped`, or `merged` comments as leads; recheck the surface.
-When a fix merges, thank the reporter, link it, and close. Track release/runtime
-gaps separately; keep open only while scope is unfixed, unmerged, or needs input.
+When a fix merges, record **Fixed** and link proof in the recap. Close a GitHub
+issue only when this invocation explicitly authorizes it; otherwise record the
+pending close. Track release/runtime gaps separately.
 
 Before claiming an issue, check comments for handoffs. If someone offers a PR,
 or Steve asks them to, mark **Owned elsewhere**; do not investigate, edit, test,
@@ -321,15 +323,15 @@ correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
 at their boundary; record external, deployment, or unclear issues without
 inventing a fix.
 
-### Deployment, release, and publish failures are first-class operational feedback
+### Deployment, release, and publish failures
 
-Sweep app/template, desktop build/release, and package-publish lanes; include
-run-only failures and missing/stale artifacts. Fix repo-owned causes and verify
-the target. Neither a merge nor green workflow proves delivery. Read
-[`deployment-recovery.md`](references/deployment-recovery.md) for scan,
-recovery, and lane-specific verification. Carry active run IDs and rows until
-target proof passes. Measure with friction key
-`feedback-release-coverage`.
+Scan app/template, desktop build/release, and package-publish lanes on every
+sweep, even without a linked report. Include queued/running runs, run-only
+failures, and missing/stale artifacts; carry active run IDs and rows across
+cursors. Fix verified repo-owned causes; record external/manual causes with the
+next owner/action. Use [`deployment-recovery.md`](references/deployment-recovery.md)
+for lane-specific recovery and target proof. Green CI or merged source alone
+does not prove delivery.
 
 ## Phase 2: fix
 
@@ -431,15 +433,16 @@ pre-existing.
 
 ### Npx and package reports have a release follow-up
 
-Use [`deployment-recovery.md`](references/deployment-recovery.md) for registry
-verification, npx version tracking, and the existing-app upgrade path.
+Use [`deployment-recovery.md`](references/deployment-recovery.md) for npx
+version evidence, registry proof, publication status, and existing-app upgrade
+verification. A verified merge may be **Fixed** under the issue-closure rule
+above while its delivery row stays open; a local scaffold or beta promise is not
+delivery.
 
 ### Documentation has a runnable proof obligation
 
-For each docs row, verify commands in a clean temporary scaffold, update
-configured locales, and run both i18n guards. Read
-[`documentation-proof.md`](references/documentation-proof.md) for the full
-checklist; a diff/build alone is not proof.
+For each docs row, use [`documentation-proof.md`](references/documentation-proof.md).
+A docs diff/build alone isn't proof.
 
 Choose the narrowest seam the evidence supports:
 
@@ -573,14 +576,14 @@ message details.
 Start cursors: product [Slack message](...) · QA [Slack message](...) · dev [Slack message](...)
 Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <timestamp>
 Messages: product N · QA N · dev N (total N)
-Deployment cursor (next run): <timestamp> · carried active run IDs/rows: <ids/count>
-Deployment/release lanes: N inspected · failed or stale N · delivered and verified N
+Deployment cursor: <timestamp> · carried active run IDs/rows: <ids/count>
+Release lanes: N inspected · failed/stale N · target verified N
 Reaction-gated skips: N · claimed N · answered N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run, SHA, target, artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
+| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
 

@@ -1350,6 +1350,8 @@ const helloPrompt =
   "Call the hello action with name AgentKit Browser, then report the greeting in streamed markdown.";
 const approvalPrompt =
   "Call accept-agentkit-release with release agentkit-acceptance for production and wait for my approval.";
+const approvedContinuationPrompt =
+  "Approved. Go ahead and run the requested action.";
 const widgetFirstBatchPrompt =
   "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, and best shared time in that order.";
 const widgetSecondBatchPrompt =
@@ -1566,11 +1568,12 @@ async function streamToolCallResponse(
 }
 
 function originalUserPrompt(value: string): string {
+  if (value.trim() === approvedContinuationPrompt) return approvalPrompt;
   const frameworkSuffixes = [
     "\n\n<current-time>",
     "\n\n<current-screen>",
     "\n\nContinue from where you left off",
-    "Approved. Go ahead and run the requested action.",
+    approvedContinuationPrompt,
   ];
   const suffixIndexes = frameworkSuffixes
     .map((suffix) => value.indexOf(suffix))

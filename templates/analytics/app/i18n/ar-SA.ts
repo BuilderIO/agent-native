@@ -1481,6 +1481,12 @@ export default {
       "مقاطع محددة النطاق تُستخدم لإعادة بناء هذا التسجيل. تبقى عناوين URL الخاصة بالمزوّد خاصة.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "تنزيل لقطة الشاشة",
+    savingScreenshot: "جارٍ حفظ لقطة الشاشة…",
+    screenshotDownloaded: "تم تنزيل لقطة الشاشة",
+    screenshotSaveFailed: "تعذّر حفظ لقطة الشاشة",
+    screenshotUnsupportedAssets:
+      "لم تُحفظ لقطة الشاشة: تعذّر التقاط بعض الوسائط المضمّنة أو الصور بأمان.",
     timeline: "الخط الزمني للأحداث",
     replayTimeline: "خط إعادة التشغيل الزمني",
     timelineDescription: "عرض {{count}} من {{total}} أحداث مفيدة.",
