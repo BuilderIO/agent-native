@@ -85,6 +85,21 @@ const GROUP_POSITION_HTML = `<!doctype html>
   </body>
 </html>`;
 
+const PLAIN_POSITION_WRAPPER_HTML = `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Plain wrapper position fixture</title></head>
+  <body style="margin:0;width:800px;height:600px">
+    <div data-agent-native-node-id="position-frame" data-agent-native-layer-name="Position frame" data-an-primitive="frame"
+         style="position:absolute;left:200px;top:100px;width:400px;height:300px;background:#eeeeee">
+      <div data-agent-native-node-id="plain-wrapper" data-agent-native-layer-name="Plain wrapper"
+           style="position:relative;left:20px;top:30px;width:240px;height:200px;background:#dddddd">
+        <div data-agent-native-node-id="plain-wrapper-child" data-agent-native-layer-name="Plain wrapper child" data-an-primitive="rectangle"
+             style="position:absolute;left:80px;top:90px;width:80px;height:40px;background:#fca5a5"></div>
+      </div>
+    </div>
+  </body>
+</html>`;
+
 const CONTAINING_BLOCK_POSITION_HTML = `<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Containing block position fixture</title></head>
@@ -107,6 +122,17 @@ const UNFRAMED_POSITION_HTML = `<!doctype html>
       <div data-agent-native-node-id="position-child" data-agent-native-layer-name="Position child" data-an-primitive="rectangle"
            style="position:absolute;left:100px;top:80px;width:80px;height:40px;background:#fca5a5"></div>
     </div>
+  </body>
+</html>`;
+
+const FIXED_POSITION_HTML = `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Fixed position fixture</title></head>
+  <body style="margin:0;width:3000px;height:1600px">
+    <main style="width:3000px;height:1600px">
+      <div data-agent-native-node-id="fixed-child" data-agent-native-layer-name="Fixed child" data-an-primitive="rectangle"
+           style="position:fixed;left:35px;top:24px;width:80px;height:40px;background:#fca5a5">Fixed child</div>
+    </main>
   </body>
 </html>`;
 
@@ -479,6 +505,58 @@ test("canvas and Layers selection show parent-relative position after iframe scr
   );
 });
 
+// oracle: none — verifies CSS fixed-position viewport coordinates, not Figma parity.
+test("fixed Position stays viewport-relative after iframe scroll and reload", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const designId = await seedDesign(
+    request,
+    requireBaseURL(baseURL),
+    FIXED_POSITION_HTML,
+  );
+  await openEditPanel(page, designId);
+  const frame = designFrame(page);
+  await frame.locator("body").evaluate(() => window.scrollTo(50, 70));
+  await expect
+    .poll(() =>
+      frame
+        .locator("body")
+        .evaluate(() => ({ x: window.scrollX, y: window.scrollY })),
+    )
+    .toEqual({ x: 50, y: 70 });
+
+  const fixed = frame.locator('[data-agent-native-node-id="fixed-child"]');
+  const box = (await fixed.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  const x = page.getByRole("textbox", { name: "X-position" });
+  const y = page.getByRole("textbox", { name: "Y-position" });
+  await expect(x).toHaveValue("35px");
+  await expect(y).toHaveValue("24px");
+
+  await selectLayer(page, "Fixed child");
+  await expect(x).toHaveValue("35px");
+  await expect(y).toHaveValue("24px");
+  await x.fill("40");
+  await x.press("Enter");
+  await expect
+    .poll(() =>
+      fixed.evaluate((element) => element.getBoundingClientRect().left),
+    )
+    .toBe(40);
+
+  await page.reload();
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Fixed child");
+  await expect(page.getByRole("textbox", { name: "X-position" })).toHaveValue(
+    "40px",
+  );
+  await expect(page.getByRole("textbox", { name: "Y-position" })).toHaveValue(
+    "24px",
+  );
+});
+
 // Native oracle O-06 (desktop Figma, 2026-10-06): Position skips Groups and
 // resets at the nearest Frame.
 test("Position stays Frame-relative through Groups and resets at nested Frames", async ({
@@ -569,6 +647,54 @@ test("Position edits use the CSS containing block through static wrappers and bo
   await expect
     .poll(() => positionReferenceOffset(page, "Position child"))
     .toEqual({ x: 120, y: 140 });
+});
+
+// oracle: none — plain HTML wrappers have no Figma node equivalent.
+test("Position stays Frame-relative through a positioned plain wrapper", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const designId = await seedDesign(
+    request,
+    requireBaseURL(baseURL),
+    PLAIN_POSITION_WRAPPER_HTML,
+  );
+  await openEditPanel(page, designId);
+
+  const child = designFrame(page).locator(
+    '[data-agent-native-node-id="plain-wrapper-child"]',
+  );
+  const childBox = (await child.boundingBox())!;
+  await page.mouse.click(
+    childBox.x + childBox.width / 2,
+    childBox.y + childBox.height / 2,
+  );
+  const x = page.getByRole("textbox", { name: "X-position" });
+  const y = page.getByRole("textbox", { name: "Y-position" });
+  await expect(x).toHaveValue("100px");
+  await expect(y).toHaveValue("120px");
+
+  await selectLayer(page, "Plain wrapper child");
+  await expect(x).toHaveValue("100px");
+  await expect(y).toHaveValue("120px");
+  await x.fill("110");
+  await x.press("Enter");
+  await expect
+    .poll(() => authoredOffset(page, "Plain wrapper child"))
+    .toMatchObject({ left: "90px" });
+  await expect
+    .poll(() => positionReferenceOffset(page, "Plain wrapper child"))
+    .toEqual({ x: 110, y: 120 });
+
+  await page.reload();
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Plain wrapper child");
+  await expect(x).toHaveValue("110px");
+  await expect(y).toHaveValue("120px");
+  await expect
+    .poll(() => authoredOffset(page, "Plain wrapper child"))
+    .toMatchObject({ left: "90px" });
 });
 
 test("unframed absolute positions use the initial containing block through static wrappers", async ({

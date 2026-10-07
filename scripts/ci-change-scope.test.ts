@@ -534,6 +534,20 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     assert.equal(scope.checks.design_canvas_interaction_e2e, true, path);
   }
 
+  assert.deepEqual(
+    classifyChangedPaths([
+      "templates/design/e2e/position-alignment.spec.ts",
+      "templates/design/e2e/inspector-styles.spec.ts",
+      "templates/design/e2e/fixture.test.tsx",
+      "templates/design/app/components/design/EditPanel.tsx",
+    ]).designCanvasE2eSpecs,
+    [
+      "templates/design/e2e/fixture.test.tsx",
+      "templates/design/e2e/inspector-styles.spec.ts",
+      "templates/design/e2e/position-alignment.spec.ts",
+    ],
+  );
+
   assert.equal(
     classifyChangedPaths([".github/workflows/ci.yml"]).checks
       .design_canvas_interaction_e2e,
@@ -557,8 +571,34 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
-  assert.ok(regressionCases.includes("timeout-minutes: 10"));
-  assert.ok(regressionCases.includes("--workers=2"));
+  assert.ok(
+    regressionCases.includes(
+      "timeout-minutes: ${{ matrix.shard == 'changed' && 45 || 20 }}",
+    ),
+  );
+  assert.ok(regressionCases.includes("--workers=1"));
+  assert.ok(workflow.includes("shard: [inspector, drag, position, changed]"));
+  assert.ok(
+    regressionCases.includes(
+      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+  );
+  assert.ok(
+    regressionCases.includes(
+      "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
+    ),
+  );
+  assert.ok(
+    regressionCases.includes(
+      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=3',
+    ),
+  );
+  assert.ok(
+    regressionCases.includes(
+      "mapfile -d '' -t changed_specs < \"$changed_specs_file\"",
+    ),
+  );
+  assert.ok(regressionCases.includes('if [[ -f "$spec" ]]; then'));
   const selectedTests = [
     [
       "e2e/canvas-invariants.spec.ts",
@@ -606,6 +646,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "board regression: overlapping board Frames keep the pointer drop without cancel or revert",
     ],
     [
+      "e2e/parity-selection.spec.ts",
+      572,
+      "selected nested frame drag from its grandchild tracks the pointer and persists",
+    ],
+    [
+      "e2e/corner-radius-handle-drag.spec.ts",
+      188,
+      "canvas corner-radius handle follows the drag and persists the radius",
+    ],
+    [
       "e2e/pasted-svg-image-inspector.spec.ts",
       656,
       "clipboard SVG File paste in the parent editor stays editable after reload",
@@ -617,27 +667,47 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      335,
+      361,
       "Auto Layout matrix centers both axes and persists after reload",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      484,
+      431,
+      "canvas and Layers selection show parent-relative position after iframe scroll",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      509,
+      "fixed Position stays viewport-relative after iframe scroll and reload",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      562,
       "Position stays Frame-relative through Groups and resets at nested Frames",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      529,
+      607,
       "Position edits use the CSS containing block through static wrappers and borders",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      606,
+      653,
+      "Position stays Frame-relative through a positioned plain wrapper",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      700,
+      "unframed absolute positions use the initial containing block through static wrappers",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      732,
       "Position edits invert own and static-containing-block transforms and persist",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      646,
+      772,
       "Align uses a Group's bounds while Position stays Frame-relative",
     ],
   ] as const;
@@ -650,7 +720,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
   }
   assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts"));
-  assert.ok(!workflow.includes("Run changed Design E2E specs"));
+  assert.ok(regressionCases.includes("--workers=1"));
 });
 
 test("a deleted Design E2E path runs the focused interaction suite", () => {

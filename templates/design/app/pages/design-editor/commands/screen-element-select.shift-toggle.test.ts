@@ -157,6 +157,114 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
     }
   });
 
+  it("refreshes live element and parent geometry with the position context", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    document.body.appendChild(iframe);
+    const parent = iframe.contentDocument!.createElement("div");
+    parent.id = "parent";
+    parent.style.position = "relative";
+    const target = iframe.contentDocument!.createElement("div");
+    target.id = "node-a";
+    target.style.position = "absolute";
+    parent.appendChild(target);
+    iframe.contentDocument!.body.appendChild(parent);
+    let scrollX = 0;
+    let scrollY = 0;
+    let parentBox = { x: 50, y: 30, width: 300, height: 200 };
+    let targetBox = { x: 120, y: 80, width: 100, height: 40 };
+    Object.defineProperties(iframe.contentWindow!, {
+      scrollX: { configurable: true, get: () => scrollX },
+      scrollY: { configurable: true, get: () => scrollY },
+    });
+    parent.getBoundingClientRect = () => parentBox as DOMRect;
+    target.getBoundingClientRect = () => targetBox as DOMRect;
+
+    try {
+      const previous = withMeasuredGeometry({
+        ...makeInfo("node-a"),
+        boundingRect: { x: 10, y: 20, width: 50, height: 25 },
+        parentBoundingRect: { x: 0, y: 0, width: 100, height: 100 },
+      } as ElementInfo);
+
+      scrollX = 50;
+      scrollY = 70;
+      parentBox = { x: 110, y: 70, width: 300, height: 200 };
+      targetBox = { x: 180, y: 120, width: 100, height: 40 };
+      const measured = withMeasuredGeometry({
+        ...previous,
+      } as ElementInfo);
+
+      expect(measured.boundingRect).toEqual({
+        x: 230,
+        y: 190,
+        width: 100,
+        height: 40,
+      });
+      expect(measured.parentBoundingRect).toEqual({
+        x: 160,
+        y: 140,
+        width: 300,
+        height: 200,
+      });
+      expect(measured.positionContainingBlockOrigin).toEqual({
+        x: 160,
+        y: 140,
+      });
+    } finally {
+      document.body.removeChild(iframe);
+    }
+  });
+
+  it("uses viewport coordinates for fixed elements without a containing block", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    document.body.appendChild(iframe);
+    const view = iframe.contentWindow!;
+    Object.defineProperties(view, {
+      scrollX: { configurable: true, value: 50 },
+      scrollY: { configurable: true, value: 70 },
+    });
+    Object.defineProperties(view.document.documentElement, {
+      clientWidth: { configurable: true, value: 640 },
+      clientHeight: { configurable: true, value: 480 },
+    });
+    const target = view.document.createElement("div");
+    target.id = "node-a";
+    target.style.position = "fixed";
+    target.style.left = "35px";
+    target.style.top = "24px";
+    view.document.body.appendChild(target);
+    target.getBoundingClientRect = () =>
+      ({ x: 35, y: 24, width: 100, height: 40 }) as DOMRect;
+
+    try {
+      const measured = withMeasuredGeometry(makeInfo("node-a"));
+
+      expect(measured.boundingRect).toEqual({
+        x: 85,
+        y: 94,
+        width: 100,
+        height: 40,
+      });
+      expect(measured.positionReferenceRect).toEqual({
+        x: 50,
+        y: 70,
+        width: 640,
+        height: 480,
+      });
+      expect(measured.positionContainingBlockOrigin).toEqual({ x: 50, y: 70 });
+      const positionReferenceRect = measured.positionReferenceRect;
+      if (!positionReferenceRect) {
+        throw new Error("position reference rectangle was not measured");
+      }
+      expect(measured.boundingRect.x - positionReferenceRect.x).toBe(35);
+      expect(measured.boundingRect.y - positionReferenceRect.y).toBe(24);
+    } finally {
+      document.body.removeChild(iframe);
+    }
+  });
+
   it("removes an already-selected element from a multi-selection (A+B selected, Shift+click A -> only B), and moves the primary selection to B", () => {
     const nodes = [makeNode("node-a"), makeNode("node-b")];
     let result: string[] = [];

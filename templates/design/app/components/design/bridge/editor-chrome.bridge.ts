@@ -4202,7 +4202,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el.parentElement;
   }
 
-  function positionReferenceRectForElement(el: Element) {
+  function positionReferenceRectForElement(
+    el: Element,
+    fixedWithoutContainingBlock: boolean,
+  ) {
+    if (fixedWithoutContainingBlock) {
+      var fixedRoot = el.ownerDocument.documentElement;
+      return {
+        x: window.scrollX || window.pageXOffset || 0,
+        y: window.scrollY || window.pageYOffset || 0,
+        width: fixedRoot.clientWidth,
+        height: fixedRoot.clientHeight,
+      };
+    }
     var ancestor = el.parentElement;
     while (ancestor) {
       if (ancestor.getAttribute("data-an-primitive") === "frame") {
@@ -4345,8 +4357,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     if (!containingBlock) {
       return {
-        origin: { x: 0, y: 0 },
+        origin: fixed
+          ? {
+              x: window.scrollX || window.pageXOffset || 0,
+              y: window.scrollY || window.pageYOffset || 0,
+            }
+          : { x: 0, y: 0 },
         transform: transform,
+        hasContainingBlock: false,
       };
     }
 
@@ -4392,6 +4410,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           transform.d * (htmlContainingBlock.clientTop - scrollY),
       },
       transform: transform,
+      hasContainingBlock: true,
     };
   }
 
@@ -6434,10 +6453,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (designParent && parentStyles) {
       positionComputedStylesCache.set(designParent, parentStyles);
     }
-    var positionReferenceRect = positionReferenceRectForElement(el);
     var positionCoordinateContext = positionContainingBlockForElement(
       el,
       positionComputedStylesCache,
+    );
+    var positionReferenceRect = positionReferenceRectForElement(
+      el,
+      cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
     );
     var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;

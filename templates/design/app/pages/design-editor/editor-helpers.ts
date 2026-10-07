@@ -172,9 +172,6 @@ export function withMeasuredGeometry(
   info: ElementInfo,
   screenId?: string,
 ): ElementInfo {
-  const hasGeometry =
-    !!info.boundingRect &&
-    (info.boundingRect.width > 0 || info.boundingRect.height > 0);
   if (typeof document === "undefined") return info;
   const selector = info.runtimeSelector ?? info.selector;
   if (!selector) return info;
@@ -207,11 +204,6 @@ export function withMeasuredGeometry(
     const positionCoordinateContext = view
       ? measurePositionCoordinateContext(node, view)
       : undefined;
-    if (hasGeometry) {
-      return positionCoordinateContext
-        ? { ...info, ...positionCoordinateContext }
-        : info;
-    }
     const scrollX = view?.scrollX ?? 0;
     const scrollY = view?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);
@@ -230,7 +222,7 @@ export function withMeasuredGeometry(
             width: parentBox.width,
             height: parentBox.height,
           }
-        : info.parentBoundingRect,
+        : undefined,
       ...(positionCoordinateContext ?? {}),
       computedStyles: computed
         ? {
