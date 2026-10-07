@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import {
@@ -258,6 +258,137 @@ test("undo restores a child layer with its additive Screen selection", async ({
 
     await page.keyboard.press("Delete");
     await expect(layerRow(page, "Second")).toHaveCount(0, { timeout: 10_000 });
+    await expect(layerRow(page, "Home")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
+test("marquee-selecting child elements after a Screen pick deletes only the elements", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).__DESIGN_TRACE = true;
+  });
+
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    await layerRow(page, "Home").click();
+
+    const screenIframe = page.locator(
+      `iframe[data-screen-iframe-id="${homeId}"]`,
+    );
+    const iframeBox = await screenIframe.boundingBox();
+    const target = screenIframe
+      .contentFrame()
+      .locator('[data-agent-native-node-id="home-target"]');
+    const targetBox = await target.boundingBox();
+    expect(iframeBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+
+    const margin = Math.min(5, Math.max(2, iframeBox!.width * 0.01));
+    const from = {
+      x: targetBox!.x + targetBox!.width + margin,
+      y: targetBox!.y + targetBox!.height + margin,
+    };
+    const to = {
+      x: targetBox!.x - margin,
+      y: targetBox!.y - margin,
+    };
+    expect(from.x).toBeLessThan(iframeBox!.x + iframeBox!.width);
+    expect(from.y).toBeLessThan(iframeBox!.y + iframeBox!.height);
+    expect(to.x).toBeGreaterThan(iframeBox!.x);
+    expect(to.y).toBeGreaterThan(iframeBox!.y);
+
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 12 });
+    await page.mouse.up();
+
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    const blueBoxRow = blueBoxButton.locator(
+      "xpath=ancestor::*[@role='treeitem'][1]",
+    );
+    await expect(blueBoxRow).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => lastSelectedLayers(page)).toHaveLength(1);
+
+    await page.keyboard.press("Delete");
+    await expect(blueBoxButton).toHaveCount(0);
+    await expect(layerRow(page, "Home")).toHaveCount(1);
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
+test("failed Screen deletion keeps the explicit Screen target for retry", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).__DESIGN_TRACE = true;
+  });
+
+  const id = await newThreeScreenDesign(page);
+  const deleteTargets: string[][] = [];
+  const failFirstDelete = async (route: Route) => {
+    const body = route.request().postDataJSON() as {
+      id?: string;
+      fileIds?: string[];
+    };
+    deleteTargets.push(body.fileIds ?? (body.id ? [body.id] : []));
+    if (deleteTargets.length === 1) {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "intentional E2E route failure" }),
+      });
+      return;
+    }
+    await route.continue();
+  };
+
+  try {
+    await openEditor(page, id);
+    const secondId = await fileIdByFilename(page, id, "second.html");
+
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    const blueBoxId = await blueBoxButton.getAttribute("data-layer-node-id");
+    expect(blueBoxId).toBeTruthy();
+    const blueBoxRow = blueBoxButton.locator(
+      "xpath=ancestor::*[@role='treeitem'][1]",
+    );
+    await blueBoxButton.click();
+    await expect(blueBoxRow).toHaveAttribute("aria-selected", "true");
+
+    const secondFrameTitle = page.locator(
+      `[data-frame-id="${secondId}"] [data-frame-title]`,
+    );
+    await expect(secondFrameTitle).toHaveText("Second");
+    await secondFrameTitle.click({ modifiers: ["Shift"] });
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+
+    await page.route("**/_agent-native/actions/delete-file", failFirstDelete);
+    await page.keyboard.press("Delete");
+    await expect.poll(() => deleteTargets.length).toBe(1);
+    expect(deleteTargets[0]).toEqual([secondId]);
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect(blueBoxRow).toHaveAttribute("aria-selected", "true");
+
+    await page.keyboard.press("Delete");
+    await expect.poll(() => deleteTargets.length).toBe(2);
+    expect(deleteTargets[1]).toEqual([secondId]);
+    await expect(layerRow(page, "Second")).toHaveCount(0, { timeout: 10_000 });
+    await expect(blueBoxButton).toHaveCount(1);
     await expect(layerRow(page, "Home")).toHaveCount(1);
     await expect(layerRow(page, "Third")).toHaveCount(1);
   } finally {

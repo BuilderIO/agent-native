@@ -17086,8 +17086,19 @@ function DesignEditor() {
       const boundedFilesToDelete = filesToDelete.slice(0, maxDeleteCount);
       if (!boundedFilesToDelete.length) return false;
 
+      const explicitScreenIds = explicitScreenDeletion
+        ? boundedFilesToDelete.map((file) => file.id)
+        : explicitlySelectedFiles.map((file) => file.id);
       explicitOverviewScreenSelectionRef.current = [];
-      performDeleteFiles(boundedFilesToDelete, { recordDeletionHistory: true });
+      performDeleteFiles(boundedFilesToDelete, {
+        recordDeletionHistory: true,
+        onMutationSettled: (deletedFiles) => {
+          const deletedIds = new Set(deletedFiles.map((file) => file.id));
+          explicitOverviewScreenSelectionRef.current = explicitScreenIds.filter(
+            (fileId) => !deletedIds.has(fileId),
+          );
+        },
+      });
       return false;
     },
     [
@@ -24344,6 +24355,9 @@ function DesignEditor() {
       infos: ElementInfo[],
       intent?: ElementSelectionIntent,
     ) => {
+      if (!intent?.cancelled) {
+        explicitOverviewScreenSelectionRef.current = [];
+      }
       handleLayerMarqueeSelectionChange(
         infos.map((info) => ({ screenId, info })),
         {
