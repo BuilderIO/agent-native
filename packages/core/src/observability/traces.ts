@@ -21,12 +21,14 @@ import {
   toPostHogMessages,
 } from "./posthog-ai.js";
 import {
-  redactToolErrorMessage as redactToolErrorMessageText,
   sanitizeToolErrorMessage,
   TOOL_ERROR_DETAIL_METADATA_KEY,
   toolErrorSignature,
 } from "./trace-error.js";
-import { redactSensitiveFields } from "./trace-redaction.js";
+import {
+  redactCapturedString,
+  redactSensitiveFields,
+} from "./trace-redaction.js";
 export { redactSensitiveFields } from "./trace-redaction.js";
 import { recordAgentToolCall, recordGenAiChat } from "./metrics.js";
 import {
@@ -226,13 +228,6 @@ type GenerationToolCall = {
   error_class: "tool_error" | "legacy_inferred_error" | "interrupted" | null;
   error_message?: string;
 };
-
-function redactToolErrorMessage(
-  value: string,
-  options: { truncated?: boolean } = {},
-): string {
-  return redactToolErrorMessageText(value, options);
-}
 
 function prepareCapturedModelInput(messages: unknown): unknown {
   return redactSensitiveFields(toPostHogMessages(messages));
@@ -463,12 +458,15 @@ function buildGenerationContent(args: {
     }));
 
   const hasChoice = config.capturePrompts || toolCalls.length > 0;
+  const capturedAssistantText = args.assistantText
+    ? redactCapturedString(args.assistantText, {
+        truncated: args.assistantTextTruncated === true,
+      })
+    : "";
   const output = hasChoice
     ? config.capturePrompts
       ? boundAssistantOutput(
-          redactToolErrorMessage(args.assistantText, {
-            truncated: args.assistantTextTruncated === true,
-          }),
+          capturedAssistantText,
           toolCalls,
           args.assistantTextTruncated === true,
         )
@@ -1429,7 +1427,9 @@ export async function instrumentAgentLoop(opts: {
               ? (generation.errorMessage ?? errorMessage)
               : null;
           const assistantTextIncomplete =
-            generationStatus === "error" && generation.assistantText.length > 0;
+            generation.stopReason === "max_tokens" ||
+            (generationStatus === "error" &&
+              generation.assistantText.length > 0);
           const generationContent = buildGenerationContent({
             config,
             messages: generation.input,

@@ -51,4 +51,26 @@ describe("redactSensitiveFields", () => {
       }),
     ).toEqual({ prompt: "The user included [REDACTED] and [REDACTED]." });
   });
+
+  it("redacts provider tokens, signed URLs, and JWTs in prompt and tool-result strings", () => {
+    const slackToken = ["x", "oxb-", "FAKE", "-", "0".repeat(8)].join("");
+    const npmToken = ["n", "pm_", "FAKE", "_", "0".repeat(8)].join("");
+    const sasSignature = ["FAKE", "SAS", "SIGNATURE"].join("-");
+    const jwt = [
+      ["ey", "J", "A".repeat(8)].join(""),
+      "B".repeat(8),
+      "C".repeat(8),
+    ].join(".");
+
+    expect(
+      redactSensitiveFields({
+        prompt: `Use ${slackToken} and ${npmToken} to authenticate.`,
+        toolResult: `Request failed for https://blob.example/item?sig=${sasSignature}; token=${jwt}`,
+      }),
+    ).toEqual({
+      prompt: "Use [REDACTED] and [REDACTED] to authenticate.",
+      toolResult:
+        "Request failed for https://blob.example/item?sig=[REDACTED]; token=[REDACTED]",
+    });
+  });
 });

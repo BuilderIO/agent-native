@@ -4,6 +4,15 @@ const STANDALONE_API_KEY_PATTERN =
   /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
 const INCOMPLETE_STANDALONE_API_KEY_PATTERN =
   /\b(?:(?:AKIA|ASIA)[A-Z0-9]{0,15}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{0,7}|(?:sk|rk)_[A-Za-z0-9_]{0,12}|AIza[A-Za-z0-9_-]{0,15}|gh[pousr]_[A-Za-z0-9]{0,15})$/g;
+const PROVIDER_TOKEN_PATTERN =
+  /\b(?:xox[a-z]{1,2}[-.][A-Za-z0-9_-]+|xapp-[A-Za-z0-9_-]+|SG\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|pat-[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|npm_[A-Za-z0-9_-]+)\b/gi;
+const INCOMPLETE_PROVIDER_TOKEN_PATTERN =
+  /\b(?:xox[a-z]{1,2}(?:[-.]|$)|xapp-|SG\.|pat-|github_pat_|npm_)[A-Za-z0-9_.-]*$/gi;
+const STANDALONE_JWT_PATTERN =
+  /\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
+const INCOMPLETE_STANDALONE_JWT_PATTERN =
+  /\beyJ[A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]*){0,2}$/g;
+
 const CONNECTION_FIELD =
   "(?:database[_ -]?(?:url|uri|dsn)|db[_ -]?(?:url|uri|dsn)|connection[_ -]?(?:string|url|uri)|dsn|(?:postgres(?:ql)?|mysql|mariadb|mongodb|mongo|redis|rediss|amqp|mssql|cockroachdb)[_ -]?(?:url|uri|dsn|connection[_ -]?string))";
 const COMPOUND_CREDENTIAL_FIELD = `(?:api[_ -]?key|access[_ -]?(?:token|key(?:[_ -]?id)?)|refresh[_ -]?token|client[_ -]?secret|private[_ -]?key|secret[_ -]?key|signing[_ -]?key|encryption[_ -]?key|${CONNECTION_FIELD})`;
@@ -24,6 +33,8 @@ const INCOMPLETE_URI_USERINFO_PATTERN =
   /\b([a-z][a-z0-9+.-]*:\/\/)([^/:?#\s]+):((?!\d+$)[^/?#@\s]+)$/gi;
 const CREDENTIAL_HEADER_PATTERN =
   /(["']?\b(?:authorization|cookie)\b["']?\s*[:=]\s*)(?:(\[(?:\\.|[^\]])*\])|(["'])(?:\\.|(?!\3)[\s\S])*?\3|[^\r\n"'{}\]]+)/gim;
+const SIGNED_URL_QUERY_CREDENTIAL_PATTERN =
+  /([?&](?:sig|signature|x-amz-signature|x-goog-signature)=)([^&#\s"'<>]*?)([.,;!?)}\]]?)(?=[&#\s"'<>]|$)/gi;
 
 /** Rows written 2026-09-25 onward by captureToolResults-on apps. Read as "full". */
 export const TOOL_ERROR_CAPTURE_METADATA_KEY = "__tool_error_capture_version";
@@ -59,10 +70,15 @@ export function redactToolErrorMessage(
       "$1[REDACTED]",
     )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
+    .replace(SIGNED_URL_QUERY_CREDENTIAL_PATTERN, "$1[REDACTED]$3")
     .replace(URI_USERINFO_PATTERN, "$1[REDACTED]@")
     .replace(INCOMPLETE_URI_USERINFO_PATTERN, "$1[REDACTED]")
     .replace(INCOMPLETE_STANDALONE_API_KEY_PATTERN, "[REDACTED]")
-    .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
+    .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]")
+    .replace(PROVIDER_TOKEN_PATTERN, "[REDACTED]")
+    .replace(INCOMPLETE_PROVIDER_TOKEN_PATTERN, "[REDACTED]")
+    .replace(STANDALONE_JWT_PATTERN, "[REDACTED]")
+    .replace(INCOMPLETE_STANDALONE_JWT_PATTERN, "[REDACTED]");
   if (!options.truncated) return redacted;
   return redacted.replace(TRUNCATED_URI_AUTHORITY_PATTERN, "$1[REDACTED]");
 }

@@ -708,6 +708,149 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     );
   });
 
+  it("redacts Slack and labeled webhook URLs from persisted assistant output", async () => {
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+
+    const slackWebhook =
+      "https://hooks.slack.com/services/T12345678/B12345678/secret-token";
+    const labeledWebhook =
+      "https://hooks.example.com/workspace/private-signing-token";
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({
+          type: "text",
+          text: `Slack ${slackWebhook}; webhookUrl: ${labeledWebhook}`,
+        });
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+        return {
+          inputTokens: 5,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [{ role: "user", content: "send a notification" }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-redacted-assistant-webhooks",
+      threadId: "thread-redacted-assistant-webhooks",
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const llmSpan = persistedSpans.find((span) => span.spanType === "llm_call");
+    expect(llmSpan?.metadata?.output).toEqual([
+      {
+        role: "assistant",
+        content: "Slack [REDACTED]; webhookUrl: [REDACTED]",
+      },
+    ]);
+    expect(JSON.stringify(llmSpan?.metadata)).not.toContain("secret-token");
+    expect(JSON.stringify(llmSpan?.metadata)).not.toContain(
+      "private-signing-token",
+    );
+  });
+
+  it("redacts provider tokens, signed URLs, and JWTs from persisted prompts and output", async () => {
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+
+    const providerTokens = [
+      ["x", "oxb-", "FAKE", "-", "0".repeat(8)].join(""),
+      ["x", "app-", "1-", "FAKE", "-", "0".repeat(8)].join(""),
+      ["S", "G.", "FAKE", ".", "TOKEN"].join(""),
+      ["p", "at-", "na1-", "FAKE", "-", "0".repeat(8)].join(""),
+      ["github", "_pat_", "FAKE", "_", "0".repeat(8)].join(""),
+      ["n", "pm_", "FAKE", "_", "0".repeat(8)].join(""),
+    ];
+    const sasSignature = ["FAKE", "SAS", "SIGNATURE"].join("-");
+    const jwt = [
+      ["ey", "J", "A".repeat(8)].join(""),
+      "B".repeat(8),
+      "C".repeat(8),
+    ].join(".");
+    const capturedText = `Tokens ${providerTokens.join(" ")} https://blob.example/item?sig=${sasSignature} jwt=${jwt}`;
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send, onModelInput }) => {
+        onModelInput?.([{ role: "user", content: capturedText }]);
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: capturedText });
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+        return {
+          inputTokens: 5,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [{ role: "user", content: capturedText }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-redacted-provider-content",
+      threadId: "thread-redacted-provider-content",
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const llmSpan = persistedSpans.find((span) => span.spanType === "llm_call");
+    const serializedMetadata = JSON.stringify(llmSpan?.metadata);
+    expect(llmSpan?.metadata?.input).toEqual([
+      {
+        role: "user",
+        content: `Tokens ${providerTokens.map(() => "[REDACTED]").join(" ")} https://blob.example/item?sig=[REDACTED] jwt=[REDACTED]`,
+      },
+    ]);
+    expect(llmSpan?.metadata?.output).toEqual([
+      {
+        role: "assistant",
+        content: `Tokens ${providerTokens.map(() => "[REDACTED]").join(" ")} https://blob.example/item?sig=[REDACTED] jwt=[REDACTED]`,
+      },
+    ]);
+    for (const secret of [...providerTokens, sasSignature, jwt]) {
+      expect(serializedMetadata).not.toContain(secret);
+    }
+  });
+
   it("projects inline attachments before redacting captured model input", async () => {
     const events: TrackingEvent[] = [];
     const inlineImageData = "A".repeat(512_000);
@@ -904,6 +1047,130 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       output: [{ role: "assistant", content: "second model response" }],
     });
     expect(llmSpans[1]?.metadata).not.toHaveProperty("output_truncated");
+  });
+
+  it("persists max-token output as incomplete while capturing its continuation", async () => {
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation" || event.name === "$ai_trace") {
+          events.push(event);
+        }
+      },
+    });
+
+    const continuationText =
+      "Continue from where you left off and finish the user's original request. Internal note: The previous LLM call reached the model output-token cap before the response finished.";
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send, onModelInput }) => {
+        onModelInput?.([{ role: "user", content: "write a summary" }]);
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: "First part of the response." });
+        send({ type: "model_stream", status: "end", reason: "max_tokens" });
+
+        onModelInput?.([
+          { role: "user", content: "write a summary" },
+          { role: "assistant", content: "First part of the response." },
+          { role: "user", content: continuationText },
+        ]);
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: "Completed response." });
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+
+        return {
+          inputTokens: 10,
+          outputTokens: 8,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+          llmCalls: 2,
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [{ role: "user", content: "write a summary" }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-max-token-continuation",
+      threadId: "thread-max-token-continuation",
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const llmSpans = persistedSpans.filter(
+      (span) => span.spanType === "llm_call",
+    );
+    const runSpan = persistedSpans.find(
+      (span) => span.spanType === "agent_run",
+    );
+    expect(llmSpans).toHaveLength(2);
+    expect(runSpan?.status).toBe("success");
+    expect(llmSpans[0]).toMatchObject({
+      status: "success",
+      metadata: {
+        input: [{ role: "user", content: "write a summary" }],
+        output: [
+          {
+            role: "assistant",
+            content: "First part of the response.\n[truncated]",
+          },
+        ],
+        output_truncated: true,
+      },
+    });
+    expect(llmSpans[1]).toMatchObject({
+      status: "success",
+      metadata: {
+        input: [
+          { role: "user", content: "write a summary" },
+          { role: "assistant", content: "First part of the response." },
+          { role: "user", content: continuationText },
+        ],
+        output: [{ role: "assistant", content: "Completed response." }],
+      },
+    });
+    expect(llmSpans[1]?.metadata).not.toHaveProperty("output_truncated");
+
+    const generationEvents = events.filter(
+      (event) => event.name === "$ai_generation",
+    );
+    expect(generationEvents).toHaveLength(2);
+    expect(generationEvents[0]?.properties).toMatchObject({
+      status: "success",
+      stop_reason: "max_tokens",
+      output_truncated: true,
+    });
+    expect(generationEvents[1]?.properties).toMatchObject({
+      status: "success",
+      stop_reason: "end_turn",
+    });
+    expect(generationEvents[1]?.properties).not.toHaveProperty(
+      "output_truncated",
+    );
+    expect(
+      events.find((event) => event.name === "$ai_trace")?.properties,
+    ).toMatchObject({
+      $ai_is_error: false,
+    });
   });
 
   it("redacts a standalone API key prefix cut off by the output limit", async () => {

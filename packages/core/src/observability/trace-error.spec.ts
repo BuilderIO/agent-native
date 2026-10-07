@@ -5,6 +5,15 @@ import { redactToolErrorMessage, toolErrorSignature } from "./trace-error.js";
 const fakeAwsAccessKeyId = (prefix: "AKIA" | "ASIA") =>
   `${prefix}${"0".repeat(16)}`;
 
+const fakeProviderTokens = [
+  ["x", "oxb-", "FAKE", "-", "0".repeat(8)].join(""),
+  ["x", "app-", "1-", "FAKE", "-", "0".repeat(8)].join(""),
+  ["S", "G.", "FAKE", ".", "TOKEN"].join(""),
+  ["p", "at-", "na1-", "FAKE", "-", "0".repeat(8)].join(""),
+  ["github", "_pat_", "FAKE", "_", "0".repeat(8)].join(""),
+  ["n", "pm_", "FAKE", "_", "0".repeat(8)].join(""),
+];
+
 describe("redactToolErrorMessage", () => {
   it("redacts AWS access key IDs from captured user input and output", () => {
     const inputKey = fakeAwsAccessKeyId("AKIA");
@@ -26,6 +35,60 @@ describe("redactToolErrorMessage", () => {
     expect(
       redactToolErrorMessage(`Assistant output ended at ${outputKeyPrefix}`),
     ).toBe("Assistant output ended at [REDACTED]");
+  });
+
+  it("redacts common provider tokens and their capture-boundary tails", () => {
+    expect(
+      redactToolErrorMessage(
+        `Provider values: ${fakeProviderTokens.join(", ")}`,
+      ),
+    ).toBe(
+      `Provider values: ${fakeProviderTokens.map(() => "[REDACTED]").join(", ")}`,
+    );
+
+    const tails = [
+      ["x", "oxb-", "FAKE"].join(""),
+      ["x", "app-", "1-", "FAKE"].join(""),
+      ["S", "G.", "FAKE"].join(""),
+      ["p", "at-", "na1-", "FAKE"].join(""),
+      ["github", "_pat_", "FAKE"].join(""),
+      ["n", "pm_", "FAKE"].join(""),
+    ];
+    for (const tail of tails) {
+      expect(redactToolErrorMessage(`Provider output ended at ${tail}`)).toBe(
+        "Provider output ended at [REDACTED]",
+      );
+    }
+  });
+
+  it("redacts standalone JWTs and prefixes cut off at the capture boundary", () => {
+    const jwt = [
+      ["ey", "J", "A".repeat(8)].join(""),
+      "B".repeat(8),
+      "C".repeat(8),
+    ].join(".");
+    const jwtPrefix = ["ey", "J", "A".repeat(3)].join("");
+
+    expect(redactToolErrorMessage(`Provider returned ${jwt}.`)).toBe(
+      "Provider returned [REDACTED].",
+    );
+    expect(
+      redactToolErrorMessage(`Provider output ended at ${jwtPrefix}`),
+    ).toBe("Provider output ended at [REDACTED]");
+  });
+
+  it("redacts signatures in signed URL query strings", () => {
+    const sasSignature = ["FAKE", "SAS", "SIGNATURE"].join("-");
+    const awsSignature = ["FAKE", "AWS", "SIGNATURE"].join("-");
+    const googleSignature = ["FAKE", "GOOGLE", "SIGNATURE"].join("-");
+
+    expect(
+      redactToolErrorMessage(
+        `Azure https://blob.example/object?sv=2024&sig=${sasSignature}, AWS https://s3.example/object?X-Amz-Signature=${awsSignature}&part=1, Google https://storage.example/object?X-Goog-Signature=${googleSignature}`,
+      ),
+    ).toBe(
+      "Azure https://blob.example/object?sv=2024&sig=[REDACTED], AWS https://s3.example/object?X-Amz-Signature=[REDACTED]&part=1, Google https://storage.example/object?X-Goog-Signature=[REDACTED]",
+    );
   });
 
   it("redacts a quoted credential when capture ends before its closing quote", () => {

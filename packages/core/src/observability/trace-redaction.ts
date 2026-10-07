@@ -59,8 +59,11 @@ export function redactSensitiveFields(value: unknown): unknown {
   return redactWalk(value, new WeakSet<object>());
 }
 
-function redactCapturedString(value: string): string {
-  return redactToolErrorMessage(value)
+export function redactCapturedString(
+  value: string,
+  options: { truncated?: boolean } = {},
+): string {
+  return redactToolErrorMessage(value, options)
     .replace(
       LABELED_WEBHOOK_URL_PATTERN,
       (_match, prefix: string, rawUrl: string) => {
