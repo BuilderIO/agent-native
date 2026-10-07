@@ -220,15 +220,15 @@ Phase 2 reapplies these rules after full-thread review.
 Use `## Slack channels` unless the invocation narrows scope.
 
 **Automated diagnostics are feedback.** For Slack, gate before reading.
-Before investigation, use only the alert and linked
-issue/PR/run/task metadata to establish repo/ref/SHA, workflow/service/
-environment, failure fingerprint, and active same-failure owner; the sole
-pre-claim exception to Phase 0. If unowned and in scope, claim
-immediately: Slack `👀`; non-Slack, a current-task status row with source
-permalink, fingerprint, task/worktree owner, and next action. Continue if this
-task owns it; otherwise record **Owned elsewhere** (owner/link/action) and
-stop. No logs/tests/artifacts before claim; no source writes without exact
-authorization. Then read `references/automated-diagnostics.md`.
+Before investigating, use only alert and linked issue/PR/run/task metadata to
+identify repo/ref/SHA, workflow/service/environment, failure fingerprint, and
+active same-failure owner; this is Phase 0's sole pre-claim exception. If
+unowned/in scope, claim: Slack `👀`; elsewhere, current-task status row with
+source permalink, fingerprint, owner task/worktree, next action. Continue if
+this task owns it; else record **Owned elsewhere** (owner/link/action) and
+stop. No logs/tests/artifacts before claim. The required Slack claim reaction
+is authorized here; other source mutations need exact authorization. Then read
+`references/automated-diagnostics.md`.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the

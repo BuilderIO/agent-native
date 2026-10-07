@@ -17,9 +17,10 @@ With no active owner and the item in scope, claim immediately. For Slack, add
 `👀` after the reaction gate and read it back. For non-Slack sources, add a
 status row to the current Codex task with the source permalink, fingerprint,
 owning task/worktree, and next action; that durable task record is the claim and
-must be accessible to later ownership checks. Do not assign, label, comment,
-react, or otherwise mutate the source without explicit authorization for that
-exact write. If no discoverable task record can be made, leave the item pending.
+must be accessible to later ownership checks. The required Slack claim reaction
+is authorized by this workflow. Do not assign, label, comment, or otherwise
+mutate the source without exact authorization. If no discoverable task record
+can be made, leave the item pending.
 
 After claiming, inspect linked runs, builds/commits, job logs, tests, artifacts,
 and issue state. Treat labels/counts as leads. Fix verified repo-owned causes;
