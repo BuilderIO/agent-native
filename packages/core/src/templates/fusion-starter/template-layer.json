@@ -1,0 +1,33 @@
+{
+  "base": "chat",
+  "delete": [
+    "CHANGELOG.md",
+    "changelog",
+    "app/i18n",
+    "app/i18n-data.ts",
+    "app/components/chat",
+    "app/components/layout/AgentInspector.test.tsx",
+    "app/components/layout/AgentInspector.tsx",
+    "app/components/layout/Header.tsx",
+    "app/components/layout/Sidebar.tsx",
+    "app/lib/agent-page.spec.tsx",
+    "app/lib/agent-page.tsx",
+    "app/lib/sidebar-thread-state.spec.ts",
+    "app/lib/sidebar-thread-state.ts",
+    "app/routes/agent.tsx",
+    "app/routes/chat.$threadId.tsx",
+    "app/routes/database.tsx",
+    "app/routes/extensions.$id.$slug.tsx",
+    "app/routes/extensions.$id.tsx",
+    "app/routes/extensions._index.tsx",
+    "app/routes/extensions.tsx",
+    "app/routes/home.spec.tsx",
+    "app/routes/home.tsx",
+    "app/routes/observability.tsx",
+    "app/routes/settings.$.tsx",
+    "app/routes/settings.spec.tsx",
+    "app/routes/settings.tsx",
+    "app/routes/team.tsx",
+    "public/auth-marketing"
+  ]
+}

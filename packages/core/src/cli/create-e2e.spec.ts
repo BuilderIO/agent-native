@@ -2026,25 +2026,6 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).toContain('publish = "dist"');
   });
 
-  it("keeps the command of a template that already ships a standalone netlify.toml", () => {
-    const appDir = path.join(tmpDir, "standalone-template");
-    fs.mkdirSync(appDir, { recursive: true });
-    const content = [
-      "[build]",
-      'command = "NITRO_PRESET=netlify pnpm build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then pnpm migrate:production && pnpm db:migrate; fi"',
-      'publish = "dist"',
-      'functions = ".netlify/functions-internal"',
-      "",
-    ].join("\n");
-    fs.writeFileSync(path.join(appDir, "netlify.toml"), content);
-
-    _rewriteNetlifyToml(appDir, "app", "standalone");
-
-    expect(fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8")).toBe(
-      content,
-    );
-  });
-
   it("does not add Dispatch root redirects to other workspace apps", () => {
     const appDir = path.join(tmpDir, "chat-app");
     fs.mkdirSync(appDir, { recursive: true });

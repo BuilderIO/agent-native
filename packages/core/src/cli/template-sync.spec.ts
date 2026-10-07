@@ -383,7 +383,7 @@ describe("materializeTemplate", () => {
     fs.rmSync(materialized.dir, { recursive: true, force: true });
   }, 180_000);
 
-  it("materializes fusion-starter with its overrides and inherited Chat skills", async () => {
+  it("materializes fusion-starter as a layer over Chat", async () => {
     const materialized = await materializeTemplate({
       appName: "app",
       template: "fusion-starter",
@@ -408,9 +408,31 @@ describe("materializeTemplate", () => {
     );
     expect(pkg.name).toBe("app");
     expect(pkg["agent-native"].scaffold.template).toBe("fusion-starter");
+    expect(pkg.scripts["migrate:production"]).toBe(
+      "tsx scripts/migrate-production.ts && pnpm db:migrate",
+    );
+    // Shared with Chat, not copied: the layer's base supplies them.
+    for (const rel of ["vite.config.ts", "app/global.css", "netlify.toml"]) {
+      expect(fs.existsSync(path.join(bundled, "fusion-starter", rel))).toBe(
+        false,
+      );
+      expect(fs.existsSync(path.join(materialized.dir, rel))).toBe(true);
+    }
     expect(
-      fs.readFileSync(path.join(materialized.dir, "netlify.toml"), "utf-8"),
-    ).toContain("pnpm migrate:production && pnpm db:migrate");
+      fs.lstatSync(path.join(materialized.dir, "CLAUDE.md")).isFile(),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(path.join(materialized.dir, "AGENTS.md"), "utf-8"),
+    ).not.toBe(
+      fs.readFileSync(path.join(materialized.dir, "CLAUDE.md"), "utf-8"),
+    );
+    for (const removed of [
+      "app/routes/settings.tsx",
+      "app/i18n",
+      "CHANGELOG.md",
+    ]) {
+      expect(fs.existsSync(path.join(materialized.dir, removed))).toBe(false);
+    }
     fs.rmSync(materialized.dir, { recursive: true, force: true });
   }, 120_000);
 

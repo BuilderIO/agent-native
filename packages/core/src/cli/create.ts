@@ -12,6 +12,7 @@ import {
 } from "../shared/workspace-app-id.js";
 import type { CreateStartKind } from "./create-tui.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { readTemplateLayer } from "./template-layer.js";
 import {
   coreTemplates,
   getTemplate,
@@ -1481,6 +1482,13 @@ function removeWorkspaceOnlyTemplateWiring(appDir: string): void {
   if (changed) fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 }
 
+// A bundled layer (template-layer.json) installs its base template's
+// dependencies, so it needs the same workspace overrides as that base.
+function firstPartyBaseTemplate(templateName: string): string {
+  const local = findLocalTemplate(templateName);
+  return (local && readTemplateLayer(local)?.base) || templateName;
+}
+
 function localTemplateSourceKind(
   localTemplate: string,
 ): "bundled" | "local-checkout" {
@@ -2260,7 +2268,7 @@ function postProcessStandalone(
       nf3: '"0.3.17"',
     };
   }
-  if (templateName && getTemplate(templateName)) {
+  if (templateName && getTemplate(firstPartyBaseTemplate(templateName))) {
     sections.overrides = {
       ...sections.overrides,
       ...TIPTAP_WORKSPACE_OVERRIDES,
@@ -4348,11 +4356,6 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    // A template that already ships a standalone netlify.toml owns its build
-    // command; rewriting it would drop app-specific release steps.
-    if (mode === "standalone" && !/^\s*publish = "templates\//m.test(content)) {
-      return;
-    }
     const originalCommand = content.match(
       /^\s*command = "((?:[^"\\]|\\.)*)"$/m,
     )?.[1];

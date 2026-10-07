@@ -2151,32 +2151,6 @@ function collectScaffoldGuidanceStates(
   ];
 }
 
-/**
- * A bundled template can ship only the skills it overrides and inherit the rest
- * from the templates its scaffold policy names. `skills update` refreshes only
- * skills already in the tree, so a freshly materialized tree must start with
- * the inherited ones or it never gets them.
- */
-export function addInheritedScaffoldSkills(appDir: string): void {
-  const policy = markedScaffoldGuidanceTemplate(readPackageJson(appDir));
-  if (!policy?.additionalSourceTemplates?.length) return;
-  const sourceRoots = [
-    policy.sourceTemplate,
-    ...policy.additionalSourceTemplates,
-  ].map(bundledScaffoldSkillsDir);
-  const targetRoot = path.join(appDir, ".agents", "skills");
-  const existing = existingScaffoldSkillNames(targetRoot);
-  for (const { skill, sourceRoot } of scaffoldSkillSourcesToSync(
-    sourceRoots,
-    policy.skills,
-  )) {
-    if (existing.has(skill)) continue;
-    fs.cpSync(path.join(sourceRoot, skill), path.join(targetRoot, skill), {
-      recursive: true,
-    });
-  }
-}
-
 function copyScaffoldGuidanceSkills(
   sourceRoots: readonly string[],
   targetRoot: string,

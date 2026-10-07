@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
     paths:
+      - "templates/chat/**"
       - "packages/core/src/templates/fusion-starter/**"
-      - "packages/core/src/templates/chat/.agents/skills/**"
       - ".github/workflows/push-starter-template.yml"
   repository_dispatch:
     types: [agent-native-packages-published]
@@ -70,8 +70,9 @@ jobs:
       - if: steps.gate.outputs.publishable == 'true'
         run: pnpm install --frozen-lockfile
 
-      # The bundled fusion-starter tree carries only the skills it overrides;
-      # materialize fills in the rest from Chat's scaffold skills.
+      # fusion-starter is a layer over templates/chat: materialize copies Chat,
+      # then applies the starter's deletions, whole-file overrides, and
+      # package.json fields.
       - name: Materialize the bundled fusion-starter template
         if: steps.gate.outputs.publishable == 'true'
         run: >-

@@ -30,7 +30,6 @@ import {
   _shouldSkipScaffoldEntry,
   _templateSourceName,
 } from "./create.js";
-import { addInheritedScaffoldSkills } from "./skills.js";
 import {
   appDirtyPaths,
   baselineDescription,
@@ -41,6 +40,7 @@ import {
   resolveBaselineStore,
   writeBaseline,
 } from "./template-baseline.js";
+import { applyTemplateLayer, readTemplateLayer } from "./template-layer.js";
 import { workspacifyApp } from "./workspacify.js";
 
 export interface TemplateIO {
@@ -129,7 +129,7 @@ export async function materializeTemplate(
         `No local copy of the "${resolved}" template is available. Pass --to <ref> to fetch it from GitHub.`,
       );
     }
-    _copyDir(local, dest);
+    copyTemplateTree(local, dest);
     usedRef = opts.ref ?? fallbackRef ?? "unknown";
     source = _localTemplateSourceKind(local);
   } else {
@@ -142,7 +142,6 @@ export async function materializeTemplate(
     source = "github";
   }
   _removeWorkspaceOnlyTemplateWiring(dest);
-  addInheritedScaffoldSkills(dest);
 
   const provenance = { templateRef: usedRef, templateSource: source };
 
@@ -182,6 +181,22 @@ export async function materializeTemplate(
   }
 
   return { dir: dest, ref: usedRef, source };
+}
+
+function copyTemplateTree(templateDir: string, dest: string): void {
+  const layer = readTemplateLayer(templateDir);
+  if (!layer) {
+    _copyDir(templateDir, dest);
+    return;
+  }
+  const base = _findLocalTemplate(layer.base);
+  if (!base) {
+    throw new Error(
+      `No local copy of "${layer.base}", the base of ${templateDir}.`,
+    );
+  }
+  copyTemplateTree(base, dest);
+  applyTemplateLayer(templateDir, layer, dest);
 }
 
 export function isMergeExcluded(rel: string): boolean {

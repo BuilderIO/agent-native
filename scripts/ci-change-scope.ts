@@ -613,9 +613,8 @@ function buildChecks(
       chatChanged ||
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
-    // The bundled Fusion starter lives in core and installs local core,
-    // toolkit, and agentkit builds, but its tree changes only with core.
-    fusion_starter_scaffold: coreChanged,
+    // The bundled Fusion starter is a layer in core over templates/chat.
+    fusion_starter_scaffold: coreChanged || chatChanged,
     ssr_boot:
       ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||
