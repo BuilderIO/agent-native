@@ -89,7 +89,7 @@ export default {
     visibilityPrivateOnly: "لي",
     visibilitySharedOnly: "مشترك",
     visibilityAllDescription: "عرض كل العناصر",
-    visibilityPrivateOnlyDescription: "عرض العناصر الظاهرة لك فقط",
+    visibilityPrivateOnlyDescription: "عرض العناصر التي أنشأتها",
     visibilitySharedOnlyDescription: "عرض عناصر المؤسسة المشتركة والعامة",
     hiddenAnalyses: "التحليلات المخفية",
     shareWithOrg: "مشاركة مع المؤسسة",

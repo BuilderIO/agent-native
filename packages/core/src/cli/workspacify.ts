@@ -4,8 +4,9 @@ import path from "path";
 import { isMap, parseDocument } from "yaml";
 
 import {
-  DEFAULT_WORKSPACE_SKILLS,
+  FACTORY_TEMPLATE_LOCAL_SKILLS,
   FRAMEWORK_TEMPLATE_SHARED_SKILLS,
+  WORKSPACE_SKILLS,
 } from "./workspace-skill-policy.js";
 
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
@@ -28,6 +29,7 @@ export interface WorkspacifyOptions {
   dispatchDependencyVersion?: string;
   toolkitDependencyVersion?: string;
   agentKitDependencyVersion?: string;
+  otelDependencyVersion?: string;
 }
 
 export function ensureNodePtyBuildDependency(workspaceRoot: string): void {
@@ -102,6 +104,10 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     "@agent-native/agentkit",
     opts.agentKitDependencyVersion,
   );
+  const otelDependencyVersion = pinnedByWorkspace(
+    "@agent-native/otel",
+    opts.otelDependencyVersion,
+  );
 
   const pkgPath = path.join(appDir, "package.json");
   let hasNodePty = false;
@@ -128,6 +134,9 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
             }
             if (key === "@agent-native/agentkit") {
               deps[key] = agentKitDependencyVersion;
+            }
+            if (key === "@agent-native/otel") {
+              deps[key] = otelDependencyVersion;
             }
           }
         }
@@ -201,8 +210,12 @@ function linkInheritedWorkspaceSkills(opts: WorkspacifyOptions): void {
   const workspaceSkillsDir = path.join(opts.workspaceRoot, ".agents", "skills");
   if (!fs.existsSync(workspaceSkillsDir)) return;
 
-  removeCopiedFrameworkSkills(opts.appDir, { allowUnverified: true });
-  linkDefaultWorkspaceSkills(opts.appDir, opts.workspaceRoot);
+  removeCopiedFrameworkSkills(opts.appDir, {
+    allowUnverified: true,
+    preserveLocalSkills:
+      opts.templateName === "factory" ? FACTORY_TEMPLATE_LOCAL_SKILLS : [],
+  });
+  linkWorkspaceSkills(opts.appDir, opts.workspaceRoot);
 }
 
 function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
@@ -244,14 +257,20 @@ function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
 
 export function removeCopiedFrameworkSkills(
   appDir: string,
-  options: { workspaceRoot?: string; allowUnverified?: boolean } = {},
+  options: {
+    workspaceRoot?: string;
+    allowUnverified?: boolean;
+    preserveLocalSkills?: readonly string[];
+  } = {},
 ): string[] {
   const appSkillsDir = path.join(appDir, ".agents", "skills");
   const workspaceSkillsDir = options.workspaceRoot
     ? path.join(options.workspaceRoot, ".agents", "skills")
     : undefined;
   const preserved: string[] = [];
+  const preserveLocalSkills = new Set(options.preserveLocalSkills ?? []);
   for (const skill of FRAMEWORK_TEMPLATE_SHARED_SKILLS) {
+    if (preserveLocalSkills.has(skill)) continue;
     const localPath = path.join(appSkillsDir, skill);
     const stat = fs.lstatSync(localPath, { throwIfNoEntry: false });
     if (!stat || stat.isSymbolicLink()) continue;
@@ -271,9 +290,10 @@ export function removeCopiedFrameworkSkills(
   return preserved;
 }
 
-export function linkDefaultWorkspaceSkills(
+export function linkWorkspaceSkills(
   appDir: string,
   workspaceRoot: string,
+  selectedSkills: readonly string[] = WORKSPACE_SKILLS,
 ): string[] {
   const appSkillsDir = path.join(appDir, ".agents", "skills");
   const workspaceSkillsDir = path.join(workspaceRoot, ".agents", "skills");
@@ -281,7 +301,7 @@ export function linkDefaultWorkspaceSkills(
 
   fs.mkdirSync(appSkillsDir, { recursive: true });
   const preserved: string[] = [];
-  for (const skill of DEFAULT_WORKSPACE_SKILLS) {
+  for (const skill of selectedSkills) {
     const inheritedPath = path.join(workspaceSkillsDir, skill);
     if (!fs.existsSync(inheritedPath)) continue;
 

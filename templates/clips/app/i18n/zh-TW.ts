@@ -1316,6 +1316,14 @@ const messages = {
     agentTitle: "建立免費的 Clips 帳號即可加入對話",
     genericTitle: "建立免費的 Clips 帳號即可繼續",
     description: "完成後，你會立即回到此剪輯。",
+    verificationPendingTitle: "驗證你的電子郵件",
+    verificationPendingCopy:
+      "我們已寄送驗證郵件至 {{email}}。開啟郵件以完成帳號建立並返回此剪輯。",
+    resendVerification: "重新寄送驗證郵件",
+    resendingVerification: "正在寄送驗證郵件...",
+    verificationEmailResent: "已寄送新的驗證郵件。",
+    verificationEmailFailed:
+      "無法重新寄送驗證郵件。請重試，或使用電子郵件連結登入。",
     passwordsMismatch: "兩次輸入的密碼不一致。",
     commentIntent: "留言",
     reactIntent: "新增回應",

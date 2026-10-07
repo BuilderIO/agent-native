@@ -88,7 +88,7 @@ export default {
     visibilityPrivateOnly: "Meus",
     visibilitySharedOnly: "Compartilhado",
     visibilityAllDescription: "Mostrar todos os itens",
-    visibilityPrivateOnlyDescription: "Mostrar apenas itens visíveis para você",
+    visibilityPrivateOnlyDescription: "Mostrar itens que você criou",
     visibilitySharedOnlyDescription:
       "Mostrar itens compartilhados com a organização e públicos",
     hiddenAnalyses: "Análises ocultas",

@@ -85,7 +85,7 @@ export default {
     visibilityPrivateOnly: "我的",
     visibilitySharedOnly: "共享",
     visibilityAllDescription: "显示所有项目",
-    visibilityPrivateOnlyDescription: "仅显示你可见的项目",
+    visibilityPrivateOnlyDescription: "显示你创建的项目",
     visibilitySharedOnlyDescription: "显示组织共享和公开项目",
     hiddenAnalyses: "隐藏的分析",
     shareWithOrg: "与组织共享",

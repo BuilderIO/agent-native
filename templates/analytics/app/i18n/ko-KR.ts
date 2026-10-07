@@ -87,7 +87,7 @@ export default {
     visibilityPrivateOnly: "내 항목",
     visibilitySharedOnly: "공유됨",
     visibilityAllDescription: "모든 항목 표시",
-    visibilityPrivateOnlyDescription: "나에게만 표시되는 항목만 표시",
+    visibilityPrivateOnlyDescription: "내가 만든 항목 표시",
     visibilitySharedOnlyDescription: "조직 공유 및 공개 항목 표시",
     hiddenAnalyses: "숨긴 분석",
     shareWithOrg: "조직과 공유",

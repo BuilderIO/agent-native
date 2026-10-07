@@ -91,7 +91,7 @@ export default {
     visibilitySharedOnly: "Partagé",
     visibilityAllDescription: "Afficher tous les éléments",
     visibilityPrivateOnlyDescription:
-      "Afficher uniquement les éléments visibles pour vous",
+      "Afficher les éléments que vous avez créés",
     visibilitySharedOnlyDescription:
       "Afficher les éléments partagés avec l’organisation et publics",
     hiddenAnalyses: "Analyses masquées",

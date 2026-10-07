@@ -254,7 +254,7 @@ export default {
     visibilityPrivateOnly: "Mine",
     visibilitySharedOnly: "Shared",
     visibilityAllDescription: "Show all items",
-    visibilityPrivateOnlyDescription: "Show items visible only to you",
+    visibilityPrivateOnlyDescription: "Show items you created",
     visibilitySharedOnlyDescription: "Show org-shared and public items",
     hiddenAnalyses: "Hidden analyses",
     shareWithOrg: "Share with org",

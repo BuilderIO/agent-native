@@ -39,6 +39,32 @@ const registerEventMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
+const conditionResource = (
+  name: string,
+  eventName: string,
+  model = "automation-model",
+) => {
+  const owner = "alice+triggers@agent-native.test";
+  return {
+    id: "resource-" + name,
+    owner,
+    path: "jobs/" + name + ".md",
+    content: [
+      "---",
+      'schedule: ""',
+      "enabled: true",
+      "triggerType: event",
+      "event: " + eventName,
+      "model: " + model,
+      'condition: "the subject mentions a refund"',
+      "mode: agentic",
+      "createdBy: " + owner,
+      "---",
+      "",
+      "Handle the event.",
+    ].join("\n"),
+  };
+};
 const triggerQueueMocks = vi.hoisted(() => {
   const rows: Array<Record<string, any>> = [];
   let sequence = 0;
@@ -2645,9 +2671,9 @@ Handle the event.`,
   });
 
   it("records a typed missing_credentials failure when a condition cannot be evaluated without a key", async () => {
-    const { getOwnerActiveApiKey } =
-      await import("../agent/production-agent.js");
-    vi.mocked(getOwnerActiveApiKey).mockResolvedValueOnce(undefined);
+    const { isResolvedEngineUsableForRequest } =
+      await import("../agent/engine/index.js");
+    vi.mocked(isResolvedEngineUsableForRequest).mockResolvedValueOnce(false);
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-condition-no-key",
@@ -2689,6 +2715,83 @@ Handle the event.`,
     expect(persisted).toContain("lastStatus: error");
     expect(persisted).toContain('lastErrorCode: "missing_credentials"');
     expect(persisted).toContain("consecutiveFailures: 1");
+  });
+
+  it("passes the background engine resolved from the deployment key into condition checks", async () => {
+    const engineIndex = await import("../agent/engine/index.js");
+    const conditionEvaluator = await import("./condition-evaluator.js");
+    resourceListAllOwnersMock.mockResolvedValue([
+      conditionResource(
+        "condition-deployment-key",
+        "event.condition.deployment.key",
+      ),
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      apiKey: "test-deployment-api-key",
+      model: "dependency-model",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.condition.deployment.key",
+    )?.[1];
+    await handler?.(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-condition-deployment-key",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-condition-deployment-key");
+
+    expect(vi.mocked(engineIndex.resolveEngine)).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: "test-deployment-api-key" }),
+    );
+    expect(
+      vi.mocked(conditionEvaluator.evaluateCondition).mock.calls[0]?.[3],
+    ).toMatchObject({
+      engine: { name: "test-engine" },
+      resolvedModel: "automation-model",
+    });
+  });
+
+  it("passes a configured background engine into condition checks", async () => {
+    const conditionEvaluator = await import("./condition-evaluator.js");
+    const engine = {
+      name: "configured-test-engine",
+      defaultModel: "test-model",
+      stream: vi.fn(),
+    } as any;
+    resourceListAllOwnersMock.mockResolvedValue([
+      conditionResource(
+        "condition-configured-engine",
+        "event.condition.configured.engine",
+      ),
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine,
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.condition.configured.engine",
+    )?.[1];
+    await handler?.(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-condition-configured-engine",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-condition-configured-engine");
+
+    expect(
+      vi.mocked(conditionEvaluator.evaluateCondition).mock.calls[0]?.[3],
+    ).toMatchObject({ engine, resolvedModel: "automation-model" });
   });
 
   it("routes organization events only to their creator and fails closed when membership is unreadable", async () => {

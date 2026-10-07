@@ -219,7 +219,7 @@ export default {
     visibilityPrivateOnly: "我的",
     visibilitySharedOnly: "共用",
     visibilityAllDescription: "顯示所有項目",
-    visibilityPrivateOnlyDescription: "僅顯示只有你看得到的項目",
+    visibilityPrivateOnlyDescription: "顯示你建立的項目",
     visibilitySharedOnlyDescription: "顯示組織共用和公開項目",
     hiddenAnalyses: "隱藏的分析",
     shareWithOrg: "與組織共用",

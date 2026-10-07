@@ -350,6 +350,7 @@ const messages = {
       "Google Slides एक्सपोर्ट अभी अनुपलब्ध है क्योंकि Google कनेक्शन सेट अप नहीं है. इसके बजाय PPTX के रूप में एक्सपोर्ट करें और उसे Google Slides में इंपोर्ट करें.",
     googleSlidesCreated: "Google Slides में खोला गया",
     googleSlidesCreatedHint: "इस प्रस्तुति की एक प्रति आपके Google Drive में बनाई गई।",
+    googleSlidesGoTo: "Google Slides पर जाएँ",
     duplicateDeck: "डेक डुप्लिकेट करें",
   },
   share: {

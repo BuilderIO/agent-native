@@ -1,5 +1,12 @@
 # CRM changelog
 
+## 2026-10-05
+
+### Fixed
+
+- Cross-app automation activation now asks Clips to confirm changes locally; approval in CRM no longer travels as an A2A action grant.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
 ## 2026-09-29
 
 ### Improved

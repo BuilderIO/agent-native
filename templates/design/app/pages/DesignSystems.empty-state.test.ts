@@ -16,9 +16,7 @@ describe("Design Systems empty state", () => {
       source.indexOf("  return (", source.indexOf("useSetHeaderActions(")),
     );
 
-    expect(source).toContain(
-      "const isEmpty = !isLoading && !isError && designSystems.length === 0;",
-    );
+    expect(source).toContain('const isEmpty = pageMode === "empty";');
     expect(header).toContain("{!isEmpty ? (");
     expect(source).toContain(
       "<EmptyState onCreateClick={handleCreateClick} />",

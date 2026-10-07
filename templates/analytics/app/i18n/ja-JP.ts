@@ -88,7 +88,7 @@ export default {
     visibilityPrivateOnly: "自分の",
     visibilitySharedOnly: "共有",
     visibilityAllDescription: "すべての項目を表示",
-    visibilityPrivateOnlyDescription: "自分だけに表示される項目のみ表示",
+    visibilityPrivateOnlyDescription: "自分が作成した項目を表示",
     visibilitySharedOnlyDescription: "組織共有と公開の項目を表示",
     hiddenAnalyses: "非表示の分析",
     shareWithOrg: "組織と共有",

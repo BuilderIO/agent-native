@@ -439,6 +439,71 @@ describe("server/auth", () => {
       expect(desktopVerificationResponse.status).toBe(200);
     }, 15_000);
 
+    it("waits for an explicit click before forwarding emailed links to Better Auth", async () => {
+      const authHandler = vi.fn(
+        async () => new Response(null, { status: 302 }),
+      );
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: authHandler,
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getRefusedLocalDatabaseSource: () => null,
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const landingHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/email-link/landing",
+      )?.[1];
+      expect(landingHandler).toBeTypeOf("function");
+
+      const query = {
+        kind: "magic-link",
+        token: "one-time-token",
+        callbackURL: "/_agent-native/sign-in",
+      };
+      const landingResponse = (await landingHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/email-link/landing",
+          query,
+          headers: { "accept-language": "fr-FR" },
+        }),
+      )) as Response;
+      const html = await landingResponse.text();
+
+      expect(landingResponse.status).toBe(200);
+      expect(html).toContain('lang="fr-FR"');
+      expect(html).toContain("Continuer avec le lien reçu par e-mail");
+      expect(html).toContain('method="post"');
+      expect(html).toContain('name="token" value="one-time-token"');
+      expect(authHandler).not.toHaveBeenCalled();
+
+      const postResponse = (await landingHandler(
+        createFormPostEvent("/_agent-native/auth/email-link/landing", query),
+      )) as Response;
+
+      expect(postResponse.status).toBe(303);
+      expect(postResponse.headers.get("location")).toBe(
+        "http://localhost/_agent-native/auth/ba/magic-link/verify?callbackURL=%2F_agent-native%2Fsign-in&token=one-time-token",
+      );
+      expect(authHandler).not.toHaveBeenCalled();
+    });
+
     it("normalizes the email and uses absolute same-origin callbacks", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");

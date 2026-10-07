@@ -63,8 +63,8 @@ const models: ProviderModelsRead = {
   providers: [
     {
       provider: "builder",
-      recommendedModels: ["auto", "gpt-5.6-luna"],
-      rows: { org: { models: ["gpt-5.6-luna"] } },
+      recommendedModels: ["auto", "gpt-6-luna"],
+      rows: { org: { models: ["gpt-6-luna"] } },
     },
     {
       provider: "anthropic",
@@ -207,7 +207,7 @@ describe("model page state", () => {
         engine: "builder",
         provider: "builder",
         label: "Builder.io",
-        models: ["gpt-5.6-luna"],
+        models: ["gpt-6-luna"],
       },
       {
         engine: "anthropic",

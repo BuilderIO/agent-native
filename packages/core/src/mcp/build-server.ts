@@ -142,6 +142,7 @@ export interface MCPConfig {
     connectorCatalog: string[];
     instructions?: string;
     widgets?: boolean;
+    widgetDomain?: string;
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;
@@ -427,6 +428,11 @@ export function validateMcpDirectoryProfile(
     ) {
       throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory catalog action "${name}" must declare boolean readOnlyHint, destructiveHint, and openWorldHint values.`,
+      );
+    }
+    if (annotations.readOnlyHint !== (entry.readOnly === true)) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory catalog action "${name}" readOnlyHint must match its readOnly action setting.`,
       );
     }
   }
@@ -949,12 +955,20 @@ async function withServerMintedMcpAppEmbedStart(
   result: unknown,
   meta: MCPRequestMeta | undefined,
   directoryLinkUrl?: string,
+  suppressDirectoryReadOnlyEmbed = false,
 ): Promise<unknown> {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return result;
   }
 
   const out = result as Record<string, unknown>;
+  if (suppressDirectoryReadOnlyEmbed) {
+    const resultWithoutEmbedSession = { ...out };
+    delete resultWithoutEmbedSession.embedStartUrl;
+    delete resultWithoutEmbedSession.embedTargetPath;
+    delete resultWithoutEmbedSession.embedExpiresAt;
+    return resultWithoutEmbedSession;
+  }
   if (out.embed === false || (out.embed !== true && !directoryLinkUrl)) {
     return result;
   }
@@ -1141,6 +1155,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 }
 
 const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v65";
+const MCP_DIRECTORY_APP_RESOURCE_SHELL_VERSION = "shell-v66";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -1150,10 +1165,11 @@ function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
 
 function versionMcpAppResourceUri(
   rawUri: string,
+  shellVersion = MCP_APP_RESOURCE_SHELL_VERSION,
 ): VersionedMcpAppResourceUri | null {
   const uri = rawUri.trim();
   if (!uri.startsWith("ui://")) return null;
-  const versionSuffix = `/${MCP_APP_RESOURCE_SHELL_VERSION}`;
+  const versionSuffix = "/" + shellVersion;
   let versionedUri: string;
   try {
     const parsed = new URL(uri);
@@ -1216,7 +1232,30 @@ function getMcpAppResourceUri(
   if (!resource) return null;
   const baseUri =
     resource.uri?.trim() || legacyDefaultMcpAppUri(config, actionName);
-  return versionMcpAppResourceUri(baseUri);
+  const actionResource = versionMcpAppResourceUri(baseUri);
+  if (
+    !actionResource ||
+    config.catalogMode !== "directory" ||
+    !mcpAppWidgetsEnabled(config)
+  ) {
+    return actionResource;
+  }
+  const app = safeUiSegment(config.appId ?? config.name, "agent-native");
+  const sharedResource = versionMcpAppResourceUri(
+    "ui://" + app + "/" + MCP_DIRECTORY_APP_RESOURCE_SHELL_VERSION,
+    MCP_DIRECTORY_APP_RESOURCE_SHELL_VERSION,
+  );
+  if (!sharedResource) return actionResource;
+  return {
+    ...sharedResource,
+    legacyUris: [
+      ...new Set([
+        ...(sharedResource.legacyUris ?? []),
+        actionResource.uri,
+        ...(actionResource.legacyUris ?? []),
+      ]),
+    ],
+  };
 }
 
 function expandRequestOriginSources(
@@ -1337,7 +1376,21 @@ function mcpAppUiMeta(
     base["openai/widgetPrefersBorder"] = resource.prefersBorder;
   }
   const openAiCsp = openAiWidgetCsp(resolvedCsp, requestMeta);
-  if (openAiCsp && base["openai/widgetCSP"] == null) {
+  if (directoryMode) {
+    const directoryCsp = { ...(openAiCsp ?? {}) };
+    const redirectDomain = originString(widgetDomain);
+    if (redirectDomain) directoryCsp.redirect_domains = [redirectDomain];
+    if (Object.keys(directoryCsp).length > 0) {
+      base["openai/widgetCSP"] = directoryCsp;
+    } else {
+      delete base["openai/widgetCSP"];
+    }
+    const openAiUi = metadataObject(base["openai/ui"]);
+    base["openai/ui"] = {
+      ...openAiUi,
+      availableDisplayModes: ["inline", "fullscreen"],
+    };
+  } else if (openAiCsp && base["openai/widgetCSP"] == null) {
     base["openai/widgetCSP"] = openAiCsp;
   }
   if (
@@ -1424,11 +1477,13 @@ function stripDirectoryWidgetMeta(
   config: MCPConfig,
   metadata: Record<string, unknown>,
 ): void {
-  if (mcpAppWidgetsEnabled(config)) return;
+  if (config.catalogMode !== "directory") return;
   delete metadata.ui;
   delete metadata[MCP_APP_RESOURCE_URI_META_KEY];
   delete metadata["openai/ui"];
   delete metadata["openai/outputTemplate"];
+  delete metadata["openai/toolInvocation/invoking"];
+  delete metadata["openai/toolInvocation/invoked"];
   for (const key of Object.keys(metadata)) {
     if (key.startsWith("openai/widget")) delete metadata[key];
   }
@@ -1440,14 +1495,26 @@ async function getMcpAppResources(
   requestMeta?: MCPRequestMeta,
 ): Promise<ResolvedMcpAppResource[]> {
   if (!requestMeta?.inlineMcpApps || !mcpAppWidgetsEnabled(config)) return [];
+  const actionEntries = Object.entries(actions);
+  const orderedActionEntries =
+    config.catalogMode === "directory"
+      ? actionEntries.sort(([a], [b]) => compareMcpCatalogValues(a, b))
+      : actionEntries;
   const resources = await Promise.all(
-    Object.entries(actions).map(([name, entry]) =>
+    orderedActionEntries.map(([name, entry]) =>
       resolveMcpAppResourceSafely(config, name, entry, requestMeta),
     ),
   );
-  return resources.filter((resource): resource is ResolvedMcpAppResource =>
-    Boolean(resource),
+  const resolved = resources.filter(
+    (resource): resource is ResolvedMcpAppResource => Boolean(resource),
   );
+  if (config.catalogMode !== "directory") return resolved;
+  const seenUris = new Set<string>();
+  return resolved.filter((resource) => {
+    if (seenUris.has(resource.uri)) return false;
+    seenUris.add(resource.uri);
+    return true;
+  });
 }
 
 function renderMcpAppHtml(
@@ -1470,6 +1537,7 @@ function renderMcpAppHtml(
 function openAiToolDescriptorMeta(
   resource: ResolvedMcpAppResource,
   entrypoints?: Array<{ type: "global" | "thread" }>,
+  directoryMode = false,
 ): Record<string, unknown> {
   const label = resource.title ?? resource.name;
   const widgetCsp = metadataObject(resource._meta?.["openai/widgetCSP"]);
@@ -1477,9 +1545,11 @@ function openAiToolDescriptorMeta(
     "openai/outputTemplate": resource.uri,
     "openai/toolInvocation/invoking": `Opening ${label}`,
     "openai/toolInvocation/invoked": `${label} ready`,
-    "openai/widgetAccessible": true,
-    ...(entrypoints?.length ? { "openai/ui": { entrypoints } } : {}),
-    ...(Object.keys(widgetCsp).length > 0
+    ...(!directoryMode ? { "openai/widgetAccessible": true } : {}),
+    ...(!directoryMode && entrypoints?.length
+      ? { "openai/ui": { entrypoints } }
+      : {}),
+    ...(!directoryMode && Object.keys(widgetCsp).length > 0
       ? { "openai/widgetCSP": widgetCsp }
       : {}),
   };
@@ -1487,6 +1557,7 @@ function openAiToolDescriptorMeta(
 
 function openAiToolResultMeta(
   resource: ResolvedMcpAppResource,
+  directoryMode = false,
 ): Record<string, unknown> {
   const label = resource.title ?? resource.name;
   const widgetCsp = metadataObject(resource._meta?.["openai/widgetCSP"]);
@@ -1494,8 +1565,8 @@ function openAiToolResultMeta(
     "openai/outputTemplate": resource.uri,
     "openai/toolInvocation/invoking": `Opening ${label}`,
     "openai/toolInvocation/invoked": `${label} ready`,
-    "openai/widgetAccessible": true,
-    ...(Object.keys(widgetCsp).length > 0
+    ...(!directoryMode ? { "openai/widgetAccessible": true } : {}),
+    ...(!directoryMode && Object.keys(widgetCsp).length > 0
       ? { "openai/widgetCSP": widgetCsp }
       : {}),
   };
@@ -1504,10 +1575,15 @@ function openAiToolResultMeta(
 function mcpAppToolUiMeta(
   resource: ResolvedMcpAppResource,
   visibility: unknown,
+  directoryMode = false,
 ): Record<string, unknown> {
   return {
     resourceUri: resource.uri,
-    visibility: Array.isArray(visibility) ? visibility : ["model", "app"],
+    ...(!directoryMode
+      ? {
+          visibility: Array.isArray(visibility) ? visibility : ["model", "app"],
+        }
+      : {}),
   };
 }
 
@@ -2066,12 +2142,16 @@ export async function createMCPServerForRequest(
                       hasOpenAppEntrypoint
                         ? [{ type: "global" }, { type: "thread" }]
                         : undefined,
+                      directoryCatalog,
                     ),
-                    [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
+                    ...(!directoryCatalog
+                      ? { [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri }
+                      : {}),
                     ui: mcpAppToolUiMeta(
                       mcpAppResource,
                       entry.mcpApp?.visibility ??
                         metadataObject(rawToolMeta.ui).visibility,
+                      directoryCatalog,
                     ),
                   }
                 : {}),
@@ -2093,13 +2173,25 @@ export async function createMCPServerForRequest(
                     entry.needsApproval !== undefined,
                   openWorldHint: false,
                 };
-            if (hasLink) annotations["agent-native/producesOpenLink"] = true;
+            if (directoryCatalog) {
+              delete annotations["agent-native/producesOpenLink"];
+            } else if (hasLink) {
+              annotations["agent-native/producesOpenLink"] = true;
+            }
             return {
               name,
               description: hasLink
                 ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
                 : baseDescription,
               inputSchema,
+              ...(directoryCatalog && mcpAppResource
+                ? {
+                    outputSchema: {
+                      type: "object",
+                      additionalProperties: true,
+                    },
+                  }
+                : {}),
               ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
               annotations,
             } as Tool;
@@ -2318,15 +2410,14 @@ export async function createMCPServerForRequest(
             });
             directoryLinkUrl = linked?.url ?? undefined;
           }
-          const rawResultForClient =
-            mcpAppResourceCandidate &&
-            !(directoryCatalog && entry.readOnly === true)
-              ? await withServerMintedMcpAppEmbedStart(
-                  projectedRawResult,
-                  requestMeta,
-                  directoryLinkUrl,
-                )
-              : projectedRawResult;
+          const rawResultForClient = mcpAppResourceCandidate
+            ? await withServerMintedMcpAppEmbedStart(
+                projectedRawResult,
+                requestMeta,
+                directoryLinkUrl,
+                directoryCatalog && entry.readOnly === true,
+              )
+            : projectedRawResult;
           const {
             value: actionResultForClient,
             images: resultImages,
@@ -2359,7 +2450,9 @@ export async function createMCPServerForRequest(
                   requestMeta,
                 )
               : {}),
-            ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
+            ...(mcpAppResource
+              ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
+              : {}),
           };
           const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
           const toolVisibility = toolUiMeta.visibility;
@@ -2528,6 +2621,9 @@ export async function createMCPServerForRequest(
     );
 
     server.setRequestHandler("resources/templates/list", async () => {
+      if (config.catalogMode === "directory") {
+        return withCallerContext(async () => ({ resourceTemplates: [] }));
+      }
       return withCallerContext(async () => {
         const mcpAppResources = await getMcpAppResources(
           config,
@@ -2580,7 +2676,13 @@ export async function createMCPServerForRequest(
             const resourceActions = mcpAppWidgetsEnabled(config)
               ? Object.entries(advertisedActions)
               : [];
-            for (const [name, entry] of resourceActions) {
+            const orderedResourceActions =
+              config.catalogMode === "directory"
+                ? resourceActions.sort(([a], [b]) =>
+                    compareMcpCatalogValues(a, b),
+                  )
+                : resourceActions;
+            for (const [name, entry] of orderedResourceActions) {
               const resourceUri = getMcpAppResourceUri(config, name, entry);
               if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
                 continue;
