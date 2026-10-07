@@ -2393,6 +2393,14 @@ const PATTERNS = [
     re: /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b/i,
   },
   {
+    key: "feedback-release-coverage",
+    label:
+      "Had to ask the feedback sweep to inspect failed deploys or publishes",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (deployment/release scan coverage, 2026-10-06)",
+    re: /\b(?:we|you|the sweep|the review|this)\b[^.!?\n]{0,120}\b(?:aren['’]?t|are not|isn['’]?t|is not|doesn['’]?t|does not|didn['’]?t|did not|miss(?:ed|ing)?|skip(?:ped|ping)?)\b[^.!?\n]{0,160}\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b|\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b[^.!?\n]{0,120}\b(?:missed|skipped|ignored|overlooked|forgot(?:ten)?|not (?:included|covered|checked|scanned|reviewed))\b/i,
+  },
+  {
     key: "a2a-user-identity-boundary",
     label: "Had to correct user identity trusted from a shared A2A org secret",
     fixedBy:

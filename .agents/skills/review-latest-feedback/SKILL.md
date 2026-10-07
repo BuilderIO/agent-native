@@ -1,12 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep recent Slack, GitHub issues, Sentry, Agent-Native Analytics errors,
-  actionable automated diagnostics, and linked-tracker feedback: answer
-  reporters first, then fix verified bugs and actionable
-  objective UI defects at the owning boundary, require human signoff for
-  subjective UI changes, build features the invoking user endorsed with an
-  :upvote:, and recap every disposition. Use for scheduled or manual sweeps.
+  Review Slack/GitHub, Sentry, Analytics, tracker, and operational feedback,
+  including app, desktop, and package deploy/release failures. Use when running
+  manual or scheduled sweeps to answer reporters, fix repo-owned defects,
+  recover failed lanes, verify targets, and recap dispositions.
 user-invocable: true
 scope: dev
 metadata:
@@ -219,11 +217,12 @@ Phase 2 reapplies these rules after full-thread review.
 Use `## Slack channels` unless the invocation narrows scope.
 
 **Automated diagnostics count as feedback regardless of author.** Claim
-actionable CI/Beta E2E and monitoring alerts with `👀` after the ownership gate,
-then inspect linked runs, builds/commits, job logs, test results, artifacts, and
-issue state. Treat labels/counts as leads. Fix verified repo-owned causes; for
-other causes, record evidence and the next owner/action. Don't ask bots; ask a
-person only when a fact blocks a fix. If our report lacks evidence, improve its
+actionable CI/Beta E2E, monitoring, deployment, desktop-release, and
+package-publish alerts with `👀` after the ownership gate, then inspect linked
+runs, builds/commits, job logs, test results, artifacts, and issue state. Treat
+labels/counts as leads. Fix verified repo-owned causes; for other causes,
+record evidence and the next owner/action. Don't ask bots; ask a person only
+when a fact blocks a fix. If our report lacks evidence, improve its
 checks/report with concise context and links; avoid duplicate details and
 secrets.
 
@@ -321,6 +320,16 @@ configured. Use it as the Sentry fallback when rate-limited. Do not query
 correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
 at their boundary; record external, deployment, or unclear issues without
 inventing a fix.
+
+### Deployment, release, and publish failures are first-class operational feedback
+
+Sweep app/template, desktop build/release, and package-publish lanes; include
+run-only failures and missing/stale artifacts. Fix repo-owned causes and verify
+the target. Neither a merge nor green workflow proves delivery. Read
+[`deployment-recovery.md`](references/deployment-recovery.md) for scan,
+recovery, and lane-specific verification. Keep failed operational rows active
+until target proof passes. Measure with friction key
+`feedback-release-coverage`.
 
 ## Phase 2: fix
 
@@ -422,23 +431,15 @@ pre-existing.
 
 ### Npx and package reports have a release follow-up
 
-Npx scaffolds are versioned. Record pinned/filed versions, fresh npm cache/no
-local override, candidate result, release, and existing-app path (`pnpm add
-@agent-native/core@<version>` or hand edit).
-
-Local proof, beta promises, and scaffolds are not **Shipped**/**Live verified**
-until published. A verified merged fix is **Fixed** and closes the issue. Record
-merge commit, release, verification, and bump/re-scaffold follow-up. Unknown
-package/endpoint context is a release follow-up. Ask only if source scope or
-reporter input is unclear; missing evidence does not keep a merged fix open.
-Merge/beta is not npx delivery.
+Use [`deployment-recovery.md`](references/deployment-recovery.md) for registry
+verification, npx version tracking, and the existing-app upgrade path.
 
 ### Documentation has a runnable proof obligation
 
-For each docs row, copy commands into a clean temporary scaffold; verify every
-referenced file, directory, script, env var, deploy target, link, and fence
-order. A docs diff/build is not enough. Update configured locales and run
-`guard:i18n-catalogs` plus `guard:i18n-changed-copy`.
+For each docs row, verify commands in a clean temporary scaffold, update
+configured locales, and run both i18n guards. Read
+[`documentation-proof.md`](references/documentation-proof.md) for the full
+checklist; a diff/build alone is not proof.
 
 Choose the narrowest seam the evidence supports:
 
@@ -572,14 +573,16 @@ message details.
 Start cursors: product [Slack message](...) · QA [Slack message](...) · dev [Slack message](...)
 Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <timestamp>
 Messages: product N · QA N · dev N (total N)
+Deployment scan cursor (reuse next run): <timestamp>
+Deployment/release lanes: N inspected · failed or stale N · delivered and verified N
 Reaction-gated skips: N · claimed N · answered N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker/source | Reporter | Status | Repro (expected/actual) | Pre/post | Runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
+| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run, SHA, target, artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [thread](...) | ... | <disposition> | steps; expected/actual | before/after | source/tests/build/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
+| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete
@@ -596,4 +599,4 @@ cursor stated.
 ## Related skills
 
 `address-feedback`, `address-feedback-with-replies`, `fix-at-the-boundary`,
-`concurrent-agents`, `verifying-changes`, `ship`
+`concurrent-agents`, `verifying-changes`, `ship`, `ship-and-monitor`
