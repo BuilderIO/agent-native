@@ -22,6 +22,7 @@ import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../org/permissions.js";
 import { readAppSecret } from "../secrets/storage.js";
 import {
+  canUseDeployCredentialFallbackForRequest,
   resolveBuilderCredentialsDetailed,
   resolveSecretDetailed,
   readDeployCredentialEnv,
@@ -264,6 +265,14 @@ async function preserveCustomModelsForScope(
   }
 
   if (scope === "user") {
+    if (
+      !canUseDeployCredentialFallbackForRequest(
+        PROVIDER_ENV_META.openai.envVar,
+      ) ||
+      !canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR)
+    ) {
+      return false;
+    }
     return Boolean(
       readDeployCredentialEnv(PROVIDER_ENV_META.openai.envVar) &&
       isCustomOpenAiBaseUrl(readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)),

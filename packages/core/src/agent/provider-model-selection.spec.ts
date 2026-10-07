@@ -6,6 +6,7 @@ const scopedSecrets = new Map<string, string>();
 const deploymentEnv = new Map<string, string>();
 let settingsReadThrows = false;
 const endpointState = vi.hoisted(() => ({ preserveCustomModels: false }));
+const deploymentFallbackState = vi.hoisted(() => ({ allowed: true }));
 
 vi.mock("./engine/registry.js", () => ({
   resolveEnginePreservesCustomModels: vi.fn(
@@ -59,6 +60,9 @@ const keySources = new Map<string, KeySource>();
 let keyLookupFails = false;
 let builderSource: KeySource = undefined;
 vi.mock("../server/credential-provider.js", () => ({
+  canUseDeployCredentialFallbackForRequest: vi.fn(
+    () => deploymentFallbackState.allowed,
+  ),
   readDeployCredentialEnv: vi.fn((key: string) => deploymentEnv.get(key)),
   resolveSecretDetailed: vi.fn(async (key: string) => {
     if (keyLookupFails) return { value: null, lookupFailed: true };
@@ -131,6 +135,7 @@ beforeEach(() => {
   keySources.clear();
   settingsReadThrows = false;
   endpointState.preserveCustomModels = false;
+  deploymentFallbackState.allowed = true;
   keyLookupFails = false;
   builderSource = undefined;
   requestUserEmail = undefined;
@@ -255,6 +260,22 @@ describe("selection scopes", () => {
     );
 
     expect(row.models).toEqual(["gpt-5.6-luna"]);
+  });
+
+  it("does not preserve user models from a deployment gateway when fallback is blocked", async () => {
+    deploymentEnv.set("OPENAI_API_KEY", "deployment-key-placeholder");
+    deploymentEnv.set("OPENAI_BASE_URL", "https://gateway.example/v1");
+    deploymentFallbackState.allowed = false;
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER },
+      "openai",
+      "user",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-6-luna"]);
+    expect(row.preserveCustomModels).not.toBe(true);
   });
 
   it("does not pair a deployment endpoint with a scoped organization key", async () => {
