@@ -1,4 +1,7 @@
-import { defineAction } from "@agent-native/core/action";
+import {
+  defineAction,
+  isAgentConnectionRequiredError,
+} from "@agent-native/core/action";
 import { z } from "zod";
 
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
@@ -44,6 +47,7 @@ function isMissingFigmaCredential(error: unknown, message: string): boolean {
   const code = (error as { errorCode?: unknown } | null)?.errorCode;
   return (
     code === FIGMA_IMPORT_ERROR_CODES.authRequired ||
+    isAgentConnectionRequiredError(error) ||
     CREDENTIAL_MISSING_RE.test(message)
   );
 }

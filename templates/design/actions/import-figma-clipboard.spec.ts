@@ -614,6 +614,46 @@ describe("import-figma-clipboard", () => {
       );
     });
 
+    it("falls back to the local decode when Figma has no workspace connection", async () => {
+      const { AgentConnectionRequiredError } =
+        await import("@agent-native/core/action");
+      mocks.executeProviderApiRequest.mockRejectedValue(
+        new AgentConnectionRequiredError(
+          "figma requires an available workspace connection.",
+          { provider: "figma" },
+        ),
+      );
+      mocks.importFigmaClipboardFromBuffer.mockResolvedValue({
+        files: [
+          {
+            filename: "image 1.html",
+            fileType: "html",
+            content: '<div data-figma-image-ref="abc"></div>',
+          },
+        ],
+        warnings: [],
+        unresolvedImageRefs: ["abc"],
+        stats: {
+          sourceKind: "figma-clipboard-local-kiwi",
+          format: "kiwi",
+          frameCount: 1,
+          nodeCount: 1,
+          unresolvedImageCount: 1,
+        },
+      });
+
+      const result = await action.run({
+        figmetaFileKey: FILE_KEY,
+        selectedNodeIds: ["1:1"],
+        clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+        clipboardBuffer: FAKE_BUFFER_BASE64,
+      } as any);
+
+      expect(result.strategy).toBe("localKiwi");
+      expect(result.figmaApiKeyMissing).toBe(true);
+      expect(result.unresolvedImages).toBe(1);
+    });
+
     describe("with the editor's paste scene", () => {
       const decoded = (wrapsLooseNode: boolean) => ({
         files: [
