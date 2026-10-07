@@ -13,6 +13,8 @@ import {
   downloadReplayScreenshot,
   inlineReplayAssets,
   ReplayScreenshotAssetError,
+  ReplayScreenshotClipboardError,
+  writeReplayScreenshotToClipboard,
 } from "./session-replay-screenshot";
 
 afterEach(() => {
@@ -1445,5 +1447,67 @@ describe("session replay screenshot asset checks", () => {
     );
 
     image.remove();
+  });
+});
+
+describe("session replay screenshot clipboard", () => {
+  it("writes a promise-backed PNG ClipboardItem before capture finishes", async () => {
+    let itemData: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "ClipboardItem",
+      class {
+        constructor(data: Record<string, unknown>) {
+          itemData = data;
+        }
+      },
+    );
+    let resolveScreenshot!: (blob: Blob) => void;
+    const screenshot = new Promise<Blob>((resolve) => {
+      resolveScreenshot = resolve;
+    });
+    const write = vi.fn().mockResolvedValue(undefined);
+    const clipboard = { write } as unknown as Pick<Clipboard, "write">;
+
+    const copied = writeReplayScreenshotToClipboard(screenshot, clipboard);
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(itemData).toHaveProperty("image/png");
+    expect(itemData?.["image/png"]).toBeInstanceOf(Promise);
+    resolveScreenshot(pngBlob());
+    await copied;
+    await expect(itemData?.["image/png"]).resolves.toMatchObject({
+      type: "image/png",
+    });
+  });
+
+  it("rejects when clipboard writing is unavailable or fails", async () => {
+    vi.stubGlobal(
+      "ClipboardItem",
+      class {
+        constructor(_data: Record<string, unknown>) {}
+      },
+    );
+
+    await expect(
+      writeReplayScreenshotToClipboard(pngBlob(), {} as Clipboard),
+    ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
+    await expect(
+      writeReplayScreenshotToClipboard(pngBlob(), {
+        write: vi.fn().mockRejectedValue(new Error("clipboard denied")),
+      } as unknown as Clipboard),
+    ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
+    const unsupportedAssets = new ReplayScreenshotAssetError();
+    await expect(
+      writeReplayScreenshotToClipboard(Promise.reject(unsupportedAssets), {
+        write: vi.fn().mockRejectedValue(new Error("clipboard denied")),
+      } as unknown as Clipboard),
+    ).rejects.toBe(unsupportedAssets);
+    const unavailableClipboardAssets = new ReplayScreenshotAssetError();
+    await expect(
+      writeReplayScreenshotToClipboard(
+        Promise.reject(unavailableClipboardAssets),
+        {} as Clipboard,
+      ),
+    ).rejects.toBe(unavailableClipboardAssets);
   });
 });

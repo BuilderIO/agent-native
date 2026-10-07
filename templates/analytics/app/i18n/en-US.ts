@@ -1581,6 +1581,13 @@ export default {
     savingScreenshot: "Saving screenshot…",
     screenshotDownloaded: "Screenshot downloaded",
     screenshotSaveFailed: "Couldn't save screenshot",
+    copyScreenshot: "Copy to Design",
+    copyingScreenshot: "Copying screenshot…",
+    screenshotCopiedForDesign: "Screenshot copied. Paste it into Design.",
+    screenshotCopyFailed:
+      "Couldn't copy the screenshot to the clipboard. Try Save screenshot, then upload the PNG in Design.",
+    screenshotCopyUnsupportedAssets:
+      "Screenshot not copied: this moment contains media or images that can't be captured securely. Try another moment in the replay.",
     screenshotUnsupportedAssets:
       "Screenshot not saved: some embedded media or images can't be captured securely.",
     timeline: "Event timeline",

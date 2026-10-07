@@ -103,6 +103,12 @@ function BuilderConnectProbeContent({
       <output data-testid="credential-source">
         {flow.credentialSource ?? "none"}
       </output>
+      <output data-testid="status-unavailable">
+        {flow.statusUnavailable ? "unavailable" : "available"}
+      </output>
+      <output data-testid="terminal-error">
+        {flow.terminalError ?? "none"}
+      </output>
       <output>{flow.error ?? ""}</output>
     </div>
   );
@@ -1644,8 +1650,15 @@ describe("useBuilderConnectFlow", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toContain("not-configured idle unresolved");
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("unavailable");
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe("none");
     expect(container.textContent).toContain(
-      "Couldn't reach Builder to check your account.",
+      "Couldn't check the Builder.io connection.",
     );
 
     await act(async () => {
@@ -1655,7 +1668,16 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(container.textContent).toContain("not-configured idle resolved");
-    expect(container.textContent).not.toContain("Couldn't reach Builder");
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("available");
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe("none");
+    expect(container.textContent).not.toContain(
+      "Couldn't check the Builder.io connection.",
+    );
   });
 
   it("shows the chooser without navigating when status cannot be resolved", async () => {

@@ -1523,6 +1523,13 @@ export default {
     savingScreenshot: "Salvando captura…",
     screenshotDownloaded: "Captura baixada",
     screenshotSaveFailed: "Não foi possível salvar a captura",
+    copyScreenshot: "Copiar para o Design",
+    copyingScreenshot: "Copiando captura…",
+    screenshotCopiedForDesign: "Captura copiada. Cole-a no Design.",
+    screenshotCopyFailed:
+      "Não foi possível copiar a captura. Baixe-a e envie o PNG para o Design.",
+    screenshotCopyUnsupportedAssets:
+      "Captura não copiada: este momento contém mídias ou imagens que não podem ser capturadas com segurança. Tente outro momento do replay.",
     screenshotUnsupportedAssets:
       "Captura não salva: algumas mídias incorporadas ou imagens não podem ser capturadas com segurança.",
     timeline: "Linha do tempo de eventos",
