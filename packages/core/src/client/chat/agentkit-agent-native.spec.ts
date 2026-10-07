@@ -10,11 +10,13 @@ import {
 } from "../../agent/thread-data-builder.js";
 import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
+import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./agentkit-protocol.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
 import {
   createAgentNativeChatRuntime,
   createHttpAgentChatRuntime,
   type AgentChatRuntime,
+  type AgentChatRuntimeKnownEvent,
 } from "./runtime.js";
 
 const runStateMocks = vi.hoisted(() => ({
@@ -28,6 +30,21 @@ function json(value: unknown, status = 200): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function resumableNativeRuntime(
+  events: AgentChatRuntimeKnownEvent[],
+): AgentChatRuntime {
+  const runtime = createAgentNativeChatRuntime();
+  runtime.readRunState = async (input) => ({
+    status: "running",
+    runId: input.runId ?? "run-test",
+  });
+  runtime.subscribe = async () =>
+    (async function* () {
+      yield* events;
+    })();
+  return runtime;
 }
 
 describe("createAgentNativeAgentKitTransport", () => {
@@ -260,7 +277,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
   });
 
-  it("keeps event and annotation history when 413 retries split annotation upserts", async () => {
+  it("replaces same-run event history when 413 retries split snapshot upserts", async () => {
     const largeLabel = "x".repeat(110_000);
     const threadId = "split-history";
     const messageId = "assistant-history";
@@ -285,6 +302,15 @@ describe("createAgentNativeAgentKitTransport", () => {
             type: "run.started",
           },
         ],
+        runs: [
+          {
+            id: runId,
+            threadId,
+            status: "running",
+            lastSequence: 20,
+          },
+        ],
+        _eventRunWatermarks: { [runId]: 20 },
         annotations: Array.from({ length: 20 }, (_, index) => ({
           messageId,
           annotation: {
@@ -358,6 +384,14 @@ describe("createAgentNativeAgentKitTransport", () => {
             status: "running",
           },
         })),
+        runs: [
+          {
+            id: runId,
+            threadId,
+            status: "completed" as const,
+            lastSequence: 20,
+          },
+        ],
         annotations: Array.from({ length: 20 }, (_, index) => ({
           messageId,
           annotation: {
@@ -406,13 +440,10 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(requests.every((agentKit) => agentKit._snapshotDelta === true)).toBe(
       true,
     );
-    expect(repository.agentKit.events).toHaveLength(21);
+    expect(repository.agentKit.events).toHaveLength(20);
     expect(
       repository.agentKit.events.map((event: { id: string }) => event.id),
-    ).toEqual([
-      "old-event",
-      ...Array.from({ length: 20 }, (_, index) => `event-${index}`),
-    ]);
+    ).toEqual(Array.from({ length: 20 }, (_, index) => `event-${index}`));
     expect(repository.agentKit.annotations).toHaveLength(20);
     expect(
       repository.agentKit.annotations.every((entry: any) =>
@@ -423,6 +454,73 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(repository.agentKit).not.toHaveProperty(
       "annotationMessageIdsToReplace",
     );
+    await transport.dispose();
+  });
+
+  it("does not overwrite a run started after the snapshot read", async () => {
+    const threadId = "snapshot-concurrent-run";
+    const output = "x".repeat(55_000);
+    let repository: Record<string, any> = {
+      messages: [],
+      agentKit: { activeRunIds: [] },
+    };
+    const savedSnapshots: Array<Record<string, any>> = [];
+    let concurrentRunStarted = false;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          const response = json({
+            id: threadId,
+            threadData: JSON.stringify(repository),
+          });
+          if (!concurrentRunStarted) {
+            repository.agentKit.activeRunIds = ["concurrent-run"];
+            concurrentRunStarted = true;
+          }
+          return response;
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          const incoming = JSON.parse(
+            JSON.parse(String(init?.body)).threadData,
+          );
+          savedSnapshots.push(incoming.agentKit);
+          repository = mergeThreadDataForClientSave(repository, incoming);
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:01.000Z",
+        messages: [],
+        activeRunIds: [],
+        toolCalls: Array.from({ length: 80 }, (_, index) => ({
+          id: `large-tool-${index}`,
+          name: "large-result",
+          output,
+          status: "completed" as const,
+        })),
+      },
+    });
+
+    expect(savedSnapshots.length).toBeGreaterThan(1);
+    expect(
+      savedSnapshots.every(
+        (agentKit) => !Object.hasOwn(agentKit, "activeRunIds"),
+      ),
+    ).toBe(true);
+    expect(repository.agentKit.activeRunIds).toEqual(["concurrent-run"]);
     await transport.dispose();
   });
 
@@ -513,7 +611,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("keeps an oversized annotation removal marker out of the request", async () => {
+  it("splits oversized annotation removals into bounded markers", async () => {
     const threadId = "large-annotation-replacement";
     const message = {
       id: "assistant-large-annotation-set",
@@ -538,7 +636,7 @@ describe("createAgentNativeAgentKitTransport", () => {
         })),
       },
     };
-    let savedSnapshot: Record<string, any> | undefined;
+    const savedSnapshots: Array<Record<string, any>> = [];
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
@@ -554,7 +652,7 @@ describe("createAgentNativeAgentKitTransport", () => {
           const incoming = JSON.parse(
             JSON.parse(String(init?.body)).threadData,
           );
-          savedSnapshot = incoming.agentKit;
+          savedSnapshots.push(incoming.agentKit);
           repository = mergeThreadDataForClientSave(repository, incoming);
           return json({ ok: true });
         }
@@ -580,15 +678,26 @@ describe("createAgentNativeAgentKitTransport", () => {
       },
     });
 
-    expect(savedSnapshot?.annotationMessageIdsToReplace).toEqual([]);
-    expect(repository.agentKit.annotations).toHaveLength(
-      annotationIds.length + previousAnnotationIds.length,
+    const removals = savedSnapshots.flatMap(
+      (agentKit) => agentKit.annotationMessageIdsToReplace ?? [],
     );
+    expect(removals.length).toBeGreaterThan(1);
     expect(
-      repository.agentKit.annotations.some(
-        (entry: any) => entry.annotation.id === previousAnnotationIds[0],
+      removals.flatMap((replacement: any) => replacement.annotationsToRemove),
+    ).toHaveLength(previousAnnotationIds.length);
+    expect(
+      removals.every(
+        (replacement: any) =>
+          new TextEncoder().encode(JSON.stringify(replacement)).byteLength <=
+          64 * 1024,
       ),
     ).toBe(true);
+    expect(repository.agentKit.annotations).toHaveLength(annotationIds.length);
+    expect(
+      repository.agentKit.annotations.some(
+        (entry: any) => !annotationIds.includes(entry.annotation.id),
+      ),
+    ).toBe(false);
     await transport.dispose();
   });
 
@@ -751,7 +860,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     };
     let repository: Record<string, any> = {
       messages: [legacyMessage],
-      agentKit: {},
+      agentKit: { messages: [] },
     };
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -788,6 +897,9 @@ describe("createAgentNativeAgentKitTransport", () => {
       fetch: fetcher as typeof fetch,
     });
     const loaded = await transport.getThreadSnapshot?.({ threadId });
+    expect(loaded?.messages.map((message) => message.id)).toContain(
+      "legacy-user",
+    );
     const nextMessage = {
       id: "new-assistant",
       role: "assistant" as const,
@@ -3696,6 +3808,310 @@ describe("createAgentNativeAgentKitTransport", () => {
     ).toEqual(["server-run-initial"]);
     expect(events.at(-1)?.type).toBe("run.completed");
     await transport.dispose();
+  });
+
+  it("restores a folded reply mapping from AgentKit-only saved history", async () => {
+    const threadId = "thread-agentkit-folded-history";
+    const continuationMetadata = {
+      [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
+        observability: { interruptedRunId: "run-initial" },
+      },
+    };
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith(`/threads/${threadId}`)) {
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [],
+            agentKit: {
+              messages: [
+                {
+                  id: "assistant-folded-reply",
+                  role: "assistant",
+                  status: "complete",
+                  parts: [{ type: "text", text: "Waiting for approval." }],
+                },
+              ],
+              activeRunIds: ["run-initial"],
+              runs: [
+                {
+                  id: "run-initial",
+                  threadId,
+                  status: "running",
+                  lastSequence: 1,
+                  activeMessageId: "assistant-folded-reply",
+                },
+              ],
+            },
+          }),
+        });
+      }
+      if (url.includes(`/runs/active?threadId=${threadId}`)) {
+        return json({ active: false, status: "idle" });
+      }
+      return json({ error: "Not found" }, 404);
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+      runtime: resumableNativeRuntime([
+        {
+          type: "message-start",
+          metadata: continuationMetadata,
+          message: {
+            id: "assistant-continuation-message",
+            role: "assistant",
+            content: [],
+          },
+        },
+        {
+          type: "message-delta",
+          metadata: continuationMetadata,
+          messageId: "assistant-continuation-message",
+          delta: { type: "text", text: "The report is complete." },
+        },
+        {
+          type: "message-done",
+          metadata: continuationMetadata,
+          message: {
+            id: "assistant-continuation-message",
+            role: "assistant",
+            content: [{ type: "text", text: "The report is complete." }],
+          },
+        },
+        { type: "done", reason: "complete" },
+      ]),
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+    expect(snapshot?.messages.map((message) => message.id)).toContain(
+      "assistant-folded-reply",
+    );
+
+    const events: AgentEvent[] = [];
+    for await (const event of transport.subscribeToRun({
+      threadId,
+      runId: "run-continuation",
+    })) {
+      events.push(event);
+    }
+
+    expect(
+      events.flatMap((event) =>
+        (event.type === "message.created" ||
+          event.type === "message.completed") &&
+        event.message.role === "assistant"
+          ? [event.message.id]
+          : [],
+      ),
+    ).toEqual(["assistant-folded-reply", "assistant-folded-reply"]);
+    expect(
+      events.flatMap((event) =>
+        event.type === "message.delta" ? [event.messageId] : [],
+      ),
+    ).toEqual(["assistant-folded-reply"]);
+    await transport.dispose();
+  });
+
+  it("preserves distinct assistant message IDs within one run", async () => {
+    const threadId = "thread-distinct-assistant-messages";
+    const transport = createAgentNativeAgentKitTransport({
+      runtime: resumableNativeRuntime([
+        {
+          type: "message-start",
+          message: {
+            id: "assistant-tool-step",
+            role: "assistant",
+            content: [{ type: "text", text: "Calling the tool." }],
+          },
+        },
+        {
+          type: "message-done",
+          message: {
+            id: "assistant-tool-step",
+            role: "assistant",
+            content: [{ type: "text", text: "Calling the tool." }],
+          },
+        },
+        {
+          type: "message-start",
+          message: {
+            id: "assistant-final-answer",
+            role: "assistant",
+            content: [{ type: "text", text: "The task is complete." }],
+          },
+        },
+        {
+          type: "message-done",
+          message: {
+            id: "assistant-final-answer",
+            role: "assistant",
+            content: [{ type: "text", text: "The task is complete." }],
+          },
+        },
+        { type: "done", reason: "complete" },
+      ]),
+    });
+    const events: AgentEvent[] = [];
+    for await (const event of transport.subscribeToRun({
+      threadId,
+      runId: "run-distinct-assistant-messages",
+    })) {
+      events.push(event);
+    }
+
+    expect(
+      events.flatMap((event) =>
+        event.type === "message.created" && event.message.role === "assistant"
+          ? [event.message.id]
+          : [],
+      ),
+    ).toEqual(["assistant-tool-step", "assistant-final-answer"]);
+    expect(
+      events.flatMap((event) =>
+        event.type === "message.completed" && event.message.role === "assistant"
+          ? [event.message.id]
+          : [],
+      ),
+    ).toEqual(["assistant-tool-step", "assistant-final-answer"]);
+    await transport.dispose();
+  });
+
+  it("drops an exact same-run server mirror without collapsing AgentKit messages", async () => {
+    const threadId = "thread-server-reply-mirror";
+    const runId = "run-server-reply-mirror";
+    const assistantMessages = [
+      {
+        id: "assistant-tool-step",
+        role: "assistant" as const,
+        status: "complete" as const,
+        parts: [{ type: "text" as const, text: "Calling the tool." }],
+      },
+      {
+        id: "assistant-final-answer",
+        role: "assistant" as const,
+        status: "complete" as const,
+        parts: [{ type: "text" as const, text: "The task is complete." }],
+      },
+    ];
+    const events = assistantMessages.flatMap((message, index) => {
+      const sequence = index * 2 + 1;
+      const base = {
+        threadId,
+        runId,
+        occurredAt: `2026-10-01T00:00:0${sequence}Z`,
+      };
+      return [
+        {
+          ...base,
+          id: `${runId}:${sequence}`,
+          sequence,
+          type: "message.created" as const,
+          message,
+        },
+        {
+          ...base,
+          id: `${runId}:${sequence + 1}`,
+          sequence: sequence + 1,
+          type: "message.completed" as const,
+          message,
+        },
+      ];
+    });
+
+    const loadMessages = async (
+      rootText: string,
+      rootToolCallResult = "Hello, AgentKit Browser!",
+    ) => {
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: vi.fn(async (input: string | URL | Request) => {
+          const url = String(input);
+          if (url.endsWith(`/threads/${threadId}`)) {
+            return json({
+              id: threadId,
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: `server-${runId}`,
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "tool-call",
+                          toolCallId: "call-hello",
+                          toolName: "hello",
+                          args: { name: "AgentKit Browser" },
+                          result: { message: rootToolCallResult },
+                        },
+                        { type: "text", text: rootText },
+                      ],
+                      status: { type: "complete", reason: "stop" },
+                      metadata: {
+                        runId,
+                        custom: { foldedRunIds: [runId] },
+                      },
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: assistantMessages,
+                  toolCalls: [
+                    {
+                      id: "call-hello",
+                      name: "hello",
+                      input: { name: "AgentKit Browser" },
+                      output: { message: "Hello, AgentKit Browser!" },
+                      status: "completed",
+                      runId,
+                      messageId: "assistant-final-answer",
+                    },
+                  ],
+                  events,
+                  _mergeRootMessages: true,
+                },
+              }),
+            });
+          }
+          if (url.includes(`/runs/active?threadId=${threadId}`)) {
+            return json({ active: false, status: "idle" });
+          }
+          return json({ error: "Not found" }, 404);
+        }) as typeof fetch,
+      });
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+      await transport.dispose();
+      return {
+        messageIds: snapshot?.messages.map((message) => message.id),
+        toolCallIds: snapshot?.toolCalls.map((toolCall) => toolCall.id),
+      };
+    };
+
+    await expect(loadMessages("The task is complete.")).resolves.toEqual({
+      messageIds: ["assistant-tool-step", "assistant-final-answer"],
+      toolCallIds: ["call-hello"],
+    });
+    await expect(
+      loadMessages("A different durable response."),
+    ).resolves.toEqual({
+      messageIds: [
+        `server-${runId}`,
+        "assistant-tool-step",
+        "assistant-final-answer",
+      ],
+      toolCallIds: ["call-hello"],
+    });
+    await expect(
+      loadMessages("The task is complete.", "A different tool result."),
+    ).resolves.toEqual({
+      messageIds: [
+        `server-${runId}`,
+        "assistant-tool-step",
+        "assistant-final-answer",
+      ],
+      toolCallIds: ["call-hello"],
+    });
   });
 
   it.each([

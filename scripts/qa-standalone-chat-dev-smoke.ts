@@ -3847,6 +3847,35 @@ async function main(): Promise<void> {
         return;
       }
       const error = `${status} ${url}`;
+      if (
+        status === 409 &&
+        request.method() === "POST" &&
+        responseUrl.pathname === "/_agent-native/agent-chat"
+      ) {
+        pendingHttpErrorDetails.push(
+          response
+            .json()
+            .then((payload) => {
+              const body =
+                payload &&
+                typeof payload === "object" &&
+                !Array.isArray(payload)
+                  ? (payload as Record<string, unknown>)
+                  : undefined;
+              if (body?.code === "run_slot_busy" && body.retryable === true) {
+                recordSuppressedNoise(
+                  `expected retryable run-slot contention ${request.method()} ${url}`,
+                );
+              } else {
+                httpErrors.push(error);
+              }
+            })
+            .catch(() => {
+              httpErrors.push(`${error}: response body unavailable`);
+            }),
+        );
+        return;
+      }
       if (status >= 500 && request.method() === "GET") {
         pendingHttpErrorDetails.push(
           response

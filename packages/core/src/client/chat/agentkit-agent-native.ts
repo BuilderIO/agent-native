@@ -530,6 +530,7 @@ function reconcileDurableMessages(
   durable: AgentMessage[],
   events: AgentThreadSnapshot["events"],
   runs: AgentThreadSnapshot["runs"],
+  toolCalls: AgentThreadSnapshot["toolCalls"],
 ): AgentMessage[] {
   const submittedRunId = (message: AgentMessage) => {
     const value = asRecord(asRecord(message.metadata)?.custom)?.submittedRunId;
@@ -583,6 +584,15 @@ function reconcileDurableMessages(
   }
   const durableById = new Map(durable.map((message) => [message.id, message]));
   const assistantIdsByRun = new Map<string, Set<string>>();
+  const assistantRunByMessageId = new Map<string, string | null>();
+  const rememberAssistantRun = (messageId: string, runId: string) => {
+    const existing = assistantRunByMessageId.get(messageId);
+    if (existing === undefined) {
+      assistantRunByMessageId.set(messageId, runId);
+    } else if (existing !== runId) {
+      assistantRunByMessageId.set(messageId, null);
+    }
+  };
   for (const event of events ?? []) {
     if (
       (event.type !== "message.created" &&
@@ -594,6 +604,7 @@ function reconcileDurableMessages(
     const ids = assistantIdsByRun.get(event.runId) ?? new Set<string>();
     ids.add(event.message.id);
     assistantIdsByRun.set(event.runId, ids);
+    rememberAssistantRun(event.message.id, event.runId);
   }
   for (const value of runs ?? []) {
     const run = asRecord(value);
@@ -606,6 +617,7 @@ function reconcileDurableMessages(
     const ids = assistantIdsByRun.get(run.id) ?? new Set<string>();
     ids.add(run.activeMessageId);
     assistantIdsByRun.set(run.id, ids);
+    rememberAssistantRun(run.activeMessageId, run.id);
   }
   const runByAssistantId = new Map<string, string>();
   for (const [runId, ids] of assistantIdsByRun) {
@@ -629,17 +641,59 @@ function reconcileDurableMessages(
     }
   }
 
+  const assistantMessagesByRun = new Map<string, AgentMessage[]>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const metadataRunId = asRecord(message.metadata)?.runId;
+    const eventRunId = assistantRunByMessageId.get(message.id);
+    const runId =
+      typeof metadataRunId === "string"
+        ? metadataRunId
+        : typeof eventRunId === "string"
+          ? eventRunId
+          : undefined;
+    if (!runId) continue;
+    const runMessages = assistantMessagesByRun.get(runId) ?? [];
+    runMessages.push(message);
+    assistantMessagesByRun.set(runId, runMessages);
+  }
+  const duplicateRootMirrorIds = new Set<string>();
+  for (const message of durable) {
+    if (message.role !== "assistant") continue;
+    const runId = asRecord(message.metadata)?.runId;
+    const text = assistantTextContent(message);
+    if (
+      typeof runId !== "string" ||
+      message.id !== `server-${runId}` ||
+      !text
+    ) {
+      continue;
+    }
+    const matchingMessages = (assistantMessagesByRun.get(runId) ?? []).filter(
+      (candidate) =>
+        candidate.id !== message.id &&
+        assistantTextContent(candidate) === text &&
+        assistantReasoningContent(candidate) ===
+          assistantReasoningContent(message) &&
+        repositoryToolCallsAreRepresented(message, toolCalls ?? []),
+    );
+    if (matchingMessages.length === 1) duplicateRootMirrorIds.add(message.id);
+  }
+  const deduplicatedMessages = messages.filter(
+    (message) => !duplicateRootMirrorIds.has(message.id),
+  );
+
   const representedSubmittedUserIds = new Set<string>();
   const storedUserBySnapshotId = new Map<string, AgentMessage>();
   const unmatchedSnapshotUsers: AgentMessage[] = [];
   const representedAssistantIds = new Set(
-    messages.flatMap((message) =>
+    deduplicatedMessages.flatMap((message) =>
       message.role === "assistant" ? [message.id] : [],
     ),
   );
   const representedAssistantRunIds = new Set<string>();
   const snapshotAssistantRunIds = new Set<string>();
-  for (const message of messages) {
+  for (const message of deduplicatedMessages) {
     if (
       message.role === "user" &&
       asRecord(message.metadata)?.hideUserMessage !== true
@@ -747,6 +801,7 @@ function reconcileDurableMessages(
   for (const message of durable) {
     if (
       message.role !== "assistant" ||
+      duplicateRootMirrorIds.has(message.id) ||
       representedAssistantIds.has(message.id)
     ) {
       continue;
@@ -770,7 +825,7 @@ function reconcileDurableMessages(
   }
 
   const projectedMessages = [
-    ...messages,
+    ...deduplicatedMessages,
     ...missingMessages.sort(
       (left, right) =>
         (durableIndexById.get(left.id) ?? 0) -
@@ -1031,6 +1086,31 @@ function persistedAnnotations(
       ? [{ messageId, annotation: persistedAnnotation(annotation) }]
       : [],
   );
+}
+
+function assistantMessageIdsByRun(
+  events: AgentThreadSnapshot["events"],
+): Map<string, string> {
+  const messageIdsByRun = new Map<string, Set<string>>();
+  for (const event of events ?? []) {
+    if (
+      (event.type !== "message.created" &&
+        event.type !== "message.completed") ||
+      event.message.role !== "assistant"
+    ) {
+      continue;
+    }
+    const messageIds = messageIdsByRun.get(event.runId) ?? new Set<string>();
+    messageIds.add(event.message.id);
+    messageIdsByRun.set(event.runId, messageIds);
+  }
+  const uniqueMessageIdsByRun = new Map<string, string>();
+  for (const [runId, messageIds] of messageIdsByRun) {
+    if (messageIds.size === 1) {
+      uniqueMessageIdsByRun.set(runId, [...messageIds][0]!);
+    }
+  }
+  return uniqueMessageIdsByRun;
 }
 
 function persistedFileUrl(url?: string): string | undefined {
@@ -1330,6 +1410,87 @@ function samePersistedMessageContent(
   );
 }
 
+function assistantTextContent(message: AgentMessage): string | undefined {
+  if (
+    message.role !== "assistant" ||
+    message.parts.some(
+      (part) =>
+        part.type !== "text" &&
+        part.type !== "reasoning" &&
+        !(
+          part.type === "data" &&
+          part.mediaType === "application/x-agent-native-repository-part" &&
+          asRecord(part.data)?.type === "tool-call"
+        ),
+    )
+  ) {
+    return undefined;
+  }
+  const text = message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+  return text.length > 0 ? text : undefined;
+}
+
+function assistantReasoningContent(message: AgentMessage): string {
+  return JSON.stringify(
+    message.parts.flatMap((part) =>
+      part.type === "reasoning" ? [part.text] : [],
+    ),
+  );
+}
+
+function repositoryToolCallsAreRepresented(
+  message: AgentMessage,
+  toolCalls: AgentToolCall[],
+): boolean {
+  const rootCalls = message.parts.flatMap((part) => {
+    if (
+      part.type !== "data" ||
+      part.mediaType !== "application/x-agent-native-repository-part"
+    ) {
+      return [];
+    }
+    const data = asRecord(part.data);
+    return data?.type === "tool-call" ? [data] : [];
+  });
+  if (rootCalls.length === 0) return true;
+  const toolCallsById = new Map(
+    toolCalls.map((toolCall) => [toolCall.id, toolCall]),
+  );
+  return rootCalls.every((rootCall) => {
+    const id =
+      typeof rootCall.toolCallId === "string"
+        ? rootCall.toolCallId
+        : typeof rootCall.id === "string"
+          ? rootCall.id
+          : undefined;
+    if (!id) return false;
+    const toolCall = toolCallsById.get(id);
+    if (!toolCall) return false;
+    if (
+      typeof rootCall.toolName === "string" &&
+      rootCall.toolName !== toolCall.name
+    ) {
+      return false;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(rootCall, "args") &&
+      JSON.stringify(rootCall.args) !== JSON.stringify(toolCall.input)
+    ) {
+      return false;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(rootCall, "result") &&
+      JSON.stringify(rootCall.result) !== JSON.stringify(toolCall.output)
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function snapshotEntryId(value: unknown): string | undefined {
   const entry = asRecord(value);
   return typeof entry?.id === "string" ? entry.id : undefined;
@@ -1588,7 +1749,8 @@ export function createAgentNativeAgentKitTransport(
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
   const promotionClaimIds = new Map<string, string>();
-  const durableAssistantMessageIdsByRun = new Map<string, string>();
+  const durableAssistantMessageIdsByRun = new Map<string, string | null>();
+  const assistantHistoryMessageIdsByRun = new Map<string, string>();
   let transport: AgentKitProtocolAdapter;
 
   function promotionClaimId(threadId: string, messageId: string): string {
@@ -1673,7 +1835,8 @@ export function createAgentNativeAgentKitTransport(
           updatedAt,
           metadata: asRecord(stored.metadata) ?? undefined,
           messages: Array.isArray(agentKit.messages)
-            ? agentKit._mergeRootMessages === true
+            ? agentKit._mergeRootMessages === true ||
+              agentKit.messages.length === 0
               ? mergeStoredAndIncomingMessages(
                   storedMessageProjection,
                   agentKit.messages as AgentMessage[],
@@ -1697,6 +1860,7 @@ export function createAgentNativeAgentKitTransport(
           durableMessages,
           protocolSnapshot.events,
           protocolSnapshot.runs,
+          protocolSnapshot.toolCalls ?? [],
         )
       : durableMessages;
     const actionWidgets = storedActionWidgets(repository.messages);
@@ -1920,15 +2084,38 @@ export function createAgentNativeAgentKitTransport(
     const stored = await fetchThread(threadId);
     const thread = stored ? projectThread(threadId, stored) : null;
     if (!stored || !thread) return thread;
+    const repository = storedRepository(stored);
     const durableMessages = storedMessages(
-      storedRepository(stored).messages,
+      repository.messages,
       now,
       options.adapter?.textFormat,
     );
     for (const message of durableMessages) {
       if (message.role !== "assistant") continue;
-      for (const runId of durableRunIds(message)) {
-        durableAssistantMessageIdsByRun.set(runId, message.id);
+      const foldedRunIds = durableRunIds(message);
+      if (foldedRunIds.length < 2) continue;
+      for (const runId of foldedRunIds) {
+        const previous = durableAssistantMessageIdsByRun.get(runId);
+        durableAssistantMessageIdsByRun.set(
+          runId,
+          previous === undefined || previous === message.id ? message.id : null,
+        );
+      }
+    }
+    for (const [runId, messageId] of assistantMessageIdsByRun(thread.events)) {
+      assistantHistoryMessageIdsByRun.set(runId, messageId);
+    }
+    const assistantMessageIds = new Set(
+      thread.messages.flatMap((message) =>
+        message.role === "assistant" ? [message.id] : [],
+      ),
+    );
+    for (const run of thread.runs ?? []) {
+      if (
+        typeof run.activeMessageId === "string" &&
+        assistantMessageIds.has(run.activeMessageId)
+      ) {
+        assistantHistoryMessageIdsByRun.set(run.id, run.activeMessageId);
       }
     }
     if (options.runtime && !isAgentNativeChatRuntime(options.runtime)) {
@@ -2021,6 +2208,7 @@ export function createAgentNativeAgentKitTransport(
       ),
       thread.events,
       runs,
+      thread.toolCalls,
     );
     const replayFromStart = [
       "running",
@@ -2219,6 +2407,38 @@ export function createAgentNativeAgentKitTransport(
     const changedEvents = compactEvents.filter((event) =>
       changedEventRunIds.has(event.runId),
     );
+    const eventRunLastSequenceById = new Map<string, number>();
+    for (const run of input.snapshot.runs ?? []) {
+      if (
+        typeof run.id === "string" &&
+        Number.isSafeInteger(run.lastSequence) &&
+        run.lastSequence >= 0
+      ) {
+        eventRunLastSequenceById.set(run.id, run.lastSequence);
+      }
+    }
+    for (const event of input.snapshot.events ?? []) {
+      const previousSequence = eventRunLastSequenceById.get(event.runId) ?? 0;
+      if (Number.isSafeInteger(event.sequence)) {
+        eventRunLastSequenceById.set(
+          event.runId,
+          Math.max(previousSequence, event.sequence),
+        );
+      }
+    }
+    const firstChangedEventByRun = new Set<string>();
+    const changedEventUpdates = changedEvents.map((event) => {
+      const isFirstForRun = !firstChangedEventByRun.has(event.runId);
+      firstChangedEventByRun.add(event.runId);
+      const lastSequence = eventRunLastSequenceById.get(event.runId);
+      return {
+        key: "events",
+        entry: event,
+        ...(isFirstForRun && lastSequence !== undefined
+          ? { replaceRunThroughSequence: lastSequence }
+          : {}),
+      };
+    });
     const persistedRuns = [...runsById.values()].map((run) => {
       const record = asRecord(run);
       return record && record.error !== undefined
@@ -2306,24 +2526,59 @@ export function createAgentNativeAgentKitTransport(
       if (annotationsToRemove.length === 0 && changedIncoming.length === 0) {
         continue;
       }
-      const replacement = {
-        messageId,
-        annotationsToRemove,
-      };
-      if (
-        annotationsToRemove.length > 0 &&
-        new TextEncoder().encode(JSON.stringify(replacement)).byteLength <=
-          MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES
-      ) {
-        annotationMessageIdsToReplace.push(replacement);
+      if (annotationsToRemove.length > 0) {
+        let removals: typeof annotationsToRemove = [];
+        for (const removal of annotationsToRemove) {
+          const candidate = {
+            messageId,
+            annotationsToRemove: [...removals, removal],
+          };
+          if (
+            new TextEncoder().encode(JSON.stringify(candidate)).byteLength <=
+            MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES
+          ) {
+            removals.push(removal);
+            continue;
+          }
+          if (removals.length === 0) {
+            throw new RangeError(
+              "An annotation removal exceeds the persistence request size limit.",
+            );
+          }
+          annotationMessageIdsToReplace.push({
+            messageId,
+            annotationsToRemove: removals,
+          });
+          removals = [removal];
+          const singleRemoval = { messageId, annotationsToRemove: removals };
+          if (
+            new TextEncoder().encode(JSON.stringify(singleRemoval)).byteLength >
+            MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES
+          ) {
+            throw new RangeError(
+              "An annotation removal exceeds the persistence request size limit.",
+            );
+          }
+        }
+        if (removals.length > 0) {
+          annotationMessageIdsToReplace.push({
+            messageId,
+            annotationsToRemove: removals,
+          });
+        }
       }
       changedAnnotations.push(...changedIncoming);
     }
-    const updates = [
+    type SnapshotUpdate = {
+      key: string;
+      entry: unknown;
+      replaceRunThroughSequence?: number;
+    };
+    const updates: SnapshotUpdate[] = [
       ...changedMessages.map((entry) => ({ key: "messages", entry })),
       ...changedWidgets.map((entry) => ({ key: "widgets", entry })),
       ...changedToolCalls.map((entry) => ({ key: "toolCalls", entry })),
-      ...changedEvents.map((entry) => ({ key: "events", entry })),
+      ...changedEventUpdates,
       ...changedAnnotations.map((entry) => ({
         key: "annotationUpserts",
         entry,
@@ -2335,7 +2590,6 @@ export function createAgentNativeAgentKitTransport(
       ...changedRuns.map((entry) => ({ key: "runs", entry })),
     ];
     const fixedAgentKit = {
-      activeRunIds: input.snapshot.activeRunIds ?? [],
       suggestions: input.snapshot.suggestions ?? previousAgentKit.suggestions,
       _snapshotDelta: true,
       ...(mergeRootMessages ? { _mergeRootMessages: true } : {}),
@@ -2343,6 +2597,7 @@ export function createAgentNativeAgentKitTransport(
       widgets: [],
       toolCalls: [],
       events: [],
+      eventRunReplacements: [],
       annotationMessageIdsToReplace: [],
       annotations: [],
       annotationUpserts: [],
@@ -2357,6 +2612,7 @@ export function createAgentNativeAgentKitTransport(
         "widgets",
         "toolCalls",
         "events",
+        "eventRunReplacements",
         "annotationMessageIdsToReplace",
         "annotations",
         "annotationUpserts",
@@ -2364,8 +2620,21 @@ export function createAgentNativeAgentKitTransport(
       ]) {
         agentKit[key] = [];
       }
-      for (const { key, entry } of entries) {
-        (agentKit[key] as unknown[]).push(entry);
+      for (const { key, entry, replaceRunThroughSequence } of entries) {
+        if (key === "events") {
+          (agentKit.events as unknown[]).push(entry);
+          if (
+            replaceRunThroughSequence !== undefined &&
+            typeof asRecord(entry)?.runId === "string"
+          ) {
+            (agentKit.eventRunReplacements as unknown[]).push({
+              runId: asRecord(entry)!.runId,
+              lastSequence: replaceRunThroughSequence,
+            });
+          }
+        } else {
+          (agentKit[key] as unknown[]).push(entry);
+        }
       }
       return threadSnapshotBody({
         stored,
@@ -2381,6 +2650,20 @@ export function createAgentNativeAgentKitTransport(
     let chunkBytes = baseBodyBytes;
     const chunkKeyCounts = new Map<string, number>();
     for (const update of updates) {
+      const duplicateAnnotationRemoval =
+        update.key === "annotationMessageIdsToReplace" &&
+        chunk.some(
+          (entry) =>
+            entry.key === "annotationMessageIdsToReplace" &&
+            asRecord(entry.entry)?.messageId ===
+              asRecord(update.entry)?.messageId,
+        );
+      if (duplicateAnnotationRemoval) {
+        chunks.push(chunk);
+        chunk = [];
+        chunkBytes = baseBodyBytes;
+        chunkKeyCounts.clear();
+      }
       const entryBytes =
         encoder.encode(bodyFor([update])).byteLength - baseBodyBytes;
       const addition = entryBytes + (chunkKeyCounts.has(update.key) ? 1 : 0);
@@ -3062,20 +3345,27 @@ export function createAgentNativeAgentKitTransport(
       const assistantMessageIds = new Set<string>();
       // Continuation runs keep the durable identity of their folded reply.
       let durableAssistantMessageId =
-        durableAssistantMessageIdsByRun.get(input.runId) ??
-        `server-${input.runId}`;
-      durableAssistantMessageIdsByRun.set(
-        input.runId,
-        durableAssistantMessageId,
-      );
+        durableAssistantMessageIdsByRun.get(input.runId) ?? undefined;
+      let foldedAssistantSourceMessageId: string | undefined;
+      const foldedMessageIdFor = (sourceMessageId?: string) => {
+        if (!durableAssistantMessageId || !sourceMessageId) return undefined;
+        foldedAssistantSourceMessageId ??= sourceMessageId;
+        return foldedAssistantSourceMessageId === sourceMessageId
+          ? durableAssistantMessageId
+          : undefined;
+      };
       let responseStarted = false;
       let turnId: string | undefined;
       for await (const sourceEvent of subscribeToRun(input)) {
         const interruptedRunId = protocolInterruptedRunId(sourceEvent.metadata);
         const inheritedMessageId = interruptedRunId
-          ? durableAssistantMessageIdsByRun.get(interruptedRunId)
+          ? (durableAssistantMessageIdsByRun.get(interruptedRunId) ??
+            assistantHistoryMessageIdsByRun.get(interruptedRunId))
           : undefined;
         if (inheritedMessageId) {
+          if (durableAssistantMessageId !== inheritedMessageId) {
+            foldedAssistantSourceMessageId = undefined;
+          }
           durableAssistantMessageId = inheritedMessageId;
           durableAssistantMessageIdsByRun.set(input.runId, inheritedMessageId);
         }
@@ -3085,33 +3375,35 @@ export function createAgentNativeAgentKitTransport(
             case "message.created":
             case "message.completed":
               if (sourceEvent.message.role === "assistant") {
-                event = {
-                  ...sourceEvent,
-                  message: {
-                    ...sourceEvent.message,
-                    id: durableAssistantMessageId,
-                  },
-                };
+                const messageId = foldedMessageIdFor(sourceEvent.message.id);
+                if (messageId && messageId !== sourceEvent.message.id) {
+                  event = {
+                    ...sourceEvent,
+                    message: { ...sourceEvent.message, id: messageId },
+                  };
+                }
               }
               break;
             case "message.delta":
             case "reasoning.delta": {
-              event = {
-                ...sourceEvent,
-                messageId: durableAssistantMessageId,
-              };
+              const messageId = foldedMessageIdFor(sourceEvent.messageId);
+              if (messageId && messageId !== sourceEvent.messageId) {
+                event = { ...sourceEvent, messageId };
+              }
               break;
             }
             case "tool.started":
             case "tool.updated": {
               if (sourceEvent.toolCall.messageId) {
-                event = {
-                  ...sourceEvent,
-                  toolCall: {
-                    ...sourceEvent.toolCall,
-                    messageId: durableAssistantMessageId,
-                  },
-                };
+                const messageId = foldedMessageIdFor(
+                  sourceEvent.toolCall.messageId,
+                );
+                if (messageId && messageId !== sourceEvent.toolCall.messageId) {
+                  event = {
+                    ...sourceEvent,
+                    toolCall: { ...sourceEvent.toolCall, messageId },
+                  };
+                }
               }
               break;
             }
@@ -3120,22 +3412,27 @@ export function createAgentNativeAgentKitTransport(
             case "annotation.created":
             case "annotation.updated": {
               if (sourceEvent.messageId) {
-                event = {
-                  ...sourceEvent,
-                  messageId: durableAssistantMessageId,
-                };
+                const messageId = foldedMessageIdFor(sourceEvent.messageId);
+                if (messageId && messageId !== sourceEvent.messageId) {
+                  event = { ...sourceEvent, messageId };
+                }
               }
               break;
             }
             case "action.started": {
               if (sourceEvent.invocation.messageId) {
-                event = {
-                  ...sourceEvent,
-                  invocation: {
-                    ...sourceEvent.invocation,
-                    messageId: durableAssistantMessageId,
-                  },
-                };
+                const messageId = foldedMessageIdFor(
+                  sourceEvent.invocation.messageId,
+                );
+                if (
+                  messageId &&
+                  messageId !== sourceEvent.invocation.messageId
+                ) {
+                  event = {
+                    ...sourceEvent,
+                    invocation: { ...sourceEvent.invocation, messageId },
+                  };
+                }
               }
               break;
             }

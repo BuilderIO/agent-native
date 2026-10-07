@@ -409,28 +409,6 @@ function normalizeForkSourceSnapshot(
 function countThreadMessages(value: unknown, fallback: number): number {
   const repo = normalizeThreadRepository(value);
   if (!repo || typeof repo !== "object") return fallback;
-  if (repo.agentKit?._mergeRootMessages === true) {
-    const messageIds = new Set<string>();
-    let unkeyedMessages = 0;
-    for (const entry of [
-      ...(Array.isArray(repo.messages) ? repo.messages : []),
-      ...(Array.isArray(repo.agentKit.messages) ? repo.agentKit.messages : []),
-    ]) {
-      const outer =
-        entry && typeof entry === "object" && !Array.isArray(entry)
-          ? (entry as Record<string, unknown>)
-          : undefined;
-      const message =
-        outer?.message &&
-        typeof outer.message === "object" &&
-        !Array.isArray(outer.message)
-          ? (outer.message as Record<string, unknown>)
-          : outer;
-      if (typeof message?.id === "string") messageIds.add(message.id);
-      else unkeyedMessages += 1;
-    }
-    return messageIds.size + unkeyedMessages;
-  }
   const repoMessageCount = Array.isArray(repo.messages)
     ? repo.messages.length
     : undefined;
@@ -440,7 +418,28 @@ function countThreadMessages(value: unknown, fallback: number): number {
   if (repoMessageCount === undefined && agentKitMessageCount === undefined) {
     return fallback;
   }
-  return Math.max(repoMessageCount ?? 0, agentKitMessageCount ?? 0);
+
+  // Legacy records can contain both projections without the merge marker.
+  const messageIds = new Set<string>();
+  let unkeyedMessages = 0;
+  for (const entry of [
+    ...(Array.isArray(repo.messages) ? repo.messages : []),
+    ...(Array.isArray(repo.agentKit?.messages) ? repo.agentKit.messages : []),
+  ]) {
+    const outer =
+      entry && typeof entry === "object" && !Array.isArray(entry)
+        ? (entry as Record<string, unknown>)
+        : undefined;
+    const message =
+      outer?.message &&
+      typeof outer.message === "object" &&
+      !Array.isArray(outer.message)
+        ? (outer.message as Record<string, unknown>)
+        : outer;
+    if (typeof message?.id === "string") messageIds.add(message.id);
+    else unkeyedMessages += 1;
+  }
+  return messageIds.size + unkeyedMessages;
 }
 
 function forkThreadData(
@@ -1337,6 +1336,7 @@ export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
+  preserveCurrentTitleAndPreview?: boolean;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
   transformThreadData?: (
     currentThreadData: string,
@@ -1360,7 +1360,7 @@ export async function updateThreadData(
   preview: string,
   messageCount: number,
   options: UpdateThreadDataOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   // getThread() ensures the table exists. Keep that bootstrap inside the
   // retry boundary below so a cold serverless process can recover from a
   // transient initialization/read failure too.
@@ -1375,7 +1375,7 @@ export async function updateThreadData(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const current = await getThread(id);
-      if (!current) return;
+      if (!current) return false;
 
       const transformed = options.transformThreadData?.(current.threadData);
       const incomingThreadData =
@@ -1408,10 +1408,13 @@ export async function updateThreadData(
       // Completion persistence can race the separate generated-title save.
       // Keep a title already committed by that save when this caller only has
       // its stale empty snapshot.
-      const nextTitle = options.preserveCurrentMetadata
+      const preserveCurrentTitleAndPreview =
+        options.preserveCurrentMetadata ||
+        options.preserveCurrentTitleAndPreview;
+      const nextTitle = preserveCurrentTitleAndPreview
         ? current.title
         : title || current.title;
-      const nextPreview = options.preserveCurrentMetadata
+      const nextPreview = preserveCurrentTitleAndPreview
         ? current.preview
         : typeof transformed === "object" && transformed.preview !== undefined
           ? transformed.preview
@@ -1435,7 +1438,7 @@ export async function updateThreadData(
           options.onAnnotationConflict?.(conflict);
         }
         emitChatThreadChange(id);
-        return;
+        return true;
       }
 
       lastConflict = true;
@@ -1460,7 +1463,7 @@ export async function updateThreadData(
   if (lastError) throw lastError;
 
   if (lastConflict) {
-    if (options.ignoreConflicts) return;
+    if (options.ignoreConflicts) return false;
     const error = new Error(
       `Failed to update chat thread ${id} after concurrent write conflicts.`,
     ) as Error & { statusCode?: number; statusMessage?: string };
@@ -1468,6 +1471,8 @@ export async function updateThreadData(
     error.statusMessage = error.message;
     throw error;
   }
+
+  return false;
 }
 
 export interface ThreadEngineMeta {

@@ -1764,6 +1764,197 @@ describe("mergeThreadDataForClientSave", () => {
     );
   });
 
+  it("replaces compacted events for represented runs and retains absent runs", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 3, "run-2": 2 },
+        events: [
+          {
+            id: "run-1-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "run-1-compacted-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.updated",
+          },
+          {
+            id: "run-1-completed",
+            runId: "run-1",
+            sequence: 3,
+            type: "run.completed",
+          },
+          {
+            id: "run-2-start",
+            runId: "run-2",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "run-2-completed",
+            runId: "run-2",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "run-1-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "run-1-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(
+      merged.agentKit.events
+        .filter((event: any) => event.runId === "run-1")
+        .map((event: any) => event.id),
+    ).toEqual(["run-1-start", "run-1-completed"]);
+    expect(
+      merged.agentKit.events
+        .filter((event: any) => event.runId === "run-2")
+        .map((event: any) => event.id),
+    ).toEqual(["run-2-start", "run-2-completed"]);
+  });
+
+  it("keeps later event chunks after replacing a compacted run", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "old-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "old-run-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.updated",
+          },
+        ],
+      },
+    };
+    const firstChunk = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 2 }],
+        events: [
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const secondChunk = mergeThreadDataForClientSave(firstChunk, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        events: [
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(secondChunk.agentKit.events.map((event: any) => event.id)).toEqual([
+      "new-run-start",
+      "new-run-completed",
+    ]);
+  });
+
+  it("keeps newer same-run events when a stale snapshot retries after a write", () => {
+    const latest = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 4 },
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 4,
+          },
+        ],
+        events: [
+          {
+            id: "latest-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "latest-event-4",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    };
+
+    const retried = mergeThreadDataForClientSave(latest, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "stale-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "stale-event-3",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    });
+
+    expect(retried.agentKit.events.map((event: any) => event.id)).toEqual([
+      "latest-event-1",
+      "latest-event-4",
+    ]);
+    expect(retried.agentKit._eventRunWatermarks).toEqual({ "run-1": 4 });
+    expect(retried.agentKit).not.toHaveProperty("eventRunReplacements");
+  });
+
   it("does not remove annotations changed or added during a snapshot retry", () => {
     const baseline = {
       messageId: "assistant-1",

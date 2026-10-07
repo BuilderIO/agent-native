@@ -1918,16 +1918,29 @@ export function foldThreadRunSuggestions(
 function mergeAgentKitEvents(
   existing: unknown,
   incoming: unknown,
+  replacedRunIds: ReadonlySet<string> = new Set(),
+  staleRunIds: ReadonlySet<string> = new Set(),
 ): unknown[] | undefined {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
-  const merged = Array.isArray(existing) ? [...existing] : [];
+  const incomingEvents = Array.isArray(incoming)
+    ? incoming.filter(
+        (event) =>
+          typeof event?.runId !== "string" || !staleRunIds.has(event.runId),
+      )
+    : [];
+  const merged = Array.isArray(existing)
+    ? existing.filter(
+        (event) =>
+          typeof event?.runId !== "string" || !replacedRunIds.has(event.runId),
+      )
+    : [];
   const positions = new Map<string, number>();
   merged.forEach((event, index) => {
     if (typeof event?.id === "string" && !positions.has(event.id)) {
       positions.set(event.id, index);
     }
   });
-  for (const event of Array.isArray(incoming) ? incoming : []) {
+  for (const event of incomingEvents) {
     if (typeof event?.id !== "string") {
       merged.push(event);
       continue;
@@ -2100,6 +2113,33 @@ function mergeAgentKitHistory(
     typeof existing === "object" &&
     !Array.isArray(existing);
   const snapshotDelta = next._snapshotDelta === true;
+  const incomingRunStarts = new Set(
+    (Array.isArray(next.events) ? next.events : []).flatMap((event) =>
+      typeof event?.runId === "string" && event.sequence === 1
+        ? [event.runId]
+        : [],
+    ),
+  );
+  const eventRunReplacements = new Map<string, number>();
+  for (const replacement of Array.isArray(next.eventRunReplacements)
+    ? next.eventRunReplacements
+    : []) {
+    if (
+      typeof replacement?.runId === "string" &&
+      typeof replacement.lastSequence === "number" &&
+      Number.isSafeInteger(replacement.lastSequence) &&
+      replacement.lastSequence >= 1 &&
+      incomingRunStarts.has(replacement.runId)
+    ) {
+      eventRunReplacements.set(
+        replacement.runId,
+        Math.max(
+          eventRunReplacements.get(replacement.runId) ?? 0,
+          replacement.lastSequence,
+        ),
+      );
+    }
+  }
   const annotationMessageIdsToReplace = new Set<string>();
   const annotationRemovalValuesByMessage = new Map<
     string,
@@ -2146,12 +2186,20 @@ function mergeAgentKitHistory(
   }
   if (!existingIsRecord) {
     const initial = { ...next };
+    delete initial._eventRunWatermarks;
     if (snapshotDelta) {
       if (Array.isArray(initial.messages) && initial.messages.length === 0) {
         delete initial.messages;
       }
-      const events = mergeAgentKitEvents(undefined, next.events);
+      const events = mergeAgentKitEvents(
+        undefined,
+        next.events,
+        new Set(eventRunReplacements.keys()),
+      );
       if (events) initial.events = events;
+      if (eventRunReplacements.size > 0) {
+        initial._eventRunWatermarks = Object.fromEntries(eventRunReplacements);
+      }
       const annotations = mergeAgentKitAnnotations(
         undefined,
         next.annotations,
@@ -2163,6 +2211,7 @@ function mergeAgentKitHistory(
       if (annotations) initial.annotations = annotations;
     }
     delete initial._snapshotDelta;
+    delete initial.eventRunReplacements;
     delete initial.annotationMessageIdsToReplace;
     delete initial.annotationUpserts;
     return initial;
@@ -2244,12 +2293,81 @@ function mergeAgentKitHistory(
     delete merged.messages;
   }
   if (snapshotDelta) {
-    const events = mergeAgentKitEvents(previous.events, next.events);
+    const previousWatermarks = new Map<string, number>();
+    const previousWatermarkRecord = previous._eventRunWatermarks;
+    if (
+      previousWatermarkRecord &&
+      typeof previousWatermarkRecord === "object" &&
+      !Array.isArray(previousWatermarkRecord)
+    ) {
+      for (const [runId, value] of Object.entries(previousWatermarkRecord)) {
+        if (
+          typeof value === "number" &&
+          Number.isSafeInteger(value) &&
+          value >= 0
+        ) {
+          previousWatermarks.set(runId, value);
+        }
+      }
+    }
+    const previousRunSequences = new Map<string, number>();
+    for (const run of Array.isArray(previous.runs) ? previous.runs : []) {
+      if (
+        typeof run?.id === "string" &&
+        typeof run.lastSequence === "number" &&
+        Number.isSafeInteger(run.lastSequence) &&
+        run.lastSequence >= 0
+      ) {
+        previousRunSequences.set(run.id, run.lastSequence);
+      }
+    }
+    const previousEvents = Array.isArray(previous.events)
+      ? previous.events
+      : [];
+    const replacedRunIds = new Set<string>();
+    const staleRunIds = new Set<string>();
+    for (const [runId, lastSequence] of eventRunReplacements) {
+      const storedWatermark = previousWatermarks.get(runId);
+      const storedRunSequence = previousRunSequences.get(runId);
+      const knownSequence = Math.max(
+        storedWatermark ?? 0,
+        storedRunSequence ?? 0,
+      );
+      const hasKnownSequence =
+        storedWatermark !== undefined || storedRunSequence !== undefined;
+      const hasStoredEvents = previousEvents.some(
+        (event) => event?.runId === runId,
+      );
+      if (hasKnownSequence && lastSequence < knownSequence) {
+        staleRunIds.add(runId);
+        continue;
+      }
+      if (hasKnownSequence || !hasStoredEvents) {
+        replacedRunIds.add(runId);
+        previousWatermarks.set(runId, Math.max(knownSequence, lastSequence));
+      }
+    }
+    const events = mergeAgentKitEvents(
+      previous.events,
+      next.events,
+      replacedRunIds,
+      staleRunIds,
+    );
     if (events) merged.events = events;
-  } else if (Array.isArray(next.events)) {
-    merged.events = next.events;
+    delete merged._eventRunWatermarks;
+    if (previousWatermarks.size > 0) {
+      merged._eventRunWatermarks = Object.fromEntries(previousWatermarks);
+    }
+  } else {
+    if (Array.isArray(next.events)) merged.events = next.events;
+    if (previous._eventRunWatermarks === undefined) {
+      delete merged._eventRunWatermarks;
+    } else {
+      merged._eventRunWatermarks = previous._eventRunWatermarks;
+    }
   }
   delete merged._snapshotDelta;
+  delete merged.eventRunReplacements;
   if (
     snapshotDelta ||
     annotationMessageIdsToReplace.size > 0 ||

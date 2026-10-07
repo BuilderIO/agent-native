@@ -303,6 +303,118 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
+  it("recounts delta history against the latest row after a CAS conflict", async () => {
+    const agentKitUser = { id: "agentkit-user", role: "user", parts: [] };
+    const concurrentAssistant = {
+      id: "concurrent-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    const incomingAssistant = {
+      id: "incoming-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: userMessage, parentId: null }],
+      agentKit: { messages: [agentKitUser] },
+    });
+    row!.message_count = 2;
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+          agentKit: { messages: [agentKitUser, concurrentAssistant] },
+        }),
+        message_count: 3,
+        updated_at: 2,
+      };
+    };
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [incomingAssistant],
+        },
+      }),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    const repository = JSON.parse(row!.thread_data);
+    expect(
+      repository.agentKit.messages.map((message: any) => message.id),
+    ).toEqual(["agentkit-user", "concurrent-assistant", "incoming-assistant"]);
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("preserves the latest title and preview while recounting a snapshot delta after CAS", async () => {
+    const concurrentAssistant = {
+      id: "concurrent-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    const incomingAssistant = {
+      id: "incoming-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: userMessage, parentId: null }],
+      agentKit: { messages: [] },
+    });
+    row!.message_count = 1;
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        title: "Generated title",
+        preview: "Latest preview",
+        thread_data: JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+          agentKit: { messages: [concurrentAssistant] },
+        }),
+        message_count: 2,
+        updated_at: 2,
+      };
+    };
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [incomingAssistant],
+        },
+      }),
+      "Stale title",
+      "Stale preview",
+      2,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("Generated title");
+    expect(row!.preview).toBe("Latest preview");
+    expect(row!.message_count).toBe(3);
+    expect(JSON.parse(row!.thread_data).agentKit.messages).toEqual([
+      concurrentAssistant,
+      incomingAssistant,
+    ]);
+  });
+
+  it("reports when the thread disappeared before a save", async () => {
+    row = null;
+
+    await expect(updateThreadData("thread-1", "{}", "", "", 0)).resolves.toBe(
+      false,
+    );
+  });
+
   it("rechecks annotation delta baselines after a cross-process CAS conflict", async () => {
     const baseline = {
       messageId: "assistant-1",
@@ -436,6 +548,46 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
+  it("counts disjoint mixed legacy history without the merge marker", async () => {
+    const sharedMessage = {
+      id: "shared-message",
+      role: "assistant",
+      parts: [],
+    };
+    const legacyMessage = {
+      id: "legacy-user",
+      role: "user",
+      content: [{ type: "text", text: "Old prompt." }],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [
+        { message: legacyMessage, parentId: null },
+        { message: sharedMessage, parentId: "legacy-user" },
+      ],
+      agentKit: { messages: [] },
+    });
+    row!.message_count = 2;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [
+            sharedMessage,
+            { id: "new-agentkit-message", role: "assistant", parts: [] },
+          ],
+        },
+      }),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
   it("preserves a title committed while message persistence was stale", async () => {
     row!.title = "Generated chat title";
 
@@ -497,7 +649,7 @@ describe("chat thread store", () => {
         1,
         { maxAttempts: 1, ignoreConflicts: true },
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 

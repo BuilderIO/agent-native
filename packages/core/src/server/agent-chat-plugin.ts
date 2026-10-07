@@ -6980,7 +6980,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
                 }
-                let newThreadData = body.threadData || thread.threadData;
+                const hasThreadDataField = Boolean(
+                  body &&
+                  typeof body === "object" &&
+                  Object.prototype.hasOwnProperty.call(body, "threadData"),
+                );
+                if (hasThreadDataField && typeof body.threadData !== "string") {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid threadData JSON" };
+                }
+                // Empty threadData is the existing metadata-only save sentinel.
+                const hasThreadData =
+                  hasThreadDataField && body.threadData.length > 0;
+                let newThreadData = hasThreadData
+                  ? body.threadData
+                  : thread.threadData;
                 let newMessageCount = body.messageCount ?? thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;
@@ -7002,59 +7016,81 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     if (meta.title) nextTitle = meta.title;
                   }
                 };
+                let isSnapshotDelta = false;
+                let existing: unknown;
+                try {
+                  existing = JSON.parse(thread.threadData);
+                } catch {
+                  setResponseStatus(event, 500);
+                  return { error: "Stored thread data is invalid JSON" };
+                }
+                if (
+                  !existing ||
+                  typeof existing !== "object" ||
+                  Array.isArray(existing)
+                ) {
+                  setResponseStatus(event, 500);
+                  return { error: "Stored thread data is invalid JSON" };
+                }
                 // Merge the incoming snapshot delta over the current SQL copy.
                 // Let updateThreadData apply delta markers to each latest
                 // revision if its compare-and-swap needs to retry.
-                if (body.threadData) {
+                if (hasThreadData) {
+                  let incoming: unknown;
                   try {
-                    const existing = JSON.parse(thread.threadData);
-                    const incoming = JSON.parse(newThreadData);
-                    const incomingAgentKit =
-                      incoming &&
-                      typeof incoming === "object" &&
-                      !Array.isArray(incoming)
-                        ? (incoming as Record<string, unknown>).agentKit
-                        : undefined;
-                    const isSnapshotDelta =
-                      incomingAgentKit !== null &&
-                      typeof incomingAgentKit === "object" &&
-                      !Array.isArray(incomingAgentKit) &&
-                      (incomingAgentKit as Record<string, unknown>)
-                        ._snapshotDelta === true;
-                    if (isSnapshotDelta) {
-                      preserveTitleOverride(existing);
-                    } else {
-                      const merged = mergeThreadDataForClientSave(
-                        existing,
-                        incoming,
-                      );
-                      newThreadData = JSON.stringify(merged);
-                      if (Array.isArray(merged.messages)) {
-                        newMessageCount = merged.messages.length;
-                      }
-                      preserveTitleOverride(merged);
-                    }
+                    incoming = JSON.parse(body.threadData);
                   } catch {
-                    // Invalid JSON in either side — fall back to raw body blob.
+                    setResponseStatus(event, 400);
+                    return { error: "Invalid threadData JSON" };
+                  }
+                  if (
+                    !incoming ||
+                    typeof incoming !== "object" ||
+                    Array.isArray(incoming)
+                  ) {
+                    setResponseStatus(event, 400);
+                    return { error: "Invalid threadData JSON" };
+                  }
+                  const incomingAgentKit = (incoming as Record<string, unknown>)
+                    .agentKit;
+                  isSnapshotDelta =
+                    incomingAgentKit !== null &&
+                    typeof incomingAgentKit === "object" &&
+                    !Array.isArray(incomingAgentKit) &&
+                    (incomingAgentKit as Record<string, unknown>)
+                      ._snapshotDelta === true;
+                  if (isSnapshotDelta) {
+                    preserveTitleOverride(existing);
+                  } else {
+                    const merged = mergeThreadDataForClientSave(
+                      existing,
+                      incoming,
+                    );
+                    newThreadData = JSON.stringify(merged);
+                    if (Array.isArray(merged.messages)) {
+                      newMessageCount = merged.messages.length;
+                    }
+                    preserveTitleOverride(merged);
                   }
                 } else {
-                  try {
-                    preserveTitleOverride(JSON.parse(newThreadData));
-                  } catch {
-                    // Invalid JSON — keep the title supplied by the client.
-                  }
+                  preserveTitleOverride(existing);
                 }
-                await updateThreadData(
+                const updated = await updateThreadData(
                   threadId,
                   newThreadData,
                   nextTitle,
                   nextPreview,
                   newMessageCount,
                   {
+                    preserveCurrentTitleAndPreview: isSnapshotDelta,
                     onAnnotationConflict: (conflict) =>
                       annotationConflicts.push(conflict),
                   },
                 );
+                if (!updated) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.
                 // A scoped thread cannot be retagged across resources here.
