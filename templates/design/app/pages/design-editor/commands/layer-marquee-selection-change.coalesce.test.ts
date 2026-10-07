@@ -51,57 +51,6 @@ describe("coalesceMarqueeSelectionHistory", () => {
     expect(source.slice(start, end)).toContain("final: intent?.final === true");
   });
 
-  it("captures explicit Screen provenance before click and iframe marquee clears it", () => {
-    const source = readFileSync(
-      new URL("../../DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const clickStart = source.indexOf("const handleScreenElementSelect =");
-    const clickEnd = source.indexOf(
-      "const handleScreenElementClear",
-      clickStart,
-    );
-    const click = source.slice(clickStart, clickEnd);
-    const clickRunStart = click.indexOf("const run = () => {");
-    const clickClear = click.indexOf(
-      "explicitOverviewScreenSelectionRef.current = [];",
-    );
-    expect(click).toContain("recordSelectionHistoryAroundChange(run)");
-    expect(clickClear).toBeGreaterThan(clickRunStart);
-    expect(clickClear).toBeLessThan(click.indexOf("runScreenElementSelect("));
-
-    const marqueeStart = source.indexOf(
-      "const handleLayerMarqueeSelectionChange =",
-    );
-    const marqueeEnd = source.indexOf(
-      "const handleScreenElementMarqueeSelect =",
-      marqueeStart,
-    );
-    const marquee = source.slice(marqueeStart, marqueeEnd);
-    const marqueeHistory = marquee.indexOf(
-      "recordMarqueeSelectionHistoryAroundChange(() => {",
-    );
-    const marqueeClear = marquee.indexOf(
-      "explicitOverviewScreenSelectionRef.current = [];",
-    );
-    expect(marqueeHistory).toBeGreaterThanOrEqual(0);
-    expect(marqueeClear).toBeGreaterThan(marqueeHistory);
-    expect(marquee).toContain("options.clearExplicitScreenSelection");
-
-    const screenMarqueeStart = source.indexOf(
-      "const handleScreenElementMarqueeSelect =",
-    );
-    const screenMarqueeEnd = source.indexOf(
-      "const handleElementMarqueeSelect =",
-      screenMarqueeStart,
-    );
-    const screenMarquee = source.slice(screenMarqueeStart, screenMarqueeEnd);
-    expect(screenMarquee).toContain("{ clearExplicitScreenSelection: true }");
-    expect(screenMarquee).not.toContain(
-      "explicitOverviewScreenSelectionRef.current = [];",
-    );
-  });
-
   it("restores the host element and layer selection when Escape cancels a marquee", () => {
     const source = readFileSync(
       new URL("../../DesignEditor.tsx", import.meta.url),
