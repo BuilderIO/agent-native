@@ -155,6 +155,22 @@ describe("applyTemplateLayer", () => {
     expect(fs.existsSync(path.join(outside, "keep.txt"))).toBe(true);
   });
 
+  it("refuses delete paths that pass through a symlink out of the destination", () => {
+    const layerDir = layer();
+    const outside = write(path.join(tmpDir, "outside"), { "keep.txt": "x" });
+    const dest = base();
+    fs.symlinkSync(outside, path.join(dest, "link"));
+
+    expect(() =>
+      applyTemplateLayer(
+        layerDir,
+        { base: "chat", delete: ["link/keep.txt"] },
+        dest,
+      ),
+    ).toThrow(/must name something inside the template/);
+    expect(fs.existsSync(path.join(outside, "keep.txt"))).toBe(true);
+  });
+
   it("limits itself to one subtree when asked", () => {
     const layerDir = layer();
     const dest = base();

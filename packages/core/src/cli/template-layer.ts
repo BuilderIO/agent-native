@@ -85,10 +85,25 @@ export function applyTemplateLayer(
   fs.writeFileSync(basePkgPath, `${JSON.stringify(merged, null, 2)}\n`);
 }
 
+function isInside(root: string, candidate: string): boolean {
+  const fromRoot = path.relative(root, candidate);
+  return !fromRoot.startsWith("..") && !path.isAbsolute(fromRoot);
+}
+
 function pathInside(root: string, rel: string): string {
-  const resolved = path.resolve(root, rel);
-  const fromRoot = path.relative(path.resolve(root), resolved);
-  if (!fromRoot || fromRoot.startsWith("..") || path.isAbsolute(fromRoot)) {
+  const resolvedRoot = path.resolve(root);
+  const resolved = path.resolve(resolvedRoot, rel);
+  // rmSync follows a symlinked parent, so the real path of the nearest
+  // existing parent must stay inside the real destination too.
+  let parent = path.dirname(resolved);
+  while (!fs.existsSync(parent) && isInside(resolvedRoot, parent)) {
+    parent = path.dirname(parent);
+  }
+  if (
+    resolved === resolvedRoot ||
+    !isInside(resolvedRoot, resolved) ||
+    !isInside(fs.realpathSync(resolvedRoot), fs.realpathSync(parent))
+  ) {
     throw new Error(
       `Template layer path "${rel}" must name something inside the template.`,
     );
