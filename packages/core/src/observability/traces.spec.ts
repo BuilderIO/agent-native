@@ -235,6 +235,8 @@ interface RecordedSpan {
   attributes: Record<string, string | number | boolean>;
   parent?: RecordedSpan;
   status?: { code: number; message?: string };
+  startTime?: unknown;
+  endTime?: unknown;
   ended: boolean;
 }
 
@@ -244,12 +246,16 @@ function createRecordingTracer() {
   const tracer = {
     startSpan(
       name: string,
-      options?: { attributes?: Record<string, string | number | boolean> },
+      options?: {
+        attributes?: Record<string, string | number | boolean>;
+        startTime?: unknown;
+      },
       context?: unknown,
     ): AgentSpan {
       const recorded: RecordedSpan = {
         name,
         attributes: { ...(options?.attributes ?? {}) },
+        startTime: options?.startTime,
         parent: context ? spanRecords.get(context as AgentSpan) : undefined,
         ended: false,
       };
@@ -264,7 +270,8 @@ function createRecordingTracer() {
           recorded.status = status;
         },
         recordException() {},
-        end() {
+        end(endTime) {
+          recorded.endTime = endTime;
           recorded.ended = true;
         },
       };
@@ -1072,7 +1079,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     ]);
   });
 
-  it("does not observe model input when prompt capture is disabled", async () => {
+  it("installs an attempt observer without capturing prompts when disabled", async () => {
     let modelInputObserver: unknown;
     const loopOpts: any = {
       engine: { name: "anthropic" },
@@ -1109,7 +1116,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       },
     });
 
-    expect(modelInputObserver).toBeUndefined();
+    expect(modelInputObserver).toBeTypeOf("function");
   });
 
   it("bounds streamed output per model call and marks truncated calls", async () => {
@@ -3726,6 +3733,115 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(failed?.properties?.["$ai_input"]).toEqual([
       { role: "user", content: "transformed prompt sent to the model" },
     ]);
+  });
+
+  it("records terminal pre-stream failures without capturing prompts", async () => {
+    const events: TrackingEvent[] = [];
+    const recorded: Array<{
+      instrument: string;
+      value: number;
+      attributes?: Record<string, string | number>;
+    }> = [];
+    const instrument = (name: string) => {
+      const write = (
+        value: number,
+        attributes?: Record<string, string | number>,
+      ) => recorded.push({ instrument: name, value, attributes });
+      return { record: write, add: write };
+    };
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: instrument,
+          createCounter: instrument,
+        }),
+      },
+    });
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation" || event.name === "$ai_trace") {
+          events.push(event);
+        }
+      },
+    });
+
+    const clock = manualClock();
+    const privatePrompt = "keep this prompt out of telemetry";
+    let modelInputObserver: unknown;
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ onModelInput }) => {
+          modelInputObserver = onModelInput;
+          onModelInput?.([{ role: "user", content: privatePrompt }]);
+          clock.advance(50);
+          throw new Error("provider failed before streaming");
+        },
+        loopOpts: {
+          engine: { name: "anthropic", supportedModels: ["claude-test"] },
+          model: "claude-test",
+          systemPrompt: "hidden system prompt",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-terminal-pre-stream-without-capture",
+        threadId: null,
+        userId: null,
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          captureLlmSpans: true,
+          capturePrompts: false,
+        },
+      }).catch(() => {});
+    } finally {
+      unregister();
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(modelInputObserver).toBeTypeOf("function");
+    const generations = events.filter(
+      (event) => event.name === "$ai_generation",
+    );
+    expect(generations).toHaveLength(1);
+    expect(generations[0]?.properties).not.toHaveProperty("$ai_input");
+    expect(
+      events.find((event) => event.name === "$ai_trace")?.properties?.llm_calls,
+    ).toBe(1);
+    expect(JSON.stringify({ events, persistedSpans })).not.toContain(
+      privatePrompt,
+    );
+    expect(
+      persistedSpans.find((span) => span.spanType === "llm_call"),
+    ).toMatchObject({ status: "error", durationMs: 50, metadata: null });
+
+    const modelSpan = spans.find((span) => span.name.startsWith("chat "));
+    expect(modelSpan).toMatchObject({
+      attributes: { "llm.call_index": 0 },
+      status: { code: SPAN_STATUS_ERROR },
+      startTime: 1_700_000_000_000,
+      endTime: 1_700_000_000_050,
+      ended: true,
+    });
+    expect(
+      recorded.find(
+        (metric) => metric.instrument === "gen_ai.client.operation.duration",
+      ),
+    ).toMatchObject({
+      value: 0.05,
+      attributes: { "error.type": "_OTHER" },
+    });
   });
 
   it("keeps a later pre-stream failure input after earlier model round trips", async () => {

@@ -703,7 +703,7 @@ export async function instrumentAgentLoop(opts: {
       "llm.cost_cents_x100": calculateUsageCost(callUsage),
     };
   };
-  const startOtelModelSpan = (index: number): void => {
+  const startOtelModelSpan = (index: number, startTime?: number): void => {
     const entry = {
       spanPromise: Promise.resolve(null) as Promise<AgentSpan | null>,
       span: null as AgentSpan | null,
@@ -719,6 +719,7 @@ export async function instrumentAgentLoop(opts: {
         "llm.call_index": index,
       },
       otelRunSpan,
+      startTime,
     );
     pendingOtelModelSpans.set(index, entry);
     void entry.spanPromise.then((span) => {
@@ -767,7 +768,7 @@ export async function instrumentAgentLoop(opts: {
       ...(input !== undefined ? { input } : {}),
       assistantText: createBoundedAssistantText(),
     });
-    startOtelModelSpan(tripIndex);
+    startOtelModelSpan(tripIndex, start);
     finishOtelModelSpan(tripIndex, {
       status: "error",
       errorMessage,
@@ -1136,29 +1137,25 @@ export async function instrumentAgentLoop(opts: {
         runId,
         send: instrumentedSend,
         onOutcome: instrumentedOutcome,
-        ...(config.capturePrompts || loopOpts.onModelInput
-          ? {
-              onModelInput: (messages: readonly unknown[]) => {
-                const attemptStartedAt = Date.now();
-                if (pendingModelInputStartedAt !== undefined) {
-                  recordPreStreamModelFailure(
-                    pendingModelInputStartedAt,
-                    attemptStartedAt,
-                    pendingModelInput,
-                    "Model attempt failed before streaming and was retried.",
-                  );
-                }
-                const capturedMessages = config.capturePrompts
-                  ? prepareCapturedModelInput(messages)
-                  : undefined;
-                pendingModelInput = Array.isArray(capturedMessages)
-                  ? capturedMessages
-                  : undefined;
-                pendingModelInputStartedAt = attemptStartedAt;
-                return loopOpts.onModelInput?.(messages);
-              },
-            }
-          : {}),
+        onModelInput: (messages: readonly unknown[]) => {
+          const attemptStartedAt = Date.now();
+          if (pendingModelInputStartedAt !== undefined) {
+            recordPreStreamModelFailure(
+              pendingModelInputStartedAt,
+              attemptStartedAt,
+              pendingModelInput,
+              "Model attempt failed before streaming and was retried.",
+            );
+          }
+          const capturedMessages = config.capturePrompts
+            ? prepareCapturedModelInput(messages)
+            : undefined;
+          pendingModelInput = Array.isArray(capturedMessages)
+            ? capturedMessages
+            : undefined;
+          pendingModelInputStartedAt = attemptStartedAt;
+          return loopOpts.onModelInput?.(messages);
+        },
         onUsage: (callUsage: AgentLoopUsage) => {
           const trip = currentRoundTrip();
           if (trip) trip.usage = callUsage;
