@@ -36,6 +36,7 @@ import { createRunner, RunError, type HostFunctions } from "run";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
   getRequestContext,
   getRequestRunContext,
@@ -731,6 +732,17 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
     if (callBudget) callBudget.count += 1;
     usedTools.add(toolName);
     try {
+      const context = options.context;
+      if (context && parseServiceIdentityEmail(context.userEmail)) {
+        const { enforceServicePrincipalActionGrant } =
+          await import("../org/service-principal-guard.js");
+        await enforceServicePrincipalActionGrant({
+          email: context.userEmail,
+          orgId: context.orgId,
+          actionName: toolName,
+          caller: context.caller,
+        });
+      }
       // Name the child, not `run-code`: a service principal's grant is checked
       // against the action actually being run.
       const run = () =>

@@ -30,6 +30,7 @@ let tokens: TokenRow[] = [];
 let devices: DeviceRow[] = [];
 let failNextCreateTable = false;
 let failNextOrgLookup = false;
+let failNextOrgServiceList = false;
 let failNextRevokeByName = false;
 let failNextDeviceCodeLookup = false;
 const getDbExecMock = vi.fn(() => ({ execute: exec }));
@@ -105,6 +106,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       sql,
     )
   ) {
+    if (failNextOrgServiceList) {
+      failNextOrgServiceList = false;
+      throw new Error("CONNECTION_LOST");
+    }
     const rows = tokens
       .filter((r) => r.org_id === args[0] && r.kind === "service")
       .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
@@ -291,6 +296,7 @@ describe("connect-store", () => {
     devices = [];
     failNextCreateTable = false;
     failNextOrgLookup = false;
+    failNextOrgServiceList = false;
     failNextDeviceCodeLookup = false;
     vi.restoreAllMocks();
   });
@@ -585,6 +591,14 @@ describe("connect-store", () => {
       expect(list.every((t) => t.kind === "service")).toBe(true);
       expect(list[0].serviceName).toBe("recap");
       expect(list[0].createdBy).toBe("admin@example.com");
+    });
+
+    it("throws when the org service-token store cannot be read", async () => {
+      failNextOrgServiceList = true;
+
+      await expect(store.listOrgServiceTokens("org-1")).rejects.toThrow(
+        "CONNECTION_LOST",
+      );
     });
 
     it("revokeOrgServiceToken is org-scoped and kills the jti via the shared gate", async () => {

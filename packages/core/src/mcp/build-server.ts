@@ -2677,6 +2677,25 @@ export async function createMCPServerForRequest(
         );
   }
 
+  async function grantedResourceActions(
+    actionName: string,
+  ): Promise<typeof advertisedActions> {
+    try {
+      return await grantedAdvertisedActions();
+    } catch (error) {
+      if (error instanceof ServicePrincipalRefusedError) {
+        await recordServicePrincipalDenial({
+          email: effectiveIdentity?.userEmail,
+          orgId: effectiveIdentity?.orgId,
+          actionName,
+          caller: "mcp",
+          error,
+        });
+      }
+      throw error;
+    }
+  }
+
   server.setRequestHandler("tools/list", async (request: any, ctx: any) => {
     const startedAt = Date.now();
     const { allowedActions } = await resolveServiceGrant();
@@ -3280,7 +3299,8 @@ export async function createMCPServerForRequest(
       "resources/list",
       async (request: any, ctx: any) => {
         const startedAt = Date.now();
-        const grantedActions = await grantedAdvertisedActions();
+        const grantedActions =
+          await grantedResourceActions("mcp:resources/list");
         const result = await withCallerContext(async () => {
           const mcpAppResources = await getMcpAppResources(
             config,
@@ -3312,10 +3332,12 @@ export async function createMCPServerForRequest(
     );
 
     server.setRequestHandler("resources/templates/list", async () => {
+      const grantedActions = await grantedResourceActions(
+        "mcp:resources/templates/list",
+      );
       if (config.catalogMode === "directory") {
         return withCallerContext(async () => ({ resourceTemplates: [] }));
       }
-      const grantedActions = await grantedAdvertisedActions();
       return withCallerContext(async () => {
         const mcpAppResources = await getMcpAppResources(
           config,
@@ -3360,7 +3382,8 @@ export async function createMCPServerForRequest(
           });
         };
         try {
-          const grantedActions = await grantedAdvertisedActions();
+          const grantedActions =
+            await grantedResourceActions("mcp:resources/read");
           return await withCallerContext(async () => {
             const uri = request.params?.uri;
             let found: {

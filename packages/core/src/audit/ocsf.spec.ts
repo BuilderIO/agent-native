@@ -135,6 +135,8 @@ describe("auditEventToOcsf", () => {
     const out = auditEventToOcsf(
       event({
         actorEmail: "svc-ci-bot@service.org-1",
+        actorKind: "service",
+        orgId: "org-1",
         action: "frobnicate",
       }),
     );
@@ -146,6 +148,7 @@ describe("auditEventToOcsf", () => {
     });
     expect(out.activity_id).toBe(99);
     expect(out.type_uid).toBe(600399);
+    expect(out.unmapped.actor_kind).toBe("service");
   });
 
   it("does not trust a service-shaped email from another org", () => {

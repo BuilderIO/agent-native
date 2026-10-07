@@ -1,14 +1,33 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { buildDataProgramPrelude } from "../data-programs/contract.js";
 import { getCredentialContext } from "../server/request-context.js";
 import { createRunCodeEntry, executeSandboxCode } from "./run-code.js";
 
+const evaluateServicePrincipalMock = vi.hoisted(() => vi.fn());
+vi.mock("../org/service-principal-policy.js", async (importActual) => ({
+  ...(await importActual<
+    typeof import("../org/service-principal-policy.js")
+  >()),
+  evaluateServicePrincipal: (...args: any[]) =>
+    evaluateServicePrincipalMock(...args),
+}));
+const recordActionAuditMock = vi.hoisted(() => vi.fn());
+vi.mock("../audit/record.js", () => ({
+  recordActionAudit: (...args: any[]) => recordActionAuditMock(...args),
+}));
+
 const tool = {
   description: "test action",
   parameters: { type: "object", properties: {} },
 };
+
+beforeEach(() => {
+  evaluateServicePrincipalMock.mockReset();
+  evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+  recordActionAuditMock.mockReset();
+});
 
 describe("run-code bridge", () => {
   it("allows sandbox code to call agent-exposed read-only actions", async () => {
@@ -167,6 +186,61 @@ describe("run-code bridge", () => {
       maxChars: 1200,
       saveToFile: "scratch/docs.html",
     });
+  });
+
+  it("checks service-principal grants before invoking a plain bridge action", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "web-request": {
+        tool,
+        readOnly: true,
+        run: async (args) => {
+          calls.push(args);
+          return { status: 200 };
+        },
+      },
+    };
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "active",
+      policy: { lifecycle: "active", allowedActions: ["run-code"] },
+    });
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run(
+      {
+        code: `
+          try {
+            await webFetch("https://example.com");
+          } catch (error) {
+            console.log(error.message);
+          }
+        `,
+        timeoutMs: 30_000,
+      },
+      {
+        userEmail: "svc-ci@service.org-1",
+        orgId: "org-1",
+        caller: "mcp",
+        actionName: "run-code",
+      },
+    );
+
+    expect(result).toContain(
+      "web-request is not permitted for this service principal",
+    );
+    expect(calls).toEqual([]);
+    expect(recordActionAuditMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ctx: {
+          actionName: "web-request",
+          caller: "mcp",
+          userEmail: "svc-ci@service.org-1",
+          orgId: "org-1",
+        },
+        status: "error",
+        error: expect.objectContaining({ statusCode: 403 }),
+      }),
+    );
   });
 
   it("paginates provider APIs inside sandbox code", async () => {

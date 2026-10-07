@@ -160,6 +160,17 @@ describe("governance actions are admin-only and out of the agent tool loop", () 
       policyAction.run({ serviceName: "ci", team: "x" }, CTX()),
     ).rejects.toMatchObject({ statusCode: 404 });
   });
+
+  it("answers 503 instead of 404 when the service-token store is unreadable", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    getPolicyMock.mockResolvedValue(null);
+    listOrgServiceTokensMock.mockRejectedValue(new Error("connection lost"));
+
+    await expect(
+      policyAction.run({ serviceName: "ci", team: "x" }, CTX()),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(upsertPolicyMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("set-service-principal-policy", () => {

@@ -195,7 +195,15 @@ vi.mock("./task-store.js", () => {
       task.updatedAt = Date.now();
       return true;
     },
-    async resetStuckA2ATaskForRetry() {
+    async resetStuckA2ATaskForRetry(id: string) {
+      const task = tasks[id];
+      if (!task || task.status.state !== "processing") return false;
+      task.status = {
+        state: "working",
+        message: task.status.message,
+        timestamp: new Date().toISOString(),
+      };
+      task.updatedAt = Date.now();
       return true;
     },
     async failStuckA2ATask(id: string, _cutoff: number, reason: string) {
@@ -779,6 +787,61 @@ describe("handleJsonRpc", () => {
         error: expect.objectContaining({ statusCode: 403 }),
       }),
     );
+  });
+
+  it("requeues a task when service-principal policy is temporarily unavailable", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "svc-ci@service.org-acme",
+      __a2aAudienceVerified: true,
+      __a2aVerifiedOrgId: "org-acme",
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 30,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "run after policy recovers" }],
+          },
+        },
+      },
+      event,
+      config,
+    );
+    const taskId = created.result.id;
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await expect(processA2ATaskFromQueue(taskId, config)).rejects.toMatchObject(
+      { statusCode: 503 },
+    );
+    const requeued = await handleJsonRpc(
+      { jsonrpc: "2.0", id: 31, method: "tasks/get", params: { id: taskId } },
+      event,
+      config,
+    );
+    expect(requeued.result.status.state).toBe("working");
+    expect(recordServicePrincipalDenialMock).not.toHaveBeenCalled();
+
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "active",
+      policy: { lifecycle: "active", allowedActions: null },
+    });
+    await processA2ATaskFromQueue(taskId, config);
+
+    const completed = await handleJsonRpc(
+      { jsonrpc: "2.0", id: 32, method: "tasks/get", params: { id: taskId } },
+      event,
+      config,
+    );
+    expect(completed.result.status.state).toBe("completed");
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
   it("persists a structured error code on a failed async task message", async () => {

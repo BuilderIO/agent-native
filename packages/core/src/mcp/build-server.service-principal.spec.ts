@@ -295,4 +295,47 @@ describe("MCP App resources for a service principal", () => {
     ).resolves.toBeDefined();
     await expect(client.readResource({ uri: deniedUri })).rejects.toThrow();
   });
+
+  it.each([
+    ["resources/list", async (client: Client) => client.listResources()],
+    [
+      "resources/templates/list",
+      async (client: Client) => client.listResourceTemplates(),
+    ],
+    [
+      "resources/read",
+      async (client: Client) =>
+        client.readResource({ uri: "ui://docs/list-docs" }),
+    ],
+  ])("audits a suspended principal refused by %s", async (method, call) => {
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "suspended",
+      policy: { lifecycle: "suspended", allowedActions: null },
+    });
+    const client = await clientFor(serviceIdentity, widgetConfig());
+
+    await expect(call(client)).rejects.toThrow(/suspended or retired/i);
+
+    expect(recordActionAuditMock).toHaveBeenCalledTimes(1);
+    expect(recordActionAuditMock.mock.calls[0][0]).toMatchObject({
+      ctx: {
+        actionName: `mcp:${method}`,
+        caller: "mcp",
+        userEmail: SVC,
+        orgId: "org_1",
+      },
+      error: { statusCode: 403 },
+    });
+  });
+
+  it("does not audit a retryable policy-store failure as a denial", async () => {
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
+    const client = await clientFor(serviceIdentity, widgetConfig());
+
+    await expect(
+      client.readResource({ uri: "ui://docs/list-docs" }),
+    ).rejects.toThrow(/could not be verified/i);
+
+    expect(recordActionAuditMock).not.toHaveBeenCalled();
+  });
 });

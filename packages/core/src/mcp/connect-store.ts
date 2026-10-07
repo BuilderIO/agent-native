@@ -290,18 +290,13 @@ export async function listTokens(
 export async function listOrgServiceTokens(
   orgId: string,
 ): Promise<MintedTokenRow[]> {
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at FROM mcp_connect_tokens WHERE org_id = ? AND kind = 'service' ORDER BY created_at DESC`,
-      args: [orgId],
-    });
-    return rows.map(mapTokenRow);
-  } catch (err) {
-    if (isConnectionError(err)) return [];
-    throw err;
-  }
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at FROM mcp_connect_tokens WHERE org_id = ? AND kind = 'service' ORDER BY created_at DESC`,
+    args: [orgId],
+  });
+  return rows.map(mapTokenRow);
 }
 
 /**

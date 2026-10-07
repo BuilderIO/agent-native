@@ -1,6 +1,6 @@
 export type AuditStatus = "success" | "error" | "denied";
 
-export type AuditActorKind = "agent" | "human" | "system";
+export type AuditActorKind = "agent" | "human" | "service" | "system";
 
 /**
  * Who can read an event besides its owner.

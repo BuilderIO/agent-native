@@ -40,6 +40,7 @@ import {
   failStuckA2ATask,
   failStuckQueuedA2ATask,
   settleProcessingA2ATask,
+  resetStuckA2ATaskForRetry,
   touchQueuedA2ATaskDispatch,
   touchProcessingA2ATask,
   pauseProcessingA2ATask,
@@ -356,15 +357,18 @@ export async function processA2ATaskFromQueue(
     }
   } catch (error) {
     if (!(error instanceof ServicePrincipalRefusedError)) throw error;
-    if (error.statusCode === 403) {
-      await recordServicePrincipalDenial({
-        email: verifiedEmail,
-        orgId: verifiedOrgId ?? parseServiceIdentityEmail(verifiedEmail)?.orgId,
-        actionName: "a2a:process-task",
-        caller: "a2a",
-        error,
-      });
+    if (error.statusCode === 503) {
+      await resetStuckA2ATaskForRetry(taskId, Date.now());
+      throw error;
     }
+    if (error.statusCode !== 403) throw error;
+    await recordServicePrincipalDenial({
+      email: verifiedEmail,
+      orgId: verifiedOrgId ?? parseServiceIdentityEmail(verifiedEmail)?.orgId,
+      actionName: "a2a:process-task",
+      caller: "a2a",
+      error,
+    });
     await settleProcessingA2ATask(taskId, {
       state: "failed",
       message: {
