@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+
+import { parse } from "yaml";
 
 import {
   isTestOnlyPath,
@@ -24,6 +27,27 @@ const pullRequestEventFixture = {
 const changedPathsFixture = (...paths: string[]) => `${paths.join("\0")}\0`;
 
 describe("test-title production guard", () => {
+  it("reruns only the lightweight guard when an existing PR title is edited", () => {
+    const workflow = parse(
+      readFileSync(".github/workflows/test-title-production.yml", "utf8"),
+    ) as {
+      on?: { pull_request?: { branches?: string[]; types?: string[] } };
+      jobs?: Record<string, { if?: string; steps?: Array<{ run?: string }> }>;
+    };
+    const titleGuard = workflow.jobs?.["test-title-production"];
+
+    assert.deepEqual(workflow.on?.pull_request, {
+      branches: ["main"],
+      types: ["edited"],
+    });
+    assert.equal(titleGuard?.if, "github.event.changes.title != null");
+    assert.ok(
+      titleGuard?.steps?.some((step) =>
+        step.run?.includes("scripts/guard-test-title-production.ts"),
+      ),
+    );
+  });
+
   it("allows explicitly test-scoped sources, fixtures, workflows, and configs", () => {
     const changedPaths = [
       "templates/design/app/components/Canvas.spec.tsx",
