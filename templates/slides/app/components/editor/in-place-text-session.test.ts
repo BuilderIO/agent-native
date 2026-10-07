@@ -1829,6 +1829,59 @@ describe("in-place text session: deleting", () => {
     );
   });
 
+  it("merges paragraphs on Delete while keeping receiver style and inline marks", () => {
+    const el = mount(
+      '<div id="t"><p style="color: blue; font-size: 30px"><em>Alpha</em></p><p style="color: red"><strong>Beta</strong></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Alpha"), 5);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+    expect(el.innerHTML).toBe(
+      '<p style="color: blue; font-size: 30px"><em>Alpha</em><strong>Beta</strong></p>',
+    );
+    expect(el.children).toHaveLength(1);
+    expect(window.getSelection()?.anchorNode).toBe(textOf(el, "Alpha"));
+    expect(window.getSelection()?.anchorOffset).toBe(5);
+    session.end();
+    expect(el.innerHTML).toBe(
+      '<p style="color: blue; font-size: 30px"><em>Alpha</em><strong>Beta</strong></p>',
+    );
+  });
+
+  it("leaves trailing paragraph whitespace to native Delete", () => {
+    const el = mount('<div id="t"><p>Alpha </p><p>Beta</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Alpha "), 5);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(
+      false,
+    );
+    expect(el.children).toHaveLength(2);
+    expect(el.children[0].textContent).toBe("Alpha ");
+    expect(el.children[1].textContent).toBe("Beta");
+  });
+
+  it("removes an empty placeholder paragraph without deleting prior text", () => {
+    for (const receiver of [`merge31`, `merge31${ZWSP}`]) {
+      const el = mount(`<div id="t"><p>${receiver}</p><p>${ZWSP}</p></div>`);
+      session = startInPlaceTextSession(el);
+      caret(el.lastElementChild!, 0);
+
+      expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+        true,
+      );
+      expect(el.textContent?.replaceAll(ZWSP, "")).toBe("merge31");
+      expect(el.children).toHaveLength(1);
+      expect(window.getSelection()?.anchorNode).toBe(textOf(el, "merge31"));
+      expect(window.getSelection()?.anchorOffset).toBe(
+        textOf(el, "merge31").length,
+      );
+      session.end();
+      session = null;
+    }
+  });
+
   it("removes a divider before merging the paragraph that follows it", () => {
     const el = mount('<div id="t"><p>Before</p><hr><p>After</p></div>');
     session = startInPlaceTextSession(el);

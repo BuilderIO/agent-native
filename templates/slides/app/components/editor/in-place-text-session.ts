@@ -2422,6 +2422,17 @@ export function startInPlaceTextSession(
     return !hasRenderedContent(before.cloneContents());
   }
 
+  function paragraphAfter(caret: Range, block: HTMLElement) {
+    const after = document.createRange();
+    after.selectNodeContents(block);
+    after.setStart(caret.startContainer, caret.startOffset);
+    const remainder = after.cloneContents();
+    return (
+      !remainder.textContent?.replaceAll(/[\u200b\ufeff]/g, "") &&
+      !hasRenderedContent(remainder)
+    );
+  }
+
   function previousTextBlock(block: HTMLElement): HTMLElement | null {
     const previous = block.previousElementSibling;
     if (!(previous instanceof HTMLElement)) return null;
@@ -2491,7 +2502,21 @@ export function startInPlaceTextSession(
   }
 
   function deleteAtBlockEdge(caret: Range, direction: DeleteDirection) {
-    if (direction !== "backward") return false;
+    if (direction === "forward") {
+      const block = nearestBlock(caret.startContainer, el);
+      if (
+        !caret.collapsed ||
+        block.tagName !== "P" ||
+        block === el ||
+        !paragraphAfter(caret, block)
+      ) {
+        return false;
+      }
+      const next = block.nextElementSibling;
+      if (!(next instanceof HTMLElement) || next.tagName !== "P") return false;
+      appendBlockContents(block, next);
+      return true;
+    }
     const next =
       caret.collapsed && caret.startContainer instanceof HTMLElement
         ? caret.startContainer.childNodes[caret.startOffset]

@@ -916,18 +916,21 @@ export async function runAuthoringFuzz(
   const snapshotEditorSiblings = async (
     phase: "capture" | "assert",
     operation: AuthoringFuzzOperation,
+    requireMerge = false,
   ) =>
     page.evaluate(
       ({
         selector,
         phase,
         operation,
+        requireMerge,
         operationIndex,
         styleProperties,
       }: {
         selector: string;
         phase: "capture" | "assert";
         operation: AuthoringFuzzOperation;
+        requireMerge: boolean;
         operationIndex: number;
         styleProperties: string[];
       }) => {
@@ -949,11 +952,22 @@ export async function runAuthoringFuzz(
               attributeNames: string;
               contentSignature: string;
               childShape: string;
+              emptyInlineLink: boolean;
             }>;
+            targets: HTMLElement[];
+            merge?: {
+              direction: "backward" | "forward";
+              source: HTMLElement;
+              receiver: HTMLElement;
+              parent: Node;
+              receiverText: string;
+              sourceText: string;
+            };
           };
         };
         const block =
           /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|DD|DIV|DL|DT|FIGCAPTION|FIGURE|FOOTER|H[1-6]|HEADER|LI|OL|P|PRE|SECTION|TABLE|TBODY|TD|TFOOT|TH|THEAD|TR|UL)$/;
+        const previous = scope.__authoringFuzzSiblingSnapshot;
         const range = selection.getRangeAt(0);
         const listShortcut =
           operation.kind === "shortcut" &&
@@ -1001,6 +1015,14 @@ export async function runAuthoringFuzz(
           }
         }
         if (!targets.length) targets.push(root);
+        if (
+          phase === "assert" &&
+          (operation.kind === "backspace-block-edge" ||
+            operation.kind === "delete-block-edge") &&
+          previous?.root === root
+        ) {
+          targets = previous.targets;
+        }
         const isTarget = (node: Node) =>
           targets.some(
             (target) =>
@@ -1050,6 +1072,55 @@ export async function runAuthoringFuzz(
             ]),
           ) as Record<string, string>;
         };
+        const merge =
+          phase === "capture"
+            ? (() => {
+                const direction =
+                  operation.kind === "backspace-block-edge"
+                    ? "backward"
+                    : operation.kind === "delete-block-edge"
+                      ? "forward"
+                      : null;
+                if (!direction) return undefined;
+                const receiver =
+                  direction === "backward"
+                    ? targets[0]?.previousElementSibling
+                    : targets[0];
+                const source =
+                  direction === "backward"
+                    ? targets[0]
+                    : receiver?.nextElementSibling;
+                return receiver instanceof HTMLElement &&
+                  source instanceof HTMLElement &&
+                  receiver !== root &&
+                  source !== root &&
+                  receiver.tagName === "P" &&
+                  source.tagName === "P" &&
+                  root.contains(receiver) &&
+                  root.contains(source) &&
+                  receiver.parentNode === source.parentNode
+                  ? {
+                      direction,
+                      source,
+                      receiver,
+                      parent: receiver.parentNode!,
+                      receiverText: receiver.textContent ?? "",
+                      sourceText: source.textContent ?? "",
+                    }
+                  : undefined;
+              })()
+            : previous?.merge;
+        const isEmptyInlineLink = (element: Element) =>
+          element.tagName === "A" &&
+          element.attributes.length === 0 &&
+          element.childNodes.length === 0 &&
+          !element.textContent &&
+          getComputedStyle(element).display === "inline" &&
+          ["::before", "::after"].every((pseudo) =>
+            ["none", "normal"].includes(
+              getComputedStyle(element, pseudo).content,
+            ),
+          );
         const changedStyleProperties = (
           element: Element,
           before: Record<string, string>,
@@ -1192,6 +1263,7 @@ export async function runAuthoringFuzz(
               .join(" "),
             contentSignature: contentSignature(element),
             childShape: childShape(element),
+            emptyInlineLink: isEmptyInlineLink(element),
           });
         }
         for (const text of siblingText) {
@@ -1206,18 +1278,46 @@ export async function runAuthoringFuzz(
             attributeNames: "",
             contentSignature: text.data,
             childShape: "",
+            emptyInlineLink: false,
           });
         }
         if (phase === "capture") {
+          if (
+            requireMerge &&
+            (operation.kind === "backspace-block-edge" ||
+              operation.kind === "delete-block-edge") &&
+            !merge
+          ) {
+            throw new Error(
+              `block-edge ${operation.kind === "backspace-block-edge" ? "Backspace" : "Delete"} setup did not create adjacent paragraphs inside the editing root`,
+            );
+          }
           scope.__authoringFuzzSiblingSnapshot = {
             root,
             records,
+            targets: [...targets],
+            merge,
           };
           return [];
         }
-        const baseline = scope.__authoringFuzzSiblingSnapshot;
+        const baseline = previous;
         if (!baseline) {
           throw new Error("editor sibling snapshot was not captured");
+        }
+        const mergeAssertion =
+          baseline.merge &&
+          ((operation.kind === "backspace-block-edge" &&
+            baseline.merge.direction === "backward") ||
+            (operation.kind === "delete-block-edge" &&
+              baseline.merge.direction === "forward"))
+            ? baseline.merge
+            : undefined;
+        if (
+          (operation.kind === "backspace-block-edge" ||
+            operation.kind === "delete-block-edge") &&
+          !mergeAssertion
+        ) {
+          failures.push("block-edge operation did not capture its block pair");
         }
         const path = (node: Node) => {
           const parts: string[] = [];
@@ -1242,6 +1342,20 @@ export async function runAuthoringFuzz(
         for (const record of baseline.records) {
           if (isTarget(record.node)) continue;
           if (!root.contains(record.node)) {
+            if (
+              mergeAssertion &&
+              (record.node === mergeAssertion.source ||
+                mergeAssertion.source.contains(record.node))
+            ) {
+              continue;
+            }
+            if (
+              mergeAssertion &&
+              mergeAssertion.receiver.contains(record.parent) &&
+              record.emptyInlineLink
+            ) {
+              continue;
+            }
             if (
               [...equivalentReplacements].some((node) =>
                 node.contains(record.node),
@@ -1342,6 +1456,16 @@ export async function runAuthoringFuzz(
           )
             changes.push("authored attributes");
           if (
+            mergeAssertion &&
+            (mergeAssertion.receiver === record.node ||
+              mergeAssertion.receiver.contains(record.node))
+          ) {
+            const textIndex = changes.indexOf("text");
+            if (textIndex >= 0) changes.splice(textIndex, 1);
+            const structureIndex = changes.indexOf("child structure");
+            if (structureIndex >= 0) changes.splice(structureIndex, 1);
+          }
+          if (
             operation.kind === "empty-list-exit" &&
             record.node instanceof HTMLElement &&
             /^(OL|UL)$/.test(record.node.tagName) &&
@@ -1375,6 +1499,34 @@ export async function runAuthoringFuzz(
             );
           }
         }
+        if (mergeAssertion) {
+          const action =
+            mergeAssertion.direction === "backward" ? "Backspace" : "Delete";
+          const normalizeText = (value: string) =>
+            value.replaceAll(/[\u200b\ufeff]/g, "").replaceAll("\u00a0", " ");
+          if (
+            !root.contains(mergeAssertion.receiver) ||
+            mergeAssertion.receiver.parentNode !== mergeAssertion.parent
+          ) {
+            failures.push(`block-edge ${action} moved its receiving block`);
+          }
+          if (root.contains(mergeAssertion.source)) {
+            failures.push(
+              `block-edge ${action} left the merged block in place`,
+            );
+          }
+          const expectedText = normalizeText(
+            mergeAssertion.receiverText + mergeAssertion.sourceText,
+          );
+          const actualText = normalizeText(
+            mergeAssertion.receiver.textContent ?? "",
+          );
+          if (actualText !== expectedText) {
+            failures.push(
+              `block-edge ${mergeAssertion.direction === "backward" ? "Backspace" : "Delete"} changed the receiving text (${actualText.length} vs ${expectedText.length} characters; receiver=${normalizeText(mergeAssertion.receiverText).length}, source=${normalizeText(mergeAssertion.sourceText).length})`,
+            );
+          }
+        }
         const expectedOrder = baseline.records
           .filter(
             (
@@ -1382,7 +1534,10 @@ export async function runAuthoringFuzz(
             ): record is (typeof baseline.records)[number] & {
               node: Element;
               order: number;
-            } => record.node instanceof Element && record.order !== undefined,
+            } =>
+              record.node instanceof Element &&
+              record.order !== undefined &&
+              root.contains(record.node),
           )
           .sort((a, b) => a.order - b.order);
         const actualOrder = [...expectedOrder].sort((a, b) =>
@@ -1406,6 +1561,7 @@ export async function runAuthoringFuzz(
         selector: editorSelector,
         phase,
         operation,
+        requireMerge,
         operationIndex: activeIndex,
         styleProperties: AUTHORING_FUZZ_STYLE_PROPERTIES,
       },
@@ -2919,13 +3075,32 @@ export async function runAuthoringFuzz(
           await editor.press("Enter");
           break;
         case "backspace-block-edge":
+          await newPlainLine("block-edge Backspace");
+          await typeText(`merge${activeIndex}`);
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+          if (!(await plainLineState()).valid) {
+            throw new Error(
+              "block-edge Backspace setup did not create a plain paragraph",
+            );
+          }
+          await snapshotEditorSiblings("capture", operation, true);
           await editor.press(lineStartKey);
           await editor.press("Backspace");
           break;
-        case "delete-block-edge":
-          await editor.press(lineStartKey);
+        case "delete-block-edge": {
+          await newPlainLine("block-edge Delete");
+          const leftToken = `delete-left-${activeIndex}`;
+          const rightToken = `delete-right-${activeIndex}`;
+          await typeText(leftToken);
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+          await typeText(rightToken);
+          await placeCaretAtToken(leftToken, "end");
+          await snapshotEditorSiblings("capture", operation, true);
           await editor.press("Delete");
           break;
+        }
         case "enter-list-edge":
           await createList("ul");
           {
@@ -3277,15 +3452,22 @@ export async function runAuthoringFuzz(
           break;
         }
         case "vertical-navigation": {
-          await newPlainLine("vertical navigation");
-          const firstLine = "x".repeat(24);
-          const secondLine = "x".repeat(16);
+          const firstLine = "x".repeat(4);
+          const secondLine = "x".repeat(3);
+          await runSlashCommand("heading2");
           await typeText(firstLine);
-          await editor.press("Shift+Enter");
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+          await runSlashCommand("heading2");
           await typeText(secondLine);
+          await editor.press("ArrowLeft");
+          await snapshotEditorSiblings("capture", operation);
           const before = await inspectSelection();
           const beforeRect = await editor.evaluate(
-            (root: HTMLElement, expected: string) => {
+            (
+              root: HTMLElement,
+              values: { firstLine: string; secondLine: string },
+            ) => {
               const selection = window.getSelection();
               const range = selection?.rangeCount
                 ? selection.getRangeAt(0)
@@ -3294,32 +3476,67 @@ export async function runAuthoringFuzz(
               const anchor = selection?.anchorNode;
               const element =
                 anchor instanceof HTMLElement ? anchor : anchor?.parentElement;
-              const block = element?.closest<HTMLElement>(
-                "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
+              const blockSelector = "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre";
+              const candidates = [
+                ...(root.matches(blockSelector) ? [root] : []),
+                ...Array.from(
+                  root.querySelectorAll<HTMLElement>(blockSelector),
+                ),
+              ];
+              const normalizeText = (value: string) =>
+                value.replaceAll(/[\u200b\ufeff\u00a0]/g, "");
+              const firstBlock = candidates.find(
+                (candidate) =>
+                  normalizeText(candidate.textContent ?? "") ===
+                  values.firstLine,
               );
-              const localText = (block?.textContent ?? root.textContent ?? "")
-                .replaceAll("\u200b", "")
-                .replaceAll("\ufeff", "")
-                .replaceAll("\u00a0", "");
+              const secondBlock = candidates.find(
+                (candidate) =>
+                  normalizeText(candidate.textContent ?? "") ===
+                  values.secondLine,
+              );
+              const block =
+                secondBlock ??
+                element?.closest<HTMLElement>(blockSelector) ??
+                root;
+              const localText = normalizeText(block.textContent ?? "");
               return {
                 focused: document.activeElement === root,
                 collapsed: selection?.isCollapsed ?? false,
                 blockTag: block?.tagName ?? root.tagName,
                 blockTextLength: localText.length,
-                blockTailMatches: localText.endsWith(expected),
+                blockTailMatches: localText.endsWith(values.secondLine),
+                separateBlocks:
+                  !!firstBlock && !!secondBlock && firstBlock !== secondBlock,
+                sameBlockTag:
+                  !!firstBlock &&
+                  !!secondBlock &&
+                  firstBlock.tagName === secondBlock.tagName,
+                firstBlockFound: !!firstBlock,
+                blockCandidates: candidates.map((candidate) => ({
+                  tag: candidate.tagName,
+                  textLength: normalizeText(candidate.textContent ?? "").length,
+                  isRoot: candidate === root,
+                  parent: candidate.parentElement?.tagName ?? null,
+                })),
                 x: rect?.x ?? null,
                 y: rect?.y ?? null,
                 height: rect?.height ?? 0,
               };
             },
-            secondLine,
+            { firstLine, secondLine },
           );
-          const lineStart = before.start - firstLine.length - secondLine.length;
+          const lineStart =
+            before.start - firstLine.length - secondLine.length + 1;
           if (
             !before.inside ||
             !before.collapsed ||
             !beforeRect.blockTailMatches ||
-            before.start !== lineStart + firstLine.length + secondLine.length ||
+            !beforeRect.separateBlocks ||
+            !beforeRect.sameBlockTag ||
+            !beforeRect.firstBlockFound ||
+            before.start !==
+              lineStart + firstLine.length + secondLine.length - 1 ||
             !beforeRect.focused ||
             !beforeRect.collapsed ||
             beforeRect.x === null ||
@@ -3366,10 +3583,25 @@ export async function runAuthoringFuzz(
             const rect = range?.getBoundingClientRect();
             return { x: rect?.x ?? null, y: rect?.y ?? null };
           });
+          const upBlockMatchesFirst = await editor.evaluate(
+            (root: HTMLElement, expected: string) => {
+              const anchor = window.getSelection()?.anchorNode;
+              const element =
+                anchor instanceof HTMLElement ? anchor : anchor?.parentElement;
+              const block = element?.closest<HTMLElement>(
+                "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
+              );
+              return (
+                block?.textContent?.replaceAll(/[\u200b\ufeff\u00a0]/g, "") ===
+                  expected && root.contains(block)
+              );
+            },
+            firstLine,
+          );
           if (
             !up.inside ||
             !up.collapsed ||
-            up.start !== lineStart + secondLine.length ||
+            !upBlockMatchesFirst ||
             beforeRect.x === null ||
             beforeRect.y === null ||
             upRect.x === null ||
@@ -3378,7 +3610,7 @@ export async function runAuthoringFuzz(
             upRect.y >= beforeRect.y
           ) {
             throw new Error(
-              `ArrowUp did not preserve the caret column (${before.start} at ${beforeRect.x},${beforeRect.y} to ${up.start} at ${upRect.x},${upRect.y})`,
+              `ArrowUp did not preserve the caret column (${before.start} at ${beforeRect.x},${beforeRect.y} to ${up.start} at ${upRect.x},${upRect.y}; in first block=${upBlockMatchesFirst})`,
             );
           }
           await editor.press("ArrowDown");

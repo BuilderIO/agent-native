@@ -372,6 +372,8 @@ it("creates reproducible authoring plans with full command coverage", () => {
   ]);
   expect(first.slice(26, 61).map((step) => step.kind)).toContain("paste-rich");
   expect(first.map((step) => step.kind)).toContain("quote-exit");
+  expect(first.map((step) => step.kind)).toContain("backspace-block-edge");
+  expect(first.map((step) => step.kind)).toContain("delete-block-edge");
   expect(first.map((step) => step.kind)).toContain("copy-inline");
   expect(() =>
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
