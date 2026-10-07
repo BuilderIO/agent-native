@@ -1,5 +1,45 @@
 # @agent-native/skills
 
+## 0.3.26
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [3d573d7]
+- Updated dependencies [8ec67cc]
+- Updated dependencies [a3bda2e]
+- Updated dependencies [5fbfe23]
+- Updated dependencies [190fd73]
+- Updated dependencies [839bbf0]
+- Updated dependencies [6b0f888]
+- Updated dependencies [f00fe04]
+- Updated dependencies [d317d31]
+- Updated dependencies [a3bda2e]
+- Updated dependencies
+- Updated dependencies [a676340]
+- Updated dependencies [61543b2]
+- Updated dependencies [53d886e]
+- Updated dependencies [b236a46]
+- Updated dependencies [c9efc96]
+- Updated dependencies [a845ec7]
+- Updated dependencies [03a0fbf]
+- Updated dependencies [bf9d6f8]
+- Updated dependencies [44bb794]
+- Updated dependencies [31e4e13]
+- Updated dependencies [87b11c5]
+- Updated dependencies [de755c7]
+- Updated dependencies [2aacdca]
+- Updated dependencies [3d573d7]
+- Updated dependencies [3d573d7]
+- Updated dependencies [4738d38]
+- Updated dependencies [37b6513]
+- Updated dependencies [a5a7182]
+- Updated dependencies [f37033c]
+- Updated dependencies [5360c60]
+- Updated dependencies [ed2afce]
+- Updated dependencies [d06e6bc]
+  - @agent-native/core@0.203.0
+
 ## 0.3.25
 
 ### Patch Changes
@@ -1997,13 +2037,5 @@
 - Updated dependencies [b6ca1a7]
 - Updated dependencies [b6ca1a7]
   - @agent-native/core@0.165.3
-
-## 0.2.659
-
-### Patch Changes
-
-- Updated dependencies [b130f4e]
-- Updated dependencies [ac3acfa]
-  - @agent-native/core@0.165.2
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
