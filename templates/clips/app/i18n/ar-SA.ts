@@ -1461,6 +1461,8 @@ const messages = {
       "تعذّر فتح Builder.io. إذا كان التطبيق مضمّنًا في محادثة، فافتحه في علامة تبويب بالمتصفح؛ وإلا فحاول مرة أخرى.",
     builderConnectError:
       "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو استخدم خيار التخزين أدناه.",
+    builderConnectErrorAskAdmin:
+      "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اطلب من مالك أو مسؤول إعداد التخزين.",
     builderStatusReadError: "تعذّر التحقق من اتصال Builder.io.",
     checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
     builderTimeout: "لم يصل رد من Builder خلال 5 دقائق. حاول مرة أخرى.",

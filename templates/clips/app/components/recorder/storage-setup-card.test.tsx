@@ -541,4 +541,19 @@ describe("StorageSetupCard", () => {
     expect(container.textContent).not.toContain("settings.s3Title");
     expect(container.textContent).toContain("clipsSettings.storageAskAdmin");
   });
+
+  it("points members to an owner or admin when Builder setup fails", async () => {
+    mocks.storageSetupHref = null;
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ error: "Builder setup failed" }),
+    );
+    await renderCard();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "storageSetup.builderConnectErrorAskAdmin",
+    );
+    expect(container.textContent).toContain("clipsSettings.storageAskAdmin");
+    expect(container.textContent).not.toContain("settings.s3Title");
+    expect(container.querySelector("a[href]")).toBeNull();
+  });
 });

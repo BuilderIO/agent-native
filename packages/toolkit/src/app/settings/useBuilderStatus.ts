@@ -1929,6 +1929,7 @@ export function useBuilderConnectFlow(
         }
         return;
       }
+      clearStatusReadError();
       setHasFetchedStatus(true);
       setStatusResolved(true);
       setConfigured(true);
@@ -2008,7 +2009,7 @@ export function useBuilderConnectFlow(
       channel?.close();
       window.removeEventListener("message", handler);
     };
-  }, [fetchStatus, notifyProvisionedAccount]);
+  }, [clearStatusReadError, fetchStatus, notifyProvisionedAccount]);
 
   return {
     configured,

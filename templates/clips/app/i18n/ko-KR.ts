@@ -1454,6 +1454,8 @@ const messages = {
       "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 다시 시도하세요.",
     builderConnectError:
       "Builder.io 설정을 완료하지 못했습니다. 다시 시도하거나 아래 저장소 옵션을 사용하세요.",
+    builderConnectErrorAskAdmin:
+      "Builder.io 설정을 완료하지 못했습니다. 다시 시도하거나 소유자나 관리자에게 스토리지 설정을 요청하세요.",
     builderStatusReadError: "Builder.io 연결을 확인하지 못했습니다.",
     checkingBuilderConnection: "Builder 연결을 확인하는 중…",
     builderTimeout: "5분 동안 Builder 응답이 없습니다. 다시 시도하세요.",

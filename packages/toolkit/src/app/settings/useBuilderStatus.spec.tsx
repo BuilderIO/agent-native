@@ -2038,6 +2038,64 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("configured");
   });
 
+  it("clears a status-read error when callback confirmation succeeds", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const disconnectedStatus = {
+      ...connectedBuilderStatus,
+      configured: false,
+      orgName: null,
+    };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockRejectedValueOnce(new Error("poll status unavailable"))
+      .mockResolvedValueOnce(jsonResponse(connectedBuilderStatus));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("status-read");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("");
+  });
+
   it("ignores a success message from another connect attempt", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();

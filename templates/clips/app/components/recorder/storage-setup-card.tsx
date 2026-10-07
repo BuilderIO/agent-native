@@ -196,7 +196,11 @@ export function StorageSetupCard({
       ? t("storageSetup.builderConnectPopupError")
       : builderConnect.errorKind === "status-read"
         ? t("storageSetup.builderStatusReadError")
-        : t("storageSetup.builderConnectError")
+        : t(
+            storageSetupHref
+              ? "storageSetup.builderConnectError"
+              : "storageSetup.builderConnectErrorAskAdmin",
+          )
     : null;
   const builderConnecting = builderConnect.connecting;
   const actionConnecting = connecting || builderConnecting;

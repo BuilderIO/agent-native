@@ -1474,6 +1474,8 @@ const messages = {
       "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
     builderConnectError:
       "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、下のストレージオプションをご利用ください。",
+    builderConnectErrorAskAdmin:
+      "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、オーナーまたは管理者にストレージの設定を依頼してください。",
     builderStatusReadError: "Builder.io の接続を確認できませんでした。",
     checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:

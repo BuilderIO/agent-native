@@ -1496,6 +1496,8 @@ const messages = {
       "Impossible d’ouvrir Builder.io. Si cette application est intégrée à une conversation, ouvrez-la dans un onglet de navigateur ; sinon, réessayez.",
     builderConnectError:
       "La configuration de Builder.io n’a pas abouti. Réessayez ou utilisez l’option de stockage ci-dessous.",
+    builderConnectErrorAskAdmin:
+      "La configuration de Builder.io n’a pas abouti. Réessayez ou demandez à un propriétaire ou à un administrateur de configurer le stockage.",
     builderStatusReadError: "Impossible de vérifier la connexion à Builder.io.",
     checkingBuilderConnection: "Vérification de la connexion à Builder…",
     builderTimeout: "Aucune réponse de Builder après 5 minutes. Réessayez.",

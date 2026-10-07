@@ -1435,6 +1435,8 @@ const messages = {
       "Builder.io नहीं खुल सका। अगर यह ऐप किसी चैट में एम्बेड है, तो इसे ब्राउज़र टैब में खोलें; अन्यथा फिर कोशिश करें।",
     builderConnectError:
       "Builder.io सेटअप पूरा नहीं हो सका। फिर से कोशिश करें या नीचे दिए गए स्टोरेज विकल्प का उपयोग करें।",
+    builderConnectErrorAskAdmin:
+      "Builder.io सेटअप पूरा नहीं हो सका। फिर से कोशिश करें या किसी मालिक या एडमिन से स्टोरेज सेट अप करने को कहें।",
     builderStatusReadError: "Builder.io कनेक्शन की जांच नहीं हो सकी।",
     checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
     builderTimeout: "5 मिनट में Builder से जवाब नहीं मिला। फिर कोशिश करें।",
