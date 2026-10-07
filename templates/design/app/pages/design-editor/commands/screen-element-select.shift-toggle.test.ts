@@ -216,6 +216,41 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
     }
   });
 
+  it("keeps the bridge's semantic parent for boolean operands", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    const boolean = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+    boolean.setAttribute("data-an-primitive", "boolean");
+    const mask = doc.createElementNS("http://www.w3.org/2000/svg", "mask");
+    const operand = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+    operand.id = "node-a";
+    operand.setAttribute("data-an-primitive", "boolean-operand");
+    boolean.appendChild(mask);
+    mask.appendChild(operand);
+    doc.body.appendChild(boolean);
+    boolean.getBoundingClientRect = () =>
+      ({ x: 20, y: 30, width: 160, height: 140 }) as DOMRect;
+    mask.getBoundingClientRect = () =>
+      ({ x: 5, y: 7, width: 20, height: 20 }) as DOMRect;
+    operand.getBoundingClientRect = () =>
+      ({ x: 100, y: 110, width: 80, height: 70 }) as DOMRect;
+
+    try {
+      const measured = withMeasuredGeometry(makeInfo("node-a"));
+
+      expect(measured.parentBoundingRect).toEqual({
+        x: 20,
+        y: 30,
+        width: 160,
+        height: 140,
+      });
+    } finally {
+      document.body.removeChild(iframe);
+    }
+  });
+
   it("uses viewport coordinates for fixed elements without a containing block", () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");

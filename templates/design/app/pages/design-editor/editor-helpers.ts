@@ -198,7 +198,11 @@ export function withMeasuredGeometry(
     if (!node) continue;
     const box = node.getBoundingClientRect();
     if (box.width <= 0 && box.height <= 0) continue;
-    const parent = node.parentElement;
+    const parent =
+      node.getAttribute("data-an-primitive") === "boolean-operand"
+        ? (node.closest('svg[data-an-primitive="boolean"]') ??
+          node.parentElement)
+        : node.parentElement;
     const parentBox = parent?.getBoundingClientRect();
     const view = frame.contentWindow;
     const positionCoordinateContext = view
