@@ -22,7 +22,7 @@ const ENGINE_STATUS_ROUTE = "/_agent-native/agent-engine/status";
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const OPENAI_MODELS_ENDPOINT = "https://api.openai.com/v1/models";
 const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
-const OPENAI_E2E_MODEL = "gpt-5.6-luna";
+const OPENAI_E2E_MODEL = "gpt-6-luna";
 const OPENAI_VALIDATION_TIMEOUT_MS = 15_000;
 // Each in-page fetch is aborted by its own signal; the outer bound covers the
 // page itself freezing, which an abort signal inside it cannot.

@@ -248,7 +248,7 @@ test("validates the model execution path, not only the models listing", async ()
     ],
   );
   assert.deepEqual(JSON.parse(requests[1]?.body ?? "{}"), {
-    model: "gpt-5.6-luna",
+    model: "gpt-6-luna",
     input: "Reply with OK.",
     max_output_tokens: 16,
     store: false,
@@ -266,7 +266,7 @@ test("rejects a key that can list models but cannot execute luna", async () => {
   try {
     await assert.rejects(
       validateOpenAiKey("sk-example-restricted"),
-      /gpt-5\.6-luna.*HTTP 403/,
+      /gpt-6-luna.*HTTP 403/,
     );
   } finally {
     globalThis.fetch = originalFetch;
