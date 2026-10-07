@@ -1799,10 +1799,12 @@ export function useBuilderConnectFlow(
           flow:
             cleanTrackingParam(flow) ?? inferBuilderConnectTrackingFlow(source),
         });
-        setError(
-          "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
-          "launch",
-        );
+        if (s) {
+          setError(
+            "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
+            "launch",
+          );
+        }
       }
     },
     {

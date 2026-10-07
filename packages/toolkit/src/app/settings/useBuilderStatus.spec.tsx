@@ -2443,6 +2443,61 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("Didn't hear back from Builder");
   });
 
+  it("preserves status-read guidance when the connect poll times out", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    let statusReads = 0;
+    vi.mocked(fetch).mockImplementation(async () => {
+      statusReads += 1;
+      if (statusReads === 1) {
+        return jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl:
+            "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: false,
+          privateKeyConfigured: false,
+        });
+      }
+      throw new Error("status unavailable");
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("status-read");
+    expect(container.textContent).toContain(
+      "Couldn't read the Builder.io connections.",
+    );
+    expect(container.textContent).not.toContain(
+      "Didn't hear back from Builder",
+    );
+  });
+
   it("waits for a member's own grant instead of the org connection they already ride", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
