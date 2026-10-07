@@ -446,6 +446,46 @@ describe("session replay screenshot asset checks", () => {
     canvas.remove();
   });
 
+  it("rejects visible canvases with oversized backing stores before reading them", async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 9_000;
+    canvas.height = 1;
+    Object.defineProperty(canvas, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        bottom: 80,
+        height: 40,
+        left: 10,
+        right: 80,
+        top: 40,
+        width: 70,
+      }),
+    });
+    document.body.appendChild(canvas);
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext");
+
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    expect(getContext).not.toHaveBeenCalled();
+
+    canvas.remove();
+  });
+
+  it("rejects excessive replay image resources before starting fetches", async () => {
+    for (let index = 0; index < 129; index += 1) {
+      const image = document.createElement("img");
+      image.src = `https://assets.example.test/${index}.png`;
+      document.body.appendChild(image);
+    }
+    const requests = stubImageProbes(() => "load");
+
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    expect(requests).toHaveLength(0);
+  });
+
   it("rejects visible native audio controls", () => {
     const audio = document.createElement("audio");
     audio.setAttribute("controls", "");

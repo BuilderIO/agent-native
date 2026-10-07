@@ -10,6 +10,7 @@ const REMOTE_IMAGE_PREFLIGHT_CONCURRENCY = 2;
 const REPLAY_FONT_TIMEOUT_MS = 8_000;
 const MAX_INLINE_IMAGE_PIXELS = 8_000_000;
 const MAX_TOTAL_IMAGE_PIXELS = 16_000_000;
+const MAX_REPLAY_IMAGE_RESOURCES = 128;
 const MAX_INLINE_ASSET_BYTES = 32_000_000;
 const MAX_IMAGE_RESPONSE_BYTES = 12_000_000;
 const MAX_SCREENSHOT_DIMENSION = 8_192;
@@ -510,6 +511,7 @@ function imageResourcesInDocuments(
       if (!isElementRendered(canvas, current)) continue;
       const bounds = canvas.getBoundingClientRect();
       if (bounds.width <= 0 || bounds.height <= 0) continue;
+      assertScreenshotDimensions(canvas.width, canvas.height);
 
       const probe = current.createElement("canvas");
       probe.width = 1;
@@ -648,6 +650,9 @@ export async function assertRemoteImagesCapturable(
 ): Promise<ReplayScreenshotAssets> {
   const documents = replayDocuments(document);
   const resources = imageResourcesInDocuments(documents);
+  if (resources.length > MAX_REPLAY_IMAGE_RESOURCES) {
+    throw new ReplayScreenshotAssetError();
+  }
   const assets: ReplayScreenshotAssets = new Map();
   let inlineAssetBytes = 0;
   let inlineImagePixels = 0;
