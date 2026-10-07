@@ -35,7 +35,10 @@ import { getAppProductionUrl } from "../../server/app-url.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../../server/credential-membership-unavailable.js";
 import { getRequestContext } from "../../server/request-context.js";
 import { mintOrgServiceToken } from "../connect-route.js";
-import { revokeOrgServiceToken } from "../connect-store.js";
+import {
+  MAX_SERVICE_TOKEN_TTL_DAYS,
+  revokeOrgServiceToken,
+} from "../connect-store.js";
 import { McpCredentialIssuanceError } from "../credential-issuance.js";
 import {
   allowedActionsSchema,
@@ -66,9 +69,9 @@ export default defineAction({
       .number()
       .int()
       .min(1)
-      .max(365)
+      .max(MAX_SERVICE_TOKEN_TTL_DAYS)
       .optional()
-      .describe("Token lifetime in days (1-365, default 365)"),
+      .describe("Token lifetime in days (1-3650, default 365)"),
     ownerEmail: ownerEmailSchema.optional(),
     team: teamSchema.optional(),
     riskTier: riskTierSchema.optional(),

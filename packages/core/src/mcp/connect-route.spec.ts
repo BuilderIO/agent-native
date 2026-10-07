@@ -52,6 +52,7 @@ function membership(orgId: string, orgName: string) {
 const tokenRows: any[] = [];
 const deviceRows: any[] = [];
 let issuanceFailure: "not-member" | "unavailable" | null = null;
+let issuanceRole = "member";
 const issuanceTransaction = {
   execute: vi.fn(async ({ sql }: { sql: string }) => {
     if (issuanceFailure === "unavailable")
@@ -63,7 +64,7 @@ const issuanceTransaction = {
       rows:
         issuanceFailure === "not-member" && sql.includes("org_members")
           ? []
-          : [{ id: "member-1", role: "member" }],
+          : [{ id: "member-1", role: issuanceRole }],
       rowsAffected: 0,
     };
   }),
@@ -103,6 +104,10 @@ vi.mock("./connect-store.js", () => ({
   DEFAULT_TOKEN_TTL_DAYS: 365,
   MIN_TOKEN_TTL_DAYS: 1,
   MAX_TOKEN_TTL_DAYS: 365,
+  MAX_SERVICE_TOKEN_TTL_DAYS: 3650,
+  normalizeServiceName: (name: string) => name.trim().toLowerCase(),
+  serviceIdentityEmail: (name: string, orgId: string) =>
+    `svc-${name}@service.${orgId}`,
   DEVICE_CODE_TTL_MS: 600_000,
   recordMintedToken: vi.fn(async (p: any) => {
     const id = "id-" + tokenRows.length;
@@ -197,7 +202,8 @@ vi.mock("./connect-store.js", () => ({
 
 const { withMcpCredentialIssuance } = await import("./credential-issuance.js");
 const withMcpCredentialIssuanceMock = vi.mocked(withMcpCredentialIssuance);
-const { handleMcpConnect } = await import("./connect-route.js");
+const { handleMcpConnect, mintOrgServiceToken } =
+  await import("./connect-route.js");
 const { defineAppConfig, resetAppConfigForTests } =
   await import("../app-config/index.js");
 
@@ -229,6 +235,7 @@ describe("handleMcpConnect", () => {
   beforeEach(() => {
     issuanceTransaction.execute.mockClear();
     issuanceFailure = null;
+    issuanceRole = "member";
     withMcpCredentialIssuanceMock.mockClear();
     tokenRows.length = 0;
     deviceRows.length = 0;
@@ -617,6 +624,32 @@ describe("handleMcpConnect", () => {
       const lifetimeDays =
         ((payload.exp as number) - (payload.iat as number)) / 86400;
       expect(Math.round(lifetimeDays)).toBe(365);
+    });
+
+    it("mints revocable org service tokens with a 10-year lifetime", async () => {
+      issuanceRole = "admin";
+      const minted = await mintOrgServiceToken({
+        serviceName: "pr-recap",
+        orgId: "org-1",
+        createdBy: "admin@example.com",
+        ttlDays: 3650,
+        appUrl: "https://plan.example.com",
+      });
+      const { payload } = await jose.jwtVerify(
+        minted.token,
+        new TextEncoder().encode(SECRET),
+      );
+
+      expect(minted.ttlDays).toBe(3650);
+      expect(payload.jti).toBe(minted.jti);
+      expect((payload.exp as number) - (payload.iat as number)).toBe(
+        3650 * 86_400,
+      );
+      expect(tokenRows[0]).toMatchObject({
+        jti: minted.jti,
+        kind: "service",
+        ownerEmail: "svc-pr-recap@service.org-1",
+      });
     });
 
     it("mints a standard MCP OAuth token when no A2A_SECRET is configured", async () => {

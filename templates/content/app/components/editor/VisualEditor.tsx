@@ -8,6 +8,7 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
@@ -168,6 +169,7 @@ import {
 import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
 import { ContentTableView } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 function compareDocumentBodyRevisions(
   first: string,
@@ -1576,6 +1578,7 @@ interface VisualEditorProps {
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
   suggesting?: boolean;
+  widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
@@ -3009,6 +3012,7 @@ export function VisualEditor({
   user,
   editable = true,
   suggesting = false,
+  widgetLoadDiagnosticsActive = false,
   localFileMode = false,
   localFilePath,
   referenceDepth,
@@ -3041,6 +3045,9 @@ export function VisualEditor({
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
+  const widgetDiagnosticsActive =
+    widgetBridgeActive || widgetLoadDiagnosticsActive;
   const fileUploadStatus = useFileUploadStatus();
   const fileStorageState: "configured" | "missing" | "unknown" =
     fileUploadStatus.isError
@@ -4515,13 +4522,21 @@ export function VisualEditor({
   }, [editor]);
 
   if (!editor) {
-    return (
+    const skeleton = (
       <div className="flex flex-col gap-3 px-8 py-6 animate-pulse">
         <div className="h-4 w-2/3 rounded bg-muted" />
         <div className="h-4 w-full rounded bg-muted" />
         <div className="h-4 w-5/6 rounded bg-muted" />
         <div className="h-4 w-3/4 rounded bg-muted" />
       </div>
+    );
+    return (
+      <WidgetLoadDiagnostic
+        active={widgetDiagnosticsActive}
+        stage={t("editor.widgetEditorInitStage")}
+        action="VisualEditor.useEditor"
+        fallback={skeleton}
+      />
     );
   }
 

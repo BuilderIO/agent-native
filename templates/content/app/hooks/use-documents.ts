@@ -4,6 +4,7 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { serializeIconValue } from "@agent-native/core/icons";
 import type {
@@ -861,6 +862,7 @@ export function startPageOpenDocumentReads(
       ),
     retry: false,
   });
+  if (isEmbedMcpChatBridgeActive()) return;
   startPreviewDocumentDraftRead(queryClient, documentId, cached);
   if (cached?.source?.mode !== "local-files") {
     startPageOpenReviewReads(queryClient, documentId);
@@ -898,6 +900,7 @@ export function startPageOpenCompanionReads(
   readsStartedEarly: boolean,
 ) {
   if (readsStartedEarly) return;
+  if (isEmbedMcpChatBridgeActive()) return;
   startPreviewDocumentDraftRead(queryClient, documentId, knownDocument);
   if (knownDocument?.source?.mode !== "local-files") {
     startPageOpenReviewReads(queryClient, documentId);

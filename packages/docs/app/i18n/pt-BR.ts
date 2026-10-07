@@ -2706,6 +2706,7 @@ const ptBR = {
     planAutomations: "Eventos e automações",
     planLocalAndDesktop: "Arquivos locais e desktop",
     planDevelopers: "Guia do desenvolvedor",
+    turnIntoApp: "Transformar em app",
     prVisualRecap: "Recap visual de PR",
     planPluginMarketplace: "Plugin Plan e marketplace",
     slides: "Slides",

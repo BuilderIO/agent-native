@@ -3346,7 +3346,7 @@ export function AgentMessageActions({
         if (usage.billing.builderCredits !== null) {
           const amount = usage.billing.builderCredits.toLocaleString(
             undefined,
-            { maximumFractionDigits: 3 },
+            { minimumFractionDigits: 1, maximumFractionDigits: 1 },
           );
           rows.push({
             id: "usage-builder-credits",
@@ -3396,11 +3396,11 @@ export function AgentMessageActions({
       : []),
   ];
   const messageMenuSections = [
-    ...(usageMenuItems.length > 0
-      ? [{ id: "usage", label: labels.usage, items: usageMenuItems }]
-      : []),
     ...(actionMenuItems.length > 0
       ? [{ id: "actions", items: actionMenuItems }]
+      : []),
+    ...(usageMenuItems.length > 0
+      ? [{ id: "usage", label: labels.usage, items: usageMenuItems }]
       : []),
   ];
   return (
@@ -3600,7 +3600,7 @@ export function AgentMessageActions({
                 }}
                 placement="bottom"
                 align="end"
-                className="agentkit-message-menu w-48"
+                className="agentkit-message-menu w-56"
                 trigger={
                   <IconButton
                     label={labels.messageActions}

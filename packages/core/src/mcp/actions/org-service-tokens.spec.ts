@@ -104,6 +104,15 @@ beforeEach(() => {
 });
 
 describe("create-org-service-token", () => {
+  it("accepts service token lifetimes up to 10 years", () => {
+    expect(
+      createAction.schema.safeParse({ name: "ci", ttlDays: 3650 }).success,
+    ).toBe(true);
+    expect(
+      createAction.schema.safeParse({ name: "ci", ttlDays: 3651 }).success,
+    ).toBe(false);
+  });
+
   it("is not callable from the sandboxed agent tool loop", () => {
     expect(createAction.toolCallable).toBe(false);
     expect(revokeAction.toolCallable).toBe(false);
