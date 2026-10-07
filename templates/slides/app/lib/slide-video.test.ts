@@ -83,7 +83,7 @@ describe("slide video helpers", () => {
     expect(video.hasAttribute("loop")).toBe(true);
   });
 
-  it("recognizes media keyboard events when the event is retargeted", () => {
+  it("recognizes only media-control keys when an event is retargeted", () => {
     const video = document.createElement("video");
     document.body.append(video);
 
@@ -94,6 +94,25 @@ describe("slide video helpers", () => {
     });
     window.dispatchEvent(retargeted);
     expect(isMediaKeyboardEvent(retargeted)).toBe(true);
+
+    for (const key of [
+      " ",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowUp",
+      "Home",
+      "End",
+    ]) {
+      expect(isMediaKeyboardEvent(new KeyboardEvent("keydown", { key }))).toBe(
+        true,
+      );
+    }
+
+    for (const key of ["f", "s", "Escape"]) {
+      expect(isMediaKeyboardEvent(new KeyboardEvent("keydown", { key }))).toBe(
+        false,
+      );
+    }
 
     video.blur();
     const composedPathEvent = new KeyboardEvent("keydown", {

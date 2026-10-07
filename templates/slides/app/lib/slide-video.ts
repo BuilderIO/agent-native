@@ -13,6 +13,15 @@ const VIDEO_FILE_EXTENSIONS = new Set([
   "ogv",
   "webm",
 ]);
+const MEDIA_CONTROL_KEYS = new Set([
+  " ",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "End",
+  "Home",
+]);
 
 export interface InsertSlideVideoOptions {
   position?: SlideImageDropPosition;
@@ -41,6 +50,7 @@ export function videoPlaybackSettingsFor(
 }
 
 export function isMediaKeyboardEvent(event: KeyboardEvent): boolean {
+  if (!MEDIA_CONTROL_KEYS.has(event.key)) return false;
   const targetsMedia = (target: EventTarget | null): boolean =>
     target instanceof Element && Boolean(target.closest("video, audio"));
   if (targetsMedia(event.target)) return true;

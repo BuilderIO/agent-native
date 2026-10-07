@@ -71,15 +71,17 @@ describe("PresenterView", () => {
 
     const video = screen.getByTestId("presenter-video");
     video.focus();
-    const mediaKey = new KeyboardEvent("keydown", {
-      key: "ArrowRight",
-      bubbles: true,
-      cancelable: true,
-    });
-    window.dispatchEvent(mediaKey);
+    for (const key of [" ", "ArrowRight", "ArrowDown"]) {
+      const mediaKey = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(mediaKey);
 
-    expect(mediaKey.defaultPrevented).toBe(false);
-    expect(screen.getByText("1 / 3")).toBeTruthy();
+      expect(mediaKey.defaultPrevented).toBe(false);
+      expect(screen.getByText("1 / 3")).toBeTruthy();
+    }
 
     video.blur();
     const presenterKey = new KeyboardEvent("keydown", {
