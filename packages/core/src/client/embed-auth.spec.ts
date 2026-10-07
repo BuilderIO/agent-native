@@ -353,11 +353,24 @@ describe("embed auth client", () => {
       encodeURIComponent(JSON.stringify({ version: 1 }));
     const tokenWithScope = (scope?: string) =>
       `${Buffer.from(JSON.stringify({ scope })).toString("base64url")}.signature`;
+    const serverRefusal = () =>
+      new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        statusText: "Unauthorized",
+        headers: { "Content-Type": "application/json" },
+      });
 
-    async function interceptedFetch(scope?: string) {
-      window.history.replaceState(null, "", "/design/d1?embedded=1");
+    async function interceptedFetch(
+      scope: string | undefined,
+      { bridge = true, upstream = async () => new Response("ok") } = {},
+    ) {
+      window.history.replaceState(
+        null,
+        "",
+        `/design/d1?embedded=1${bridge ? `&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1` : ""}`,
+      );
       sessionStorage.setItem(STORAGE_KEY, tokenWithScope(scope));
-      const originalFetch = vi.fn(async () => new Response("ok"));
+      const originalFetch = vi.fn(upstream);
       Object.defineProperty(window, "fetch", {
         configurable: true,
         writable: true,
@@ -368,24 +381,80 @@ describe("embed auth client", () => {
       return { originalFetch, module };
     }
 
-    it("refuses hand-written application-state requests without reaching the network", async () => {
+    const refusedRequests = [
+      ["/_agent-native/application-state/navigation", "PUT"],
+      ["/_agent-native/application-state/navigation", "DELETE"],
+      ["/_agent-native/application-state?keys=navigate", "GET"],
+      ["/design/_agent-native/application-state/__url__", "PUT"],
+      ["/_agent-native/webmcp/manifest", "GET"],
+    ] as const;
+
+    it("answers refused framework requests locally with the server's 401", async () => {
       const { originalFetch, module } = await interceptedFetch(readCapability);
 
       expect(module.isMcpDirectoryWidgetReadOnlyEmbed()).toBe(true);
-      for (const [path, method] of [
-        ["/_agent-native/application-state/navigation", "PUT"],
-        ["/_agent-native/application-state/navigation", "DELETE"],
-        ["/_agent-native/application-state?keys=navigate", "GET"],
-        ["/design/_agent-native/application-state/__url__", "PUT"],
-      ] as const) {
-        await expect(window.fetch(path, { method })).rejects.toMatchObject({
-          name: "AgentNativeReadOnlySurfaceError",
+      for (const [path, method] of refusedRequests) {
+        const response = await window.fetch(path, { method });
+        expect(response.status, `${method} ${path}`).toBe(401);
+        expect(response.statusText).toBe("Unauthorized");
+        expect(response.headers.get("content-type")).toBe("application/json");
+        await expect(response.json()).resolves.toEqual({
+          error: "Unauthorized",
         });
       }
       expect(originalFetch).not.toHaveBeenCalled();
 
       await window.fetch("/_agent-native/actions/get-design?id=d1");
       expect(originalFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("hands consumers the same failure the server's 401 produces", async () => {
+      const refused = await interceptedFetch(readCapability);
+      const { writeClientAppState, readClientAppStateMany } =
+        await import("./application-state.js");
+      const failures = async () => {
+        const errors: Array<{ message: string; status?: number }> = [];
+        for (const call of [
+          () => writeClientAppState("navigation", { view: "editor" }),
+          () => readClientAppStateMany(["navigation"]),
+        ]) {
+          try {
+            await call();
+          } catch (error) {
+            const failure = error as Error & { status?: number };
+            errors.push({ message: failure.message, status: failure.status });
+          }
+        }
+        return errors;
+      };
+
+      const local = await failures();
+      expect(refused.originalFetch).not.toHaveBeenCalled();
+
+      const served = await (async () => {
+        const upstream = await interceptedFetch(undefined, {
+          upstream: async () => serverRefusal(),
+        });
+        const result = await failures();
+        expect(upstream.originalFetch).toHaveBeenCalledTimes(2);
+        return result;
+      })();
+
+      expect(local).toHaveLength(2);
+      expect(local.every(({ status }) => status === 401)).toBe(true);
+      expect(local).toEqual(served);
+    });
+
+    it("leaves a scoped token without the widget-shell marker untouched", async () => {
+      const { originalFetch, module } = await interceptedFetch(readCapability, {
+        bridge: false,
+      });
+
+      expect(module.isMcpDirectoryWidgetReadOnlyEmbed()).toBe(false);
+      for (const [path, method] of refusedRequests) {
+        await window.fetch(path, { method });
+      }
+      expect(originalFetch).toHaveBeenCalledTimes(refusedRequests.length);
     });
 
     it("leaves application state reachable for full embed sessions", async () => {

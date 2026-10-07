@@ -2,7 +2,6 @@ export { initializeAgentNativeClient } from "../client-bootstrap.js";
 export {
   agentNativeApiDisabledReason,
   AgentNativeApiDisabledError,
-  AgentNativeReadOnlySurfaceError,
   setAgentNativeApiDisabled,
 } from "../api-surface.js";
 export {

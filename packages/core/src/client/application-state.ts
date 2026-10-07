@@ -1,10 +1,6 @@
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
-import {
-  isMcpDirectoryWidgetReadOnlyEmbed,
-  refuseReadOnlyEmbedState,
-} from "./embed-auth.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 const pendingMutations = new Map<string, Promise<void>>();
@@ -18,11 +14,6 @@ export interface ClientAppStateWriteOptions {
   keepalive?: boolean;
   requestSource?: string;
   signal?: AbortSignal;
-}
-
-function assertAppStateAvailable(detail: string): void {
-  assertAgentNativeApiEnabled(detail);
-  if (isMcpDirectoryWidgetReadOnlyEmbed()) refuseReadOnlyEmbedState(detail);
 }
 
 function appStateUrl(key: string): string {
@@ -156,7 +147,7 @@ export async function readClientAppStateMany(
   keys: readonly string[],
   options: ClientAppStateReadOptions = {},
 ): Promise<ClientAppStateBatch> {
-  assertAppStateAvailable(`read application state [${keys.join(", ")}]`);
+  assertAgentNativeApiEnabled(`read application state [${keys.join(", ")}]`);
   const unique = [...new Set(keys)];
   for (const key of unique) appStateUrl(key);
   if (unique.length === 0) return { values: {}, missing: [] };
@@ -283,7 +274,7 @@ export async function writeClientAppState<T = unknown>(
   value: T,
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
-  assertAppStateAvailable(`write application state "${key}"`);
+  assertAgentNativeApiEnabled(`write application state "${key}"`);
   return runClientAppStateMutation(key, async () => {
     const response = await fetch(appStateUrl(key), {
       method: "PUT",
@@ -305,7 +296,7 @@ export async function compareAndSetClientAppState(
   next: Record<string, unknown> | null,
   options: ClientAppStateWriteOptions = {},
 ): Promise<boolean> {
-  assertAppStateAvailable(`compare application state \"${key}\"`);
+  assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
   return runClientAppStateMutation(key, async () => {
     const response = await fetch(appStateUrl(key), {
       method: "PATCH",
@@ -331,7 +322,7 @@ export async function deleteClientAppState(
   key: string,
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
-  assertAppStateAvailable(`delete application state "${key}"`);
+  assertAgentNativeApiEnabled(`delete application state "${key}"`);
   await runClientAppStateMutation(key, async () => {
     const response = await fetch(appStateUrl(key), {
       method: "DELETE",

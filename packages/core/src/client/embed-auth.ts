@@ -14,7 +14,6 @@ import {
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
 import { frameworkRoutePrefix } from "./api-path.js";
-import { AgentNativeReadOnlySurfaceError } from "./api-surface.js";
 
 let installed = false;
 let memoryToken: string | null = null;
@@ -203,7 +202,8 @@ function readEmbedTokenScope(token: string): string | undefined {
 let readOnlyScopeCache: { token: string; readOnly: boolean } | null = null;
 
 /**
- * True when this embed runs on a directory-widget read capability, which the
+ * True when this document is the app nested in an MCP App widget shell (the
+ * chat bridge is active) on a directory-widget read capability, which the
  * server limits to the widget's own resource reads. The token's claims are
  * only a UI hint (the signature is checked server-side), so this decides what
  * not to attempt, never what is allowed.
@@ -219,28 +219,7 @@ export function isMcpDirectoryWidgetReadOnlyEmbed(): boolean {
       ),
     };
   }
-  return readOnlyScopeCache.readOnly;
-}
-
-let readOnlyRejectionFilterInstalled = false;
-
-// A read-only widget refuses every application-state call, so fire-and-forget
-// callers reject on purpose; that refusal is expected, not a console error.
-function installReadOnlyRejectionFilter(win: Window): void {
-  if (readOnlyRejectionFilterInstalled) return;
-  readOnlyRejectionFilterInstalled = true;
-  win.addEventListener("unhandledrejection", (event) => {
-    if (event.reason instanceof AgentNativeReadOnlySurfaceError) {
-      event.preventDefault();
-    }
-  });
-}
-
-/** Refuses an application-state call before it can reach the network. */
-export function refuseReadOnlyEmbedState(detail: string): never {
-  const win = browserWindow();
-  if (win) installReadOnlyRejectionFilter(win);
-  throw new AgentNativeReadOnlySurfaceError(detail);
+  return readOnlyScopeCache.readOnly && isEmbedMcpChatBridgeActive();
 }
 
 export function isEmbedAuthActive(): boolean {
@@ -363,7 +342,6 @@ export function _resetEmbedAuthForTests(): void {
   installed = false;
   memoryToken = null;
   readOnlyScopeCache = null;
-  readOnlyRejectionFilterInstalled = false;
   mcpChatBridgeActive = false;
   mcpChatBridgeScope = null;
   authFailureCache.clear();
@@ -452,12 +430,26 @@ function isAgentNativeRuntimePath(pathname: string): boolean {
   );
 }
 
-function isApplicationStatePath(pathname: string): boolean {
+// What a read-only widget session is refused whatever it asks for: the agent
+// state it can never write, and the browser-tool manifest it can never run.
+function isReadOnlyWidgetRefusedPath(pathname: string): boolean {
   return [FRAMEWORK_INTERNAL_ROUTE_PREFIX, frameworkRoutePrefix()].some(
     (prefix) =>
       pathname.endsWith(`${prefix}/application-state`) ||
-      pathname.includes(`${prefix}/application-state/`),
+      pathname.includes(`${prefix}/application-state/`) ||
+      pathname.endsWith(`${prefix}/webmcp/manifest`),
   );
+}
+
+// The refusal the server's auth guard already sends such a session, answered
+// locally so each caller takes the error path it takes today without the
+// request or its console error.
+function readOnlyWidgetRefusal(): Response {
+  return new Response(JSON.stringify({ error: "Unauthorized" }), {
+    status: 401,
+    statusText: "Unauthorized",
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
@@ -645,13 +637,10 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     input: RequestInfo | URL,
     init?: RequestInit,
   ) => {
-    // The typed helpers refuse first; this also covers hand-written fetches.
     if (isMcpDirectoryWidgetReadOnlyEmbed() && sameOrigin(input, win)) {
       const url = inputUrl(input, win);
-      if (url && isApplicationStatePath(url.pathname)) {
-        refuseReadOnlyEmbedState(
-          `${requestMethod(input, init)} ${url.pathname}`,
-        );
+      if (url && isReadOnlyWidgetRefusedPath(url.pathname)) {
+        return readOnlyWidgetRefusal();
       }
     }
     const request = requestUrlAndKey(input, init, win);

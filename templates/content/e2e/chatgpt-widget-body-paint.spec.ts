@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { getMcpDirectoryWidgetResourceUri } from "@agent-native/core/mcp";
 import {
   buildEmbedStartPath,
   COOKIE_NAME,
@@ -127,7 +128,7 @@ test("a Content body paints from a scoped ticket in a nested widget frame", asyn
   }
   const scope = createMcpDirectoryWidgetReadCapability({
     appId: "content",
-    resourceUri: "ui://content/shell-v67",
+    resourceUri: getMcpDirectoryWidgetResourceUri("content"),
     resourceIds,
     actionArguments,
   });

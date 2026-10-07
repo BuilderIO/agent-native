@@ -3,7 +3,6 @@ import { initializeWebMCPPolyfill } from "@mcp-b/webmcp-polyfill";
 import { agentNativeToolTitle } from "../shared/agent-mcp-metadata.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
-import { isMcpDirectoryWidgetReadOnlyEmbed } from "./embed-auth.js";
 import type {
   AgentNativeClientAction,
   AgentNativeClientActions,
@@ -1163,9 +1162,6 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
       },
     },
     actions: async () => {
-      // A directory widget's read-only session is refused the manifest, so it
-      // exposes no browser actions instead of failing a request that cannot pass.
-      if (isMcpDirectoryWidgetReadOnlyEmbed()) return [];
       const response = await fetchImpl(
         agentNativePath("/_agent-native/webmcp/manifest"),
         {
