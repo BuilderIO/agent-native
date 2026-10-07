@@ -692,12 +692,14 @@ prints nothing), start the dev server detached with its log and PID in
 
 \`\`\`bash
 mkdir -p .tmp && (nohup pnpm exec agent-native dev --port <port> > .tmp/dev.log 2>&1 & echo $! > .tmp/dev.pid)
-wait200() { local end=$((SECONDS+180)); while [ $SECONDS -lt $end ]; do [ "$(curl -sL --connect-timeout 2 --max-time 10 -o /dev/null -w '%{http_code}' "$1")" = 200 ] && return 0; sleep 2; done; echo "no 200 from $1 in 3 minutes; read .tmp/dev.log" >&2; return 1; }
-wait200 http://localhost:<port>/ && wait200 http://localhost:<port>/<route>
+wait200() { while [ $SECONDS -lt $end ]; do t=$((end-SECONDS)); [ "$(curl -sL --connect-timeout 2 --max-time $((t<10?t:10)) -o /dev/null -w '%{http_code}' "$1")" = 200 ] && return 0; sleep 1; done; echo "no 200 from $1 before the three-minute deadline; read .tmp/dev.log" >&2; return 1; }
+end=$((SECONDS+180)); wait200 http://localhost:<port>/ && wait200 http://localhost:<port>/<route>
 \`\`\`
 
 The second poll compiles the domain route once so the first screenshot does not
-wait for it. A nonzero exit means the server or the route never answered:
+wait for it. Both polls share one three-minute deadline, set by the \`end=\`
+assignment, and each request is capped by the time left; run that last line
+again after every restart for a fresh clock. A nonzero exit means the server or the route never answered:
 read \`.tmp/dev.log\` and fix that before any screenshot. The log prints \`Local: http://localhost:<port>/\` before the
 server can answer; a 503 or a "Dev server is restarting" page is not yours to
 fix. Stop the server with \`kill $(cat .tmp/dev.pid)\`, which also stops its

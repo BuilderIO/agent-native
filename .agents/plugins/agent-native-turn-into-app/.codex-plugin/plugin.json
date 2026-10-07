@@ -1,6 +1,6 @@
 {
   "name": "agent-native-turn-into-app",
-  "version": "1.0.0+codex.f6ed8c18a2dc",
+  "version": "1.0.0+codex.4bd5ce4677e2",
   "description": "Turn a thread, skill, spreadsheet, or Claude/ChatGPT project into a visual Agent-Native app. Local code agents build, run, and screenshot-review it; Claude and ChatGPT on the web hand a bounded source brief to Builder through Dispatch.",
   "author": {
     "name": "Agent-Native",
