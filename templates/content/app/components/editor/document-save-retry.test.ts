@@ -71,6 +71,36 @@ describe("pending save retry", () => {
     ).toBe("Local edit and peer edit");
   });
 
+  it("retries a save held for collaboration delivery with its authored base", () => {
+    expect(
+      pendingSaveRetrySnapshot(
+        {
+          contentPersisted: false,
+          outcome: "pending_collaboration_flush",
+          recoveryDraft: {
+            title: "Page",
+            content: "Local edit",
+            baseContent: "Original",
+            baseUpdatedAt: "2026-09-23T00:00:00.000Z",
+            baseRevision: "original-1",
+          },
+        },
+        pending,
+        live,
+      ),
+    ).toEqual({
+      title: "Page",
+      content: "Local edit",
+      contentBase: {
+        content: "Original",
+        updatedAt: "2026-09-23T00:00:00.000Z",
+        revision: "original-1",
+      },
+      titleBase: "Page",
+      contentObservationEpoch: 2,
+    });
+  });
+
   it.each(["before old result", "after old result"])(
     "keeps a remote-only observation and its matching base %s",
     (order) => {

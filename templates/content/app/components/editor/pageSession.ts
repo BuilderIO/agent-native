@@ -32,7 +32,10 @@ export function ownRecoveryDraftSupersededBySave(
 
 export interface PageSaveResult {
   contentPersisted: boolean;
-  outcome?: "superseded" | "pending_preservation";
+  outcome?:
+    | "superseded"
+    | "pending_preservation"
+    | "pending_collaboration_flush";
   recoveryDraft?: {
     title: string;
     content: string;

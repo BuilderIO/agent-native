@@ -3307,6 +3307,10 @@ function PageEditorSessionBody({
       contentExternalIsNewer ||
       staleEmptyLocalOverFreshServer;
     if (adopt) {
+      authoredContentBaseRef.current.adopted(
+        { revision: document.revision, content: serverContent },
+        authoredContentBase(),
+      );
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -3320,6 +3324,7 @@ function PageEditorSessionBody({
       };
     }
   }, [
+    authoredContentBase,
     document,
     isLinkedLocalSourceDocument,
     contentExternalIsNewer,
@@ -3878,11 +3883,18 @@ function PageEditorSessionBody({
         activeContentSavesRef.current += 1;
         let result;
         try {
-          // A peer that reads this body before the Yjs update carrying the
-          // same text merges it in, then inserts it again when the update
-          // lands. Durability outranks that, so a stalled flush still saves.
           if (!(await flushBeforeSave(flushCollabUpdates))) {
-            console.warn("Saving before this tab's live edits reached peers");
+            return {
+              contentPersisted: false,
+              outcome: "pending_collaboration_flush",
+              recoveryDraft: {
+                title,
+                content,
+                baseContent: contentBase.content,
+                baseUpdatedAt: contentBase.updatedAt,
+                baseRevision: contentBase.revision,
+              },
+            };
           }
           result = await saveDocumentWithRebase({
             base: { ...contentBase },
