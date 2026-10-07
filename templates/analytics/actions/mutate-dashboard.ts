@@ -23,6 +23,7 @@ import {
   MAX_DASHBOARD_MUTATION_CODE_LENGTH,
   MAX_DASHBOARD_MUTATION_OPERATIONS,
   parseDashboardMutationScript,
+  sameJsonValue,
   type DashboardMutationOperation,
   type DashboardMutationResult,
 } from "./dashboard-mutation-api";
@@ -414,6 +415,7 @@ export default defineAction({
     }
 
     let root: Record<string, unknown>;
+    let originalRoot: Record<string, unknown> | undefined;
     let operations!: DashboardMutationOperation[];
     let mutation!: DashboardMutationResult;
 
@@ -424,6 +426,7 @@ export default defineAction({
           `dashboard "${dashboardId}" not found (or you don't have access).`,
         );
       }
+      originalRoot = cloneConfig(existing.config as Record<string, unknown>);
       const computed = computeMutation(existing);
       root = computed.nextRoot;
       operations = computed.nextOperations;
@@ -439,6 +442,9 @@ export default defineAction({
         dashboardId,
         ctx,
         async (existing) => {
+          originalRoot = cloneConfig(
+            existing.config as Record<string, unknown>,
+          );
           const computed = computeMutation(existing);
           const sqlError = await validateMutationSql(
             computed.nextRoot,
@@ -455,9 +461,21 @@ export default defineAction({
       root = persisted.config as Record<string, unknown>;
     }
 
-    const changed =
-      mutation.changedPanelIds.length > 0 ||
-      mutation.dashboardFieldsChanged.length > 0;
+    if (!originalRoot) {
+      // guard:allow-bare-error — invariant: every successful mutation path captures its source config.
+      throw new Error("Could not compare the dashboard mutation result.");
+    }
+    const changed = !sameJsonValue(originalRoot, root);
+    const finalMutation = changed
+      ? mutation
+      : {
+          ...mutation,
+          changedPanelIds: [],
+          movedPanelIds: [],
+          removedPanelIds: [],
+          insertedPanelIds: [],
+          dashboardFieldsChanged: [],
+        };
     if (args.dryRun !== true && changed) {
       queueDashboardCollabSync(dashboardId, root, "agent");
       track(
@@ -474,7 +492,7 @@ export default defineAction({
       );
     }
 
-    const compact = compactDashboardResult(root, mutation.movedPanelIds);
+    const compact = compactDashboardResult(root, finalMutation.movedPanelIds);
     const summary = changed
       ? `${args.dryRun === true ? "Dry-ran" : "Applied"} ${operations.length} dashboard mutation op(s) for "${dashboardId}". ` +
         `First panels: ${compact.firstPanelIds.join(", ")}.`
@@ -491,10 +509,10 @@ export default defineAction({
       appliedOps: operations.length,
       ...compact,
       commandLog: mutation.commandLog,
-      changedPanelIds: mutation.changedPanelIds,
-      insertedPanelIds: mutation.insertedPanelIds,
-      removedPanelIds: mutation.removedPanelIds,
-      dashboardFieldsChanged: mutation.dashboardFieldsChanged,
+      changedPanelIds: finalMutation.changedPanelIds,
+      insertedPanelIds: finalMutation.insertedPanelIds,
+      removedPanelIds: finalMutation.removedPanelIds,
+      dashboardFieldsChanged: finalMutation.dashboardFieldsChanged,
       ...(args.dryRun === true || !changed
         ? { collabSync: { status: "skipped" as const } }
         : {

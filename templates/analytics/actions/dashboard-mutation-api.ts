@@ -751,7 +751,7 @@ function insertPanel(
   return result.insertIndex;
 }
 
-function sameJsonValue(left: unknown, right: unknown): boolean {
+export function sameJsonValue(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (
     !left ||

@@ -246,6 +246,39 @@ describe("mutate-dashboard", () => {
     expect(saved.panels[0]).toEqual(existingConfig.panels[0]);
   });
 
+  it("reports a batch that restores the original dashboard state as unchanged", async () => {
+    const existingConfig = dashboardConfig();
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: { title: "Temporary title" },
+        },
+        { op: "setDashboard", patch: { columns: 3 } },
+        { op: "updatePanel", panelId: "a", patch: { title: "a" } },
+        { op: "setDashboard", patch: { columns: 2 } },
+      ],
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.changed).toBe(false);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.dashboardFieldsChanged).toEqual([]);
+    expect(result.summary).toContain("No dashboard changes were needed");
+    expect(result.collabSync).toEqual({ status: "skipped" });
+    expect(mocks.queueDashboardCollabSync).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+    const saved = mocks.upsertDashboard.mock.calls[0][2];
+    expect(saved).toEqual(existingConfig);
+  });
+
   it("applies a typed mutation script in one atomic save", async () => {
     mocks.getDashboard.mockResolvedValue({
       kind: "sql",
