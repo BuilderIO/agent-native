@@ -4,7 +4,10 @@ import { Link } from "react-router";
 
 import { sendAhrefsEvent } from "../lib/ahrefs-analytics";
 import { sitePathForLocale } from "./docs-locale";
-import { TEMPLATE_SCREENSHOTS } from "./template-screenshots";
+import {
+  getScreenshotTileScaleX,
+  TEMPLATE_SCREENSHOTS,
+} from "./template-screenshots";
 import { TemplateScreenshot } from "./TemplateScreenshot";
 import { AppStatusBadge } from "./website-redesign/ds/app-status-badge";
 import { CardArrow } from "./website-redesign/ds/card-arrow";
@@ -174,6 +177,7 @@ export function TemplateCard({ template }: { template: Template }) {
         <div className="relative aspect-[8/5] overflow-hidden bg-[var(--b-bg-page)]">
           <TemplateScreenshot
             alt={t("templateCard.screenshotAlt", { name: template.name })}
+            scaleX={getScreenshotTileScaleX(template.slug)}
             sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
             variants={TEMPLATE_SCREENSHOTS[template.slug]}
           />
