@@ -71,6 +71,15 @@ if (chat) {
       );
     }
   }
+  if (
+    !chatCode.includes(
+      "export const LUNA_MODEL_PATTERN = /^(?:openai\\/)?gpt-(?:5[.-]6|6)-luna$/i;",
+    )
+  ) {
+    issues.push(
+      `${chatPath} LUNA_MODEL_PATTERN must accept only the current low-cost model aliases. Loosening the pattern can make the budget guard accept a more expensive model.`,
+    );
+  }
   if (!chat.includes("assertOnlyLuna")) {
     issues.push(
       `${chatPath} dropped assertOnlyLuna. Seeding a model without reading it back off the wire means a run can silently bill a different model.`,

@@ -97,6 +97,19 @@ describe("guard:beta-e2e-suite", () => {
     }
   });
 
+  it("guards the model acceptance pattern", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          "e2e/beta/lib/chat.ts",
+          "export const LUNA_MODEL_PATTERN = /^(?:openai\\/)?gpt-(?:5[.-]6|6)-luna$/i;",
+          "export const LUNA_MODEL_PATTERN = /^.*$/i;",
+        ),
+      /LUNA_MODEL_PATTERN must accept only the current low-cost model aliases/,
+    );
+  });
+
   it("caps the public matrix and the authenticated matrix", () => {
     rejects(
       (files) =>
