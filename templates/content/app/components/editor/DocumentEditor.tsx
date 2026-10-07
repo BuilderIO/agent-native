@@ -1,6 +1,7 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
+  isReconcileLeadClient,
   useCollaborativeDoc,
   emailToColor,
   emailToName,
@@ -73,6 +74,7 @@ import type {
 } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+import type { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
 import {
@@ -1048,6 +1050,9 @@ export type OwnContentSaveLineage = Map<
 >;
 
 const OWN_CONTENT_SAVE_LINEAGE_LIMIT = 32;
+
+// How long collaborators typing stays quiet before one editor saves it.
+const REMOTE_SAVE_SETTLE_MS = 1500;
 
 export function recordOwnContentSave(
   lineage: OwnContentSaveLineage,
@@ -2868,6 +2873,11 @@ function PageEditorSessionBody({
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const activeContentSavesRef = useRef(0);
+  const liveMarkdownRef = useRef<string | null>(null);
+  const remoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const convergedSaveAttemptRef = useRef<string | null>(null);
+  const collabAwarenessRef = useRef<Awareness | null>(null);
+  const collabClientIdRef = useRef<number | null>(null);
   const recoveryDraftRetentionQueueRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
@@ -3237,6 +3247,8 @@ function PageEditorSessionBody({
     requestSource: TAB_ID,
     user: currentUser,
   });
+  collabAwarenessRef.current = awareness;
+  collabClientIdRef.current = ydoc?.clientID ?? null;
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
   const bodyHydrationError =
     document.bodyHydration?.hydration?.status === "error"
@@ -6566,11 +6578,8 @@ function PageEditorSessionBody({
     );
   reportReconcileRef.current = reportReconcile;
 
-  const handleContentChange = useCallback(
+  const queueEditorContentSave = useCallback(
     (newContent: string) => {
-      if (!editorCanEdit) return;
-      authoredContentBaseRef.current.edited(newContent);
-      if (newContent === localContentRef.current) return;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
       const authoredBase = authoredContentBase();
@@ -6599,15 +6608,75 @@ function PageEditorSessionBody({
     [
       authoredContentBase,
       debouncedSave,
-      editorCanEdit,
       journalCurrentDraft,
       retainActiveRecoveryDraft,
       updateReconcileDraft,
     ],
   );
 
+  const handleContentChange = useCallback(
+    (newContent: string) => {
+      if (!editorCanEdit) return;
+      liveMarkdownRef.current = newContent;
+      authoredContentBaseRef.current.edited(newContent);
+      if (newContent === localContentRef.current) return;
+      queueEditorContentSave(newContent);
+    },
+    [editorCanEdit, queueEditorContentSave],
+  );
+
+  // Each collaborator saves the text it held when its own save fired, and the
+  // server keeps only one of two overlapping saves. Once the editors have
+  // converged, one of them saves what the document holds now so SQL, and
+  // whoever reads it, matches what every open editor shows.
+  const saveConvergedRemoteContent = () => {
+    remoteSaveTimerRef.current = null;
+    const live = liveMarkdownRef.current;
+    if (
+      live === null ||
+      !canEditRef.current ||
+      reconcileRecoveryStateRef.current ||
+      !isReconcileLeadClient(
+        collabAwarenessRef.current,
+        collabClientIdRef.current,
+      )
+    ) {
+      return;
+    }
+    if (saveTimeoutRef.current || activeContentSavesRef.current > 0) {
+      remoteSaveTimerRef.current = setTimeout(
+        saveConvergedRemoteContent,
+        REMOTE_SAVE_SETTLE_MS,
+      );
+      return;
+    }
+    if (
+      live === lastSavedContentRef.current.content ||
+      live === convergedSaveAttemptRef.current
+    ) {
+      return;
+    }
+    convergedSaveAttemptRef.current = live;
+    authoredContentBaseRef.current.edited(live);
+    queueEditorContentSave(live);
+  };
+  const saveConvergedRemoteContentRef = useRef(saveConvergedRemoteContent);
+  saveConvergedRemoteContentRef.current = saveConvergedRemoteContent;
+  useEffect(
+    () => () => {
+      if (remoteSaveTimerRef.current) clearTimeout(remoteSaveTimerRef.current);
+    },
+    [],
+  );
+
   const handleRemoteSnapshotChange = useCallback(
     (content: string) => {
+      liveMarkdownRef.current = content;
+      if (remoteSaveTimerRef.current) clearTimeout(remoteSaveTimerRef.current);
+      remoteSaveTimerRef.current = setTimeout(
+        () => saveConvergedRemoteContentRef.current(),
+        REMOTE_SAVE_SETTLE_MS,
+      );
       authoredContentBaseRef.current.observed(
         content,
         lastSavedContentRef.current,
