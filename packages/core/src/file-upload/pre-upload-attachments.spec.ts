@@ -6,6 +6,7 @@ import {
   preUploadImageAttachments,
   isFileUploadProviderConfigured,
 } from "./pre-upload-attachments.js";
+import { JPEG_BASE64 } from "./test-image-fixtures.js";
 
 const uploadFileMock = vi.hoisted(() => vi.fn());
 const getActiveProviderMock = vi.hoisted(() => vi.fn());
@@ -112,6 +113,29 @@ describe("preUploadAttachments", () => {
     expect(att.data).toBe(dataUrl);
     expect(att.url).toBe("https://cdn.example.com/photo.png");
     expect(result.uploaded).toHaveLength(1);
+  });
+
+  it("canonicalizes image/jpg before uploading a vision attachment", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/photo.jpg",
+      provider: "builder",
+    });
+
+    const att = makeImageAtt({
+      name: "photo.jpg",
+      contentType: "image/jpg",
+      data: `data:image/jpg;base64,${JPEG_BASE64}`,
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({ mimeType: "image/jpeg" }),
+    );
+    expect(result.uploaded[0]?.contentType).toBe("image/jpeg");
+    expect(att.data).toBe(`data:image/jpg;base64,${JPEG_BASE64}`);
   });
 
   it("uses the serialized data URL MIME type when it differs from the original file type", async () => {

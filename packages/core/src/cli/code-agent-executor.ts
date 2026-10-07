@@ -42,6 +42,7 @@ import {
   truncateCodingOutput,
   type StructuredToolMetadata,
 } from "../coding-tools/index.js";
+import { normalizeImageMediaType } from "../file-upload/attachment-bytes.js";
 import {
   buildMergedConfig,
   McpClientManager,
@@ -2301,14 +2302,6 @@ function createFakeCodeAgentEngine(text: string): AgentEngine {
   };
 }
 
-const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
-
 function buildCodeAgentMessages(
   run: CodeAgentRunRecord,
   prompt: string,
@@ -2363,20 +2356,19 @@ function buildCodeAgentMessages(
 
   for (const att of attachments ?? []) {
     if (!att.dataUrl) continue;
-    const match = att.dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+    const match = att.dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/i);
     if (!match) continue;
-    const mime = match[1].toLowerCase();
-    if (SUPPORTED_IMAGE_MEDIA_TYPES.has(mime)) {
+    const mime = normalizeImageMediaType(match[1]);
+    if (mime) {
       imageParts.push({
         type: "image",
         data: match[2],
-        mediaType:
-          mime as import("../agent/engine/types.js").EngineImagePart["mediaType"],
+        mediaType: mime,
       });
     } else {
       const label = att.name ? `"${att.name}"` : "An image";
       unsupportedImageNotes.push(
-        `[${label} could not be processed — unsupported image format (${mime}). ` +
+        `[${label} could not be processed — unsupported image format (${match[1]}). ` +
           `Only JPEG, PNG, GIF, and WebP are supported.]`,
       );
     }

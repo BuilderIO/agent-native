@@ -3,6 +3,7 @@ import {
   isSpreadsheetDocument,
   parseSpreadsheetDocument,
 } from "../ingestion/spreadsheet.js";
+import { normalizeImageMediaType } from "./attachment-bytes.js";
 import {
   classifyInlineAttachment,
   describeInlineBlockReason,
@@ -44,7 +45,10 @@ const SVG_REFERENCE_SECURITY_NOTE =
 const SPREADSHEET_PREVIEW_MAX_CHARS = 24_000;
 
 function normalizeContentType(value: string | undefined): string | undefined {
-  return value?.split(";")[0]?.trim().toLowerCase() || undefined;
+  const normalized = value?.split(";")[0]?.trim().toLowerCase();
+  return normalized
+    ? (normalizeImageMediaType(normalized) ?? normalized)
+    : undefined;
 }
 
 function hasSvgFilename(name: string | undefined): boolean {

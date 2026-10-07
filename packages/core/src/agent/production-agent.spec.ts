@@ -799,6 +799,25 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
+  it("normalizes image/jpg before sending the image to vision", () => {
+    expect(
+      buildUserContentWithAttachments({
+        text: "Describe this",
+        attachments: [
+          {
+            type: "image",
+            name: "screen.jpg",
+            contentType: "image/jpg",
+            data: `data:image/jpg;base64,${JPEG_BASE64}`,
+          },
+        ],
+      }),
+    ).toEqual([
+      { type: "image", mediaType: "image/jpeg", data: JPEG_BASE64 },
+      { type: "text", text: "Describe this" },
+    ]);
+  });
+
   it("does not inline an oversized image, and points at the uploaded URL instead", () => {
     const att: any = {
       type: "image",

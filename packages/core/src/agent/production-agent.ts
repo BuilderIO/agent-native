@@ -56,6 +56,7 @@ import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import {
   describeAttachmentBytesVerdict,
+  normalizeImageMediaType,
   reconcileImageBytes,
   reconcilePdfBytes,
 } from "../file-upload/attachment-bytes.js";
@@ -2057,23 +2058,6 @@ function retryDelay(
   });
 }
 
-type SupportedImageMediaType =
-  | "image/jpeg"
-  | "image/png"
-  | "image/gif"
-  | "image/webp";
-
-function isSupportedImageMediaType(
-  mediaType: string,
-): mediaType is SupportedImageMediaType {
-  return (
-    mediaType === "image/jpeg" ||
-    mediaType === "image/png" ||
-    mediaType === "image/gif" ||
-    mediaType === "image/webp"
-  );
-}
-
 function isSvgMediaType(mediaType: string | undefined): boolean {
   return mediaType?.split(";")[0]?.trim().toLowerCase() === "image/svg+xml";
 }
@@ -2174,10 +2158,11 @@ export function buildUserContentWithAttachments(opts: {
         }
         continue;
       }
-      const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
+      const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/i);
+      const mediaType = match ? normalizeImageMediaType(match[1]) : null;
       if (
         match &&
-        isSupportedImageMediaType(match[1]) &&
+        mediaType &&
         match[2].length > MAX_INLINE_IMAGE_BASE64_CHARS
       ) {
         const label = att.name ? `"${att.name}"` : "An image";
@@ -2189,10 +2174,10 @@ export function buildUserContentWithAttachments(opts: {
         );
         continue;
       }
-      if (match && isSupportedImageMediaType(match[1])) {
+      if (match && mediaType) {
         const verdict = reconcileImageBytes({
           base64: match[2],
-          declared: match[1],
+          declared: mediaType,
         });
         if (verdict.kind === "ok") {
           userContent.push({
