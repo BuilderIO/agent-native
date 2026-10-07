@@ -286,6 +286,40 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     ).toHaveLength(0);
   });
 
+  it("keeps the arrange context menu above positioned slide images", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const noop = () => {};
+    const slide = {
+      id: "slide-image-context-menu",
+      content:
+        '<div class="fmd-slide"><div class="fmd-pptx-image" data-pptx-element-kind="image" data-slide-object-id="image-1" style="position:absolute;z-index:2147483000"><img src="https://example.test/image.svg" alt="Image"></div></div>',
+      layout: "blank",
+    } as Slide;
+    const { container, getByRole } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+
+    fireEvent.contextMenu(container.querySelector(".slide-content img")!, {
+      button: 2,
+    });
+
+    const menu = getByRole("menu");
+    const arrangeItem = getByRole("menuitem", {
+      name: "styleInspector.order",
+    });
+    expect(menu.className).toContain("z-[2147483647]");
+    expect(arrangeItem.getAttribute("aria-disabled")).not.toBe("true");
+  });
+
   it("keeps a comment-highlight click in the active text editor", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     vi.spyOn(slideCommentAnchor, "slideCommentThreadAtPoint").mockReturnValue(
