@@ -3982,7 +3982,9 @@ function scaffoldGuidanceForTemplate(
   if (!templateName || templateName.startsWith("github:")) return undefined;
   const normalized = normalizeTemplateName(templateName);
   if (normalized === "headless") return "headless";
-  return getTemplate(normalized) ? "default" : undefined;
+  return getTemplate(firstPartyBaseTemplate(normalized))
+    ? "default"
+    : undefined;
 }
 
 function fixWebManifestName(

@@ -416,7 +416,13 @@ describe("materializeTemplate", () => {
       fs.readFileSync(path.join(materialized.dir, "package.json"), "utf-8"),
     );
     expect(pkg.name).toBe("app");
-    expect(pkg["agent-native"].scaffold.template).toBe("builder-code-starter");
+    expect(pkg["agent-native"].scaffold).toMatchObject({
+      template: "builder-code-starter",
+      frameworkSkills: "default",
+      shape: "standalone",
+      templateRef: expect.any(String),
+      coreVersion: expect.any(String),
+    });
     expect(pkg.scripts["migrate:production"]).toBe(
       "tsx scripts/migrate-production.ts && pnpm db:migrate",
     );
