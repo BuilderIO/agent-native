@@ -259,8 +259,8 @@ Start the dev server as the run and deploy guide says (detached, log and PID in
   clipped text, raw markdown, sideways scroll, console errors) overrides the
   mean.
 - Fix every finding in one batch, reset what the click changed, and shoot
-  again. Stop when the bar is met: two passes; a third only to clear an
-  automatic fail.
+  again. Stop when the bar is met: two passes by default; a third only when the
+  second still misses the bar and the pace budget allows.
 - Installed design skills are optional; the review loop limits them.
 
 Screenshots stay in the app's \`.tmp/ui-review/out/\`.
@@ -415,9 +415,14 @@ On a local host you read the file yourself with a throwaway script in
 cached values (\`openpyxl.load_workbook(path)\` and
 \`load_workbook(path, data_only=True)\`; without Python, unzip the file and read
 \`<f>\` and \`<v>\` in \`xl/worksheets/*.xml\`), because a values-only read erases
-the formula versus typed-value evidence below. Record per sheet the dimensions, the count of
-formula and typed cells, and 10-20 representative rows. CSV has no formulas:
-say so and treat the mapping as lower confidence.
+the formula versus typed-value evidence below. Neither reads a legacy binary
+\`.xls\`: convert it once with \`soffice --headless --convert-to xlsx --outdir .tmp/ <file>\` (on macOS,
+\`/Applications/LibreOffice.app/Contents/MacOS/soffice\` when \`soffice\` is not on
+PATH), then read the converted copy and never modify or overwrite the original.
+Without LibreOffice, \`xlrd\` reads \`.xls\` values only; say the formulas are
+unread and treat the mapping as lower confidence. Record per sheet the dimensions, the
+count of formula and typed cells, and 10-20 representative rows. CSV has no
+formulas: say so and treat the mapping as lower confidence.
 
 For a Google Sheets URL:
 
@@ -687,12 +692,13 @@ prints nothing), start the dev server detached with its log and PID in
 
 \`\`\`bash
 mkdir -p .tmp && (nohup pnpm exec agent-native dev --port <port> > .tmp/dev.log 2>&1 & echo $! > .tmp/dev.pid)
-for i in $(seq 90); do [ "$(curl -sL -o /dev/null -w '%{http_code}' http://localhost:<port>/)" = 200 ] && break; sleep 2; done
-curl -s -o /dev/null http://localhost:<port>/<route>
+wait200() { for i in $(seq 90); do [ "$(curl -sL -o /dev/null -w '%{http_code}' "$1")" = 200 ] && return 0; sleep 2; done; echo "no 200 from $1; read .tmp/dev.log" >&2; return 1; }
+wait200 http://localhost:<port>/ && wait200 http://localhost:<port>/<route>
 \`\`\`
 
-The last line compiles the domain route once so the first screenshot does not
-wait for it. The log prints \`Local: http://localhost:<port>/\` before the
+The second poll compiles the domain route once so the first screenshot does not
+wait for it. A nonzero exit means the server or the route never answered:
+read \`.tmp/dev.log\` and fix that before any screenshot. The log prints \`Local: http://localhost:<port>/\` before the
 server can answer; a 503 or a "Dev server is restarting" page is not yours to
 fix. Stop the server with \`kill $(cat .tmp/dev.pid)\`, which also stops its
 children. Stop it before you change \`.env\` and start it again afterwards: an
@@ -985,11 +991,13 @@ for (const [w, h, tag] of [
 if (click) {
   // A fresh context, after the viewport shots, so the click cannot leak into them.
   const { context, page } = await open(1440, 900, "light");
-  await page
-    .locator(click)
-    .first()
-    .click({ timeout: 5000 })
-    .catch((e) => console.log("click failed:", String(e).split("\\n")[0]));
+  try {
+    await page.locator(click).first().click({ timeout: 5000 });
+  } catch (e) {
+    // The shots below still show why; the nonzero exit keeps the pass from counting.
+    console.error("click failed:", String(e).split("\\n")[0]);
+    process.exitCode = 1;
+  }
   await page.waitForTimeout(400);
   await page.screenshot({ path: join(out, \`\${pass}-click-400ms.png\`) });
   await page.waitForTimeout(5000);
@@ -1012,6 +1020,10 @@ Output in \`.tmp/ui-review/out/\`: \`<pass>-desktop-light.png\`,
 
 Reading the metrics:
 
+- A nonzero exit or a \`click failed:\` line means the agent control was never
+  clicked and the pass is invalid. A zero exit only means the click landed;
+  the 400ms and 5s shots show whether anything happened. Fix the selector or the control, reset
+  what changed, and shoot the pass again.
 - \`signedOut\` true or \`landed\` false means the pass is invalid. Sign-in: add
   \`AUTH_DISABLED=1\` (run and deploy guide). \`landed\` false: \`/\` did not open
   the domain route, so fix \`app.homePath\` and restart the server; \`path\`
@@ -1054,9 +1066,11 @@ Reading the metrics:
 6. Fix every finding in one batch; do not hunt micro-issues between passes.
    The click is real: reset what it changed (Retry, Clear, or the sample-data
    reset) so the next pass and the delivered app open on the sample state.
-7. Shoot \`p2\` and rescore. Shoot \`p3\` only to clear an automatic fail, then
-   stop: two passes by default, three at most. Use the script as written;
-   do not grow a separate test harness.
+7. Shoot \`p2\` and rescore. Shoot \`p3\` only when \`p2\` still misses the bar (an
+   automatic fail, a mean under 4.0, or a criterion under 3), the fixes are
+   known, and the 45-minute aim has not passed; it is the last pass. Otherwise
+   stop at two and name the open criteria. Use the script as written; do not
+   grow a separate test harness.
 8. The bar (defaults): mean 4.0 or higher, no criterion below 3, no automatic
    fail. On the final pass, if the host can spawn a sub-agent and time
    remains, give it only the PNGs, the rubric, and the brief, have it score

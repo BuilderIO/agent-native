@@ -215,11 +215,13 @@ for (const [w, h, tag] of [
 if (click) {
   // A fresh context, after the viewport shots, so the click cannot leak into them.
   const { context, page } = await open(1440, 900, "light");
-  await page
-    .locator(click)
-    .first()
-    .click({ timeout: 5000 })
-    .catch((e) => console.log("click failed:", String(e).split("\n")[0]));
+  try {
+    await page.locator(click).first().click({ timeout: 5000 });
+  } catch (e) {
+    // The shots below still show why; the nonzero exit keeps the pass from counting.
+    console.error("click failed:", String(e).split("\n")[0]);
+    process.exitCode = 1;
+  }
   await page.waitForTimeout(400);
   await page.screenshot({ path: join(out, `${pass}-click-400ms.png`) });
   await page.waitForTimeout(5000);
@@ -242,6 +244,10 @@ Output in `.tmp/ui-review/out/`: `<pass>-desktop-light.png`,
 
 Reading the metrics:
 
+- A nonzero exit or a `click failed:` line means the agent control was never
+  clicked and the pass is invalid. A zero exit only means the click landed;
+  the 400ms and 5s shots show whether anything happened. Fix the selector or the control, reset
+  what changed, and shoot the pass again.
 - `signedOut` true or `landed` false means the pass is invalid. Sign-in: add
   `AUTH_DISABLED=1` (run and deploy guide). `landed` false: `/` did not open
   the domain route, so fix `app.homePath` and restart the server; `path`
@@ -284,9 +290,11 @@ Reading the metrics:
 6. Fix every finding in one batch; do not hunt micro-issues between passes.
    The click is real: reset what it changed (Retry, Clear, or the sample-data
    reset) so the next pass and the delivered app open on the sample state.
-7. Shoot `p2` and rescore. Shoot `p3` only to clear an automatic fail, then
-   stop: two passes by default, three at most. Use the script as written;
-   do not grow a separate test harness.
+7. Shoot `p2` and rescore. Shoot `p3` only when `p2` still misses the bar (an
+   automatic fail, a mean under 4.0, or a criterion under 3), the fixes are
+   known, and the 45-minute aim has not passed; it is the last pass. Otherwise
+   stop at two and name the open criteria. Use the script as written; do not
+   grow a separate test harness.
 8. The bar (defaults): mean 4.0 or higher, no criterion below 3, no automatic
    fail. On the final pass, if the host can spawn a sub-agent and time
    remains, give it only the PNGs, the rubric, and the brief, have it score

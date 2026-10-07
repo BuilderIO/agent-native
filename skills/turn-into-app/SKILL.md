@@ -259,8 +259,8 @@ Start the dev server as the run and deploy guide says (detached, log and PID in
   clipped text, raw markdown, sideways scroll, console errors) overrides the
   mean.
 - Fix every finding in one batch, reset what the click changed, and shoot
-  again. Stop when the bar is met: two passes; a third only to clear an
-  automatic fail.
+  again. Stop when the bar is met: two passes by default; a third only when the
+  second still misses the bar and the pace budget allows.
 - Installed design skills are optional; the review loop limits them.
 
 Screenshots stay in the app's `.tmp/ui-review/out/`.

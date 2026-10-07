@@ -77,12 +77,13 @@ prints nothing), start the dev server detached with its log and PID in
 
 ```bash
 mkdir -p .tmp && (nohup pnpm exec agent-native dev --port <port> > .tmp/dev.log 2>&1 & echo $! > .tmp/dev.pid)
-for i in $(seq 90); do [ "$(curl -sL -o /dev/null -w '%{http_code}' http://localhost:<port>/)" = 200 ] && break; sleep 2; done
-curl -s -o /dev/null http://localhost:<port>/<route>
+wait200() { for i in $(seq 90); do [ "$(curl -sL -o /dev/null -w '%{http_code}' "$1")" = 200 ] && return 0; sleep 2; done; echo "no 200 from $1; read .tmp/dev.log" >&2; return 1; }
+wait200 http://localhost:<port>/ && wait200 http://localhost:<port>/<route>
 ```
 
-The last line compiles the domain route once so the first screenshot does not
-wait for it. The log prints `Local: http://localhost:<port>/` before the
+The second poll compiles the domain route once so the first screenshot does not
+wait for it. A nonzero exit means the server or the route never answered:
+read `.tmp/dev.log` and fix that before any screenshot. The log prints `Local: http://localhost:<port>/` before the
 server can answer; a 503 or a "Dev server is restarting" page is not yours to
 fix. Stop the server with `kill $(cat .tmp/dev.pid)`, which also stops its
 children. Stop it before you change `.env` and start it again afterwards: an

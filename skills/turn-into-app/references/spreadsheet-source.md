@@ -34,9 +34,14 @@ On a local host you read the file yourself with a throwaway script in
 cached values (`openpyxl.load_workbook(path)` and
 `load_workbook(path, data_only=True)`; without Python, unzip the file and read
 `<f>` and `<v>` in `xl/worksheets/*.xml`), because a values-only read erases
-the formula versus typed-value evidence below. Record per sheet the dimensions, the count of
-formula and typed cells, and 10-20 representative rows. CSV has no formulas:
-say so and treat the mapping as lower confidence.
+the formula versus typed-value evidence below. Neither reads a legacy binary
+`.xls`: convert it once with `soffice --headless --convert-to xlsx --outdir .tmp/ <file>` (on macOS,
+`/Applications/LibreOffice.app/Contents/MacOS/soffice` when `soffice` is not on
+PATH), then read the converted copy and never modify or overwrite the original.
+Without LibreOffice, `xlrd` reads `.xls` values only; say the formulas are
+unread and treat the mapping as lower confidence. Record per sheet the dimensions, the
+count of formula and typed cells, and 10-20 representative rows. CSV has no
+formulas: say so and treat the mapping as lower confidence.
 
 For a Google Sheets URL:
 
