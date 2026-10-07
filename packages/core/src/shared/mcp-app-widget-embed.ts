@@ -31,6 +31,7 @@ export function getMcpAppWidgetEmbedBootScriptBody(): string {
     if (w.parent === w) return;
     var params = new URLSearchParams(w.location.search);
     var stored = function (key) {
+      // coercion-ok: denied storage reads as absent, exactly as isEmbedMcpChatBridgeActive does.
       try { return w.sessionStorage.getItem(key); } catch (e) { return null; }
     };
     var token = params.get(${safeJsonForHtml(EMBED_TOKEN_QUERY_PARAM)}) || stored(${safeJsonForHtml(EMBED_TOKEN_STORAGE_KEY)});
@@ -41,8 +42,7 @@ export function getMcpAppWidgetEmbedBootScriptBody(): string {
     if (flag === "1" || flag === "true" || (scope && (!token || scope === token))) {
       document.documentElement.setAttribute(${safeJsonForHtml(MCP_APP_WIDGET_EMBED_ATTRIBUTE)}, "1");
     }
-  } catch (e) {
-    // The attribute is a first-paint hint; the app sets it again once it runs.
-  }
+  // coercion-ok: the attribute is a first-paint hint; isMcpAppWidgetEmbed sets it again once the app runs.
+  } catch (e) {}
 })();`;
 }
