@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { hasCrossedCanvasDragThreshold } from "@agent-native/toolkit/canvas-interactions";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
@@ -1671,6 +1672,9 @@ export default function SlideEditor({
   onComment,
 }: SlideEditorProps) {
   const t = useT();
+  // The host pane owns every surface around the slide, so the widget shows the
+  // slide alone: top-aligned, filling the width, with no toolbar rows or notes.
+  const widgetEmbed = useIsMcpAppWidgetEmbed();
   const layoutOverflowWarningEnabled = useLabState(
     SLIDES_LAYOUT_OVERFLOW_WARNING.key,
   ).enabled;
@@ -1954,6 +1958,7 @@ export default function SlideEditor({
         canvasHeight: dims.height,
         horizontalPadding,
         verticalPadding,
+        fillViewport: widgetEmbed,
       });
 
       setFitCanvasZoom(nextFitZoom);
@@ -1981,7 +1986,7 @@ export default function SlideEditor({
       observer?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [dims.width, dims.height]);
+  }, [dims.width, dims.height, widgetEmbed]);
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
@@ -9658,8 +9663,10 @@ export default function SlideEditor({
   // Excalidraw slides have no selectable slide content, so the row collapses
   // to its slide-level state — but that state owns the background picker, and
   // SlideRenderer paints `slide.background` behind the drawing, so the row has
-  // to stay mounted or that background becomes uneditable.
-  const contextToolbar = !readOnly ? (
+  // to stay mounted or that background becomes uneditable. The widget has no
+  // toolbar row, so it never mounts these.
+  const showContextToolbars = !readOnly && !widgetEmbed;
+  const contextToolbar = showContextToolbars ? (
     <div
       className="shrink-0"
       // Snapshotting the range is only half the job: without this marker the
@@ -9704,7 +9711,7 @@ export default function SlideEditor({
     </div>
   ) : null;
 
-  const wideContextToolbar = !readOnly ? (
+  const wideContextToolbar = showContextToolbars ? (
     <div
       className="shrink-0"
       data-slide-inline-edit-surface="true"
@@ -9771,9 +9778,9 @@ export default function SlideEditor({
 
   return (
     <div
-      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
-        animationsOpen || layersOpen ? "rounded-r-lg" : ""
-      }`}
+      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--slides-editor-surface)] ${
+        widgetEmbed ? "" : "rounded-l-lg"
+      } ${animationsOpen || layersOpen ? "rounded-r-lg" : ""}`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
       {!readOnly && wideContextToolbarSlot
@@ -9828,7 +9835,11 @@ export default function SlideEditor({
               >
                 <div
                   ref={canvasTrackRef}
-                  className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
+                  className={`flex min-h-full w-max min-w-full justify-center ${
+                    widgetEmbed
+                      ? "items-start"
+                      : "items-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
+                  }`}
                   onPointerDown={handleCanvasBackgroundPointerDown}
                 >
                   <div
@@ -9869,7 +9880,9 @@ export default function SlideEditor({
                         >
                           <SlideRenderer
                             slide={slide}
-                            className="shadow-2xl shadow-black/40"
+                            className={
+                              widgetEmbed ? "" : "shadow-2xl shadow-black/40"
+                            }
                             designSystem={designSystem}
                             aspectRatio={aspectRatio}
                             onOverflowChange={handleOverflowChange}
@@ -10010,11 +10023,13 @@ export default function SlideEditor({
           : null}
       </div>
 
-      <SpeakerNotesPanel
-        notes={slide.notes}
-        onChange={(notes) => onUpdateSlide({ notes })}
-        readOnly={readOnly}
-      />
+      {!widgetEmbed && (
+        <SpeakerNotesPanel
+          notes={slide.notes}
+          onChange={(notes) => onUpdateSlide({ notes })}
+          readOnly={readOnly}
+        />
+      )}
 
       {!imageCrop && selectionRect && !selectedElementSelector && (
         <ImageSelectionOutline

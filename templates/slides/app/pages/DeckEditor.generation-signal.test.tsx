@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   broadGenerating: true,
   showInlineEditTrigger: false,
   readOnlyWidget: false,
+  widgetEmbed: false,
   guidedQuestionFlowOptions: [] as unknown[],
   guidedQuestionQuestions: [] as Array<{ id: string; question: string }>,
   guidedQuestionPayload: null as { threadId?: string } | null,
@@ -247,7 +248,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: null, isLoading: false, isError: false }),
 }));
 vi.mock("@agent-native/core/client/mcp-app-host", () => ({
-  useIsMcpAppWidgetEmbed: () => false,
+  useIsMcpAppWidgetEmbed: () => mocks.widgetEmbed,
   useIsMcpDirectoryWidgetReadOnlyEmbed: () => mocks.readOnlyWidget,
 }));
 
@@ -325,7 +326,9 @@ vi.mock("@/components/editor/QuestionFlow", () => ({
   QuestionFlow: () => <div data-testid="question-flow" />,
 }));
 vi.mock("@/components/editor/EditorSidebar", () => ({
-  default: () => null,
+  default: ({ compact }: { compact?: boolean }) => (
+    <div data-testid="editor-sidebar" data-compact={String(compact)} />
+  ),
   getSlideSelection: () => [],
 }));
 vi.mock("@/components/editor/SlideEditor", () => ({
@@ -432,6 +435,7 @@ describe("DeckEditor generation signal wiring", () => {
       broadGenerating: true,
       showInlineEditTrigger: false,
       readOnlyWidget: false,
+      widgetEmbed: false,
       guidedQuestionFlowOptions: [],
       guidedQuestionQuestions: [],
       guidedQuestionPayload: null,
@@ -524,6 +528,46 @@ describe("DeckEditor generation signal wiring", () => {
     expect(
       screen.getByTestId("slide-editor").getAttribute("data-can-comment"),
     ).toBe("false");
+  });
+
+  it("renders only the compact slide rail and the slide inside an MCP App widget", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
+    mocks.widgetEmbed = true;
+    mocks.readOnlyWidget = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    const { container } = render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("slide-editor")).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("editor-toolbar")).toBeNull();
+    expect(container.querySelector("[data-context-toolbar-host]")).toBeNull();
+    // The pane is narrower than 768px, yet the rail is open, compact.
+    expect(
+      screen.getByTestId("editor-sidebar").getAttribute("data-compact"),
+    ).toBe("true");
+  });
+
+  it("keeps the deck toolbar and a closed rail on a narrow screen outside a widget", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    const { container } = render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-toolbar")).toBeTruthy(),
+    );
+    expect(
+      container.querySelector("[data-context-toolbar-host='narrow']"),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("editor-sidebar")).toBeNull();
   });
 
   it("saves before leaving an empty generation deck and restores its prompt", async () => {

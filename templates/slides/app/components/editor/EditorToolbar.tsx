@@ -1,10 +1,6 @@
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  useIsMcpAppWidgetEmbed,
-  useIsMcpDirectoryWidgetReadOnlyEmbed,
-} from "@agent-native/core/client/mcp-app-host";
 import { reloadForClientCompatibilityMismatch } from "@agent-native/core/client/route-chunk-recovery";
 import {
   CreativeContextShareTab,
@@ -240,12 +236,6 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
-  // The host owns navigation and chat, so the widget drops the way back to the
-  // deck list and the agent panel controls.
-  const widgetEmbed = useIsMcpAppWidgetEmbed();
-  // A read-only widget session refuses every save, so an offline or failed-save
-  // pill would only restate that it is read-only.
-  const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
   const { resolveDeckContentConflict, retryDeckSave } = useDecks();
   const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
@@ -771,20 +761,18 @@ export default function EditorToolbar({
   return (
     <div className="deck-editor-toolbar flex h-12 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       {/* Back button */}
-      {!widgetEmbed && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Link
-              to="/home"
-              className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
-              aria-label={t("editorToolbar.backToDecks")}
-            >
-              <IconArrowLeft className="size-4 text-muted-foreground" />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorToolbar.backToDecks")}</TooltipContent>
-        </Tooltip>
-      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to="/home"
+            className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
+            aria-label={t("editorToolbar.backToDecks")}
+          >
+            <IconArrowLeft className="size-4 text-muted-foreground" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent>{t("editorToolbar.backToDecks")}</TooltipContent>
+      </Tooltip>
 
       {/* Slide-list toggle (mobile only — desktop uses the app sidebar rail) */}
       <Tooltip>
@@ -854,7 +842,7 @@ export default function EditorToolbar({
 
       {/* Save status — subtle "Saving…" / "Saved" / offline pill. Renders
           nothing when idle. Only meaningful for editors. */}
-      {canEdit && !readOnlyWidget && (
+      {canEdit && (
         <SaveStatusIndicator
           saving={saving}
           hasUnsavedChanges={deckHasUnsavedChanges}
@@ -1195,12 +1183,10 @@ export default function EditorToolbar({
         onRetry={() => void storageQuery.refetch()}
       />
 
-      {!widgetEmbed && (
-        <div className="flex items-center gap-1">
-          <RunsTray pollMs={0} />
-          <AgentToggleButton />
-        </div>
-      )}
+      <div className="flex items-center gap-1">
+        <RunsTray pollMs={0} />
+        <AgentToggleButton />
+      </div>
     </div>
   );
 }
