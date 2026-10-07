@@ -1655,6 +1655,28 @@ describe("buildUserMessage", () => {
 });
 
 describe("mergeThreadDataForClientSave", () => {
+  it("merges widgets by globally unique ID across message changes", () => {
+    const existingWidget = {
+      messageId: "assistant-before-continuation",
+      widget: {
+        id: "tool-1:chat-ui",
+        kind: "release.summary",
+        state: "active",
+      },
+    };
+    const incomingWidget = {
+      messageId: "assistant-after-continuation",
+      widget: { id: "tool-1:chat-ui", kind: "release.summary", state: "ready" },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      { agentKit: { widgets: [existingWidget] } },
+      { agentKit: { widgets: [incomingWidget] } },
+    );
+
+    expect(merged.agentKit.widgets).toEqual([incomingWidget]);
+  });
+
   it("keeps run status from the highest sequence across stale snapshots", () => {
     const run = (status: string, lastSequence: number) => ({
       id: "run-1",

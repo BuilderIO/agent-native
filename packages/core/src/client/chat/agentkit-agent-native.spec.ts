@@ -1,4 +1,5 @@
 import { AgentKitClient } from "@agent-native/agentkit/client";
+import { resumeEntryFromApproval } from "@agent-native/agentkit/protocol";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
@@ -129,6 +130,96 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(JSON.parse(savedThreadData ?? "{}").agentKit.messages).toEqual([
       expect.objectContaining({ id: "prompt-1", role: "user" }),
     ]);
+  });
+
+  it("merges raced snapshot widgets by their globally unique ID", async () => {
+    const threadId = "snapshot-widget-race";
+    const previousWidget = {
+      messageId: "assistant-before-continuation",
+      widget: {
+        id: "tool-1:chat-ui",
+        kind: "release.summary",
+        data: { toolCallId: "tool-1", toolName: "publish" },
+      },
+    };
+    const incomingWidget = {
+      messageId: "assistant-after-continuation",
+      widget: {
+        id: "tool-1:chat-ui",
+        kind: "release.summary",
+        data: { toolCallId: "tool-1", toolName: "publish" },
+      },
+    };
+    let threadReads = 0;
+    let savedThreadData: string | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          threadReads += 1;
+          if (threadReads === 1)
+            return json({ error: "Thread not found" }, 404);
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [],
+              agentKit: {
+                messages: [
+                  {
+                    id: "assistant-before-continuation",
+                    role: "assistant",
+                    status: "complete",
+                    parts: [{ type: "text", text: "Publishing." }],
+                  },
+                ],
+                widgets: [previousWidget],
+              },
+            }),
+          });
+        }
+        if (url.endsWith("/threads") && method === "POST") {
+          return json({ error: "Already exists" }, 409);
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          savedThreadData = JSON.parse(String(init?.body)).threadData;
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        title: "Publish summary",
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+        messages: [
+          {
+            id: "assistant-after-continuation",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "Published." }],
+          },
+        ],
+        widgets: [incomingWidget],
+      },
+    });
+
+    const persistedWidgets = JSON.parse(savedThreadData ?? "{}").agentKit
+      .widgets;
+    expect(persistedWidgets).toHaveLength(1);
+    expect(persistedWidgets[0]).toMatchObject({
+      messageId: "assistant-after-continuation",
+      widget: { id: "tool-1:chat-ui", kind: "release.summary" },
+    });
+    await transport.dispose();
   });
 
   it("hides a folded durable reply while its AgentKit run is active", async () => {
@@ -5182,6 +5273,100 @@ describe("createAgentNativeAgentKitTransport", () => {
       "/_agent-native/agent-chat/runs/active?threadId=thread-default-runtime",
     );
     expect(snapshot?.activeRunIds).toContain("run-default");
+    await transport.dispose();
+  });
+
+  it("normalizes a resumed runtime ID in the active-run snapshot", async () => {
+    const threadId = "thread-active-runtime-alias";
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeKnownEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish the release?",
+      };
+      yield { type: "done", reason: "tool-use" };
+    }
+    async function* completionEvents(): AsyncIterable<AgentChatRuntimeKnownEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith(`/threads/${threadId}`)) {
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({ messages: [], agentKit: {} }),
+        });
+      }
+      if (url.includes(`/runs/active?threadId=${threadId}`)) {
+        return json({
+          active: true,
+          status: "running",
+          runId: "runtime-after-approval",
+        });
+      }
+      return json({ error: "Not found" }, 404);
+    });
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetcher as typeof fetch,
+    });
+    runtime.createSession = async () => ({
+      id: threadId,
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-before-approval",
+        runId: "runtime-before-approval",
+        sessionId: threadId,
+        events: approvalEvents(),
+      }),
+      continueTurn: async () => ({
+        id: "turn-after-approval",
+        runId: "runtime-after-approval",
+        sessionId: threadId,
+        events: completionEvents(),
+      }),
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+      runtime,
+      adapter: { createId: () => "protocol-after-approval" },
+    });
+    const { runId } = await transport.startRun({
+      threadId,
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Publish it" }],
+        },
+      ],
+    });
+    const initialIterator = transport
+      .subscribeToRun({ threadId, runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await initialIterator.next();
+      expect(next.done).toBe(false);
+      if (next.value?.type === "approval.requested") break;
+    }
+    const resumed = await transport.resumeRun?.({
+      threadId,
+      runId,
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: { decision: "approve" },
+        }),
+      ],
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(resumed?.runId).toBe("protocol-after-approval");
+    expect(snapshot?.activeRunIds).toEqual(["protocol-after-approval"]);
+    await initialIterator.return?.();
     await transport.dispose();
   });
 

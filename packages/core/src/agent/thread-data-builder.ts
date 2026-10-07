@@ -1525,11 +1525,8 @@ export function applySubmittedUserMessage(
 function snapshotEntryId(entry: any, kind: "message" | "toolCall" | "widget") {
   if (!entry || typeof entry !== "object") return undefined;
   if (kind === "widget") {
-    const messageId = entry.messageId;
     const widgetId = entry.widget?.id;
-    return typeof messageId === "string" && typeof widgetId === "string"
-      ? JSON.stringify([messageId, widgetId])
-      : undefined;
+    return typeof widgetId === "string" ? widgetId : undefined;
   }
   return typeof entry.id === "string" ? entry.id : undefined;
 }

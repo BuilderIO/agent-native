@@ -1395,16 +1395,10 @@ function mergeStoredAndIncomingWidgets(
   incoming: AgentWidgetSnapshot[],
 ): AgentWidgetSnapshot[] {
   const widgets = new Map(
-    stored.map((snapshot) => [
-      JSON.stringify([snapshot.messageId, snapshot.widget.id]),
-      snapshot,
-    ]),
+    stored.map((snapshot) => [snapshot.widget.id, snapshot]),
   );
   for (const snapshot of incoming) {
-    widgets.set(
-      JSON.stringify([snapshot.messageId, snapshot.widget.id]),
-      snapshot,
-    );
+    widgets.set(snapshot.widget.id, snapshot);
   }
   return [...widgets.values()];
 }
@@ -1504,9 +1498,7 @@ function snapshotEntryId(value: unknown): string | undefined {
 function snapshotWidgetId(value: unknown): string | undefined {
   const entry = asRecord(value);
   const widget = asRecord(entry?.widget);
-  return typeof entry?.messageId === "string" && typeof widget?.id === "string"
-    ? JSON.stringify([entry.messageId, widget.id])
-    : undefined;
+  return typeof widget?.id === "string" ? widget.id : undefined;
 }
 
 function snapshotAnnotationKey(value: unknown): string {
@@ -2102,8 +2094,12 @@ export function createAgentNativeAgentKitTransport(
         "Agent chat active-run response has an invalid status.",
       );
     }
+    const localRun = await protocolTransport.getRun?.({
+      threadId,
+      runId: value.runId,
+    });
     return {
-      id: value.runId,
+      id: localRun?.id ?? value.runId,
       threadId,
       status: runStatus,
       // The durable SSE endpoint replays from its first event when a browser
@@ -3015,9 +3011,12 @@ export function createAgentNativeAgentKitTransport(
       }
     }
     if (lastError) throw lastError;
-    throw new AgentKitRunSlotBusyError(
-      typeof status?.runId === "string" ? status.runId : undefined,
-    );
+    const activeRunId =
+      typeof status?.runId === "string" ? status.runId : undefined;
+    const localRun = activeRunId
+      ? await protocolTransport.getRun?.({ threadId, runId: activeRunId })
+      : null;
+    throw new AgentKitRunSlotBusyError(localRun?.id ?? activeRunId);
   }
 
   async function startRunTrackingRunningState(
@@ -3455,7 +3454,17 @@ export function createAgentNativeAgentKitTransport(
       return await protocolStartRun(input, context);
     } catch (error) {
       const record = asRecord(error);
-      const activeRunId = record?.activeRunId;
+      const serverActiveRunId =
+        typeof record?.activeRunId === "string"
+          ? record.activeRunId
+          : undefined;
+      const localRun = serverActiveRunId
+        ? await protocolTransport.getRun?.({
+            threadId: input.threadId,
+            runId: serverActiveRunId,
+          })
+        : null;
+      const activeRunId = localRun?.id ?? serverActiveRunId;
       const explicitNonSlotCode =
         typeof record?.code === "string" &&
         record.code !== "run_slot_busy" &&
