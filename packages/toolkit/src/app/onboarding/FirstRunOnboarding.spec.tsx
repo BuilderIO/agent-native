@@ -1534,7 +1534,7 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toMatch(/\bProduct\b/);
   });
 
-  it("keeps the create-account CTA actionable after a failed status read", () => {
+  it("keeps setup choices clear and actionable after a failed status read", () => {
     const start = vi.fn();
     const retry = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -1565,8 +1565,8 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector(
         '[data-testid="first-run-builder-status-error"]',
-      )?.textContent,
-    ).toContain("Couldn't reach Builder");
+      ),
+    ).toBeNull();
 
     const cta = document.body.querySelector(
       '[data-testid="first-run-builder-create-account"]',
