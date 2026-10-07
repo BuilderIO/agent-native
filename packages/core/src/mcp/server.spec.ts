@@ -2403,7 +2403,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it.each([false, true])(
-    "discovers composed object inputs through the SDK (full catalog: %s)",
+    "advertises composed object inputs as flat object roots through the SDK (full catalog: %s)",
     async (fullCatalog) => {
       const actions = {
         "union-input": defineAction({
@@ -2436,16 +2436,28 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       );
       try {
         const result = await client.listTools();
-        for (const [name, action] of Object.entries(actions)) {
-          const tool = result.tools.find((tool) => tool.name === name);
-          expect(tool?.inputSchema).toEqual({
-            ...action.tool.parameters,
-            type: "object",
-          });
+        const inputSchema = (name: string) =>
+          result.tools.find((tool) => tool.name === name)?.inputSchema;
+        expect(inputSchema("union-input")).toMatchObject({
+          type: "object",
+          properties: {
+            phase: { anyOf: [{ const: "validate" }, { const: "verify" }] },
+            plan: { type: "object" },
+            digest: { type: "string" },
+          },
+          required: ["phase"],
+        });
+        expect(inputSchema("intersection-input")).toMatchObject({
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id", "value"],
+        });
+        for (const tool of result.tools) {
+          expect(tool.inputSchema.type).toBe("object");
+          for (const keyword of ["anyOf", "oneOf", "allOf"]) {
+            expect(tool.inputSchema).not.toHaveProperty(keyword);
+          }
         }
-        expect(
-          result.tools.every((tool) => tool.inputSchema.type === "object"),
-        ).toBe(true);
       } finally {
         await client.close();
       }

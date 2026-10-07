@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
+const COMPOSITIONS = ["anyOf", "oneOf", "allOf"] as const;
+
+function expectNoRootComposition(schema: Record<string, unknown>) {
+  for (const keyword of COMPOSITIONS)
+    expect(schema).not.toHaveProperty(keyword);
+  expect(schema.type).toBe("object");
+}
+
 describe("mcpToolInputSchema", () => {
   const validatePhase = {
     type: "object",
@@ -16,32 +24,35 @@ describe("mcpToolInputSchema", () => {
   };
 
   it.each(["anyOf", "oneOf"])(
-    "preserves %s branches and their accepted inputs",
+    "flattens a root %s into one object that accepts every branch's inputs",
     (keyword) => {
       const schema = { [keyword]: [validatePhase, verifyPhase] };
       const result = mcpToolInputSchema("migration", schema);
-      expect(result).toEqual({ ...schema, type: "object" });
+      expectNoRootComposition(result);
+      expect(result.properties).toEqual({
+        phase: { anyOf: [{ const: "validate" }, { const: "verify" }] },
+        plan: { type: "object" },
+        digest: { type: "string" },
+      });
+      expect(result.required).toEqual(["phase"]);
       expect(schema).not.toHaveProperty("type");
       const ajv = new Ajv({ strict: false });
       const before = ajv.compile(schema);
       const after = ajv.compile(result);
-      for (const [input, valid] of [
-        [{ phase: "validate", plan: {} }, true],
-        [{ phase: "verify", digest: "test-digest" }, true],
-        [{ phase: "validate" }, false],
-        [{ phase: "verify", plan: {} }, false],
-        [{ phase: "unknown", plan: {} }, false],
-        [null, false],
-        [[], false],
-        ["validate", false],
-      ] as const) {
-        expect(before(input)).toBe(valid);
-        expect(after(input)).toBe(valid);
+      for (const input of [
+        { phase: "validate", plan: {} },
+        { phase: "verify", digest: "test-digest" },
+      ]) {
+        expect(before(input)).toBe(true);
+        expect(after(input)).toBe(true);
+      }
+      for (const input of [null, [], "validate", { phase: "unknown" }]) {
+        expect(after(input)).toBe(false);
       }
     },
   );
 
-  it("preserves intersection constraints and nested arbitrary values", () => {
+  it("flattens a root allOf into the union of its properties and requirements", () => {
     const schema = {
       allOf: [
         {
@@ -53,7 +64,8 @@ describe("mcpToolInputSchema", () => {
       ],
     };
     const result = mcpToolInputSchema("batch-update", schema);
-    expect(result).toEqual({ ...schema, type: "object" });
+    expectNoRootComposition(result);
+    expect(result.required).toEqual(["id", "value"]);
     const ajv = new Ajv({ strict: false });
     const before = ajv.compile(schema);
     const after = ajv.compile(result);
@@ -67,6 +79,39 @@ describe("mcpToolInputSchema", () => {
       expect(before(input)).toBe(valid);
       expect(after(input)).toBe(valid);
     }
+  });
+
+  it("strips provider-rejected keywords from hand-written JSON schemas", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        labels: {
+          type: "object",
+          propertyNames: { pattern: "^[a-z]+$" },
+          additionalProperties: { type: "string" },
+        },
+        target: {
+          oneOf: [{ type: "string" }, { type: "number" }],
+        },
+        payload: { description: "Any JSON value" },
+      },
+      required: ["target"],
+    };
+    const result = mcpToolInputSchema("raw-parameters", schema);
+    const properties = result.properties as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(properties.labels).not.toHaveProperty("propertyNames");
+    expect(properties.target).toEqual({
+      anyOf: [{ type: "string" }, { type: "number" }],
+    });
+    expect(properties.payload.anyOf).toEqual(
+      expect.arrayContaining([{ type: "string" }, { type: "null" }]),
+    );
+    expect(schema.properties.labels).toHaveProperty("propertyNames");
+    expect(schema.properties.target).toHaveProperty("oneOf");
+    expect(schema.properties.payload).not.toHaveProperty("anyOf");
   });
 
   it("preserves existing object schemas and permits absent parameters", () => {
