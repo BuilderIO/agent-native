@@ -510,6 +510,27 @@ describe("ci-red-report", () => {
     );
   });
 
+  it("ignores failed workflow runs whose jobs were all cancelled or skipped", () => {
+    const failed = run(46);
+    const jobs = new Map([
+      [
+        failed.id,
+        [
+          job(failed.id, 461, {
+            conclusion: "cancelled",
+            steps: [step("Run Design E2E", "cancelled")],
+          }),
+          job(failed.id, 462, {
+            conclusion: "skipped",
+            steps: [step("Run Design E2E", "skipped")],
+          }),
+        ],
+      ],
+    ]);
+
+    assert.deepEqual(buildCiRedRows([failed], jobs, since, now), []);
+  });
+
   it("warns and keeps job-step fingerprints when case annotations lack a final summary", async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];

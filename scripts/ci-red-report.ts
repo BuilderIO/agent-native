@@ -474,6 +474,14 @@ export function buildCiRedRows(
       RED_CONCLUSIONS.has(job.conclusion ?? ""),
     );
     if (failedJobs.length === 0) {
+      if (
+        jobs.length > 0 &&
+        jobs.every(
+          (job) =>
+            job.conclusion === "cancelled" || job.conclusion === "skipped",
+        )
+      )
+        continue;
       rows.push(
         rowFor(
           run,
