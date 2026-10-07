@@ -726,22 +726,40 @@ async function handleEvent(
       );
     });
 
+    let enqueueFailures = 0;
+    let firstEnqueueError: unknown;
+    let firstFailedPath: string | undefined;
     for (const resource of matchingTriggers) {
-      await enqueueAutomationTriggerEvent({
-        triggerId: resource.id,
-        triggerOwner: resource.owner,
-        triggerPath: resource.path,
-        appId: deps.appId,
-        eventName,
-        eventId: eventMeta.eventId,
-        payload,
-        eventOwner: eventMeta.owner,
-        emittedAt: eventMeta.emittedAt,
-      });
+      try {
+        await enqueueAutomationTriggerEvent({
+          triggerId: resource.id,
+          triggerOwner: resource.owner,
+          triggerPath: resource.path,
+          appId: deps.appId,
+          eventName,
+          eventId: eventMeta.eventId,
+          payload,
+          eventOwner: eventMeta.owner,
+          emittedAt: eventMeta.emittedAt,
+        });
+      } catch (error) {
+        // One automation's queue write failing must not drop the event for the
+        // rest: attempt every match, then surface the failures once.
+        enqueueFailures += 1;
+        firstEnqueueError ??= error;
+        firstFailedPath ??= resource.path;
+        continue;
+      }
       resetTriggerQueueWorkerBackoff();
       if (!isProductionServerlessFunctionRuntime()) {
         void startTriggerDrain(resource.id);
       }
+    }
+    if (enqueueFailures > 0) {
+      throw new Error(
+        `Failed to queue event "${eventName}" for ${enqueueFailures} of ${matchingTriggers.length} matching automation(s); first failure at "${firstFailedPath ?? "unknown"}".`,
+        { cause: firstEnqueueError },
+      );
     }
   } catch (err) {
     console.error(`[triggers] Error handling event "${eventName}":`, err);

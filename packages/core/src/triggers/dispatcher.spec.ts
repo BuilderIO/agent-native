@@ -486,6 +486,63 @@ Respond to the concurrent event.`,
     );
   });
 
+  it("keeps queueing an event for later automations when one enqueue fails", async () => {
+    const eventName = "test.fanout.isolated";
+    const fanoutResource = (id: string, path: string) => ({
+      id,
+      owner: "alice+triggers@agent-native.test",
+      path,
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: ${eventName}
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Respond to the fanout event.`,
+    });
+    resourceListAllOwnersMock.mockResolvedValue([
+      fanoutResource("resource-fanout-a", "jobs/fanout-a.md"),
+      fanoutResource("resource-fanout-b", "jobs/fanout-b.md"),
+    ]);
+
+    // Initialize without consuming the process-wide interval worker start so
+    // later tests can still capture it; this test only needs `_deps`.
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      appId: "fanout-test",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const eventHandler = subscribeMock.mock.calls.find(
+      ([name]) => name === eventName,
+    )?.[1];
+    expect(eventHandler).toBeTypeOf("function");
+
+    triggerQueueMocks.enqueue.mockRejectedValueOnce(
+      new Error("queue write failed"),
+    );
+
+    await expect(
+      eventHandler(
+        { orderId: "order-1" },
+        {
+          owner: "alice+triggers@agent-native.test",
+          eventId: "fanout-event-1",
+          emittedAt: new Date().toISOString(),
+        },
+      ),
+    ).rejects.toThrow(/failed to queue event/i);
+
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledTimes(2);
+    expect(triggerQueueMocks.rows.map((row) => row.triggerPath)).toEqual([
+      "jobs/fanout-b.md",
+    ]);
+  });
+
   it("rejects delegated policy ids that could inject trigger frontmatter", () => {
     expect(() =>
       buildTriggerContent(
