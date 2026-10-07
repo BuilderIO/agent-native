@@ -6,7 +6,13 @@ import {
   COOKIE_NAME,
   createEmbedSessionTicket,
 } from "@agent-native/core/server";
-import { expect, test, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type TestInfo,
+} from "@playwright/test";
 
 import {
   createMcpDirectoryWidgetReadCapability,
@@ -32,11 +38,47 @@ async function removeDocument(page: Page, id: string) {
   });
 }
 
+async function captureWidgetFailure(
+  testInfo: TestInfo,
+  host: Page,
+  shell: Locator,
+  editor: Locator,
+  actionResponses: Array<{ action: string; status: number }>,
+) {
+  const readText = async (locator: Locator) => {
+    try {
+      return await locator.innerText({ timeout: 1_500 });
+    } catch {
+      return "<frame body unavailable>";
+    }
+  };
+  const [hostText, shellText, editorText] = await Promise.all([
+    readText(host.locator("body")),
+    readText(shell),
+    readText(editor),
+  ]);
+  await testInfo.attach("nested-widget-frame-text.txt", {
+    body: Buffer.from(
+      [
+        `host frame:\n${hostText}`,
+        `widget shell frame:\n${shellText}`,
+        `Content editor frame:\n${editorText}`,
+        `action responses:\n${JSON.stringify(actionResponses, null, 2)}`,
+      ].join("\n\n"),
+    ),
+    contentType: "text/plain",
+  });
+  await testInfo.attach("nested-widget-host.png", {
+    body: await host.screenshot({ fullPage: true }),
+    contentType: "image/png",
+  });
+}
+
 test("a Content body paints from a scoped ticket in a nested widget frame", async ({
   browser,
   baseURL,
   page,
-}) => {
+}, testInfo) => {
   if (!baseURL) throw new Error("Content Playwright baseURL is missing");
 
   const marker = `Nested widget body ${Date.now().toString(36)}`;
@@ -113,10 +155,17 @@ test("a Content body paints from a scoped ticket in a nested widget frame", asyn
       storageState: { cookies: [], origins: [] },
     });
     await context.addInitScript(() => {
+      Object.defineProperty(window, "__e2eBlockedStorageReads", {
+        configurable: true,
+        value: [] as string[],
+      });
       for (const name of ["localStorage", "sessionStorage", "indexedDB"]) {
         Object.defineProperty(window, name, {
           configurable: true,
           get() {
+            (
+              window as Window & { __e2eBlockedStorageReads: string[] }
+            ).__e2eBlockedStorageReads.push(name);
             throw new DOMException(
               "Storage access is blocked",
               "SecurityError",
@@ -127,22 +176,28 @@ test("a Content body paints from a scoped ticket in a nested widget frame", asyn
     });
     const widgetHostUrl = new URL("/__e2e/widget-host", baseURL).toString();
     const widgetShellUrl = new URL("/__e2e/widget-shell", baseURL).toString();
+    const actionResponses: Array<{ action: string; status: number }> = [];
     await context.route(widgetHostUrl, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "text/html",
-        body: `<!doctype html><html><body><iframe id="widget-shell" sandbox="allow-scripts allow-same-origin allow-forms" src="${widgetShellUrl}"></iframe></body></html>`,
+        body: `<!doctype html><html><body style="margin:0;height:100vh"><iframe id="widget-shell" style="display:block;width:100%;height:100%;border:0" sandbox="allow-scripts allow-same-origin allow-forms" src="${widgetShellUrl}"></iframe></body></html>`,
       });
     });
     await context.route(widgetShellUrl, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "text/html",
-        body: `<!doctype html><html><body><iframe id="content-editor" sandbox="allow-scripts allow-same-origin allow-forms" src="${embedStartUrl}"></iframe></body></html>`,
+        body: `<!doctype html><html><body style="margin:0;height:100vh"><iframe id="content-editor" style="display:block;width:100%;height:100%;border:0" sandbox="allow-scripts allow-same-origin allow-forms" src="${embedStartUrl}"></iframe></body></html>`,
       });
     });
 
     const host = await context.newPage();
+    host.on("response", (response) => {
+      const pathname = new URL(response.url()).pathname;
+      const action = pathname.match(/\/_agent-native\/actions\/([^/]+)$/)?.[1];
+      if (action) actionResponses.push({ action, status: response.status() });
+    });
     const editorResponse = host.waitForResponse((response) => {
       const request = response.request();
       return (
@@ -157,32 +212,86 @@ test("a Content body paints from a scoped ticket in a nested widget frame", asyn
     const contentEditor = host
       .frameLocator("#widget-shell")
       .frameLocator("#content-editor");
-    await expect(
-      contentEditor.locator(".notion-editor.ProseMirror"),
-    ).toContainText(marker, { timeout: 60_000 });
+    const shellFrame = host.frameLocator("#widget-shell").locator("body");
+    const editorBody = contentEditor.locator("body");
+    try {
+      await expect
+        .poll(
+          () => {
+            const observed = new Set(
+              actionResponses.map(({ action }) => action),
+            );
+            return [
+              "get-document",
+              "get-preview-document-draft",
+              "list-comments",
+              "list-resource-suggestions",
+            ].every((action) => observed.has(action));
+          },
+          { timeout: 20_000 },
+        )
+        .toBe(true);
+      expect(
+        actionResponses.filter(
+          ({ action }) => action === "list-document-properties",
+        ),
+      ).toEqual([]);
+      await expect(
+        contentEditor.locator('[data-block-fields-state="solo"]'),
+      ).toBeVisible({ timeout: 5_000 });
+      await expect(
+        contentEditor.locator(".notion-editor.ProseMirror"),
+      ).toContainText(marker, { timeout: 10_000 });
+    } catch (error) {
+      await captureWidgetFailure(
+        testInfo,
+        host,
+        shellFrame,
+        editorBody,
+        actionResponses,
+      );
+      throw error;
+    }
     const cookies = await context.cookies(baseURL);
     expect(cookies.some(({ name }) => name === EMBED_SESSION_COOKIE)).toBe(
       true,
     );
     expect(cookies.some(({ name }) => name === COOKIE_NAME)).toBe(false);
     expect(
-      await contentEditor.locator("body").evaluate((body) => {
+      await editorBody.evaluate((body) => {
         const frameWindow = body.ownerDocument.defaultView;
         if (!frameWindow) throw new Error("Content frame window is missing");
-        return ["localStorage", "sessionStorage", "indexedDB"].map(
-          (apiName) => {
-            try {
-              Reflect.get(frameWindow, apiName);
-              return false;
-            } catch (error) {
-              return (
-                error instanceof DOMException && error.name === "SecurityError"
-              );
-            }
+        const storageWindow = frameWindow as Window & {
+          __e2eBlockedStorageReads: string[];
+        };
+        const memoryShimNames = ["localStorage", "sessionStorage"].filter(
+          (name) => {
+            const storage = Reflect.get(frameWindow, name) as
+              | { getItem?: unknown }
+              | undefined;
+            return typeof storage?.getItem === "function";
           },
         );
+        let indexedDbError: string | null = null;
+        try {
+          Reflect.get(frameWindow, "indexedDB");
+        } catch (error) {
+          indexedDbError =
+            error && typeof error === "object" && "name" in error
+              ? String(error.name)
+              : "Error";
+        }
+        return {
+          blockedAtBoot: storageWindow.__e2eBlockedStorageReads,
+          memoryShimNames,
+          indexedDbError,
+        };
       }),
-    ).toEqual([true, true, true]);
+    ).toEqual({
+      blockedAtBoot: ["localStorage", "sessionStorage"],
+      memoryShimNames: ["localStorage", "sessionStorage"],
+      indexedDbError: "SecurityError",
+    });
   } finally {
     await context?.close();
     await removeDocument(page, documentId);

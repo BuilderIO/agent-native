@@ -2459,9 +2459,11 @@ function PageEditorSessionBody({
   const contentSpacesQuery = useContentSpaces({
     enabled: !mcpDirectoryWidgetReadOnly,
   });
-  const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
-  const localWorkspaceMode =
-    contentSpacesQuery.data?.sourceMode === "local-files";
+  const contentSpacesData = mcpDirectoryWidgetReadOnly
+    ? undefined
+    : contentSpacesQuery.data;
+  const contentSpaces = contentSpacesData?.spaces ?? [];
+  const localWorkspaceMode = contentSpacesData?.sourceMode === "local-files";
   const localDocumentsQuery = useDocuments({ enabled: localWorkspaceMode });
   const localDocuments = useMemo<Document[]>(
     () => (localWorkspaceMode ? (localDocumentsQuery.data ?? []) : []),
@@ -7590,14 +7592,14 @@ function PageEditorSessionBody({
           currentDocumentId: document.id,
           currentParentId: document.parentId,
           currentDatabaseSystemRole: document.database?.systemRole ?? null,
-          catalogDocumentId: contentSpacesQuery.data?.catalogDocumentId ?? null,
+          catalogDocumentId: contentSpacesData?.catalogDocumentId ?? null,
           workspacesTitle: t("sidebar.workspaces"),
         },
         navigationPath,
       ),
     [
       contentSpaces,
-      contentSpacesQuery.data?.catalogDocumentId,
+      contentSpacesData?.catalogDocumentId,
       document,
       localDocuments,
       localWorkspaceMode,
@@ -8942,6 +8944,7 @@ function PageEditorSessionBody({
                               document.databaseMembership.databaseDocumentId
                             }
                             canEdit={editorCanEdit}
+                            usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
                             suggesting={isSuggesting || isStartingSuggestion}
                             enteringSuggestion={isStartingSuggestion}
                             onPrimaryFieldAvailabilityChange={
