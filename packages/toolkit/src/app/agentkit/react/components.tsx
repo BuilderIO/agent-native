@@ -3081,6 +3081,7 @@ export function AgentMessageActions({
   const usageCacheRef = useRef<{
     runId: string;
     fetchedAt: number;
+    runFinished: boolean;
     data: AgentKitRunUsage;
   } | null>(null);
   const requestIdCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(
@@ -3120,7 +3121,11 @@ export function AgentMessageActions({
   useEffect(() => {
     if (!actionsMenuOpen || !hasRunUsage || !runId || !loadRunUsage) return;
     const cached = usageCacheRef.current;
-    if (cached?.runId === runId && Date.now() - cached.fetchedAt < 5 * 60_000) {
+    if (
+      cached?.runId === runId &&
+      cached.runFinished === runFinished &&
+      Date.now() - cached.fetchedAt < 5 * 60_000
+    ) {
       setUsageDetails({ runId, status: "loaded", data: cached.data });
       return;
     }
@@ -3131,7 +3136,12 @@ export function AgentMessageActions({
       .then((data) => {
         if (!active) return;
         if (data)
-          usageCacheRef.current = { runId, fetchedAt: Date.now(), data };
+          usageCacheRef.current = {
+            runId,
+            fetchedAt: Date.now(),
+            runFinished,
+            data,
+          };
         setUsageDetails({ runId, status: "loaded", data });
       })
       .catch(() => {
