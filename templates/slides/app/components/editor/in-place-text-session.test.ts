@@ -3257,6 +3257,8 @@ describe("in-place text session: commands", () => {
     const el = mount('<p id="t"><span style="color: red">---</span></p>');
     session = startInPlaceTextSession(el);
     const dashes = textOf(el, "---");
+    const before = beforeInput(el, "insertText", { data: null });
+    expect(before.defaultPrevented).toBe(false);
     dashes.data += " ";
     caret(dashes, dashes.length);
 
@@ -3339,6 +3341,61 @@ describe("in-place text session: commands", () => {
       );
       session.end();
       expect(session.element.outerHTML).toBe(original);
+    },
+  );
+
+  it.each(["- ", "--- "])(
+    "does not convert existing %j after an empty replacement",
+    (prefix) => {
+      const el = mount(`<p id="t">${prefix}</p>`);
+      session = startInPlaceTextSession(el);
+      const text = textOf(el, prefix);
+      caret(text, text.length);
+
+      const before = beforeInput(el, "insertReplacementText", { data: null });
+      expect(before.defaultPrevented).toBe(false);
+      el.dispatchEvent(
+        new InputEvent("input", {
+          inputType: "insertReplacementText",
+          data: null,
+          bubbles: true,
+        }),
+      );
+
+      expect(session.element.tagName).toBe("P");
+      expect(session.element.querySelector(":scope > hr")).toBeNull();
+      expect(session.element.textContent).toBe(prefix);
+    },
+  );
+
+  it.each([
+    ["insertText", "-", "bullet"],
+    ["insertReplacementText", "---", "divider"],
+  ] as const)(
+    "applies a null-data %s shortcut only after its trigger is inserted",
+    (inputType, prefix, result) => {
+      const el = mount(`<p id="t">${prefix}</p>`);
+      session = startInPlaceTextSession(el);
+      const text = textOf(el, prefix);
+      caret(text, text.length);
+
+      const before = beforeInput(el, inputType, { data: null });
+      expect(before.defaultPrevented).toBe(false);
+      text.insertData(text.length, " ");
+      caret(text, text.length);
+      el.dispatchEvent(
+        new InputEvent("input", {
+          inputType,
+          data: null,
+          bubbles: true,
+        }),
+      );
+
+      if (result === "bullet") {
+        expect(session.element.textContent).toContain("●");
+      } else {
+        expect(session.element.querySelector(":scope > hr")).not.toBeNull();
+      }
     },
   );
 

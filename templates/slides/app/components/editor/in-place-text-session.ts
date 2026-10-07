@@ -1467,6 +1467,10 @@ export function startInPlaceTextSession(
     /** Where the edit left the selection; a run only continues from there. */
     after: TextOffsets | null;
   } | null = null;
+  let pendingNullDataShortcutPrefix: {
+    inputType: "insertText" | "insertReplacementText";
+    prefix: string;
+  } | null = null;
   let focusSelection: TextOffsets | null = null;
   let pointerFocusPending = false;
   let edited = false;
@@ -4306,17 +4310,16 @@ export function startInPlaceTextSession(
   }
 
   function shouldCheckMarkdownShortcut(data: string | null) {
-    if (data !== null && data !== "") {
-      return /[ \u00a0\-+*_~`]/u.test(data);
-    }
+    return data !== null && data !== "" && /[ \u00a0\-+*_~`]/u.test(data);
+  }
+
+  function insertedShortcutTrigger(prefix: string) {
     const caret = selectionRange();
-    return (
-      !!caret?.collapsed &&
-      caret.startContainer instanceof Text &&
-      /[ \u00a0\-+*_~`]/u.test(
-        caret.startContainer.data[caret.startOffset - 1] ?? "",
-      )
-    );
+    if (!caret?.collapsed) return false;
+    const block = commandBlock(caret.startContainer);
+    const currentPrefix = linePrefix(block, caret).toString();
+    if (!currentPrefix.startsWith(prefix)) return false;
+    return shouldCheckMarkdownShortcut(currentPrefix.slice(prefix.length));
   }
 
   function applyMarkdownShortcut() {
@@ -4738,6 +4741,7 @@ export function startInPlaceTextSession(
   function onBeforeInput(event: InputEvent) {
     const type = event.inputType;
     const range = selectionRange();
+    pendingNullDataShortcutPrefix = null;
     if (COMPOSITION_INPUTS.has(type)) {
       captureReservationParentHeight();
       return;
@@ -4756,6 +4760,23 @@ export function startInPlaceTextSession(
       if (type === "historyUndo") undo();
       else redo();
       return;
+    }
+    if (
+      (type === "insertText" || type === "insertReplacementText") &&
+      (event.data === null || event.data === "") &&
+      !event.dataTransfer?.getData("text/plain")
+    ) {
+      const target =
+        (type === "insertReplacementText" ? targetRange(event) : null) ?? range;
+      if (target) {
+        pendingNullDataShortcutPrefix = {
+          inputType: type,
+          prefix: linePrefix(
+            commandBlock(target.startContainer),
+            target,
+          ).toString(),
+        };
+      }
     }
     if (!event.cancelable) {
       captureReservationParentHeight();
@@ -4888,11 +4909,16 @@ export function startInPlaceTextSession(
 
   function onInput(event: Event) {
     const input = event as InputEvent;
+    const pendingShortcutPrefix = pendingNullDataShortcutPrefix;
+    pendingNullDataShortcutPrefix = null;
     if (
       (input.inputType === "insertText" ||
         input.inputType === "insertReplacementText") &&
       !input.isComposing &&
-      shouldCheckMarkdownShortcut(input.data)
+      (shouldCheckMarkdownShortcut(input.data) ||
+        ((input.data === null || input.data === "") &&
+          pendingShortcutPrefix?.inputType === input.inputType &&
+          insertedShortcutTrigger(pendingShortcutPrefix.prefix)))
     ) {
       applyMarkdownShortcut();
     }
