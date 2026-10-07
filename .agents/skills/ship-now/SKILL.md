@@ -64,6 +64,13 @@ Merging another person's PR requires separate authorization to merge that exact
 PR. Repeat the live checks immediately before each push and merge, and push only
 to the verified head repository and branch with a normal fast-forward.
 
+Review replies are a separate authorization. Required concise replies on the
+active user's own PR need no extra authorization. On another person's PR, post
+a reply only when the current request explicitly authorizes that communication
+on the exact PR; permission to review, monitor, fix, push, or merge is not
+enough. Without that authorization, draft the reply, leave the feedback
+unresolved, and do not merge.
+
 ## Fast-path contract
 
 `/ship-now` publishes one complete, coherent nonignored current-branch
@@ -115,8 +122,9 @@ isolated safely, preserve all state and report the exact paths or commits.
 2. Resolve review state before merging. Read every current human and bot
    review summary and every top-level inline comment across all pages. Fix
    real issues on the current branch and reply to each addressed or declined
-   comment. Recheck reply coverage after every push; a new bot review is a new
-   round. Do not merge with unaddressed feedback.
+   comment under the authorization rule above. Recheck reply coverage after
+   every push; a new bot review is a new round. Do not merge with unaddressed
+   feedback.
 
 3. Run the local gate:
 
