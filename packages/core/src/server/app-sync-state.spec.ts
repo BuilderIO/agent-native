@@ -287,6 +287,33 @@ describe("AppSyncState first event after an access check miss", () => {
     }
   });
 
+  it("preserves the input cursor when a pending durable read cannot advance", async () => {
+    vi.useFakeTimers();
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      resolveAccess: () => new Promise(() => {}),
+    });
+    state.recordChange(resourceEvent);
+
+    const pending = state.getCombinedChangesSinceForUser(
+      0,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 0, id: "baseline" },
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+
+    expect(result).toEqual({
+      version: 0,
+      cursor: "0.baseline",
+      cursorLimited: true,
+      events: [],
+    });
+  });
+
   it("does not wait when the read is not blocked on an access check", async () => {
     const state = new AppSyncState({
       getDb: () => makeDb(),

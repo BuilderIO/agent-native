@@ -1029,6 +1029,7 @@ class CollabDocConnection {
 
       const data = await res.json();
       if (!this.syncActive || this.disposed) return;
+      const hadActivityBaseline = this.pollActivityBaselineReady;
       const { version, events } = data as {
         version: number;
         cursor?: string;
@@ -1063,7 +1064,18 @@ class CollabDocConnection {
         }
       }
 
-      if (this.pollActivityBaselineReady) noteCollabPollActivity(events);
+      if (hadActivityBaseline) {
+        noteCollabPollActivity(events);
+      } else {
+        const reconciliation = await this.fetchStateVector();
+        if (reconciliation.status !== "synced") {
+          throw reconciliation.status === "failed"
+            ? reconciliation.error
+            : new Error(
+                "Could not reconcile state without an activity baseline",
+              );
+        }
+      }
       this.pollActivityBaselineReady = true;
       if (typeof data.cursor === "string") this.pollCursor = data.cursor;
       this.pollVersion = version;

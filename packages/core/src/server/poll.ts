@@ -1477,8 +1477,7 @@ export class AppSyncState {
     if (cursor) {
       const limitedCursors = [memory, durable]
         .filter((result) => result.cursorLimited)
-        .map((result) => decodeSyncCursor(result.cursor))
-        .filter((value): value is SyncCursor => !!value);
+        .map((result) => decodeSyncCursor(result.cursor) ?? cursor);
       if (limitedCursors.length > 0) {
         const boundary = limitedCursors.reduce((minimum, value) =>
           compareSyncCursors(value, minimum) < 0 ? value : minimum,
