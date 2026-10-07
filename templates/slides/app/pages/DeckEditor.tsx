@@ -3981,6 +3981,7 @@ export default function DeckEditor() {
         {sidebarOpen && (
           <>
             {!widgetEmbed && (
+              // guard:allow-raw-color — existing scrim behind the mobile rail, unchanged
               <div
                 className="md:hidden fixed inset-0 bg-black/50 z-30"
                 onClick={() => setSidebarOpen(false)}

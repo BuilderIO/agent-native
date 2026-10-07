@@ -84,6 +84,24 @@ describe("Design editor mobile layout", () => {
     );
   });
 
+  it("keeps floating canvas controls reachable inside an MCP App widget", () => {
+    expect(editorSource).toContain(
+      "const widgetEmbed = useIsMcpAppWidgetEmbed();",
+    );
+    expect(editorSource).toContain(
+      "embedded && !shellMode && !embedChromeRequested && !widgetEmbed;",
+    );
+    expect(editorSource).toContain(
+      "widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested)",
+    );
+    expect(editorSource).toContain("!isMobileViewport &&\n    !uiHidden &&");
+    expect(editorSource).toContain("minimalUi && !widgetEmbed");
+    expect(editorSource).toContain(
+      "(widgetEmbed && minimalInspectorHasSelection)",
+    );
+    expect(editorSource).toContain("initialFitScreenId={\n");
+  });
+
   it("lets the compact workspace rail scroll on short screens", () => {
     expect(workspaceRailSource).toContain(
       "items-center overflow-y-auto overscroll-contain",
