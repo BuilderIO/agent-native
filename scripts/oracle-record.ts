@@ -356,8 +356,10 @@ export async function readFigmaActivePage(
           },
           { request: requestId, pluginId },
         );
-      } catch {
-        return null;
+      } catch (error) {
+        throw new Error("could not inspect a Figma page frame", {
+          cause: error,
+        });
       }
     }),
   );

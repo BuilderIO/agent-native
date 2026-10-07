@@ -176,6 +176,21 @@ describe("oracle-record manifest", () => {
   it("fails closed when the plugin page bridge is missing or unreadable", async () => {
     await assert.rejects(
       readFigmaActivePage(
+        {
+          frames: () => [
+            {
+              evaluate: async () => {
+                throw new Error("detached frame");
+              },
+            },
+          ],
+        },
+        "local-plugin-id",
+      ),
+      /could not inspect a Figma page frame/,
+    );
+    await assert.rejects(
+      readFigmaActivePage(
         { frames: () => [{ evaluate: async () => null }] },
         "local-plugin-id",
       ),
