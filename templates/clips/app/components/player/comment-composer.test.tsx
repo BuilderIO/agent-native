@@ -33,21 +33,29 @@ describe("CommentComposer mention autocomplete", () => {
     currentMembers: typeof members,
     onMentionAdd = vi.fn<(entry: MentionEntry) => void>(),
   ) {
+    let updateMembers!: (nextMembers: typeof members) => void;
+
     function Harness() {
       const [value, setValue] = useState("");
+      const [availableMembers, setAvailableMembers] = useState(currentMembers);
+      updateMembers = setAvailableMembers;
       return (
         <CommentComposer
           value={value}
           onChange={setValue}
           onSubmit={vi.fn()}
           onMentionAdd={onMentionAdd}
-          members={currentMembers}
+          members={availableMembers}
         />
       );
     }
 
     act(() => root.render(<Harness />));
-    return container.querySelector("textarea")!;
+    return {
+      textarea: container.querySelector("textarea")!,
+      setMembers: (nextMembers: typeof members) =>
+        act(() => updateMembers(nextMembers)),
+    };
   }
 
   function typeInto(textarea: HTMLTextAreaElement, value: string) {
@@ -77,7 +85,7 @@ describe("CommentComposer mention autocomplete", () => {
     async (matchCount) => {
       const onMentionAdd = vi.fn<(entry: MentionEntry) => void>();
       const matchingMembers = members.slice(0, matchCount);
-      const textarea = renderComposer(matchingMembers, onMentionAdd);
+      const { textarea } = renderComposer(matchingMembers, onMentionAdd);
 
       act(() => typeInto(textarea, "@m"));
       expect(container.querySelectorAll('[role="option"]')).toHaveLength(
@@ -129,4 +137,37 @@ describe("CommentComposer mention autocomplete", () => {
       }
     },
   );
+
+  it("clamps the selected option when matching members shrink", async () => {
+    const onMentionAdd = vi.fn<(entry: MentionEntry) => void>();
+    const { textarea, setMembers } = renderComposer(members, onMentionAdd);
+
+    act(() => typeInto(textarea, "@m"));
+    await act(async () => {
+      press(textarea, "keydown", "ArrowDown");
+      press(textarea, "keydown", "ArrowDown");
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelectorAll<HTMLElement>('[role="option"]')[2]
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+
+    setMembers(members.slice(0, 2));
+
+    const options = container.querySelectorAll<HTMLElement>('[role="option"]');
+    expect(options).toHaveLength(2);
+    expect(options[1]?.getAttribute("aria-selected")).toBe("true");
+
+    await act(async () => {
+      press(textarea, "keydown", "Enter");
+      await Promise.resolve();
+    });
+    expect(onMentionAdd).toHaveBeenCalledWith({
+      email: members[1]?.email,
+      name: members[1]?.name,
+    });
+  });
 });

@@ -130,6 +130,13 @@ export const CommentComposer = forwardRef<
             );
           })
           .slice(0, 6);
+  const filteredKey = filtered.map((member) => member.email).join("\0");
+
+  useEffect(() => {
+    setHighlight((current) =>
+      Math.min(current, Math.max(filtered.length - 1, 0)),
+    );
+  }, [filtered.length, filteredKey]);
 
   const updateQuery = (nextQuery: string | null) => {
     if (queryRef.current !== nextQuery) setHighlight(0);
