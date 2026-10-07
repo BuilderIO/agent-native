@@ -1167,6 +1167,7 @@ import {
 } from "./design-editor/screen-command-utils";
 import {
   buildActiveFileNodeIdSet,
+  applyExplicitOverviewScreenSelectionToggle,
   computeOverviewScreenPickSelectionIds,
   getContentSignature,
   getOverviewScreenContentKey,
@@ -24433,6 +24434,23 @@ function DesignEditor() {
     ],
   );
 
+  const handleCanvasLayerMarqueeSelectionChange = useCallback(
+    (
+      selection: CanvasLayerMarqueeSelection[],
+      intent: ElementSelectionIntent,
+    ) =>
+      handleLayerMarqueeSelectionChange(selection, intent, {
+        clearExplicitScreenSelection:
+          intent.final === true &&
+          selection.length > 0 &&
+          (intent.additive === true ||
+            intent.shiftKey === true ||
+            intent.metaKey === true ||
+            intent.ctrlKey === true),
+      }),
+    [handleLayerMarqueeSelectionChange],
+  );
+
   const handleScreenElementMarqueeSelect = useCallback(
     (
       screenId: string,
@@ -25626,23 +25644,31 @@ function DesignEditor() {
   // zero-dep useCallback) — hoisting removes a fresh-arrow-per-render prop
   // on MultiScreenCanvas without changing behavior.
   const handleOverviewScreenPick = useCallback(
-    (pickedId: string) => {
+    (
+      pickedId: string,
+      selectionToggle?: { screenId: string; selected: boolean },
+    ) => {
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
       setCreatedOverviewLayerSelection(null);
-      if (!shiftKeyHeldRef.current) {
+      if (selectionToggle) {
+        explicitOverviewScreenSelectionRef.current =
+          applyExplicitOverviewScreenSelectionToggle({
+            currentExplicitScreenIds:
+              explicitOverviewScreenSelectionRef.current,
+            screenId: selectionToggle.screenId,
+            selected: selectionToggle.selected,
+          });
+      } else if (!shiftKeyHeldRef.current) {
         explicitOverviewScreenSelectionRef.current = [pickedId];
       }
       setSelectedElement(null);
       setHoveredElement(null);
-      // PICK-RACE — see computeOverviewScreenPickSelectionIds's doc comment
-      // (design-editor/selection-state.ts) for the full race this closes:
-      // MultiScreenCanvas's shift-click toggle can't report its full
-      // multi-id array through the single-id onPick signature, so a
-      // shift-held pick must leave screen-selection provenance to
-      // handleOverviewScreenSelectionChange rather than treating the new
-      // primary screen as the toggled screen.
+      // MultiScreenCanvas reports the Shift-toggled Screen separately from
+      // the primary target so provenance follows the user's toggle intent,
+      // while the selection-change callback remains the source of the full
+      // selected Screen list.
       if (!shiftKeyHeldRef.current) {
         setOverviewSelectedScreenIds([pickedId]);
       }
@@ -28286,7 +28312,7 @@ function DesignEditor() {
                         }
                         onSelectionChange={handleOverviewScreenSelectionChange}
                         onLayerMarqueeSelectionChange={
-                          handleLayerMarqueeSelectionChange
+                          handleCanvasLayerMarqueeSelectionChange
                         }
                         selectedLayerSelectorGroupsByScreen={
                           selectedLayerSelectorGroupsByScreen

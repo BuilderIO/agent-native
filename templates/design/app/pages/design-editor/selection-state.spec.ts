@@ -14,6 +14,7 @@ import {
   isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   overviewScreenSelectionForPendingEcho,
+  applyExplicitOverviewScreenSelectionToggle,
   pendingEditTargetsSelectedElement,
   resolveMarqueeAdditive,
   resolveOverviewScreenFrameGeometry,
@@ -190,6 +191,29 @@ describe("explicit overview screen selection provenance", () => {
         additive: false,
       }),
     ).toEqual(["owner-screen", "picked-screen"]);
+  });
+
+  it("restores explicit provenance when Shift reselects an owner Screen", () => {
+    const afterToggleOff = applyExplicitOverviewScreenSelectionToggle({
+      currentExplicitScreenIds: [],
+      screenId: "owner-screen",
+      selected: false,
+    });
+    const afterToggleOn = applyExplicitOverviewScreenSelectionToggle({
+      currentExplicitScreenIds: afterToggleOff,
+      screenId: "owner-screen",
+      selected: true,
+    });
+
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: [],
+        selectedScreenIds: ["owner-screen"],
+        currentExplicitScreenIds: afterToggleOn,
+        ownerDerivedScreenIds: new Set(["owner-screen"]),
+        additive: true,
+      }),
+    ).toEqual(["owner-screen"]);
   });
 
   it("restores explicit Screen provenance alongside a child layer selection", () => {

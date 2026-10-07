@@ -7898,8 +7898,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             : nextSelectedIds.includes(id)
               ? id
               : (nextSelectedIds[nextSelectedIds.length - 1] ?? null);
-        if (nextPrimaryId && nextPrimaryId !== activeId) {
-          onPick(nextPrimaryId);
+        if (nextPrimaryId) {
+          onPick(nextPrimaryId, {
+            screenId: id,
+            selected: nextSelectedIds.includes(id),
+          });
         }
         return;
       }

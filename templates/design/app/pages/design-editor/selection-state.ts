@@ -510,6 +510,20 @@ export function updateExplicitOverviewScreenSelection(args: {
   return explicit;
 }
 
+export function applyExplicitOverviewScreenSelectionToggle(args: {
+  currentExplicitScreenIds: readonly string[];
+  screenId: string;
+  selected: boolean;
+}): string[] {
+  const explicit = [...new Set(args.currentExplicitScreenIds)];
+  if (!args.selected) {
+    return explicit.filter((screenId) => screenId !== args.screenId);
+  }
+  return explicit.includes(args.screenId)
+    ? explicit
+    : [...explicit, args.screenId];
+}
+
 export function explicitOverviewScreenSelectionForHistory(args: {
   selection: GeometryHistorySelection;
   screenFileIds: ReadonlySet<string>;
