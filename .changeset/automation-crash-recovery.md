@@ -19,3 +19,5 @@ Clear an earlier scheduler firing's recovery identity when admitting an event or
 Commit new firing history and its running marker together, honor live queued dispatch claims during setup and settlement, and restrict legacy scheduler recovery to scheduled trigger markers.
 
 Keep newly admitted firings retryable after pre-start lease loss and reconcile terminal history independently of worker retention, preserving its recorded delivery evidence.
+
+Report post-commit notification and history-retention failures without aborting an already committed firing admission.

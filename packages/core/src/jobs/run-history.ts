@@ -377,8 +377,22 @@ export async function startAutomationRun(
   } else {
     await insert(client);
   }
-  options.afterCommit?.();
-  await pruneAutomationRuns(input.owner, input.automation);
+  try {
+    options.afterCommit?.();
+  } catch (error) {
+    console.warn(
+      "[automations] Firing committed, but its notification failed:",
+      error,
+    );
+  }
+  try {
+    await pruneAutomationRuns(input.owner, input.automation);
+  } catch (error) {
+    console.warn(
+      "[automations] Firing committed, but history pruning failed:",
+      error,
+    );
+  }
   return id;
 }
 

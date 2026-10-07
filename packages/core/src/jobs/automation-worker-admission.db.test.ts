@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 import {
   claimBackgroundRun,
@@ -27,7 +27,14 @@ afterAll(async () => {
 });
 
 describe("atomic automation firing marker", () => {
-  it.each(["insert interrupted", "marker conflict", "committed"])(
+  const admissionStates = [
+    "insert interrupted",
+    "marker conflict",
+    "committed",
+    "pruning failed",
+    "notification failed",
+  ];
+  it.each(admissionStates)(
     "keeps firing history and its marker together when %s",
     async (mode) => {
       await withDbExec(db, async () => {
@@ -39,6 +46,20 @@ describe("atomic automation firing marker", () => {
           path,
           '---\nschedule: "*/2 * * * *"\nenabled: true\n---\nRun work.',
         );
+        const execute = db.execute.bind(db);
+        const pruningFault =
+          mode === "pruning failed"
+            ? vi.spyOn(db, "execute").mockImplementation(async (input) => {
+                if (
+                  typeof input !== "string" &&
+                  input.sql
+                    .trimStart()
+                    .startsWith("DELETE FROM automation_runs")
+                )
+                  throw new Error("retention unavailable");
+                return execute(input);
+              })
+            : undefined;
         if (mode === "marker conflict")
           await resourcePut(owner, path, initial.content + "\nAn owner edit.");
         const events: unknown[] = [];
@@ -79,10 +100,18 @@ describe("atomic automation firing marker", () => {
                   notify = written.notify;
                   expect(events).toHaveLength(0);
                 }),
-              afterCommit: () => notify?.(),
+              afterCommit: () => {
+                notify?.();
+                if (mode === "notification failed")
+                  throw new Error("notification unavailable");
+              },
             },
           );
-          if (mode === "committed") {
+          if (
+            mode === "committed" ||
+            mode === "pruning failed" ||
+            mode === "notification failed"
+          ) {
             expect(await admission).toBe(historyId);
             const stored = await resourceGetByPath(owner, path);
             const parsed = parseJobResource(stored!.content);
@@ -116,6 +145,7 @@ describe("atomic automation firing marker", () => {
           }
         } finally {
           emitter.off("resources", onChange);
+          pruningFault?.mockRestore();
         }
       });
     },
