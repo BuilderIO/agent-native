@@ -10,39 +10,45 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
-  isDateRangePresetFilter,
-  resolveDefault,
-} from "../app/pages/adhoc/sql-dashboard/filter-vars";
-import {
   interpolate,
   interpolateDashboardPanelSql,
 } from "../app/pages/adhoc/sql-dashboard/interpolate";
-import type { DashboardFilter } from "../app/pages/adhoc/sql-dashboard/types";
 import { dryRunQuery } from "../server/lib/bigquery";
+import {
+  dashboardNoopReceipt,
+  dashboardWriteReceipt,
+  requireEditableDashboard,
+} from "../server/lib/dashboard-agent-write";
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import { serializeProgramDescriptorInput } from "../server/lib/dashboard-panel-query";
+import {
+  annotateSummary,
+  isAgentCaller,
+  resolveVerificationVars,
+  verdictFields,
+  verifyPanelWrite,
+  type PanelVerification,
+  type PanelWriteVerdict,
+} from "../server/lib/dashboard-panel-verification";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   getDashboard,
-  upsertDashboard,
-  upsertDashboardWithRetry,
+  upsertDashboardOutcome,
+  upsertDashboardWithRetryOutcome,
   DashboardConflictError,
-  type DashboardRecord,
+  type DashboardUpsertOutcome,
 } from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
 import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
+import { panelLabel, stableStringify } from "../shared/panel-render-contract";
 import {
   applyPanelOrder,
   compactDashboardResult,
   type PanelOrderResult,
 } from "./dashboard-panel-order";
-
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function printable(value: unknown): string {
   if (typeof value === "string") return value;
@@ -50,57 +56,6 @@ function printable(value: unknown): string {
     return String(value);
   }
   return JSON.stringify(value) ?? "";
-}
-
-function resolveDateDefault(raw: string | undefined): string {
-  if (!raw) return "";
-  const m = /^(\d+)d$/.exec(raw);
-  if (m) {
-    const d = new Date();
-    d.setDate(d.getDate() - parseInt(m[1], 10));
-    return d.toISOString().slice(0, 10);
-  }
-  if (raw === "today") return todayUtc();
-  return raw;
-}
-
-function buildDryRunVars(
-  config: Record<string, unknown>,
-): Record<string, string> {
-  const vars: Record<string, string> = {};
-  const filters = Array.isArray(config.filters)
-    ? (config.filters as Array<Record<string, unknown>>)
-    : [];
-  for (const f of filters) {
-    const key =
-      typeof f.key === "string" ? f.key : typeof f.id === "string" ? f.id : "";
-    if (!key) continue;
-    const def = typeof f.default === "string" ? f.default : "";
-    if (f.type === "date-range") {
-      vars[`${key}Start`] = resolveDateDefault(def);
-      vars[`${key}End`] = todayUtc();
-    } else if (f.type === "date" || f.type === "toggle-date") {
-      if (def) vars[key] = resolveDateDefault(def);
-    } else if (
-      f.type === "select" &&
-      isDateRangePresetFilter(f as unknown as DashboardFilter)
-    ) {
-      const range = /^\d+d$/.test(def) ? def : "30d";
-      vars[key] = def || range;
-      vars[`${key}Start`] = resolveDefault(range, "date");
-      vars[`${key}End`] = todayUtc();
-    } else {
-      if (def) vars[key] = def;
-    }
-  }
-  const declared =
-    config.variables && typeof config.variables === "object"
-      ? (config.variables as Record<string, unknown>)
-      : {};
-  for (const [k, v] of Object.entries(declared)) {
-    if (typeof v === "string") vars[k] = v;
-  }
-  return vars;
 }
 
 type JsonOp = {
@@ -283,28 +238,49 @@ function applyJsonOp(root: any, op: JsonOp): string {
   }
 }
 
-export function validateDashboardConfig(
+export interface DashboardConfigIssue {
+  rule: string;
+  message: string;
+}
+
+export interface ValidateDashboardConfigOptions {
+  /**
+   * The config as stored before this edit. Only panels inserted or changed
+   * against it are validated, so a legacy panel never blocks an unrelated edit.
+   */
+  baseline?: Record<string, unknown> | null;
+}
+
+function collectDashboardConfigIssues(
   config: Record<string, unknown>,
-): string | null {
+  options: ValidateDashboardConfigOptions,
+): DashboardConfigIssue[] {
+  const dashboardIssue = (message: string): DashboardConfigIssue[] => [
+    { rule: "dashboard_config", message },
+  ];
   if (!config || typeof config !== "object") {
-    return "config must be an object";
+    return dashboardIssue("config must be an object");
   }
   const normalized = normalizeDashboardConfig(config);
   if (normalized !== config) config.panels = normalized.panels;
   if (typeof config.name !== "string" || config.name.trim().length === 0) {
-    return "config.name is required (non-empty string) — without it the dashboard renders as a blank row in the sidebar";
+    return dashboardIssue(
+      "config.name is required (non-empty string) — without it the dashboard renders as a blank row in the sidebar",
+    );
   }
   if (config.parentId !== undefined && config.parentId !== null) {
     if (
       typeof config.parentId !== "string" ||
       config.parentId.trim().length === 0
     ) {
-      return "config.parentId must be a non-empty dashboard id (or omitted) — it nests this dashboard under that parent in the sidebar";
+      return dashboardIssue(
+        "config.parentId must be a non-empty dashboard id (or omitted) — it nests this dashboard under that parent in the sidebar",
+      );
     }
   }
   const filters = config.filters;
   if (filters !== undefined && !Array.isArray(filters)) {
-    return "config.filters must be an array";
+    return dashboardIssue("config.filters must be an array");
   }
   if (Array.isArray(filters)) {
     const seen = new Set<string>();
@@ -312,10 +288,10 @@ export function validateDashboardConfig(
     for (let i = 0; i < filters.length; i++) {
       const f = filters[i] as Record<string, unknown> | null;
       if (!f || typeof f !== "object") {
-        return `config.filters[${i}] must be an object`;
+        return dashboardIssue(`config.filters[${i}] must be an object`);
       }
       const id = typeof f.id === "string" ? f.id.trim() : "";
-      if (!id) return `config.filters[${i}].id is required`;
+      if (!id) return dashboardIssue(`config.filters[${i}].id is required`);
       if (seen.has(id)) continue;
       seen.add(id);
       deduped.push(f);
@@ -326,8 +302,22 @@ export function validateDashboardConfig(
   }
   const panels = config.panels;
   if (!Array.isArray(panels)) {
-    return "config.panels must be an array (use [] for an empty dashboard)";
+    return dashboardIssue(
+      "config.panels must be an array (use [] for an empty dashboard)",
+    );
   }
+  // A baseline that is the config itself would mark every panel unchanged.
+  const baseline =
+    options.baseline && options.baseline !== config
+      ? normalizeDashboardConfig(options.baseline)
+      : null;
+  const baselinePanels = new Map<string, string>();
+  for (const panel of Array.isArray(baseline?.panels) ? baseline.panels : []) {
+    if (panel && typeof panel.id === "string") {
+      baselinePanels.set(panel.id, stableStringify(panel));
+    }
+  }
+  const issues: DashboardConfigIssue[] = [];
   const validSources = new Set([
     "bigquery",
     "ga4",
@@ -346,8 +336,21 @@ export function validateDashboardConfig(
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown> | null;
     if (!p || typeof p !== "object") {
-      return `panel[${i}] must be an object`;
+      issues.push({
+        rule: "panel_not_object",
+        message: `panel[${i}] must be an object`,
+      });
+      continue;
     }
+    if (
+      typeof p.id === "string" &&
+      baselinePanels.get(p.id) === stableStringify(p)
+    ) {
+      continue;
+    }
+    const label = panelLabel(p, i);
+    const issue = (rule: string, message: string) =>
+      issues.push({ rule: `panel_${rule}`, message: `${label} ${message}` });
     const isSection = p.chartType === "section";
     const isExtension = p.chartType === "extension";
     const required =
@@ -358,22 +361,40 @@ export function validateDashboardConfig(
       const v = p[field];
       if (field === "width") {
         if (!isValidColumnCount(v)) {
-          return `panel[${i}].width must be an integer between 1 and 6 (legacy layout field)`;
+          issue(
+            "width",
+            `width is ${v === undefined ? "missing" : JSON.stringify(v)}; set width to an integer 1-6 (updatePanel patch {"width":1}).`,
+          );
         }
         continue;
       }
       if (typeof v !== "string" || v.trim().length === 0) {
-        return `panel[${i}].${field} is required (non-empty string)`;
+        issue(
+          field,
+          `${field} is ${v === undefined ? "missing" : JSON.stringify(v)}; set ${field} to a non-empty string.`,
+        );
       }
     }
-    if (!isSection && !isExtension && !validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', 'prometheus', or 'program' (got '${printable(p.source)}'). source selects the backend — put the PromQL/SQL/table name or program descriptor in sql, not here.`;
+    if (
+      !isSection &&
+      !isExtension &&
+      typeof p.source === "string" &&
+      p.source.trim() &&
+      !validSources.has(p.source)
+    ) {
+      issue(
+        "source",
+        `source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', 'prometheus', or 'program' (got '${printable(p.source)}'). source selects the backend — put the PromQL/SQL/table name or program descriptor in sql, not here.`,
+      );
     }
     if (p.source === "program") {
       try {
         serializeProgramDescriptorInput(p.sql);
       } catch (e: any) {
-        return `panel[${i}] "${printable(p.title || p.id)}" program descriptor is invalid: ${e instanceof Error ? e.message : printable(e)}`;
+        issue(
+          "program_descriptor",
+          `program descriptor is invalid: ${e instanceof Error ? e.message : printable(e)}`,
+        );
       }
     }
     if (isExtension) {
@@ -387,7 +408,10 @@ export function validateDashboardConfig(
           ? cfg.extensionSlotId.trim()
           : "";
       if (!extensionId && !extensionSlotId) {
-        return `panel[${i}].config.extensionId or config.extensionSlotId is required for extension panels`;
+        issue(
+          "extension_target",
+          "config.extensionId or config.extensionSlotId is required for extension panels",
+        );
       }
     }
     if (
@@ -395,13 +419,43 @@ export function validateDashboardConfig(
       p.columns !== undefined &&
       !isValidColumnCount(p.columns)
     ) {
-      return `panel[${i}].columns must be an integer between 1 and 6 (only valid on section panels)`;
+      issue(
+        "section_columns",
+        `columns is ${JSON.stringify(p.columns)}; set columns to an integer 1-6 (only valid on section panels).`,
+      );
     }
   }
   if (config.columns !== undefined && !isValidColumnCount(config.columns)) {
-    return "config.columns must be an integer between 1 and 6";
+    issues.push({
+      rule: "dashboard_config",
+      message: "config.columns must be an integer between 1 and 6",
+    });
   }
-  return null;
+  return issues;
+}
+
+export function validateDashboardConfig(
+  config: Record<string, unknown>,
+  options: ValidateDashboardConfigOptions = {},
+): string | null {
+  const issues = collectDashboardConfigIssues(config, options);
+  return issues.length > 0
+    ? issues.map((issue) => issue.message).join("\n")
+    : null;
+}
+
+export function assertValidDashboardConfig(
+  config: Record<string, unknown>,
+  options: ValidateDashboardConfigOptions = {},
+): void {
+  const issues = collectDashboardConfigIssues(config, options);
+  if (issues.length === 0) return;
+  fail(issues.map((issue) => issue.message).join("\n"), {
+    errorCode: issues.some((issue) => issue.rule.startsWith("panel_"))
+      ? "dashboard_invalid_panel"
+      : "dashboard_invalid_config",
+    details: { issues },
+  });
 }
 
 const MAX_CONCURRENT_SQL_VALIDATIONS = 8;
@@ -422,7 +476,7 @@ export async function validatePanelSql(
 ): Promise<string | null> {
   const panels = config.panels;
   if (!Array.isArray(panels)) return null;
-  const vars = buildDryRunVars(config);
+  const vars = resolveVerificationVars(config);
   const bigQueryPanels: Array<{
     index: number;
     panel: Record<string, unknown>;
@@ -591,15 +645,24 @@ function dashboardResult(
   movedPanelIds: string[] = [],
   returnConfig = false,
   updatedAt?: string,
+  verdict: PanelWriteVerdict | null = null,
+  receiptSaved?: string,
 ) {
   const compact = compactDashboardResult(config, movedPanelIds);
+  summary = annotateSummary(summary, verdict);
   return {
     id: dashboardId,
     dashboardId,
     name: typeof config.name === "string" ? config.name : dashboardId,
     ...compact,
+    saved: true,
+    changed: true,
     appliedOps,
     summary,
+    ...verdictFields(verdict),
+    ...(receiptSaved
+      ? { _receipt: dashboardWriteReceipt(dashboardId, receiptSaved, verdict) }
+      : {}),
     ...(updatedAt ? { updatedAt } : {}),
     ...(returnConfig ? { config } : {}),
     urlPath: `/dashboards/${dashboardId}`,
@@ -612,7 +675,37 @@ function dashboardResult(
       `${summary} First panels: ${compact.firstPanelIds.join(", ")}.` +
       (returnConfig
         ? ""
-        : " Full config omitted; call get-sql-dashboard with includeConfig=true only if full SQL/config is needed."),
+        : " Full config omitted; call get-sql-dashboard with panelIds for a panel's SQL and config (includeConfig=true only to review the whole dashboard)."),
+  };
+}
+
+/**
+ * A save the store did not persist (`didWrite: false`) is reported like an
+ * unchanged `mutate-dashboard` batch: no sync, no tracking, and nothing verified.
+ */
+function unchangedDashboardResult(
+  dashboardId: string,
+  config: Record<string, unknown>,
+  returnConfig: boolean,
+  updatedAt: string,
+  agentCaller: boolean,
+) {
+  return {
+    ...dashboardResult(
+      dashboardId,
+      config,
+      0,
+      `No dashboard changes were needed for "${dashboardId}"; the requested state already matches.` +
+        (agentCaller
+          ? " If the viewer still sees the old result, call inspect-dashboard-panel to see what the panel renders."
+          : ""),
+      [],
+      returnConfig,
+      updatedAt,
+    ),
+    saved: false,
+    changed: false,
+    ...(agentCaller ? { _receipt: dashboardNoopReceipt(dashboardId) } : {}),
   };
 }
 
@@ -645,9 +738,7 @@ function opCanChangePanelSql(op: JsonOp): boolean {
   );
 }
 
-function isAgentCaller(caller: string | undefined): boolean {
-  return caller === "tool" || caller === "mcp" || caller === "a2a";
-}
+export { isAgentCaller };
 
 export default defineAction({
   description:
@@ -658,6 +749,7 @@ export default defineAction({
     "When this action is appropriate, provide only one of `ops`, `panelOrder`, or `config`; `config` replaces the whole dashboard config. " +
     "First-party event panels must bind to a declared dashboard time filter with `{{timeRange}}` or date-range variables. Intentional fixed-window, cohort-history, and all-time exceptions must be explicit in `panel.config.timeScope`; unbounded first-party SQL is rejected at save time. " +
     "The result is compact by default: `panelCount`, `appliedOps`, `panelOrder`, `firstPanelIds`, and `summary`. Set `returnConfig: true` only when you truly need the full config in the tool result. " +
+    "Agent writes run each changed panel the way the dashboard page does before saving: a panel that would show 'No data', drop configured columns, or fail is refused and nothing is saved. Only `verified:true` proves the edit renders; on `verified:false` call `inspect-dashboard-panel`. " +
     "The UI auto-refreshes after this action — do NOT call `refresh-screen`.",
   schema: z.object({
     dashboardId: z
@@ -684,7 +776,13 @@ export default defineAction({
       .optional()
       .describe(
         "Only used with `config`. The dashboard `updatedAt` observed before this edit was built (from get-sql-dashboard or a prior update-dashboard result). " +
-          "When provided, the save is fenced against concurrent writers: if someone else (another tab, user, or agent call) saved in between, this call is rejected with a conflict error instead of silently overwriting their change — re-fetch and reapply. Omit only for a brand-new dashboard or a one-shot write that isn't derived from a prior read.",
+          "When provided, the save is fenced against concurrent writers: if someone else (another tab, user, or agent call) saved in between, this call is rejected with a conflict error instead of silently overwriting their change — re-fetch and reapply. Omit only for a brand-new dashboard or a one-shot write that isn't derived from a prior read; an agent save without it is still rejected if the dashboard changed while the save was being verified.",
+      ),
+    allowEmptyResult: z
+      .boolean()
+      .optional()
+      .describe(
+        "Agent calls only. Set true only when the user expects a changed panel to have no rows right now; the save then reports verified:false.",
       ),
     returnConfig: z
       .boolean()
@@ -721,24 +819,50 @@ export default defineAction({
 
     const scope = resolveScope();
     const ctx = { email: scope.email, orgId: scope.orgId };
+    const agentCaller = isAgentCaller(actionContext?.caller);
+    const verificationMemo = new Map<string, PanelVerification>();
 
     if (args.config) {
-      const validation = validateDashboardConfig(args.config);
-      if (validation) fail(validation);
+      // A dashboard that does not exist yet has no base, so every panel is new.
+      const before = await getDashboard(dashboardId, ctx);
+      if (before) await requireEditableDashboard(dashboardId, ctx, before);
+      assertValidDashboardConfig(args.config, {
+        baseline: before ? before.config : null,
+      });
       const sqlError = await validatePanelSql(args.config);
       if (sqlError) fail(sqlError);
-      let saved: DashboardRecord;
+      const verdict = agentCaller
+        ? await verifyPanelWrite({
+            base: before ? before.config : null,
+            next: args.config,
+            signal: actionContext?.signal,
+            allowEmptyResult: args.allowEmptyResult,
+            memo: verificationMemo,
+            dashboardId,
+          })
+        : null;
+      // Verification can run for seconds after `before` was read, so an agent
+      // save without a caller-supplied revision is fenced to the record it
+      // verified against. Other callers keep last-write-wins unless they send one.
+      const fence =
+        args.expectedUpdatedAt ?? (agentCaller ? before?.updatedAt : undefined);
+      let outcome: DashboardUpsertOutcome;
       try {
-        saved =
-          args.expectedUpdatedAt !== undefined
-            ? await upsertDashboard(
+        outcome =
+          fence !== undefined
+            ? await upsertDashboardOutcome(
                 dashboardId,
                 "sql",
                 args.config,
                 ctx,
-                args.expectedUpdatedAt,
+                fence,
               )
-            : await upsertDashboard(dashboardId, "sql", args.config, ctx);
+            : await upsertDashboardOutcome(
+                dashboardId,
+                "sql",
+                args.config,
+                ctx,
+              );
       } catch (err) {
         if (err instanceof DashboardConflictError) {
           fail(
@@ -748,11 +872,21 @@ export default defineAction({
         }
         throw err;
       }
+      const saved = outcome.dashboard;
+      if (!outcome.didWrite) {
+        return unchangedDashboardResult(
+          dashboardId,
+          args.config,
+          args.returnConfig === true,
+          saved.updatedAt,
+          agentCaller,
+        );
+      }
       void queueDashboardCollabSync(
         dashboardId,
         saved.updatedAt,
         () => getDashboard(dashboardId, ctx),
-        isAgentCaller(actionContext?.caller) ? "agent" : undefined,
+        agentCaller ? "agent" : undefined,
       );
       const panelCount = countPanels(args.config);
       trackDashboardSaved(dashboardId, args.config, actionContext);
@@ -764,32 +898,58 @@ export default defineAction({
         [],
         args.returnConfig === true,
         saved.updatedAt,
+        verdict,
+        agentCaller ? `Saved dashboard "${dashboardId}"` : undefined,
       );
     }
 
     if (args.panelOrder) {
       let orderDetails!: PanelOrderResult;
-      const saved = await upsertDashboardWithRetry(
+      let orderVerdict: PanelWriteVerdict | null = null;
+      const outcome = await upsertDashboardWithRetryOutcome(
         dashboardId,
         ctx,
-        (existing) => {
+        async (existing) => {
+          await requireEditableDashboard(dashboardId, ctx, existing);
           const root = existing.config as Record<string, unknown>;
+          // applyPanelOrder edits `root` in place, so the pre-edit config must be copied first.
+          const baseline = JSON.parse(JSON.stringify(root)) as Record<
+            string,
+            unknown
+          >;
           try {
             orderDetails = applyPanelOrder(root, args.panelOrder!);
           } catch (err: any) {
             fail(err instanceof Error ? err.message : String(err));
           }
-          const validation = validateDashboardConfig(root);
-          if (validation) fail(validation);
+          assertValidDashboardConfig(root, { baseline });
+          if (agentCaller) {
+            orderVerdict = await verifyPanelWrite({
+              base: baseline,
+              next: root,
+              signal: actionContext?.signal,
+              dashboardId,
+            });
+          }
           return { kind: existing.kind, body: root };
         },
       );
+      const saved = outcome.dashboard;
       const root = saved.config as Record<string, unknown>;
+      if (!outcome.didWrite) {
+        return unchangedDashboardResult(
+          dashboardId,
+          root,
+          args.returnConfig === true,
+          saved.updatedAt,
+          agentCaller,
+        );
+      }
       void queueDashboardCollabSync(
         dashboardId,
         saved.updatedAt,
         () => getDashboard(dashboardId, ctx),
-        isAgentCaller(actionContext?.caller) ? "agent" : undefined,
+        agentCaller ? "agent" : undefined,
       );
       trackDashboardSaved(dashboardId, root, actionContext);
       return dashboardResult(
@@ -800,15 +960,24 @@ export default defineAction({
         orderDetails.movedPanelIds,
         args.returnConfig === true,
         saved.updatedAt,
+        orderVerdict,
+        agentCaller ? `Saved panel order for "${dashboardId}"` : undefined,
       );
     }
 
     let appliedDetails: string[] = [];
-    const saved = await upsertDashboardWithRetry(
+    let opsVerdict: PanelWriteVerdict | null = null;
+    const outcome = await upsertDashboardWithRetryOutcome(
       dashboardId,
       ctx,
       async (existing) => {
+        await requireEditableDashboard(dashboardId, ctx, existing);
         const root = existing.config as Record<string, unknown>;
+        // The ops below edit `root` in place, so the pre-edit config must be copied first.
+        const baseline = JSON.parse(JSON.stringify(root)) as Record<
+          string,
+          unknown
+        >;
         const details: string[] = [];
         for (const op of args.ops!) {
           try {
@@ -818,22 +987,43 @@ export default defineAction({
           }
         }
 
-        const validation = validateDashboardConfig(root);
-        if (validation) fail(validation);
+        assertValidDashboardConfig(root, { baseline });
         if (args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))) {
           const sqlError = await validatePanelSql(root);
           if (sqlError) fail(sqlError);
+        }
+        // Filter and variable edits re-resolve every panel's SQL, so the gate
+        // diffs every agent write rather than guessing from the op paths.
+        if (agentCaller) {
+          opsVerdict = await verifyPanelWrite({
+            base: baseline,
+            next: root,
+            signal: actionContext?.signal,
+            allowEmptyResult: args.allowEmptyResult,
+            memo: verificationMemo,
+            dashboardId,
+          });
         }
         appliedDetails = details;
         return { kind: existing.kind, body: root };
       },
     );
+    const saved = outcome.dashboard;
     const root = saved.config as Record<string, unknown>;
+    if (!outcome.didWrite) {
+      return unchangedDashboardResult(
+        dashboardId,
+        root,
+        args.returnConfig === true,
+        saved.updatedAt,
+        agentCaller,
+      );
+    }
     void queueDashboardCollabSync(
       dashboardId,
       saved.updatedAt,
       () => getDashboard(dashboardId, ctx),
-      isAgentCaller(actionContext?.caller) ? "agent" : undefined,
+      agentCaller ? "agent" : undefined,
     );
 
     const panelCount = countPanels(root);
@@ -846,6 +1036,10 @@ export default defineAction({
       [],
       args.returnConfig === true,
       saved.updatedAt,
+      opsVerdict,
+      agentCaller
+        ? `Saved ${appliedDetails.length} op(s) to "${dashboardId}"`
+        : undefined,
     );
   },
   link: ({ result }) => {

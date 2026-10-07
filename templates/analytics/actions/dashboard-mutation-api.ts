@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+
 import {
   buildDashboardPanelGroups,
   columnExpansionForDropSlot,
@@ -9,6 +11,11 @@ import {
   MAX_DASHBOARD_COLUMNS,
   type SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import {
+  editDistance,
+  PANEL_CHART_TYPES,
+  PANEL_CONFIG_KEYS,
+} from "../shared/panel-render-contract";
 import { movePanelsById, type PanelOrderTarget } from "./dashboard-panel-order";
 
 export const DASHBOARD_MUTATION_API_TYPES = `type DashboardScript = {
@@ -42,14 +49,14 @@ type PanelTimeScope =
 type PanelConfig = Record<string, unknown> & {
   /** Use "dashboard" for AI-generated first-party panels by default. */
   timeScope?: PanelTimeScope;
-  /** Renderer options only; keep panel fields at the panel level. */
+  /** Renderer options only; other keys are rejected. Honored: ${Object.keys(PANEL_CONFIG_KEYS).join(", ")}. No rolling-average option: add a window-function column in sql and list it in yKeys (bigquery: AVG(v) OVER (...); first-party: AVG is not an approved function, use SUM(v) OVER (...) * 1.0 / COUNT(v) OVER (...)). */
 };
 
 type PanelPatch = {
   title?: string;
   sql?: string;
   source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus" | "program";
-  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "funnel" | "section" | "heatmap" | "callout" | "extension";
+  chartType?: ${PANEL_CHART_TYPES.map((type) => `"${type}"`).join(" | ")};
   width?: number;
   columns?: number;
   tab?: string;
@@ -97,7 +104,7 @@ type PanelSelection = {
   setSql(sql: string): void;
   setWidth(width: number): void;
   setConfig(patch: Record<string, unknown>): void;
-  setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yAxis.format" or "config.yAxis.format"
+  setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yFormatter" or "config.yFormatter"
   duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
@@ -130,7 +137,7 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panel("retention").set({"width":2,"config":{"description":"Updated definition."}});',
   'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).moveToTop();',
   'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);',
-  'dashboard.panel("retention").setConfigPath("yAxis.format","percent");',
+  'dashboard.panel("retention").setConfigPath("yFormatter","percent");',
   'dashboard.section("retention-activity-section").append(["repeat-users","retention-over-time"]);',
   `dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter}"}).atTop();`,
   `dashboard.insertPanel({"id":"new-chart","title":"New Chart","source":"first-party","chartType":"line","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_date AS date, COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter} GROUP BY event_date ORDER BY event_date"}).nextTo("retention-over-time");`,
@@ -358,26 +365,6 @@ function compactList(values: string[], max = 20): string {
   const items = values.filter(Boolean).slice(0, max);
   const suffix = values.length > max ? `, ... (${values.length} total)` : "";
   return `${items.join(", ")}${suffix}`;
-}
-
-function editDistance(a: string, b: string): number {
-  const left = a.toLowerCase();
-  const right = b.toLowerCase();
-  const dp = Array.from({ length: left.length + 1 }, (_, i) =>
-    Array.from({ length: right.length + 1 }, (_2, j) => (i === 0 ? j : 0)),
-  );
-  for (let i = 1; i <= left.length; i++) dp[i][0] = i;
-  for (let i = 1; i <= left.length; i++) {
-    for (let j = 1; j <= right.length; j++) {
-      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost,
-      );
-    }
-  }
-  return dp[left.length][right.length];
 }
 
 function nearest(value: string, candidates: string[], limit = 3): string[] {
@@ -856,8 +843,11 @@ function setConfigPath(
     .filter(Boolean);
   if (segments[0] === "config") segments.shift();
   if (segments.length === 0) {
-    throw new Error(
-      'setConfigPath path must point under panel.config, e.g. "yAxis.format".',
+    fail(
+      'setConfigPath path must point under panel.config, e.g. "yFormatter".',
+      {
+        errorCode: "invalid_config_path",
+      },
     );
   }
   for (const segment of segments) {
@@ -1068,7 +1058,9 @@ export function applyDashboardMutationOperations(
           );
       }
     } catch (err: any) {
-      throw new Error(`operation ${opIndex + 1} (${op.op}): ${err.message}`);
+      fail(`operation ${opIndex + 1} (${op.op}): ${err.message}`, {
+        errorCode: "invalid_dashboard_mutation",
+      });
     }
   }
 
