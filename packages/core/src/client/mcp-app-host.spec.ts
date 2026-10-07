@@ -9,11 +9,13 @@ import {
   AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
   _resetMcpAppHostForTests,
   getMcpAppHostContext,
+  isMcpAppWidgetEmbed,
   isOpenAiMcpAppHost,
   openMcpAppHostLink,
   requestMcpAppDisplayMode,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
+  useIsMcpAppWidgetEmbed,
   useMcpAppHostContext,
 } from "./mcp-app-host.js";
 
@@ -136,6 +138,69 @@ describe("MCP app host client helpers", () => {
 
     vi.stubGlobal("openai", undefined);
     expect(isOpenAiMcpAppHost()).toBe(false);
+  });
+
+  it("detects an app nested in an MCP App widget without keying on embedded=1 alone", async () => {
+    const snapshots: boolean[] = [];
+    function Probe() {
+      snapshots.push(useIsMcpAppWidgetEmbed());
+      return null;
+    }
+
+    setParent(window);
+    expect(isMcpAppWidgetEmbed()).toBe(false);
+
+    setDirectParent(parentWindow());
+    expect(isMcpAppWidgetEmbed()).toBe(true);
+    await act(async () => {
+      root.render(React.createElement(Probe));
+    });
+    expect(snapshots.at(-1)).toBe(true);
+
+    setTestUrl("/?embedded=1&__an_embed_token=signed-token");
+    sessionStorage.clear();
+    _resetMcpAppHostForTests();
+    _resetEmbedAuthForTests();
+    expect(isMcpAppWidgetEmbed()).toBe(false);
+  });
+
+  it("marks the document while the host owns the frame's height", () => {
+    setParent(parentWindow());
+    const fillAttribute = "data-agent-native-host-fill";
+
+    act(() => {
+      dispatchHostMessage({
+        type: AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.HOST_CONTEXT,
+        data: { context: { displayMode: "fullscreen" } },
+      });
+    });
+    expect(document.documentElement.hasAttribute(fillAttribute)).toBe(true);
+
+    act(() => {
+      dispatchHostMessage({
+        type: AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.HOST_CONTEXT,
+        data: {
+          context: {
+            displayMode: "inline",
+            containerDimensions: { maxHeight: 400 },
+          },
+        },
+      });
+    });
+    expect(document.documentElement.hasAttribute(fillAttribute)).toBe(false);
+
+    act(() => {
+      dispatchHostMessage({
+        type: AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.HOST_CONTEXT,
+        data: {
+          context: {
+            displayMode: "inline",
+            containerDimensions: { height: 860 },
+          },
+        },
+      });
+    });
+    expect(document.documentElement.hasAttribute(fillAttribute)).toBe(true);
   });
 
   it("caches host context and exposes it through the React hook", async () => {

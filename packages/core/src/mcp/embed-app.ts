@@ -1,5 +1,6 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import { MCP_APP_HOST_FILL_ATTRIBUTE } from "../shared/mcp-app-display.js";
 
 const MCP_APP_IMPORT =
   "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.5/app-with-deps";
@@ -82,6 +83,11 @@ export function embedApp(
     .fallback-copy { max-width: 520px; color: color-mix(in srgb, CanvasText 64%, Canvas); font-size: 13px; line-height: 1.45; }
     .fallback-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
     .fallback-url { max-width: min(560px, 100%); overflow-wrap: anywhere; color: color-mix(in srgb, CanvasText 76%, Canvas); font-size: 12px; }
+    html[${MCP_APP_HOST_FILL_ATTRIBUTE}], html[${MCP_APP_HOST_FILL_ATTRIBUTE}] body { height: 100%; }
+    html[${MCP_APP_HOST_FILL_ATTRIBUTE}] .shell { display: flex; flex-direction: column; gap: 0; height: 100vh; height: 100dvh; min-height: 0; }
+    html[${MCP_APP_HOST_FILL_ATTRIBUTE}] .bar { display: none; }
+    html[${MCP_APP_HOST_FILL_ATTRIBUTE}] .stage { flex: 1 1 auto; min-height: 0; }
+    html[${MCP_APP_HOST_FILL_ATTRIBUTE}] iframe, html[${MCP_APP_HOST_FILL_ATTRIBUTE}] .message, html[${MCP_APP_HOST_FILL_ATTRIBUTE}] .fallback { height: 100% !important; min-height: 0; }
   </style>
 </head>
 <body
@@ -116,6 +122,7 @@ export function embedApp(
     const chatBridgeParam = ${JSON.stringify(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)};
     const defaultIntrinsicHeight = ${height};
     const chromeHeight = ${MCP_APP_WRAPPER_CHROME_HEIGHT};
+    const hostFillAttribute = ${JSON.stringify(MCP_APP_HOST_FILL_ATTRIBUTE)};
     const frameReadyMessageDelays = [0, 200, 500, 1500, 3000, 7000, 15000, 30000];
     const frameReadyTimeoutMs = 45000;
     const frameLoadTimeoutMs = 45000;
@@ -178,6 +185,38 @@ export function embedApp(
       if (!context || typeof context !== "object") return null;
       return finiteNumber(context.maxHeight) ||
         finiteNumber(context.containerDimensions && context.containerDimensions.maxHeight);
+    }
+
+    // Keep in sync with mcpAppHostFillsContainer (shared/mcp-app-display.ts);
+    // embed-app.spec.ts runs both over the same table.
+    function hostFillsContainer(context) {
+      const record = objectValue(context);
+      const dimensions = objectValue(record.containerDimensions);
+      const fixedHeight = dimensions.height;
+      if (typeof fixedHeight === "number" && Number.isFinite(fixedHeight) && fixedHeight > 0) {
+        return true;
+      }
+      return record.displayMode === "fullscreen" || record.displayMode === "pip";
+    }
+
+    // A side panel, fullscreen view, or fixed-height container sizes the frame
+    // itself, so the shell fills it with CSS and never reports an intrinsic
+    // height. An inline card is the opposite: the host follows the height
+    // reported here, so filling the frame would feed its own size back into
+    // it. Never derive the height from the frame's innerHeight.
+    function applyHostFillMode() {
+      const context = hostState().context || {};
+      const fill = hostFillsContainer(context);
+      const root = document.documentElement;
+      if (fill) {
+        root.setAttribute(hostFillAttribute, "1");
+        if (appFrame) appFrame.style.height = "";
+      } else {
+        root.removeAttribute(hostFillAttribute);
+      }
+      body.dataset.hostFill = fill ? "1" : "0";
+      body.dataset.hostDisplayMode = typeof context.displayMode === "string" ? context.displayMode : "";
+      return fill;
     }
 
     function visibleIntrinsicHeight() {
@@ -1472,6 +1511,7 @@ export function embedApp(
     }
 
     function notifyHostHeight() {
+      if (applyHostFillMode()) return;
       const intrinsic = visibleIntrinsicHeight();
       const height = applyIntrinsicHeight(intrinsic);
       if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") {
@@ -2000,7 +2040,16 @@ export function embedApp(
       let rpcId = 0;
       let connectPromise = null;
       let hostContext = {};
+      let hostContextFields = {};
       const pendingRequests = new Map();
+
+      // ui/initialize answers { hostContext }; host-context-changed carries a
+      // partial context, so merge it instead of replacing what we know.
+      function setHostContext(payload, replace) {
+        hostContext = objectValue(payload);
+        const fields = objectValue(hostContext.hostContext || hostContext.context || hostContext);
+        hostContextFields = replace ? { ...fields } : { ...hostContextFields, ...fields };
+      }
 
       function rpcNotify(method, params) {
         window.parent.postMessage({ jsonrpc: "2.0", method, params: params || {} }, "*");
@@ -2058,7 +2107,7 @@ export function embedApp(
         ontoolresult: null,
         onhostcontextchanged: null,
         getHostContext() {
-          return hostContext.context || hostContext;
+          return hostContextFields;
         },
         getHostCapabilities() {
           return hostContext.capabilities || { tools: true, messaging: true };
@@ -2079,10 +2128,10 @@ export function embedApp(
               },
               nativeBridgeInitializeTimeoutMs
             );
-            hostContext = objectValue(result);
+            setHostContext(result, true);
             rpcNotify("ui/notifications/initialized", {});
             if (typeof nativeApp.onhostcontextchanged === "function") {
-              nativeApp.onhostcontextchanged(hostContext);
+              nativeApp.onhostcontextchanged(hostContextFields);
             }
             return hostContext;
           })().catch((err) => {
@@ -2154,9 +2203,9 @@ export function embedApp(
           message.method === "ui/notifications/host-context" ||
           message.method === "ui/notifications/context"
         ) {
-          hostContext = objectValue(params);
+          setHostContext(params, false);
           if (typeof nativeApp.onhostcontextchanged === "function") {
-            nativeApp.onhostcontextchanged(hostContext);
+            nativeApp.onhostcontextchanged(hostContextFields);
           }
         }
       }

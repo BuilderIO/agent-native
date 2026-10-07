@@ -241,6 +241,30 @@ describe("embed auth client", () => {
     expect(notifyIntrinsicHeight).toHaveBeenCalledWith({ height: 560 });
   });
 
+  it("lifts the viewport clamp while the host owns the frame's height", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+
+    const first = await loadEmbedAuth();
+    first.ensureEmbedAuthFetchInterceptor();
+
+    const css = document.getElementById(
+      "agent-native-mcp-chat-bridge-viewport",
+    )?.textContent;
+    // Every clamp rule is scoped to the inline case, so the host's fill
+    // attribute on <html> releases all of them at once.
+    const selectors = [...(css ?? "").matchAll(/^([^{}]+)\{/gm)].flatMap(
+      ([, group]) => group!.split(",").map((selector) => selector.trim()),
+    );
+    expect(selectors.length).toBeGreaterThan(0);
+    for (const selector of selectors) {
+      expect(selector).toMatch(/^html:not\(\[data-agent-native-host-fill\]\)/);
+    }
+  });
+
   it("dedupes delayed viewport notifications across repeated bridge setup", async () => {
     vi.useFakeTimers();
     const notifyIntrinsicHeight = vi.fn();

@@ -6,6 +6,10 @@ import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
+  MCP_APP_HOST_FILL_ATTRIBUTE,
+  mcpAppHostFillsContainer,
+} from "../shared/mcp-app-display.js";
+import {
   getEmbedAuthToken,
   isEmbedAuthActive,
   markEmbedMcpChatBridgeActive,
@@ -213,6 +217,15 @@ function notify() {
   for (const listener of listeners) listener();
 }
 
+function syncHostFillAttribute(context: McpAppHostContext | null): void {
+  if (!isBrowserWindow() || !document.documentElement) return;
+  if (mcpAppHostFillsContainer(context)) {
+    document.documentElement.setAttribute(MCP_APP_HOST_FILL_ATTRIBUTE, "1");
+  } else {
+    document.documentElement.removeAttribute(MCP_APP_HOST_FILL_ATTRIBUTE);
+  }
+}
+
 function updateSnapshot(data: HostContextMessage["data"]): void {
   if (!isRecord(data)) return;
   const nextSnapshot: McpAppHostContextSnapshot = {
@@ -229,6 +242,7 @@ function updateSnapshot(data: HostContextMessage["data"]): void {
     : snapshot.hostInfo;
   if (hostInfo) nextSnapshot.hostInfo = hostInfo;
   snapshot = nextSnapshot;
+  syncHostFillAttribute(nextSnapshot.context);
   notify();
 }
 
@@ -472,6 +486,23 @@ function readOpenAiBridge(): OpenAiAppBridge | null {
   return bridge && typeof bridge === "object"
     ? (bridge as OpenAiAppBridge)
     : null;
+}
+
+/**
+ * True when this document is an app running inside an MCP App widget (a
+ * ChatGPT, Codex, or Claude card or panel). The host, not the app, owns
+ * navigation and chat there, so apps drop their own navigation chrome.
+ */
+export function isMcpAppWidgetEmbed(): boolean {
+  return isInChildFrame() && isMcpAppBridgeEnabled();
+}
+
+export function useIsMcpAppWidgetEmbed(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    isMcpAppWidgetEmbed,
+    () => false,
+  );
 }
 
 export function isOpenAiMcpAppHost(): boolean {
@@ -868,6 +899,9 @@ export function _resetMcpAppHostForTests(): void {
   directHostChatQueue = Promise.resolve();
   snapshot = { context: null, capabilities: null, version: null };
   listeners.clear();
+  if (isBrowserWindow()) {
+    document.documentElement?.removeAttribute(MCP_APP_HOST_FILL_ATTRIBUTE);
+  }
 }
 
 if (isBrowserWindow()) {

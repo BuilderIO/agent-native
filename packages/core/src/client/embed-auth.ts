@@ -7,6 +7,7 @@ import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
+import { MCP_APP_HOST_FILL_ATTRIBUTE } from "../shared/mcp-app-display.js";
 import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
@@ -195,18 +196,22 @@ function ensureMcpChatBridgeViewportClamp(win: Window): void {
     const style = doc.createElement("style");
     style.id = MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID;
     const height = `${MCP_CHAT_BRIDGE_VIEWPORT_HEIGHT}px`;
+    // An inline card sizes itself to this document, so `100vh` must not follow
+    // the frame. A host that owns the frame's height (see
+    // mcpAppHostFillsContainer) sets the fill attribute and the clamp lifts.
+    const inline = `html:not([${MCP_APP_HOST_FILL_ATTRIBUTE}])`;
     style.textContent = `
-html,
-body {
+${inline},
+${inline} body {
   min-height: 0 !important;
   height: ${height} !important;
   max-height: ${height} !important;
   overflow: hidden !important;
 }
 
-#root,
-#__next,
-[data-agent-native-app-root] {
+${inline} #root,
+${inline} #__next,
+${inline} [data-agent-native-app-root] {
   min-height: 0 !important;
   height: ${height} !important;
   max-height: ${height} !important;

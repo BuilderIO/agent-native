@@ -10,6 +10,7 @@ import { Layout } from "./Layout";
 const sessionState = vi.hoisted(() => ({
   current: null as { email: string } | null,
 }));
+const embedState = vi.hoisted(() => ({ token: false, mcpAppWidget: false }));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -20,7 +21,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  isEmbedAuthActive: () => false,
+  isEmbedAuthActive: () => embedState.token,
+}));
+vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useIsMcpAppWidgetEmbed: () => embedState.mcpAppWidget,
 }));
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -33,7 +38,9 @@ vi.mock("@agent-native/creative-context/client", () => ({
 }));
 vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  AgentSidebar: ({ children }: { children?: unknown }) => children ?? null,
+  AgentSidebar: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="agent-sidebar">{children}</div>
+  ),
 }));
 vi.mock(
   "@agent-native/toolkit/app/chat/agentkit-chat",
@@ -54,10 +61,12 @@ vi.mock("../editor/FigmaLinkComposerBubble", () => ({
 }));
 vi.mock("./Header", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./Header")>()),
-  Header: () => null,
-  MobileHeaderActions: () => null,
+  Header: () => <header data-testid="header" />,
+  MobileHeaderActions: () => <div data-testid="mobile-header-actions" />,
 }));
-vi.mock("./Sidebar", () => ({ Sidebar: () => null }));
+vi.mock("./Sidebar", () => ({
+  Sidebar: () => <nav data-testid="sidebar" />,
+}));
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -76,6 +85,8 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   sessionState.current = null;
+  embedState.token = false;
+  embedState.mcpAppWidget = false;
 });
 
 it("keeps the design editor mounted when the session resolves", async () => {
@@ -102,4 +113,73 @@ it("keeps the design editor mounted when the session resolves", async () => {
 
   expect(container.querySelector(".agent-layout-shell")).not.toBeNull();
   expect(mounts).toBe(1);
+});
+
+const APP_CHROME_TEST_IDS = [
+  "sidebar",
+  "header",
+  "mobile-header-actions",
+  "agent-sidebar",
+];
+
+async function renderEditorRoute(editor: React.ReactNode = <div />) {
+  await act(async () =>
+    root.render(
+      <MemoryRouter initialEntries={["/design/abc"]}>
+        <Layout>{editor}</Layout>
+      </MemoryRouter>,
+    ),
+  );
+}
+
+function renderedAppChrome() {
+  return APP_CHROME_TEST_IDS.filter((id) =>
+    container.querySelector(`[data-testid="${id}"]`),
+  );
+}
+
+it("renders Design's app chrome for a token embed outside an MCP App widget", async () => {
+  sessionState.current = { email: "person@example.com" };
+  embedState.token = true;
+
+  await renderEditorRoute();
+
+  expect(renderedAppChrome()).toEqual(
+    expect.arrayContaining(["sidebar", "agent-sidebar"]),
+  );
+  expect(container.querySelector('[aria-label="navigation.openNavigation"]'))
+    .not.toBeNull();
+});
+
+it("renders only the canvas in an MCP App widget, with no nav, header, or agent sidebar", async () => {
+  sessionState.current = { email: "person@example.com" };
+  embedState.token = true;
+  embedState.mcpAppWidget = true;
+
+  await renderEditorRoute(<div data-testid="editor" />);
+
+  expect(container.querySelector('[data-testid="editor"]')).not.toBeNull();
+  expect(renderedAppChrome()).toEqual([]);
+  expect(container.querySelector('[aria-label="navigation.openNavigation"]'))
+    .toBeNull();
+  expect(container.firstElementChild?.className).toContain("h-[100dvh]");
+});
+
+it("keeps the design editor mounted when the session resolves inside an MCP App widget", async () => {
+  embedState.token = true;
+  embedState.mcpAppWidget = true;
+  let mounts = 0;
+  function Editor() {
+    useEffect(() => {
+      mounts += 1;
+    }, []);
+    return <div data-testid="editor" />;
+  }
+
+  await renderEditorRoute(<Editor />);
+  sessionState.current = { email: "person@example.com" };
+  await renderEditorRoute(<Editor />);
+
+  expect(mounts).toBe(1);
+  expect(renderedAppChrome()).toEqual([]);
 });

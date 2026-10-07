@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import {
+  MCP_APP_HOST_FILL_ATTRIBUTE,
+  mcpAppHostFillsContainer,
+} from "../shared/mcp-app-display.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 
 describe("embedApp", () => {
@@ -481,6 +485,81 @@ describe("embedApp", () => {
 
     expect(html).toContain("--agent-native-shell-height: 900px");
     expect(html).toContain("--agent-native-viewport-height: 856px");
+  });
+
+  describe("host-owned frame sizing", () => {
+    const htmlFor = (catalogMode?: "directory" | "app") => {
+      const resource = embedApp({ title: "Widget" });
+      return typeof resource.html === "function"
+        ? resource.html({
+            actionName: "open_app",
+            appId: "slides",
+            catalogMode,
+          })
+        : resource.html;
+    };
+
+    it("fills a host-owned frame with CSS and skips intrinsic height reports", () => {
+      const html = htmlFor("directory");
+      const attribute = `html[${MCP_APP_HOST_FILL_ATTRIBUTE}]`;
+
+      expect(html).toContain(`${attribute} .shell {`);
+      expect(html).toContain("height: 100vh; height: 100dvh;");
+      expect(html).toContain(`${attribute} .bar { display: none; }`);
+      expect(html).toContain("height: 100% !important");
+      expect(html).toContain("if (applyHostFillMode()) return;");
+      expect(html).toContain('appFrame.style.height = "";');
+    });
+
+    it("keeps one fill rule across the shell and the app document", () => {
+      const html = htmlFor("directory");
+      const source = html.match(
+        /function hostFillsContainer\(context\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      expect(source).toBeTruthy();
+      const objectValue = (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {};
+      const shellFill = new Function(
+        "objectValue",
+        `${source}; return hostFillsContainer;`,
+      )(objectValue) as (context: unknown) => boolean;
+
+      const cases: Array<[unknown, boolean]> = [
+        [undefined, false],
+        [{}, false],
+        [{ displayMode: "inline" }, false],
+        [
+          { displayMode: "inline", containerDimensions: { maxHeight: 360 } },
+          false,
+        ],
+        [{ displayMode: "fullscreen" }, true],
+        [{ displayMode: "pip" }, true],
+        [{ displayMode: "inline", containerDimensions: { height: 860 } }, true],
+        [{ containerDimensions: { height: 0 } }, false],
+        [{ containerDimensions: { height: "860" } }, false],
+        [{ containerDimensions: { height: Number.POSITIVE_INFINITY } }, false],
+      ];
+      for (const [context, expected] of cases) {
+        expect(shellFill(context), JSON.stringify(context)).toBe(expected);
+        expect(mcpAppHostFillsContainer(context), JSON.stringify(context)).toBe(
+          expected,
+        );
+      }
+    });
+
+    it("reads the spec-shaped host context and merges partial updates", () => {
+      const html = htmlFor("directory");
+
+      expect(html).toContain(
+        "objectValue(hostContext.hostContext || hostContext.context || hostContext)",
+      );
+      expect(html).toContain(
+        "hostContextFields = replace ? { ...fields } : { ...hostContextFields, ...fields };",
+      );
+      expect(html).toContain("setHostContext(params, false);");
+    });
   });
 
   it("provides a local MCP App payload fixture for renderer tests", async () => {
