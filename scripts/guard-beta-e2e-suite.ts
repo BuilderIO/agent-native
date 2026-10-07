@@ -60,11 +60,16 @@ if (sitesRaw) {
 }
 
 if (chat) {
-  const lunaIds = [...chat.matchAll(/gpt-5[.-]6-luna/g)];
-  if (lunaIds.length === 0) {
-    issues.push(
-      `${chatPath} no longer names a luna model id. This suite is budgeted for luna; changing the model changes what every run costs.`,
-    );
+  const chatCode = stripComments(chat);
+  for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
+    const configured = new RegExp(
+      `\\bexport\\s+const\\s+${name}\\s*=\\s*["']([^"']+)["']`,
+    ).exec(chatCode)?.[1];
+    if (configured !== "gpt-6-luna") {
+      issues.push(
+        `${chatPath} ${name} must be set to gpt-6-luna; found ${JSON.stringify(configured ?? "missing")}. This suite is budgeted for the current low-cost model.`,
+      );
+    }
   }
   if (!chat.includes("assertOnlyLuna")) {
     issues.push(

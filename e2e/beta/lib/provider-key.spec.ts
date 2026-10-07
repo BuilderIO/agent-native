@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { BrowserContext } from "@playwright/test";
 
+import { LUNA_OPENAI_MODEL } from "./chat";
 import {
   installOpenAiKey,
   isConfirmedOpenAiEngineStatus,
@@ -248,7 +249,7 @@ test("validates the model execution path, not only the models listing", async ()
     ],
   );
   assert.deepEqual(JSON.parse(requests[1]?.body ?? "{}"), {
-    model: "gpt-6-luna",
+    model: LUNA_OPENAI_MODEL,
     input: "Reply with OK.",
     max_output_tokens: 16,
     store: false,
@@ -266,7 +267,7 @@ test("rejects a key that can list models but cannot execute luna", async () => {
   try {
     await assert.rejects(
       validateOpenAiKey("sk-example-restricted"),
-      /gpt-6-luna.*HTTP 403/,
+      new RegExp(`${LUNA_OPENAI_MODEL}.*HTTP 403`),
     );
   } finally {
     globalThis.fetch = originalFetch;
