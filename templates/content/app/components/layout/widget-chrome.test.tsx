@@ -17,6 +17,10 @@ import {
   vi,
 } from "vitest";
 
+import {
+  documentEditorBodyClassName,
+  documentEditorTitleRegionClassName,
+} from "@/components/editor/document-editor-layout";
 import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentToolbar } from "@/components/editor/DocumentToolbar";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -50,11 +54,13 @@ function openPage({
   if (inWidget) document.documentElement.setAttribute(WIDGET_ATTRIBUTE, "1");
 }
 
-// A utility from the real Tailwind compiler. happy-dom ignores the native CSS
-// nesting it writes for a variant, so the one nested form used here is
-// flattened first.
+// Utilities from the real Tailwind compiler, with the two theme values the
+// page column reads. happy-dom ignores the native CSS nesting Tailwind writes
+// for a variant, so the one nested form used here is flattened first.
 async function utilityStyles(...candidates: string[]) {
-  const compiler = await compile("@tailwind utilities;");
+  const compiler = await compile(
+    "@theme { --container-3xl: 48rem; --spacing: 0.25rem; } @tailwind utilities;",
+  );
   return compiler
     .build(candidates)
     .replace(/(\.[^\s{]+) \{\s*(html[^{]+?) & \{([^}]*)\}\s*\}/g, "$2 $1 {$3}");
@@ -158,6 +164,40 @@ describe.each([
       const sidebar = container.querySelector(".agent-layout-left-drawer");
       expect(sidebar).toBeTruthy();
       expect(isShown(sidebar!)).toBe(!inWidget);
+    },
+  );
+
+  it(
+    inWidget
+      ? "gives the page column the pane's width and a short lead-in"
+      : "keeps the page column and its lead-in",
+    async () => {
+      const titleRegion = documentEditorTitleRegionClassName(false);
+      const body = documentEditorBodyClassName("page");
+      openPage({
+        inWidget,
+        extraStyles: await utilityStyles(
+          ...`${titleRegion} ${body}`.split(/\s+/),
+        ),
+      });
+
+      const { container } = renderUi(
+        <main className="agent-native-app-main">
+          <div className={titleRegion} data-testid="title-region" />
+          <div className={body} data-testid="body" />
+        </main>,
+      );
+
+      const title = getComputedStyle(
+        container.querySelector('[data-testid="title-region"]')!,
+      );
+      const column = getComputedStyle(
+        container.querySelector('[data-testid="body"]')!,
+      );
+      expect(title.maxWidth).toBe(inWidget ? "1024px" : "768px");
+      expect(column.maxWidth).toBe(inWidget ? "1024px" : "768px");
+      if (inWidget) expect(title.paddingTop).toBe("24px");
+      else expect(title.paddingTop).not.toBe("24px");
     },
   );
 });
