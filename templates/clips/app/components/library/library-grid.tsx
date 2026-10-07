@@ -278,12 +278,6 @@ export function LibraryGrid({
     [view, kind, folderId, spaceId, tagFilter],
   );
   const { data: totalCount } = useRecordingsCount(countArgs);
-  const total = totalCount ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
@@ -301,6 +295,19 @@ export function LibraryGrid({
 
   const { data, isLoading, isError, refetch, isRefetching } =
     useRecordings(args);
+
+  // A failed count is not zero clips: without it, offer "next" while the page
+  // comes back full so later pages stay reachable.
+  const totalKnown = typeof totalCount === "number";
+  const total = totalKnown ? totalCount : 0;
+  const pageIsFull = (data?.recordings.length ?? 0) >= PAGE_SIZE;
+  const totalPages = totalKnown
+    ? Math.max(1, Math.ceil(total / PAGE_SIZE))
+    : page + (pageIsFull ? 1 : 0);
+
+  useEffect(() => {
+    if (totalKnown && page > totalPages) setPage(totalPages);
+  }, [totalKnown, page, totalPages]);
 
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
@@ -889,11 +896,12 @@ export function LibraryGrid({
         {!isLoading && recordings.length > 0 && totalPages > 1 && (
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-2.5">
             <span className="text-xs text-muted-foreground">
-              {t("libraryGrid.paginationRange", {
-                start: (page - 1) * PAGE_SIZE + 1,
-                end: (page - 1) * PAGE_SIZE + recordings.length,
-                total,
-              })}
+              {totalKnown &&
+                t("libraryGrid.paginationRange", {
+                  start: (page - 1) * PAGE_SIZE + 1,
+                  end: (page - 1) * PAGE_SIZE + recordings.length,
+                  total,
+                })}
             </span>
             <div className="flex items-center gap-2">
               <Button
@@ -907,7 +915,9 @@ export function LibraryGrid({
                 {t("libraryGrid.paginationPrevious")}
               </Button>
               <span className="text-xs text-muted-foreground">
-                {t("libraryGrid.paginationPage", { page, totalPages })}
+                {totalKnown
+                  ? t("libraryGrid.paginationPage", { page, totalPages })
+                  : page}
               </span>
               <Button
                 variant="outline"
