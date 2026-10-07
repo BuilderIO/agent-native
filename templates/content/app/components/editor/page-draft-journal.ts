@@ -206,6 +206,33 @@ export function updatePageDraftJournalTitle(
   return true;
 }
 
+export async function persistTitleBeforeSyncingPageDraftJournal(input: {
+  persist: () => Promise<void>;
+  scope: PageDraftJournalScope | null;
+  title: string;
+  editGeneration: number;
+  content: string;
+}): Promise<boolean> {
+  await input.persist();
+  const scope = input.scope;
+  if (!scope) return false;
+
+  const entry = listPageDraftJournal({
+    accountId: scope.accountId,
+    orgId: scope.orgId,
+    documentId: scope.documentId,
+  }).find((candidate) => candidate.scope.writerId === scope.writerId);
+  if (
+    !entry ||
+    entry.snapshot.editGeneration !== input.editGeneration ||
+    entry.snapshot.content !== input.content ||
+    entry.snapshot.title !== entry.snapshot.baseTitle
+  )
+    return false;
+
+  return updatePageDraftJournalTitle(scope, input.title);
+}
+
 export function listPageDraftJournal(
   scope: Omit<PageDraftJournalScope, "writerId">,
 ): PageDraftJournalEntry[] {

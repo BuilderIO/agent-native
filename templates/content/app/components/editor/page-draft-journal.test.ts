@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
   PageDraftJournalError,
+  persistTitleBeforeSyncingPageDraftJournal,
   readPageDraftJournal,
   sweepLegacyRetainedPageDraftMarkers,
   updatePageDraftJournalTitle,
@@ -53,6 +54,69 @@ beforeEach(() => {
 });
 
 describe("Page draft journal", () => {
+  it("persists the retained title before changing a clean local journal title", async () => {
+    const clean = {
+      ...snapshot,
+      title: "Earlier title",
+      baseTitle: "Earlier title",
+    };
+    writePageDraftJournal({ scope, snapshot: clean });
+    const persist = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      persistTitleBeforeSyncingPageDraftJournal({
+        persist,
+        scope,
+        title: "Peer title",
+        editGeneration: clean.editGeneration,
+        content: clean.content,
+      }),
+    ).resolves.toBe(true);
+
+    expect(persist).toHaveBeenCalledOnce();
+    expect(readPageDraftJournal(scope)?.snapshot).toMatchObject({
+      title: "Peer title",
+      baseTitle: "Peer title",
+    });
+  });
+
+  it("leaves the local journal unchanged when retaining the SQL title fails", async () => {
+    const clean = {
+      ...snapshot,
+      title: "Earlier title",
+      baseTitle: "Earlier title",
+    };
+    writePageDraftJournal({ scope, snapshot: clean });
+
+    await expect(
+      persistTitleBeforeSyncingPageDraftJournal({
+        persist: () => Promise.reject(new Error("SQL unavailable")),
+        scope,
+        title: "Peer title",
+        editGeneration: clean.editGeneration,
+        content: clean.content,
+      }),
+    ).rejects.toThrow("SQL unavailable");
+
+    expect(readPageDraftJournal(scope)?.snapshot).toEqual(clean);
+  });
+
+  it("preserves a locally authored title when SQL retains a peer title", async () => {
+    writePageDraftJournal({ scope, snapshot });
+
+    await expect(
+      persistTitleBeforeSyncingPageDraftJournal({
+        persist: () => Promise.resolve(),
+        scope,
+        title: "Peer title",
+        editGeneration: snapshot.editGeneration,
+        content: snapshot.content,
+      }),
+    ).resolves.toBe(false);
+
+    expect(readPageDraftJournal(scope)?.snapshot.title).toBe("Local title");
+  });
+
   it("writes synchronously and isolates account, organization, Page, and writer", () => {
     writePageDraftJournal({ scope, snapshot });
     writePageDraftJournal({

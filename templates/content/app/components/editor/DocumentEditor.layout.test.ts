@@ -75,6 +75,7 @@ import {
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
+import { runPageSaveIfSessionActive } from "./pageSession";
 import {
   markdownSuggestionOperation,
   markdownSuggestionOperations,
@@ -2107,6 +2108,33 @@ describe("document editor layout", () => {
       "second:start",
       "second:end",
     ]);
+  });
+
+  it("abandons a retry that reaches the save queue after its editor unmounts", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const queueRef = { current: Promise.resolve() };
+    let active = true;
+    const persistRetry = vi.fn().mockResolvedValue({ contentPersisted: true });
+    const first = enqueueDocumentSave(queueRef, async () => {
+      await firstGate;
+      return "first";
+    });
+    const retry = enqueueDocumentSave(queueRef, () =>
+      runPageSaveIfSessionActive(() => active, persistRetry),
+    );
+
+    active = false;
+    releaseFirst();
+
+    await expect(first).resolves.toBe("first");
+    await expect(retry).resolves.toEqual({
+      contentPersisted: false,
+      outcome: "abandoned",
+    });
+    expect(persistRetry).not.toHaveBeenCalled();
   });
 
   it("continues the save queue after an earlier request fails", async () => {

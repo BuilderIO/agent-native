@@ -35,6 +35,7 @@ export function pendingSaveRetrySnapshot(
 ): SaveSnapshot | null {
   if (
     result.contentPersisted ||
+    result.outcome === "abandoned" ||
     result.outcome === "pending_preservation" ||
     !current.active ||
     !current.canEdit ||

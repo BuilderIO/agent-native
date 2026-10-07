@@ -173,14 +173,22 @@ export function PageDraftRecovery({
     // The SQL draft can contain a title update whose localStorage write failed.
     // Only adopt it when the writer, generation, and body all identify this journal.
     let journalStorageSnapshot = entry.snapshot;
+    const journalTitleIsClean =
+      entry.snapshot.title === entry.snapshot.baseTitle;
     let journalSnapshot =
-      matchingSqlDraft && draft.title !== entry.snapshot.title
+      matchingSqlDraft &&
+      journalTitleIsClean &&
+      draft.title !== entry.snapshot.title
         ? {
             ...entry.snapshot,
             title: draft.title,
             baseTitle: draft.title,
           }
         : entry.snapshot;
+    const matchingSqlDraftHasLocalTitleConflict =
+      matchingSqlDraft &&
+      !journalTitleIsClean &&
+      entry.snapshot.title !== draft?.title;
     const sameAsCanonical =
       journalSnapshot.title === document.title &&
       journalSnapshot.content === document.content;
@@ -200,7 +208,7 @@ export function PageDraftRecovery({
       }
       return;
     }
-    if (draft && !sameAsSqlDraft) {
+    if (draft && !sameAsSqlDraft && !matchingSqlDraftHasLocalTitleConflict) {
       setJournalState("waiting_sql");
       return;
     }

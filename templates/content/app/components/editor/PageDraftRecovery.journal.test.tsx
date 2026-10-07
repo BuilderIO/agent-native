@@ -217,6 +217,7 @@ describe("Page browser journal recovery", () => {
     staleJournal.snapshot = {
       ...staleJournal.snapshot,
       title: "Earlier title",
+      baseTitle: "Earlier title",
     };
     state.entries = [staleJournal];
     state.draft = {
@@ -268,6 +269,7 @@ describe("Page browser journal recovery", () => {
     staleJournal.snapshot = {
       ...staleJournal.snapshot,
       title: "Earlier title",
+      baseTitle: "Earlier title",
       baseUpdatedAt: "",
     };
     state.entries = [staleJournal];
@@ -294,6 +296,59 @@ describe("Page browser journal recovery", () => {
     );
     expect(state.cleared).toHaveBeenCalledWith("first");
     expect(state.entries).toEqual([]);
+    expect(toast.success).toHaveBeenCalledWith(
+      "editor.previewDraftSavedToHistory",
+    );
+  });
+
+  it("preserves a local journal title when a matching SQL draft has a peer title", async () => {
+    const localRename = "Local rename";
+    const staleJournal = entry("first", "Local");
+    staleJournal.snapshot = {
+      ...staleJournal.snapshot,
+      title: localRename,
+    };
+    state.entries = [staleJournal];
+    state.draft = {
+      documentId: "page",
+      title: "Peer rename",
+      content: "Local",
+      baseDocumentUpdatedAt: "v2",
+      loadedContentWasEmpty: 0,
+      deferredReason: "conflict",
+      editorSessionId: "first",
+      editGeneration: 1,
+      version: 2,
+      updatedAt: "2026-10-07T00:00:00.000Z",
+    };
+    state.upsert.mockResolvedValue({
+      status: "saved",
+      draft: { title: localRename, content: "Local", version: 3 },
+    });
+
+    await act(async () =>
+      render({ ...page, title: "Peer rename" } as Document),
+    );
+
+    expect(state.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedVersion: 2,
+        draft: expect.objectContaining({
+          title: localRename,
+          content: "Local",
+          deferredReason: "conflict",
+        }),
+      }),
+    );
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        choice: "use_saved",
+        expectedDraftTitle: localRename,
+        expectedDraftContent: "Local",
+      }),
+    );
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.cleared).toHaveBeenCalledWith("first");
     expect(toast.success).toHaveBeenCalledWith(
       "editor.previewDraftSavedToHistory",
     );

@@ -34,6 +34,7 @@ export interface PageSaveResult {
   contentPersisted: boolean;
   outcome?:
     | "superseded"
+    | "abandoned"
     | "pending_preservation"
     | "pending_collaboration_flush";
   recoveryDraft?: {
@@ -43,6 +44,21 @@ export interface PageSaveResult {
     baseUpdatedAt?: string | null;
     baseRevision?: string;
   };
+}
+
+export class AbandonedPageSaveError extends Error {
+  constructor() {
+    super("The editor session is no longer active.");
+    this.name = "AbandonedPageSaveError";
+  }
+}
+
+export async function runPageSaveIfSessionActive(
+  isActive: () => boolean,
+  save: () => Promise<PageSaveResult>,
+): Promise<PageSaveResult> {
+  if (!isActive()) return { contentPersisted: false, outcome: "abandoned" };
+  return save();
 }
 
 export async function savePageWithRecovery({
@@ -58,12 +74,16 @@ export async function savePageWithRecovery({
   try {
     result = await save();
   } catch (error) {
+    if (error instanceof AbandonedPageSaveError) {
+      return { contentPersisted: false, outcome: "abandoned" };
+    }
     await retain(null);
     throw error;
   }
 
   if (!result.contentPersisted) {
-    if (result.outcome === "superseded") return result;
+    if (result.outcome === "superseded" || result.outcome === "abandoned")
+      return result;
     await retain(result.recoveryDraft ? null : "conflict", result);
     return result;
   }

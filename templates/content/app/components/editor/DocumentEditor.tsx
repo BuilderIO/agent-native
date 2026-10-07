@@ -231,14 +231,15 @@ import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
-  listPageDraftJournal,
-  updatePageDraftJournalTitle,
+  persistTitleBeforeSyncingPageDraftJournal,
   writePageDraftJournal,
 } from "./page-draft-journal";
 import { PageDraftRecovery } from "./PageDraftRecovery";
 import {
+  AbandonedPageSaveError,
   mayClearRecoveryDraft,
   ownRecoveryDraftSupersededBySave,
+  runPageSaveIfSessionActive,
   savePageWithRecovery,
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
@@ -1824,6 +1825,7 @@ type DocumentSaveOptions = {
   historySessionId?: string;
   editorSessionId?: string;
   allowQueuedSave?: boolean;
+  requireActiveEditorSession?: boolean;
   expectedLocalSourceRevision?: string | null;
   contentBase?: DocumentContentBase;
   titleBase?: string;
@@ -3401,6 +3403,14 @@ function PageEditorSessionBody({
       if (!options.allowQueuedSave && !canEditRef.current) {
         throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
       }
+      const requireActiveEditorSession = () => {
+        if (
+          options.requireActiveEditorSession &&
+          !editorSessionActiveRef.current
+        )
+          throw new AbandonedPageSaveError();
+      };
+      requireActiveEditorSession();
 
       const localSource = document.source;
       const isLinkedLocalSource = canWriteLinkedLocalSource(
@@ -3428,6 +3438,7 @@ function PageEditorSessionBody({
             document,
             localSource,
           );
+          requireActiveEditorSession();
           if (!baseline.ok) throw new Error(baseline.error);
           if (
             baseline.revision &&
@@ -3508,6 +3519,7 @@ function PageEditorSessionBody({
       }
 
       try {
+        if (!isLinkedLocalSource) requireActiveEditorSession();
         const baseUpdatedAt =
           updates.content !== undefined
             ? ((options.contentBase ?? lastSavedContentRef.current).updatedAt ??
@@ -3641,6 +3653,10 @@ function PageEditorSessionBody({
           pendingPersistenceRef.current.delete(request);
         },
         (error) => {
+          if (error instanceof AbandonedPageSaveError) {
+            pendingPersistenceRef.current.delete(request);
+            return;
+          }
           for (const field of fields) {
             persistenceErrorsRef.current.set(field, error);
           }
@@ -3804,6 +3820,8 @@ function PageEditorSessionBody({
         editorSnapshotTitle: title,
         editorSnapshotContent: content,
       };
+      if (options.requireActiveEditorSession && !editorSessionActiveRef.current)
+        return { contentPersisted: false, outcome: "abandoned" };
       const contentEditVersion =
         options.contentEditVersion ?? contentEditVersionRef.current;
       const editorEditGeneration =
@@ -3912,7 +3930,14 @@ function PageEditorSessionBody({
         activeContentSavesRef.current += 1;
         let result;
         try {
-          if (!(await flushBeforeSave(flushCollabUpdates))) {
+          const collaborationFlushed =
+            await flushBeforeSave(flushCollabUpdates);
+          if (
+            options.requireActiveEditorSession &&
+            !editorSessionActiveRef.current
+          )
+            return { contentPersisted: false, outcome: "abandoned" };
+          if (!collaborationFlushed) {
             return {
               contentPersisted: false,
               outcome: "pending_collaboration_flush",
@@ -3950,6 +3975,9 @@ function PageEditorSessionBody({
               winner.title === updates.title,
             confirmsWrite: (winner) =>
               updates.title === undefined || winner.title === updates.title,
+            canContinue: () =>
+              !options.requireActiveEditorSession ||
+              editorSessionActiveRef.current,
             persist: (nextContent, contentBase) => {
               const reusedAttemptId =
                 rebaseAttempt++ === 0 ? options.saveAttemptId : undefined;
@@ -3987,6 +4015,9 @@ function PageEditorSessionBody({
           });
         } finally {
           activeContentSavesRef.current -= 1;
+        }
+        if (result.status === "abandoned") {
+          return { contentPersisted: false, outcome: "abandoned" };
         }
         if (result.status === "preservation") {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
@@ -4259,35 +4290,8 @@ function PageEditorSessionBody({
   );
   const syncRecoveryDraftTitle = useCallback(
     (title: string) => {
-      const sync = async (
-        current: NonNullable<typeof recoveryDraftRef.current>,
-      ) => {
+      const sync = async () => {
         const scope = journalScope();
-        const editorSessionId =
-          current.editorSessionId ?? editorSessionIdRef.current!;
-        const editGeneration =
-          current.editGeneration ?? editorEditGenerationRef.current;
-        let localJournalUpdateFailed = false;
-        if (scope) {
-          try {
-            const entry = listPageDraftJournal({
-              accountId: scope.accountId,
-              orgId: scope.orgId,
-              documentId: scope.documentId,
-            }).find((candidate) => candidate.scope.writerId === scope.writerId);
-            if (
-              entry &&
-              entry.snapshot.editGeneration === editGeneration &&
-              entry.snapshot.content === current.content
-            ) {
-              updatePageDraftJournalTitle(scope, title);
-              recoveryWriteErrorShownRef.current = false;
-            }
-          } catch {
-            localJournalUpdateFailed = true;
-          }
-        }
-
         // Read the latest draft only after earlier retained writes settle. A
         // queued title-only update must never replay the content it captured
         // before a newer, non-supersedable recovery draft was retained.
@@ -4297,21 +4301,31 @@ function PageEditorSessionBody({
           latest.editorSessionId ?? editorSessionIdRef.current!;
         const latestEditGeneration =
           latest.editGeneration ?? editorEditGenerationRef.current;
-        await retainRecoveryDraft(
-          title,
-          latest.content,
-          latest.deferredReason,
-          latestSessionId,
-          latestEditGeneration,
-          latest.contentBase,
-          true,
-        );
-
-        if (!localJournalUpdateFailed || !scope) return;
+        const persist = () =>
+          retainRecoveryDraft(
+            title,
+            latest.content,
+            latest.deferredReason,
+            latestSessionId,
+            latestEditGeneration,
+            latest.contentBase,
+            true,
+          );
+        if (scope) {
+          await persistTitleBeforeSyncingPageDraftJournal({
+            persist,
+            scope,
+            title,
+            editGeneration: latestEditGeneration,
+            content: latest.content,
+          });
+        } else {
+          await persist();
+        }
+        recoveryWriteErrorShownRef.current = false;
         const retained = recoveryDraftRef.current;
         if (
           !retained ||
-          editorSessionId !== scope.writerId ||
           retained.editorSessionId !== latestSessionId ||
           retained.editGeneration !== latestEditGeneration ||
           retained.content !== latest.content ||
@@ -4322,37 +4336,6 @@ function PageEditorSessionBody({
             recoveryWriteErrorShownRef.current = true;
           }
           return;
-        }
-
-        try {
-          const entry = listPageDraftJournal({
-            accountId: scope.accountId,
-            orgId: scope.orgId,
-            documentId: scope.documentId,
-          }).find((candidate) => candidate.scope.writerId === scope.writerId);
-          if (!entry) {
-            recoveryWriteErrorShownRef.current = false;
-            return;
-          }
-          if (
-            entry.snapshot.editGeneration !== retained.editGeneration ||
-            entry.snapshot.content !== retained.content
-          ) {
-            throw new Error(
-              "A newer local recovery draft replaced the journal.",
-            );
-          }
-          if (!updatePageDraftJournalTitle(scope, retained.title)) {
-            throw new Error(
-              "The local recovery title could not be reconciled.",
-            );
-          }
-          recoveryWriteErrorShownRef.current = false;
-        } catch {
-          if (!recoveryWriteErrorShownRef.current) {
-            toast.error(t("editor.pageSaveBeforeNavigationFailed"));
-            recoveryWriteErrorShownRef.current = true;
-          }
         }
       };
 
@@ -4436,62 +4419,72 @@ function PageEditorSessionBody({
           ? authoredContentIntentRef.current
           : undefined);
       return enqueueDocumentSave(documentSaveQueueRef, () =>
-        savePageWithRecovery({
-          save: () =>
-            saveDocumentImmediately(title, content, {
-              ...options,
-              contentEditVersion,
-              historySessionId:
-                options.historySessionId ??
-                historySessionRef.current.activity(documentId),
-              editorSessionId,
-              editGeneration,
-              contentBase,
-              contentObservationEpoch,
-              saveAttemptId,
-              contentAuthoredAfterRevision,
-              authoredContentIntent: authoredCandidateMatchesContent(
-                content,
-                authoredContentIntent?.candidateContent,
-              )
-                ? authoredContentIntent
-                : undefined,
+        runPageSaveIfSessionActive(
+          () =>
+            !options.requireActiveEditorSession ||
+            editorSessionActiveRef.current,
+          () =>
+            savePageWithRecovery({
+              save: () =>
+                saveDocumentImmediately(title, content, {
+                  ...options,
+                  contentEditVersion,
+                  historySessionId:
+                    options.historySessionId ??
+                    historySessionRef.current.activity(documentId),
+                  editorSessionId,
+                  editGeneration,
+                  contentBase,
+                  contentObservationEpoch,
+                  saveAttemptId,
+                  contentAuthoredAfterRevision,
+                  authoredContentIntent: authoredCandidateMatchesContent(
+                    content,
+                    authoredContentIntent?.candidateContent,
+                  )
+                    ? authoredContentIntent
+                    : undefined,
+                }),
+              retain: (reason, result) => {
+                const snapshotChanged =
+                  contentEditVersionRef.current !== contentEditVersion ||
+                  contentObservationEpochRef.current !==
+                    contentObservationEpoch ||
+                  editorEditGenerationRef.current !== editGeneration;
+                const recovery = result?.recoveryDraft;
+                return queueRecoveryDraftRetention(
+                  snapshotChanged
+                    ? localTitleRef.current
+                    : (recovery?.title ?? title),
+                  snapshotChanged
+                    ? localContentRef.current
+                    : (recovery?.content ?? content),
+                  reason,
+                  editorSessionId,
+                  snapshotChanged
+                    ? editorEditGenerationRef.current
+                    : editGeneration,
+                  recovery &&
+                    !snapshotChanged &&
+                    recovery.baseContent !== undefined
+                    ? {
+                        content: recovery.baseContent,
+                        updatedAt: recovery.baseUpdatedAt ?? null,
+                        revision: recovery.baseRevision,
+                      }
+                    : contentBase,
+                  // The editor keeps this text and a later save of it lands.
+                  true,
+                );
+              },
+              clear: () =>
+                clearRecoveryDraft(
+                  lastSavedTitleRef.current.title,
+                  lastSavedContentRef.current.content,
+                  { editorSessionId, editGeneration },
+                ),
             }),
-          retain: (reason, result) => {
-            const snapshotChanged =
-              contentEditVersionRef.current !== contentEditVersion ||
-              contentObservationEpochRef.current !== contentObservationEpoch;
-            const recovery = result?.recoveryDraft;
-            return queueRecoveryDraftRetention(
-              snapshotChanged
-                ? localTitleRef.current
-                : (recovery?.title ?? title),
-              snapshotChanged
-                ? localContentRef.current
-                : (recovery?.content ?? content),
-              reason,
-              editorSessionId,
-              snapshotChanged
-                ? editorEditGenerationRef.current
-                : editGeneration,
-              recovery && !snapshotChanged && recovery.baseContent !== undefined
-                ? {
-                    content: recovery.baseContent,
-                    updatedAt: recovery.baseUpdatedAt ?? null,
-                    revision: recovery.baseRevision,
-                  }
-                : contentBase,
-              // The editor keeps this text and a later save of it lands.
-              true,
-            );
-          },
-          clear: () =>
-            clearRecoveryDraft(
-              lastSavedTitleRef.current.title,
-              lastSavedContentRef.current.content,
-              { editorSessionId, editGeneration },
-            ),
-        }),
+        ),
       );
     },
     [
@@ -4547,6 +4540,7 @@ function PageEditorSessionBody({
         authoredContentIntent: pending.authoredContentIntent,
         editorSessionId: pending.editorSessionId,
         editGeneration: pending.editGeneration,
+        requireActiveEditorSession: true,
         historySessionId: pending.historySessionId,
         saveAttemptId: retryPending.saveAttemptId,
       })

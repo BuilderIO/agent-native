@@ -152,6 +152,16 @@ describe("pending save retry", () => {
     ).toBeNull();
   });
 
+  it("does not retry a save abandoned by its editor session", () => {
+    expect(
+      pendingSaveRetrySnapshot(
+        { contentPersisted: false, outcome: "abandoned" },
+        pending,
+        live,
+      ),
+    ).toBeNull();
+  });
+
   it.each(["before old result", "after old result"])(
     "keeps a remote-only observation and its matching base %s",
     (order) => {
