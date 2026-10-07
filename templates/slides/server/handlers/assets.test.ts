@@ -241,10 +241,28 @@ function isoBox(type: string, payload: Uint8Array): Buffer {
   ]);
 }
 
+function makeAvcSampleDescription(includeConfiguration = true): Buffer {
+  const configuration = isoBox(
+    "avcC",
+    Buffer.from([
+      1, 0x42, 0, 0x1e, 0xff, 0xe1, 0, 5, 0x67, 0x42, 0, 0x1e, 0x80, 1, 0, 2,
+      0x68, 0xc0,
+    ]),
+  );
+  return isoBox(
+    "avc1",
+    Buffer.concat([
+      Buffer.alloc(78),
+      ...(includeConfiguration ? [configuration] : []),
+    ]),
+  );
+}
+
 function makeMp4Video(
   options: {
     hasSample?: boolean;
     sampleOffset?: number;
+    includeAvcConfiguration?: boolean;
   } = {},
 ): Buffer {
   const hasSample = options.hasSample ?? true;
@@ -257,7 +275,9 @@ function makeMp4Video(
   const sampleOffset = options.sampleOffset ?? ftyp.length + 8;
   const sampleCount = hasSample ? 1 : 0;
   const tableEntries = hasSample ? 1 : 0;
-  const sampleDescription = isoBox("avc1", Buffer.alloc(78));
+  const sampleDescription = makeAvcSampleDescription(
+    options.includeAvcConfiguration,
+  );
   const stbl = isoBox(
     "stbl",
     Buffer.concat([
@@ -329,6 +349,113 @@ function makeMp4Video(
   return Buffer.concat([ftyp, mdat, moov]);
 }
 
+function makeFragmentedMp4Video(
+  options: {
+    dataOffset?: number;
+    tfhdTrackId?: number;
+    defaultSampleSize?: number;
+    includeAvcConfiguration?: boolean;
+  } = {},
+): Buffer {
+  const ftyp = isoBox(
+    "ftyp",
+    Buffer.concat([Buffer.from("isom"), uint32Bytes(0), Buffer.from("isom")]),
+  );
+  const trackHeader = Buffer.alloc(84);
+  trackHeader.writeUInt32BE(1, 12);
+  const sampleDescription = makeAvcSampleDescription(
+    options.includeAvcConfiguration,
+  );
+  const sampleTable = isoBox(
+    "stbl",
+    Buffer.concat([
+      isoBox(
+        "stsd",
+        Buffer.concat([Buffer.alloc(4), uint32Bytes(1), sampleDescription]),
+      ),
+      isoBox("stts", Buffer.concat([Buffer.alloc(4), uint32Bytes(0)])),
+      isoBox("stsc", Buffer.concat([Buffer.alloc(4), uint32Bytes(0)])),
+      isoBox(
+        "stsz",
+        Buffer.concat([Buffer.alloc(4), uint32Bytes(0), uint32Bytes(0)]),
+      ),
+      isoBox("stco", Buffer.concat([Buffer.alloc(4), uint32Bytes(0)])),
+    ]),
+  );
+  const track = isoBox(
+    "trak",
+    Buffer.concat([
+      isoBox("tkhd", trackHeader),
+      isoBox(
+        "mdia",
+        Buffer.concat([
+          isoBox("mdhd", Buffer.alloc(24)),
+          isoBox(
+            "hdlr",
+            Buffer.concat([
+              Buffer.alloc(8),
+              Buffer.from("vide"),
+              Buffer.alloc(12),
+            ]),
+          ),
+          isoBox("minf", sampleTable),
+        ]),
+      ),
+    ]),
+  );
+  const movieExtends = isoBox(
+    "mvex",
+    isoBox(
+      "trex",
+      Buffer.concat([
+        Buffer.alloc(4),
+        uint32Bytes(1),
+        uint32Bytes(1),
+        uint32Bytes(1000),
+        uint32Bytes(options.defaultSampleSize ?? 4),
+        uint32Bytes(0),
+      ]),
+    ),
+  );
+  const moov = isoBox(
+    "moov",
+    Buffer.concat([isoBox("mvhd", Buffer.alloc(100)), track, movieExtends]),
+  );
+  const makeMoof = (dataOffset: number) =>
+    isoBox(
+      "moof",
+      Buffer.concat([
+        isoBox("mfhd", Buffer.concat([Buffer.alloc(4), uint32Bytes(1)])),
+        isoBox(
+          "traf",
+          Buffer.concat([
+            isoBox(
+              "tfhd",
+              Buffer.concat([
+                Buffer.from([0x00, 0x02, 0x00, 0x00]),
+                uint32Bytes(options.tfhdTrackId ?? 1),
+              ]),
+            ),
+            isoBox("tfdt", Buffer.concat([Buffer.alloc(4), uint32Bytes(0)])),
+            isoBox(
+              "trun",
+              Buffer.concat([
+                Buffer.from([0x00, 0x00, 0x00, 0x01]),
+                uint32Bytes(1),
+                uint32Bytes(dataOffset),
+              ]),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  const initialMoof = makeMoof(0);
+  const dataOffset = options.dataOffset ?? initialMoof.length + 8;
+  const moof = makeMoof(dataOffset);
+  const mdat = isoBox("mdat", Buffer.from([0, 0, 0, 1]));
+  return Buffer.concat([ftyp, moov, moof, mdat]);
+}
+
 function ebmlId(id: number): Buffer {
   const bytes = Buffer.alloc(4);
   bytes.writeUInt32BE(id);
@@ -371,6 +498,8 @@ function makeWebmVideo(
     unknownSegmentSize?: boolean;
     unknownClusterSize?: boolean;
     duplicateInfoAfterCluster?: boolean;
+    nestedInfoInBlockGroup?: boolean;
+    segmentSiblingTagsAfterCluster?: boolean;
   } = {},
 ): Buffer {
   const info = ebmlElement(
@@ -396,13 +525,29 @@ function makeWebmVideo(
     ]),
   );
   const tracks = ebmlElement(0x1654ae6b, track);
+  const block = Buffer.from([0x81, 0x00, 0x00, 0x80, 0x01]);
   const cluster = ebmlElement(
     0x1f43b675,
     Buffer.concat([
       ebmlInteger(0xe7, 0),
-      ebmlElement(0xa3, Buffer.from([0x81, 0x00, 0x00, 0x80, 0x01])),
+      options.nestedInfoInBlockGroup
+        ? ebmlElement(0xa0, Buffer.concat([ebmlElement(0xa1, block), info]))
+        : ebmlElement(0xa3, block),
     ]),
     options.unknownClusterSize,
+  );
+  const tags = ebmlElement(
+    0x1254c367,
+    ebmlElement(
+      0x7373,
+      ebmlElement(
+        0x67c8,
+        Buffer.concat([
+          ebmlElement(0x45a3, Buffer.from("Slides")),
+          ebmlElement(0x4487, Buffer.from("Video")),
+        ]),
+      ),
+    ),
   );
   const segment = ebmlElement(
     0x18538067,
@@ -410,6 +555,7 @@ function makeWebmVideo(
       info,
       tracks,
       cluster,
+      ...(options.segmentSiblingTagsAfterCluster ? [tags] : []),
       ...(options.duplicateInfoAfterCluster ? [info] : []),
     ]),
     options.unknownSegmentSize,
@@ -431,6 +577,7 @@ function makeWebmVideo(
 
 describe("uploaded video validation", () => {
   const mp4 = makeMp4Video();
+  const fragmentedMp4 = makeFragmentedMp4Video();
   const webm = makeWebmVideo();
 
   it("accepts structurally complete containers and rejects mismatched extensions", () => {
@@ -439,6 +586,12 @@ describe("uploaded video validation", () => {
     ).toBe(true);
     expect(
       canSaveAsUploadedVideoAsset({ originalName: "clip.webm", data: webm }),
+    ).toBe(true);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: fragmentedMp4,
+      }),
     ).toBe(true);
     expect(
       canSaveAsUploadedVideoAsset({
@@ -457,7 +610,7 @@ describe("uploaded video validation", () => {
     ).toBe(false);
   });
 
-  it("requires MP4 samples to reference bytes inside media data", () => {
+  it("requires MP4 sample data ranges and AVC sample descriptions", () => {
     const malformedMp4 = Buffer.from(mp4);
     malformedMp4[3] = 0xff;
 
@@ -477,6 +630,42 @@ describe("uploaded video validation", () => {
       canSaveAsUploadedVideoAsset({
         originalName: "clip.mp4",
         data: malformedMp4,
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: makeMp4Video({ includeAvcConfiguration: false }),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: makeFragmentedMp4Video({ dataOffset: 0 }),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: makeFragmentedMp4Video({ tfhdTrackId: 2 }),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: makeFragmentedMp4Video({ defaultSampleSize: 0 }),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: makeFragmentedMp4Video({ defaultSampleSize: 5 }),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: makeFragmentedMp4Video({ includeAvcConfiguration: false }),
       }),
     ).toBe(false);
   });
@@ -521,6 +710,26 @@ describe("uploaded video validation", () => {
         }),
       }),
     ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.webm",
+        data: makeWebmVideo({
+          unknownSegmentSize: true,
+          unknownClusterSize: true,
+          nestedInfoInBlockGroup: true,
+        }),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.webm",
+        data: makeWebmVideo({
+          unknownSegmentSize: true,
+          unknownClusterSize: true,
+          segmentSiblingTagsAfterCluster: true,
+        }),
+      }),
+    ).toBe(true);
   });
 
   it("stores video files in the configured object storage with the active org", async () => {

@@ -525,7 +525,9 @@ export function buildStandaloneHtml(
           key === 'ArrowRight' ||
           key === 'ArrowDown' ||
           key === 'ArrowLeft' ||
-          key === 'ArrowUp'
+          key === 'ArrowUp' ||
+          key === 'Home' ||
+          key === 'End'
         );
       }
 

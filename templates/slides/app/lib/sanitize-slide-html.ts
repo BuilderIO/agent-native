@@ -124,6 +124,7 @@ const BOOLEAN_VIDEO_ATTRS = new Set([
   "muted",
   "playsinline",
 ]);
+const VIDEO_OPENING_TAG_REGEX = /<video\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
 
 function escapeHtml(value: string): string {
   return value
@@ -566,53 +567,58 @@ function sanitizeHtmlString(
       },
     );
   const withoutFalseBooleanMediaAttrs = sanitized.replace(
-    /<video\b[^>]*>/gi,
+    VIDEO_OPENING_TAG_REGEX,
     (tag) =>
       tag.replace(
         /"[^"]*"|'[^']*'|\s+(autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/gi,
         (match, attribute: string | undefined) => (attribute ? "" : match),
       ),
   );
-  return withoutFalseBooleanMediaAttrs.replace(/<video\b[^>]*>/gi, (tag) => {
-    const hasAutoplay = /\sautoplay(?:\s|=|\/?>)/i.test(tag);
-    const hasAutoplayMarker =
-      /\sdata-video-autoplay\s*=\s*(?:"true"|'true'|true)(?=\s|\/?>)/i.test(
-        tag,
-      );
-    const autoplayConfigured = hasAutoplay || hasAutoplayMarker;
-    let normalizedTag = tag;
+  return withoutFalseBooleanMediaAttrs.replace(
+    VIDEO_OPENING_TAG_REGEX,
+    (tag) => {
+      const hasAutoplay = /\sautoplay(?:\s|=|\/?>)/i.test(tag);
+      const hasAutoplayMarker =
+        /\sdata-video-autoplay\s*=\s*(?:"true"|'true'|true)(?=\s|\/?>)/i.test(
+          tag,
+        );
+      const autoplayConfigured = hasAutoplay || hasAutoplayMarker;
+      let normalizedTag = tag;
 
-    if (disableVideoAutoplay && hasAutoplay) {
-      normalizedTag = normalizedTag.replace(
-        /\sautoplay(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi,
-        "",
-      );
-      normalizedTag = normalizedTag.replace(
-        /\s*\/?\s*>$/,
-        (end) => ` data-video-autoplay="true"${end}`,
-      );
-    } else if (!disableVideoAutoplay && hasAutoplayMarker && !hasAutoplay) {
-      normalizedTag = normalizedTag.replace(
-        /\s*\/?\s*>$/,
-        (end) => ` autoplay${end}`,
-      );
-    }
-
-    if (autoplayConfigured) {
-      for (const attribute of ["muted", "playsinline"]) {
-        if (
-          new RegExp(`\\s${attribute}(?:\\s|=|\\/>|>)`, "i").test(normalizedTag)
-        ) {
-          continue;
-        }
+      if (disableVideoAutoplay && hasAutoplay) {
+        normalizedTag = normalizedTag.replace(
+          /\sautoplay(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi,
+          "",
+        );
         normalizedTag = normalizedTag.replace(
           /\s*\/?\s*>$/,
-          (end) => ` ${attribute}${end}`,
+          (end) => ` data-video-autoplay="true"${end}`,
+        );
+      } else if (!disableVideoAutoplay && hasAutoplayMarker && !hasAutoplay) {
+        normalizedTag = normalizedTag.replace(
+          /\s*\/?\s*>$/,
+          (end) => ` autoplay${end}`,
         );
       }
-    }
-    return normalizedTag;
-  });
+
+      if (autoplayConfigured) {
+        for (const attribute of ["muted", "playsinline"]) {
+          if (
+            new RegExp(`\\s${attribute}(?:\\s|=|\\/>|>)`, "i").test(
+              normalizedTag,
+            )
+          ) {
+            continue;
+          }
+          normalizedTag = normalizedTag.replace(
+            /\s*\/?\s*>$/,
+            (end) => ` ${attribute}${end}`,
+          );
+        }
+      }
+      return normalizedTag;
+    },
+  );
 }
 
 export function sanitizeSlideHtml(

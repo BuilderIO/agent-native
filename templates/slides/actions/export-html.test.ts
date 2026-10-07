@@ -169,3 +169,46 @@ it("keeps fullscreen shortcuts available while video controls are focused", asyn
 
   await window.happyDOM.abort();
 });
+
+it("leaves Home and End available to focused media controls", async () => {
+  const window = new Window({ settings: { enableJavaScriptEvaluation: true } });
+  const html = buildStandaloneHtml("Video deck", [
+    {
+      id: "first-video",
+      content:
+        '<video controls><source src="https://media.example.com/first.mp4" type="video/mp4"></video>',
+    },
+    {
+      id: "second-video",
+      content:
+        '<video controls><source src="https://media.example.com/second.mp4" type="video/mp4"></video>',
+    },
+    { id: "last-slide", content: "<p>Last</p>" },
+  ]);
+  window.document.write(html);
+  await window.happyDOM.whenAsyncComplete();
+
+  const counter = window.document.getElementById("counter");
+  const next = window.document.getElementById("nextSlide") as HTMLButtonElement;
+  const videos = window.document.querySelectorAll("video");
+  const video = videos[1];
+  if (!video) throw new Error("Expected second exported video slide");
+
+  next.click();
+  expect(counter?.textContent).toBe("2 / 3");
+  video.focus();
+  expect(window.document.activeElement).toBe(video);
+
+  for (const key of ["Home", "End"]) {
+    const event = new window.KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.document.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(counter?.textContent).toBe("2 / 3");
+  }
+
+  await window.happyDOM.abort();
+});

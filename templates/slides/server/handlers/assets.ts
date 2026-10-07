@@ -107,6 +107,9 @@ const EBML_SEGMENT_LEVEL_IDS = new Set([
   0x1043a770,
   0x1254c367,
 ]);
+const EBML_NESTED_MASTER_IDS = new Set([
+  0xa0, 0x5854, 0x75a1, 0xa6, 0x8e, 0xe8, 0xc8,
+]);
 
 function uint32(data: Uint8Array, offset: number): number {
   return (
@@ -260,6 +263,254 @@ function isMediaDataRange(
   }
   const box = mediaDataBoxes[low];
   return Boolean(box && offset >= box.payloadStart && end <= box.end);
+}
+
+function readMp4TrackId(data: Uint8Array, trackHeader: IsoBox): number | null {
+  const version = data[trackHeader.payloadStart];
+  const offset = version === 0 ? 12 : version === 1 ? 20 : null;
+  const minimumSize = version === 0 ? 84 : version === 1 ? 96 : null;
+  if (
+    offset === null ||
+    minimumSize === null ||
+    trackHeader.end - trackHeader.payloadStart < minimumSize
+  )
+    return null;
+  const trackId = uint32(data, trackHeader.payloadStart + offset);
+  return trackId > 0 ? trackId : null;
+}
+
+function hasValidAvcConfiguration(
+  data: Uint8Array,
+  sampleDescription: IsoBox,
+): boolean {
+  if (sampleDescription.type !== "avc1" && sampleDescription.type !== "avc3")
+    return true;
+  const fixedSampleEntryEnd = sampleDescription.payloadStart + 78;
+  if (fixedSampleEntryEnd > sampleDescription.end) return false;
+  const childBoxes = readIsoBoxes(
+    data,
+    fixedSampleEntryEnd,
+    sampleDescription.end,
+  );
+  const configurations = childBoxes?.filter((box) => box.type === "avcC") ?? [];
+  if (configurations.length !== 1) return false;
+  const configuration = configurations[0]!;
+  let offset = configuration.payloadStart;
+  if (
+    configuration.end - offset < 7 ||
+    data[offset] !== 1 ||
+    (data[offset + 4]! & 0xfc) !== 0xfc ||
+    (data[offset + 4]! & 0x03) === 0x02 ||
+    (data[offset + 5]! & 0xe0) !== 0xe0
+  )
+    return false;
+
+  const sequenceParameterSetCount = data[offset + 5]! & 0x1f;
+  if (sequenceParameterSetCount === 0) return false;
+  offset += 6;
+  for (let index = 0; index < sequenceParameterSetCount; index++) {
+    if (offset + 2 > configuration.end) return false;
+    const length = (data[offset]! << 8) | data[offset + 1]!;
+    offset += 2;
+    if (
+      length === 0 ||
+      offset + length > configuration.end ||
+      (data[offset]! & 0x1f) !== 7
+    )
+      return false;
+    offset += length;
+  }
+  if (offset >= configuration.end) return false;
+  const pictureParameterSetCount = data[offset++]!;
+  if (pictureParameterSetCount === 0) return false;
+  for (let index = 0; index < pictureParameterSetCount; index++) {
+    if (offset + 2 > configuration.end) return false;
+    const length = (data[offset]! << 8) | data[offset + 1]!;
+    offset += 2;
+    if (
+      length === 0 ||
+      offset + length > configuration.end ||
+      (data[offset]! & 0x1f) !== 8
+    )
+      return false;
+    offset += length;
+  }
+  if (offset === configuration.end) return true;
+
+  if (
+    configuration.end - offset < 4 ||
+    (data[offset]! & 0xfc) !== 0xfc ||
+    (data[offset + 1]! & 0xf8) !== 0xf8 ||
+    (data[offset + 2]! & 0xf8) !== 0xf8
+  )
+    return false;
+  const sequenceParameterSetExtCount = data[offset + 3]!;
+  offset += 4;
+  for (let index = 0; index < sequenceParameterSetExtCount; index++) {
+    if (offset + 2 > configuration.end) return false;
+    const length = (data[offset]! << 8) | data[offset + 1]!;
+    offset += 2;
+    if (
+      length === 0 ||
+      offset + length > configuration.end ||
+      (data[offset]! & 0x1f) !== 13
+    )
+      return false;
+    offset += length;
+  }
+  return offset === configuration.end;
+}
+
+interface Mp4TrackMetadata {
+  trackId: number;
+  isVideo: boolean;
+  sampleDescriptionCount: number;
+  sampleTableBoxes: IsoBox[];
+}
+
+function readMp4TrackMetadata(
+  data: Uint8Array,
+  track: IsoBox,
+): Mp4TrackMetadata | null {
+  const trackBoxes = readIsoBoxes(data, track.payloadStart, track.end);
+  if (!trackBoxes) return null;
+  const trackHeader = singleIsoBox(trackBoxes, "tkhd");
+  const media = singleIsoBox(trackBoxes, "mdia");
+  if (!trackHeader || !media) return null;
+  if (fullBoxFlags(data, trackHeader) === null) return null;
+  const trackId = readMp4TrackId(data, trackHeader);
+  if (!trackId) return null;
+
+  const mediaBoxes = readIsoBoxes(data, media.payloadStart, media.end);
+  if (!mediaBoxes) return null;
+  const mediaHeader = singleIsoBox(mediaBoxes, "mdhd");
+  const handler = singleIsoBox(mediaBoxes, "hdlr");
+  const mediaInfo = singleIsoBox(mediaBoxes, "minf");
+  if (
+    !mediaHeader ||
+    (data[mediaHeader.payloadStart] === 0 &&
+      mediaHeader.end - mediaHeader.payloadStart < 24) ||
+    (data[mediaHeader.payloadStart] === 1 &&
+      mediaHeader.end - mediaHeader.payloadStart < 36) ||
+    (data[mediaHeader.payloadStart] !== 0 &&
+      data[mediaHeader.payloadStart] !== 1) ||
+    fullBoxFlags(data, mediaHeader) === null ||
+    !handler ||
+    handler.end - handler.payloadStart < 24 ||
+    !mediaInfo
+  )
+    return null;
+  const isVideo =
+    ascii(data, handler.payloadStart + 8, handler.payloadStart + 12) === "vide";
+
+  const mediaInfoBoxes = readIsoBoxes(
+    data,
+    mediaInfo.payloadStart,
+    mediaInfo.end,
+  );
+  const sampleTable = mediaInfoBoxes
+    ? singleIsoBox(mediaInfoBoxes, "stbl")
+    : null;
+  if (!mediaInfoBoxes || !sampleTable) return null;
+  const sampleTableBoxes = readIsoBoxes(
+    data,
+    sampleTable.payloadStart,
+    sampleTable.end,
+  );
+  const sampleDescription = sampleTableBoxes
+    ? singleIsoBox(sampleTableBoxes, "stsd")
+    : null;
+  if (
+    !sampleTableBoxes ||
+    !sampleDescription ||
+    sampleDescription.end - sampleDescription.payloadStart < 8 ||
+    data[sampleDescription.payloadStart] !== 0 ||
+    fullBoxFlags(data, sampleDescription) !== 0
+  )
+    return null;
+  const sampleDescriptionCount = uint32(
+    data,
+    sampleDescription.payloadStart + 4,
+  );
+  if (
+    sampleDescriptionCount === 0 ||
+    sampleDescriptionCount > MAX_MEDIA_CONTAINER_ELEMENTS
+  )
+    return null;
+  const sampleDescriptions = readIsoBoxes(
+    data,
+    sampleDescription.payloadStart + 8,
+    sampleDescription.end,
+  );
+  if (
+    !sampleDescriptions ||
+    sampleDescriptions.length !== sampleDescriptionCount ||
+    sampleDescriptions.some(
+      (entry) =>
+        entry.end - entry.start < (isVideo ? 86 : 8) ||
+        (isVideo && !hasValidAvcConfiguration(data, entry)),
+    )
+  )
+    return null;
+
+  return { trackId, isVideo, sampleDescriptionCount, sampleTableBoxes };
+}
+
+function hasEmptyMp4SampleTables(data: Uint8Array, boxes: IsoBox[]): boolean {
+  const timing = singleIsoBox(boxes, "stts");
+  const sampleToChunk = singleIsoBox(boxes, "stsc");
+  const sizeBoxes = boxes.filter(
+    (box) => box.type === "stsz" || box.type === "stz2",
+  );
+  const offsetBoxes = boxes.filter(
+    (box) => box.type === "stco" || box.type === "co64",
+  );
+  if (
+    !timing ||
+    !sampleToChunk ||
+    sizeBoxes.length !== 1 ||
+    offsetBoxes.length !== 1
+  )
+    return false;
+
+  const timingSize = timing.end - timing.payloadStart;
+  const mappingSize = sampleToChunk.end - sampleToChunk.payloadStart;
+  if (
+    timingSize !== 8 ||
+    mappingSize !== 8 ||
+    data[timing.payloadStart] !== 0 ||
+    data[sampleToChunk.payloadStart] !== 0 ||
+    fullBoxFlags(data, timing) !== 0 ||
+    fullBoxFlags(data, sampleToChunk) !== 0 ||
+    uint32(data, timing.payloadStart + 4) !== 0 ||
+    uint32(data, sampleToChunk.payloadStart + 4) !== 0
+  )
+    return false;
+
+  const sampleSizes = sizeBoxes[0]!;
+  const sizePayload = sampleSizes.end - sampleSizes.payloadStart;
+  if (
+    sizePayload !== 12 ||
+    data[sampleSizes.payloadStart] !== 0 ||
+    fullBoxFlags(data, sampleSizes) !== 0 ||
+    uint32(data, sampleSizes.payloadStart + 8) !== 0
+  )
+    return false;
+  if (sampleSizes.type === "stsz") {
+    if (uint32(data, sampleSizes.payloadStart + 4) !== 0) return false;
+  } else {
+    const fieldSize = data[sampleSizes.payloadStart + 7]!;
+    if (fieldSize !== 4 && fieldSize !== 8 && fieldSize !== 16) return false;
+  }
+
+  const offsets = offsetBoxes[0]!;
+  const offsetPayload = offsets.end - offsets.payloadStart;
+  return (
+    offsetPayload === 8 &&
+    data[offsets.payloadStart] === 0 &&
+    fullBoxFlags(data, offsets) === 0 &&
+    uint32(data, offsets.payloadStart + 4) === 0
+  );
 }
 
 function hasMp4PlayableSamples(
@@ -425,7 +676,11 @@ function hasMp4VideoTrack(
     );
     return Boolean(
       entries?.length === entryCount &&
-      entries.every((entry) => entry.end - entry.start >= 86) &&
+      entries.every(
+        (entry) =>
+          entry.end - entry.start >= 86 &&
+          hasValidAvcConfiguration(data, entry),
+      ) &&
       sampleTableBoxes &&
       hasMp4PlayableSamples(data, sampleTableBoxes, entryCount, mediaDataBoxes),
     );
@@ -449,7 +704,356 @@ function hasValidMp4Video(data: Uint8Array): boolean {
     mediaDataBoxes.length === 0
   )
     return false;
+  if (boxes.some((box) => box.type === "moof")) {
+    return hasValidFragmentedMp4Video(data, boxes, movie, mediaDataBoxes);
+  }
   return hasMp4VideoTrack(data, movie, mediaDataBoxes);
+}
+
+interface Mp4TrexDefaults {
+  sampleDescriptionIndex: number;
+  sampleDuration: number;
+  sampleSize: number;
+}
+
+interface Mp4Tfhd {
+  trackId: number;
+  baseDataOffset: number | null;
+  sampleDescriptionIndex: number;
+  defaultSampleDuration: number;
+  defaultSampleSize: number;
+  durationIsEmpty: boolean;
+}
+
+interface Mp4Trun {
+  sampleCount: number;
+  dataOffset: number | null;
+  sampleBytes: number;
+}
+
+function fullBoxFlags(data: Uint8Array, box: IsoBox): number | null {
+  if (box.end - box.payloadStart < 4) return null;
+  return (
+    (data[box.payloadStart + 1]! << 16) |
+    (data[box.payloadStart + 2]! << 8) |
+    data[box.payloadStart + 3]!
+  );
+}
+
+function readMp4Uint64(data: Uint8Array, offset: number): number | null {
+  const value = uint32(data, offset) * 0x100000000 + uint32(data, offset + 4);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
+function readMp4TrexDefaults(
+  data: Uint8Array,
+  movieExtends: IsoBox,
+  tracks: Map<number, Mp4TrackMetadata>,
+): Map<number, Mp4TrexDefaults> | null {
+  const boxes = readIsoBoxes(data, movieExtends.payloadStart, movieExtends.end);
+  if (!boxes) return null;
+  const trexBoxes = boxes.filter((box) => box.type === "trex");
+  if (trexBoxes.length !== tracks.size) return null;
+  const defaults = new Map<number, Mp4TrexDefaults>();
+  for (const box of trexBoxes) {
+    if (
+      box.end - box.payloadStart !== 24 ||
+      data[box.payloadStart] !== 0 ||
+      fullBoxFlags(data, box) !== 0
+    )
+      return null;
+    const trackId = uint32(data, box.payloadStart + 4);
+    const sampleDescriptionIndex = uint32(data, box.payloadStart + 8);
+    const track = tracks.get(trackId);
+    if (
+      !track ||
+      defaults.has(trackId) ||
+      sampleDescriptionIndex === 0 ||
+      sampleDescriptionIndex > track.sampleDescriptionCount
+    )
+      return null;
+    defaults.set(trackId, {
+      sampleDescriptionIndex,
+      sampleDuration: uint32(data, box.payloadStart + 12),
+      sampleSize: uint32(data, box.payloadStart + 16),
+    });
+  }
+  return defaults.size === tracks.size ? defaults : null;
+}
+
+function readMp4Tfhd(
+  data: Uint8Array,
+  box: IsoBox,
+  moofStart: number,
+  defaults: Mp4TrexDefaults,
+  track: Mp4TrackMetadata,
+): Mp4Tfhd | null {
+  const payloadSize = box.end - box.payloadStart;
+  const flags = fullBoxFlags(data, box);
+  if (payloadSize < 8 || data[box.payloadStart] !== 0 || flags === null)
+    return null;
+  const allowedFlags =
+    0x000001 | 0x000002 | 0x000008 | 0x000010 | 0x000020 | 0x010000 | 0x020000;
+  if (
+    (flags & ~allowedFlags) !== 0 ||
+    ((flags & 0x000001) !== 0 && (flags & 0x020000) !== 0)
+  )
+    return null;
+
+  const trackId = uint32(data, box.payloadStart + 4);
+  if (trackId !== track.trackId) return null;
+  let offset = box.payloadStart + 8;
+  let baseDataOffset: number | null = null;
+  let sampleDescriptionIndex = defaults.sampleDescriptionIndex;
+  let defaultSampleDuration = defaults.sampleDuration;
+  let defaultSampleSize = defaults.sampleSize;
+  if ((flags & 0x000001) !== 0) {
+    if (offset + 8 > box.end) return null;
+    baseDataOffset = readMp4Uint64(data, offset);
+    if (baseDataOffset === null) return null;
+    offset += 8;
+  } else if ((flags & 0x020000) !== 0) {
+    baseDataOffset = moofStart;
+  }
+  if ((flags & 0x000002) !== 0) {
+    if (offset + 4 > box.end) return null;
+    sampleDescriptionIndex = uint32(data, offset);
+    offset += 4;
+  }
+  if ((flags & 0x000008) !== 0) {
+    if (offset + 4 > box.end) return null;
+    defaultSampleDuration = uint32(data, offset);
+    offset += 4;
+  }
+  if ((flags & 0x000010) !== 0) {
+    if (offset + 4 > box.end) return null;
+    defaultSampleSize = uint32(data, offset);
+    offset += 4;
+  }
+  if ((flags & 0x000020) !== 0) {
+    if (offset + 4 > box.end) return null;
+    offset += 4;
+  }
+  if (
+    offset !== box.end ||
+    sampleDescriptionIndex === 0 ||
+    sampleDescriptionIndex > track.sampleDescriptionCount
+  )
+    return null;
+  return {
+    trackId,
+    baseDataOffset,
+    sampleDescriptionIndex,
+    defaultSampleDuration,
+    defaultSampleSize,
+    durationIsEmpty: (flags & 0x010000) !== 0,
+  };
+}
+
+function readMp4Trun(
+  data: Uint8Array,
+  box: IsoBox,
+  tfhd: Mp4Tfhd,
+  maxSampleCount: number,
+): Mp4Trun | null {
+  const payloadSize = box.end - box.payloadStart;
+  const version = data[box.payloadStart];
+  const flags = fullBoxFlags(data, box);
+  if (payloadSize < 8 || (version !== 0 && version !== 1) || flags === null)
+    return null;
+  const allowedFlags =
+    0x000001 | 0x000004 | 0x000100 | 0x000200 | 0x000400 | 0x000800;
+  if (
+    (flags & ~allowedFlags) !== 0 ||
+    ((flags & 0x000004) !== 0 && (flags & 0x000400) !== 0)
+  )
+    return null;
+
+  const sampleCount = uint32(data, box.payloadStart + 4);
+  if (sampleCount > maxSampleCount) return null;
+  let offset = box.payloadStart + 8;
+  let dataOffset: number | null = null;
+  if ((flags & 0x000001) !== 0) {
+    if (offset + 4 > box.end) return null;
+    const unsignedOffset = uint32(data, offset);
+    dataOffset =
+      unsignedOffset >= 0x80000000
+        ? unsignedOffset - 0x100000000
+        : unsignedOffset;
+    offset += 4;
+  }
+  if ((flags & 0x000004) !== 0) {
+    if (offset + 4 > box.end) return null;
+    offset += 4;
+  }
+
+  const hasDuration = (flags & 0x000100) !== 0;
+  const hasSize = (flags & 0x000200) !== 0;
+  const hasSampleFlags = (flags & 0x000400) !== 0;
+  const hasCompositionOffset = (flags & 0x000800) !== 0;
+  const perSampleWidth =
+    (hasDuration ? 4 : 0) +
+    (hasSize ? 4 : 0) +
+    (hasSampleFlags ? 4 : 0) +
+    (hasCompositionOffset ? 4 : 0);
+  if (offset + sampleCount * perSampleWidth !== box.end) return null;
+
+  let sampleBytes = 0;
+  for (let index = 0; index < sampleCount; index++) {
+    const duration = hasDuration
+      ? uint32(data, offset)
+      : tfhd.defaultSampleDuration;
+    if (hasDuration) offset += 4;
+    const size = hasSize ? uint32(data, offset) : tfhd.defaultSampleSize;
+    if (hasSize) offset += 4;
+    if (duration === 0 || size === 0) return null;
+    sampleBytes += size;
+    if (!Number.isSafeInteger(sampleBytes)) return null;
+    if (hasSampleFlags) offset += 4;
+    if (hasCompositionOffset) offset += 4;
+  }
+  return { sampleCount, dataOffset, sampleBytes };
+}
+
+function hasValidMp4Tfdt(data: Uint8Array, box: IsoBox): boolean {
+  const payloadSize = box.end - box.payloadStart;
+  const version = data[box.payloadStart];
+  if (fullBoxFlags(data, box) !== 0) return false;
+  if (version === 0) return payloadSize === 8;
+  if (version === 1)
+    return (
+      payloadSize === 12 && readMp4Uint64(data, box.payloadStart + 4) !== null
+    );
+  return false;
+}
+
+function hasValidFragmentedMp4Video(
+  data: Uint8Array,
+  topLevelBoxes: IsoBox[],
+  movie: IsoBox,
+  mediaDataBoxes: IsoBox[],
+): boolean {
+  const movieBoxes = readIsoBoxes(data, movie.payloadStart, movie.end);
+  const movieHeader = movieBoxes ? singleIsoBox(movieBoxes, "mvhd") : null;
+  if (!movieBoxes || !movieHeader) return false;
+  const movieHeaderVersion = data[movieHeader.payloadStart];
+  if (
+    (movieHeaderVersion === 0 &&
+      movieHeader.end - movieHeader.payloadStart < 100) ||
+    (movieHeaderVersion === 1 &&
+      movieHeader.end - movieHeader.payloadStart < 112) ||
+    (movieHeaderVersion !== 0 && movieHeaderVersion !== 1) ||
+    fullBoxFlags(data, movieHeader) === null
+  )
+    return false;
+  const movieExtends = singleIsoBox(movieBoxes, "mvex");
+  if (!movieExtends) return false;
+
+  const tracks = new Map<number, Mp4TrackMetadata>();
+  for (const trackBox of movieBoxes.filter((box) => box.type === "trak")) {
+    const track = readMp4TrackMetadata(data, trackBox);
+    if (
+      !track ||
+      tracks.has(track.trackId) ||
+      !hasEmptyMp4SampleTables(data, track.sampleTableBoxes)
+    )
+      return false;
+    tracks.set(track.trackId, track);
+  }
+  if (![...tracks.values()].some((track) => track.isVideo)) return false;
+  const trexDefaults = readMp4TrexDefaults(data, movieExtends, tracks);
+  if (!trexDefaults) return false;
+
+  const movieFragments = topLevelBoxes.filter((box) => box.type === "moof");
+  if (movieFragments.length === 0) return false;
+  let totalSamples = 0;
+  let hasVideoSamples = false;
+  for (const moof of movieFragments) {
+    const moofBoxes = readIsoBoxes(data, moof.payloadStart, moof.end);
+    const movieFragmentHeader = moofBoxes
+      ? singleIsoBox(moofBoxes, "mfhd")
+      : null;
+    const trafBoxes = moofBoxes?.filter((box) => box.type === "traf") ?? [];
+    if (
+      !moofBoxes ||
+      !movieFragmentHeader ||
+      movieFragmentHeader.end - movieFragmentHeader.payloadStart !== 8 ||
+      data[movieFragmentHeader.payloadStart] !== 0 ||
+      fullBoxFlags(data, movieFragmentHeader) !== 0 ||
+      uint32(data, movieFragmentHeader.payloadStart + 4) === 0 ||
+      trafBoxes.length === 0
+    )
+      return false;
+
+    let previousTrafEnd: number | null = moof.start;
+    for (let trafIndex = 0; trafIndex < trafBoxes.length; trafIndex++) {
+      const traf = trafBoxes[trafIndex]!;
+      const trafChildren = readIsoBoxes(data, traf.payloadStart, traf.end);
+      const tfhdBox = trafChildren ? singleIsoBox(trafChildren, "tfhd") : null;
+      const tfdtBoxes =
+        trafChildren?.filter((box) => box.type === "tfdt") ?? [];
+      const trunBoxes =
+        trafChildren?.filter((box) => box.type === "trun") ?? [];
+      if (
+        !trafChildren ||
+        !tfhdBox ||
+        tfdtBoxes.length > 1 ||
+        (tfdtBoxes[0] && !hasValidMp4Tfdt(data, tfdtBoxes[0])) ||
+        trunBoxes.length === 0
+      )
+        return false;
+
+      const trackId = uint32(data, tfhdBox.payloadStart + 4);
+      const track = tracks.get(trackId);
+      const defaults = trexDefaults.get(trackId);
+      if (!track || !defaults) return false;
+      const tfhd = readMp4Tfhd(data, tfhdBox, moof.start, defaults, track);
+      if (!tfhd) return false;
+      const baseDataOffset = tfhd.baseDataOffset ?? previousTrafEnd;
+      if (baseDataOffset === null) return false;
+
+      let previousRunEnd: number | null = null;
+      let trafDataEnd: number | null = null;
+      let trafSampleCount = 0;
+      for (const trunBox of trunBoxes) {
+        const trun = readMp4Trun(
+          data,
+          trunBox,
+          tfhd,
+          MAX_MEDIA_SAMPLE_ENTRIES - totalSamples,
+        );
+        if (!trun) return false;
+        totalSamples += trun.sampleCount;
+        trafSampleCount += trun.sampleCount;
+        if (
+          !Number.isSafeInteger(totalSamples) ||
+          totalSamples > MAX_MEDIA_SAMPLE_ENTRIES
+        )
+          return false;
+        if (trun.sampleCount === 0) continue;
+        if (tfhd.durationIsEmpty) return false;
+
+        const runStart: number =
+          trun.dataOffset === null
+            ? (previousRunEnd ?? baseDataOffset)
+            : baseDataOffset + trun.dataOffset;
+        const runEnd: number = runStart + trun.sampleBytes;
+        if (
+          !Number.isSafeInteger(runStart) ||
+          !Number.isSafeInteger(runEnd) ||
+          !isMediaDataRange(runStart, trun.sampleBytes, mediaDataBoxes)
+        )
+          return false;
+        previousRunEnd = runEnd;
+        trafDataEnd =
+          trafDataEnd === null ? runEnd : Math.max(trafDataEnd, runEnd);
+      }
+      if (tfhd.durationIsEmpty && trafSampleCount !== 0) return false;
+      if (trafDataEnd !== null) previousTrafEnd = trafDataEnd;
+      if (track.isVideo && trafSampleCount > 0) hasVideoSamples = true;
+    }
+  }
+  return hasVideoSamples;
 }
 
 function readEbmlVint(
@@ -541,6 +1145,24 @@ function findUnknownSizeClusterEnd(
   return offset === end ? end : null;
 }
 
+function hasNoNestedSegmentLevelWebmElements(
+  data: Uint8Array,
+  elements: EbmlElement[],
+): boolean {
+  const pending = [...elements];
+  let visited = 0;
+  while (pending.length > 0) {
+    if (visited++ >= MAX_MEDIA_CONTAINER_ELEMENTS) return false;
+    const element = pending.pop()!;
+    if (EBML_SEGMENT_LEVEL_IDS.has(element.id)) return false;
+    if (!EBML_NESTED_MASTER_IDS.has(element.id)) continue;
+    const children = readEbmlElements(data, element.payloadStart, element.end);
+    if (!children) return false;
+    for (const child of children) pending.push(child);
+  }
+  return true;
+}
+
 function ebmlUnsigned(data: Uint8Array, element: EbmlElement): number | null {
   const size = element.end - element.payloadStart;
   if (size < 1 || size > 8) return null;
@@ -593,11 +1215,9 @@ function ebmlBlockTrackNumber(
 
 function hasWebmVideoData(
   data: Uint8Array,
-  cluster: EbmlElement,
+  children: EbmlElement[],
   videoTracks: Set<number>,
 ): boolean {
-  const children = readEbmlElements(data, cluster.payloadStart, cluster.end);
-  if (!children) return false;
   const timecode = children.find((child) => child.id === 0xe7);
   if (!timecode || ebmlUnsigned(data, timecode) === null) return false;
   return children.some((child) => {
@@ -646,10 +1266,16 @@ function hasValidWebmVideo(data: Uint8Array): boolean {
   if (!readEbmlElements(data, info.payloadStart, info.end)) return false;
   const videoTracks = hasWebmVideoTrack(data, tracksElement);
   if (!videoTracks) return false;
-  return segmentChildren.some(
-    (element) =>
-      element.id === 0x1f43b675 && hasWebmVideoData(data, element, videoTracks),
-  );
+  let hasVideoData = false;
+  for (const cluster of segmentChildren.filter(
+    (element) => element.id === EBML_CLUSTER_ID,
+  )) {
+    const children = readEbmlElements(data, cluster.payloadStart, cluster.end);
+    if (!children || !hasNoNestedSegmentLevelWebmElements(data, children))
+      return false;
+    if (hasWebmVideoData(data, children, videoTracks)) hasVideoData = true;
+  }
+  return hasVideoData;
 }
 
 export function hasExpectedSvgSignature(data: Uint8Array): boolean {

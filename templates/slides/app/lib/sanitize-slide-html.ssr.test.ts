@@ -175,6 +175,17 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
     expect(html).not.toContain("muted='false'");
   });
 
+  it("keeps video tag matching through greater-than signs in quoted values", () => {
+    const html = sanitizeSlideHtml(
+      '<video title="Use > as text" autoplay="false" controls="false"></video>',
+    );
+
+    expect(html).toContain('title="Use > as text"');
+    expect(html).not.toContain('autoplay="false"');
+    expect(html).not.toContain('controls="false"');
+    expect(html).not.toContain("muted");
+  });
+
   it("gates blob videos and keeps autoplay disabled in thumbnails", () => {
     const input = '<video src="blob:preview" autoplay></video>';
     expect(sanitizeSlideHtml(input)).not.toContain("blob:preview");
