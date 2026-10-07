@@ -145,11 +145,17 @@ export const JOURNALED_TOOL_REPLAY_PREFIX =
   "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n";
 export const RECOVERED_TOOL_REPLAY_PREFIX =
   "(Recovered from prior interrupted chunk — action already completed.)\n\n";
-const LOADED_SKILL_CONTEXT_MAX_CHARS = 24_000;
+const LOADED_SKILL_CONTEXT_MAX_CHARS = 32_000;
+const LOADED_SKILL_PAGE_MAX_CHARS = 16_000;
 
+/**
+ * `visibleSlugs` are pages whose full result is still in the model's history;
+ * they are skipped so the same page is not sent twice.
+ */
 export function loadedSkillPagesContext(
   results: readonly PriorTurnToolResultSummary[],
   allowedSlugs: ReadonlySet<string>,
+  visibleSlugs: ReadonlySet<string> = new Set(),
 ): string {
   const pages = new Map<string, string>();
   for (const result of results) {
@@ -171,30 +177,33 @@ export function loadedSkillPagesContext(
     pages.delete(slug);
     pages.set(slug, result.content);
   }
+  for (const slug of visibleSlugs) pages.delete(slug);
   if (pages.size === 0) return "";
 
   const opening =
-    "<already-loaded-skills>These skill pages were already read earlier in this turn. Reuse them instead of calling docs-search again. If a page is marked truncated, read only when missing detail matters.\n";
+    "<already-loaded-skills>These skill pages were already read earlier in this conversation. Reuse them instead of calling docs-search again. If a page is marked truncated, read only when missing detail matters.\n";
   const closing = "\n</already-loaded-skills>";
+  const marker = "\n[Skill page truncated to fit context.]";
   let remaining =
     LOADED_SKILL_CONTEXT_MAX_CHARS - opening.length - closing.length;
   const blocks: string[] = [];
-  for (const [slug, page] of pages) {
+  // Newest first: when the budget runs out, the page the agent is working
+  // from is the one that must survive.
+  for (const [slug, page] of [...pages].reverse()) {
     const heading = `\n## ${slug}\n`;
-    if (remaining <= heading.length) break;
-    const truncated = page.length > remaining - heading.length;
-    const marker = truncated
-      ? "\n[Skill page truncated to fit continuation context.]"
-      : "";
-    const body = page.slice(
-      0,
-      Math.max(0, remaining - heading.length - marker.length),
+    const room = Math.min(
+      LOADED_SKILL_PAGE_MAX_CHARS,
+      remaining - heading.length,
     );
-    blocks.push(`${heading}${body}${marker}`);
-    remaining -= heading.length + body.length + marker.length;
-    if (truncated) break;
+    if (room <= marker.length) break;
+    const body =
+      page.length > room
+        ? `${page.slice(0, room - marker.length)}${marker}`
+        : page;
+    blocks.push(`${heading}${body}`);
+    remaining -= heading.length + body.length;
   }
-  return blocks.length > 0 ? `${opening}${blocks.join("\n")}${closing}` : "";
+  return blocks.length > 0 ? `${opening}${blocks.join("")}${closing}` : "";
 }
 
 export function seedRepeatedToolCallCountsFromJournal(

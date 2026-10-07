@@ -395,12 +395,36 @@ describe("loadedSkillPagesContext", () => {
       new Set(["skill-slide-editing"]),
     );
 
-    expect(result.length).toBeLessThanOrEqual(24_000);
+    expect(result.length).toBeLessThanOrEqual(32_000);
     expect(result).toContain("skill-slide-editing");
     expect(result).toContain("Skill page truncated");
     expect(result).not.toContain("skill-missing");
     expect(result).not.toContain("skill-failed");
     expect(result).not.toContain("creative-context");
     expect(result).not.toContain("# Docs index");
+  });
+  it("keeps the newest pages within per-page and total caps", () => {
+    const read = (slug: string, size: number) => ({
+      name: "docs-search",
+      input: { slug },
+      content: `# Skill: ${slug}\n${"x".repeat(size)}`,
+      isError: false,
+    });
+    const result = loadedSkillPagesContext(
+      [
+        read("skill-old", 10_000),
+        read("skill-mid", 8_000),
+        read("skill-design", 8_000),
+        read("skill-editing", 20_000),
+      ],
+      new Set(["skill-old", "skill-mid", "skill-design", "skill-editing"]),
+    );
+
+    expect(result.length).toBeLessThanOrEqual(32_000);
+    expect(result.indexOf("## skill-editing")).toBeLessThan(
+      result.indexOf("## skill-design"),
+    );
+    expect(result).toContain("Skill page truncated");
+    expect(result).not.toContain("## skill-old");
   });
 });

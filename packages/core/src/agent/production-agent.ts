@@ -3266,6 +3266,69 @@ async function applyObservationalMemoryToContext(
   }
 }
 
+function isLoadedSkillPageResult(result: {
+  name: string;
+  input?: unknown;
+  content: string;
+  isError: boolean;
+}): boolean {
+  const input =
+    result.input && typeof result.input === "object"
+      ? (result.input as Record<string, unknown>)
+      : null;
+  return (
+    result.name === "docs-search" &&
+    !result.isError &&
+    typeof input?.slug === "string" &&
+    input.slug.startsWith("skill-") &&
+    result.content.startsWith("# Skill:")
+  );
+}
+
+async function threadSkillPageReads(threadId: string | undefined) {
+  if (!threadId) return [];
+  try {
+    const { getThread } = await import("../chat-threads/store.js");
+    const { skillPageReadsFromThreadData } =
+      await import("./thread-data-builder.js");
+    return skillPageReadsFromThreadData(
+      (await getThread(threadId))?.threadData,
+    );
+  } catch (err) {
+    // The agent can still read skills itself; it just loses the reuse hint.
+    console.warn(
+      `[agent-loop] loaded skill pages unreadable for thread ${threadId}; skills will be re-read:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return [];
+  }
+}
+
+function skillPagesVisibleInHistory(messages: EngineMessage[]): Set<string> {
+  const slugByCallId = new Map<string, string>();
+  const visible = new Set<string>();
+  for (const message of messages) {
+    for (const part of message.content) {
+      if (part.type === "tool-call" && part.name === "docs-search") {
+        const slug = (part.input as { slug?: unknown } | null)?.slug;
+        if (typeof slug === "string") slugByCallId.set(part.id, slug);
+        continue;
+      }
+      if (
+        part.type !== "tool-result" ||
+        part.isError ||
+        !part.content.startsWith("# Skill:") ||
+        part.content.includes("[Tool result truncated")
+      ) {
+        continue;
+      }
+      const slug = slugByCallId.get(part.toolCallId);
+      if (slug) visible.add(slug);
+    }
+  }
+  return visible;
+}
+
 type CachedReadOnlyToolResult = {
   content: string;
   images?: EngineToolResultPart["images"];
@@ -5182,20 +5245,11 @@ export async function runAgentLoop(opts: {
   const journaledPriorToolResults =
     journalRead.status === "read" ? journalRead.priorToolResults : [];
   let loadedSkillsContext = "";
-  const hasLoadedSkillPage = journaledPriorToolResults.some((result) => {
-    const input =
-      result.input && typeof result.input === "object"
-        ? (result.input as Record<string, unknown>)
-        : null;
-    return (
-      result.name === "docs-search" &&
-      !result.isError &&
-      typeof input?.slug === "string" &&
-      input.slug.startsWith("skill-") &&
-      result.content.startsWith("# Skill:")
-    );
-  });
-  if (isInternalContinuationTurn(messages) && hasLoadedSkillPage) {
+  const skillPageResults = [
+    ...(await threadSkillPageReads(opts.threadId)),
+    ...journaledPriorToolResults,
+  ];
+  if (skillPageResults.some(isLoadedSkillPageResult)) {
     const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
       await import("../server/agents-bundle.js");
     const runtimeSkills = await getRuntimeSkillsForUser(
@@ -5203,8 +5257,9 @@ export async function runAgentLoop(opts: {
       opts.ownerEmail ?? getRequestUserEmail(),
     );
     loadedSkillsContext = loadedSkillPagesContext(
-      journaledPriorToolResults,
+      skillPageResults,
       new Set(runtimeSkills.map((skill) => skillDocsSlug(skill.meta.name))),
+      skillPagesVisibleInHistory(messages),
     );
   }
   const continuationSystemPrompt = loadedSkillsContext

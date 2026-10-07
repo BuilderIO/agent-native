@@ -15,6 +15,7 @@ import {
   normalizeThreadRepository,
   upsertAssistantMessage,
   upsertUserMessage,
+  skillPageReadsFromThreadData,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
 
@@ -4586,5 +4587,49 @@ describe("live-client twins", () => {
         "INTERRUPTED_TOOL_RESULT_MARKER",
       ),
     ).toBe(client);
+  });
+});
+
+describe("skillPageReadsFromThreadData", () => {
+  it("returns stored skill page reads from earlier turns", () => {
+    const threadData = JSON.stringify({
+      messages: [
+        { message: { role: "user", content: [{ type: "text", text: "hi" }] } },
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolName: "docs-search",
+                args: { slug: "skill-slide-design" },
+                result: "# Skill: slide-design\nCraft rules",
+              },
+              {
+                type: "tool-call",
+                toolName: "docs-search",
+                args: { query: "slides" },
+                result: "search results",
+              },
+              {
+                type: "tool-call",
+                toolName: "update-slide",
+                args: { slug: "skill-not-a-read" },
+                result: "ok",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(skillPageReadsFromThreadData(threadData)).toEqual([
+      {
+        name: "docs-search",
+        input: { slug: "skill-slide-design" },
+        content: "# Skill: slide-design\nCraft rules",
+        isError: false,
+      },
+    ]);
   });
 });

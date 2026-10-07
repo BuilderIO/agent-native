@@ -433,7 +433,7 @@ export function buildCompactSkillsSummary(
     const description = s.meta.description?.trim()
       ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
       : "";
-    return `- \`${s.meta.name}\`${description} Read with \`${skillReadTool} --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
+    return `- \`${s.meta.name}\`${description} Read with \`${skillReadTool} --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for the rest of the conversation instead of reading it again.`;
   });
   if (skills.length > listedSkills.length) {
     lines.push(
