@@ -199,6 +199,7 @@ import {
   useCommentReplyDrafts,
   usePendingCommentDraft,
 } from "./CommentsSidebar";
+import { ContentImportDialog } from "./ContentImportDialog";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
 import {
@@ -3274,6 +3275,16 @@ function PageEditorSessionBody({
     (!isLocalFileDocument || localSourceAccess === "available") &&
     (isLocalFileDocument || collabSynced) &&
     !collabInitializationFailed;
+  const canImportPages = canEdit && !isLocalFileDocument && !document.database;
+  const [importRequest, setImportRequest] = useState<{
+    files: File[];
+  } | null>(null);
+  const openImport = useCallback(() => setImportRequest({ files: [] }), []);
+  const importDroppedFiles = useCallback(
+    (files: File[]) => setImportRequest({ files }),
+    [],
+  );
+  const closeImport = useCallback(() => setImportRequest(null), []);
   const collabEditorEnabled =
     collabEnabled &&
     canEdit &&
@@ -8451,6 +8462,13 @@ function PageEditorSessionBody({
             onSuggestingChange={(next) => {
               void handleSuggestionModeChange(next);
             }}
+            onImport={canImportPages ? openImport : undefined}
+          />
+          <ContentImportDialog
+            request={importRequest}
+            parentId={documentId}
+            parentTitle={exportTitle}
+            onClose={closeImport}
           />
 
           {!isLocalFileDocument ? (
@@ -8907,6 +8925,9 @@ function PageEditorSessionBody({
                           >
                             <VisualEditor
                               onEscape={handleEditorEscape}
+                              onImportFiles={
+                                canImportPages ? importDroppedFiles : undefined
+                              }
                               acceptedDecisionReadback={
                                 !isSuggesting &&
                                 pendingSuggestionDecision?.decision ===

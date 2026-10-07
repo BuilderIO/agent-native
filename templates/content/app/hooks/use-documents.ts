@@ -45,6 +45,11 @@ import type {
   DocumentUpdateSupersededResponse,
 } from "../../actions/update-document";
 import type { ContentTrashPurgePlanResponse } from "../../shared/content-trash";
+import type {
+  ImportContentArgs,
+  ImportContentResult,
+  UndoContentImportResult,
+} from "../../shared/import/api";
 import {
   documentQueryFilter,
   documentQueryKey,
@@ -1708,6 +1713,44 @@ export function useRollbackCreatedSlashDocument() {
       documentQueryFilter(id),
       ["action", "list-documents"],
       ["action", "get-content-database"],
+      ...TRASH_LIST_QUERY_KEYS,
+    ],
+  });
+}
+
+export function useImportContent() {
+  const queryClient = useQueryClient();
+  return useContentActionMutation<ImportContentResult, ImportContentArgs>(
+    "import-content",
+    {
+      invalidates: (result, { parentId }) =>
+        result.dryRun
+          ? []
+          : [
+              ...contentPlacementTargets(queryClient, {
+                documentIds: result.pages.flatMap((page) =>
+                  page.id ? [page.id] : [],
+                ),
+                parentIds: [parentId ?? null],
+              }),
+              ["action", "list-documents"],
+              ["action", "search-documents"],
+            ],
+    },
+  );
+}
+
+export function useUndoContentImport() {
+  const queryClient = useQueryClient();
+  return useContentActionMutation<
+    UndoContentImportResult,
+    { importId: string }
+  >("undo-content-import", {
+    invalidates: ({ trashedIds }) => [
+      ...contentPlacementTargets(queryClient, { documentIds: trashedIds }),
+      ...trashedIds.map((id) => documentQueryFilter(id)),
+      ["action", "list-documents"],
+      ["action", "search-documents"],
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });

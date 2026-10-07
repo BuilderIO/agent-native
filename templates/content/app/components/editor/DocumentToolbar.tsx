@@ -34,6 +34,7 @@ import {
   IconChevronDown,
   IconCopy,
   IconDownload,
+  IconFileImport,
   IconDotsVertical,
   IconExternalLink,
   IconFileTypeHtml,
@@ -898,6 +899,7 @@ interface DocumentToolbarProps {
   onRestoreEditorSelection?: () => void;
   onSuggestingChange?: (suggesting: boolean) => void;
   editorEscapeTargetRef?: Ref<HTMLButtonElement>;
+  onImport?: () => void;
 }
 
 // PresenceBar's default.
@@ -976,6 +978,7 @@ function DocumentToolbarRow({
   onRestoreEditorSelection,
   onSuggestingChange,
   editorEscapeTargetRef,
+  onImport,
 }: DocumentToolbarProps) {
   const sidebarTrigger = useSidebarTrigger();
   const t = useT();
@@ -2073,6 +2076,12 @@ function DocumentToolbarRow({
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
                   )}
+                  {onImport ? (
+                    <DropdownMenuItem onSelect={onImport}>
+                      <IconFileImport className="me-2 h-4 w-4" />
+                      {t("contentImport.menuItem")}
+                    </DropdownMenuItem>
+                  ) : null}
                 </>
               )}
               <DropdownMenuSeparator />

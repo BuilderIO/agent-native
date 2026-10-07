@@ -1422,6 +1422,27 @@ export const runContentMigrations = runMigrations(
       version: 117,
       name: "search-index-documents",
     }),
+    {
+      version: 118,
+      name: "content-document-imports",
+      sql: `CREATE TABLE IF NOT EXISTS document_imports (
+          document_id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          import_id TEXT NOT NULL,
+          source_name TEXT NOT NULL,
+          source_format TEXT NOT NULL,
+          source_bytes INTEGER NOT NULL,
+          source_sha256 TEXT NOT NULL,
+          original_blob TEXT NOT NULL,
+          imported_title TEXT NOT NULL,
+          imported_content_sha256 TEXT NOT NULL,
+          frontmatter_json TEXT,
+          report_json TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS document_imports_import_idx
+          ON document_imports (import_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

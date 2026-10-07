@@ -84,6 +84,32 @@ the returned `spaceId` before telling the user where the page landed. The
 Workspaces catalog is not a create target: its rows only list workspaces, and
 `add-database-item` against it is rejected.
 
+### import-content
+
+Turn Markdown files the user hands over into new pages. Prefer it to
+`create-document` whenever the source is a file: it takes the title from
+frontmatter or the first heading, keeps the original file, uploads referenced
+images, records "Imported from <file>" in History, and names everything that
+did not come across.
+
+```bash
+pnpm action import-content --dryRun true --parentId abc123 --files '[{"name":"guide.md","text":"# Guide\n..."},{"name":"logo.png"}]'
+pnpm action import-content --dryRun false --parentId abc123 --idempotencyKey guide-1 --files '[{"name":"guide.md","text":"..."},{"name":"logo.png","url":"https://..."}]'
+```
+
+Run the dry run first and tell the user each page's `status` and `notes`
+before applying. Applying needs a `url` for every image named in `uploads`;
+an image nobody can supply becomes a visible placeholder on the page. Other
+formats come back in `skipped` as not supported yet. Reuse one
+`idempotencyKey` when retrying the same import.
+
+`undo-content-import --importId <id>` moves the import's pages to Trash. It
+refuses with `IMPORT_PAGE_CHANGED` when a page was edited since; ask before
+using `delete-document` instead. While the Import dialog is open,
+`view-screen` returns `contentImport` with its status, destination, file
+names, and counts, never file contents. `import-content-source` is unrelated:
+it syncs a connected local folder.
+
 ### edit-document
 
 Surgically edit document content using search-and-replace. **Preferred over `update-document --content` for modifications** — sends only the changed text instead of regenerating the entire document.
@@ -354,6 +380,7 @@ failures stop the run.
 | "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`              |
 | "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
 | "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                               |
+| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                |
 | "Show me the document tree"  | `list-documents`                                                                    |
 
 Always run `refresh-list` after any create, update, or delete operation.
