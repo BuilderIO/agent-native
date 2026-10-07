@@ -17,6 +17,7 @@ export type ParityOracle = {
 
 type OracleArtifact = {
   path: string;
+  kind: string;
   sha256: string;
 };
 
@@ -61,10 +62,12 @@ export function oracle(id: string, repoRoot = REPO_ROOT): ParityOracle {
     throw new Error(`Design oracle ${id} has no artifact list`);
   }
   const entryDir = path.resolve(repoRoot, ORACLE_DIR, id);
+  let verifiedFigmaScreenshot = false;
   for (const artifact of record.artifacts) {
     if (
       !artifact ||
       typeof artifact.path !== "string" ||
+      typeof artifact.kind !== "string" ||
       typeof artifact.sha256 !== "string" ||
       artifact.path.includes("\\") ||
       path.posix.isAbsolute(artifact.path) ||
@@ -106,6 +109,9 @@ export function oracle(id: string, repoRoot = REPO_ROOT): ParityOracle {
       if (digest !== artifact.sha256) {
         throw new Error(`sha256 mismatch for ${artifact.path}`);
       }
+      if (artifact.kind === "figma-screenshot") {
+        verifiedFigmaScreenshot = true;
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const wrapped = new Error(
@@ -114,6 +120,11 @@ export function oracle(id: string, repoRoot = REPO_ROOT): ParityOracle {
       Object.defineProperty(wrapped, "cause", { value: error });
       throw wrapped;
     }
+  }
+  if (!verifiedFigmaScreenshot) {
+    throw new Error(
+      `Design oracle ${id} has no verified Figma screenshot artifact`,
+    );
   }
   if (
     !record.values ||

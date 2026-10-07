@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateSync } from "node:zlib";
 
 import { requireAddedLines } from "./lib/changed-lines.mjs";
 
@@ -15,6 +16,8 @@ const ORACLE_DIR = "templates/design/parity/oracle";
 const MAX_ENTRY_BYTES = 64 * 1024;
 const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024;
 const MAX_LEDGER_ARTIFACT_BYTES = 50 * 1024 * 1024;
+const MAX_DECOMPRESSED_PNG_BYTES = 128 * 1024 * 1024;
+const MAX_PNG_PIXELS = 32 * 1024 * 1024;
 const ORACLE_ID = /^fig\.[a-z0-9]+(?:-[a-z0-9]+)*\.[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const HASH = /^[a-f0-9]{64}$/;
 const TEST_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$/i;
@@ -113,22 +116,95 @@ function imageFormat(bytes: Buffer): "png" | "jpeg" | null {
   if (bytes.length >= 45 && bytes.subarray(0, 8).equals(pngSignature)) {
     let offset = 8;
     let sawHeader = false;
+    let sawPalette = false;
+    let sawData = false;
+    let endedData = false;
+    let width = 0;
+    let height = 0;
+    let bitDepth = 0;
+    let colorType = -1;
+    let interlace = -1;
+    let paletteEntries = 0;
+    const compressed: Buffer[] = [];
     while (offset + 12 <= bytes.length) {
       const size = bytes.readUInt32BE(offset);
       const type = bytes.toString("ascii", offset + 4, offset + 8);
       const end = offset + 12 + size;
       if (end > bytes.length) return null;
+      const typeBytes = bytes.subarray(offset + 4, offset + 8);
+      const chunkData = bytes.subarray(offset + 8, offset + 8 + size);
+      if (
+        !/^[A-Za-z]{4}$/.test(type) ||
+        pngCrc32(bytes.subarray(offset + 4, offset + 8 + size)) !==
+          bytes.readUInt32BE(offset + 8 + size)
+      ) {
+        return null;
+      }
       if (!sawHeader) {
         if (type !== "IHDR" || size !== 13) return null;
+        width = chunkData.readUInt32BE(0);
+        height = chunkData.readUInt32BE(4);
+        bitDepth = chunkData[8];
+        colorType = chunkData[9];
+        interlace = chunkData[12];
         if (
-          bytes.readUInt32BE(offset + 8) === 0 ||
-          bytes.readUInt32BE(offset + 12) === 0
-        )
+          width === 0 ||
+          height === 0 ||
+          width * height > MAX_PNG_PIXELS ||
+          !validPngBitDepth(colorType, bitDepth) ||
+          chunkData[10] !== 0 ||
+          chunkData[11] !== 0 ||
+          (interlace !== 0 && interlace !== 1)
+        ) {
           return null;
+        }
         sawHeader = true;
+      } else if (type === "IHDR") {
+        return null;
+      }
+      if (
+        typeBytes[0]! >= 65 &&
+        typeBytes[0]! <= 90 &&
+        !["IHDR", "PLTE", "IDAT", "IEND"].includes(type)
+      ) {
+        return null;
+      }
+      if (type === "PLTE") {
+        if (
+          sawPalette ||
+          sawData ||
+          size === 0 ||
+          size % 3 !== 0 ||
+          size > 768 ||
+          colorType === 0 ||
+          colorType === 4
+        ) {
+          return null;
+        }
+        sawPalette = true;
+        paletteEntries = size / 3;
+      }
+      if (type === "IDAT") {
+        if (endedData || (colorType === 3 && !sawPalette)) return null;
+        sawData = true;
+        compressed.push(chunkData);
+      } else if (sawData && type !== "IEND") {
+        endedData = true;
       }
       if (type === "IEND") {
-        return sawHeader && size === 0 && end === bytes.length ? "png" : null;
+        if (!sawHeader || !sawData || size !== 0 || end !== bytes.length)
+          return null;
+        if (colorType === 3 && paletteEntries > 2 ** bitDepth) return null;
+        return validPngPixels(
+          Buffer.concat(compressed),
+          width,
+          height,
+          bitDepth,
+          colorType,
+          interlace,
+        )
+          ? "png"
+          : null;
       }
       offset = end;
     }
@@ -172,6 +248,83 @@ function imageFormat(bytes: Buffer): "png" | "jpeg" | null {
     offset += segmentLength;
   }
   return null;
+}
+
+function pngCrc32(bytes: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function validPngBitDepth(colorType: number, bitDepth: number): boolean {
+  const allowed: Record<number, number[]> = {
+    0: [1, 2, 4, 8, 16],
+    2: [8, 16],
+    3: [1, 2, 4, 8],
+    4: [8, 16],
+    6: [8, 16],
+  };
+  return allowed[colorType]?.includes(bitDepth) ?? false;
+}
+
+function validPngPixels(
+  compressed: Buffer,
+  width: number,
+  height: number,
+  bitDepth: number,
+  colorType: number,
+  interlace: number,
+): boolean {
+  const channels: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+  const bitsPerPixel = channels[colorType]! * bitDepth;
+  const passes =
+    interlace === 0
+      ? [[0, 0, 1, 1]]
+      : [
+          [0, 0, 8, 8],
+          [4, 0, 8, 8],
+          [0, 4, 4, 8],
+          [2, 0, 4, 4],
+          [0, 2, 2, 4],
+          [1, 0, 2, 2],
+          [0, 1, 1, 2],
+        ];
+  let expectedLength = 0;
+  const passRows: Array<{ rowBytes: number; height: number }> = [];
+  for (const [xStart, yStart, xStep, yStep] of passes) {
+    const passWidth =
+      width <= xStart! ? 0 : Math.ceil((width - xStart!) / xStep!);
+    const passHeight =
+      height <= yStart! ? 0 : Math.ceil((height - yStart!) / yStep!);
+    if (passWidth === 0 || passHeight === 0) continue;
+    const rowBytes = Math.ceil((passWidth * bitsPerPixel) / 8);
+    expectedLength += passHeight * (rowBytes + 1);
+    if (expectedLength > MAX_DECOMPRESSED_PNG_BYTES) return false;
+    passRows.push({ rowBytes, height: passHeight });
+  }
+  if (expectedLength === 0) return false;
+  try {
+    const pixels = inflateSync(compressed, {
+      maxOutputLength: MAX_DECOMPRESSED_PNG_BYTES,
+    });
+    if (pixels.length !== expectedLength) return false;
+    let offset = 0;
+    for (const pass of passRows) {
+      for (let row = 0; row < pass.height; row += 1) {
+        if (pixels[offset]! > 4) return false;
+        offset += pass.rowBytes + 1;
+      }
+    }
+    return offset === pixels.length;
+  } catch {
+    // coercion-ok: Zlib decode and output-limit failures mean the PNG is invalid.
+    return false;
+  }
 }
 
 function inside(root: string, candidate: string): boolean {
@@ -603,7 +756,7 @@ function validateAddedTests(
   let citations = 0;
   for (const [absolutePath, changed] of added) {
     const rel = path.relative(root, absolutePath).replace(/\\/g, "/");
-    if (!/^templates\/design\/(?:e2e|app\/.*)\//.test(rel)) continue;
+    if (!/^templates\/design\/(?:e2e|app)\//.test(rel)) continue;
     let source: string;
     try {
       source = readFileSync(absolutePath, "utf8");
@@ -639,10 +792,7 @@ function validateAddedTests(
         if (problem) problems.push(problem);
       }
     }
-    if (
-      !/^templates\/design\/(?:e2e|app\/.*)\//.test(rel) ||
-      !TEST_FILE.test(rel)
-    )
+    if (!/^templates\/design\/(?:e2e|app)\//.test(rel) || !TEST_FILE.test(rel))
       continue;
 
     const matches = [...source.matchAll(TEST_BLOCK)];

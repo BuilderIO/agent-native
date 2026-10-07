@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   parseRecorderManifest,
   requireSelectedDesignProbe,
+  requireSelectedFigmaProbe,
 } from "./oracle-record.ts";
 
 const validManifest = {
@@ -42,6 +43,25 @@ describe("oracle-record manifest", () => {
     assert.throws(
       () => requireSelectedDesignProbe(marker, [], [marker]),
       /must select exactly the marked oracle probe layer/,
+    );
+  });
+
+  it("requires the native Figma probe layer to be selected before capture", () => {
+    const marker = validManifest.probeMarker;
+    assert.doesNotThrow(() =>
+      requireSelectedFigmaProbe(marker, [marker], [marker]),
+    );
+    assert.throws(
+      () => requireSelectedFigmaProbe(marker, [marker], []),
+      /Figma must select exactly the marked oracle probe layer/,
+    );
+    assert.throws(
+      () => requireSelectedFigmaProbe(marker, [marker], ["a different layer"]),
+      /Figma must select exactly the marked oracle probe layer/,
+    );
+    assert.throws(
+      () => requireSelectedFigmaProbe(marker, [marker, marker], [marker]),
+      /Figma must select exactly the marked oracle probe layer/,
     );
   });
 

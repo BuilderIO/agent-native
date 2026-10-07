@@ -66,7 +66,7 @@ function readPullRequestContext(
   return { title, baseRef, baseSha, headRef, headSha };
 }
 
-const TEST_FILE = /\.(?:test|spec|fixture|fixtures)\.[cm]?[jt]sx?(?:\.snap)?$/i;
+const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?(?:\.snap)?$/i;
 const TEST_WORKFLOW_PATHS = new Set([
   ".github/workflows/design-e2e.yml",
   ".github/actions/design-e2e/action.yml",

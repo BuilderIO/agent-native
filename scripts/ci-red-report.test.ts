@@ -225,6 +225,10 @@ describe("ci-red-report", () => {
         name: "Beta deploy",
         path: ".github/workflows/deploy-beta-sites.yml@main",
       }),
+      run(34, {
+        name: "Hosted app health audit",
+        path: ".github/workflows/monitor-agent-native-sites.yml@main",
+      }),
     ];
     const rows = buildCiRedRows(
       runs,
@@ -255,10 +259,10 @@ describe("ci-red-report", () => {
       return Object.fromEntries(headers.map((header, i) => [header, cells[i]]));
     });
 
-    assert.equal(records.length, 3);
+    assert.equal(records.length, 4);
     assert.deepEqual(
       records.map((record) => record.workflow),
-      ["Design E2E", "CI", "Beta deploy"],
+      ["Design E2E", "Beta deploy", "Hosted app health audit", "CI"],
     );
     assert.equal(records[0].run_count, "2");
     assert.deepEqual(
@@ -350,6 +354,45 @@ describe("ci-red-report", () => {
     );
     assert.equal(rows[0].fingerprint, movedLine[0].fingerprint);
 
+    const sameTestAcrossShards = buildCiRedRows(
+      [run(12), run(13)],
+      new Map([
+        [12, [job(12, 121, { name: "Shard 5/8" })]],
+        [13, [job(13, 131, { name: "Shard 6/8" })]],
+      ]),
+      since,
+      now,
+      new Map([
+        [
+          12,
+          new Map([
+            [
+              "Shard 5/8",
+              [
+                "chromium :: e2e/canvas-invariants.spec.ts:42:1 › fill persists",
+              ],
+            ],
+          ]),
+        ],
+        [
+          13,
+          new Map([
+            [
+              "Shard 6/8",
+              [
+                "chromium :: e2e/canvas-invariants.spec.ts:42:1 › fill persists",
+              ],
+            ],
+          ]),
+        ],
+      ]),
+    );
+    assert.equal(sameTestAcrossShards.length, 2);
+    assert.equal(
+      sameTestAcrossShards[0].fingerprint,
+      sameTestAcrossShards[1].fingerprint,
+    );
+
     const flakyLog = [
       "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 1) [chromium] › e2e/retry.spec.ts:11:1 › passed on retry",
       "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[notice] 1 failed, 1 flaky",
@@ -371,6 +414,40 @@ describe("ci-red-report", () => {
     assert.equal(workflowFailure[0].fingerprintGrain, "workflow");
   });
 
+  it("includes timed-out main workflow runs and continues to ignore cancelled runs", async () => {
+    const timedOut = run(42, { conclusion: "timed_out" });
+    const cancelled = run(43, { event: "schedule", conclusion: "cancelled" });
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const exitCode = await runCiRedReportCli({
+      api: (endpoint) => {
+        if (endpoint.includes("event=push")) {
+          return paged("workflow_runs", [timedOut]);
+        }
+        if (endpoint.includes("event=schedule")) {
+          return paged("workflow_runs", [cancelled]);
+        }
+        return paged("jobs", []);
+      },
+      failedRunLog: () => "completed log without test annotations",
+      now,
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+    });
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(stderr, []);
+    assert.match(stdout.join(""), /Design E2E/);
+    assert.match(stdout.join(""), /workflow\t/);
+    assert.doesNotMatch(
+      stdout.join(""),
+      /no push-to-main or scheduled failures/,
+    );
+    const rows = stdout.join("").trimEnd().split("\n").slice(1);
+    assert.equal(rows.length, 1);
+    assert.match(rows[0], /\tworkflow\t/);
+  });
+
   it("warns when failed-run logs are unavailable and keeps job-step rows", async () => {
     const endpoints: string[] = [];
     const stdout: string[] = [];
@@ -390,6 +467,25 @@ describe("ci-red-report", () => {
     const rows = stdout.join("").trimEnd().split("\n").slice(1);
     assert.ok(rows.length > 0);
     assert.ok(rows.every((line) => line.split("\t")[9] !== "test"));
+  });
+
+  it("does not expose failed-log stderr in warnings", async () => {
+    const stderr: string[] = [];
+    const exitCode = await runCiRedReportCli({
+      api: fixtureApi([]),
+      failedRunLog: () => {
+        throw new Error(
+          "download failed https://logs.example.invalid/download/opaque?sig=redacted",
+        );
+      },
+      now,
+      stdout: () => {},
+      stderr: (text) => stderr.push(text),
+    });
+
+    assert.equal(exitCode, 0);
+    assert.match(stderr.join(""), /failed-run log unavailable/);
+    assert.doesNotMatch(stderr.join(""), /logs\.example\.invalid/);
   });
 
   it("stops scheduling queued job queries after an API failure", async () => {

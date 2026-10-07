@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -21,7 +23,7 @@ const pngBytes = Buffer.from(
 );
 
 function makeRoot(): string {
-  return mkdtempSync(path.join(os.tmpdir(), "parity-oracle-"));
+  return realpathSync(mkdtempSync(path.join(os.tmpdir(), "parity-oracle-")));
 }
 
 function writeEntry(
@@ -74,6 +76,42 @@ function addedLines(root: string, relPath: string, source: string) {
     if (line.length > 0) lines.add(index + 1);
   });
   return new Map([[file, lines]]);
+}
+
+function crc32(bytes: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const typeBytes = Buffer.from(type, "ascii");
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  typeBytes.copy(chunk, 4);
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(
+    crc32(chunk.subarray(4, 8 + data.length)),
+    8 + data.length,
+  );
+  return chunk;
+}
+
+function pngWithIdat(data: Buffer): Buffer {
+  const chunks: Buffer[] = [pngBytes.subarray(0, 8)];
+  for (let offset = 8; offset < pngBytes.length; ) {
+    const length = pngBytes.readUInt32BE(offset);
+    const type = pngBytes.toString("ascii", offset + 4, offset + 8);
+    if (type === "IDAT") chunks.push(pngChunk("IDAT", data));
+    else chunks.push(pngBytes.subarray(offset, offset + length + 12));
+    offset += length + 12;
+  }
+  return Buffer.concat(chunks);
 }
 
 describe("parity oracle guard", () => {
@@ -184,6 +222,21 @@ describe("parity oracle guard", () => {
       assert.equal(missingAppCitation.exitCode, 1);
       assert.match(
         missingAppCitation.message,
+        /test block needs oracle: fig\./,
+      );
+
+      const missingRootAppCitation = runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/app/ColorPicker.test.tsx",
+          'test("uses the Figma color picker behavior", async () => {\n  expect(true).toBe(true);\n});',
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(missingRootAppCitation.exitCode, 1);
+      assert.match(
+        missingRootAppCitation.message,
         /test block needs oracle: fig\./,
       );
 
@@ -432,6 +485,61 @@ describe("parity oracle guard", () => {
       });
       assert.equal(result.exitCode, 2);
       assert.match(result.message, /could not determine added lines/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects PNGs with invalid chunk CRCs or invalid compressed pixel data", () => {
+    const root = makeRoot();
+    try {
+      const invalidCrc = Buffer.from(pngBytes);
+      invalidCrc[29] ^= 1;
+      writeEntry(root, {}, invalidCrc);
+      const badCrc = runParityOracleGuard({
+        repoRoot: root,
+        addedLines: new Map(),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(badCrc.exitCode, 1);
+      assert.match(badCrc.message, /not a valid PNG or JPEG image/);
+
+      writeEntry(root, {}, pngWithIdat(Buffer.from("not a zlib stream")));
+      const badPixels = runParityOracleGuard({
+        repoRoot: root,
+        addedLines: new Map(),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(badPixels.exitCode, 1);
+      assert.match(badPixels.message, /not a valid PNG or JPEG image/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("requires measured runtime records to verify a native Figma screenshot", () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root, { artifacts: [] });
+      assert.throws(
+        () => oracle(oracleId, root),
+        /no verified Figma screenshot artifact/,
+      );
+
+      const digest = createHash("sha256").update(pngBytes).digest("hex");
+      writeEntry(root, {
+        artifacts: [
+          {
+            path: `templates/design/parity/oracle/${oracleId}/figma.png`,
+            kind: "design-screenshot",
+            sha256: digest,
+          },
+        ],
+      });
+      assert.throws(
+        () => oracle(oracleId, root),
+        /no verified Figma screenshot artifact/,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -9,6 +9,7 @@ const SEARCH_RESULT_LIMIT = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
 const MAX_RUN_DURATION_MS = 35 * 24 * 60 * 60 * 1000;
+const RED_CONCLUSIONS = new Set(["failure", "timed_out"]);
 const WORKFLOW_RUN_QUERY_ATTEMPTS = 2;
 const EVENTS = ["push", "schedule"] as const;
 
@@ -354,7 +355,7 @@ function isRedMainRun(
     (run.event === "push" || run.event === "schedule") &&
     run.head_branch === "main" &&
     run.status === "completed" &&
-    run.conclusion === "failure" &&
+    RED_CONCLUSIONS.has(run.conclusion ?? "") &&
     createdAt >= earliestCreatedAt.getTime() &&
     createdAt <= now.getTime()
   );
@@ -394,11 +395,11 @@ function fingerprint(
     /(\.(?:spec|test)\.[cm]?[jt]sx?):\d+:\d+(?=\s+›)/i,
     "$1",
   );
-  const key = JSON.stringify([
-    normalized(workflowPath),
-    normalized(job),
-    test ? `test:${stableTest}` : `step:${normalized(step)}`,
-  ]);
+  const key = JSON.stringify(
+    test
+      ? [normalized(workflowPath), `test:${stableTest}`]
+      : [normalized(workflowPath), normalized(job), `step:${normalized(step)}`],
+  );
   return `sha256:${createHash("sha256").update(key).digest("hex")}`;
 }
 
@@ -448,7 +449,7 @@ export function buildCiRedRows(
       (run.event !== "push" && run.event !== "schedule") ||
       run.head_branch !== "main" ||
       run.status !== "completed" ||
-      run.conclusion !== "failure" ||
+      !RED_CONCLUSIONS.has(run.conclusion ?? "") ||
       Date.parse(run.created_at) > now.getTime()
     )
       continue;
@@ -459,7 +460,9 @@ export function buildCiRedRows(
     if (concludedAtMs < since.getTime() || concludedAtMs > now.getTime())
       continue;
     const concludedAt = new Date(concludedAtMs).toISOString();
-    const failedJobs = jobs.filter((job) => job.conclusion === "failure");
+    const failedJobs = jobs.filter((job) =>
+      RED_CONCLUSIONS.has(job.conclusion ?? ""),
+    );
     if (failedJobs.length === 0) {
       rows.push(
         rowFor(
@@ -476,15 +479,15 @@ export function buildCiRedRows(
         testFailuresByRunJob.get(run.id)?.get(job.name) ?? [];
       if (testFailures.length > 0) {
         const failedStep =
-          job.steps.find((step) => step.conclusion === "failure")?.name ??
-          "(failed test)";
+          job.steps.find((step) => RED_CONCLUSIONS.has(step.conclusion ?? ""))
+            ?.name ?? "(failed test)";
         for (const test of testFailures) {
           rows.push(rowFor(run, concludedAt, job.name, failedStep, test));
         }
         continue;
       }
-      const failedSteps = job.steps.filter(
-        (step) => step.conclusion === "failure",
+      const failedSteps = job.steps.filter((step) =>
+        RED_CONCLUSIONS.has(step.conclusion ?? ""),
       );
       if (failedSteps.length === 0) {
         rows.push(
@@ -708,9 +711,12 @@ async function rowsFromApi(
         return [run.id, null, "gh returned no failed-run log content"] as const;
       }
       return [run.id, parseFailedTestNames(log), null] as const;
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      return [run.id, null, detail] as const;
+    } catch {
+      return [
+        run.id,
+        null,
+        "gh could not retrieve the failed-run log",
+      ] as const;
     }
   });
   const testFailuresByRunJob = new Map<number, Map<string, string[]>>();
@@ -751,8 +757,12 @@ export function renderCiRedReport(rows: CiRedRow[]): string {
   const workflowPriority = (row: CiRedRow): number => {
     const workflow = `${row.workflow} ${row.workflowPath}`.toLowerCase();
     if (workflow.includes("design-e2e")) return 0;
-    if (/\b(e2e|ci|test|build|lint|typecheck)\b/.test(workflow)) return 1;
-    return 2;
+    if (
+      /\b(deploy|deployment|release|health|monitor|production)\b/.test(workflow)
+    )
+      return 1;
+    if (/\b(e2e|ci|test|build|lint|typecheck)\b/.test(workflow)) return 2;
+    return 3;
   };
   groups.sort(
     (left, right) =>
@@ -821,14 +831,12 @@ function readGhFailedRunLog(runId: number): Promise<string | null> {
       "gh",
       ["run", "view", "--log-failed", String(runId)],
       { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 60_000 },
-      (error, stdout, stderr) => {
+      (error, stdout) => {
         if (!error) {
           resolveLog(stdout);
           return;
         }
-        const detail = typeof stderr === "string" ? stderr.trim() : "";
-        const message = error instanceof Error ? error.message : String(error);
-        rejectLog(new Error(detail || message, { cause: error }));
+        rejectLog(new Error("gh could not retrieve the failed-run log"));
       },
     );
   });

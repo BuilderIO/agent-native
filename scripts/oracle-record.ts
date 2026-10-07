@@ -128,6 +128,24 @@ export function requireSelectedDesignProbe(
   }
 }
 
+export function requireSelectedFigmaProbe(
+  marker: string,
+  available: unknown,
+  selected: unknown,
+): void {
+  if (
+    !Array.isArray(available) ||
+    available.filter((name) => name === marker).length !== 1 ||
+    !Array.isArray(selected) ||
+    selected.length !== 1 ||
+    selected[0] !== marker
+  ) {
+    throw new Error(
+      "Figma must select exactly the marked oracle probe layer before recording",
+    );
+  }
+}
+
 function readManifest(file: string): RecorderManifest {
   const absolute = path.resolve(process.cwd(), file);
   let value: unknown;
@@ -163,24 +181,31 @@ function appBuild(): { commit: string; dirty: boolean } {
 }
 
 async function verifyProbePage(page: any, marker: string): Promise<void> {
-  const found = await page.evaluate((expected: string) => {
-    return Array.from(
+  const selection = await page.evaluate((expected: string) => {
+    const rows = Array.from(
       document.querySelectorAll('[role="row"][data-testid^="layer-row"]'),
-    ).some((row) => {
+    ).map((row) => {
       const rect = row.getBoundingClientRect();
       const visible =
         rect.width > 0 &&
         rect.height > 0 &&
         getComputedStyle(row).visibility !== "hidden";
       const label = (row.textContent || "").replace(/\s+/g, " ").trim();
-      return visible && label === expected;
+      const selected =
+        row.getAttribute("aria-selected") === "true" ||
+        row.querySelector('[aria-selected="true"]') !== null;
+      return { visible, label, selected };
     });
+    return {
+      available: rows
+        .filter((row) => row.visible && row.label === expected)
+        .map((row) => row.label),
+      selected: rows
+        .filter((row) => row.visible && row.selected)
+        .map((row) => row.label),
+    };
   }, marker);
-  if (!found) {
-    throw new Error(
-      "Figma layer panel does not show the exact marked oracle probe layer",
-    );
-  }
+  requireSelectedFigmaProbe(marker, selection.available, selection.selected);
 }
 
 async function readFigmaInspector(page: any): Promise<Record<string, string>> {

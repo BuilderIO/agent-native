@@ -102,6 +102,7 @@ describe("test-title production guard", () => {
       "AGENTS.md",
       "templates/design/README.md",
       "templates/design/app/tests/Canvas.tsx",
+      "templates/design/app/Editor.fixture.tsx",
       "templates/design/e2e/helper.ts",
       "docs/design-parity.md",
     ]) {
@@ -119,6 +120,7 @@ describe("test-title production guard", () => {
           ".github/workflows/production.yml",
           "templates/design/e2e/helper.ts",
           "templates/design/e2e/canvas-invariants.spec.ts",
+          "templates/design/app/Editor.fixture.tsx",
         ),
     );
 
@@ -128,6 +130,10 @@ describe("test-title production guard", () => {
     assert.match(result.message, /scripts\/ci-test-lanes\.ts/);
     assert.match(result.message, /\.github\/workflows\/production\.yml/);
     assert.match(result.message, /templates\/design\/e2e\/helper\.ts/);
+    assert.match(
+      result.message,
+      /templates\/design\/app\/Editor\.fixture\.tsx/,
+    );
   });
 
   it("explicitly skips titles that do not start with test:", () => {
