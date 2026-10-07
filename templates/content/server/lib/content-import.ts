@@ -295,13 +295,9 @@ function intakeFiles(files: ImportContentFileInput[]) {
 function importImageUrl(file: ImportContentFileInput): string {
   const url = file.url!.trim();
   if (url.startsWith("/") && !url.startsWith("//")) return url;
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === "https:" || parsed.protocol === "http:") {
-      return parsed.toString();
-    }
-  } catch {
-    // Reported below as an invalid url.
+  const parsed = URL.canParse(url) ? new URL(url) : null;
+  if (parsed?.protocol === "https:" || parsed?.protocol === "http:") {
+    return parsed.toString();
   }
   fail(`The url for ${file.name} must be an http(s) or root-relative URL.`, {
     errorCode: "IMPORT_IMAGE_URL_INVALID",

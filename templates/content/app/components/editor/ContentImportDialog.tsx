@@ -401,12 +401,9 @@ export function ContentImportDialog({
         if (!next && phase !== "importing") close();
       }}
     >
-      <DialogContent
-        className="max-h-[min(42rem,calc(100vh-2rem))] gap-4 overflow-y-auto sm:max-w-lg"
-        data-content-import-dialog
-      >
+      <DialogContent data-content-import-dialog>
         <DialogHeader>
-          <DialogTitle className="truncate">
+          <DialogTitle>
             {destinationTitle
               ? t("contentImport.title", { title: destinationTitle })
               : t("contentImport.titleUntitled")}
@@ -526,7 +523,7 @@ export function ContentImportDialog({
           </p>
         ) : null}
 
-        <DialogFooter className="gap-2 sm:justify-between">
+        <DialogFooter className="sm:justify-between">
           {phase !== "choosing" ? (
             <Button
               type="button"
