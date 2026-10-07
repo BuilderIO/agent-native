@@ -20,8 +20,7 @@ describe("Design Systems empty state", () => {
       "const isEmpty = !isLoading && !isError && designSystems.length === 0;",
     );
     expect(header).toContain("{!isEmpty ? (");
-    expect(source).toContain(
-      "<EmptyState onCreateClick={handleCreateClick} />",
-    );
+    expect(source).toContain("<EmptyState");
+    expect(source).toContain("showWaitlist={showWaitlist}");
   });
 });

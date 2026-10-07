@@ -2058,6 +2058,15 @@ export default {
       "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
   },
   designSystems: {
+    waitlist: {
+      join: "Warteliste beitreten",
+      joining: "Wird eingetragen…",
+      joined: "Sie stehen auf der Warteliste",
+      error:
+        "Sie konnten nicht zur Warteliste hinzugefügt werden. Bitte versuchen Sie es erneut.",
+      unavailable:
+        "Die Anmeldung zur Warteliste ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
+    },
     deleteError: "Das Designsystem konnte nicht gelöscht werden",
     updateSuccess: "Designsystem aktualisiert",
     updateError: "Das Designsystem konnte nicht aktualisiert werden",

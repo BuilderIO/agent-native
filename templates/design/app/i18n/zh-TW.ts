@@ -2025,6 +2025,13 @@ export default {
     },
   },
   designSystems: {
+    waitlist: {
+      join: "加入候補名單",
+      joining: "正在加入…",
+      joined: "您已加入候補名單",
+      error: "無法加入候補名單。請重試。",
+      unavailable: "候補名單登記目前無法使用。請稍後再試。",
+    },
     deleteError: "無法刪除設計系統",
     updateSuccess: "設計系統更新",
     updateError: "無法更新設計系統",

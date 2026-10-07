@@ -2032,6 +2032,14 @@ export default {
       "A indexação de código e repositórios requer o plano Builder Enterprise",
   },
   designSystems: {
+    waitlist: {
+      join: "Entrar na lista de espera",
+      joining: "Entrando…",
+      joined: "Você entrou na lista de espera",
+      error: "Não foi possível entrar na lista de espera. Tente novamente.",
+      unavailable:
+        "A inscrição na lista de espera não está disponível agora. Tente novamente mais tarde.",
+    },
     deleteError: "Não foi possível excluir o sistema de design",
     updateSuccess: "Sistema de design atualizado",
     updateError: "Não foi possível atualizar o sistema de design",

@@ -1,14 +1,21 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import DesignSystems from "./DesignSystems";
 import DesignSystemSetup from "./DesignSystemSetup";
 
 const mocks = vi.hoisted(() => ({
-  systemsEnabled: true,
+  workflowsState: { status: "ready", enabled: true } as {
+    status: "loading" | "ready" | "unavailable";
+    enabled: boolean;
+  },
+  systems: [] as Array<Record<string, unknown>>,
+  headerActions: null as unknown,
   queries: vi.fn(),
   navigate: vi.fn(),
   queryClient: { setQueryData: vi.fn(), invalidateQueries: vi.fn() },
@@ -17,7 +24,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/use-design-system-workflows", () => ({
-  useDesignSystemWorkflows: () => mocks.systemsEnabled,
+  useDesignSystemWorkflows: () =>
+    mocks.workflowsState.status === "ready" && mocks.workflowsState.enabled,
+  useDesignSystemWorkflowsState: () => mocks.workflowsState,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (action: string) => {
@@ -30,7 +39,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     }
     if (action === "list-design-systems") {
       return {
-        data: { designSystems: [] },
+        data: { designSystems: mocks.systems },
         isLoading: false,
         isError: false,
         isFetching: false,
@@ -60,7 +69,9 @@ vi.mock("@agent-native/toolkit/app/sharing", () => ({
 }));
 
 vi.mock("@agent-native/toolkit/app-shell", () => ({
-  useSetHeaderActions: () => {},
+  useSetHeaderActions: (actions: unknown) => {
+    mocks.headerActions = actions;
+  },
   useSetPageTitle: () => {},
 }));
 
@@ -103,6 +114,8 @@ vi.mock("react-router", () => ({
 
 let container: HTMLDivElement;
 let root: Root;
+let headerContainer: HTMLDivElement;
+let headerRoot: Root;
 
 beforeEach(() => {
   (
@@ -110,26 +123,83 @@ beforeEach(() => {
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   mocks.tierLimit = null;
-  mocks.systemsEnabled = true;
+  mocks.workflowsState = { status: "ready", enabled: true };
+  mocks.systems = [];
+  mocks.headerActions = null;
   mocks.uploadAndIndexFigmaFiles.mockReset();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+  headerContainer = document.createElement("div");
+  document.body.append(headerContainer);
+  headerRoot = createRoot(headerContainer);
 });
 
 afterEach(async () => {
-  await act(async () => root.unmount());
+  await act(async () => {
+    root.unmount();
+    headerRoot.unmount();
+  });
   container.remove();
+  headerContainer.remove();
 });
 
 describe("DesignSystems list page tier-limit gating", () => {
   it("hides creation links while leaving the saved systems route available", async () => {
-    mocks.systemsEnabled = false;
+    mocks.workflowsState = { status: "ready", enabled: false };
     await act(async () => root.render(<DesignSystems />));
     expect(
       container.querySelector('a[href="/design-systems/setup"]'),
     ).toBeNull();
+    expect(container.textContent).toContain("designSystems.waitlist.join");
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("offers the waitlist in the header when saved systems already exist", async () => {
+    mocks.workflowsState = { status: "ready", enabled: false };
+    mocks.systems = [
+      {
+        id: "system-1",
+        title: "Acme",
+        data: "{}",
+        isDefault: false,
+        visibility: "private",
+        accessRole: "owner",
+        canManage: true,
+        createdAt: "2026-10-06T00:00:00.000Z",
+      },
+    ];
+
+    await act(async () =>
+      root.render(
+        <TooltipProvider>
+          <DesignSystems />
+        </TooltipProvider>,
+      ),
+    );
+    await act(async () =>
+      headerRoot.render(
+        <TooltipProvider>{mocks.headerActions as ReactNode}</TooltipProvider>,
+      ),
+    );
+
+    expect(headerContainer.textContent).toContain(
+      "designSystems.waitlist.join",
+    );
+    expect(
+      headerContainer.querySelector('a[href="/design-systems/setup"]'),
+    ).toBeNull();
+  });
+
+  it("does not show the waitlist until the feature flag is ready", async () => {
+    mocks.workflowsState = { status: "loading", enabled: false };
+    await act(async () => root.render(<DesignSystems />));
+
+    expect(container.textContent).not.toContain("designSystems.waitlist.join");
+
+    mocks.workflowsState = { status: "unavailable", enabled: false };
+    await act(async () => root.render(<DesignSystems />));
+    expect(container.textContent).not.toContain("designSystems.waitlist.join");
   });
   it("blocks the create link and shows upgrade messaging at the tier cap", async () => {
     mocks.tierLimit = {
@@ -167,14 +237,20 @@ describe("DesignSystems list page tier-limit gating", () => {
 });
 
 describe("DesignSystemSetup tier-limit gating", () => {
-  it("does not redirect or mount setup queries while loading/off, and opens when enabled", async () => {
-    mocks.systemsEnabled = false;
+  it("offers the waitlist only for a ready off flag and opens setup when enabled", async () => {
+    mocks.workflowsState = { status: "ready", enabled: false };
     await act(async () => root.render(<DesignSystemSetup />));
     expect(container.querySelector('a[href="/design-systems"]')).not.toBeNull();
+    expect(container.textContent).toContain("designSystems.waitlist.join");
     expect(container.querySelector('input[type="file"]')).toBeNull();
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(mocks.queries).not.toHaveBeenCalled();
-    mocks.systemsEnabled = true;
+
+    mocks.workflowsState = { status: "loading", enabled: false };
+    await act(async () => root.render(<DesignSystemSetup />));
+    expect(container.textContent).not.toContain("designSystems.waitlist.join");
+
+    mocks.workflowsState = { status: "ready", enabled: true };
     await act(async () => root.render(<DesignSystemSetup />));
     expect(container.textContent).toContain("designSystemSetup.title");
     expect(mocks.queries).toHaveBeenCalledWith("get-design-system-tier-limit");

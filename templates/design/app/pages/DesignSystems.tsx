@@ -76,12 +76,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
+import { useDesignSystemWorkflowsState } from "@/hooks/use-design-system-workflows";
 import {
   formatDesignTokenValue,
   getCssColorToken,
 } from "@/lib/design-system-preview";
 
+import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 import { QueryErrorState } from "../components/QueryErrorState";
 import {
   builderRefreshKey,
@@ -123,7 +124,11 @@ function isSettledBuilderRefresh(result: BuilderRefreshResult): boolean {
 }
 
 export default function DesignSystems() {
-  const systemsEnabled = useDesignSystemWorkflows();
+  const workflowsState = useDesignSystemWorkflowsState();
+  const systemsEnabled =
+    workflowsState.status === "ready" && workflowsState.enabled;
+  const showWaitlist =
+    workflowsState.status === "ready" && !workflowsState.enabled;
   const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -526,6 +531,8 @@ export default function DesignSystems() {
               {t("designSystems.actions.new")}
             </Link>
           </Button>
+        ) : showWaitlist ? (
+          <JoinDesignSystemWaitlistButton compact />
         ) : null
       ) : null}
     </div>,
@@ -543,7 +550,11 @@ export default function DesignSystems() {
               retrying={isFetching}
             />
           ) : isEmpty ? (
-            <EmptyState onCreateClick={handleCreateClick} />
+            <EmptyState
+              onCreateClick={handleCreateClick}
+              systemsEnabled={systemsEnabled}
+              showWaitlist={showWaitlist}
+            />
           ) : (
             <>
               {isSelectionMode ? (
@@ -1466,11 +1477,14 @@ function LoadingSkeleton() {
 
 function EmptyState({
   onCreateClick,
+  systemsEnabled,
+  showWaitlist,
 }: {
   onCreateClick: (event: ReactMouseEvent) => void;
+  systemsEnabled: boolean;
+  showWaitlist: boolean;
 }) {
   const t = useT();
-  const systemsEnabled = useDesignSystemWorkflows();
   return (
     <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
@@ -1492,6 +1506,7 @@ function EmptyState({
           </Link>
         </Button>
       )}
+      {showWaitlist && <JoinDesignSystemWaitlistButton />}
     </div>
   );
 }

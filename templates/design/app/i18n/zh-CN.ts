@@ -1931,6 +1931,13 @@ export default {
     codeIndexingEnterpriseOnly: "代码和仓库索引需要 Builder 企业版套餐",
   },
   designSystems: {
+    waitlist: {
+      join: "加入候补名单",
+      joining: "正在加入…",
+      joined: "您已加入候补名单",
+      error: "无法加入候补名单。请重试。",
+      unavailable: "候补名单报名暂不可用。请稍后重试。",
+    },
     deleteError: "无法删除设计系统",
     updateSuccess: "设计系统更新",
     updateError: "无法更新设计系统",
