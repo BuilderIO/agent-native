@@ -2012,6 +2012,8 @@ const FEEDBACK_RELEASE_TARGET_RE =
   /\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ed|ing)?|packages?|desktop\s+(?:apps?|builds?))\b/gi;
 const FEEDBACK_RELEASE_FAILURE_RE =
   /\b(?:fail(?:ed|ing|ure|ures)?|broken|stale|missing|unavailable|incomplete|errors?|errored?|red)\b/gi;
+const FEEDBACK_RELEASE_NEGATIVE_REQUEST_RE =
+  /\b(?:do\s+not|don['’]?t|never|should\s+not|shouldn['’]?t)\s*$/i;
 const FEEDBACK_RELEASE_PRODUCT_REQUEST_RE =
   /\b(?:controls?|features?|management|support|settings?|tooling|tools?|buttons?|options?|integrations?|pages?|widgets?|chrome)\b/i;
 
@@ -2056,6 +2058,14 @@ function matchesFeedbackReleaseCoverage(message) {
           : 0;
 
     return actions.some((action) => {
+      const requestPrefix = clause.slice(
+        Math.max(0, action.start - 40),
+        action.start,
+      );
+      if (FEEDBACK_RELEASE_NEGATIVE_REQUEST_RE.test(requestPrefix)) {
+        return false;
+      }
+
       const contextIndex = lowerBound(contexts, action.start - 60);
       if (
         contextIndex === contexts.length ||
@@ -2106,6 +2116,7 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [true, "We are not scanning deployment failures in the feedback review."],
   [true, "The feedback sweep missed desktop release failures."],
   [true, "The feedback sweep misses failed deployment alerts."],
+  [true, "The feedback sweep doesn't include failed deployments."],
   [true, "Add failed app deploys to the feedback sweep."],
   [true, "Please also scan package publish failures during feedback reviews."],
   [true, "Make sure the feedback review includes desktop release failures."],
@@ -2119,6 +2130,7 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [true, "Feedback review: please include failed desktop releases."],
   [true, "Feedback review: please scan failed deploys for the app."],
   [true, "In the feedback review, scan deployment failures."],
+  [false, "Don't include failed deployments in the feedback sweep."],
   [false, "Feedback review: add failed desktop release controls to the app."],
   [false, "Add package publishing support to the app."],
   [false, "Include desktop release management in the product."],
