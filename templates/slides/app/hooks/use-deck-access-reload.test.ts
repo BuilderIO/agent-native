@@ -104,4 +104,36 @@ describe("useDeckAccessReload", () => {
 
     expect(result.current).toBe("deck-2|org-1");
   });
+
+  it("does not revive a superseded retry loop when the key changes away and back", async () => {
+    let finishFirst: (status: DeckReloadStatus) => void = () => {};
+    const reload = vi
+      .fn<() => Promise<DeckReloadStatus>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<DeckReloadStatus>((resolve) => (finishFirst = resolve)),
+      )
+      .mockResolvedValue("loaded");
+    const { result, rerender } = renderHook(
+      ({ accessKey }) =>
+        useDeckAccessReload({
+          accessKey,
+          deckFound: false,
+          loading: false,
+          orgId: "org-1",
+          orgLoading: false,
+          reload,
+        }),
+      { initialProps: { accessKey: "deck-1|org-1" } },
+    );
+
+    rerender({ accessKey: "deck-2|org-1" });
+    await waitFor(() => expect(result.current).toBe("deck-2|org-1"));
+    rerender({ accessKey: "deck-1|org-1" });
+    await waitFor(() => expect(result.current).toBe("deck-1|org-1"));
+    await act(async () => finishFirst("stale"));
+    await act(() => tick(20));
+
+    expect(reload).toHaveBeenCalledTimes(3);
+  });
 });

@@ -27,7 +27,9 @@ export function useDeckAccessReload({
   reload: () => Promise<DeckReloadStatus>;
 }): string | null {
   const [checkedKey, setCheckedKey] = useState<string | null>(null);
-  const startedKeyRef = useRef<string | null>(null);
+  // One object per attempt: comparing keys would revive a superseded loop when
+  // the key changes away and back (K1 -> K2 -> K1).
+  const startedRef = useRef<{ key: string } | null>(null);
 
   useEffect(() => {
     if (
@@ -36,11 +38,12 @@ export function useDeckAccessReload({
       !accessKey ||
       orgLoading ||
       checkedKey === accessKey ||
-      startedKeyRef.current === accessKey
+      startedRef.current?.key === accessKey
     ) {
       return;
     }
-    startedKeyRef.current = accessKey;
+    const attempt = { key: accessKey };
+    startedRef.current = attempt;
 
     if (!orgId) {
       setCheckedKey(accessKey);
@@ -49,10 +52,10 @@ export function useDeckAccessReload({
 
     void (async () => {
       let status = await reload();
-      while (status === "stale" && startedKeyRef.current === accessKey) {
+      while (status === "stale" && startedRef.current === attempt) {
         status = await reload();
       }
-      if (startedKeyRef.current === accessKey) setCheckedKey(accessKey);
+      if (startedRef.current === attempt) setCheckedKey(accessKey);
     })();
   }, [accessKey, checkedKey, deckFound, loading, orgId, orgLoading, reload]);
 
