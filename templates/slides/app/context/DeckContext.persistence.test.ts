@@ -4072,6 +4072,70 @@ describe("DeckContext deck creation persistence", () => {
       clearSlideEditingActive(initial.id, "slide-1");
     });
 
+    it("merges again when the merged retry is itself stale because the other writer saved again", async () => {
+      window.history.pushState({}, "", "/deck/merge-deck");
+      const { fetchMock, setAccessibleDeck, getAccessibleDeck } = setupFetch({
+        staleContentConflicts: true,
+      });
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      setAccessibleDeck(initial);
+      await act(async () => result.current.reloadDecks());
+      setAccessibleDeck({
+        ...initial,
+        updatedAt: "2026-05-12T00:01:00.000Z",
+        slides: [
+          {
+            ...initial.slides[0]!,
+            content: slideHtml("Title by remote", "Body"),
+          },
+        ],
+      });
+      // The other writer saves again after this client re-read the deck for its
+      // first merge and before the merged retry lands, so the retry is stale too.
+      const baseFetch = fetchMock.getMockImplementation()!;
+      let patchCalls = 0;
+      fetchMock.mockImplementation((url, init) => {
+        if (requestString(url).includes("/_agent-native/actions/patch-deck")) {
+          patchCalls += 1;
+          if (patchCalls === 2) {
+            setAccessibleDeck({
+              ...initial,
+              updatedAt: "2026-05-12T00:02:00.000Z",
+              slides: [
+                {
+                  ...initial.slides[0]!,
+                  content: slideHtml("Title by remote, again", "Body"),
+                },
+              ],
+            });
+          }
+        }
+        return baseFetch(url, init);
+      });
+
+      markSlideEditingActive(initial.id, "slide-1");
+      act(() => {
+        result.current.updateSlide(
+          initial.id,
+          "slide-1",
+          { content: slideHtml("Title", "Body by local") },
+          { preserveLocalState: true },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave(initial.id);
+      });
+
+      expect(patchBodies(fetchMock)).toHaveLength(3);
+      expect(getAccessibleDeck()?.slides[0]?.content).toBe(
+        slideHtml("Title by remote, again", "Body by local"),
+      );
+      expect(hasFailedDeckSave(initial.id)).toBe(false);
+      expect(getStaleContentDraft(initial.id, "slide-1")).toBeUndefined();
+      clearSlideEditingActive(initial.id, "slide-1");
+    });
+
     it("still holds a conflict when both writers edit the same object", async () => {
       window.history.pushState({}, "", "/deck/merge-deck");
       const { setAccessibleDeck } = setupFetch({
