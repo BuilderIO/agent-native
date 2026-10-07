@@ -2018,6 +2018,22 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
 
 const FEEDBACK_RELEASE_CONTEXT_RE =
   /\bfeedback\s+(?:sweeps?|reviews?|skills?|workflows?|triage)\b/gi;
+const FEEDBACK_NO_LOCAL_REPRO_RE =
+  /\b(?:feedback\s+(?:sweep|review|skill|triage)|the\s+sweep)\b[^\n]{0,160}\b(?:skip(?:ped|ping)?|stop(?:ped|ping)?|declared?|called|mark(?:ed)?|gave\s+up)\b[^\n]{0,160}\b(?:not\s+reproducible|unreproducible|easily\s+reproducible|no\s+(?:local\s+)?(?:attempt|repro)|evidence\s+limit|can['’]?t\s+do\s+anything)\b|\b(?:why|how)\b[^\n]{0,90}\b(?:feedback|sweep|skill)\b[^\n]{0,90}\b(?:skip(?:ped)?|stop(?:ped)?|give\s+up)\b[^\n]{0,100}\b(?:reproducible|reproduce|attempt)\b/i;
+const FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES = [
+  [true, "Why did the feedback skill skip this? It's easily reproducible."],
+  [
+    true,
+    "The feedback review called this unreproducible without trying the reported flow.",
+  ],
+  [
+    true,
+    "The sweep stopped at an evidence limit without a local reproduction attempt.",
+  ],
+  [false, "The feedback sweep reproduced the report locally."],
+  [false, "The feedback review could not reproduce it after two attempts."],
+  [false, "We skipped the subjective color request after reproducing the bug."],
+];
 const FEEDBACK_RELEASE_ACTION_RE =
   /\b(?:add|include|check|scan|inspect|cover|monitor|track|surface|look\s+at|make\s+sure|miss(?:ed|es|ing)?|skip(?:ped|ping)?|ignor(?:e|ed|ing)|overlook(?:ed|ing)|forget|forgot|forgotten|aren['’]?t\s+scanning|are not\s+scanning|isn['’]?t\s+scanning|is not\s+scanning|doesn['’]?t\s+(?:scan|check|include)|does not\s+(?:scan|check|include)|didn['’]?t\s+(?:scan|check|include)|did not\s+(?:scan|check|include))\b/gi;
 const FEEDBACK_RELEASE_TARGET_RE =
@@ -2216,6 +2232,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_NO_LOCAL_REPRO_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.filter(
       ([expected, message]) =>
         BABYSIT_LEASE_BLOCKS_WORK_RE.test(message) !== expected,
@@ -2303,7 +2325,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2372,6 +2394,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback (design/UX scope, 2026-09-11)",
     re: DESIGN_FEEDBACK_SCOPE_RE,
+  },
+  {
+    key: "feedback-no-local-repro",
+    label: "Had to ask the feedback sweep to attempt reproducing a defect",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (local reproduction before evidence limits, 2026-10-07)",
+    re: FEEDBACK_NO_LOCAL_REPRO_RE,
   },
   {
     key: "figma-parity-unmeasured",
