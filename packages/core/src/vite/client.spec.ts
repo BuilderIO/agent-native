@@ -2271,6 +2271,54 @@ describe("agent-native app config", () => {
 });
 
 describe("MCP integrations config", () => {
+  it("exposes the configured app identity to synchronous client behavior", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", " assigned-workspace-app ");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "vite-workspace-app");
+    vi.stubEnv("AGENT_NATIVE_APP_ID", " configured-app ");
+    vi.stubEnv("APP_ID", "fallback-app");
+    vi.stubEnv("AGENT_APP", "legacy-app");
+    vi.stubEnv("npm_package_name", "package-app");
+
+    try {
+      const config = defineConfig();
+
+      expect(config.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("assigned-workspace-app"),
+      );
+      expect(config.define?.__AGENT_NATIVE_WORKSPACE_APP_ID__).toBe(
+        JSON.stringify("assigned-workspace-app"),
+      );
+
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+      const viteWorkspaceId = defineConfig();
+      expect(viteWorkspaceId.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("vite-workspace-app"),
+      );
+      expect(viteWorkspaceId.define?.__AGENT_NATIVE_WORKSPACE_APP_ID__).toBe(
+        JSON.stringify("vite-workspace-app"),
+      );
+
+      vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+      const configuredId = defineConfig();
+      expect(configuredId.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("configured-app"),
+      );
+      expect(configuredId.define?.__AGENT_NATIVE_WORKSPACE_APP_ID__).toBe(
+        JSON.stringify(""),
+      );
+
+      vi.stubEnv("AGENT_NATIVE_APP_ID", undefined);
+      vi.stubEnv("APP_ID", undefined);
+      vi.stubEnv("AGENT_APP", undefined);
+      const packageFallback = defineConfig();
+      expect(packageFallback.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("package-app"),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("exposes the active template to shared client capabilities", () => {
     const previous = process.env.AGENT_NATIVE_TEMPLATE;
     process.env.AGENT_NATIVE_TEMPLATE = " Design ";

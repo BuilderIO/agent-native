@@ -4342,6 +4342,20 @@ function createAgentNativeConfig(
       __AGENT_NATIVE_TEMPLATE__: JSON.stringify(
         resolveAgentNativeTemplate(cwd),
       ),
+      __AGENT_NATIVE_APP_ID__: JSON.stringify(
+        runtimeEnv.AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+          runtimeEnv.VITE_AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+          runtimeEnv.AGENT_NATIVE_APP_ID?.trim() ||
+          runtimeEnv.APP_ID?.trim() ||
+          runtimeEnv.AGENT_APP?.trim() ||
+          runtimeEnv.npm_package_name?.trim() ||
+          "",
+      ),
+      __AGENT_NATIVE_WORKSPACE_APP_ID__: JSON.stringify(
+        runtimeEnv.AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+          runtimeEnv.VITE_AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+          "",
+      ),
     },
     server: {
       ...(userConfig.server ?? {}),

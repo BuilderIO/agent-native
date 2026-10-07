@@ -356,6 +356,7 @@ const messages = {
     googleSlidesCreated: "Aberto no Google Slides",
     googleSlidesCreatedHint:
       "Uma cópia desta apresentação foi criada no seu Google Drive.",
+    googleSlidesGoTo: "Ir para o Google Slides",
     duplicateDeck: "Duplicar deck",
   },
   share: {

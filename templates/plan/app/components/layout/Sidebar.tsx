@@ -5,6 +5,7 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
@@ -308,12 +309,14 @@ function PlanChatsSection({
 
 function signInForPlanCreate() {
   window.location.href = buildSignInReturnHref({
-    returnTo: "/plans?create=1",
+    returnTo: appPath("/plans?create=1"),
   });
 }
 
 function signInWithReturnPath(returnPath: string) {
-  window.location.href = buildSignInReturnHref({ returnTo: returnPath });
+  window.location.href = buildSignInReturnHref({
+    returnTo: appPath(returnPath),
+  });
 }
 
 function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {

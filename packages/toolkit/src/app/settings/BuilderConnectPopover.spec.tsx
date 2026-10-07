@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { getOnboardingAppProfileForId } from "@agent-native/core/onboarding/app-profile-data";
 import { WORKSPACE_SERVICES } from "@agent-native/core/onboarding/workspace-services";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import React, { act } from "react";
@@ -15,48 +16,21 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       ),
 }));
 
-vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
-  useOnboarding: () => ({
-    loading: false,
-    error: null,
-    profile: {
-      capabilities: [
-        {
-          id: "llm",
-          label: "AI model",
-          required: true,
-          builderIncluded: true,
-          service: "model",
-          keySummary: "Connect your own AI model",
-          why: "The agent uses a language model.",
-        },
-        {
-          id: "design-system-intelligence",
-          label: "Design system intelligence",
-          required: false,
-          builderIncluded: true,
-          service: "design-system-intelligence",
-        },
-        {
-          id: "background-agents",
-          label: "Background agents",
-          required: false,
-          builderIncluded: true,
-          service: "background-agents",
-        },
-      ],
-    },
-  }),
-}));
-
 import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import { getBuilderIncludedBenefitCapabilities } from "./BuilderIncludedBenefitsDisclosure.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
+
+const appIdentity = vi.hoisted(() => ({ templateId: null as string | null }));
+
+vi.mock("./shell/app-identity.js", () => ({
+  currentTemplateId: () => appIdentity.templateId,
+}));
 
 let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  appIdentity.templateId = null;
   (
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -69,6 +43,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 it("shows all eight included services when an app profile omits design intelligence", () => {
@@ -438,6 +413,7 @@ describe("BuilderConnectPopover", () => {
     const props = {
       flow,
       onConnect: vi.fn(),
+      appId: "calendar",
       contentTestId: "consent",
       primaryTestId: "create",
       secondaryTestId: "sign-in",
@@ -478,10 +454,36 @@ describe("BuilderConnectPopover", () => {
     ).toEqual([
       "Included free",
       "60 monthly Agent Credits",
-      "LLM credits + 2 more services",
+      "LLM credits + 8 more services",
     ]);
     click(servicesToggle!);
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("prefers the assigned workspace profile over the template profile", () => {
+    appIdentity.templateId = "calendar";
+    vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "assets");
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+    };
+
+    render(React.createElement(BuilderConnectPopover, { flow }, trigger()));
+    click(connectButton());
+
+    const expectedMoreCount = getBuilderIncludedBenefitCapabilities(
+      getOnboardingAppProfileForId("assets").capabilities,
+    ).filter(
+      (capability) => capability.id !== "llm" && capability.service !== "model",
+    ).length;
+    const servicesToggle = document.querySelector<HTMLButtonElement>(
+      "[data-testid='builder-included-services'] button[aria-expanded]",
+    );
+    expect(servicesToggle?.textContent?.replace(/\s+/g, " ").trim()).toContain(
+      `+ ${expectedMoreCount} more services`,
+    );
   });
 });
 
