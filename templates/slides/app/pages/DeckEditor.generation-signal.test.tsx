@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     slides: [] as unknown[],
     generationContext: {
       generationAttemptId: "attempt-1",
+      generationStartedAt: undefined as number | undefined,
       generationMode: undefined as string | undefined,
       originalPrompt: "" as string,
     },
@@ -460,6 +461,7 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.abortStalledRun.mockReset().mockResolvedValue(true);
     mocks.deck.generationContext = {
       generationAttemptId: "attempt-1",
+      generationStartedAt: Date.now(),
       generationMode: undefined,
       originalPrompt: "",
     };
@@ -1517,6 +1519,7 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.attemptObservedRun = false;
     mocks.deck.generationContext = {
       generationAttemptId: "attempt-1",
+      generationStartedAt: Date.now(),
       generationMode: undefined,
       originalPrompt: "",
     };
@@ -1552,6 +1555,7 @@ describe("DeckEditor generation signal wiring", () => {
     const tabId = "retry-tab";
     mocks.deck.generationContext = {
       generationAttemptId: "retry-attempt",
+      generationStartedAt: Date.now(),
       generationMode: undefined,
       originalPrompt: "",
     };
@@ -1683,6 +1687,9 @@ describe("DeckEditor generation signal wiring", () => {
       expect.objectContaining({
         generation_attempt_id: "attempt-1",
         reason: "page_exit",
+        started_at_ms: expect.any(Number),
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
       }),
     );
   });
@@ -1706,6 +1713,9 @@ describe("DeckEditor generation signal wiring", () => {
         generation_attempt_id: "attempt-1",
         outcome: "unresolved",
         reason: "page_exit_before_submit",
+        started_at_ms: expect.any(Number),
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
       }),
     );
   });
@@ -1733,6 +1743,9 @@ describe("DeckEditor generation signal wiring", () => {
           generation_attempt_id: "attempt-1",
           outcome: "unresolved",
           reason: "route_exit_before_submit",
+          started_at_ms: expect.any(Number),
+          ended_at_ms: expect.any(Number),
+          duration_ms: expect.any(Number),
         }),
       ),
     );
@@ -1775,6 +1788,9 @@ describe("DeckEditor generation signal wiring", () => {
         expect.objectContaining({
           generation_attempt_id: "attempt-1",
           reason: "route_exit",
+          started_at_ms: expect.any(Number),
+          ended_at_ms: expect.any(Number),
+          duration_ms: expect.any(Number),
         }),
       ),
     );

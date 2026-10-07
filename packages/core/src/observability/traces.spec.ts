@@ -4975,6 +4975,15 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(at("$ai_trace")).toBeCloseTo(startedAt, -2);
     expect(at("$ai_generation")).toBeCloseTo(startedAt, -2);
     expect(at("$ai_span")).toBeGreaterThan(at("$ai_trace"));
+    const generation = events.find((event) => event.name === "$ai_generation");
+    expect(generation?.properties.created_at_ms).toEqual(startedAt);
+    expect(generation?.properties.ended_at_ms).toEqual(
+      (generation?.properties.created_at_ms as number) +
+        (generation?.properties.duration_ms as number),
+    );
+    expect(generation?.properties.ended_at).toEqual(
+      new Date(generation?.properties.ended_at_ms as number).toISOString(),
+    );
   });
   it("sends $ai_session_id (thread) and $session_id (browser) as distinct ids on every AI event", async () => {
     const events: TrackingEvent[] = [];

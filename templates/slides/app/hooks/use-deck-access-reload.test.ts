@@ -147,4 +147,31 @@ describe("useDeckAccessReload", () => {
     await act(async () => finishCurrent("loaded"));
     await waitFor(() => expect(result.current).toBe("deck-1|org-1"));
   });
+
+  it("stops retrying stale reloads once unmounted", async () => {
+    const reload = vi.fn<() => Promise<DeckReloadStatus>>(async () => {
+      await tick();
+      return "stale";
+    });
+    const { unmount } = renderHook(() =>
+      useDeckAccessReload({
+        accessKey: KEY,
+        deckFound: false,
+        loading: false,
+        orgId: "org-1",
+        orgLoading: false,
+        reload,
+      }),
+    );
+
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    unmount();
+    const callsAtUnmount = reload.mock.calls.length;
+    await tick(40);
+
+    expect(reload.mock.calls.length).toBeLessThanOrEqual(callsAtUnmount + 1);
+    const settled = reload.mock.calls.length;
+    await tick(40);
+    expect(reload).toHaveBeenCalledTimes(settled);
+  });
 });

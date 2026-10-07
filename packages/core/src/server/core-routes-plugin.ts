@@ -1258,11 +1258,13 @@ const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
 const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
-  "design_make_real_waitlist",
-  "design_system_workflows_waitlist",
-  "design_system_waitlist",
   "docs_build_online_waitlist",
   "docs_edit_online_waitlist",
+]);
+const BUILDER_WAITLIST_USE_CASE_GROUPS = new Map([
+  ["design_make_real_waitlist", "design_publish_app"],
+  ["design_system_workflows_waitlist", "design_publish_app"],
+  ["design_system_waitlist", "design_publish_app"],
 ]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
@@ -1333,9 +1335,16 @@ function cleanBuilderWaitlistText(
 
 function normalizeBuilderWaitlistUseCase(value: unknown): string {
   const useCase = cleanBuilderWaitlistText(value, 100);
-  return useCase && BUILDER_WAITLIST_USE_CASES.has(useCase)
-    ? useCase
-    : BUILDER_WAITLIST_DEFAULT_USE_CASE;
+  if (!useCase) return BUILDER_WAITLIST_DEFAULT_USE_CASE;
+  if (BUILDER_WAITLIST_USE_CASES.has(useCase)) return useCase;
+
+  // The published waitlist form validates this select against its own option
+  // list. Keep new Design entry points in the existing Design category; their
+  // exact surfaces remain in the text `source` field.
+  return (
+    BUILDER_WAITLIST_USE_CASE_GROUPS.get(useCase) ??
+    BUILDER_WAITLIST_DEFAULT_USE_CASE
+  );
 }
 
 function normalizeBuilderWaitlistTemplate(value: unknown): string | undefined {

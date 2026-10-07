@@ -70,9 +70,16 @@ unapproved work. Pair `✅` + `🎫` only for distinct scopes; name the fixed
 behavior and ticket action. **Shipped**/**Live verified** alone don't earn
 `✅`. Never remove reactions.
 
-If no safe repo-owned fix is evident, record the evidence limit. Ask only a
-question that could unblock a fix; after four days without an answer, record
-**Abandoned - no answer in 4 days**.
+For every concrete objective defect, attempt to reproduce it before recording
+an evidence limit or asking the reporter for more information. A screenshot,
+error message, URL, or visible flow is enough to start tracing its owner; don't
+wait for details that would not change the reproduction attempt. Phase 2's
+local reproduction procedure applies to all defect reports, not only bashes.
+
+If no safe repo-owned fix is evident after that attempt, record the specific
+evidence limit. Ask only a question whose answer could change the reproduction
+or unblock a fix; after four days without an answer, record **Abandoned - no
+answer in 4 days**.
 
 Use **Skipped** only for non-defects, never breakage. **Open - no question**
 means you found neither a fix nor a useful question; state why in the thread.
@@ -349,6 +356,26 @@ screenshot is usually the whole diagnosis. Track an artifact that is
 permission-gated or expired separately from one that was never provided —
 inaccessible is not absent.
 
+### Attempt local reproduction before evidence-limiting
+
+For each concrete objective defect, try the reported flow before deciding it
+cannot be reproduced or fixed. Trace the screenshot, URL, visible action, and
+error through the app to its route, action, provider, or form contract; use
+those clues to choose the closest runnable local seam. Exercise the flow with
+a local build and synthetic fixtures. If its external dependency is unavailable,
+mock that boundary or submit the same shape to a local validator. Do not use a
+reporter's real email or create a real external record merely to prove a
+failure.
+
+Record the route or action, build, fixture, steps, expected and actual result,
+and error. Code inspection alone is not a reproduction attempt, and
+**Not reproducible - attempted** requires an actual flow attempt. Ask the
+reporter only when a specific missing detail would change the attempt or fix;
+otherwise make the best local attempt with the evidence already available.
+If the attempt stops at a concrete access or environment limit, name what was
+tried and what exact behavior remains untested. Measure misses with
+`feedback-no-local-repro`.
+
 **Sweep siblings before you claim anything is fixed.** Derive the fingerprint
 from the symptom, not the file — the exact crashing token, call shape, or
 literal — then search the repo for it and enumerate every hit in your recap
@@ -393,47 +420,10 @@ Measure this gate with friction keys `false-done` and
 --pattern <key>` for each before changing it and again later. A climbing count
 requires a mechanical proof or release gate, not more prose.
 
-### Bug-bash reproduction contract
+### Reproduction and verification detail
 
-For Design, Slides, Core/framework, and template bashes, the reachable reported
-surface is the contract:
-
-1. **Reproduce before editing.** Use the exact URL/route, app/template,
-   account/workspace/role, build/package, browser/device, fixture, and inputs;
-   record expected/actual, errors, and attached artifacts.
-2. **Sweep siblings and boundaries.** Test a negative control plus empty, wrong,
-   whitespace, case, and permission variants; enumerate every shared fingerprint.
-3. **Repeat on the changed running artifact.** Rerun the flow, refresh/navigate,
-   read UI and persisted state, and cover failure/retry/cancel/async paths.
-   Destructive flows require wrong/partial/exact confirmation and recovery;
-   do not delete unless needed.
-4. **Test release/race layers when needed.** Use concurrency/10 runs, a clean
-   scaffold, and the exact package for package reports. Reproduce and verify
-   locally by default; use beta only if the full symptom cannot be reproduced
-   locally and hosted behavior is needed. Record why. These checks support
-   **Shipped**/**Live verified**, not a merged **Fixed** claim.
-5. Record untested layers. Before merge, use an evidence-limited status. After
-   verified source merge, mark **Fixed** even if release/live layers remain;
-   routine rollout and optional beta checks aren't ticketed follow-ups.
-   **Shipped**/**Live verified** need their own bars. Don't mark **Fixed**/`✅`
-   without merged-source proof. Reopen repeats only with a fresh failing
-   pre-change reproduction.
-
-### Reproduction ledger - required for every row
-
-For each row, record symptom/surface, reproduction steps and account, expected
-and pre/post behavior, tested commit/build, sibling results, untested layers,
-and runtime layer (`local`, `source-only`, `built`, `deployed`, `observed-live`).
-
-Without merged source proof, use an active or waiting disposition above. After
-merge, **Fixed** may coexist with release follow-up; **Live verified** requires
-all four bars. Status labels, reactions, and tests alone do not prove closure.
-Repeats require a new pre-change failure and link the earlier false claim.
-
-Regression claims require Red/Green proof: reverse-apply hunk with
-`git apply -R`, record failure, reapply, record pass. Repeat timing checks 10x.
-If output missing, build it and rerun on `origin/main` before calling them
-pre-existing.
+Use [`reproduction-and-verification.md`](references/reproduction-and-verification.md)
+for the bug-bash contract, reproduction ledger, and regression proof.
 
 ### Npx and package reports have a release follow-up
 

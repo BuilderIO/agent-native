@@ -3838,6 +3838,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/app/agentkit/react/components",
           "@agent-native/toolkit/app/agentkit/react/context",
           "@agent-native/toolkit/app/agentkit/react/root",
+          "@agent-native/toolkit/app/chat",
           "@agent-native/toolkit/app/chat/agentkit-chat/index",
           "@agent-native/core/client/agent-native-icon",
           "@agent-native/core/client/agentkit-chat/composer",

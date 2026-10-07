@@ -2684,6 +2684,7 @@ const enUS = {
     planAutomations: "Events & Automations",
     planLocalAndDesktop: "Local Files & Desktop",
     planDevelopers: "Developer Guide",
+    turnIntoApp: "Turn Into App",
     prVisualRecap: "PR Visual Recap",
     planPluginMarketplace: "Plan Plugin & Marketplace",
     slides: "Slides",

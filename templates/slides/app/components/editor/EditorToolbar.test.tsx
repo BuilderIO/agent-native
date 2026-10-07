@@ -30,6 +30,11 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   deckContentConflicts: [] as Array<{ slideId: string; canResolve: boolean }>,
   resolveDeckContentConflict: vi.fn(),
+  saving: { value: false },
+  readOnlyDirectoryWidget: { value: false },
+  saveError: {
+    value: undefined as { status?: number; retryable: boolean } | undefined,
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -39,6 +44,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       : key === "creativeContext.share.tabLabel"
         ? "Context"
         : key,
+}));
+
+vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+  useIsMcpAppWidgetEmbed: () => false,
+  useIsMcpDirectoryWidgetReadOnlyEmbed: () =>
+    mocks.readOnlyDirectoryWidget.value,
 }));
 
 vi.mock("sonner", () => ({
@@ -66,20 +77,20 @@ vi.mock("@agent-native/toolkit/collab-ui", () => ({
 }));
 
 vi.mock("@/components/visual-editor", () => ({
-  SaveStatusIndicator: () => null,
+  SaveStatusIndicator: () => <div data-testid="save-status" />,
 }));
 
 vi.mock("@/context/DeckContext", () => ({
-  getDeckSaveError: () => undefined,
+  getDeckSaveError: () => mocks.saveError.value,
   getStaleContentConflictSlideId: () => undefined,
-  hasFailedDeckSave: () => false,
+  hasFailedDeckSave: () => mocks.saveError.value !== undefined,
   hasUnsavedDeckChanges: () => false,
   useDeckContentConflicts: () => mocks.deckContentConflicts,
   useDecks: () => ({
     resolveContentConflict: vi.fn(),
     resolveDeckContentConflict: mocks.resolveDeckContentConflict,
   }),
-  useSaveState: () => ({ saving: false }),
+  useSaveState: () => ({ saving: mocks.saving.value }),
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -199,6 +210,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.creativeContextLabEnabled.value = true;
   mocks.deckContentConflicts = [];
+  mocks.saveError.value = undefined;
+  mocks.saving.value = false;
+  mocks.readOnlyDirectoryWidget.value = false;
 });
 
 afterEach(() => {
@@ -206,6 +220,85 @@ afterEach(() => {
 });
 
 describe("<EditorToolbar>", () => {
+  const viewerToolbar = () => (
+    <TooltipProvider>
+      <EditorToolbar
+        deck={deck}
+        deckId="deck-1"
+        deckTitle="Test deck"
+        canEdit={false}
+        onTitleChange={vi.fn()}
+        currentSlideIndex={0}
+        sidebarOpen={true}
+        onToggleSidebar={vi.fn()}
+        onGenerateImage={vi.fn()}
+        onOpenAssetLibrary={vi.fn()}
+        onShowHistory={vi.fn()}
+        historyButtonRef={createRef<HTMLButtonElement>()}
+      />
+    </TooltipProvider>
+  );
+
+  it("keeps the save failure visible once the role drops to view only", () => {
+    mocks.saveError.value = { status: 403, retryable: true };
+    render(viewerToolbar());
+
+    expect(screen.getByText("editorToolbar.viewOnly")).toBeTruthy();
+    expect(screen.getByTestId("save-status")).toBeTruthy();
+  });
+
+  it("shows no save status to a viewer with nothing failed", () => {
+    render(viewerToolbar());
+
+    expect(screen.queryByTestId("save-status")).toBeNull();
+  });
+
+  it("hides save failures in a read-only directory widget", () => {
+    mocks.saveError.value = { status: 403, retryable: true };
+    mocks.readOnlyDirectoryWidget.value = true;
+    render(viewerToolbar());
+
+    expect(screen.queryByTestId("save-status")).toBeNull();
+  });
+
+  it("waits for a retry to settle before refetching the role", () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    mocks.saveError.value = { status: 403, retryable: true };
+    const { rerender } = render(viewerToolbar());
+
+    mocks.saveError.value = undefined;
+    mocks.saving.value = true;
+    rerender(viewerToolbar());
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["action", "list-resource-shares"],
+    });
+
+    mocks.saveError.value = { status: 403, retryable: true };
+    mocks.saving.value = false;
+    rerender(viewerToolbar());
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["action", "list-resource-shares"],
+    });
+    invalidate.mockRestore();
+  });
+
+  it("refetches the role once an access-lost failure clears", () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    mocks.saveError.value = { status: 403, retryable: true };
+    const { rerender } = render(viewerToolbar());
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["action", "list-resource-shares"],
+    });
+
+    mocks.saveError.value = undefined;
+    rerender(viewerToolbar());
+
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["action", "list-resource-shares"],
+    });
+    invalidate.mockRestore();
+  });
+
   it("keeps the deck title read-only for viewers", () => {
     render(
       <TooltipProvider>

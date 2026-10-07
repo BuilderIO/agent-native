@@ -111,6 +111,12 @@ import {
   storedFormOf,
   type RenderedSlideSource,
 } from "@/lib/slide-source-map";
+import {
+  applyVideoPlaybackSettings,
+  videoFileLooksLikeVideo,
+  videoPlaybackSettingsFor,
+  type VideoPlaybackSettings,
+} from "@/lib/slide-video";
 import { TAB_ID } from "@/lib/tab-id";
 import { shortcutLabel } from "@/lib/utils";
 import { enterSelectionMode } from "@/root";
@@ -423,6 +429,7 @@ function layerKindForElement(
   hasChildren: boolean,
 ): SlidesLayerKind {
   if (isRichTextBlock(element)) return "text";
+  if (element.tagName === "VIDEO") return "video";
   if (
     element.tagName === "IMG" ||
     element.classList.contains("fmd-img-placeholder") ||
@@ -936,6 +943,7 @@ interface SlideSelectionItem {
   kind?: string;
   tagName?: string;
   imageSrc?: string;
+  videoSrc?: string;
   style?: Partial<SlideStyleSnapshot>;
 }
 
@@ -953,11 +961,12 @@ function selectionItemForElement(
   const textLimit = snapshot ? 80 : 200;
   return {
     ...identity,
-    kind: snapshot?.isImage
-      ? "image"
-      : element.tagName === "IMG"
-        ? "image"
-        : "element",
+    kind:
+      element.tagName === "VIDEO"
+        ? "video"
+        : snapshot?.isImage || element.tagName === "IMG"
+          ? "image"
+          : "element",
     tagName: snapshot?.tagName ?? element.tagName.toLowerCase(),
     text: snapshot?.textPreview ?? fullText.slice(0, 200),
     selectedText: selectedText?.trim() ? selectedText : undefined,
@@ -966,6 +975,12 @@ function selectionItemForElement(
       element instanceof HTMLImageElement
         ? (element.getAttribute("src") ?? undefined)
         : (element.querySelector("img")?.getAttribute("src") ?? undefined),
+    videoSrc:
+      element instanceof HTMLVideoElement
+        ? (element.getAttribute("src") ??
+          element.querySelector("source")?.getAttribute("src") ??
+          undefined)
+        : undefined,
     style: snapshot
       ? { ...snapshot, ...imageStyle, selector: identity.selector }
       : undefined,
@@ -1034,6 +1049,7 @@ interface SlideEditorProps {
     file: File,
     position?: SlideImageDropPosition,
   ) => void;
+  onDropVideo?: (file: File, position?: SlideImageDropPosition) => void;
   /** Fired when an image is dragged from elsewhere in the app (e.g. a
    *  generated-image preview in the agent chat panel) and dropped on the
    *  slide canvas, instead of a native OS file drop. */
@@ -1637,6 +1653,7 @@ export default function SlideEditor({
   onOpenAssetLibrary,
   onUploadImage,
   onDropImage,
+  onDropVideo,
   onDropImageUrl,
   onToggleObjectFit,
   onChangeObjectPosition,
@@ -1707,6 +1724,8 @@ export default function SlideEditor({
   } | null>(null);
   const selectedImageForCropRef = useRef<HTMLImageElement | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
+  const [selectedVideoPlayback, setSelectedVideoPlayback] =
+    useState<VideoPlaybackSettings | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionViewportRect, setSelectionViewportRect] =
     useState<DOMRect | null>(null);
@@ -2833,6 +2852,7 @@ export default function SlideEditor({
     setSelectedElementSelector(null);
     setSelectedElementMeasurement(null);
     setSelectedStyleSnapshot(null);
+    setSelectedVideoPlayback(null);
   }, []);
 
   // `slide.background` paints the canvas wrapper, but a generated `.fmd-slide`
@@ -2867,6 +2887,11 @@ export default function SlideEditor({
       const path = elementPathFromRoot(slideContent, element);
       if (path.length === 0) return;
       const snapshot = buildStyleSnapshot(element, selector);
+      setSelectedVideoPlayback(
+        element.tagName === "VIDEO"
+          ? videoPlaybackSettingsFor(element as HTMLVideoElement)
+          : null,
+      );
       setSelectedElementPath(path);
       setSelectedObjectId(element.getAttribute("data-slide-object-id"));
       setSelectedElementSlideId(slide.id);
@@ -2888,6 +2913,22 @@ export default function SlideEditor({
       invalidateSelectionOverlayMeasurement,
       slide.id,
     ],
+  );
+
+  const updateSelectedVideoPlayback = useCallback(
+    (settings: VideoPlaybackSettings) => {
+      const selected = resolveSelectedElement();
+      if (!selected || selected.tagName !== "VIDEO") return;
+      applyVideoPlaybackSettings(selected as HTMLVideoElement, settings);
+      setSelectedVideoPlayback(settings);
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, slide.id, {
+          persistence: "immediate",
+        });
+      }
+    },
+    [readCurrentSlideContentHtml, resolveSelectedElement, slide.id],
   );
 
   /** Exit edit mode, saving changed content without changing its layout. */
@@ -8521,19 +8562,26 @@ export default function SlideEditor({
   const handleSlideDrop = useCallback(
     (e: React.DragEvent) => {
       const files = Array.from(e.dataTransfer.files ?? []);
-      const file = files.find(imageFileLooksSupported);
+      const file = files.find(
+        (candidate) =>
+          imageFileLooksSupported(candidate) ||
+          videoFileLooksLikeVideo(candidate),
+      );
       if (files.length > 0) {
         e.preventDefault();
         e.stopPropagation();
         if (!file) return;
-        // The drop adds an image to the stored slide, which would otherwise
-        // be re-rendered under the open edit (and refused).
         if (textSessionRef.current) exitInlineEditRef.current();
-        onDropImage?.(
-          getImageReplacementTarget(e.target as HTMLElement),
-          file,
-          getSlideDropPosition(e.clientX, e.clientY),
-        );
+        const position = getSlideDropPosition(e.clientX, e.clientY);
+        if (videoFileLooksLikeVideo(file)) {
+          onDropVideo?.(file, position);
+        } else {
+          onDropImage?.(
+            getImageReplacementTarget(e.target as HTMLElement),
+            file,
+            position,
+          );
+        }
         return;
       }
       // No native file — check for a dragged <img> instead (e.g. one dragged
@@ -8561,6 +8609,7 @@ export default function SlideEditor({
       getImageReplacementTarget,
       getSlideDropPosition,
       onDropImage,
+      onDropVideo,
       onDropImageUrl,
     ],
   );
@@ -9609,7 +9658,7 @@ export default function SlideEditor({
         >
           {t("styleInspector.order")}
         </ContextMenuSubTrigger>
-        <ContextMenuSubContent>
+        <ContextMenuSubContent className="z-[2147483647]">
           <ContextMenuItem
             disabled={!selectedElementSelector && !objectOperationSelection}
             onSelect={() => handleArrangeSelected("front")}
@@ -9706,6 +9755,8 @@ export default function SlideEditor({
         canUngroup={canUngroupObjects}
         onAlignObjects={handleAlignSelectedObjects}
         onDistributeObjects={handleDistributeSelectedObjects}
+        videoPlayback={selectedVideoPlayback}
+        onVideoPlaybackChange={updateSelectedVideoPlayback}
         zoomControls={zoomControls}
       />
     </div>
@@ -9747,6 +9798,8 @@ export default function SlideEditor({
         canUngroup={canUngroupObjects}
         onAlignObjects={handleAlignSelectedObjects}
         onDistributeObjects={handleDistributeSelectedObjects}
+        videoPlayback={selectedVideoPlayback}
+        onVideoPlaybackChange={updateSelectedVideoPlayback}
         zoomControls={zoomControls}
         className="slide-context-toolbar--top-row"
       />
@@ -9950,7 +10003,9 @@ export default function SlideEditor({
                             )}
                         </div>
                       </ContextMenuTrigger>
+                      {/* Imported slide objects can carry authored z-indexes; keep this menu above the canvas. */}
                       <ContextMenuContent
+                        className="z-[2147483647]"
                         onCloseAutoFocus={clearContextMenuState}
                       >
                         {contextMenuTableInfo && (

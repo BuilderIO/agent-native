@@ -50,6 +50,7 @@ import {
   isMergeSafeDeckPatchOperations,
   type SlideFieldBaseline,
 } from "../../shared/deck-write";
+import { isDeckAccessLostStatus } from "../lib/deck-access-lost";
 import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
@@ -706,6 +707,9 @@ const deckSaveRetryAttempts = new Map<string, number>();
 const deckRevisionConflictRetryAttempts = new Map<string, number>();
 const failedSaveDecks = new Set<string>();
 const deckSaveErrors = new Map<string, DeckSaveError>();
+// The open deck's refetch answered 403/404: the local copy stays on screen but
+// its owner no longer lets this viewer read it.
+const deckAccessLostErrors = new Map<string, DeckSaveError>();
 const staleContentConflicts = new Map<string, Set<string> | null>();
 const staleFullReplaceDrafts = new Map<string, Deck>();
 const verifiedFullReplaceOps = new WeakSet<
@@ -791,9 +795,37 @@ function markDeckSaveFailed(
       pendingOpsQueue.has(deckId) &&
         !staleContentConflicts.has(deckId) &&
         !staleFullReplaceDrafts.has(deckId) &&
-        !isTerminalClientSaveError(cause),
+        (!isTerminalClientSaveError(cause) || isDeckAccessLostSave(cause)),
     ),
   );
+}
+
+function isDeckAccessLostSave(cause: unknown): boolean {
+  return (
+    !!cause &&
+    typeof cause === "object" &&
+    "status" in cause &&
+    isDeckAccessLostStatus(cause.status)
+  );
+}
+
+function markDeckAccessLost(deckId: string, cause: unknown): void {
+  if (deckAccessLostErrors.has(deckId)) return;
+  deckAccessLostErrors.set(
+    deckId,
+    new DeckSaveError(
+      deckId,
+      cause,
+      `Deck ${deckId} is no longer accessible; local copy retained`,
+      true,
+    ),
+  );
+  notifySaveListeners();
+}
+
+function clearDeckAccessLost(deckId: string): void {
+  if (!deckAccessLostErrors.delete(deckId)) return;
+  notifySaveListeners();
 }
 
 function clearDeckSaveFailure(deckId: string): void {
@@ -1186,7 +1218,8 @@ export function hasFailedDeckSave(deckId: string): boolean {
     failedSaveDecks.has(deckId) ||
     staleContentConflicts.has(deckId) ||
     staleSlideFieldDrafts.has(deckId) ||
-    staleFullReplaceDrafts.has(deckId)
+    staleFullReplaceDrafts.has(deckId) ||
+    deckAccessLostErrors.has(deckId)
   );
 }
 
@@ -1194,6 +1227,7 @@ export function getDeckSaveError(deckId: string): DeckSaveError | undefined {
   if (!hasFailedDeckSave(deckId)) return undefined;
   return (
     deckSaveErrors.get(deckId) ??
+    deckAccessLostErrors.get(deckId) ??
     (staleContentConflicts.has(deckId) || staleFullReplaceDrafts.has(deckId)
       ? new DeckSaveError(
           deckId,
@@ -1667,6 +1701,7 @@ function drainPendingDeckOps(
         const coveredSlideSequences = new Map(
           slideLocalWriteSequences.get(deckId) ?? [],
         );
+        const keepaliveGeneration = deckSaveGenerations.get(deckId) ?? 0;
         const keepaliveSave = persistDeckOps(
           deckId,
           keepaliveOps,
@@ -1674,6 +1709,11 @@ function drainPendingDeckOps(
           { keepalive: true },
         ).then(
           (results) => {
+            if (
+              (deckSaveGenerations.get(deckId) ?? 0) !== keepaliveGeneration
+            ) {
+              return;
+            }
             acknowledgeKeepaliveDeckOps(
               deckId,
               keepaliveOps,
@@ -1770,6 +1810,7 @@ function drainPendingDeckOps(
       deckSaveRetryAttempts.delete(deckId);
       deckRevisionConflictRetryAttempts.delete(deckId);
       clearDeckSaveFailure(deckId);
+      clearDeckAccessLost(deckId);
       const mergedDrafts = mergedSlideDrafts.get(deckId);
       if (mergedDrafts) {
         for (const op of ops) {
@@ -2424,6 +2465,7 @@ function acknowledgeKeepaliveDeckOps(
   coveredSlideSequences: Map<string, number>,
   results: unknown[],
 ) {
+  clearDeckAccessLost(deckId);
   clearPersistedStaleSlideFieldDrafts(deckId, persistedOps);
   rememberPersistedSlideContent(deckId, persistedOps);
   const acknowledgedContent = new Map<string, string>();
@@ -2596,6 +2638,22 @@ async function flushDeckSave(
 }
 
 async function retryDeckSave(deckId: string): Promise<void> {
+  if (deckAccessLostErrors.has(deckId)) {
+    requestDeckResync(deckId);
+    if (!failedSaveDecks.has(deckId)) return;
+  }
+  await retryFailedDeckSave(deckId);
+}
+
+// Focus is the cheapest signal that an owner may have restored access: one
+// write attempt per focus, and only while the last save was refused for it.
+function retryAccessLostDeckSave(deckId: string): void {
+  const error = deckSaveErrors.get(deckId);
+  if (!error?.retryable || !isDeckAccessLostStatus(error.status)) return;
+  void retryFailedDeckSave(deckId).catch(() => {});
+}
+
+async function retryFailedDeckSave(deckId: string): Promise<void> {
   const failedSaveError = getDeckSaveError(deckId);
   if (
     !failedSaveError?.retryable ||
@@ -2886,6 +2944,7 @@ function discardPendingDeckOps(deckId: string) {
   deckSaveRetryAttempts.delete(deckId);
   deckRevisionConflictRetryAttempts.delete(deckId);
   clearDeckSaveFailure(deckId);
+  deckAccessLostErrors.delete(deckId);
   staleContentConflicts.delete(deckId);
   staleFullReplaceDrafts.delete(deckId);
   staleContentRetrySlides.delete(deckId);
@@ -4562,9 +4621,13 @@ export function DeckProvider({
     const addedIds = fresh
       .filter((d) => !currentIds.has(d.id))
       .map((d) => d.id);
+    // A list that omits the open deck cannot tell revoked from deleted; the
+    // deck's own read decides, and keeps the local copy while it does.
+    const openDeckId = currentOpenDeckIdFromWindow();
     const removed = currentDecks.filter(
       (d) =>
         !freshById.has(d.id) &&
+        d.id !== openDeckId &&
         !staleFullReplaceDrafts.has(d.id) &&
         !isNewerThanSnapshot(d.id, createSeqAtRequest),
     );
@@ -4693,6 +4756,14 @@ export function DeckProvider({
         return { read: "superseded", deck: null };
       }
       pollControlRef.current.onRead(currentOpenId, read.status);
+      if (read.status === "ok") clearDeckAccessLost(currentOpenId);
+      else if (
+        (read.status === "forbidden" || read.status === "not-found") &&
+        !pendingCreateIdsRef.current.has(currentOpenId) &&
+        decksRef.current.some((d) => d.id === currentOpenId)
+      ) {
+        markDeckAccessLost(currentOpenId, read.error);
+      }
       if (
         !options?.clearPendingWrites &&
         (deckLocalWriteSeq.get(currentOpenId) ?? 0) !== writeSeqAtReadStart
@@ -4790,6 +4861,7 @@ export function DeckProvider({
       snapshotGeneration = serverSnapshotGenerationRef.current,
     ) => {
       ++deckListRequestIdRef.current;
+      for (const deck of nextDecks) clearDeckAccessLost(deck.id);
       const reconciledDecks = nextDecks.map((deck) =>
         deck.previewSlide
           ? deck
@@ -4900,6 +4972,7 @@ export function DeckProvider({
       ...pendingOpsQueue.keys(),
       ...inFlightSaves,
       ...failedSaveDecks,
+      ...deckAccessLostErrors.keys(),
       ...staleContentConflicts.keys(),
       ...staleSlideFieldDrafts.keys(),
       ...staleFullReplaceDrafts.keys(),
@@ -5185,6 +5258,15 @@ export function DeckProvider({
     if (openDeckId === undefined) return;
     pollControlRef.current.onRouteChange(openDeckId);
   }, [openDeckId]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      const deckId = currentOpenDeckIdFromWindow();
+      if (deckId) retryAccessLostDeckSave(deckId);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   useEffect(() => {
     const resync = (deckId: string) => {
