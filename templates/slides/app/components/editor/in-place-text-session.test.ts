@@ -3368,6 +3368,40 @@ describe("in-place text session: commands", () => {
     },
   );
 
+  it.each(["- ", "--- "])(
+    "does not convert existing %j when a null-data replacement target starts at line start",
+    (prefix) => {
+      const el = mount(`<p id="t">${prefix}</p>`);
+      session = startInPlaceTextSession(el);
+      const text = textOf(el, prefix);
+      caret(text, text.length);
+      const target = document.createRange();
+      target.setStart(text, 0);
+      target.collapse(true);
+      const before = new InputEvent("beforeinput", {
+        inputType: "insertReplacementText",
+        data: null,
+        bubbles: true,
+        cancelable: false,
+      });
+      Object.defineProperty(before, "getTargetRanges", {
+        value: () => [target],
+      });
+      el.dispatchEvent(before);
+      el.dispatchEvent(
+        new InputEvent("input", {
+          inputType: "insertReplacementText",
+          data: null,
+          bubbles: true,
+        }),
+      );
+
+      expect(session.element.tagName).toBe("P");
+      expect(session.element.querySelector(":scope > hr")).toBeNull();
+      expect(session.element.textContent).toBe(prefix);
+    },
+  );
+
   it.each([
     ["insertText", "-", "bullet"],
     ["insertReplacementText", "---", "divider"],
@@ -3398,6 +3432,25 @@ describe("in-place text session: commands", () => {
       }
     },
   );
+
+  it("uses transferred text when replacement input data is empty", () => {
+    const el = mount('<p id="t">teh</p>');
+    session = startInPlaceTextSession(el);
+    const text = textOf(el, "teh");
+    select(text, 0, text, text.length);
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData("text/plain", "the");
+
+    const before = beforeInput(el, "insertReplacementText", {
+      data: "",
+      dataTransfer,
+    });
+
+    expect(before.defaultPrevented).toBe(true);
+    expect(session.element.textContent).toBe("the");
+    expect(session.undo()).toBe(true);
+    expect(session.element.textContent).toBe("teh");
+  });
 
   it("converts a bullet shortcut after a break without restyling earlier text", () => {
     const el = mount(

@@ -1470,6 +1470,7 @@ export function startInPlaceTextSession(
   let pendingNullDataShortcutPrefix: {
     inputType: "insertText" | "insertReplacementText";
     prefix: string;
+    previousPrefix: string;
   } | null = null;
   let focusSelection: TextOffsets | null = null;
   let pointerFocusPending = false;
@@ -4313,13 +4314,21 @@ export function startInPlaceTextSession(
     return data !== null && data !== "" && /[ \u00a0\-+*_~`]/u.test(data);
   }
 
-  function insertedShortcutTrigger(prefix: string) {
+  function insertedShortcutTrigger(prefix: string, previousPrefix: string) {
     const caret = selectionRange();
     if (!caret?.collapsed) return false;
     const block = commandBlock(caret.startContainer);
-    const currentPrefix = linePrefix(block, caret).toString();
-    if (!currentPrefix.startsWith(prefix)) return false;
-    return shouldCheckMarkdownShortcut(currentPrefix.slice(prefix.length));
+    const normalize = (value: string) =>
+      value.replaceAll(ZERO_WIDTH_SPACE, "").replaceAll("\u00a0", " ");
+    const currentPrefix = normalize(linePrefix(block, caret).toString());
+    const targetPrefix = normalize(prefix);
+    const previous = normalize(previousPrefix);
+    return (
+      currentPrefix.startsWith(targetPrefix) &&
+      currentPrefix.startsWith(previous) &&
+      currentPrefix.length > previous.length &&
+      shouldCheckMarkdownShortcut(currentPrefix.slice(targetPrefix.length))
+    );
   }
 
   function applyMarkdownShortcut() {
@@ -4769,12 +4778,17 @@ export function startInPlaceTextSession(
       const target =
         (type === "insertReplacementText" ? targetRange(event) : null) ?? range;
       if (target) {
+        const block = commandBlock(target.startContainer);
+        const previousRange =
+          range &&
+          block.contains(range.startContainer) &&
+          block.contains(range.endContainer)
+            ? range
+            : target;
         pendingNullDataShortcutPrefix = {
           inputType: type,
-          prefix: linePrefix(
-            commandBlock(target.startContainer),
-            target,
-          ).toString(),
+          prefix: linePrefix(block, target).toString(),
+          previousPrefix: linePrefix(block, previousRange).toString(),
         };
       }
     }
@@ -4810,7 +4824,7 @@ export function startInPlaceTextSession(
     }
     if (type === "insertText" || type === "insertReplacementText") {
       const transferredText = event.dataTransfer?.getData("text/plain");
-      const data = event.data ?? transferredText ?? "";
+      const data = event.data || transferredText || "";
       if ((event.data === null || event.data === "") && !transferredText) {
         captureReservationParentHeight();
         checkpoint("typing");
@@ -4918,7 +4932,10 @@ export function startInPlaceTextSession(
       (shouldCheckMarkdownShortcut(input.data) ||
         ((input.data === null || input.data === "") &&
           pendingShortcutPrefix?.inputType === input.inputType &&
-          insertedShortcutTrigger(pendingShortcutPrefix.prefix)))
+          insertedShortcutTrigger(
+            pendingShortcutPrefix.prefix,
+            pendingShortcutPrefix.previousPrefix,
+          )))
     ) {
       applyMarkdownShortcut();
     }
