@@ -1014,6 +1014,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageLoading": "사용량 불러오는 중…",
   "message.usageUnavailable": "사용량을 사용할 수 없음",
   "message.usageNotRecorded": "사용량이 기록되지 않음",
+  "message.usageIncomplete":
+    "일부 사용량을 분류할 수 없어 합계가 숨겨졌습니다.",
   "message.usageReportedCost": "비용 {{amount}}",
   "message.usageEstimatedCost": "예상 비용 {{amount}}",
   "message.usageBuilderCredits": "사용한 Builder 크레딧 {{amount}}",

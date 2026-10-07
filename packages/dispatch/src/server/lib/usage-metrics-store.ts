@@ -108,6 +108,13 @@ export interface MonthlyUserUsageMetric {
   cacheWriteTokens: number;
 }
 
+type MonthlyUsageAggregate = Omit<MonthlyUserUsageMetric, "credits"> & {
+  builderCredits: number;
+  builderEstimatedCostX100: number;
+  unclassifiedCalls: number;
+  unpricedBuilderCalls: number;
+};
+
 export interface WorkspaceAppCreationMetric {
   month: string;
   ownerEmail: string;
@@ -725,7 +732,7 @@ async function loadDailyAndMonthlyUsage(usage: {
 }): Promise<{
   daily: DailyUsageMetric[];
   dailyAvailable: boolean;
-  monthlyByUser: Omit<MonthlyUserUsageMetric, "credits">[];
+  monthlyByUser: MonthlyUsageAggregate[];
   usersByDay: Map<string, Set<string>>;
 }> {
   const dayBucketExpression = `CAST(created_at / ${DAY_MS} AS INTEGER)`;
@@ -735,6 +742,18 @@ async function loadDailyAndMonthlyUsage(usage: {
       sql: `SELECT ${dayBucketExpression} AS day_bucket,
           owner_email,
           COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
+          COALESCE(SUM(builder_credits_used), 0) AS builder_credits,
+          COALESCE(SUM(CASE
+            WHEN engine_name = 'builder' AND builder_credits_used IS NULL
+            THEN cost_cents_x100 ELSE 0
+          END), 0) AS builder_estimated_cost_x100,
+          COUNT(*) FILTER (
+            WHERE NULLIF(engine_name, '') IS NULL AND builder_credits_used IS NULL
+          ) AS unclassified_calls,
+          COUNT(*) FILTER (
+            WHERE engine_name = 'builder' AND builder_credits_used IS NULL
+              AND cost_source = 'unavailable' AND cost_cents_x100 <= 0
+          ) AS unpriced_builder_calls,
           COUNT(*) AS calls,
           SUM(CASE WHEN label = 'chat' THEN 1 ELSE 0 END) AS chat_calls,
           COALESCE(SUM(input_tokens), 0) AS input_tokens,
@@ -760,10 +779,7 @@ async function loadDailyAndMonthlyUsage(usage: {
     string,
     { costX100: number; calls: number; chatCalls: number; users: Set<string> }
   >();
-  const monthlyByUserMap = new Map<
-    string,
-    Omit<MonthlyUserUsageMetric, "credits">
-  >();
+  const monthlyByUserMap = new Map<string, MonthlyUsageAggregate>();
   const usersByDay = new Map<string, Set<string>>();
 
   for (const row of rows) {
@@ -793,6 +809,10 @@ async function loadDailyAndMonthlyUsage(usage: {
       month,
       ownerEmail,
       costCents: 0,
+      builderCredits: 0,
+      builderEstimatedCostX100: 0,
+      unclassifiedCalls: 0,
+      unpricedBuilderCalls: 0,
       calls: 0,
       chatCalls: 0,
       inputTokens: 0,
@@ -801,6 +821,13 @@ async function loadDailyAndMonthlyUsage(usage: {
       cacheWriteTokens: 0,
     };
     monthly.costCents += numberField(row, "cost_x100") / 100;
+    monthly.builderCredits += numberField(row, "builder_credits");
+    monthly.builderEstimatedCostX100 += numberField(
+      row,
+      "builder_estimated_cost_x100",
+    );
+    monthly.unclassifiedCalls += numberField(row, "unclassified_calls");
+    monthly.unpricedBuilderCalls += numberField(row, "unpriced_builder_calls");
     monthly.calls += numberField(row, "calls");
     monthly.chatCalls += numberField(row, "chat_calls");
     monthly.inputTokens += numberField(row, "input_tokens");
@@ -1246,13 +1273,25 @@ export async function listDispatchUsageMetrics(input: {
   const monthlyByUser =
     viewScope === "app"
       ? []
-      : monthlyUsage.map((row) => ({
-          ...row,
-          credits:
-            billing.unit === "unknown" || billing.unit === "mixed"
-              ? null
-              : builderCreditsFromCostCents(row.costCents),
-        }));
+      : monthlyUsage.map(
+          ({
+            builderCredits,
+            builderEstimatedCostX100,
+            unclassifiedCalls,
+            unpricedBuilderCalls,
+            ...row
+          }) => ({
+            ...row,
+            credits:
+              billing.unit === "usd" ||
+              billing.unit === "unknown" ||
+              unclassifiedCalls > 0 ||
+              unpricedBuilderCalls > 0
+                ? null
+                : builderCredits +
+                  builderCreditsFromCostCents(builderEstimatedCostX100 / 100),
+          }),
+        );
 
   const workspaceAppCreationMap = new Map<
     string,

@@ -139,6 +139,7 @@ export interface UsageRunDetail extends UsageRunListItem {
     providerCostSource: "reported" | "estimated" | "mixed" | null;
     builderCredits: number | null;
     builderCreditsSource: "reported" | "estimated" | "mixed" | null;
+    incomplete: boolean;
   };
   reply: string | null;
   turns: UsageRunTurn[];
@@ -558,6 +559,7 @@ async function billingByRun(
   let builderReported = false;
   let builderEstimated = false;
   let hasBuilderUsage = false;
+  let incomplete = false;
 
   for (const row of rows as Array<Record<string, unknown>>) {
     const missingBuilderCredits =
@@ -575,17 +577,26 @@ async function billingByRun(
         continue;
       }
       const estimatedCents = recordedBreakdown(row).totalCents;
-      if (row.cost_source === "unavailable" && estimatedCents <= 0) continue;
+      if (row.cost_source === "unavailable" && estimatedCents <= 0) {
+        incomplete = true;
+        continue;
+      }
       hasBuilderUsage = true;
       builderCredits += builderCreditsFromCostCents(estimatedCents);
       builderEstimated = true;
       continue;
     }
 
-    if (!engineName) continue;
+    if (!engineName) {
+      incomplete = true;
+      continue;
+    }
 
     const costCents = recordedBreakdown(row).totalCents;
-    if (row.cost_source === "unavailable" && costCents <= 0) continue;
+    if (row.cost_source === "unavailable" && costCents <= 0) {
+      incomplete = true;
+      continue;
+    }
     hasProviderUsage = true;
     providerCents += costCents;
     providerReported ||= row.cost_source === "reported";
@@ -593,22 +604,26 @@ async function billingByRun(
   }
 
   return {
-    providerCostUsd: hasProviderUsage ? providerCents / 100 : null,
-    providerCostSource: hasProviderUsage
-      ? providerReported && providerEstimated
-        ? "mixed"
-        : providerEstimated
-          ? "estimated"
-          : "reported"
-      : null,
-    builderCredits: hasBuilderUsage ? builderCredits : null,
-    builderCreditsSource: hasBuilderUsage
-      ? builderReported && builderEstimated
-        ? "mixed"
-        : builderEstimated
-          ? "estimated"
-          : "reported"
-      : null,
+    providerCostUsd:
+      !incomplete && hasProviderUsage ? providerCents / 100 : null,
+    providerCostSource:
+      !incomplete && hasProviderUsage
+        ? providerReported && providerEstimated
+          ? "mixed"
+          : providerEstimated
+            ? "estimated"
+            : "reported"
+        : null,
+    builderCredits: !incomplete && hasBuilderUsage ? builderCredits : null,
+    builderCreditsSource:
+      !incomplete && hasBuilderUsage
+        ? builderReported && builderEstimated
+          ? "mixed"
+          : builderEstimated
+            ? "estimated"
+            : "reported"
+        : null,
+    incomplete,
   };
 }
 

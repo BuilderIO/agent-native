@@ -45,12 +45,20 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("@agent-native/core/usage", () => ({
   builderCreditsFromCostCents: (cents: number) => cents / 4,
   getUsageSummary: (...args: any[]) => mocks.getUsageSummary(...args),
-  usageBillingForEngine: () => ({
-    unit: "usd",
-    label: "Estimated spend",
-    shortLabel: "Cost",
-    source: "estimated-provider-cost",
-  }),
+  usageBillingForEngine: (engineName?: string | null) =>
+    engineName === "builder"
+      ? {
+          unit: "builder-credits",
+          label: "Builder.io credit spend",
+          shortLabel: "Credits",
+          source: "builder-agent-credits",
+        }
+      : {
+          unit: "usd",
+          label: "Estimated spend",
+          shortLabel: "Cost",
+          source: "estimated-provider-cost",
+        },
   MIXED_USAGE_BILLING: {
     unit: "mixed",
     label: "Builder credits and provider cost",
@@ -837,7 +845,7 @@ describe("listDispatchUsageMetrics", () => {
     ).toBe(true);
   });
 
-  it("returns monthly credits and workspace app creation rows from shared tables", async () => {
+  it("does not infer monthly credits from USD usage", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-20T12:00:00Z"));
     const firstUsageAt = Date.UTC(2026, 6, 1, 12);
@@ -932,7 +940,7 @@ describe("listDispatchUsageMetrics", () => {
         month: "2026-07",
         ownerEmail: "member@example.test",
         costCents: 300,
-        credits: 75,
+        credits: null,
         calls: 2,
         chatCalls: 1,
         inputTokens: 40,
@@ -987,6 +995,68 @@ describe("listDispatchUsageMetrics", () => {
         ownerEmail: "member@example.test",
         count: 2,
         appIds: ["app-one", "app-two"],
+      },
+    ]);
+  });
+
+  it("uses recorded Builder credits and estimates only unrecorded Builder rows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00Z"));
+    const usageAt = Date.UTC(2026, 6, 1, 12);
+
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("AS builder_calls")) {
+        return {
+          rows: [{ builder_calls: 2, provider_calls: 0, unknown_calls: 0 }],
+        };
+      }
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "owner", joined_at: null },
+          ],
+        };
+      }
+      if (sql.includes("FROM token_usage") && sql.includes("day_bucket")) {
+        return {
+          rows: [
+            {
+              day_bucket: Math.floor(usageAt / 86_400_000),
+              owner_email: "owner@example.test",
+              cost_x100: 30_000,
+              builder_credits: 5,
+              builder_estimated_cost_x100: 400,
+              unclassified_calls: 0,
+              unpriced_builder_calls: 0,
+              calls: 2,
+              chat_calls: 1,
+              input_tokens: 10,
+              output_tokens: 20,
+              cache_read_tokens: 0,
+              cache_write_tokens: 0,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({ scope: "workspace" });
+
+    expect(metrics.billing.unit).toBe("builder-credits");
+    expect(metrics.monthlyByUser).toMatchObject([
+      {
+        month: "2026-07",
+        ownerEmail: "owner@example.test",
+        costCents: 300,
+        credits: 6,
       },
     ]);
   });

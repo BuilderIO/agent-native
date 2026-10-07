@@ -242,6 +242,7 @@ export interface AgentKitLabels {
   usageLoading: string;
   usageUnavailable: string;
   usageNotRecorded: string;
+  usageIncomplete: string;
   usageReportedCost: string;
   usageEstimatedCost: string;
   usageMixedCost: string;
@@ -350,6 +351,7 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   usageLoading: "Loading usage…",
   usageUnavailable: "Usage unavailable",
   usageNotRecorded: "Usage not recorded",
+  usageIncomplete: "Some usage could not be classified; totals are hidden.",
   usageReportedCost: "Cost {{amount}}",
   usageEstimatedCost: "Estimated cost {{amount}}",
   usageMixedCost: "Reported and estimated cost {{amount}}",
@@ -420,6 +422,7 @@ export interface AgentKitRunUsage {
     providerCostSource: "reported" | "estimated" | "mixed" | null;
     builderCredits: number | null;
     builderCreditsSource: "reported" | "estimated" | "mixed" | null;
+    incomplete: boolean;
   };
 }
 

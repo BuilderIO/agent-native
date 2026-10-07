@@ -1038,6 +1038,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageLoading": "使用量を読み込み中…",
   "message.usageUnavailable": "使用量を利用できません",
   "message.usageNotRecorded": "使用量は記録されていません",
+  "message.usageIncomplete":
+    "一部の使用量を分類できなかったため、合計は非表示です。",
   "message.usageReportedCost": "費用 {{amount}}",
   "message.usageEstimatedCost": "推定費用 {{amount}}",
   "message.usageBuilderCredits": "使用した Builder クレジット {{amount}}",

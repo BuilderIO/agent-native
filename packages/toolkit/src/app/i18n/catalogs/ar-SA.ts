@@ -1029,6 +1029,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageLoading": "جارٍ تحميل الاستخدام…",
   "message.usageUnavailable": "الاستخدام غير متاح",
   "message.usageNotRecorded": "لم يُسجّل الاستخدام",
+  "message.usageIncomplete": "تعذّر تصنيف بعض الاستخدام؛ لذلك أُخفيت الإجماليات.",
   "message.usageReportedCost": "التكلفة {{amount}}",
   "message.usageEstimatedCost": "التكلفة المقدّرة {{amount}}",
   "message.usageBuilderCredits": "أرصدة Builder المستخدمة {{amount}}",

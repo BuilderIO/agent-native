@@ -750,6 +750,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageLoading": "Carregando uso…",
   "message.usageUnavailable": "Uso indisponível",
   "message.usageNotRecorded": "Uso não registrado",
+  "message.usageIncomplete":
+    "Não foi possível classificar parte do uso; os totais estão ocultos.",
   "message.usageReportedCost": "Custo {{amount}}",
   "message.usageEstimatedCost": "Custo estimado {{amount}}",
   "message.usageBuilderCredits": "Créditos Builder usados {{amount}}",

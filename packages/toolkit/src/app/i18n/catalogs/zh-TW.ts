@@ -961,6 +961,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageLoading": "正在載入用量…",
   "message.usageUnavailable": "無法取得用量",
   "message.usageNotRecorded": "未記錄用量",
+  "message.usageIncomplete": "部分用量無法分類，因此已隱藏總計。",
   "message.usageReportedCost": "費用 {{amount}}",
   "message.usageEstimatedCost": "預估費用 {{amount}}",
   "message.usageBuilderCredits": "已使用的 Builder 點數 {{amount}}",

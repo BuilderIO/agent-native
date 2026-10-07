@@ -4712,6 +4712,7 @@ describe("AgentKit subscriptions and recovery", () => {
           providerCostSource: "mixed",
           builderCredits: 2,
           builderCreditsSource: "mixed",
+          incomplete: false,
         },
       });
     const tree = mount();
@@ -4814,6 +4815,7 @@ describe("AgentKit subscriptions and recovery", () => {
           providerCostSource: "estimated",
           builderCredits: 1,
           builderCreditsSource: "estimated",
+          incomplete: false,
         },
       })
       .mockResolvedValueOnce({
@@ -4823,6 +4825,7 @@ describe("AgentKit subscriptions and recovery", () => {
           providerCostSource: "reported",
           builderCredits: 6,
           builderCreditsSource: "reported",
+          incomplete: false,
         },
       });
     const tree = mount();
@@ -4884,6 +4887,68 @@ describe("AgentKit subscriptions and recovery", () => {
       expect(menuText).toContain("Worked for 2s");
       expect(menuText).toContain("$0.05");
       expect(menuText).toContain("Builder credits used 6");
+    } finally {
+      await tree.unmount();
+    }
+  });
+
+  it("explains when per-message usage totals are incomplete", async () => {
+    const thread = createAgentThreadState("thread-incomplete-run-usage");
+    const message = {
+      id: "assistant-incomplete-run-usage",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Ready." }],
+      metadata: { runId: "run-incomplete-usage" },
+    };
+    thread.messages = [message];
+    const initialSnapshot: AgentKitSnapshot = {
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    };
+    const store = observableController(initialSnapshot);
+    const loadRunUsage = vi.fn<AgentKitRunUsageLoader>().mockResolvedValue({
+      durationMs: 1_000,
+      billing: {
+        providerCostUsd: null,
+        providerCostSource: null,
+        builderCredits: null,
+        builderCreditsSource: null,
+        incomplete: true,
+      },
+    });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId={thread.id}
+          loadRunUsage={loadRunUsage}
+        >
+          <AgentMessageActions threadId={thread.id} value={message} />
+        </AgentKitProvider>,
+      );
+      const trigger = tree.container.querySelector(
+        'button[aria-label="Message actions"]',
+      );
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      await flush();
+
+      expect(
+        document.body.querySelector(".agentkit-message-menu")?.textContent,
+      ).toContain("Some usage could not be classified; totals are hidden.");
     } finally {
       await tree.unmount();
     }

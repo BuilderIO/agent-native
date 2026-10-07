@@ -1005,6 +1005,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageLoading": "उपयोग लोड हो रहा है…",
   "message.usageUnavailable": "उपयोग उपलब्ध नहीं है",
   "message.usageNotRecorded": "उपयोग रिकॉर्ड नहीं किया गया",
+  "message.usageIncomplete":
+    "कुछ उपयोग का वर्गीकरण नहीं हो सका; कुल राशि छिपाई गई है।",
   "message.usageReportedCost": "लागत {{amount}}",
   "message.usageEstimatedCost": "अनुमानित लागत {{amount}}",
   "message.usageBuilderCredits": "इस्तेमाल किए गए Builder क्रेडिट {{amount}}",

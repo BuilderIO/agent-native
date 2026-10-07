@@ -142,6 +142,42 @@ describe("getUsageRun", () => {
       providerCostSource: null,
       builderCredits: null,
       builderCreditsSource: null,
+      incomplete: true,
+    });
+  });
+
+  it("hides per-run totals when any usage row cannot be classified", async () => {
+    await seedUsage({
+      id: 101,
+      runId: "run-partial-billing",
+      threadId: "thread-partial-billing",
+      engineName: "openai",
+      costX100: 100,
+      input: 1_000,
+      output: 100,
+      read: 0,
+      write: 0,
+    });
+    await seedUsage({
+      id: 102,
+      runId: "run-partial-billing",
+      threadId: "thread-partial-billing",
+      engineName: null,
+      costX100: 50,
+      input: 500,
+      output: 50,
+      read: 0,
+      write: 0,
+    });
+
+    const run = await getUsageRun({ runId: "run-partial-billing" }, ACCESS);
+
+    expect(run!.billing).toEqual({
+      providerCostUsd: null,
+      providerCostSource: null,
+      builderCredits: null,
+      builderCreditsSource: null,
+      incomplete: true,
     });
   });
 

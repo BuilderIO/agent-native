@@ -762,6 +762,7 @@ export const AgentKitAssistantChat = forwardRef<
       usageLoading: t("agentChat.message.usageLoading"),
       usageUnavailable: t("agentChat.message.usageUnavailable"),
       usageNotRecorded: t("agentChat.message.usageNotRecorded"),
+      usageIncomplete: t("agentChat.message.usageIncomplete"),
       usageReportedCost: t("agentChat.message.usageReportedCost", {
         amount: "{{amount}}",
       }),

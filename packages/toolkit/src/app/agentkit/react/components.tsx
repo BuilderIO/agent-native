@@ -3312,6 +3312,13 @@ export function AgentMessageActions({
             disabled: true,
           });
         }
+        if (usage.billing.incomplete) {
+          rows.push({
+            id: "usage-incomplete",
+            label: labels.usageIncomplete,
+            disabled: true,
+          });
+        }
         if (usage.billing.providerCostUsd !== null) {
           const usd = usage.billing.providerCostUsd;
           const amount =

@@ -1021,6 +1021,8 @@ const messages = {
   "message.usageLoading": "Loading usage…",
   "message.usageUnavailable": "Usage unavailable",
   "message.usageNotRecorded": "Usage not recorded",
+  "message.usageIncomplete":
+    "Some usage could not be classified; totals are hidden.",
   "message.usageReportedCost": "Cost {{amount}}",
   "message.usageEstimatedCost": "Estimated cost {{amount}}",
   "message.usageBuilderCredits": "Builder credits used {{amount}}",
