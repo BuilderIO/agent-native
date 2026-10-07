@@ -31,7 +31,7 @@ existing schedule-only integrations and delivery metadata.
 | `schedule` | Cron expression matches (same as recurring jobs) | `schedule` (cron)   |
 | `event`    | A matching event is emitted on the event bus     | `event` (event name) |
 
-Event triggers can optionally include a `condition` -- a natural-language string evaluated by Haiku against the event payload before dispatch. If the condition does not match, the automation is skipped.
+Event triggers can optionally include a `condition` -- a natural-language string evaluated by a model against the event payload before dispatch. If the condition does not match, the automation is skipped.
 
 ## How It Works
 
@@ -40,7 +40,7 @@ Event triggers can optionally include a `condition` -- a natural-language string
 3. Agent calls `manage-automations` with `action=define` to write a `jobs/<name>.md` resource.
 4. The trigger dispatcher subscribes to the event on the bus.
 5. When the event fires, the dispatcher loads all matching triggers, enforces
-   owner and organization scope, and evaluates conditions via Haiku.
+   owner and organization scope, and evaluates conditions via the resolved model.
 6. Event and cron acquisition converge on the shared background-automation
    runner, which validates identity, resolves the configured model and MCP
    allowlist, runs the agent loop, handles continuation and delivery, and
@@ -182,12 +182,12 @@ emit("calendar.booking.created", {
 
 ## Condition Evaluator
 
-When an automation has a `condition`, the dispatcher calls the configured fast/classification model to classify whether the event payload satisfies the condition. This is a yes/no classification, not a generation task. The exact model ID lives in `condition-evaluator.ts`.
+When an automation has a `condition`, the dispatcher resolves the owner's agent engine through the same `resolveEngine` path chat and the automation's own run use (owner key, deployment fallback, or Builder Gateway) and asks it a yes/no classification question. This is a yes/no classification, not a generation task; it is never hardcoded to a single provider, so an owner using Builder Gateway, OpenRouter, or any other configured provider can use conditions, not only Anthropic.
 
 - Empty or missing condition = unconditional (always fires).
-- Results are memoized (SHA-256 of condition + payload) with a 5-minute TTL and 500-entry LRU cache.
-- Payload is truncated to 4000 characters before sending to Haiku.
-- On API failure, the condition evaluates to `false` (safe default -- skips the automation).
+- Results are memoized by condition, payload, execution identity, resolved engine, and model, with a 5-minute TTL and 500-entry LRU cache. The background runner's resolved engine and model are reused for the classifier, including configured engine, deployment-key, and automation model settings.
+- Payload is truncated to 4000 characters before sending to the model.
+- On a classifier failure (no usable credential, provider error, malformed response), evaluation throws; the trigger dispatcher records it as an `error` (or a `missing_credentials` precondition) rather than silently skipping.
 
 ## The `web-request` Tool and Keys
 
@@ -283,7 +283,7 @@ Agent flow:
 | `packages/core/src/jobs/background-automation-runner.ts` | Shared schedule/event execution lifecycle |
 | `packages/core/src/jobs/automation-outcome.ts` | Failure classification, pause thresholds, reserved identities |
 | `packages/core/src/jobs/stale-reaper.ts`       | Bounded reaping of stuck runs and A2A tasks      |
-| `packages/core/src/triggers/condition-evaluator.ts` | Haiku condition classification with caching |
+| `packages/core/src/triggers/condition-evaluator.ts` | Engine-resolved condition classification with caching |
 | `packages/core/src/event-bus/`                 | Event bus (register, emit, subscribe)            |
 | `packages/core/src/tools/fetch-tool.ts`        | `web-request` tool with key substitution         |
 | `packages/core/src/secrets/substitution.ts`    | `resolveKeyReferences()` and `validateUrlAllowlist()` |

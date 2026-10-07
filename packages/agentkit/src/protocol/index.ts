@@ -24,6 +24,11 @@ export type UploadId = string;
 export type TaskId = string;
 export type AgentInteractionId = string;
 
+export const AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE =
+  "application/x-agent-native-tool-call";
+export const AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE =
+  "application/x-agent-native-tool-result";
+
 export interface AgentProtocolReference {
   id: string;
   kind?: string;

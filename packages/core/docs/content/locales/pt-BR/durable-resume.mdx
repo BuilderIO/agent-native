@@ -1,6 +1,6 @@
 ---
 title: "Currículo Durável"
-description: "Quando a execução de um agente hospedado é interrompida e reiniciada, as chamadas de ferramenta de efeito colateral concluídas não são executadas novamente. Um diário de chamadas de ferramenta derivado do livro-razão durável bloqueia envios, cobranças e tickets duplicados."
+description: "Quando a execução de um agente hospedado é interrompida e retomada no mesmo turno, um diário de chamadas de ferramenta derivado do livro-razão durável bloqueia repetições exatas de chamadas de gravação que já foram concluídas."
 ---
 
 # Currículo Durável
@@ -94,9 +94,15 @@ Principais propriedades:
 - **Consumir uma vez.** Cada entrada concluída é reivindicada quando correspondida, de modo que duas novas chamadas idênticas e genuinamente distintas no mesmo turno não entrem em curto-circuito em uma conclusão registrada no diário.
 - **Novas chamadas intocadas.** Uma chamada de primeira vez vê um diário vazio; nada muda para execuções normais.
 
-<Callout id="doc-block-fjhhyg" tone="success">
+<Callout id="doc-block-fjhhyg" tone="warning">
 
-Together the two layers mean an interrupted run that already had a real side effect resumes **without repeating it** — no duplicate emails, charges, or tickets — while genuinely new work still runs. Read-only actions are never blocked; re-reading is always safe.
+O bloco rígido impede apenas uma **repetição exata**: a mesma ferramenta de gravação com a mesma entrada, depois que uma tentativa anterior no mesmo turno terminou e registrou seu resultado. Ele não descarta todo e-mail, cobrança ou ticket duplicado:
+
+- **Uma nova tentativa reformulada não corresponde.** Se o modelo alterar qualquer argumento, como o corpo do e-mail, a chamada deixa de corresponder a uma chamada concluída, então o bloco rígido não a impede.
+- **Uma falha no meio do envio pode causar repetição.** Se o processo morrer depois que o efeito colateral acontecer, mas antes de seu resultado ser registrado, a chamada conta como interrompida, e o bloco rígido só cobre chamadas concluídas. Uma proteção separada recusa uma nova tentativa idêntica de uma escrita interrompida, mas só quando o histórico da execução retomada mostra a interrupção.
+- **Após uma falha, uma execução pode ser retomada no mesmo turno por dois caminhos distintos.** Um é uma [execução durável em segundo plano](/docs/durable-background-runs). O outro é um trecho posterior de um turno normal em primeiro plano que usa o [autoencadeamento em primeiro plano](/docs/durable-background-runs#foreground-self-chain). Qualquer outra execução que falhe termina com um erro. Escolher **Continuar** nela retoma o mesmo turno, então as duas camadas se aplicam; enviar uma nova mensagem, em vez disso, inicia um novo turno com um diário vazio, então nenhuma das duas camadas se aplica.
+
+Uma ação cujo efeito colateral nunca deve se repetir precisa de sua própria verificação de idempotência. O bloco rígido nunca se aplica a ações somente leitura.
 
 </Callout>
 
@@ -106,7 +112,7 @@ Quando o servidor interrompe um turno no limite de tempo de execução e nada no
 
 Um turno continua automaticamente **no máximo três vezes**. A contagem fica salva com as execuções do turno, então recarregar a página não a zera e uma segunda aba não consegue duplicá-la. Depois disso, ou após qualquer erro, parada, cancelamento ou limite de credenciais ou de taxa, o turno termina com **Continuar** disponível e espera por você.
 
-Escolher **Continuar** retoma o próprio turno da execução interrompida da mesma forma, sem limite de vezes, então um envio ou uma cobrança já concluídos não se repetem. A opção só aparece para a parada mais recente da conversa. Se, em vez disso, você enviar uma nova mensagem, o agente é informado primeiro do que o turno inacabado já fez.
+Escolher **Continuar** retoma o próprio turno da execução interrompida da mesma forma, sem limite de vezes, então as duas camadas se aplicam, como em uma continuação automática. A opção só aparece para a parada mais recente da conversa. Se, em vez disso, você enviar uma nova mensagem, o agente é informado primeiro do que o turno inacabado já fez, mas nenhuma das duas camadas impede uma repetição.
 
 ## Relacionado
 

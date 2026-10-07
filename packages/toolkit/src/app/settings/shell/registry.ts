@@ -4,8 +4,9 @@ import type { OrgRole } from "@agent-native/core/org/types";
 import type { ComponentType } from "react";
 
 import type { SettingsBridge } from "./bridge.js";
+import type { SettingsPageIcon } from "./types.js";
 
-export type SettingsPageIcon = ComponentType<{ className?: string }>;
+export type { SettingsPageIcon } from "./types.js";
 
 /** Nav groups, top to bottom. */
 export const SETTINGS_PAGE_GROUPS = [
