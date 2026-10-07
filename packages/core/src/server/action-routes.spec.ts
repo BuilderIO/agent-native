@@ -2191,6 +2191,54 @@ describe("mountActionRoutes", () => {
     ).toEqual(["poll-engine", "undeclared-write"]);
   });
 
+  it("publishes the change of a write whose result broke its output contract", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { defineAction } = await import("../action.js");
+    const { z } = await import("zod");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const strictPublish = (name: string) =>
+      defineAction({
+        description: name,
+        schema: z.object({ apply: z.boolean().default(true) }),
+        outputSchema: z.object({ ok: z.literal(true) }),
+        outputErrorStrategy: "strict",
+        planMode: { effect: (args) => (args.apply ? "write" : "read") },
+        run: async () => ({ ok: false }) as any,
+      });
+    const actions = {
+      "publish-default": strictPublish("publish-default"),
+      "publish-preview": strictPublish("publish-preview"),
+    } as unknown as Record<string, ActionEntry>;
+    mountActionRoutes(nitroApp, actions);
+    const call = (name: string, body: Record<string, unknown>) => {
+      const mount = mounted.find((entry) => entry.path.endsWith(`/${name}`))!;
+      const event = {
+        _method: "POST",
+        _headers: {},
+        req: {
+          url: `http://app.test/_agent-native/actions/${name}`,
+          json: async () => body,
+        },
+      };
+      return mount.handler(event);
+    };
+
+    const committed = await call("publish-default", {});
+    const preview = await call("publish-preview", { apply: false });
+    expect(committed).toMatchObject({
+      errorCode: "output_contract_violation",
+    });
+    expect(preview).toMatchObject({ errorCode: "output_contract_violation" });
+    expect(
+      mockNotifyActionChange.mock.calls.map(([arg]) => arg.actionName),
+    ).toEqual(["publish-default"]);
+  });
+
   it("refuses extension tools-bridge calls to provider-api-request", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

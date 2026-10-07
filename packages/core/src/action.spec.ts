@@ -4,7 +4,9 @@ import { z } from "zod";
 import {
   defineAction,
   ActionContractError,
+  ActionOutputContractError,
   isActionContractError,
+  isActionOutputContractError,
   AgentActionStopError,
   AgentConnectionRequiredError,
   isAgentActionStopError,
@@ -917,7 +919,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     expect(String(warnings[0][0])).toContain("count");
   });
 
-  it('throws a clear error on mismatch under the "strict" strategy', async () => {
+  it('throws a typed output-contract error on mismatch under the "strict" strategy', async () => {
     const action = defineAction({
       description: "strict output",
       schema: z.object({ x: z.string() }),
@@ -925,10 +927,167 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       outputErrorStrategy: "strict",
       run: async () => ({ wrong: true }),
     });
-    await expect(action.run({ x: "hi" })).rejects.toThrow(
-      /did not match outputSchema/,
-    );
+    const error = await action.run({ x: "hi" }).catch((err: unknown) => err);
+    expect(isActionOutputContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "output_contract_violation",
+      contract: "semantic",
+      issues: ["id: invalid_type"],
+    });
     expect(action.outputErrorStrategy).toBe("strict");
+  });
+
+  it("reports a read-only mismatch as having changed nothing", async () => {
+    const action = defineAction({
+      description: "strict read",
+      schema: z.object({}),
+      outputSchema: z.object({ count: z.number() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ count: "alice@example.com" }),
+    });
+    const error = await action
+      .run({}, { actionName: "count-things" })
+      .catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ActionOutputContractError);
+    expect(error).toMatchObject({
+      effect: "none",
+      statusCode: 500,
+      details: { effect: "none", contract: "semantic" },
+    });
+    expect((error as Error).message).toContain('"count-things"');
+    expect((error as Error).message).toContain("changed nothing");
+    expect((error as Error).message).not.toContain("alice@example.com");
+  });
+
+  it("reports a write's mismatch as committed and says not to retry", async () => {
+    let writes = 0;
+    const action = defineAction({
+      description: "strict write",
+      schema: z.object({}),
+      outputSchema: z.object({
+        rows: z.array(z.object({ owner: z.string() })),
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => {
+        writes += 1;
+        return {
+          rows: [{ owner: "alice@example.com" }, { owner: 42 }],
+          "bob@example.com": true,
+        };
+      },
+    });
+    const error = await action
+      .run({}, { actionName: "assign-owners" })
+      .catch((err: unknown) => err);
+    expect(writes).toBe(1);
+    expect(error).toMatchObject({
+      effect: "committed",
+      issues: ["rows.1.owner: invalid_type"],
+    });
+    expect((error as Error).message).toContain("do not retry");
+    expect((error as Error).message).not.toMatch(/alice@|bob@|42/);
+  });
+
+  it("classifies the effect per call from planMode", async () => {
+    const action = defineAction({
+      description: "mixed",
+      schema: z.object({ apply: z.boolean() }),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      planMode: { effect: (args) => (args.apply ? "write" : "read") },
+      run: async () => ({ ok: false }),
+    });
+    await expect(action.run({ apply: false })).rejects.toMatchObject({
+      effect: "none",
+    });
+    await expect(action.run({ apply: true })).rejects.toMatchObject({
+      effect: "committed",
+    });
+  });
+
+  it("masks object keys the schema does not declare in issue paths", async () => {
+    const action = defineAction({
+      description: "record output",
+      schema: z.object({}),
+      outputSchema: z.object({
+        byOwner: z.record(z.string(), z.number()),
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ byOwner: { "carol@example.com": "many" } }),
+    });
+    await expect(action.run({})).rejects.toMatchObject({
+      issues: ["byOwner.*: invalid_type"],
+    });
+  });
+
+  it("masks a numeric record key like any other", async () => {
+    const action = defineAction({
+      description: "numeric record output",
+      schema: z.object({}),
+      outputSchema: z.object({
+        byYear: z.record(z.string(), z.number()),
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ byYear: { "1987": "born" } }),
+    });
+    const error = await action.run({}).catch((err: unknown) => err);
+    expect(error).toMatchObject({ issues: ["byYear.*: invalid_type"] });
+    expect((error as Error).message).not.toContain("1987");
+  });
+
+  it("classifies the effect from validated arguments, defaults applied", async () => {
+    const action = defineAction({
+      description: "defaulted write",
+      schema: z.object({ apply: z.boolean().default(true) }),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      planMode: { effect: (args) => (args.apply ? "write" : "read") },
+      run: async () => ({ ok: false }) as any,
+    });
+    await expect(action.run({} as any)).rejects.toMatchObject({
+      effect: "committed",
+    });
+  });
+
+  it("types a throwing refinement as an output-contract failure without its message", async () => {
+    const action = defineAction({
+      description: "throwing refinement",
+      schema: z.object({}),
+      outputSchema: z.object({ owner: z.string() }).superRefine((value) => {
+        throw new Error(`${value.owner} is not allowed`);
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ owner: "ivan@example.com" }),
+    });
+    const error = await action
+      .run({}, { actionName: "assign" })
+      .catch((err: unknown) => err);
+    expect(isActionOutputContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      effect: "committed",
+      issues: ["(root): validator_threw"],
+    });
+    expect((error as Error).message).not.toContain("ivan@example.com");
+  });
+
+  it("keeps the warn strategy non-breaking when a refinement throws", async () => {
+    const output = { owner: "ivan@example.com" };
+    const original = console.warn;
+    console.warn = () => {};
+    try {
+      const action = defineAction({
+        description: "throwing refinement, warn",
+        schema: z.object({}),
+        outputSchema: z.object({ owner: z.string() }).superRefine(() => {
+          throw new Error("refinement bug");
+        }),
+        run: async () => output,
+      });
+      await expect(action.run({})).resolves.toBe(output);
+    } finally {
+      console.warn = original;
+    }
   });
 
   it('returns the configured fallback on mismatch under the "fallback" strategy', async () => {
@@ -980,6 +1139,116 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
     const out = await action.run({ id: "x" });
     expect(out).toEqual({ count: 5 });
+  });
+});
+
+describe("defineAction — mcpOutputSchema opt-in", () => {
+  it("builds no MCP contract unless the action opts in", () => {
+    const action = defineAction({
+      description: "warn by default",
+      schema: z.object({}),
+      outputSchema: z.object({ id: z.string() }),
+      run: async () => ({ id: "a" }),
+    });
+    expect(action.mcpOutputContract).toBeUndefined();
+  });
+
+  it("keeps the semantic contract apart from the derived MCP response contract", () => {
+    const action = defineAction({
+      description: "list ids",
+      schema: z.object({}),
+      outputSchema: z.array(z.object({ id: z.string() })),
+      outputErrorStrategy: "strict",
+      mcpOutputSchema: true,
+      run: async () => [{ id: "a" }],
+    });
+    expect(action.mcpOutputContract?.semantic).toMatchObject({
+      type: "array",
+      items: { type: "object", required: ["id"] },
+    });
+    expect(action.mcpOutputContract?.response).toMatchObject({
+      type: "object",
+      properties: { items: { type: "array" } },
+      required: ["items"],
+    });
+  });
+
+  it("derives the contract from the output side of the schema", () => {
+    const action = defineAction({
+      description: "defaulted output",
+      schema: z.object({}),
+      outputSchema: z.object({ count: z.number().default(0) }),
+      outputErrorStrategy: "strict",
+      mcpOutputSchema: true,
+      run: async () => ({}),
+    });
+    expect(action.mcpOutputContract?.semantic.required).toEqual(["count"]);
+  });
+
+  it.each([
+    [
+      "no outputSchema",
+      { outputErrorStrategy: "strict" as const },
+      /requires an outputSchema/,
+    ],
+    [
+      "the default warn strategy",
+      { outputSchema: z.object({ id: z.string() }) },
+      /outputErrorStrategy: "strict"/,
+    ],
+    [
+      "a fallback strategy",
+      {
+        outputSchema: z.object({ id: z.string() }),
+        outputErrorStrategy: "fallback" as const,
+        outputFallback: { id: "" },
+      },
+      /outputErrorStrategy: "strict"/,
+    ],
+    [
+      "a scalar root",
+      {
+        outputSchema: z.string(),
+        outputErrorStrategy: "strict" as const,
+      },
+      /root must be an object/,
+    ],
+    [
+      "async validation metadata",
+      {
+        outputSchema: z.object({ id: z.string() }).meta({ $async: true }),
+        outputErrorStrategy: "strict" as const,
+      },
+      /"\$async"/,
+    ],
+    [
+      "a format the MCP check cannot validate",
+      {
+        outputSchema: z.object({
+          id: z.string().meta({ format: "made-up" }),
+        }),
+        outputErrorStrategy: "strict" as const,
+      },
+      /format "made-up"/,
+    ],
+    [
+      "a transform the output converter cannot represent",
+      {
+        outputSchema: z.object({ n: z.string().transform(Number) }),
+        outputErrorStrategy: "strict" as const,
+      },
+      /Transforms cannot be represented/,
+    ],
+  ])("refuses to opt in with %s", (_label, fields, message) => {
+    expect(() =>
+      defineAction({
+        description: "opt in",
+        schema: z.object({}),
+        ...fields,
+        mcpOutputSchema: true,
+        run: async () => ({ id: "a" }),
+      } as any),
+    ).toThrow(message);
   });
 });
 

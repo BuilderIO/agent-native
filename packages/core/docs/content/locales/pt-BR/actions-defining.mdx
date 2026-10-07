@@ -102,6 +102,14 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
             'Retornado no lugar de um resultado inválido quando outputErrorStrategy é "fallback".',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'Anuncia o outputSchema para clientes MCP e valida cada resultado com ele. Exige outputErrorStrategy "strict".',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -247,6 +255,12 @@ export default defineAction({
 | `"fallback"` | Retorna o valor `outputFallback` fornecido no lugar do resultado inválido.                                               |
 
 Quando `run()` tem sucesso, o framework retorna o valor validado, então quaisquer defaults ou coerções em `outputSchema` entram em vigor, da mesma forma que acontece para a entrada. Quando você não passa um `outputSchema`, o valor de retorno permanece inalterado.
+
+A verificação estrita roda depois de `run()`, então o erro (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) informa o que já aconteceu: `effect` é `"none"` para uma chamada somente leitura e `"committed"` para uma escrita cujas alterações já foram aplicadas, que quem chama não deve repetir. A mensagem lista apenas caminhos de campos declarados e códigos de problema, nunca os valores retornados.
+
+### Anunciar o contrato via MCP {#mcp-output-schema}
+
+Por padrão, clientes MCP não veem nenhum `outputSchema`, porque um schema em `"warn"` não é aplicado. Depois de verificar que todo resultado real corresponde, defina `mcpOutputSchema: true` junto com `outputErrorStrategy: "strict"`. A ferramenta então anuncia o schema no formato que os clientes MCP recebem — uma raiz do tipo array é envolvida como `{ items }`, e actions com `link` ganham `openLink` e `url` — e valida cada `structuredContent` com ele antes de retornar. A raiz precisa ser um objeto, uma união só de objetos ou um array; schemas com transformações não podem aderir. O schema anunciado também considera o que o MCP oculta: campos de ticket de incorporação são removidos, um campo de texto que possa conter uma URL de início de incorporação passa a ser opcional e um item de array pode chegar como `"[hidden embed URL]"`. Um schema que use uma palavra-chave ou um `format` que a verificação não consegue aplicar, como `not`, `$async` ou um formato desconhecido, não pode aderir.
 
 ## Contratos de resultado {#result-contracts}
 

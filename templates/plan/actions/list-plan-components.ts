@@ -42,6 +42,8 @@ export default defineAction({
       .describe("Include per-component examples when available."),
   }),
   outputSchema: dataInsightsWidgetResultSchema,
+  outputErrorStrategy: "strict",
+  mcpOutputSchema: true,
   chatUI: {
     renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
     title: "Plan components",

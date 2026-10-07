@@ -77,6 +77,8 @@ export default defineAction({
     "Check whether the built-in first-party Analytics source is still a good fit for Neon/Postgres. Use this before a large or historical query. It reads compact daily rollups and the small slow-query pressure ledger, never the raw event table. For BigQuery cutovers, it also reports pending delivery count, age, and the last delivery error so a warehouse outage is visible before dashboards go quiet. A pending delivery-queue migration is reported as degraded delivery health instead of hiding the existing health result. `healthy` means Neon is fine, `monitor` means keep Neon but watch growth or delivery lag, and `recommend_bigquery` means use a configured external analytics backend for high-volume or historical queries. The result reports the two supported external options with safe setup links: BigQuery for warehouse SQL and history, and Amplitude for product analytics, funnels, and retention. A recommendation is based on 1M+ observed events, three or more slow queries in 24 hours, or any query timeout/30-second query. Connecting a backend does not silently reroute `/track` events or backfill existing Neon events.",
   schema: z.object({}),
   outputSchema: healthSchema,
+  outputErrorStrategy: "strict",
+  mcpOutputSchema: true,
   http: { method: "GET" },
   readOnly: true,
   mcpTool: true,

@@ -30,6 +30,8 @@ export default defineAction({
     form: z.string().optional().describe("Form ID (legacy alias for formId)"),
   }),
   outputSchema: dataInsightsWidgetResultSchema,
+  outputErrorStrategy: "strict",
+  mcpOutputSchema: true,
   chatUI: {
     renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
     title: "Form preview",

@@ -1,4 +1,8 @@
-import type { ActionChangeResource, ActionPlanModeConfig } from "./action.js";
+import type {
+  ActionChangeResource,
+  ActionOutputEffect,
+  ActionPlanModeConfig,
+} from "./action.js";
 
 export function actionCallIsReadOnly(
   entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
@@ -17,6 +21,18 @@ export function actionCallIsReadOnly(
   }
   if (typeof entry.readOnly === "boolean") return entry.readOnly;
   return fallback;
+}
+
+/**
+ * What a call that ran to completion has done, for a failure reported after
+ * it ran. Classify from the arguments `run` received — after input validation
+ * applied defaults — not from the raw request: `{}` may mean `{ apply: true }`.
+ */
+export function actionCallEffect(
+  entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
+  params: unknown,
+): ActionOutputEffect {
+  return actionCallIsReadOnly(entry, params, false) ? "none" : "committed";
 }
 
 /**

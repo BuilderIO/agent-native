@@ -80,10 +80,14 @@ export default defineAction({
 ```
 
 - `"warn"` (default) — `console.warn` the issues and return the **original** result unchanged. Non-breaking.
-- `"strict"` — throw a clear error so a buggy action surfaces loudly.
+- `"strict"` — throw `ActionOutputContractError` (`errorCode: "output_contract_violation"`) so a buggy action surfaces loudly.
 - `"fallback"` — return `outputFallback` in place of the invalid result.
 
 On success the validated value is returned, so coercion/defaults on `outputSchema` apply. Omit `outputSchema` and behavior is byte-for-byte unchanged (no wrapping).
+
+The strict error runs after `run()`, so it carries `effect`: `"none"` for a read-only call, `"committed"` for a write whose changes already landed. Its message names only declared field paths and issue codes, never output values, and tells the caller not to retry a committed write.
+
+MCP clients see no `outputSchema` by default. Set `mcpOutputSchema: true` (requires `outputErrorStrategy: "strict"`) only after auditing that every real result matches: the tool then advertises the schema as MCP sees it (an array root becomes `{ items }`, linked actions gain `openLink`/`url`), and each `structuredContent` is validated against it before it is returned. Roots must be an object, an object-only union, or an array, and schemas with transforms cannot opt in. The advertised schema allows for MCP's redaction (embed ticket fields dropped, string fields that could hold an embed start URL optional, array items possibly `"[hidden embed URL]"`), and a schema using a keyword or `format` the check cannot enforce (`not`, `$async`, an unknown format) is refused at definition time.
 
 ## Authorization (`authorize`)
 

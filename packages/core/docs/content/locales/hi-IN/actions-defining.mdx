@@ -101,6 +101,14 @@ description: "defineAction() की संरचना: schema, run, और HTTP
             'जब outputErrorStrategy "fallback" हो तो अमान्य result की जगह लौटाया जाता है।',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'MCP क्लाइंट को outputSchema बताता है और हर परिणाम को उसके विरुद्ध जाँचता है। इसके लिए outputErrorStrategy "strict" होना ज़रूरी है।',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -246,6 +254,12 @@ export default defineAction({
 | `"fallback"` | अमान्य result की जगह दिया गया `outputFallback` वैल्यू लौटाता है।                                               |
 
 जब `run()` सफल होता है, फ्रेमवर्क वैलिडेटेड वैल्यू लौटाता है, इसलिए `outputSchema` पर कोई भी defaults या coercions उसी तरह लागू होते हैं जैसे वे input के लिए होते हैं। जब आप कोई `outputSchema` पास नहीं करते, तो return वैल्यू अपरिवर्तित रहता है।
+
+स्ट्रिक्ट जाँच `run()` के बाद चलती है, इसलिए त्रुटि (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) बताती है कि पहले ही क्या हो चुका है: केवल-पढ़ने वाली कॉल के लिए `effect` का मान `"none"` होता है, और ऐसे लेखन के लिए `"committed"` जिसके बदलाव पहले ही लागू हो चुके हैं, जिसे कॉल करने वालों को दोबारा नहीं चलाना चाहिए। संदेश में केवल घोषित फ़ील्ड पथ और समस्या कोड होते हैं, लौटाए गए मान कभी नहीं।
+
+### MCP पर अनुबंध बताना {#mcp-output-schema}
+
+डिफ़ॉल्ट रूप से MCP क्लाइंट को कोई `outputSchema` नहीं दिखता, क्योंकि `"warn"` वाला स्कीमा लागू नहीं किया जाता। जब आप जाँच लें कि हर वास्तविक परिणाम मेल खाता है, तो `outputErrorStrategy: "strict"` के साथ `mcpOutputSchema: true` सेट करें। तब टूल स्कीमा को उसी रूप में बताता है जिसमें MCP क्लाइंट उसे पाते हैं — ऐरे रूट को `{ items }` में लपेटा जाता है, और `link` वाले actions को `openLink` और `url` मिलते हैं — और हर `structuredContent` को लौटाने से पहले उसके विरुद्ध जाँचता है। रूट एक ऑब्जेक्ट, केवल ऑब्जेक्ट वाला यूनियन, या ऐरे होना चाहिए; ट्रांसफ़ॉर्म वाले स्कीमा इसे चालू नहीं कर सकते। बताया गया स्कीमा यह भी ध्यान रखता है कि MCP क्या छिपाता है: एम्बेड टिकट फ़ील्ड हटा दिए जाते हैं, जिस स्ट्रिंग फ़ील्ड में एम्बेड स्टार्ट URL हो सकता है वह वैकल्पिक हो जाता है, और ऐरे का कोई आइटम `"[hidden embed URL]"` के रूप में आ सकता है। जो स्कीमा ऐसे कीवर्ड या `format` का उपयोग करता है जिसे जाँच लागू नहीं कर सकती, जैसे `not`, `$async` या कोई अज्ञात फ़ॉर्मैट, वह इसे चालू नहीं कर सकता।
 
 ## Result contracts {#result-contracts}
 
