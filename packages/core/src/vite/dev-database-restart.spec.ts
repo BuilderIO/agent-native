@@ -500,6 +500,23 @@ export default async () => {
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         true,
       );
+
+      const restartsBeforeShutdown = serverRestarts;
+      const listensBeforeShutdown = serverListens;
+      const shutdownNitroHot = server.environments.nitro?.hot as NitroHot;
+      restoreCloseAcknowledgements = suppressNitroAcknowledgements(
+        shutdownNitroHot,
+        "agent-native:dev-database-closed",
+      );
+      const shutdownStartedAt = Date.now();
+      await server.close();
+      expect(Date.now() - shutdownStartedAt).toBeLessThan(20_000);
+      expect(serverRestarts).toBe(restartsBeforeShutdown + 1);
+      expect(serverListens).toBe(listensBeforeShutdown);
+      expect(server.httpServer?.listening).toBe(false);
+      restoreCloseAcknowledgements();
+      restoreCloseAcknowledgements = undefined;
+      server = undefined;
     } finally {
       restoreCloseAcknowledgements?.();
       restoreNitroSend?.();

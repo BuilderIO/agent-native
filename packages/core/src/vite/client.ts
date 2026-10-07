@@ -3746,6 +3746,14 @@ function nitroDevEnvironmentClosePlugin(): Plugin {
     configureServer(server) {
       const closeServer = server.close.bind(server);
       const listenServer = server.listen.bind(server);
+      const restartServer = server.restart.bind(server);
+      let restartsInProgress = 0;
+      server.restart = (forceOptimize) => {
+        restartsInProgress++;
+        return restartServer(forceOptimize).finally(() => {
+          restartsInProgress--;
+        });
+      };
       server.listen = async (...args) => {
         if (!databaseShutdownPending) return listenServer(...args);
 
@@ -3814,13 +3822,23 @@ function nitroDevEnvironmentClosePlugin(): Plugin {
           if (runner && !runner.closed) {
             if (runner.ready) {
               databaseShutdownPending = true;
-              await requestNitroDevDatabaseClose(environment, (error) => {
-                const detail = error.message;
-                server.config.logger.warn(
-                  `Nitro dev database cleanup is still waiting for active PGlite operations: ${detail}`,
+              try {
+                await requestNitroDevDatabaseClose(environment, (error) => {
+                  const detail = error.message;
+                  server.config.logger.warn(
+                    `Nitro dev database cleanup is still waiting for active PGlite operations: ${detail}`,
+                    { timestamp: true },
+                  );
+                });
+              } catch (error) {
+                if (restartsInProgress > 0) throw error;
+                const detail =
+                  error instanceof Error ? error.message : String(error);
+                server.config.logger.error(
+                  `Nitro dev database cleanup was not acknowledged before shutdown: ${detail}. Proceeding with Vite shutdown; any unclosed PGlite client will keep its lock until cleanup or process exit.`,
                   { timestamp: true },
                 );
-              });
+              }
             }
           }
           await closeServer();
