@@ -6527,7 +6527,12 @@ export async function runAgentLoop(opts: {
             caller: opts.actionCaller ?? "tool",
           });
         } catch (error) {
-          if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+          if (
+            !(error instanceof ServicePrincipalRefusedError) ||
+            error.statusCode !== 403
+          ) {
+            throw error;
+          }
           return declineToolCall(error.message);
         }
       }

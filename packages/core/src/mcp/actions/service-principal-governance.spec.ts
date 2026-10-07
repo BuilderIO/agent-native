@@ -174,6 +174,16 @@ describe("governance actions are admin-only and out of the agent tool loop", () 
 });
 
 describe("set-service-principal-policy", () => {
+  it("does not create a governance row for a no-field update", async () => {
+    getPolicyMock.mockResolvedValue(null);
+
+    const result = await policyAction.run({ serviceName: "ci" }, CTX());
+
+    expect(upsertPolicyMock).not.toHaveBeenCalled();
+    expect(result.changedFields).toEqual([]);
+    expect(result.principal.state).toBe("ungoverned");
+  });
+
   it("saves validated fields and reports which changed", async () => {
     const res = await policyAction.run(
       {

@@ -2653,37 +2653,18 @@ export async function createMCPServerForRequest(
 
   // Read per request, never cached: a principal suspended or re-scoped after
   // admission is stopped by the next list or call.
-  function resolveServiceGrant(): Promise<{
+  async function resolveServiceGrant(actionName?: string): Promise<{
     allowedActions: string[] | null;
   }> {
-    return assertServicePrincipalMayRun(
-      effectiveIdentity?.userEmail,
-      typeof effectiveIdentity?.orgId === "string"
-        ? effectiveIdentity.orgId
-        : undefined,
-    );
-  }
-
-  // MCP App widgets belong to their action: outside the grant, the resource is
-  // as invisible as the tool.
-  async function grantedAdvertisedActions(): Promise<typeof advertisedActions> {
-    const { allowedActions } = await resolveServiceGrant();
-    return allowedActions === null
-      ? advertisedActions
-      : Object.fromEntries(
-          Object.entries(advertisedActions).filter(([name]) =>
-            isActionGranted(allowedActions, name),
-          ),
-        );
-  }
-
-  async function grantedResourceActions(
-    actionName: string,
-  ): Promise<typeof advertisedActions> {
     try {
-      return await grantedAdvertisedActions();
+      return await assertServicePrincipalMayRun(
+        effectiveIdentity?.userEmail,
+        typeof effectiveIdentity?.orgId === "string"
+          ? effectiveIdentity.orgId
+          : undefined,
+      );
     } catch (error) {
-      if (error instanceof ServicePrincipalRefusedError) {
+      if (actionName && error instanceof ServicePrincipalRefusedError) {
         await recordServicePrincipalDenial({
           email: effectiveIdentity?.userEmail,
           orgId: effectiveIdentity?.orgId,
@@ -2696,9 +2677,30 @@ export async function createMCPServerForRequest(
     }
   }
 
+  // MCP App widgets belong to their action: outside the grant, the resource is
+  // as invisible as the tool.
+  async function grantedAdvertisedActions(
+    actionName: string,
+  ): Promise<typeof advertisedActions> {
+    const { allowedActions } = await resolveServiceGrant(actionName);
+    return allowedActions === null
+      ? advertisedActions
+      : Object.fromEntries(
+          Object.entries(advertisedActions).filter(([name]) =>
+            isActionGranted(allowedActions, name),
+          ),
+        );
+  }
+
+  async function grantedResourceActions(
+    actionName: string,
+  ): Promise<typeof advertisedActions> {
+    return grantedAdvertisedActions(actionName);
+  }
+
   server.setRequestHandler("tools/list", async (request: any, ctx: any) => {
     const startedAt = Date.now();
-    const { allowedActions } = await resolveServiceGrant();
+    const { allowedActions } = await resolveServiceGrant("mcp:tools/list");
     const result = await withCallerContext(async () => {
       const tools: Tool[] = await Promise.all(
         Object.entries(advertisedActions)

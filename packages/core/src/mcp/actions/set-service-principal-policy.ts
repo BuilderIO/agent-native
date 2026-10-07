@@ -113,19 +113,21 @@ export default defineAction({
         JSON.stringify(input[field]) !== JSON.stringify(before[field]),
     );
 
-    let saved;
-    try {
-      saved = await upsertServicePrincipalPolicy(
-        caller.orgId,
-        serviceName,
-        input,
-      );
-    } catch (error) {
-      console.error("[service-principal] Policy write failed:", error);
-      throw new ServiceTokenError(
-        "Could not save the service principal policy. Nothing was changed; try again.",
-        503,
-      );
+    let saved = existing;
+    if (Object.keys(input).length > 0) {
+      try {
+        saved = await upsertServicePrincipalPolicy(
+          caller.orgId,
+          serviceName,
+          input,
+        );
+      } catch (error) {
+        console.error("[service-principal] Policy write failed:", error);
+        throw new ServiceTokenError(
+          "Could not save the service principal policy. Nothing was changed; try again.",
+          503,
+        );
+      }
     }
     const principal = describeServicePrincipal(
       caller.orgId,

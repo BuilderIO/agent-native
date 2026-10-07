@@ -731,12 +731,15 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
 
     if (callBudget) callBudget.count += 1;
     usedTools.add(toolName);
+    let servicePrincipalRefusedError:
+      | typeof import("../org/service-principal-guard.js").ServicePrincipalRefusedError
+      | undefined;
     try {
       const context = options.context;
       if (context && parseServiceIdentityEmail(context.userEmail)) {
-        const { enforceServicePrincipalActionGrant } =
-          await import("../org/service-principal-guard.js");
-        await enforceServicePrincipalActionGrant({
+        const guard = await import("../org/service-principal-guard.js");
+        servicePrincipalRefusedError = guard.ServicePrincipalRefusedError;
+        await guard.enforceServicePrincipalActionGrant({
           email: context.userEmail,
           orgId: context.orgId,
           actionName: toolName,
@@ -766,6 +769,13 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
           : await run();
       return formatBridgeResult(result);
     } catch (error) {
+      if (error instanceof BridgeInvocationError) throw error;
+      if (
+        servicePrincipalRefusedError &&
+        error instanceof servicePrincipalRefusedError
+      ) {
+        throw new BridgeInvocationError(error.statusCode, error.message);
+      }
       throw new BridgeInvocationError(
         500,
         error instanceof Error ? error.message : String(error),

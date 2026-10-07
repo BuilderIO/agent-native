@@ -134,6 +134,28 @@ describe("MCP tools/list for a service principal", () => {
     evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
     const client = await clientFor(serviceIdentity);
     await expect(client.listTools()).rejects.toThrow(/could not be verified/);
+    expect(recordActionAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("audits a service principal refused by tools/list", async () => {
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "suspended",
+      policy: { lifecycle: "suspended", allowedActions: null },
+    });
+    const client = await clientFor(serviceIdentity);
+
+    await expect(client.listTools()).rejects.toThrow(/suspended or retired/i);
+
+    expect(recordActionAuditMock).toHaveBeenCalledTimes(1);
+    expect(recordActionAuditMock.mock.calls[0][0]).toMatchObject({
+      ctx: {
+        actionName: "mcp:tools/list",
+        caller: "mcp",
+        userEmail: SVC,
+        orgId: "org_1",
+      },
+      error: { statusCode: 403 },
+    });
   });
 });
 

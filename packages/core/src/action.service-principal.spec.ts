@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AgentEngine, EngineEvent } from "./agent/engine/types.js";
+
 const executeMock = vi.fn();
 vi.mock("./db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
@@ -13,7 +15,8 @@ vi.mock("./audit/record.js", () => ({
 }));
 
 const { defineAction } = await import("./action.js");
-const { executeAgentToolCall } = await import("./agent/production-agent.js");
+const { executeAgentToolCall, runAgentLoop } =
+  await import("./agent/production-agent.js");
 
 const SVC = "svc-ci@service.org_1";
 const runs: string[] = [];
@@ -227,6 +230,69 @@ describe("delegated agent run as a service principal", () => {
     const result = await call("list-things");
     expect(result.status).toBe("failed");
     expect(result.output).toContain("could not be verified");
+    expect(runs).toEqual([]);
+    expect(recordActionAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("propagates an unreadable policy store out of the agent loop for retry", async () => {
+    executeMock.mockRejectedValue(new Error("db down"));
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Done." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call",
+              id: "call-list-things",
+              name: "list-things",
+              input: {},
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await expect(
+      runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: entries(),
+        send: vi.fn(),
+        signal: new AbortController().signal,
+        ownerEmail: SVC,
+        orgId: "org_1",
+        maxIterations: 1,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "service_principal_unavailable",
+      statusCode: 503,
+    });
+    expect(streamCalls).toBe(1);
     expect(runs).toEqual([]);
     expect(recordActionAuditMock).not.toHaveBeenCalled();
   });
