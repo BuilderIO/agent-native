@@ -24,11 +24,12 @@ import {
   readPromptVersion,
   replaceAutomationContentWithUserPrompt,
   scheduleCron,
+  stampAutomationTriggerType,
 } from "../server/lib/factory-automation-config.js";
 import {
   deleteFactoryAutomationVersionRow,
   insertFactoryAutomationVersionIfChanged,
-  resolvePromptVersionForSnapshot,
+  resolvePromptVersionAllocation,
   snapshotFromAutomationResource,
 } from "../server/lib/factory-automation-history.js";
 import { findFactoryAutomationDefinition } from "../server/lib/factory-automation-resources.js";
@@ -249,14 +250,17 @@ export default defineAction({
       input.displayName !== undefined
         ? input.displayName.trim() || null
         : previousSnapshot.displayName;
-    const resolvedPromptVersion = resolvePromptVersionForSnapshot(
-      {
+    const versionAllocation = await resolvePromptVersionAllocation({
+      automationId: definition.resource.id,
+      orgId,
+      next: {
         userPrompt: normalizedPrompt,
         displayName: nextDisplayName,
         config,
       },
-      previousSnapshot,
-    );
+      previous: previousSnapshot,
+    });
+    const resolvedPromptVersion = versionAllocation.promptVersion;
     let content = applyAutomationConfigFrontmatter(resource.content, config);
     content = replaceAutomationContentWithUserPrompt(
       content,
@@ -289,6 +293,13 @@ export default defineAction({
       input.factoryId,
     );
     content = setAutomationFrontmatterField(content, "appId", "factory");
+    const stamp = stampAutomationTriggerType(content, { orgId });
+    content = stamp.content;
+    if (stamp.skipped) {
+      console.warn(
+        `[save-factory-automation] ${input.name} stays untagged because ${stamp.skipped}.`,
+      );
+    }
     if (input.model !== undefined) {
       content = setAutomationFrontmatterField(
         content,
@@ -328,6 +339,7 @@ export default defineAction({
       nextContent: content,
       summary: "Automation save",
       source: "save",
+      version: versionAllocation.predecessorVersion ?? undefined,
     });
     let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
     let writeError: unknown;
