@@ -50,6 +50,7 @@ import {
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  onDbClientsClosing,
 } from "../db/client.js";
 import {
   CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
@@ -1959,21 +1960,30 @@ export async function resetBetterAuth(): Promise<void> {
 }
 
 let _poolCloseHookRegistered = false;
+let _dbExecCloseHookRegistered = false;
+function resetAuthInstanceState(): void {
+  _auth = undefined;
+  _initPromise = undefined;
+  _neonAuthPool = undefined;
+}
+
 function resetAuthOnPoolClose(driver?: string, url?: string): void {
   if (_poolCloseHookRegistered) return;
   _poolCloseHookRegistered = true;
-  onSharedDbPoolsClosed(() => {
-    _auth = undefined;
-    _initPromise = undefined;
-    _neonAuthPool = undefined;
-  });
+  onSharedDbPoolsClosed(resetAuthInstanceState);
   if (driver && url) {
-    onSharedDbPoolReplaced(driver, url, () => {
-      _auth = undefined;
-      _initPromise = undefined;
-      _neonAuthPool = undefined;
-    });
+    onSharedDbPoolReplaced(driver, url, resetAuthInstanceState);
   }
+}
+
+function resetAuthOnDbExecClose(): void {
+  if (_dbExecCloseHookRegistered) return;
+  _dbExecCloseHookRegistered = true;
+  // Nitro can close this worker's PGlite client before the process exits.
+  onDbClientsClosing(() => {
+    resetAuthInstanceState();
+    _dbExecCloseHookRegistered = false;
+  });
 }
 
 async function createBetterAuthInstance(
@@ -2592,6 +2602,7 @@ export async function buildDatabaseConfig(): Promise<
   } = await import("../db/create-get-db.js");
 
   if (isPgliteUrl(url)) {
+    resetAuthOnDbExecClose();
     const { drizzle } = await loadPgliteDrizzle();
     const client = await getPgliteClient(url);
     const db = drizzle({

@@ -26,6 +26,7 @@ import {
   withDbExec,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  onDbClientsClosing,
   postgresStatementTimeoutMs,
   assertHostedRuntimeDatabase,
 } from "./client.js";
@@ -999,19 +1000,27 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   // branches only — `createGetDb` is called at module scope by every store, and
   // core's specs widely mock `db/client.js`.
   let _closeHookRegistered = false;
+  let _dbExecCloseHookRegistered = false;
+  const resetDbHandle = () => {
+    _db = undefined;
+    _dbReady = undefined;
+  };
   function resetOnPoolClose(driver?: string, url?: string): void {
     if (_closeHookRegistered) return;
     _closeHookRegistered = true;
-    onSharedDbPoolsClosed(() => {
-      _db = undefined;
-      _dbReady = undefined;
-    });
+    onSharedDbPoolsClosed(resetDbHandle);
     if (driver && url) {
-      onSharedDbPoolReplaced(driver, url, () => {
-        _db = undefined;
-        _dbReady = undefined;
-      });
+      onSharedDbPoolReplaced(driver, url, resetDbHandle);
     }
+  }
+  function resetOnDbExecClose(): void {
+    if (_dbExecCloseHookRegistered) return;
+    _dbExecCloseHookRegistered = true;
+    // Nitro can close this worker's PGlite client before the process exits.
+    onDbClientsClosing(() => {
+      resetDbHandle();
+      _dbExecCloseHookRegistered = false;
+    });
   }
 
   function startInit(): Promise<any> {
@@ -1028,6 +1037,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
 
     if (isPgliteUrl(url)) {
+      resetOnDbExecClose();
       _dbReady = loadPgliteDrizzle().then(async ({ drizzle }) => {
         const client = await getPgliteClient(url);
         _db = drizzle({ client: pgliteDrizzleClient(url, client), schema });

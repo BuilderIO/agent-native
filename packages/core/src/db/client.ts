@@ -71,6 +71,8 @@ type PgliteTransactionStorage = {
   run<T>(store: PgliteTransactionContexts, callback: () => T): T;
 };
 
+type DbClientsClosingHooks = Set<() => void>;
+
 const PgliteTransactionStorage = getAsyncLocalStorageCtor();
 const pgliteTransactionGlobal = globalThis as typeof globalThis & {
   __agentNativePgliteTransactionStorage?: PgliteTransactionStorage;
@@ -323,6 +325,7 @@ const pgliteProcess = process as NodeJS.Process & {
   __agentNativePgliteClients?: PgliteClientRegistry;
   __agentNativePgliteProcessLocks?: PgliteProcessLockRegistry;
   __agentNativePgliteProcessExitCleanupRegistered?: boolean;
+  __agentNativeDbClientsClosingHooks?: DbClientsClosingHooks;
 };
 const _pgliteClients = (pgliteProcess.__agentNativePgliteClients ??= new Map<
   string,
@@ -330,6 +333,24 @@ const _pgliteClients = (pgliteProcess.__agentNativePgliteClients ??= new Map<
 >());
 const _pgliteProcessLocks = (pgliteProcess.__agentNativePgliteProcessLocks ??=
   new Map<string, PgliteProcessLock>());
+const _dbClientsClosingHooks =
+  (pgliteProcess.__agentNativeDbClientsClosingHooks ??= new Set<() => void>());
+
+export function onDbClientsClosing(hook: () => void): void {
+  _dbClientsClosingHooks.add(hook);
+}
+
+function notifyDbClientsClosing(): void {
+  const hooks = [..._dbClientsClosingHooks];
+  _dbClientsClosingHooks.clear();
+  for (const hook of hooks) {
+    try {
+      hook();
+    } catch (error) {
+      console.warn("[db] client cache cleanup failed:", error);
+    }
+  }
+}
 
 function pgliteClientKey(dataDir: string): string {
   return dataDir === "memory://" ? dataDir : path.resolve(dataDir);
@@ -2128,6 +2149,7 @@ export function getDbExec(): DbExec {
 }
 
 export async function closeDbExec(): Promise<void> {
+  notifyDbClientsClosing();
   await closeSharedDbPools();
   await closePgliteClients();
   _exec = undefined;

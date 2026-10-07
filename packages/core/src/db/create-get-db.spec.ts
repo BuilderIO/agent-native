@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 describe("createGetDb pooled transaction scoping", () => {
@@ -8,6 +12,28 @@ describe("createGetDb pooled transaction scoping", () => {
     vi.doUnmock("@neondatabase/serverless");
     vi.unstubAllEnvs();
     vi.resetModules();
+  });
+
+  it("rebuilds the PGlite Drizzle handle after database clients close", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "create-get-db-close-"));
+    vi.stubEnv("DATABASE_URL", `pglite:${path.join(dir, "db")}`);
+
+    try {
+      const [{ createGetDb }, { closeDbExec }] = await Promise.all([
+        import("./create-get-db.js"),
+        import("./client.js"),
+      ]);
+      const { sql } = await import("drizzle-orm");
+      const getDb = createGetDb({});
+
+      await getDb().execute(sql.raw("SELECT 1"));
+      await closeDbExec();
+      await getDb().execute(sql.raw("SELECT 1"));
+    } finally {
+      const { closeDbExec } = await import("./client.js");
+      await closeDbExec();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("keeps raw queries, access checks, nested scopes, and timeouts in Neon transactions", async () => {

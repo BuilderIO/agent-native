@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 
 import { describe, expect, it } from "vitest";
 
@@ -13,6 +15,12 @@ const repoRoot = path.resolve(
 );
 const clientModule = pathToFileURL(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "client.ts"),
+).href;
+const builtClientModule = pathToFileURL(
+  path.join(repoRoot, "packages/core/dist/db/client.js"),
+).href;
+const builtDevDatabaseLifecycleModule = pathToFileURL(
+  path.join(repoRoot, "packages/core/dist/server/dev-database-lifecycle.js"),
 ).href;
 const childSource = `
   import fs from "node:fs";
@@ -85,6 +93,72 @@ async function waitFor(pathname: string): Promise<void> {
 }
 
 describe("PGlite persistent process ownership", () => {
+  it("releases a worker-owned database when Nitro closes the dev runtime", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "pglite-worker-close-"));
+    const dbDir = path.join(dir, "db");
+    const lockPath = `${dbDir}.agent-native-pglite.lock`;
+    const worker = new Worker(
+      `
+        import { parentPort, workerData } from "node:worker_threads";
+        process.env.NODE_ENV = "development";
+        const { getPgliteClient } = await import(workerData.clientModule);
+        const { installDevDatabaseCloseHook } = await import(workerData.devDatabaseLifecycleModule);
+        let close;
+        installDevDatabaseCloseHook({ hooks: { hook(name, handler) { if (name === "close") close = handler; } } });
+        const client = await getPgliteClient("pglite:" + workerData.dbDir);
+        await client.exec("CREATE TABLE probe_rows (id integer primary key, who text not null)");
+        await client.exec("INSERT INTO probe_rows (id, who) VALUES (1, CHR(65))");
+        parentPort.postMessage("ready");
+        await new Promise((resolve, reject) => {
+          parentPort.once("message", async (message) => {
+            if (message !== "close") return;
+            try {
+              await close();
+              parentPort.postMessage("closed");
+              resolve();
+            } catch (error) {
+              reject(error);
+            }
+          });
+        });
+      `,
+      {
+        eval: true,
+        execArgv: ["--import", "tsx", "--input-type=module"],
+        workerData: {
+          clientModule: builtClientModule,
+          devDatabaseLifecycleModule: builtDevDatabaseLifecycleModule,
+          dbDir,
+        },
+      },
+    );
+    const exited = once(worker, "exit");
+    try {
+      const [ready] = await once(worker, "message");
+      expect(ready).toBe("ready");
+      expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
+
+      worker.postMessage("close");
+      const [closed] = await once(worker, "message");
+      expect(closed).toBe("closed");
+      const [exitCode] = await exited;
+      expect(exitCode).toBe(0);
+      expect(existsSync(lockPath)).toBe(false);
+
+      const { closePgliteClients, getPgliteClient } =
+        await import("./client.js");
+      const reopened = await getPgliteClient(`pglite:${dbDir}`);
+      const result = await reopened.query(
+        "SELECT id, who FROM probe_rows ORDER BY id",
+      );
+      expect(result.rows).toEqual([{ id: 1, who: "A" }]);
+      await closePgliteClients();
+    } finally {
+      if (worker.threadId !== -1) await worker.terminate();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 90_000);
+
   it("keeps exit listeners bounded across repeated PGlite restarts", async () => {
     const dir = await mkdtemp(
       path.join(os.tmpdir(), "pglite-listener-restarts-"),
