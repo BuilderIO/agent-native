@@ -26,3 +26,7 @@ Quarantine only with a named owner, expiry, and linked tracking issue. A green
 result produced by quarantine is a defect. Follow quarantined rows until fixed
 or restored. The recap records run count, fingerprint count, query status,
 classification, disposition, evidence, and any owner/issue.
+
+For deploy, release, and publish workflows, follow
+[deployment recovery](deployment-recovery.md). Keep the operational row active
+until target proof passes; a delivery gap is not a quarantine.

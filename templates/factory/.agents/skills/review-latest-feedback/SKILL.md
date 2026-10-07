@@ -1,10 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Review Slack, GitHub, CI, Sentry, Agent-Native Analytics, diagnostics, and
-  linked trackers. Answer reporters first; fix verified bugs and objective UI
-  defects; require signoff for subjective changes; build upvoted features;
-  recap dispositions. Use for scheduled or manual sweeps.
+  Review Slack, GitHub, CI, Sentry, Analytics, diagnostics, linked trackers,
+  and app/template, desktop, and package deploy/release lanes. Answer reporters
+  first; fix verified defects, verify delivery, build upvoted features, and
+  recap. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -318,6 +318,14 @@ correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
 at their boundary; record external, deployment, or unclear issues without
 inventing a fix.
 
+### Deployment, release, and publish failures
+
+Scan app/template, desktop, and package lanes each sweep. CI rows use one
+fingerprint recap row; follow **CI failures** for ownership. Follow
+[`deployment-recovery.md`](references/deployment-recovery.md) for target proof.
+Keep the row active until proof passes; its source issue may be **Fixed**
+separately. Green CI or merge is not delivery proof.
+
 ## Phase 2: fix
 
 Before changing code, read `fix-at-the-boundary`, `verifying-changes`, and
@@ -417,24 +425,16 @@ pre-existing.
 
 ### Npx and package reports have a release follow-up
 
-Npx scaffolds are versioned. Record pinned/filed versions, fresh npm cache/no
-local override, candidate result, release, and existing-app path (`pnpm add
-@agent-native/core@<version>` or hand edit).
-
-Local proof, beta promises, and scaffolds aren't **Shipped**/**Live verified**
-until published. A verified merge is **Fixed**; follow the issue-closure rule
-above. Record merge proof, release, verification, and bump/re-scaffold
-follow-up. Unknown package/endpoint context is a release follow-up. Ask only if
-scope or reporter input is unclear. Missing evidence alone doesn't keep a
-verified merge open.
-Merge/beta is not npx delivery.
+Use [`deployment-recovery.md`](references/deployment-recovery.md) for npx
+version evidence, registry proof, publication status, and existing-app upgrade
+verification. A verified merge may be **Fixed** under the issue-closure rule
+above while its delivery row stays open; a local scaffold or beta promise is not
+delivery.
 
 ### Documentation has a runnable proof obligation
 
-For each docs row, copy commands into a clean temporary scaffold; verify every
-referenced file, directory, script, env var, deploy target, link, and fence
-order. A docs diff/build is not enough. Update configured locales and run
-`guard:i18n-catalogs` plus `guard:i18n-changed-copy`.
+For each docs row, use [`documentation-proof.md`](references/documentation-proof.md).
+A docs diff/build alone isn't proof.
 
 Choose the narrowest seam the evidence supports:
 
@@ -562,14 +562,16 @@ message details.
 Start cursors: product [Slack message](...) · QA [Slack message](...) · dev [Slack message](...)
 Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <timestamp>
 Messages: product N · QA N · dev N (total N)
+Deployment cursor: <timestamp> · carried active run IDs/rows: <ids/count>
+Release lanes: N inspected · failed/stale N · target verified N
 Reaction-gated skips: N · claimed N · answered N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker/source | Reporter | Status | Repro (expected/actual) | Pre/post | Runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
+| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [thread](...) | ... | <disposition> | steps; expected/actual | before/after | source/tests/build/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
+| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete
@@ -586,4 +588,4 @@ cursor stated.
 ## Related skills
 
 `address-feedback`, `address-feedback-with-replies`, `fix-at-the-boundary`,
-`concurrent-agents`, `verifying-changes`, `ship`
+`concurrent-agents`, `verifying-changes`, `ship`, `ship-and-monitor`

@@ -1866,7 +1866,8 @@ export function embedApp(
 
     function updateTitle(data) {
       const record = objectValue(data);
-      const label = record.label || record.app || record.view || body.dataset.appTitle || "App";
+      const openLink = objectValue(toolResponseMetadata["agent-native/openLink"]);
+      const label = record.label || openLink.label || record.app || record.view || body.dataset.appTitle || "App";
       titleEl.textContent = String(label);
     }
 
@@ -1915,6 +1916,9 @@ export function embedApp(
       toolResultData = objectValue(data);
       openUrl = openLinkFrom(params, data);
       openStartUrl = embedStartUrlFrom(params, data);
+      const openLinkLabel = objectValue(
+        toolResponseMetadata["agent-native/openLink"],
+      ).label;
       // set_globals fires constantly, and this sync calls notifyHostHeight/
       // sendHostContext which the host echoes back as another set_globals — an
       // infinite storm. Only do the host round-trips + (re)launch when something
@@ -1927,6 +1931,7 @@ export function embedApp(
           toolResponseMetadata["agent-native/widgetSource"],
           openUrl,
           openStartUrl,
+          openLinkLabel,
           bridge.displayMode,
           bridge.theme,
           bridge.locale

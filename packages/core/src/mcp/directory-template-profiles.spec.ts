@@ -133,6 +133,20 @@ describe("ChatGPT directory template profiles", () => {
     });
   });
 
+  it(
+    "uses document-specific labels for Content's shared widget shell",
+    async () => {
+      const { actions } = await loadTemplateActions("content");
+      const documentResource = actions["create-document"]?.mcpApp?.resource;
+      const databaseResource =
+        actions["create-content-database"]?.mcpApp?.resource;
+
+      expect(documentResource?.title).toBe("Open document");
+      expect(databaseResource?.title).toBe("Open database");
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
   it.each(templateProfiles)(
     "$appId allowlist is registered, exposed, annotated, and narrowly scoped",
     async ({ appId, profile }) => {
