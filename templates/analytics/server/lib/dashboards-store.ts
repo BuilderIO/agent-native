@@ -1658,6 +1658,7 @@ async function upsertDashboardWithOutcome(
     existing.title !== title ||
     stableStringify(existing.config) !== configJson;
   if (existing && !changed) return { dashboard: existing, didWrite: false };
+  let persistedDashboard: DashboardRecord | undefined;
   const nameChanged =
     !existing ||
     normalizeDashboardName(existing.title) !== normalizeDashboardName(title);
@@ -1677,7 +1678,7 @@ async function upsertDashboardWithOutcome(
         // Fenced write. Snapshot the revision only after we know this exact
         // write actually landed — otherwise a lost race would record a
         // revision for a save that never happened.
-        const updateResult = await writeDb
+        const [row] = await writeDb
           .update(schema.dashboards)
           .set(setValues)
           .where(
@@ -1685,16 +1686,12 @@ async function upsertDashboardWithOutcome(
               eq(schema.dashboards.id, id),
               eq(schema.dashboards.updatedAt, expectedUpdatedAt),
             ),
-          );
-        const affected = affectedRowCount(updateResult);
-        if (affected === undefined) {
-          throw new Error(
-            "The Postgres update did not report an affected-row count for the fenced dashboard update.",
-          );
-        }
-        if (affected === 0) {
+          )
+          .returning();
+        if (!row) {
           throw new DashboardConflictError(id);
         }
+        persistedDashboard = rowToDashboard(row);
         if (changed)
           await snapshotDashboardRevision(
             writeDb,
@@ -1710,23 +1707,37 @@ async function upsertDashboardWithOutcome(
             ctx,
             requestRevisionChatContext(),
           );
-        await writeDb
+        const [row] = await writeDb
           .update(schema.dashboards)
           .set(setValues)
-          .where(eq(schema.dashboards.id, id));
+          .where(eq(schema.dashboards.id, id))
+          .returning();
+        if (!row) {
+          throw new Error(
+            `Dashboard "${id}" disappeared before its update completed.`,
+          );
+        }
+        persistedDashboard = rowToDashboard(row);
       }
     } else {
-      await writeDb.insert(schema.dashboards).values({
-        id,
-        kind,
-        title,
-        config: configJson,
-        ownerEmail: ctx.email,
-        orgId: ctx.orgId,
-        visibility: "private",
-        createdBy: ctx.email,
-        updatedBy: ctx.email,
-      });
+      const [row] = await writeDb
+        .insert(schema.dashboards)
+        .values({
+          id,
+          kind,
+          title,
+          config: configJson,
+          ownerEmail: ctx.email,
+          orgId: ctx.orgId,
+          visibility: "private",
+          createdBy: ctx.email,
+          updatedBy: ctx.email,
+        })
+        .returning();
+      if (!row) {
+        throw new Error(`Dashboard "${id}" insert returned no row.`);
+      }
+      persistedDashboard = rowToDashboard(row);
     }
   };
   if (nameChanged) {
@@ -1741,11 +1752,10 @@ async function upsertDashboardWithOutcome(
   } else {
     await persist(db);
   }
-  const [row] = await db
-    .select()
-    .from(schema.dashboards)
-    .where(eq(schema.dashboards.id, id));
-  const dashboard = rowToDashboard(row);
+  if (!persistedDashboard) {
+    throw new Error(`Dashboard "${id}" write returned no persisted row.`);
+  }
+  const dashboard = persistedDashboard;
   recordScopedChange(
     "dashboards",
     "change",

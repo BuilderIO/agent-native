@@ -88,6 +88,7 @@ const state = vi.hoisted(() => ({
   loseNextCas: false,
   alwaysLoseCas: false,
   updateAttempts: 0,
+  peerAfterNextUpdate: false,
 }));
 
 function columnName(column: unknown): string | null {
@@ -270,9 +271,10 @@ vi.mock("../db/index.js", () => {
     }),
     insert: (table: unknown) => ({
       values: (row: any) => {
+        let insertedDashboard: DashboardRow | undefined;
         if (table === schema.dashboards) {
           const timestamp = "2026-07-09T00:00:00.000Z";
-          state.otherDashboards.push({
+          const dashboard: DashboardRow = {
             archivedAt: null,
             createdAt: timestamp,
             createdBy: row.createdBy ?? null,
@@ -280,7 +282,9 @@ vi.mock("../db/index.js", () => {
             hiddenBy: null,
             updatedAt: timestamp,
             ...row,
-          });
+          };
+          insertedDashboard = dashboard;
+          state.otherDashboards.push(dashboard);
         }
         if (table === schema.dashboardRevisions) {
           state.revisions.push({ ...row });
@@ -290,6 +294,8 @@ vi.mock("../db/index.js", () => {
         }
         const p: any = Promise.resolve(undefined);
         p.onConflictDoNothing = async () => undefined;
+        p.returning = async () =>
+          insertedDashboard ? [{ ...insertedDashboard }] : [];
         return p;
       },
     }),
@@ -311,42 +317,71 @@ vi.mock("../db/index.js", () => {
     }),
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
-        where: async (predicate: unknown) => {
-          if (table === schema.analyses) {
-            if (!matchesRow(predicate, state.analysis)) {
+        where: (predicate: unknown) => {
+          let returnedDashboard: DashboardRow | undefined;
+          const operation = (async () => {
+            if (table === schema.analyses) {
+              if (!matchesRow(predicate, state.analysis)) {
+                return { rowsAffected: 0 };
+              }
+              state.analysis = { ...state.analysis, ...values };
+              return { rowsAffected: 1 };
+            }
+            if (table !== schema.dashboards) return { rowsAffected: 0 };
+            state.updateAttempts += 1;
+            if (state.alwaysLoseCas) {
+              state.dashboard = {
+                ...state.dashboard,
+                updatedAt: `2026-07-09T00:00:00.${String(state.updateAttempts).padStart(3, "0")}Z`,
+              };
               return { rowsAffected: 0 };
             }
-            state.analysis = { ...state.analysis, ...values };
+            if (state.loseNextCas) {
+              state.loseNextCas = false;
+              const concurrentConfig = JSON.parse(state.dashboard.config);
+              state.dashboard = {
+                ...state.dashboard,
+                config: JSON.stringify({
+                  ...concurrentConfig,
+                  panels: [
+                    ...(concurrentConfig.panels ?? []),
+                    panel("writer-a"),
+                  ],
+                }),
+                updatedAt: "2026-07-09T00:00:00.001Z",
+                updatedBy: "bob@example.com",
+              };
+              return { rowsAffected: 0 };
+            }
+            if (!matchesRow(predicate, state.dashboard)) {
+              return { rowsAffected: 0 };
+            }
+            state.dashboard = { ...state.dashboard, ...values } as DashboardRow;
+            returnedDashboard = { ...state.dashboard };
+            if (state.peerAfterNextUpdate) {
+              state.peerAfterNextUpdate = false;
+              const writtenConfig = JSON.parse(state.dashboard.config);
+              state.dashboard = {
+                ...state.dashboard,
+                config: JSON.stringify({
+                  ...writtenConfig,
+                  panels: [
+                    ...(writtenConfig.panels ?? []),
+                    panel("writer-after"),
+                  ],
+                }),
+                updatedAt: "2026-07-09T00:00:00.002Z",
+                updatedBy: "bob@example.com",
+              };
+            }
             return { rowsAffected: 1 };
-          }
-          if (table !== schema.dashboards) return { rowsAffected: 0 };
-          state.updateAttempts += 1;
-          if (state.alwaysLoseCas) {
-            state.dashboard = {
-              ...state.dashboard,
-              updatedAt: `2026-07-09T00:00:00.${String(state.updateAttempts).padStart(3, "0")}Z`,
-            };
-            return { rowsAffected: 0 };
-          }
-          if (state.loseNextCas) {
-            state.loseNextCas = false;
-            const concurrentConfig = JSON.parse(state.dashboard.config);
-            state.dashboard = {
-              ...state.dashboard,
-              config: JSON.stringify({
-                ...concurrentConfig,
-                panels: [...(concurrentConfig.panels ?? []), panel("writer-a")],
-              }),
-              updatedAt: "2026-07-09T00:00:00.001Z",
-              updatedBy: "bob@example.com",
-            };
-            return { rowsAffected: 0 };
-          }
-          if (!matchesRow(predicate, state.dashboard)) {
-            return { rowsAffected: 0 };
-          }
-          state.dashboard = { ...state.dashboard, ...values } as DashboardRow;
-          return { rowsAffected: 1 };
+          })();
+          const result: any = operation;
+          result.returning = async () => {
+            await operation;
+            return returnedDashboard ? [{ ...returnedDashboard }] : [];
+          };
+          return result;
         },
       }),
     }),
@@ -394,6 +429,7 @@ beforeEach(() => {
   state.loseNextCas = false;
   state.alwaysLoseCas = false;
   state.updateAttempts = 0;
+  state.peerAfterNextUpdate = false;
 });
 
 describe("dashboards-store concurrency", () => {
@@ -690,6 +726,29 @@ describe("dashboards-store concurrency", () => {
     expect(readPanelIds()).toEqual(["a"]);
     expect(state.updateAttempts).toBe(0);
     expect(state.revisions).toEqual([]);
+  });
+
+  it("returns this write's config when a peer updates immediately afterward", async () => {
+    state.peerAfterNextUpdate = true;
+    const ownConfig = {
+      name: "Traffic",
+      panels: [panel("a"), panel("writer-this")],
+    };
+
+    const outcome = await upsertDashboardWithRetryOutcome(
+      "traffic",
+      ctx,
+      () => ({ kind: "sql", body: ownConfig }),
+    );
+
+    expect(outcome.didWrite).toBe(true);
+    expect(
+      (
+        outcome.dashboard.config as { panels: Array<{ id: string }> }
+      ).panels.map(({ id }) => id),
+    ).toEqual(["a", "writer-this"]);
+    expect(readPanelIds()).toEqual(["a", "writer-this", "writer-after"]);
+    expect(state.dashboard.updatedBy).toBe("bob@example.com");
   });
 
   it("upsertDashboardWithRetry re-reads and re-applies the mutation after losing the race, landing both writers' panels", async () => {
