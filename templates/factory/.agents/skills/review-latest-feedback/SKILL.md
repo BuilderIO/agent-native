@@ -232,14 +232,19 @@ elsewhere** with the owner, link, and next action, and do not create or modify
 parallel work. A linked/open PR counts only when its current changes or recent
 activity address the same failure; a stale/unrelated PR, shared label, or later
 green rerun alone is not ownership evidence. If no active owner is confirmed
-and the target is within this invocation's scope, claim it immediately through
-the source's normal path; use `👀` only for Slack messages. Then inspect linked
-runs, builds/commits, job logs, test results, artifacts, and issue state. Treat
-labels/counts as leads. Fix verified repo-owned causes; for other causes,
-record evidence and the next owner/action. Don't ask bots; ask a person only
-when a fact blocks a fix. If our report lacks evidence, improve its
-checks/report with concise context and links; avoid duplicate details and
-secrets.
+and the target is within this invocation's scope, claim it immediately before
+deeper investigation. On Slack, add `👀` and read it back. For a non-Slack
+source, record a status row in the current Codex task with the source permalink,
+failure fingerprint, owner task/worktree, and next action; that durable task
+record is the claim. Do not assign, label, comment, react, or otherwise mutate
+the source without explicit authorization for that exact write. If the task
+record cannot be made accessible to later ownership checks, leave the item
+pending. Then inspect linked runs, builds/commits, job logs, test results,
+artifacts, and issue state. Treat labels/counts as leads. Fix verified
+repo-owned causes; for other causes, record evidence and the next owner/action.
+Don't ask bots; ask a person only when a fact blocks a fix. If our report lacks
+evidence, improve its checks/report with concise context and links; avoid
+duplicate details and secrets.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
