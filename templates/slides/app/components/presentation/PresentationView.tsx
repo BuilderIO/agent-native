@@ -28,6 +28,7 @@ import {
   getPersistedElementPath,
   resolveSlideAnimationTargets,
 } from "@/lib/slide-animation-elements";
+import { isMediaKeyboardEvent } from "@/lib/slide-video";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
@@ -493,6 +494,7 @@ export default function PresentationView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (isMediaKeyboardEvent(e)) return;
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":

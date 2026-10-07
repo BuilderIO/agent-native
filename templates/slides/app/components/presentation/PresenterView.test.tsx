@@ -27,7 +27,12 @@ vi.mock("@tabler/icons-react", () => ({
 
 vi.mock("@/components/deck/SlideRenderer", () => ({
   default: ({ slide }: { slide: Slide }) => (
-    <div data-testid={`rendered-${slide.id}`} />
+    <>
+      {slide.id === "slide-1" && (
+        <video data-testid="presenter-video" controls />
+      )}
+      <div data-testid={`rendered-${slide.id}`} />
+    </>
   ),
 }));
 
@@ -56,6 +61,35 @@ describe("PresenterView", () => {
     expect(screen.getByText("3 / 3")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Previous slide" }));
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+  });
+
+  it("leaves focused video controls usable and keeps presenter shortcuts elsewhere", () => {
+    vi.stubGlobal("BroadcastChannel", undefined);
+
+    render(<PresenterView slides={slides} deckId="deck-1" startIndex={0} />);
+
+    const video = screen.getByTestId("presenter-video");
+    video.focus();
+    const mediaKey = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(mediaKey);
+
+    expect(mediaKey.defaultPrevented).toBe(false);
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+
+    video.blur();
+    const presenterKey = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, presenterKey);
+
+    expect(presenterKey.defaultPrevented).toBe(true);
     expect(screen.getByText("2 / 3")).toBeTruthy();
   });
 });

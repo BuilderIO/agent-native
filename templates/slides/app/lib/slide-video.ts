@@ -40,18 +40,33 @@ export function videoPlaybackSettingsFor(
   };
 }
 
+export function isMediaKeyboardEvent(event: KeyboardEvent): boolean {
+  const targetsMedia = (target: EventTarget | null): boolean =>
+    target instanceof Element && Boolean(target.closest("video, audio"));
+  if (targetsMedia(event.target)) return true;
+  if (
+    typeof event.composedPath === "function" &&
+    event.composedPath().some(targetsMedia)
+  )
+    return true;
+  return targetsMedia(document.activeElement);
+}
+
 export function applyVideoPlaybackSettings(
   video: HTMLVideoElement,
   settings: VideoPlaybackSettings,
 ): void {
   video.setAttribute("controls", "");
   video.setAttribute("playsinline", "");
+  const wasAutoplay =
+    video.hasAttribute("autoplay") ||
+    video.getAttribute("data-video-autoplay") === "true";
   if (settings.mode === "autoplay") {
     video.setAttribute("autoplay", "");
     video.setAttribute("muted", "");
   } else {
     video.removeAttribute("autoplay");
-    video.removeAttribute("muted");
+    if (wasAutoplay) video.removeAttribute("muted");
     video.removeAttribute("data-video-autoplay");
   }
   if (settings.loop) video.setAttribute("loop", "");

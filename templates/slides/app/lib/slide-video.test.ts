@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyVideoPlaybackSettings,
   insertDroppedVideoIntoSlideHtml,
+  isMediaKeyboardEvent,
   videoFileLooksLikeVideo,
   videoFileLooksSupported,
   videoPlaybackSettingsFor,
@@ -69,5 +70,44 @@ describe("slide video helpers", () => {
       mode: "click",
       loop: false,
     });
+  });
+
+  it("keeps a click-to-play video's authored mute state when toggling loop", () => {
+    const video = document.createElement("video");
+    video.setAttribute("muted", "");
+
+    applyVideoPlaybackSettings(video, { mode: "click", loop: true });
+
+    expect(video.hasAttribute("muted")).toBe(true);
+    expect(video.hasAttribute("autoplay")).toBe(false);
+    expect(video.hasAttribute("loop")).toBe(true);
+  });
+
+  it("recognizes media keyboard events when the event is retargeted", () => {
+    const video = document.createElement("video");
+    document.body.append(video);
+
+    video.focus();
+    const retargeted = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+    });
+    window.dispatchEvent(retargeted);
+    expect(isMediaKeyboardEvent(retargeted)).toBe(true);
+
+    video.blur();
+    const composedPathEvent = new KeyboardEvent("keydown", {
+      key: " ",
+      bubbles: true,
+    });
+    Object.defineProperty(composedPathEvent, "composedPath", {
+      value: () => [video, document, window],
+    });
+    expect(isMediaKeyboardEvent(composedPathEvent)).toBe(true);
+
+    expect(
+      isMediaKeyboardEvent(new KeyboardEvent("keydown", { key: "ArrowRight" })),
+    ).toBe(false);
+    video.remove();
   });
 });
