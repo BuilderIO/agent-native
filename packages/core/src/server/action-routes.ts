@@ -1074,6 +1074,9 @@ function mountActionRoutesInternal(
                 appId: options?.appId,
                 caller,
                 requestHeaders: event.headers,
+                ...(directoryWidgetReadAllowed
+                  ? { mcpDirectoryWidgetReadOnly: true as const }
+                  : {}),
                 ...(event.req?.signal ? { signal: event.req.signal } : {}),
                 actionName: name,
                 ...(resolvedCaller?.delegationJti

@@ -1,10 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep Slack, GitHub, Sentry, Analytics, trackers, and automated diagnostics,
-  plus app/template, desktop, and package deploy/release/publish lanes. Fix
-  verified defects, verify recovery targets, and recap. Use for scheduled or
-  manual sweeps.
+  Review Slack, GitHub, CI, Sentry, Analytics, diagnostics, linked trackers,
+  and app/template, desktop, and package deploy/release lanes. Answer reporters
+  first; fix verified defects, verify delivery, build upvoted features, and
+  recap. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -218,15 +218,9 @@ Phase 2 reapplies these rules after full-thread review.
 Use `## Slack channels` unless the invocation narrows scope.
 
 **Automated diagnostics are feedback.** For Slack, gate before reading.
-Before investigating, use only alert and linked issue/PR/run/task metadata to
-identify repo/ref/SHA, workflow/service/environment, failure fingerprint, and
-active same-failure owner; this is Phase 0's sole pre-claim exception. If
-unowned/in scope, claim: Slack `👀`; elsewhere, current-task status row with
-source permalink, fingerprint, owner task/worktree, next action. Continue if
-this task owns it; else record **Owned elsewhere** (owner/link/action) and
-stop. No logs/tests/artifacts before claim. The required Slack claim reaction
-is authorized here; other source mutations need exact authorization. Then read
-`references/automated-diagnostics.md`.
+Before claiming, use only alert/link metadata. Follow
+[`automated-diagnostics.md`](references/automated-diagnostics.md) for ownership,
+claim, and stop/continue; inspect logs, tests, and artifacts only afterward.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
@@ -271,13 +265,12 @@ the query also returns ordinary replies and old polls that happen to carry the
 reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
-An upvoted item is a **feature or UX change**: it skips only the clear-bug bar,
-not `👀`, fix-altitude, verification, or question-budget requirements. The
-upvote overrides the bug gate, not ownership; build the smallest endorsed
-version and name Sid or Alice in the recap. Add `👀` before investigation or
-delegation and read it back. Keep an evidence-limited disposition until Phase
-2's four bars hold; then use **Shipped**, adding `✅` only if it also meets
-**Fixed**.
+An upvote endorses a **feature or UX change** and skips only the clear-bug bar;
+it does not change ownership, reaction, verification, or question-budget rules.
+Build the smallest endorsed version, name Sid or Alice, and state requested
+versus actual behavior in the recap. Add `👀` before investigation or
+delegation and read it back. Keep it evidence-limited until Phase 2's four bars
+hold; then use **Shipped**, adding `✅` only if it meets **Fixed**.
 
 Don't search `has::eyes:`; use the owner or handoff path above.
 
@@ -326,13 +319,15 @@ inventing a fix.
 
 ### Deployment, release, and publish failures
 
-Scan app/template, desktop build/release, and package-publish lanes on every
-sweep, even without a linked report. Include queued/running runs, run-only
-failures, and missing/stale artifacts; carry active run IDs and rows across
-cursors. Fix verified repo-owned causes; record external/manual causes with the
-next owner/action. Use [`deployment-recovery.md`](references/deployment-recovery.md)
-for lane-specific recovery and target proof. Green CI or merged source
-does not prove delivery.
+Scan app/template, desktop, and package lanes every sweep, even without linked
+feedback. Carry active run IDs, queued/running runs, failures, and missing/stale
+artifacts across cursors. Fix repo causes; record external/manual causes with
+the next owner/action. CI-red deploy rows from [CI triage](references/ci-red-report.md)
+reuse this operational fingerprint. Follow
+[`deployment-recovery.md`](references/deployment-recovery.md) for recovery and
+target proof; keep delivery active until proof passes. A source issue may be
+**Fixed** separately; delivery gaps are never **Quarantined**. Green CI or
+merged source does not prove delivery.
 
 ## Phase 2: fix
 
@@ -363,8 +358,7 @@ slack_search: <2-4 distinctive symptom words> in:<#CHANNEL>
 ```
 
 Search in the reporter's words — `zoom invalid_client`, `logout twice` — not
-your diagnosis. People describe one bug differently, so read the hits rather
-than trusting the count.
+your diagnosis. Read hits; one bug may have different descriptions.
 
 **A repeat report after a Fixed claim is evidence that fix failed.** It is the
 only falsification signal this workflow gets, and it outranks your belief that
@@ -435,10 +429,9 @@ pre-existing.
 ### Npx and package reports have a release follow-up
 
 Use [`deployment-recovery.md`](references/deployment-recovery.md) for npx
-version evidence, registry proof, publication status, and existing-app upgrade
-verification. A verified merge may be **Fixed** under the issue-closure rule
-above while its delivery row stays open; a local scaffold or beta promise is not
-delivery.
+version, registry, publication, and existing-app upgrade proof. A verified merge
+may be **Fixed** while its delivery row stays open; a local scaffold or beta
+promise is not delivery.
 
 ### Documentation has a runnable proof obligation
 
@@ -456,12 +449,6 @@ Choose the narrowest seam the evidence supports:
 Never hard-code a rule for the wording of one report. One data point justifies
 a local regression test or a contained fix; it never justifies a global agent
 instruction or prompt exception.
-
-### The bar for saying "Fixed"
-
-Phase 2 defines the proof bars for **Fixed**, **Shipped**, and
-**Live verified**. Upvoted improvements state requested versus actual behavior
-and use **Shipped**.
 
 ## Phase 3: reply
 
