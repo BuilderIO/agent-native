@@ -185,7 +185,7 @@ describe("demo dashboards", () => {
 
   it("does not block installation when collab synchronization stalls", async () => {
     mocks.applyText.mockImplementationOnce(
-      () => new Promise<void>(() => undefined),
+      () => new Promise<undefined>(() => undefined),
     );
 
     const result = await ensureDemoDashboardsForUser(alice);
