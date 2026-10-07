@@ -1060,6 +1060,16 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("requires approval before shared memory writes in the compact prompt", async () => {
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain("Treat shared LEARNINGS.md as organization-wide");
+    expect(prompt).toContain("A generic request to remember something");
+    expect(prompt).not.toContain(
+      "Save durable team facts and routing conventions to shared LEARNINGS.md",
+    );
+  });
+
   it("fails the prompt build when Lab-gated skill state cannot be read", async () => {
     const failure = new Error("Labs settings unavailable");
     mocks.getRuntimeSkillsForUser.mockRejectedValueOnce(failure);

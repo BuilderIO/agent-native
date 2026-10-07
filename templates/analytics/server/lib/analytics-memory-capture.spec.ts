@@ -219,7 +219,7 @@ describe("Analytics async memory capture", () => {
       "--content",
       "For future Analytics work: BigQuery uses STRING instead of TEXT for casts.",
       "--scope",
-      "current-org",
+      "personal",
       "--quiet",
       "true",
     ]);

@@ -109,6 +109,9 @@ describe("mixed script entry Plan-mode effects", () => {
       "read",
     );
     expect(classify(resources, { action: "write" })).toBe("write");
+    expect(resources.tool.description).toContain(
+      "A generic request to remember something is not approval",
+    );
     expect(classify(chats, { action: "search" })).toBe("read");
     expect(classify(chats, { action: "open" })).toBe("write");
     expect(classify(engines, { action: "list" })).toBe("read");

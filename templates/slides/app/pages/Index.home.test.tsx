@@ -1136,10 +1136,8 @@ describe("Slides prompt-led home", () => {
       deleteDeck: vi.fn(),
     });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
-    await waitFor(() =>
-      expect(contextOptions.mock.lastCall![0].defaultReferenceDeck?.id).toBe(
-        "shared",
-      ),
+    expect(contextOptions.mock.lastCall![0]).not.toHaveProperty(
+      "defaultReferenceDeck",
     );
     const attachments = {
       commit: vi.fn(),
@@ -1941,6 +1939,9 @@ describe("Slides prompt-led home", () => {
     });
     expect(promptProps.mock.lastCall![0].open).toBe(false);
     expect(referenceProps.mock.lastCall![0].open).toBe(true);
+    expect(referenceProps.mock.lastCall![0]).not.toHaveProperty(
+      "defaultReferenceDeckId",
+    );
 
     fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
     await waitFor(() =>
@@ -2737,6 +2738,54 @@ describe("Slides prompt-led home", () => {
           composerContext,
           contextItems,
         }),
+      }),
+    );
+  });
+
+  it("removes a legacy automatic reference from a saved sign-in prompt", async () => {
+    signedIn.value = false;
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        {
+          source: "slides" as const,
+          id: "recent-deck",
+          title: "Recent deck",
+        },
+        {
+          source: "website" as const,
+          id: "https://example.com",
+          title: "Example",
+          url: "https://example.com",
+        },
+      ],
+    };
+    sessionStorage.setItem("slides:pending-deck-prompt", "Continue");
+    sessionStorage.setItem(
+      "slides:pending-deck-reference-selection",
+      JSON.stringify({
+        automaticReferenceDeckId: "recent-deck",
+        composerContext,
+        contextItems: [
+          { key: "slides:recent-deck:", title: "Recent deck", context: "" },
+          {
+            key: "website:https://example.com:",
+            title: "Example",
+            context: "",
+          },
+        ],
+      }),
+    );
+
+    signedIn.value = true;
+    home.rerenderHome();
+
+    await waitFor(() =>
+      expect(contextOptions.mock.lastCall?.[0].initialSelection).toEqual({
+        designSystemId: null,
+        references: [composerContext.references[1]],
       }),
     );
   });

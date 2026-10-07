@@ -342,8 +342,9 @@ async function processJob(job: CaptureJob): Promise<void> {
         first.description,
         "--content",
         first.content,
+        "--scope",
+        "personal",
       ];
-      if (orgId) args.push("--scope", "current-org");
       args.push("--quiet", "true");
       try {
         await saveMemory(args, {

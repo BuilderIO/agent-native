@@ -471,14 +471,14 @@ Keep one memory per logical topic. Descriptions should be concise — the index 
 const DEFAULT_SKILL_LEARN_SHARED_MD = `---
 name: learn-shared
 description: >-
-  Update the shared LEARNINGS.md with team-wide preferences, corrections, and
-  patterns from this session.
+  Review and update shared LEARNINGS.md with explicitly approved organization-wide
+  preferences, corrections, and patterns from this session.
 user-invocable: true
 ---
 
 # Learn (Shared)
 
-Review the current conversation and update the shared \`LEARNINGS.md\` resource with anything the whole team should know.
+Review the current conversation for findings that are useful across the organization. Keep setup-specific findings in personal memory or the current analysis. Before writing a finding to shared \`LEARNINGS.md\` or organization memory, confirm that the user intends it to be shared unless they directly requested that shared write. A generic request to remember something does not authorize sharing it.
 
 ## What to capture
 
@@ -497,8 +497,8 @@ Review the current conversation and update the shared \`LEARNINGS.md\` resource 
 
 1. Read shared learnings with the \`resources\` tool: \`action: "read"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`
 2. Review the conversation for team-relevant insights
-3. Merge new learnings with existing ones — don't duplicate, refine existing entries
-4. Write back with the \`resources\` tool: \`action: "write"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`, \`content: "..."\`
+3. Merge approved shared learnings with existing ones — don't duplicate, refine existing entries
+4. Write back with the \`resources\` tool only after the user has approved the shared write: \`action: "write"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`, \`content: "..."\`
 
 Keep entries concise — one line per learning, grouped by category (Conventions, Technical, Patterns).
 `;

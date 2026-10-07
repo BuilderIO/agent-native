@@ -102,6 +102,13 @@ describe("shared LEARNINGS.md boot seeding", () => {
       expect(resource?.content).toContain(
         "User preferences, corrections, and patterns",
       );
+      const learnShared = await resourceGetByPath(
+        SHARED_OWNER,
+        "skills/learn-shared/SKILL.md",
+      );
+      expect(learnShared?.content).toContain(
+        "A generic request to remember something does not authorize sharing it",
+      );
     } finally {
       bindClientTo(pglite);
       freshDb.close();
