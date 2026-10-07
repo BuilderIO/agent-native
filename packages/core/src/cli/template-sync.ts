@@ -8,7 +8,7 @@ import {
   _REPO,
   _TEMPLATES_DIR,
   _appTitleForScaffold,
-  _copyDir,
+  _copyTemplateTree,
   _downloadGitHubSubdir,
   _findLocalTemplate,
   _fixPackageJsonName,
@@ -40,7 +40,11 @@ import {
   resolveBaselineStore,
   writeBaseline,
 } from "./template-baseline.js";
-import { applyTemplateLayer, readTemplateLayer } from "./template-layer.js";
+import {
+  TEMPLATE_LAYER_FILE,
+  applyTemplateLayer,
+  readTemplateLayer,
+} from "./template-layer.js";
 import { workspacifyApp } from "./workspacify.js";
 
 export interface TemplateIO {
@@ -129,16 +133,20 @@ export async function materializeTemplate(
         `No local copy of the "${resolved}" template is available. Pass --to <ref> to fetch it from GitHub.`,
       );
     }
-    copyTemplateTree(local, dest);
+    _copyTemplateTree(local, dest);
     usedRef = opts.ref ?? fallbackRef ?? "unknown";
     source = _localTemplateSourceKind(local);
   } else {
-    usedRef = await _downloadGitHubSubdir(
-      _REPO,
-      `${_TEMPLATES_DIR}/${sourceTemplate}`,
-      dest,
-      [opts.ref],
-    );
+    const bundled = _findLocalTemplate(sourceTemplate);
+    usedRef =
+      bundled && readTemplateLayer(bundled)
+        ? await downloadTemplateLayer(sourceTemplate, opts.ref, dest)
+        : await _downloadGitHubSubdir(
+            _REPO,
+            `${_TEMPLATES_DIR}/${sourceTemplate}`,
+            dest,
+            [opts.ref],
+          );
     source = "github";
   }
   _removeWorkspaceOnlyTemplateWiring(dest);
@@ -183,21 +191,43 @@ export async function materializeTemplate(
   return { dir: dest, ref: usedRef, source };
 }
 
-/** Copies a bundled template's source tree, resolving template layers. */
-export function copyTemplateTree(templateDir: string, dest: string): void {
-  const layer = readTemplateLayer(templateDir);
-  if (!layer) {
-    _copyDir(templateDir, dest);
-    return;
-  }
-  const base = _findLocalTemplate(layer.base);
-  if (!base) {
-    throw new Error(
-      `No local copy of "${layer.base}", the base of ${templateDir}.`,
+type SubdirDownloader = (
+  subdir: string,
+  dest: string,
+  refs: string[],
+) => Promise<string>;
+
+/**
+ * A bundled layer lives in core's own template folder, not `templates/`, so a
+ * ref fetches the layer from there and its base from `templates/<base>` at the
+ * same ref.
+ */
+export async function downloadTemplateLayer(
+  template: string,
+  ref: string,
+  dest: string,
+  download: SubdirDownloader = (subdir, target, refs) =>
+    _downloadGitHubSubdir(_REPO, subdir, target, refs),
+): Promise<string> {
+  const layerDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-template-layer-"));
+  try {
+    const usedRef = await download(
+      `packages/core/src/templates/${template}`,
+      layerDir,
+      [ref],
     );
+    const layer = readTemplateLayer(layerDir);
+    if (!layer) {
+      throw new Error(
+        `${template} at ${usedRef} has no ${TEMPLATE_LAYER_FILE}; that ref predates the layered template.`,
+      );
+    }
+    await download(`${_TEMPLATES_DIR}/${layer.base}`, dest, [usedRef]);
+    applyTemplateLayer(layerDir, layer, dest);
+    return usedRef;
+  } finally {
+    fs.rmSync(layerDir, { recursive: true, force: true });
   }
-  copyTemplateTree(base, dest);
-  applyTemplateLayer(templateDir, layer, dest);
 }
 
 export function isMergeExcluded(rel: string): boolean {

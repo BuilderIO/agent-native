@@ -221,7 +221,8 @@
     "typecheck:e2e": "tsc --noEmit -p e2e/beta/tsconfig.json",
     "typecheck:e2e:signup": "tsc --noEmit -p e2e/signup/tsconfig.json",
     "guard:beta-e2e-suite": "tsx scripts/guard-beta-e2e-suite.ts",
-    "template-layer": "tsx scripts/template-layer.ts"
+    "template-layer": "tsx scripts/template-layer.ts",
+    "guard:template-layers": "tsx scripts/template-layer.ts check"
   },
   "devDependencies": {
     "@changesets/cli": "2.31.0",

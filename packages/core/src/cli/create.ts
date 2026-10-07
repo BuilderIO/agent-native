@@ -12,7 +12,7 @@ import {
 } from "../shared/workspace-app-id.js";
 import type { CreateStartKind } from "./create-tui.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
-import { readTemplateLayer } from "./template-layer.js";
+import { applyTemplateLayer, readTemplateLayer } from "./template-layer.js";
 import {
   coreTemplates,
   getTemplate,
@@ -1448,7 +1448,7 @@ async function scaffoldAppTemplate(
   const sourceTemplate = templateSourceName(resolved);
   const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
-    copyDir(localTemplate, targetDir);
+    copyTemplateTree(localTemplate, targetDir);
     removeWorkspaceOnlyTemplateWiring(targetDir);
     return {
       templateSource: localTemplateSourceKind(localTemplate),
@@ -1480,6 +1480,23 @@ function removeWorkspaceOnlyTemplateWiring(appDir: string): void {
     changed = true;
   }
   if (changed) fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+}
+
+/** Copies a bundled template's source tree, resolving template layers. */
+function copyTemplateTree(templateDir: string, dest: string): void {
+  const layer = readTemplateLayer(templateDir);
+  if (!layer) {
+    copyDir(templateDir, dest);
+    return;
+  }
+  const base = findLocalTemplate(layer.base);
+  if (!base) {
+    throw new Error(
+      `No local copy of "${layer.base}", the base of ${templateDir}.`,
+    );
+  }
+  copyTemplateTree(base, dest);
+  applyTemplateLayer(templateDir, layer, dest);
 }
 
 // A bundled layer (template-layer.json) installs its base template's
@@ -2560,6 +2577,7 @@ export {
   ensureScaffoldEmailBrandingConfig as _ensureScaffoldEmailBrandingConfig,
   fixWebManifestName as _fixWebManifestName,
   copyDir as _copyDir,
+  copyTemplateTree as _copyTemplateTree,
   localTemplateSourceKind as _localTemplateSourceKind,
   REPO as _REPO,
   TEMPLATES_DIR as _TEMPLATES_DIR,

@@ -16,8 +16,7 @@
 -];
 -
  export default createAgentChatPlugin({
--  appId: "chat",
-+  appId: "app",
+   appId: "chat",
    actions: loadActionsFromStaticRegistry(actionsRegistry),
 -  initialToolNames: INITIAL_TOOL_NAMES,
 +  nativeActionsInDev: true,

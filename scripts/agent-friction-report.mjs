@@ -2615,6 +2615,13 @@ const PATTERNS = [
     re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
   },
   {
+    key: "starter-patch-drift",
+    label:
+      "Had to report the Fusion starter breaking or drifting after a Chat change",
+    fixedBy: "guard:template-layers + pnpm template-layer rebase (2026-10-07)",
+    re: /\b((fusion|builder-agent-native-starter|starter)[^.!?]{0,40}\b(broke|breaks|broken|drift(ed|ing|s)?|out of sync|sync (failed|broke)|patch (failed|broke))|apply\.ts (failed|broke)|starter-patch)/i,
+  },
+  {
     key: "config-sprawl",
     label: "Told to stop adding environment variables / bespoke config",
     fixedBy:

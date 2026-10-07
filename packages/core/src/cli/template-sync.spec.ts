@@ -27,6 +27,7 @@ import {
   resolveBaselineStore,
 } from "./template-baseline.js";
 import {
+  downloadTemplateLayer,
   isMergeExcluded,
   materializeTemplate,
   mergeTemplateTrees,
@@ -443,6 +444,37 @@ describe("materializeTemplate", () => {
     }
     fs.rmSync(materialized.dir, { recursive: true, force: true });
   }, 120_000);
+
+  it("fetches a layer and its base from the same ref", async () => {
+    const repoRoot = path.resolve(import.meta.dirname, "../../../..");
+    const requested: Array<{ subdir: string; refs: string[] }> = [];
+    const dest = path.join(tmpDir, "remote-layer");
+    const usedRef = await downloadTemplateLayer(
+      "fusion-starter",
+      "v9.9.9",
+      dest,
+      async (subdir, target, refs) => {
+        requested.push({ subdir, refs });
+        fs.cpSync(path.join(repoRoot, subdir), target, { recursive: true });
+        return "resolved-ref";
+      },
+    );
+
+    expect(usedRef).toBe("resolved-ref");
+    expect(requested).toEqual([
+      {
+        subdir: "packages/core/src/templates/fusion-starter",
+        refs: ["v9.9.9"],
+      },
+      { subdir: "templates/chat", refs: ["resolved-ref"] },
+    ]);
+    expect(
+      fs.readFileSync(path.join(dest, "app/routes/_index.tsx"), "utf-8"),
+    ).toContain("Your app here");
+    expect(fs.existsSync(path.join(dest, "app/routes/settings.tsx"))).toBe(
+      false,
+    );
+  });
 
   it("records provenance the scaffolder can round-trip", async () => {
     const appDir = path.join(tmpDir, "prov");

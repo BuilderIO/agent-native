@@ -369,6 +369,12 @@ instructions, and application state.
   improvement, behavior-affecting fix)? Record it from that app with
   `agent-native changelog add "<one sentence>" --type <added|improved|fixed>`.
   Skip refactors, tooling, and tests. See the `changelog` skill.
+- The Fusion starter (`packages/core/src/templates/fusion-starter`) is patches
+  over `templates/chat`. After editing Chat, run `pnpm guard:template-layers`.
+  If a patch fails, run `pnpm template-layer rebase fusion-starter --out
+  .tmp/fs`, resolve conflicts keeping the starter's intent, then
+  `pnpm template-layer diff fusion-starter --from .tmp/fs`. Never delete a
+  failing patch.
 
 ## Extensions
 

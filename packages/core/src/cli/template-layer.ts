@@ -107,7 +107,7 @@ function applyLayerPatch(patchFile: string, dest: string, rel: string): void {
   );
   if (patched === false) {
     throw new Error(
-      `Template layer patch ${patchFile} no longer applies to ${rel}; the base template changed near it. Regenerate it with \`pnpm template-layer diff\`.`,
+      `Template layer patch ${patchFile} no longer applies to ${rel}; the base template changed the patched lines. In the agent-native repo, run \`pnpm template-layer rebase\` and then \`pnpm template-layer diff\`.`,
     );
   }
   fs.writeFileSync(target, patched);
