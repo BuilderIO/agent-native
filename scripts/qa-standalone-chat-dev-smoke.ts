@@ -2965,6 +2965,9 @@ async function assertAgentKitChatAcceptance(
     ),
   });
 
+  await page
+    .locator('[data-agent-composer-slot="stop-button"]')
+    .waitFor({ state: "visible" });
   await fillAndSubmitComposer(page, queuedPrompt);
   const queue = page.getByRole("region", { name: "Queued messages" });
   await queue.waitFor({ state: "visible" });
