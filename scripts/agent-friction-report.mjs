@@ -2012,6 +2012,8 @@ const FEEDBACK_RELEASE_TARGET_RE =
   /\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ed|ing)?|packages?|desktop\s+(?:apps?|builds?))\b/gi;
 const FEEDBACK_RELEASE_FAILURE_RE =
   /\b(?:fail(?:ed|ing|ure|ures)?|broken|stale|missing|unavailable|incomplete|errors?|errored?|red)\b/gi;
+const FEEDBACK_RELEASE_PRODUCT_REQUEST_RE =
+  /\b(?:controls?|features?|management|support|settings?|tooling|tools?|buttons?|options?|integrations?|pages?|widgets?|chrome)\b|\b(?:to|in|for)\s+(?:the\s+)?(?:app|product|site|website|analytics)\b/i;
 
 function matchesFeedbackReleaseCoverage(message) {
   const clauses = String(message).split(
@@ -2083,7 +2085,14 @@ function matchesFeedbackReleaseCoverage(message) {
             start: Math.min(target.start, failure.start),
             end: Math.max(target.end, failure.end),
           };
-          if (distance(action, coverage) <= 120) return true;
+          if (
+            distance(action, coverage) <= 120 &&
+            !FEEDBACK_RELEASE_PRODUCT_REQUEST_RE.test(
+              clause.slice(coverage.end),
+            )
+          ) {
+            return true;
+          }
         }
       }
       return false;
@@ -2105,6 +2114,7 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [true, "We are not scanning deployment failures in the feedback review."],
   [true, "The feedback sweep, going forward, should include failed deploys."],
   [true, "Feedback review: please include failed desktop releases."],
+  [false, "Feedback review: add failed desktop release controls to the app."],
   [false, "Add package publishing support to the app."],
   [false, "Include desktop release management in the product."],
   [false, "Add desktop release controls to the feedback app."],
