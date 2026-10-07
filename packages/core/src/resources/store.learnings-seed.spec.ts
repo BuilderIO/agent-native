@@ -62,6 +62,29 @@ function previousLearnSharedSeed(content: string): string {
     );
 }
 
+async function insertLegacyLearnSharedSeed(
+  owner: string,
+  content: string,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await sharedClient.execute({
+    sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      id,
+      "skills/learn-shared.md",
+      owner,
+      content,
+      "text/markdown",
+      Buffer.byteLength(content, "utf8"),
+      now,
+      now,
+    ],
+  });
+  return id;
+}
+
 let tempDir: string;
 let cwdSpy: ReturnType<typeof vi.spyOn>;
 
@@ -151,6 +174,10 @@ describe("shared LEARNINGS.md boot seeding", () => {
 
       const previousContent = previousLearnSharedSeed(seeded.content);
       expect(previousContent).not.toBe(seeded.content);
+      const legacyId = await insertLegacyLearnSharedSeed(
+        first.SHARED_OWNER,
+        previousContent,
+      );
       await sharedClient.execute({
         sql: "UPDATE resources SET content = ?, size = ? WHERE id = ?",
         args: [
@@ -170,10 +197,19 @@ describe("shared LEARNINGS.md boot seeding", () => {
         second.SHARED_OWNER,
         "skills/learn-shared/SKILL.md",
       );
+      const migratedLegacy = await second.resourceGetByPath(
+        second.SHARED_OWNER,
+        "skills/learn-shared.md",
+      );
 
       expect(migrated?.content).toBe(seeded.content);
       expect(migrated?.id).toBe(seeded.id);
       expect(migrated?.size).toBe(Buffer.byteLength(seeded.content, "utf8"));
+      expect(migratedLegacy?.content).toBe(seeded.content);
+      expect(migratedLegacy?.id).toBe(legacyId);
+      expect(migratedLegacy?.size).toBe(
+        Buffer.byteLength(seeded.content, "utf8"),
+      );
     } finally {
       bindClientTo(pglite);
       freshDb.close();
@@ -197,6 +233,13 @@ describe("shared LEARNINGS.md boot seeding", () => {
       const previousContent = previousLearnSharedSeed(seeded.content);
       const customizedContent =
         previousContent + "\n\n## Team additions\n\nKeep this edit.\n";
+      const customizedLegacyContent =
+        previousContent +
+        "\n\n## Legacy team additions\n\nKeep this edit too.\n";
+      const legacyId = await insertLegacyLearnSharedSeed(
+        first.SHARED_OWNER,
+        customizedLegacyContent,
+      );
       await sharedClient.execute({
         sql: "UPDATE resources SET content = ?, size = ? WHERE id = ?",
         args: [
@@ -216,9 +259,15 @@ describe("shared LEARNINGS.md boot seeding", () => {
         second.SHARED_OWNER,
         "skills/learn-shared/SKILL.md",
       );
+      const unchangedLegacy = await second.resourceGetByPath(
+        second.SHARED_OWNER,
+        "skills/learn-shared.md",
+      );
 
       expect(unchanged?.content).toBe(customizedContent);
       expect(unchanged?.id).toBe(seeded.id);
+      expect(unchangedLegacy?.content).toBe(customizedLegacyContent);
+      expect(unchangedLegacy?.id).toBe(legacyId);
     } finally {
       bindClientTo(pglite);
       freshDb.close();

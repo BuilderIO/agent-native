@@ -1198,17 +1198,23 @@ async function _doEnsureTable(): Promise<void> {
     );
   });
 
-  // Migrate the shipped learn-shared default without touching edited copies.
+  // Migrate both shipped paths without touching edited copies. The legacy
+  // path wins duplicate-name resolution in existing workspaces.
   // This marker stays separate from the shared seed version so it cannot
   // resurrect deleted defaults or rerun personal seeding.
   if (!(await alreadySeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY))) {
-    await migrateDefaultResourceContent({
-      client,
-      owner: SHARED_OWNER,
-      resourcePath: "skills/learn-shared/SKILL.md",
-      previousContent: PREVIOUS_DEFAULT_SKILL_LEARN_SHARED_MD,
-      content: DEFAULT_SKILL_LEARN_SHARED_MD,
-    });
+    for (const resourcePath of [
+      "skills/learn-shared/SKILL.md",
+      "skills/learn-shared.md",
+    ]) {
+      await migrateDefaultResourceContent({
+        client,
+        owner: SHARED_OWNER,
+        resourcePath,
+        previousContent: PREVIOUS_DEFAULT_SKILL_LEARN_SHARED_MD,
+        content: DEFAULT_SKILL_LEARN_SHARED_MD,
+      });
+    }
     await markSeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY);
   }
 
