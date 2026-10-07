@@ -22,6 +22,16 @@ export function parseArgs(args: string[]): Record<string, string> {
   return result;
 }
 
+export function serializeCliArgs(args: Record<string, unknown>): string[] {
+  return Object.entries(args).map(([key, raw]) => {
+    const value =
+      raw != null && typeof raw === "object"
+        ? JSON.stringify(raw)
+        : String(raw);
+    return `--${key}=${value}`;
+  });
+}
+
 export function camelCaseArgs(
   args: Record<string, string>,
 ): Record<string, string> {

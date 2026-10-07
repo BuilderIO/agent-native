@@ -489,8 +489,9 @@ describe("action discovery", () => {
     expect(out).toContain("hello Ada Lovelace");
   });
 
-  it("converts arbitrary key/value params into --key value CLI tokens", async () => {
+  it("preserves arbitrary key/value params in CLI tokens", async () => {
     const seenArgs: string[][] = [];
+    const content = "---\nname: spell-check\n---\n# Spell check";
     const registry = loadActionsFromStaticRegistry({
       "kv-action": {
         default: async (args: string[]) => {
@@ -499,8 +500,16 @@ describe("action discovery", () => {
       },
     });
 
-    await registry["kv-action"].run({ id: "abc", title: "Hi there" });
-    expect(seenArgs[0]).toEqual(["--id", "abc", "--title", "Hi there"]);
+    await registry["kv-action"].run({
+      id: "abc",
+      title: "Hi there",
+      content,
+    });
+    expect(seenArgs[0]).toEqual([
+      "--id=abc",
+      "--title=Hi there",
+      `--content=${content}`,
+    ]);
   });
 
   it(

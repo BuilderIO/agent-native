@@ -4,6 +4,7 @@ import "../authorization/check-action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
+import { serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
 
 let _fs: typeof import("fs") | undefined;
@@ -126,14 +127,10 @@ function wrapDefaultExport(
   return {
     tool,
     run: async (args: Record<string, string>): Promise<string> => {
-      const cliArgs: string[] = [];
-      if (args.args && Object.keys(args).length === 1) {
-        cliArgs.push(...splitShellArgs(args.args));
-      } else {
-        for (const [k, v] of Object.entries(args)) {
-          cliArgs.push(`--${k}`, v);
-        }
-      }
+      const cliArgs =
+        args.args && Object.keys(args).length === 1
+          ? splitShellArgs(args.args)
+          : serializeCliArgs(args);
       return captureCliOutput(() => defaultFn(cliArgs));
     },
   };
