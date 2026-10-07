@@ -519,8 +519,18 @@ export function buildStandaloneHtml(
         return active instanceof Element && !!active.closest('video, audio');
       }
 
+      function isMediaPlaybackKey(key) {
+        return (
+          key === ' ' ||
+          key === 'ArrowRight' ||
+          key === 'ArrowDown' ||
+          key === 'ArrowLeft' ||
+          key === 'ArrowUp'
+        );
+      }
+
       document.addEventListener('keydown', function(e) {
-        if (isMediaKeyboardEvent(e)) return;
+        if (isMediaKeyboardEvent(e) && isMediaPlaybackKey(e.key)) return;
         switch (e.key) {
           case 'ArrowRight':
           case 'ArrowDown':

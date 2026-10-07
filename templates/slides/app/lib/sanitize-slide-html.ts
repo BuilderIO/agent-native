@@ -569,8 +569,8 @@ function sanitizeHtmlString(
     /<video\b[^>]*>/gi,
     (tag) =>
       tag.replace(
-        /\s+(autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/gi,
-        "",
+        /"[^"]*"|'[^']*'|\s+(autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/gi,
+        (match, attribute: string | undefined) => (attribute ? "" : match),
       ),
   );
   return withoutFalseBooleanMediaAttrs.replace(/<video\b[^>]*>/gi, (tag) => {

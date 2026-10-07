@@ -6,7 +6,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { parseBase64DataUrl } from "@agent-native/core/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, notLike } from "drizzle-orm";
 import {
   assertBodySize,
   defineEventHandler,
@@ -94,6 +94,19 @@ interface EbmlElement {
 }
 
 const MAX_MEDIA_CONTAINER_ELEMENTS = 100_000;
+const MAX_MEDIA_SAMPLE_ENTRIES = 1_000_000;
+const EBML_SEGMENT_ID = 0x18538067;
+const EBML_CLUSTER_ID = 0x1f43b675;
+const EBML_SEGMENT_LEVEL_IDS = new Set([
+  0x114d9b74,
+  0x1549a966,
+  0x1654ae6b,
+  EBML_CLUSTER_ID,
+  0x1c53bb6b,
+  0x1941a469,
+  0x1043a770,
+  0x1254c367,
+]);
 
 function uint32(data: Uint8Array, offset: number): number {
   return (
@@ -137,7 +150,216 @@ function readIsoBoxes(
   return offset === end ? boxes : null;
 }
 
-function hasMp4VideoTrack(data: Uint8Array, moov: IsoBox): boolean {
+function singleIsoBox(boxes: IsoBox[], type: string): IsoBox | null {
+  const matches = boxes.filter((box) => box.type === type);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+interface Mp4SampleSizes {
+  count: number;
+  at(index: number): number | null;
+}
+
+function readMp4SampleSizes(
+  data: Uint8Array,
+  boxes: IsoBox[],
+): Mp4SampleSizes | null {
+  const sizeBoxes = boxes.filter(
+    (box) => box.type === "stsz" || box.type === "stz2",
+  );
+  if (sizeBoxes.length !== 1) return null;
+  const box = sizeBoxes[0]!;
+  const payloadSize = box.end - box.payloadStart;
+  if (payloadSize < 12) return null;
+  const count = uint32(data, box.payloadStart + 8);
+  if (count === 0 || count > MAX_MEDIA_SAMPLE_ENTRIES) return null;
+
+  if (box.type === "stsz") {
+    const sampleSize = uint32(data, box.payloadStart + 4);
+    if (sampleSize > 0) {
+      return payloadSize === 12 ? { count, at: () => sampleSize } : null;
+    }
+    if (payloadSize !== 12 + count * 4) return null;
+    return {
+      count,
+      at: (index) =>
+        index >= 0 && index < count
+          ? uint32(data, box.payloadStart + 12 + index * 4)
+          : null,
+    };
+  }
+
+  const fieldSize = data[box.payloadStart + 7]!;
+  const tableStart = box.payloadStart + 12;
+  const tableSize = Math.ceil((count * fieldSize) / 8);
+  if (
+    (fieldSize !== 4 && fieldSize !== 8 && fieldSize !== 16) ||
+    payloadSize !== 12 + tableSize
+  )
+    return null;
+  return {
+    count,
+    at: (index) => {
+      if (index < 0 || index >= count) return null;
+      if (fieldSize === 4) {
+        const packed = data[tableStart + Math.floor(index / 2)]!;
+        return index % 2 === 0 ? packed >> 4 : packed & 0x0f;
+      }
+      if (fieldSize === 8) return data[tableStart + index]!;
+      const offset = tableStart + index * 2;
+      return (data[offset]! << 8) + data[offset + 1]!;
+    },
+  };
+}
+
+function readMp4ChunkOffsets(
+  data: Uint8Array,
+  boxes: IsoBox[],
+): number[] | null {
+  const offsetBoxes = boxes.filter(
+    (box) => box.type === "stco" || box.type === "co64",
+  );
+  if (offsetBoxes.length !== 1) return null;
+  const box = offsetBoxes[0]!;
+  const payloadSize = box.end - box.payloadStart;
+  if (payloadSize < 8) return null;
+  const count = uint32(data, box.payloadStart + 4);
+  const entrySize = box.type === "stco" ? 4 : 8;
+  if (
+    count === 0 ||
+    count > MAX_MEDIA_CONTAINER_ELEMENTS ||
+    payloadSize !== 8 + count * entrySize
+  )
+    return null;
+  const offsets: number[] = [];
+  for (let index = 0; index < count; index++) {
+    const offset = box.payloadStart + 8 + index * entrySize;
+    const value =
+      entrySize === 4
+        ? uint32(data, offset)
+        : uint32(data, offset) * 0x100000000 + uint32(data, offset + 4);
+    if (!Number.isSafeInteger(value)) return null;
+    offsets.push(value);
+  }
+  return offsets;
+}
+
+function isMediaDataRange(
+  offset: number,
+  size: number,
+  mediaDataBoxes: IsoBox[],
+): boolean {
+  const end = offset + size;
+  if (!Number.isSafeInteger(end)) return false;
+  let low = 0;
+  let high = mediaDataBoxes.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (mediaDataBoxes[middle]!.end <= offset) low = middle + 1;
+    else high = middle;
+  }
+  const box = mediaDataBoxes[low];
+  return Boolean(box && offset >= box.payloadStart && end <= box.end);
+}
+
+function hasMp4PlayableSamples(
+  data: Uint8Array,
+  boxes: IsoBox[],
+  sampleDescriptionCount: number,
+  mediaDataBoxes: IsoBox[],
+): boolean {
+  const sampleSizes = readMp4SampleSizes(data, boxes);
+  const timing = singleIsoBox(boxes, "stts");
+  const sampleToChunk = singleIsoBox(boxes, "stsc");
+  const chunkOffsets = readMp4ChunkOffsets(data, boxes);
+  if (!sampleSizes || !timing || !sampleToChunk || !chunkOffsets) return false;
+
+  const timingPayloadSize = timing.end - timing.payloadStart;
+  if (timingPayloadSize < 8) return false;
+  const timingEntryCount = uint32(data, timing.payloadStart + 4);
+  if (
+    timingEntryCount === 0 ||
+    timingEntryCount > MAX_MEDIA_CONTAINER_ELEMENTS ||
+    timingPayloadSize !== 8 + timingEntryCount * 8
+  )
+    return false;
+  let timedSampleCount = 0;
+  for (let index = 0; index < timingEntryCount; index++) {
+    const entryOffset = timing.payloadStart + 8 + index * 8;
+    const count = uint32(data, entryOffset);
+    const delta = uint32(data, entryOffset + 4);
+    if (count === 0 || delta === 0) return false;
+    timedSampleCount += count;
+    if (
+      !Number.isSafeInteger(timedSampleCount) ||
+      timedSampleCount > sampleSizes.count
+    )
+      return false;
+  }
+  if (timedSampleCount !== sampleSizes.count) return false;
+
+  const mappingPayloadSize = sampleToChunk.end - sampleToChunk.payloadStart;
+  if (mappingPayloadSize < 8) return false;
+  const mappingEntryCount = uint32(data, sampleToChunk.payloadStart + 4);
+  if (
+    mappingEntryCount === 0 ||
+    mappingEntryCount > MAX_MEDIA_CONTAINER_ELEMENTS ||
+    mappingPayloadSize !== 8 + mappingEntryCount * 12
+  )
+    return false;
+  const mappings: Array<{
+    firstChunk: number;
+    samplesPerChunk: number;
+  }> = [];
+  for (let index = 0; index < mappingEntryCount; index++) {
+    const entryOffset = sampleToChunk.payloadStart + 8 + index * 12;
+    const firstChunk = uint32(data, entryOffset);
+    const samplesPerChunk = uint32(data, entryOffset + 4);
+    const descriptionIndex = uint32(data, entryOffset + 8);
+    if (
+      firstChunk === 0 ||
+      (index === 0
+        ? firstChunk !== 1
+        : firstChunk <= mappings[index - 1]!.firstChunk) ||
+      firstChunk > chunkOffsets.length ||
+      samplesPerChunk === 0 ||
+      descriptionIndex === 0 ||
+      descriptionIndex > sampleDescriptionCount
+    )
+      return false;
+    mappings.push({ firstChunk, samplesPerChunk });
+  }
+
+  let sampleIndex = 0;
+  let mappingIndex = 0;
+  for (let chunkIndex = 1; chunkIndex <= chunkOffsets.length; chunkIndex++) {
+    while (
+      mappingIndex + 1 < mappings.length &&
+      mappings[mappingIndex + 1]!.firstChunk <= chunkIndex
+    ) {
+      mappingIndex++;
+    }
+    const mapping = mappings[mappingIndex]!;
+    const nextSampleIndex = sampleIndex + mapping.samplesPerChunk;
+    if (nextSampleIndex > sampleSizes.count) return false;
+    let chunkSize = 0;
+    for (; sampleIndex < nextSampleIndex; sampleIndex++) {
+      const sampleSize = sampleSizes.at(sampleIndex);
+      if (sampleSize === null || sampleSize === 0) return false;
+      chunkSize += sampleSize;
+      if (!Number.isSafeInteger(chunkSize)) return false;
+    }
+    const chunkOffset = chunkOffsets[chunkIndex - 1]!;
+    if (!isMediaDataRange(chunkOffset, chunkSize, mediaDataBoxes)) return false;
+  }
+  return sampleIndex === sampleSizes.count;
+}
+
+function hasMp4VideoTrack(
+  data: Uint8Array,
+  moov: IsoBox,
+  mediaDataBoxes: IsoBox[],
+): boolean {
   const movieBoxes = readIsoBoxes(data, moov.payloadStart, moov.end);
   if (!movieBoxes) return false;
   const movieHeader = movieBoxes.find((box) => box.type === "mvhd");
@@ -185,9 +407,9 @@ function hasMp4VideoTrack(data: Uint8Array, moov: IsoBox): boolean {
       sampleTable.payloadStart,
       sampleTable.end,
     );
-    const sampleDescription = sampleTableBoxes?.find(
-      (box) => box.type === "stsd",
-    );
+    const sampleDescription = sampleTableBoxes
+      ? singleIsoBox(sampleTableBoxes, "stsd")
+      : null;
     if (
       !sampleDescription ||
       sampleDescription.end - sampleDescription.payloadStart < 8
@@ -201,9 +423,11 @@ function hasMp4VideoTrack(data: Uint8Array, moov: IsoBox): boolean {
       sampleDescription.payloadStart + 8,
       sampleDescription.end,
     );
-    return (
+    return Boolean(
       entries?.length === entryCount &&
-      entries.every((entry) => entry.end - entry.start >= 78)
+      entries.every((entry) => entry.end - entry.start >= 86) &&
+      sampleTableBoxes &&
+      hasMp4PlayableSamples(data, sampleTableBoxes, entryCount, mediaDataBoxes),
     );
   });
 }
@@ -214,7 +438,7 @@ function hasValidMp4Video(data: Uint8Array): boolean {
   if (!boxes) return false;
   const fileType = boxes.find((box) => box.type === "ftyp");
   const movie = boxes.find((box) => box.type === "moov");
-  const hasMediaData = boxes.some(
+  const mediaDataBoxes = boxes.filter(
     (box) => box.type === "mdat" && box.end > box.payloadStart,
   );
   if (
@@ -222,10 +446,10 @@ function hasValidMp4Video(data: Uint8Array): boolean {
     fileType.end - fileType.start < 16 ||
     (fileType.end - fileType.start - 16) % 4 !== 0 ||
     !movie ||
-    !hasMediaData
+    mediaDataBoxes.length === 0
   )
     return false;
-  return hasMp4VideoTrack(data, movie);
+  return hasMp4VideoTrack(data, movie, mediaDataBoxes);
 }
 
 function readEbmlVint(
@@ -262,6 +486,7 @@ function readEbmlElements(
   start: number,
   end: number,
   unknownSizeIds: ReadonlySet<number> = new Set(),
+  unknownSizeSiblingIds: ReadonlySet<number> = new Set(),
 ): EbmlElement[] | null {
   const elements: EbmlElement[] = [];
   let offset = start;
@@ -274,12 +499,46 @@ function readEbmlElements(
     const payloadStart = offset + id.width + size.width;
     if (payloadStart > end) return null;
     if (size.unknown && !unknownSizeIds.has(id.value)) return null;
-    const elementEnd = size.unknown ? end : payloadStart + size.value;
+    const elementEnd = size.unknown
+      ? id.value === EBML_CLUSTER_ID
+        ? findUnknownSizeClusterEnd(
+            data,
+            payloadStart,
+            end,
+            unknownSizeSiblingIds,
+          )
+        : end
+      : payloadStart + size.value;
+    if (elementEnd === null) return null;
     if (elementEnd > end || elementEnd < payloadStart) return null;
     elements.push({ id: id.value, payloadStart, end: elementEnd });
     offset = elementEnd;
   }
   return offset === end ? elements : null;
+}
+
+function findUnknownSizeClusterEnd(
+  data: Uint8Array,
+  start: number,
+  end: number,
+  siblingIds: ReadonlySet<number>,
+): number | null {
+  let offset = start;
+  let count = 0;
+  while (offset < end) {
+    if (count++ >= MAX_MEDIA_CONTAINER_ELEMENTS) return null;
+    const id = readEbmlVint(data, offset, 4, true);
+    if (!id) return null;
+    if (siblingIds.has(id.value)) return offset;
+    const size = readEbmlVint(data, offset + id.width, 8, false);
+    if (!size || size.unknown) return null;
+    const payloadStart = offset + id.width + size.width;
+    if (payloadStart > end) return null;
+    const childEnd = payloadStart + size.value;
+    if (childEnd > end || childEnd < payloadStart) return null;
+    offset = childEnd;
+  }
+  return offset === end ? end : null;
 }
 
 function ebmlUnsigned(data: Uint8Array, element: EbmlElement): number | null {
@@ -352,7 +611,12 @@ function hasWebmVideoData(
 }
 
 function hasValidWebmVideo(data: Uint8Array): boolean {
-  const root = readEbmlElements(data, 0, data.length, new Set([0x18538067]));
+  const root = readEbmlElements(
+    data,
+    0,
+    data.length,
+    new Set([EBML_SEGMENT_ID]),
+  );
   if (!root || root[0]?.id !== 0x1a45dfa3) return false;
   const header = readEbmlElements(data, root[0].payloadStart, root[0].end);
   const docType = header?.find((element) => element.id === 0x4282);
@@ -369,14 +633,16 @@ function hasValidWebmVideo(data: Uint8Array): boolean {
     data,
     segment.payloadStart,
     segment.end,
-    new Set([0x1f43b675]),
+    new Set([EBML_CLUSTER_ID]),
+    EBML_SEGMENT_LEVEL_IDS,
   );
   if (!segmentChildren) return false;
-  const info = segmentChildren.find((element) => element.id === 0x1549a966);
-  const tracksElement = segmentChildren.find(
-    (element) => element.id === 0x1654ae6b,
-  );
-  if (!info || !tracksElement) return false;
+  const infos = segmentChildren.filter((element) => element.id === 0x1549a966);
+  const tracks = segmentChildren.filter((element) => element.id === 0x1654ae6b);
+  const info = infos[0];
+  const tracksElement = tracks[0];
+  if (infos.length !== 1 || tracks.length !== 1 || !info || !tracksElement)
+    return false;
   if (!readEbmlElements(data, info.payloadStart, info.end)) return false;
   const videoTracks = hasWebmVideoTrack(data, tracksElement);
   if (!videoTracks) return false;
@@ -778,7 +1044,12 @@ export const listAssets = defineEventHandler(async (event) => {
       createdAt: schema.uploadedAssets.createdAt,
     })
     .from(schema.uploadedAssets)
-    .where(eq(schema.uploadedAssets.ownerEmail, session.email))
+    .where(
+      and(
+        eq(schema.uploadedAssets.ownerEmail, session.email),
+        notLike(schema.uploadedAssets.type, "video/%"),
+      ),
+    )
     .orderBy(desc(schema.uploadedAssets.createdAt));
   return rows;
 });

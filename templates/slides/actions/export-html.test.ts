@@ -112,3 +112,60 @@ it("keeps video controls from navigating or continuing playback off-slide", asyn
   expect(pause).toHaveBeenCalledTimes(1);
   await window.happyDOM.abort();
 });
+
+it("keeps fullscreen shortcuts available while video controls are focused", async () => {
+  const window = new Window({ settings: { enableJavaScriptEvaluation: true } });
+  const html = buildStandaloneHtml("Video deck", [
+    {
+      id: "video-slide",
+      content:
+        '<video controls><source src="https://media.example.com/clip.mp4" type="video/mp4"></video>',
+    },
+    { id: "next-slide", content: "<p>Next</p>" },
+  ]);
+  window.document.write(html);
+  await window.happyDOM.whenAsyncComplete();
+
+  const video = window.document.querySelector("video");
+  const counter = window.document.getElementById("counter");
+  if (!video) throw new Error("Expected exported video slide");
+
+  let fullscreenElement: Element | null = null;
+  const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+  const exitFullscreen = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(window.document, "fullscreenElement", {
+    configurable: true,
+    get: () => fullscreenElement,
+  });
+  Object.defineProperty(window.document.documentElement, "requestFullscreen", {
+    configurable: true,
+    value: requestFullscreen,
+  });
+  Object.defineProperty(window.document, "exitFullscreen", {
+    configurable: true,
+    value: exitFullscreen,
+  });
+
+  video.focus();
+  const fullscreenShortcut = new window.KeyboardEvent("keydown", {
+    key: "f",
+    bubbles: true,
+    cancelable: true,
+  });
+  window.document.dispatchEvent(fullscreenShortcut);
+  expect(requestFullscreen).toHaveBeenCalledTimes(1);
+  expect(fullscreenShortcut.defaultPrevented).toBe(false);
+
+  fullscreenElement = window.document.documentElement;
+  const exitShortcut = new window.KeyboardEvent("keydown", {
+    key: "Escape",
+    bubbles: true,
+    cancelable: true,
+  });
+  window.document.dispatchEvent(exitShortcut);
+  expect(exitFullscreen).toHaveBeenCalledTimes(1);
+  expect(exitShortcut.defaultPrevented).toBe(false);
+  expect(counter?.textContent).toBe("1 / 2");
+
+  await window.happyDOM.abort();
+});

@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
@@ -230,30 +227,213 @@ describe("uploaded asset validation", () => {
   });
 });
 
+function uint32Bytes(value: number): Buffer {
+  const bytes = Buffer.alloc(4);
+  bytes.writeUInt32BE(value);
+  return bytes;
+}
+
+function isoBox(type: string, payload: Uint8Array): Buffer {
+  return Buffer.concat([
+    uint32Bytes(payload.length + 8),
+    Buffer.from(type),
+    payload,
+  ]);
+}
+
+function makeMp4Video(
+  options: {
+    hasSample?: boolean;
+    sampleOffset?: number;
+  } = {},
+): Buffer {
+  const hasSample = options.hasSample ?? true;
+  const ftyp = isoBox(
+    "ftyp",
+    Buffer.concat([Buffer.from("isom"), uint32Bytes(0), Buffer.from("isom")]),
+  );
+  const mediaData = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+  const mdat = isoBox("mdat", mediaData);
+  const sampleOffset = options.sampleOffset ?? ftyp.length + 8;
+  const sampleCount = hasSample ? 1 : 0;
+  const tableEntries = hasSample ? 1 : 0;
+  const sampleDescription = isoBox("avc1", Buffer.alloc(78));
+  const stbl = isoBox(
+    "stbl",
+    Buffer.concat([
+      isoBox(
+        "stsd",
+        Buffer.concat([Buffer.alloc(4), uint32Bytes(1), sampleDescription]),
+      ),
+      isoBox(
+        "stts",
+        Buffer.concat([
+          Buffer.alloc(4),
+          uint32Bytes(tableEntries),
+          ...(hasSample ? [uint32Bytes(1), uint32Bytes(1000)] : []),
+        ]),
+      ),
+      isoBox(
+        "stsc",
+        Buffer.concat([
+          Buffer.alloc(4),
+          uint32Bytes(tableEntries),
+          ...(hasSample
+            ? [uint32Bytes(1), uint32Bytes(1), uint32Bytes(1)]
+            : []),
+        ]),
+      ),
+      isoBox(
+        "stsz",
+        Buffer.concat([
+          Buffer.alloc(4),
+          uint32Bytes(hasSample ? mediaData.length : 0),
+          uint32Bytes(sampleCount),
+        ]),
+      ),
+      isoBox(
+        "stco",
+        Buffer.concat([
+          Buffer.alloc(4),
+          uint32Bytes(tableEntries),
+          ...(hasSample ? [uint32Bytes(sampleOffset)] : []),
+        ]),
+      ),
+    ]),
+  );
+  const track = isoBox(
+    "trak",
+    Buffer.concat([
+      isoBox("tkhd", Buffer.alloc(84)),
+      isoBox(
+        "mdia",
+        Buffer.concat([
+          isoBox("mdhd", Buffer.alloc(24)),
+          isoBox(
+            "hdlr",
+            Buffer.concat([
+              Buffer.alloc(8),
+              Buffer.from("vide"),
+              Buffer.alloc(12),
+            ]),
+          ),
+          isoBox("minf", stbl),
+        ]),
+      ),
+    ]),
+  );
+  const moov = isoBox(
+    "moov",
+    Buffer.concat([isoBox("mvhd", Buffer.alloc(100)), track]),
+  );
+  return Buffer.concat([ftyp, mdat, moov]);
+}
+
+function ebmlId(id: number): Buffer {
+  const bytes = Buffer.alloc(4);
+  bytes.writeUInt32BE(id);
+  let first = 0;
+  while (first < 3 && bytes[first] === 0) first++;
+  return bytes.subarray(first);
+}
+
+function ebmlSize(size: number): Buffer {
+  if (size < 0x7f) return Buffer.from([0x80 | size]);
+  if (size < 0x3fff) {
+    return Buffer.from([0x40 | (size >> 8), size & 0xff]);
+  }
+  throw new Error("Test EBML element is too large");
+}
+
+function ebmlElement(
+  id: number,
+  payload: Uint8Array,
+  unknownSize = false,
+): Buffer {
+  return Buffer.concat([
+    ebmlId(id),
+    unknownSize ? Buffer.from([0xff]) : ebmlSize(payload.length),
+    payload,
+  ]);
+}
+
+function ebmlInteger(id: number, value: number, width = 1): Buffer {
+  const payload = Buffer.alloc(width);
+  for (let index = width - 1; index >= 0; index--) {
+    payload[index] = value & 0xff;
+    value = Math.floor(value / 256);
+  }
+  return ebmlElement(id, payload);
+}
+
+function makeWebmVideo(
+  options: {
+    unknownSegmentSize?: boolean;
+    unknownClusterSize?: boolean;
+    duplicateInfoAfterCluster?: boolean;
+  } = {},
+): Buffer {
+  const info = ebmlElement(
+    0x1549a966,
+    Buffer.concat([
+      ebmlInteger(0x2ad7b1, 1_000_000, 3),
+      ebmlElement(0x4d80, Buffer.from("Slides test")),
+      ebmlElement(0x5741, Buffer.from("Slides test")),
+    ]),
+  );
+  const video = ebmlElement(
+    0xe0,
+    Buffer.concat([ebmlInteger(0xb0, 16), ebmlInteger(0xba, 16)]),
+  );
+  const track = ebmlElement(
+    0xae,
+    Buffer.concat([
+      ebmlInteger(0xd7, 1),
+      ebmlInteger(0x73c5, 1),
+      ebmlInteger(0x83, 1),
+      ebmlElement(0x86, Buffer.from("V_VP8")),
+      video,
+    ]),
+  );
+  const tracks = ebmlElement(0x1654ae6b, track);
+  const cluster = ebmlElement(
+    0x1f43b675,
+    Buffer.concat([
+      ebmlInteger(0xe7, 0),
+      ebmlElement(0xa3, Buffer.from([0x81, 0x00, 0x00, 0x80, 0x01])),
+    ]),
+    options.unknownClusterSize,
+  );
+  const segment = ebmlElement(
+    0x18538067,
+    Buffer.concat([
+      info,
+      tracks,
+      cluster,
+      ...(options.duplicateInfoAfterCluster ? [info] : []),
+    ]),
+    options.unknownSegmentSize,
+  );
+  const header = ebmlElement(
+    0x1a45dfa3,
+    Buffer.concat([
+      ebmlInteger(0x4286, 1),
+      ebmlInteger(0x42f7, 1),
+      ebmlInteger(0x42f2, 4),
+      ebmlInteger(0x42f3, 8),
+      ebmlElement(0x4282, Buffer.from("webm")),
+      ebmlInteger(0x4287, 2),
+      ebmlInteger(0x4285, 2),
+    ]),
+  );
+  return Buffer.concat([header, segment]);
+}
+
 describe("uploaded video validation", () => {
-  const mp4 = readFileSync(
-    path.resolve(
-      __dirname,
-      "../../../../packages/docs/public/videos/mail-jev-story.mp4",
-    ),
-  );
-  const webm = readFileSync(
-    path.resolve(
-      __dirname,
-      "../../../design/e2e/fixtures/design-media-probe.webm",
-    ),
-  );
+  const mp4 = makeMp4Video();
+  const webm = makeWebmVideo();
 
-  it("accepts complete MP4 and WebM videos and rejects mismatched extensions", () => {
-    const segmentId = Buffer.from([0x18, 0x53, 0x80, 0x67]);
-    const segmentOffset = webm.indexOf(segmentId);
-    if (segmentOffset < 0) throw new Error("Expected WebM Segment element");
-    const unknownSizeSegment = Buffer.concat([
-      webm.subarray(0, segmentOffset + segmentId.length),
-      Buffer.from([0xff]),
-      webm.subarray(segmentOffset + segmentId.length + 8),
-    ]);
-
+  it("accepts structurally complete containers and rejects mismatched extensions", () => {
     expect(
       canSaveAsUploadedVideoAsset({ originalName: "clip.mp4", data: mp4 }),
     ).toBe(true);
@@ -263,7 +443,10 @@ describe("uploaded video validation", () => {
     expect(
       canSaveAsUploadedVideoAsset({
         originalName: "clip.webm",
-        data: unknownSizeSegment,
+        data: makeWebmVideo({
+          unknownSegmentSize: true,
+          unknownClusterSize: true,
+        }),
       }),
     ).toBe(true);
     expect(
@@ -274,13 +457,35 @@ describe("uploaded video validation", () => {
     ).toBe(false);
   });
 
-  it("rejects signature-only, truncated, and malformed containers", () => {
+  it("requires MP4 samples to reference bytes inside media data", () => {
+    const malformedMp4 = Buffer.from(mp4);
+    malformedMp4[3] = 0xff;
+
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: makeMp4Video({ hasSample: false }),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: makeMp4Video({ sampleOffset: mp4.length }),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: malformedMp4,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects truncated containers and unknown-size clusters that swallow siblings", () => {
     const signatureOnlyMp4 = Buffer.from([
       0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0, 0, 0, 0,
     ]);
     const signatureOnlyWebm = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
-    const malformedMp4 = Buffer.from(mp4);
-    malformedMp4[3] = 0xff;
 
     expect(
       canSaveAsUploadedVideoAsset({
@@ -308,8 +513,12 @@ describe("uploaded video validation", () => {
     ).toBe(false);
     expect(
       canSaveAsUploadedVideoAsset({
-        originalName: "clip.mp4",
-        data: malformedMp4,
+        originalName: "clip.webm",
+        data: makeWebmVideo({
+          unknownSegmentSize: true,
+          unknownClusterSize: true,
+          duplicateInfoAfterCluster: true,
+        }),
       }),
     ).toBe(false);
   });

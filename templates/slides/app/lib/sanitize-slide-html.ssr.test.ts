@@ -164,6 +164,17 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
     expect(html).not.toContain("data:video");
   });
 
+  it("does not remove false-looking text inside quoted video attributes", () => {
+    const html = sanitizeSlideHtml(
+      `<video aria-label='Use autoplay="false" literally' title="Keep loop='false' as text" controls="false" muted='false'></video>`,
+    );
+
+    expect(html).toContain(`aria-label='Use autoplay="false" literally'`);
+    expect(html).toContain(`title="Keep loop='false' as text"`);
+    expect(html).not.toContain('controls="false"');
+    expect(html).not.toContain("muted='false'");
+  });
+
   it("gates blob videos and keeps autoplay disabled in thumbnails", () => {
     const input = '<video src="blob:preview" autoplay></video>';
     expect(sanitizeSlideHtml(input)).not.toContain("blob:preview");
