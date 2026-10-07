@@ -202,7 +202,10 @@ import {
   normalizeMcpPrincipal,
   principalFromRequestContext,
 } from "../mcp-client/principal.js";
-import { declaredMcpToolNames } from "../mcp/build-server.js";
+import {
+  declaredMcpToolNames,
+  getMcpDirectoryWidgetResourceUri,
+} from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -1229,6 +1232,9 @@ export function createAgentChatPlugin(
       // `externalAgents` into `mcp`. A2A reads the same object, so the
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
+      const mcpServerName = options?.appId
+        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+        : "Agent";
       const mcpActionEntryOptions: McpActionEntryOptions =
         options?.resolveMcpActionEntry
           ? { resolveActionEntry: options.resolveMcpActionEntry }
@@ -3146,9 +3152,7 @@ export function createAgentChatPlugin(
         // Mount MCP remote server — same action registry as A2A + agent chat
         const { mountMCP } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
-          name: options?.appId
-            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
-            : "Agent",
+          name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,
           description:
@@ -3161,6 +3165,16 @@ export function createAgentChatPlugin(
           icons: mcpOptions.icons,
           actions: externalActions,
           productionActions: externalFullActions,
+          widgetReadActions:
+            mcpOptions.catalog === "directory" && mcpOptions.directoryProfile
+              ? Object.fromEntries(
+                  (mcpOptions.directoryProfile.widgetReadPrivateActions ?? [])
+                    .map((name) => [name, httpActions[name]] as const)
+                    .filter((entry): entry is readonly [string, ActionEntry] =>
+                      Boolean(entry[1]),
+                    ),
+                )
+              : undefined,
           ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
@@ -3443,6 +3457,7 @@ export function createAgentChatPlugin(
         }
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
+          getOwnerContextFromEvent: resolveOwnerContext,
           getAuthUserIdFromEvent: async (event) =>
             (await resolveOwnerContext(event)).authUserId,
           getUserNameFromEvent,
@@ -3450,6 +3465,69 @@ export function createAgentChatPlugin(
           clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
+          mcpDirectoryWidgetReadActionArguments:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? Object.fromEntries(
+                  Object.entries(
+                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
+                  )
+                    .filter(
+                      ([name]) =>
+                        (mcpOptions.directoryProfile?.connectorCatalog.includes(
+                          name,
+                        ) ||
+                          mcpOptions.directoryProfile?.widgetReadPublicActions?.includes(
+                            name,
+                          ) ||
+                          mcpOptions.directoryProfile?.widgetReadPrivateActions?.includes(
+                            name,
+                          )) &&
+                        httpActions[name] &&
+                        (httpActions[name]?.readOnly === true ||
+                          mcpOptions.directoryProfile?.widgetReadOnlyActions?.includes(
+                            name,
+                          )),
+                    )
+                    .map(([name, args]) => [name, Object.keys(args)]),
+                )
+              : undefined,
+          mcpDirectoryWidgetReadActionSchemaArguments:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? Object.fromEntries(
+                  Object.entries(
+                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
+                  )
+                    .map(([name, args]) => [
+                      name,
+                      Object.entries(args)
+                        .filter(
+                          ([, argument]) =>
+                            typeof argument !== "string" &&
+                            argument.type === "actionSchema",
+                        )
+                        .map(([argumentName]) => argumentName),
+                    ])
+                    .filter(([, argumentNames]) => argumentNames.length > 0),
+                )
+              : undefined,
+          mcpDirectoryWidgetReadOnlyActions:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? mcpOptions.directoryProfile.widgetReadOnlyActions
+              : undefined,
+          mcpDirectoryWidgetReadPublicActions:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? mcpOptions.directoryProfile.widgetReadPublicActions
+              : undefined,
+          mcpDirectoryWidgetAppId:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? (options?.appId ?? mcpServerName)
+              : undefined,
+          mcpDirectoryWidgetResourceUri:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? getMcpDirectoryWidgetResourceUri(
+                  options?.appId ?? mcpServerName,
+                )
+              : undefined,
         });
       }
       // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't

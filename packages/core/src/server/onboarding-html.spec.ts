@@ -181,6 +181,13 @@ describe("getOnboardingHtml", () => {
     );
   });
 
+  it("lifts the auth wave above the lower marketing copy", () => {
+    const html = getOnboardingHtml({ requestHost: "slides.agent-native.com" });
+
+    expect(html).toContain(".auth-wave-background {");
+    expect(html).toContain("transform: translateY(-9vh);");
+  });
+
   it("allows a hosted app to opt out of catalog auth marketing", () => {
     const html = getOnboardingHtml({
       requestHost: "chat.agent-native.com",

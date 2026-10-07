@@ -434,6 +434,28 @@ describe("embedApp", () => {
     expect(csp?.resourceDomains).not.toContain("https://esm.sh");
   });
 
+  it("renews directory widget sessions from saved tool output without embedStart metadata", () => {
+    const resource = embedApp({ title: "Directory widget" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({
+            actionName: "create-document",
+            appId: "content",
+            catalogMode: "directory",
+            startToolName: "create_embed_session",
+          })
+        : resource.html;
+
+    expect(html).toContain('data-start-tool="create_embed_session"');
+    expect(html).toContain('data-catalog-mode="directory"');
+    expect(html).toContain('toolResponseMetadata["agent-native/widgetSource"]');
+    expect(html).toContain("toolOutput: toolResultData");
+    expect(html).toContain(
+      "const result = await callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
+    );
+    expect(html).toContain("openStartUrl || openUrl");
+  });
+
   it("renders the shared MCP App document without trailing characters", () => {
     const resource = embedApp({ title: "MCP widget" });
     const html =
