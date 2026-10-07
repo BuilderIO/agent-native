@@ -38,7 +38,7 @@ Verify the intended source and delivery artifact at the target:
   scaffold it from a clean cache. For npx, record pinned/filed versions, remove
   local overrides, verify the candidate and published release, and check the
   existing-app upgrade path (for example, `pnpm add
-  @agent-native/core@<version>` or the documented hand edit).
+@agent-native/core@<version>` or the documented hand edit).
 
 A green workflow, merged source, beta promise, or local scaffold alone does not
 prove delivery. Keep the operational row active until the intended artifact is
