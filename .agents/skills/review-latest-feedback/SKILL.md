@@ -2,7 +2,7 @@
 name: review-latest-feedback
 description: >-
   Sweep recent Slack, GitHub issue, Sentry, first-party Agent-Native Analytics
-  error issues, and explicitly linked tracker
+  error issues, actionable automated diagnostics, and explicitly linked tracker
   feedback: first answer reporters, then fix verified bugs and actionable
   objective UI defects at the owning boundary, require human signoff for
   subjective UI changes, build features the invoking user endorsed with an
@@ -218,14 +218,33 @@ Phase 2 reapplies these rules after full-thread review.
 
 Use `## Slack channels` unless the invocation narrows scope.
 
+**Automated diagnostics are feedback regardless of author.** A CI/Beta E2E,
+deployment, Sentry, Analytics, or other monitoring alert that points to a
+failure in the scoped sources is eligible; don't skip it because a bot posted
+it or no person filed an issue. Apply the normal ownership gate, add `👀` to an
+unmarked actionable alert, read it back, then inspect its linked run, commit or
+build, job logs, test output and artifacts, issue history, and current status.
+Treat alert labels and counts as leads, not proof. Fix verified repo-owned
+causes at their boundary and verify them; record infrastructure, configuration,
+external, duplicate, or already-resolved outcomes with the supporting evidence
+and exact next owner/action. Don't ask a bot for details. Follow the source
+links and ask an accountable person only when one specific missing fact blocks
+progress.
+
+If a repo-owned automated report lacks evidence needed to reproduce or classify
+the failure, name the missing field or artifact. When the report source can
+safely provide it, improve the report and its existing checks with concise
+failure context and direct run, job, test, and artifact links. Don't duplicate
+details already available through linked evidence or expose secrets.
+
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
 result is wrong, or a working flow regressed. A credible "nothing happens" is
 valid evidence — inspect the owning path before doubting the reporter.
 
 Do not change code for an unrelated product idea, praise, status update, merge
-or review request, bot forward, duplicate, or work outside the invocation's
-ownership.
+or review request, irrelevant bot forward, duplicate, or work outside the
+invocation's ownership.
 
 **Keep subjective UI changes human-in-the-loop.** Automatically fix only
 objective UI defects: broken interactions, misalignment, overlap or clipping,
