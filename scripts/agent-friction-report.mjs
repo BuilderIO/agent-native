@@ -2004,8 +2004,62 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   ],
 ];
 
-const FEEDBACK_RELEASE_COVERAGE_RE =
-  /\b(?:we|you|the (?:feedback )?sweep|the (?:feedback )?review|this)\b[^.!?\n]{0,120}\b(?:aren['’]?t|are not|isn['’]?t|is not|doesn['’]?t|does not|didn['’]?t|did not|miss(?:ed|ing)?|skip(?:ped|ping)?)\b[^.!?\n]{0,160}\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b|(?=[^.!?\n]{0,240}\b(?:feedback|sweeps?|reviews?|triage)\b)(?=[^.!?\n]{0,240}\b(?:fail(?:ed|ing|ure|ures)?|broken|stale|missing|unavailable|incomplete|errored?|red)\b)\b(?:also\s+)?(?:add|include|check|scan|review|inspect|cover|make sure)\b[^.!?\n]{0,160}\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b|\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b[^.!?\n]{0,120}\b(?:missed|skipped|ignored|overlooked|forgot(?:ten)?|not (?:included|covered|checked|scanned|reviewed))\b/i;
+const FEEDBACK_RELEASE_CONTEXT_RE =
+  /\b(?:feedback|sweeps?|reviews?|triage)\b/gi;
+const FEEDBACK_RELEASE_ACTION_RE =
+  /\b(?:add|include|check|scan|review|inspect|cover|monitor|track|surface|look\s+at|make sure|miss(?:ed|ing)?|skip(?:ped|ping)?|ignor(?:e|ed|ing)|overlook(?:ed|ing)|forget|forgot|forgotten|did(?:n['’]?t| not)\s+(?:include|check|scan|review|cover)|not\s+(?:included|checked|scanned|reviewed|covered))\b/gi;
+const FEEDBACK_RELEASE_TARGET_RE =
+  /\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b/gi;
+const FEEDBACK_RELEASE_FAILURE_RE =
+  /\b(?:fail(?:ed|ing|ure|ures)?|broken|stale|missing|unavailable|incomplete|errored?|red)\b/gi;
+
+function matchesFeedbackReleaseCoverage(message) {
+  const clauses = String(message).split(/[.!?;:\n]+/);
+  return clauses.some((clause) => {
+    const spans = (pattern) =>
+      [...clause.matchAll(pattern)].map((match) => ({
+        start: match.index,
+        end: match.index + match[0].length,
+      }));
+    const contexts = spans(FEEDBACK_RELEASE_CONTEXT_RE);
+    const actions = spans(FEEDBACK_RELEASE_ACTION_RE);
+    const targets = spans(FEEDBACK_RELEASE_TARGET_RE);
+    const failures = spans(FEEDBACK_RELEASE_FAILURE_RE);
+
+    return targets.some((target) =>
+      failures.some((failure) => {
+        const distance =
+          failure.end < target.start
+            ? target.start - failure.end
+            : target.end < failure.start
+              ? failure.start - target.end
+              : 0;
+        if (distance > 60) return false;
+
+        const start = Math.min(target.start, failure.start);
+        const end = Math.max(target.end, failure.end);
+        const nearby = (span) =>
+          span.end < start
+            ? start - span.end <= 120
+            : end < span.start
+              ? span.start - end <= 120
+              : true;
+        return (
+          actions.some(nearby) &&
+          contexts.some(
+            (context) =>
+              nearby(context) ||
+              actions.some(
+                (action) =>
+                  Math.abs(context.start - action.start) <= 80 &&
+                  nearby(action),
+              ),
+          )
+        );
+      }),
+    );
+  });
+}
 
 const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [true, "We are not scanning deployment failures in the feedback review."],
@@ -2014,10 +2068,16 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [true, "Please also scan package publish failures during reviews."],
   [true, "Make sure the review includes desktop release failures."],
   [true, "Check the feedback sweep for failed publishes."],
+  [true, "The feedback sweep should include failed deploys."],
   [false, "Add package publishing support to the app."],
   [false, "Include desktop release management in the product."],
   [false, "Add desktop release controls to the feedback app."],
   [false, "Check package publishing settings in the feedback app."],
+  [false, "The desktop release missed its target date."],
+  [
+    false,
+    "The feedback sweep is done; add desktop release controls to the app.",
+  ],
   [false, "The app deploy and package publish both succeeded."],
   [false, "The review found an unrelated desktop bug."],
 ];
@@ -2063,7 +2123,7 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.filter(
       ([expected, message]) =>
-        FEEDBACK_RELEASE_COVERAGE_RE.test(message) !== expected,
+        matchesFeedbackReleaseCoverage(message) !== expected,
     ),
   );
   failures.push(
@@ -2422,7 +2482,7 @@ const PATTERNS = [
       "Had to ask the feedback sweep to inspect failed deploys or publishes",
     fixedBy:
       ".agents/skills/review-latest-feedback (deployment/release scan coverage, 2026-10-06)",
-    re: FEEDBACK_RELEASE_COVERAGE_RE,
+    re: { test: matchesFeedbackReleaseCoverage },
   },
   {
     key: "a2a-user-identity-boundary",
