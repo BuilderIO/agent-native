@@ -67,7 +67,7 @@ async function syncDashboardToCollab(
       }
       const configStr = JSON.stringify(dashboard.config);
       try {
-        await getText(docId, "content");
+        const previousText = await getText(docId, "content");
         await applyText(docId, configStr, "content", requestSource, {
           validateSnapshot(snapshot) {
             if (snapshot !== configStr) {
@@ -75,6 +75,12 @@ async function syncDashboardToCollab(
             }
           },
         });
+        if (
+          previousText === configStr &&
+          (await getText(docId, "content")) !== configStr
+        ) {
+          continue;
+        }
       } catch (error) {
         if (error instanceof DashboardCollabSnapshotMismatchError) continue;
         throw error;

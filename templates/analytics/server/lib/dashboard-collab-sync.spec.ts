@@ -143,22 +143,26 @@ describe("dashboard collab sync", () => {
     ]);
   });
 
-  it("refreshes persisted Yjs text before accepting a cached no-op", async () => {
+  it("rechecks persisted Yjs text after a cached no-op races a peer write", async () => {
     const config = { name: "SQL dashboard" };
     const sqlText = JSON.stringify(config);
-    let localYDocText = sqlText;
     const persistedYDocText = JSON.stringify({ name: "Peer edit" });
+    let localYDocText = sqlText;
+    let getTextCount = 0;
+    let applyCount = 0;
 
     mocks.getText.mockImplementation(async () => {
-      localYDocText = persistedYDocText;
+      getTextCount++;
+      if (getTextCount === 2) localYDocText = persistedYDocText;
       return localYDocText;
     });
     mocks.applyText.mockImplementation(async (...args: unknown[]) => {
+      applyCount++;
       const requestedText = args[1] as string;
       const options = args[4] as {
         validateSnapshot: (snapshot: string) => void;
       };
-      if (localYDocText !== requestedText) localYDocText = requestedText;
+      if (applyCount > 1) localYDocText = requestedText;
       options.validateSnapshot(localYDocText);
       return undefined;
     });
@@ -171,9 +175,16 @@ describe("dashboard collab sync", () => {
     );
 
     expect(mocks.getText).toHaveBeenCalledWith("dash-traffic", "content");
-    expect(mocks.applyText).toHaveBeenCalledOnce();
+    expect(mocks.getText).toHaveBeenCalledTimes(3);
+    expect(mocks.applyText).toHaveBeenCalledTimes(2);
     expect(mocks.getText.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.applyText.mock.invocationCallOrder[0],
+    );
+    expect(mocks.applyText.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.getText.mock.invocationCallOrder[1],
+    );
+    expect(mocks.getText.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.applyText.mock.invocationCallOrder[1],
     );
     expect(localYDocText).toBe(sqlText);
   });
