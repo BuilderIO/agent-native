@@ -2037,9 +2037,11 @@ export default {
     comingSoonTitle: "デザインシステムは近日公開予定です",
     waitlist: {
       join: "ウェイトリストに登録",
-      joining: "登録中...",
+      joining: "登録中…",
       joined: "ウェイトリストに登録されました",
       error: "ウェイトリストに登録できませんでした。もう一度お試しください。",
+      unavailable:
+        "ウェイトリストへの登録は現在利用できません。後でもう一度お試しください。",
     },
     deleteError: "デザインシステムを削除できませんでした",
     updateSuccess: "デザインシステムが更新されました",

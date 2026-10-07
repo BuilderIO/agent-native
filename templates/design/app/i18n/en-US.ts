@@ -2013,10 +2013,12 @@ export default {
   designSystems: {
     comingSoonTitle: "Design systems are coming soon",
     waitlist: {
-      join: "Join the waitlist",
-      joining: "Joining...",
+      join: "Join waitlist",
+      joining: "Joining…",
       joined: "You're on the waitlist",
-      error: "Couldn't join the waitlist. Please try again.",
+      error: "Could not join the waitlist. Please try again.",
+      unavailable:
+        "Waitlist sign-up isn't available right now. Please try again later.",
     },
     deleteError: "Could not delete design system",
     updateSuccess: "Design system updated",

@@ -219,14 +219,16 @@ Phase 2 reapplies these rules after full-thread review.
 
 Use `## Slack channels` unless the invocation narrows scope.
 
-**Automated diagnostics count as feedback regardless of author.** Claim
-actionable CI/Beta E2E and monitoring alerts with `👀` after the ownership gate,
-then inspect linked runs, builds/commits, job logs, test results, artifacts, and
-issue state. Treat labels/counts as leads. Fix verified repo-owned causes; for
-other causes, record evidence and the next owner/action. Don't ask bots; ask a
-person only when a fact blocks a fix. If our report lacks evidence, improve its
-checks/report with concise context and links; avoid duplicate details and
-secrets.
+**Automated diagnostics are feedback.** For Slack, gate before reading.
+Before investigating, use only alert and linked issue/PR/run/task metadata to
+identify repo/ref/SHA, workflow/service/environment, failure fingerprint, and
+active same-failure owner; this is Phase 0's sole pre-claim exception. If
+unowned/in scope, claim: Slack `👀`; elsewhere, current-task status row with
+source permalink, fingerprint, owner task/worktree, next action. Continue if
+this task owns it; else record **Owned elsewhere** (owner/link/action) and
+stop. No logs/tests/artifacts before claim. The required Slack claim reaction
+is authorized here; other source mutations need exact authorization. Then read
+`references/automated-diagnostics.md`.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the

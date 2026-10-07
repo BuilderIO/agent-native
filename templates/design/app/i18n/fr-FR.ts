@@ -2056,9 +2056,11 @@ export default {
     comingSoonTitle: "Les systèmes de conception arrivent bientôt",
     waitlist: {
       join: "Rejoindre la liste d’attente",
-      joining: "Inscription...",
+      joining: "Inscription…",
       joined: "Vous êtes sur la liste d’attente",
       error: "Impossible de rejoindre la liste d’attente. Réessayez.",
+      unavailable:
+        "Les inscriptions à la liste d’attente sont indisponibles pour le moment. Réessayez plus tard.",
     },
     deleteError: "Impossible de supprimer le système de conception",
     updateSuccess: "Système de conception mis à jour",
