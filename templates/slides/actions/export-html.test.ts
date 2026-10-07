@@ -43,3 +43,19 @@ it("navigates exported slides with controls and keyboard", async () => {
   expect(counter?.textContent).toBe("1 / 2");
   await window.happyDOM.abort();
 });
+
+it("preserves safe video playback in standalone HTML exports", () => {
+  const html = buildStandaloneHtml("Video deck", [
+    {
+      id: "video-slide",
+      content:
+        '<video autoplay><source src="https://media.example.com/clip.mp4" type="video/mp4"><source src="javascript:alert(1)" type="video/webm"></video>',
+    },
+  ]);
+
+  expect(html).toContain("<video autoplay");
+  expect(html).toContain('src="https://media.example.com/clip.mp4"');
+  expect(html).toMatch(/<video[^>]*\bmuted\b/);
+  expect(html).toMatch(/<video[^>]*\bplaysinline\b/);
+  expect(html).not.toContain("javascript:");
+});

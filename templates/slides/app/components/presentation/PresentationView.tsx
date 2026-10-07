@@ -61,6 +61,7 @@ function PdfExportStage({
           <SlideRenderer
             slide={slide}
             thumbnail={false}
+            disableVideoAutoplay
             aspectRatio={aspectRatio}
             designSystem={designSystem}
           />
@@ -698,7 +699,13 @@ export default function PresentationView({
         height: "100dvh",
         cursor: cursorVisible ? "default" : "none",
       }}
-      onClick={() => {
+      onClick={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest("video, audio")
+        ) {
+          return;
+        }
         if (needsFullscreenGesture) {
           enterFullscreen();
           return;

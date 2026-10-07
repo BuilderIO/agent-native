@@ -24,6 +24,7 @@ import {
 type AuthedSlidesSession = SlidesRequestAuthContext & { email: string };
 
 export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024;
+export const MAX_VIDEO_ASSET_FILE_SIZE = 50 * 1024 * 1024;
 
 export interface UploadedAsset {
   url: string;
@@ -309,6 +310,117 @@ export async function uploadImageAsset(args: {
 
   return asset;
 }
+
+export function canSaveAsUploadedVideoAsset(args: {
+  originalName: string;
+  data: Uint8Array;
+}): boolean {
+  const ext = path.extname(args.originalName).toLowerCase();
+  if (args.data.length > MAX_VIDEO_ASSET_FILE_SIZE) return false;
+  if (ext === ".mp4") {
+    return args.data.length >= 12 && ascii(args.data, 4, 8) === "ftyp";
+  }
+  return (
+    ext === ".webm" &&
+    args.data[0] === 0x1a &&
+    args.data[1] === 0x45 &&
+    args.data[2] === 0xdf &&
+    args.data[3] === 0xa3
+  );
+}
+
+export async function uploadVideoAsset(args: {
+  email: string;
+  orgId?: string | null;
+  originalName: string;
+  data: Uint8Array;
+}): Promise<UploadedAsset> {
+  if (args.data.length > MAX_VIDEO_ASSET_FILE_SIZE) {
+    throw new Error("Video too large (max 50 MB)");
+  }
+  if (!canSaveAsUploadedVideoAsset(args)) {
+    throw new Error("Only valid MP4 and WebM videos are allowed");
+  }
+
+  const ext = path.extname(args.originalName).toLowerCase();
+  const mimeType = ext === ".mp4" ? "video/mp4" : "video/webm";
+  const orgId =
+    args.orgId === undefined ? getRequestOrgId() : (args.orgId ?? undefined);
+  const result = await runWithRequestContext(
+    { userEmail: args.email, ...(orgId === undefined ? {} : { orgId }) },
+    () =>
+      uploadFile({
+        data: args.data,
+        filename: args.originalName,
+        mimeType,
+        ownerEmail: args.email,
+      }),
+  );
+
+  if (!result) {
+    const err: Error & { statusCode?: number } = new Error(
+      "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+    );
+    err.statusCode = 503;
+    throw err;
+  }
+
+  const asset: UploadedAsset = {
+    url: result.url,
+    filename: args.originalName,
+    type: mimeType,
+    size: args.data.length,
+    provider: result.provider,
+  };
+
+  await getDb()
+    .insert(schema.uploadedAssets)
+    .values({
+      id: nanoid(),
+      filename: asset.filename,
+      url: asset.url,
+      type: asset.type,
+      size: asset.size,
+      provider: asset.provider ?? null,
+      ownerEmail: args.email,
+      createdAt: new Date().toISOString(),
+    });
+
+  return asset;
+}
+
+export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
+  const { session, error: authError } = await requireSession(event);
+  if (!session) {
+    return { error: authError };
+  }
+
+  const parts = await readMultipartFormData(event);
+  const filePart = parts?.find((part) => part.name === "file");
+  if (!filePart?.data) {
+    setResponseStatus(event, 400);
+    return { error: "No video uploaded" };
+  }
+  if (filePart.data.length > MAX_VIDEO_ASSET_FILE_SIZE) {
+    setResponseStatus(event, 413);
+    return { error: "Video too large (max 50 MB)" };
+  }
+
+  try {
+    return await uploadVideoAsset({
+      email: session.email,
+      orgId: session.orgId,
+      originalName: filePart.filename || "video",
+      data: filePart.data,
+    });
+  } catch (error) {
+    const status = (error as { statusCode?: number })?.statusCode ?? 400;
+    setResponseStatus(event, status);
+    return {
+      error: error instanceof Error ? error.message : "Video upload failed",
+    };
+  }
+});
 
 export const uploadAsset = defineEventHandler(async (event) => {
   const { session, error: authError } = await requireSession(event);

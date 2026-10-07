@@ -12,7 +12,10 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import "../server/db/index.js";
-import { sanitizeCssValue } from "../app/lib/sanitize-slide-html.js";
+import {
+  sanitizeCssValue,
+  sanitizeSlideHtml,
+} from "../app/lib/sanitize-slide-html.js";
 import {
   safeGeneratedFilename,
   tenantExportDir,
@@ -28,20 +31,6 @@ import {
   DEFAULT_SLIDE_BACKGROUND,
   resolveSlideBackground,
 } from "../shared/slide-background.js";
-
-function sanitizeSlideContent(html: string): string {
-  return html
-    .replace(
-      /<(script|iframe|object|embed|form|meta|base|link)\b[\s\S]*?<\/\1>/gi,
-      "",
-    )
-    .replace(
-      /<(script|iframe|object|embed|form|meta|base|link)\b[^>]*\/?>/gi,
-      "",
-    )
-    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-}
 
 function safeCssToken(
   value: unknown,
@@ -300,7 +289,7 @@ export function buildStandaloneHtml(
         designSystem,
       );
       const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
-      return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideContent(slide.content)}</section>`;
+      return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideHtml(slide.content)}</section>`;
     })
     .join("\n");
 

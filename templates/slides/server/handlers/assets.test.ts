@@ -22,7 +22,12 @@ vi.mock("../db/index.js", () => ({
   schema: { uploadedAssets: {} },
 }));
 
-import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets";
+import {
+  canSaveAsUploadedAsset,
+  canSaveAsUploadedVideoAsset,
+  uploadImageAsset,
+  uploadVideoAsset,
+} from "./assets";
 import { uploadedAssetUrlForBasePath } from "./assets-url";
 
 beforeEach(() => {
@@ -215,6 +220,57 @@ describe("uploaded asset validation", () => {
       type: "image/svg+xml",
     });
 
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "active-org" },
+      expect.any(Function),
+    );
+  });
+});
+
+describe("uploaded video validation", () => {
+  it("accepts MP4 and WebM signatures and rejects mismatched extensions", () => {
+    const mp4 = Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0, 0, 0, 0]);
+    const webm = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
+
+    expect(
+      canSaveAsUploadedVideoAsset({ originalName: "clip.mp4", data: mp4 }),
+    ).toBe(true);
+    expect(
+      canSaveAsUploadedVideoAsset({ originalName: "clip.webm", data: webm }),
+    ).toBe(true);
+    expect(
+      canSaveAsUploadedVideoAsset({ originalName: "clip.mp4", data: webm }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({ originalName: "clip.mov", data: mp4 }),
+    ).toBe(false);
+  });
+
+  it("stores video files in the configured object storage with the active org", async () => {
+    const mp4 = Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0, 0, 0, 0]);
+    mockGetRequestOrgId.mockReturnValue("active-org");
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+      }),
+    ).resolves.toMatchObject({
+      filename: "clip.mp4",
+      type: "video/mp4",
+      size: mp4.length,
+      url: "https://cdn.builder.io/logo.svg",
+    });
+
+    expect(mockUploadFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: mp4,
+        filename: "clip.mp4",
+        mimeType: "video/mp4",
+        ownerEmail: "owner@example.com",
+      }),
+    );
     expect(mockRunWithRequestContext).toHaveBeenCalledWith(
       { userEmail: "owner@example.com", orgId: "active-org" },
       expect.any(Function),

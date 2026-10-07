@@ -153,4 +153,30 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
     expect(html).toContain("Growth");
     expect(html).toContain("<li>One</li>");
   });
+
+  it("preserves video sources and removes unsafe source URLs", () => {
+    const html = sanitizeSlideHtml(
+      '<video controls><source src="https://media.example.com/clip.mp4" type="video/mp4"><source src="javascript:alert(1)" type="video/webm"><source src="data:video/webm;base64,AQID" type="video/webm"></video>',
+    );
+
+    expect(html).toContain('src="https://media.example.com/clip.mp4"');
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("data:video");
+  });
+
+  it("gates blob videos and keeps autoplay disabled in thumbnails", () => {
+    const input = '<video src="blob:preview" autoplay></video>';
+    expect(sanitizeSlideHtml(input)).not.toContain("blob:preview");
+
+    const thumbnail = sanitizeSlideHtml(input, {
+      allowBlobVideos: true,
+      disableVideoAutoplay: true,
+    });
+    expect(thumbnail).toContain('src="blob:preview"');
+    expect(thumbnail).not.toMatch(/\sautoplay(?:="")?/);
+    expect(thumbnail).toContain('data-video-autoplay="true"');
+    expect(thumbnail).toContain("muted");
+    expect(thumbnail).toContain("playsinline");
+    expect(sanitizeSlideHtml(thumbnail)).toContain("autoplay");
+  });
 });

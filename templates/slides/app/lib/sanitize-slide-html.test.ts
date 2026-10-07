@@ -130,6 +130,45 @@ describe("sanitizeSlideUrl", () => {
       "blob:preview",
     );
   });
+
+  it("preserves playable MP4 and WebM markup", () => {
+    const html = sanitizeSlideHtml(
+      '<video controls playsinline preload="metadata"><source src="https://media.example.com/clip.webm" type="video/webm"></video>',
+    );
+
+    expect(html).toContain("<video");
+    expect(html).toContain('controls=""');
+    expect(html).toContain('playsinline=""');
+    expect(html).toContain('src="https://media.example.com/clip.webm"');
+    expect(html).toContain('type="video/webm"');
+  });
+
+  it("rejects unsafe video and source URLs", () => {
+    const html = sanitizeSlideHtml(
+      '<video src="javascript:alert(1)"><source src="data:video/mp4;base64,AQID" type="video/mp4"></video>',
+    );
+
+    expect(html).toContain("<video");
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("data:video");
+  });
+
+  it("gates blob video previews and preserves autoplay settings in thumbnails", () => {
+    const html = '<video src="blob:preview" autoplay></video>';
+    expect(sanitizeSlideHtml(html)).not.toContain("blob:preview");
+
+    const thumbnail = sanitizeSlideHtml(html, {
+      allowBlobVideos: true,
+      disableVideoAutoplay: true,
+    });
+    expect(thumbnail).toContain('src="blob:preview"');
+    expect(thumbnail).not.toMatch(/\sautoplay(?:="")?/);
+    expect(thumbnail).toContain('data-video-autoplay="true"');
+    expect(thumbnail).toContain('muted=""');
+    expect(thumbnail).toContain('playsinline=""');
+
+    expect(sanitizeSlideHtml(thumbnail)).toContain('autoplay=""');
+  });
 });
 
 describe("sanitizeCssValue", () => {
