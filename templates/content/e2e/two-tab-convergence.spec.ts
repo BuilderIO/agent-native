@@ -628,6 +628,7 @@ test.describe("two tabs editing one page at beta cadence", () => {
         s.expectedNoise = [
           'A showed "Unsaved page draft"',
           'A showed "Choose which version to keep"',
+          'A showed "This draft conflicts with a newer page version."',
         ];
       },
     );
@@ -642,6 +643,7 @@ test.describe("two tabs editing one page at beta cadence", () => {
       context,
       async (s) => {
         const { first: a, second: b } = await openPair(s, 0);
+        const originalTitle = (await getDocument(s.reader, s.id)).title;
         const aMarker = s.markers.next("A");
         const peerTitle = `Recovered peer title ${s.id.slice(0, 8)}`;
         const collabUpdatePath = `/_agent-native/collab/${s.id}/update`;
@@ -739,8 +741,8 @@ test.describe("two tabs editing one page at beta cadence", () => {
           return null;
         }, s.id);
         expect(journal?.entry.snapshot).toMatchObject({
-          title: peerTitle,
-          baseTitle: peerTitle,
+          title: originalTitle,
+          baseTitle: originalTitle,
           content: expect.stringContaining(aMarker),
         });
 
@@ -775,7 +777,10 @@ test.describe("two tabs editing one page at beta cadence", () => {
         await expect(a.locator(EDITOR)).toContainText(aMarker);
         s.notes.failedCollabUpdates = failedCollabUpdates;
         s.notes.recoveredTitle = peerTitle;
-        s.expectedNoise = ['A showed "Unsaved page draft"'];
+        s.expectedNoise = [
+          'A showed "Unsaved page draft"',
+          'A toasted "Your latest page edits could not be saved. Try again before leaving this page."',
+        ];
       },
     );
   });
