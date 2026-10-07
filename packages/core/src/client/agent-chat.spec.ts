@@ -987,7 +987,7 @@ describe("sendToAgentChat", () => {
       message: "Review this screenshot",
       submit: true,
       chatTarget: "local",
-      images: ["data:image/png;base64,AQID"],
+      images: ["data:IMAGE/PNG;charset=binary;base64,AQID"],
     });
 
     expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({

@@ -1557,6 +1557,8 @@ export default {
     assetAdded: "تمت إضافة الأصول",
     assetsNoImageUrl: "لم تُرجع Assets عنوان URL للصورة.",
     failedToUploadFile: "فشل تحميل الملف",
+    imageAttachmentUnavailable:
+      "تعذّر تجهيز هذه الصورة كمدخل مرئي. أرفق ملف PNG أو JPG أو GIF أو WebP أصغر.",
     attachmentsTooLarge:
       "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
     failedToSubmitPrompt: "تعذر إرسال المطالبة",

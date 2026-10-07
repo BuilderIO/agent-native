@@ -1596,6 +1596,8 @@ export default {
     assetAdded: "アセットが追加されました",
     assetsNoImageUrl: "Assets が画像 URL を返しませんでした。",
     failedToUploadFile: "ファイルのアップロードに失敗しました",
+    imageAttachmentUnavailable:
+      "この画像を視覚入力として準備できませんでした。より小さい PNG、JPG、GIF、WebP ファイルを添付してください。",
     attachmentsTooLarge:
       "添付ファイルが大きすぎます。アップロードは合計 {{max}} MB までです。ファイル数を減らすか、より小さいファイルを添付してください。",
     failedToSubmitPrompt: "プロンプトを送信できませんでした",

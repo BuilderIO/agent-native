@@ -56,6 +56,7 @@ import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import {
   describeAttachmentBytesVerdict,
+  normalizeImageMediaType,
   reconcileImageBytes,
   reconcilePdfBytes,
 } from "../file-upload/attachment-bytes.js";
@@ -125,6 +126,7 @@ import {
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
   isReasoningEffort,
@@ -2057,23 +2059,6 @@ function retryDelay(
   });
 }
 
-type SupportedImageMediaType =
-  | "image/jpeg"
-  | "image/png"
-  | "image/gif"
-  | "image/webp";
-
-function isSupportedImageMediaType(
-  mediaType: string,
-): mediaType is SupportedImageMediaType {
-  return (
-    mediaType === "image/jpeg" ||
-    mediaType === "image/png" ||
-    mediaType === "image/gif" ||
-    mediaType === "image/webp"
-  );
-}
-
 function isSvgMediaType(mediaType: string | undefined): boolean {
   return mediaType?.split(";")[0]?.trim().toLowerCase() === "image/svg+xml";
 }
@@ -2134,12 +2119,14 @@ function dataUrlToFilePart(
   att: AgentChatAttachment,
 ): { type: "file"; data: string; mediaType: string; filename?: string } | null {
   if (att.type !== "file" || typeof att.data !== "string") return null;
-  const match = att.data.match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) return null;
+  const parsed = parseBase64DataUrl(att.data);
+  if (!parsed) return null;
   return {
     type: "file",
-    data: match[2],
-    mediaType: att.contentType || match[1],
+    data: parsed.data,
+    mediaType:
+      att.contentType?.split(";", 1)[0]?.trim().toLowerCase() ||
+      parsed.mediaType,
     filename: att.name || undefined,
   };
 }
@@ -2174,11 +2161,14 @@ export function buildUserContentWithAttachments(opts: {
         }
         continue;
       }
-      const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
+      const parsed = parseBase64DataUrl(att.data);
+      const mediaType = parsed
+        ? normalizeImageMediaType(parsed.mediaType)
+        : null;
       if (
-        match &&
-        isSupportedImageMediaType(match[1]) &&
-        match[2].length > MAX_INLINE_IMAGE_BASE64_CHARS
+        parsed &&
+        mediaType &&
+        parsed.data.length > MAX_INLINE_IMAGE_BASE64_CHARS
       ) {
         const label = att.name ? `"${att.name}"` : "An image";
         const limit = formatBase64CharBudget(MAX_INLINE_IMAGE_BASE64_CHARS);
@@ -2189,15 +2179,15 @@ export function buildUserContentWithAttachments(opts: {
         );
         continue;
       }
-      if (match && isSupportedImageMediaType(match[1])) {
+      if (parsed && mediaType) {
         const verdict = reconcileImageBytes({
-          base64: match[2],
-          declared: match[1],
+          base64: parsed.data,
+          declared: mediaType,
         });
         if (verdict.kind === "ok") {
           userContent.push({
             type: "image",
-            data: match[2],
+            data: parsed.data,
             mediaType: verdict.mediaType,
           });
         } else {
@@ -2207,7 +2197,7 @@ export function buildUserContentWithAttachments(opts: {
             : "";
           const logName = att.name ?? "(unnamed)";
           console.warn(
-            `[attachments] dropped image block name=${logName} declared=${match[1]} verdict=${verdict.kind} base64Chars=${match[2].length}`,
+            `[attachments] dropped image block name=${logName} declared=${parsed.mediaType} verdict=${verdict.kind} base64Chars=${parsed.data.length}`,
           );
           textAttachments.push(
             `[${label} could not be sent for vision analysis because ${describeAttachmentBytesVerdict(verdict)}.` +
@@ -2216,7 +2206,7 @@ export function buildUserContentWithAttachments(opts: {
           );
         }
       } else {
-        const mime = match?.[1] ?? att.contentType ?? "unknown format";
+        const mime = parsed?.mediaType ?? att.contentType ?? "unknown format";
         const label = att.name ? `"${att.name}"` : "An image";
         const uploadedHint = uploadedUrl
           ? ` It is available at ${uploadedUrl}; use that URL for embedding/reference if the task does not require vision analysis.`

@@ -1595,6 +1595,8 @@ export default {
     assetAdded: "Activo agregado",
     assetsNoImageUrl: "Assets no devolvió una URL de imagen.",
     failedToUploadFile: "No se pudo cargar el archivo",
+    imageAttachmentUnavailable:
+      "No se pudo preparar esta imagen como referencia visual. Adjunta un archivo PNG, JPG, GIF o WebP más pequeño.",
     attachmentsTooLarge:
       "Esos adjuntos son demasiado grandes. Las subidas están limitadas a {{max}} MB en total: adjunta menos archivos o más pequeños.",
     failedToSubmitPrompt: "No se pudo enviar el prompt",

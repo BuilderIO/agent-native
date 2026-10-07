@@ -10,7 +10,10 @@ import {
   signShortLivedToken,
   verifyShortLivedToken,
 } from "@agent-native/core/server";
-import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
+import {
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  parseDataUrl,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import {
@@ -122,16 +125,14 @@ function isRecursiveThumbnailUrl(value: string, recordingId: string): boolean {
 }
 
 function dataUrlResponse(sourceUrl: string): Response | null {
-  const match = sourceUrl.match(/^data:(image\/[\w.+-]+)(;base64)?,(.*)$/s);
-  if (!match) return null;
-
-  const [, rawMimeType, encoding, payload] = match;
-  const mimeType = rawMimeType.toLowerCase();
+  const parsed = parseDataUrl(sourceUrl);
+  if (!parsed) return null;
+  const mimeType = parsed.mediaType;
   if (!SAFE_RASTER_IMAGE_TYPES.has(mimeType)) return null;
   try {
-    const bytes = encoding
-      ? decodeBase64(payload)
-      : new TextEncoder().encode(decodeURIComponent(payload));
+    const bytes = parsed.isBase64
+      ? decodeBase64(parsed.data)
+      : new TextEncoder().encode(decodeURIComponent(parsed.data));
     return imageResponse(bytes, mimeType);
   } catch {
     return null;

@@ -789,12 +789,31 @@ describe("buildUserContentWithAttachments", () => {
             type: "image",
             name: "screen.png",
             contentType: "image/png",
-            data: `data:image/png;base64,${PNG_BASE64}`,
+            data: `data:image/png;charset=binary;base64,${PNG_BASE64}`,
           },
         ],
       }),
     ).toEqual([
       { type: "image", mediaType: "image/png", data: PNG_BASE64 },
+      { type: "text", text: "Describe this" },
+    ]);
+  });
+
+  it("normalizes image/jpg before sending the image to vision", () => {
+    expect(
+      buildUserContentWithAttachments({
+        text: "Describe this",
+        attachments: [
+          {
+            type: "image",
+            name: "screen.jpg",
+            contentType: "image/jpg",
+            data: `data:image/jpg;base64,${JPEG_BASE64}`,
+          },
+        ],
+      }),
+    ).toEqual([
+      { type: "image", mediaType: "image/jpeg", data: JPEG_BASE64 },
       { type: "text", text: "Describe this" },
     ]);
   });
@@ -1134,7 +1153,7 @@ describe("buildUserContentWithAttachments", () => {
             type: "file",
             name: "reference.pdf",
             contentType: "application/pdf",
-            data: `data:application/pdf;base64,${PDF_BASE64}`,
+            data: `data:application/pdf;charset=binary;base64,${PDF_BASE64}`,
           },
         ],
       }),

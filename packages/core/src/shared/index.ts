@@ -60,6 +60,12 @@ export {
   normalizeDocumentTitle,
 } from "./document-title.js";
 export {
+  parseBase64DataUrl,
+  parseDataUrl,
+  type ParsedBase64DataUrl,
+  type ParsedDataUrl,
+} from "./data-url.js";
+export {
   DEFAULT_REASONING_EFFORT,
   REASONING_EFFORTS,
   getReasoningEffortOptionsForModel,
