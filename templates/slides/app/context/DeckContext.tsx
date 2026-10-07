@@ -1701,6 +1701,7 @@ function drainPendingDeckOps(
         const coveredSlideSequences = new Map(
           slideLocalWriteSequences.get(deckId) ?? [],
         );
+        const keepaliveGeneration = deckSaveGenerations.get(deckId) ?? 0;
         const keepaliveSave = persistDeckOps(
           deckId,
           keepaliveOps,
@@ -1708,6 +1709,11 @@ function drainPendingDeckOps(
           { keepalive: true },
         ).then(
           (results) => {
+            if (
+              (deckSaveGenerations.get(deckId) ?? 0) !== keepaliveGeneration
+            ) {
+              return;
+            }
             acknowledgeKeepaliveDeckOps(
               deckId,
               keepaliveOps,
@@ -1804,6 +1810,7 @@ function drainPendingDeckOps(
       deckSaveRetryAttempts.delete(deckId);
       deckRevisionConflictRetryAttempts.delete(deckId);
       clearDeckSaveFailure(deckId);
+      clearDeckAccessLost(deckId);
       const mergedDrafts = mergedSlideDrafts.get(deckId);
       if (mergedDrafts) {
         for (const op of ops) {
@@ -2458,6 +2465,7 @@ function acknowledgeKeepaliveDeckOps(
   coveredSlideSequences: Map<string, number>,
   results: unknown[],
 ) {
+  clearDeckAccessLost(deckId);
   clearPersistedStaleSlideFieldDrafts(deckId, persistedOps);
   rememberPersistedSlideContent(deckId, persistedOps);
   const acknowledgedContent = new Map<string, string>();

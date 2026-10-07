@@ -430,6 +430,8 @@ describe("fallbackPollIntervalMs", () => {
 describe("DeckContext fallback polling", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
+    orgQueryState.data = undefined;
+    orgQueryState.isLoading = false;
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.stubGlobal("EventSource", MockEventSource);
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -438,6 +440,8 @@ describe("DeckContext fallback polling", () => {
 
   afterEach(() => {
     cleanup();
+    orgQueryState.data = undefined;
+    orgQueryState.isLoading = false;
     restoreVisibility?.();
     restoreVisibility = null;
     _resetSyncTransportRegistryForTests();
@@ -879,6 +883,50 @@ describe("DeckContext fallback polling", () => {
     });
 
     expect(hasFailedDeckSave("open-deck")).toBe(false);
+  });
+
+  it("clears access-loss flags when the organization scope changes", async () => {
+    orgQueryState.data = { orgId: "org-a" };
+    const { api, result, rerender } = await renderOpenDeck();
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+
+    expect(hasFailedDeckSave("open-deck")).toBe(false);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(hasFailedDeckSave("open-deck")).toBe(false);
+  });
+
+  it("clears a read-side access-loss flag after a successful save", async () => {
+    const deckId = "save-after-access-loss";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const api = setupFetch();
+    api.setServerDecks([{ ...openDeck(), id: deckId }]);
+    const { result } = renderHook(() => useDecks(), {
+      wrapper: routedWrapper({ deckId }),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave(deckId)).toBe(true);
+
+    await act(async () => {
+      result.current.updateDeck(deckId, { title: "Restored access" });
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(result.current.getDeck(deckId)?.title).toBe("Restored access");
+    expect(hasFailedDeckSave(deckId)).toBe(false);
   });
 
   it("does not let a superseded successful read clear a newer denial", async () => {
