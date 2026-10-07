@@ -171,6 +171,32 @@ describe("applyTemplateLayer", () => {
     expect(fs.existsSync(path.join(outside, "keep.txt"))).toBe(true);
   });
 
+  it("refuses layer files and patches that pass through a symlink out of the destination", () => {
+    const outside = write(path.join(tmpDir, "outside"), {
+      "app/routes/_index.tsx": routeV1,
+    });
+    const dest = base();
+    fs.symlinkSync(outside, path.join(dest, "link"));
+
+    for (const rel of ["link/new.ts", "link/app/routes/_index.tsx.patch"]) {
+      const layerDir = layer({
+        [rel]: rel.endsWith(".patch")
+          ? createLayerPatch("app/routes/_index.tsx", routeV1, routeStarter)
+          : "export {};\n",
+      });
+      expect(() =>
+        applyTemplateLayer(layerDir, readTemplateLayer(layerDir)!, dest, {
+          only: "link",
+        }),
+      ).toThrow(/must name something inside the template/);
+      fs.rmSync(layerDir, { recursive: true, force: true });
+    }
+    expect(fs.existsSync(path.join(outside, "new.ts"))).toBe(false);
+    expect(
+      fs.readFileSync(path.join(outside, "app/routes/_index.tsx"), "utf-8"),
+    ).toBe(routeV1);
+  });
+
   it("limits itself to one subtree when asked", () => {
     const layerDir = layer();
     const dest = base();

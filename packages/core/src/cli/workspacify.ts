@@ -203,7 +203,23 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       exportName: "defaultAuthPlugin",
     });
     writeInheritedChatAgentChatPlugin(appDir, workspaceCoreName, opts.appName);
+  } else if (opts.templateName === "fusion-starter") {
+    // The starter keeps its own agent-chat plugin (guard, prompt), but the
+    // appId it inherits from Chat must become this app's.
+    renameInheritedChatAppId(appDir, opts.appName);
   }
+}
+
+function renameInheritedChatAppId(appDir: string, appId: string): void {
+  const pluginPath = path.join(appDir, "server", "plugins", "agent-chat.ts");
+  if (!fs.existsSync(pluginPath)) return;
+  const content = fs.readFileSync(pluginPath, "utf-8");
+  const next = content.replace(
+    /(\bappId:\s*)(["'])chat\2/,
+    (_match, prefix: string, quote: string) =>
+      `${prefix}${quote}${appId}${quote}`,
+  );
+  if (next !== content) fs.writeFileSync(pluginPath, next);
 }
 
 function linkInheritedWorkspaceSkills(opts: WorkspacifyOptions): void {

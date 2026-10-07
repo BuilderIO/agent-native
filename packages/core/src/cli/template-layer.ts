@@ -63,7 +63,7 @@ export function applyTemplateLayer(
       applyLayerPatch(source, dest, rel.slice(0, -LAYER_PATCH_SUFFIX.length));
       continue;
     }
-    const target = path.join(dest, rel);
+    const target = pathInside(dest, rel);
     const existing = fs.lstatSync(target, { throwIfNoEntry: false });
     if (existing && !existing.isSymbolicLink()) {
       throw new Error(
@@ -93,8 +93,8 @@ function isInside(root: string, candidate: string): boolean {
 function pathInside(root: string, rel: string): string {
   const resolvedRoot = path.resolve(root);
   const resolved = path.resolve(resolvedRoot, rel);
-  // rmSync follows a symlinked parent, so the real path of the nearest
-  // existing parent must stay inside the real destination too.
+  // Deletes and writes follow a symlinked parent, so the real path of the
+  // nearest existing parent must stay inside the real destination too.
   let parent = path.dirname(resolved);
   while (!fs.existsSync(parent) && isInside(resolvedRoot, parent)) {
     parent = path.dirname(parent);
@@ -121,7 +121,7 @@ export function createLayerPatch(
 }
 
 function applyLayerPatch(patchFile: string, dest: string, rel: string): void {
-  const target = path.join(dest, rel);
+  const target = pathInside(dest, rel);
   if (!fs.existsSync(target)) {
     throw new Error(
       `Template layer patch ${patchFile} targets ${rel}, which the base template no longer has.`,
