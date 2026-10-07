@@ -206,12 +206,11 @@ describe("page open document reads", () => {
     });
 
     await vi.waitFor(() =>
-      expect(new Set(server.calls.map(({ name }) => name)).size).toBe(5),
+      expect(new Set(server.calls.map(({ name }) => name)).size).toBe(4),
     );
     expect(new Set(server.calls.map(({ name }) => name))).toEqual(
       new Set([
         "get-document",
-        "get-preview-document-draft",
         "list-comments",
         "list-resource-suggestions",
         "get-content-navigation-context",
@@ -221,10 +220,6 @@ describe("page open document reads", () => {
     expect(server.calls).toEqual(
       expect.arrayContaining([
         { name: "get-document", params: { id: "doc-1" } },
-        {
-          name: "get-preview-document-draft",
-          params: { documentId: "doc-1" },
-        },
         { name: "list-comments", params: { documentId: "doc-1" } },
         {
           name: "list-resource-suggestions",
