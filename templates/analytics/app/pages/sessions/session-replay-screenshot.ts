@@ -1191,6 +1191,7 @@ export function writeReplayScreenshotToClipboard(
   screenshot: Blob | Promise<Blob>,
   clipboard: Pick<Clipboard, "write"> | undefined = globalThis.navigator
     ?.clipboard,
+  capture?: AbortController,
 ): Promise<void> {
   const ClipboardItemConstructor = globalThis.ClipboardItem;
   const boundedPng = Promise.resolve(screenshot).then((blob) => {
@@ -1203,6 +1204,10 @@ export function writeReplayScreenshotToClipboard(
     }
     return blob;
   });
+  const pngResult = boundedPng.then(
+    () => ({ kind: "png-ready" as const }),
+    (error: unknown) => ({ error, kind: "png-failed" as const }),
+  );
 
   let clipboardWrite: Promise<void>;
   try {
@@ -1217,22 +1222,37 @@ export function writeReplayScreenshotToClipboard(
     clipboardWrite = Promise.reject(error);
   }
 
-  return Promise.allSettled([clipboardWrite, boundedPng]).then(
-    ([writeResult, pngResult]) => {
-      if (
-        pngResult.status === "rejected" &&
-        pngResult.reason instanceof ReplayScreenshotAssetError
-      ) {
-        throw pngResult.reason;
-      }
-      if (
-        writeResult.status === "rejected" ||
-        pngResult.status === "rejected"
-      ) {
-        throw new ReplayScreenshotClipboardError();
-      }
-    },
+  const writeResult = clipboardWrite.then(
+    () => ({ kind: "write-succeeded" as const }),
+    () => ({ kind: "write-failed" as const }),
   );
+
+  return Promise.race([pngResult, writeResult]).then(async (firstResult) => {
+    if (firstResult.kind === "write-failed") {
+      const error = new ReplayScreenshotClipboardError();
+      capture?.abort(error);
+      throw error;
+    }
+
+    const finalPngResult =
+      firstResult.kind === "png-ready" || firstResult.kind === "png-failed"
+        ? firstResult
+        : await pngResult;
+    if (finalPngResult.kind === "png-failed") {
+      if (finalPngResult.error instanceof ReplayScreenshotAssetError) {
+        throw finalPngResult.error;
+      }
+      throw new ReplayScreenshotClipboardError();
+    }
+
+    const finalWriteResult =
+      firstResult.kind === "write-succeeded" ? firstResult : await writeResult;
+    if (finalWriteResult.kind === "write-failed") {
+      const error = new ReplayScreenshotClipboardError();
+      capture?.abort(error);
+      throw error;
+    }
+  });
 }
 
 export async function captureReplayScreenshot(

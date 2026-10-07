@@ -1039,7 +1039,11 @@ function ReplayPlayer({
 
   function runScreenshotAction(
     action: "copy" | "save",
-    operation: (screenshot: Promise<Blob>, filename: string) => Promise<void>,
+    operation: (
+      screenshot: Promise<Blob>,
+      filename: string,
+      capture: AbortController,
+    ) => Promise<void>,
     onSuccess: () => void,
     onFailure: (error: unknown) => void,
   ) {
@@ -1078,14 +1082,14 @@ function ReplayPlayer({
         capture.signal,
       );
       // Clipboard writes need this click's activation, so start the operation before awaiting capture.
-      actionPromise = operation(screenshot, filename);
+      actionPromise = operation(screenshot, filename, capture);
     } catch (error) {
       actionPromise = Promise.reject(error);
     }
 
     void actionPromise
       .then(onSuccess, (error: unknown) => {
-        if (!capture.signal.aborted) {
+        if (!capture.signal.aborted || capture.signal.reason === error) {
           capture.abort();
           onFailure(error);
         }
@@ -1135,7 +1139,8 @@ function ReplayPlayer({
   function copyScreenshotToDesign() {
     runScreenshotAction(
       "copy",
-      (screenshot) => writeReplayScreenshotToClipboard(screenshot),
+      (screenshot, _filename, capture) =>
+        writeReplayScreenshotToClipboard(screenshot, undefined, capture),
       () => toast.success(t("sessions.screenshotCopiedForDesign")),
       (error) =>
         toast.error(

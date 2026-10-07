@@ -1480,6 +1480,37 @@ describe("session replay screenshot clipboard", () => {
     });
   });
 
+  it("aborts a pending replay capture when clipboard writing fails", async () => {
+    vi.stubGlobal(
+      "ClipboardItem",
+      class {
+        constructor(_data: Record<string, unknown>) {}
+      },
+    );
+    const capture = new AbortController();
+    const screenshot = new Promise<Blob>((_resolve, reject) => {
+      capture.signal.addEventListener(
+        "abort",
+        () => reject(capture.signal.reason),
+        { once: true },
+      );
+    });
+
+    await expect(
+      writeReplayScreenshotToClipboard(
+        screenshot,
+        {
+          write: vi.fn().mockRejectedValue(new Error("clipboard denied")),
+        } as unknown as Clipboard,
+        capture,
+      ),
+    ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
+    expect(capture.signal.aborted).toBe(true);
+    expect(capture.signal.reason).toBeInstanceOf(
+      ReplayScreenshotClipboardError,
+    );
+  });
+
   it("rejects when clipboard writing is unavailable or fails", async () => {
     vi.stubGlobal(
       "ClipboardItem",
@@ -1501,13 +1532,13 @@ describe("session replay screenshot clipboard", () => {
       writeReplayScreenshotToClipboard(Promise.reject(unsupportedAssets), {
         write: vi.fn().mockRejectedValue(new Error("clipboard denied")),
       } as unknown as Clipboard),
-    ).rejects.toBe(unsupportedAssets);
+    ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
     const unavailableClipboardAssets = new ReplayScreenshotAssetError();
     await expect(
       writeReplayScreenshotToClipboard(
         Promise.reject(unavailableClipboardAssets),
         {} as Clipboard,
       ),
-    ).rejects.toBe(unavailableClipboardAssets);
+    ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
   });
 });
