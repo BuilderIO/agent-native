@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
@@ -12,12 +13,15 @@ const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
+const requireCore = createRequire(
+  path.join(REPO_ROOT, "packages/core/package.json"),
+);
 const ORACLE_DIR = "templates/design/parity/oracle";
 const MAX_ENTRY_BYTES = 64 * 1024;
 const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024;
 const MAX_LEDGER_ARTIFACT_BYTES = 50 * 1024 * 1024;
 const MAX_DECOMPRESSED_PNG_BYTES = 128 * 1024 * 1024;
-const MAX_PNG_PIXELS = 32 * 1024 * 1024;
+const MAX_IMAGE_PIXELS = 32 * 1024 * 1024;
 const ORACLE_ID = /^fig\.[a-z0-9]+(?:-[a-z0-9]+)*\.[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const HASH = /^[a-f0-9]{64}$/;
 const TEST_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$/i;
@@ -27,12 +31,61 @@ const ARTIFACT_KINDS = new Set([
   "comparison-sheet",
 ]);
 const TEST_BLOCK =
-  /\b(?:test|it)(?:\.(?:only|skip|fixme|each|concurrent))*\s*\(/g;
+  /\b(?:test|it)(?:\.(?:only|skip|fixme|each|concurrent))*\s*(?:`[\s\S]*?`\s*)?\(/g;
 const ORACLE_CALL = /\boracle\s*\(\s*["'](fig\.[a-z0-9.-]+)["']\s*\)/g;
 const ORACLE_COMMENT =
   /\boracle\s*:\s*(fig\.[a-z0-9.-]+|none\s*[—-]\s*\S[^\r\n]*)/i;
 const INVENTED_DOC =
   /(?:figma-ground-truth\.md|Figma\s+spec\s*§|ground-truth\s+Round\s+\d+|Steve(?:'s)?\s+ground truth)/i;
+
+type SharpFactory = (
+  input: Buffer,
+  options: {
+    failOn: "warning";
+    limitInputPixels: number;
+    sequentialRead: true;
+  },
+) => {
+  resize(options: {
+    width: number;
+    height: number;
+    fit: "inside";
+    withoutEnlargement: true;
+  }): { raw(): { toBuffer(): Promise<Buffer> } };
+};
+
+function jpegHasEntropyData(bytes: Buffer): boolean {
+  let offset = 2;
+  while (offset + 4 <= bytes.length - 2) {
+    if (bytes[offset] !== 0xff) return false;
+    while (bytes[offset] === 0xff) offset += 1;
+    const marker = bytes[offset++]!;
+    if (marker === 0xda) {
+      const segmentLength = bytes.readUInt16BE(offset);
+      if (segmentLength < 6 || offset + segmentLength > bytes.length - 2)
+        return false;
+      let scanOffset = offset + segmentLength;
+      while (scanOffset < bytes.length - 2) {
+        if (bytes[scanOffset] !== 0xff) return true;
+        const next = bytes[scanOffset + 1]!;
+        if (next === 0x00) return true;
+        if (next >= 0xd0 && next <= 0xd7) {
+          scanOffset += 2;
+          continue;
+        }
+        return false;
+      }
+      return false;
+    }
+    if (marker === 0xd9) return false;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    const segmentLength = bytes.readUInt16BE(offset);
+    if (segmentLength < 2 || offset + segmentLength > bytes.length - 2)
+      return false;
+    offset += segmentLength;
+  }
+  return false;
+}
 
 export type OracleBasis = "measured" | "chosen";
 export type OracleStatus = "current" | "retracted" | "repeat-required";
@@ -112,7 +165,7 @@ function containsPrivateFigmaLocator(value: unknown): boolean {
   });
 }
 
-function imageFormat(bytes: Buffer): "png" | "jpeg" | null {
+async function imageFormat(bytes: Buffer): Promise<"png" | "jpeg" | null> {
   const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
   if (bytes.length >= 45 && bytes.subarray(0, 8).equals(pngSignature)) {
     let offset = 8;
@@ -151,7 +204,7 @@ function imageFormat(bytes: Buffer): "png" | "jpeg" | null {
         if (
           width === 0 ||
           height === 0 ||
-          width * height > MAX_PNG_PIXELS ||
+          width * height > MAX_IMAGE_PIXELS ||
           !validPngBitDepth(colorType, bitDepth) ||
           chunkData[10] !== 0 ||
           chunkData[11] !== 0 ||
@@ -221,34 +274,21 @@ function imageFormat(bytes: Buffer): "png" | "jpeg" | null {
   ) {
     return null;
   }
-  let offset = 2;
-  let sawFrame = false;
-  while (offset + 4 <= bytes.length - 2) {
-    if (bytes[offset] !== 0xff) return null;
-    while (bytes[offset] === 0xff) offset += 1;
-    const marker = bytes[offset++];
-    if (marker === 0xda) return sawFrame ? "jpeg" : null;
-    if (marker === 0xd9) return null;
-    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
-    const segmentLength = bytes.readUInt16BE(offset);
-    if (segmentLength < 2 || offset + segmentLength > bytes.length) return null;
-    const isFrame =
-      (marker >= 0xc0 && marker <= 0xc3) ||
-      (marker >= 0xc5 && marker <= 0xc7) ||
-      (marker >= 0xc9 && marker <= 0xcb) ||
-      (marker >= 0xcd && marker <= 0xcf);
-    if (isFrame) {
-      if (segmentLength < 8) return null;
-      if (
-        bytes.readUInt16BE(offset + 3) === 0 ||
-        bytes.readUInt16BE(offset + 5) === 0
-      )
-        return null;
-      sawFrame = true;
-    }
-    offset += segmentLength;
+  if (!jpegHasEntropyData(bytes)) return null;
+  const sharp = requireCore("sharp") as SharpFactory;
+  try {
+    await sharp(bytes, {
+      failOn: "warning",
+      limitInputPixels: MAX_IMAGE_PIXELS,
+      sequentialRead: true,
+    })
+      .resize({ width: 1, height: 1, fit: "inside", withoutEnlargement: true })
+      .raw()
+      .toBuffer();
+    return "jpeg";
+  } catch {
+    return null;
   }
-  return null;
 }
 
 function pngCrc32(bytes: Buffer): number {
@@ -398,7 +438,7 @@ function isDate(value: unknown): value is string {
   );
 }
 
-function loadLedger(root: string, today: Date): Ledger {
+async function loadLedger(root: string, today: Date): Promise<Ledger> {
   const entries = new Map<string, OracleEntry>();
   const problems: string[] = [];
   let artifactBytes = 0;
@@ -549,7 +589,7 @@ function loadLedger(root: string, today: Date): Ledger {
           }
           artifactBytes += stat.size;
           const bytes = readFileSync(target);
-          const format = imageFormat(bytes);
+          const format = await imageFormat(bytes);
           if (!format) {
             problems.push(
               `${label}: artifact ${relPath} is not a valid PNG or JPEG image`,
@@ -839,18 +879,21 @@ function validateAddedTests(
   return { citations, problems };
 }
 
-export function runParityOracleGuard(options: {
+export async function runParityOracleGuard(options: {
   repoRoot: string;
   addedLines: AddedLines | null;
   today?: Date;
-}): GuardResult {
+}): Promise<GuardResult> {
   if (options.addedLines === null) {
     return {
       exitCode: 2,
       message: `${GUARD_NAME}: could not determine added lines`,
     };
   }
-  const ledger = loadLedger(options.repoRoot, options.today ?? new Date());
+  const ledger = await loadLedger(
+    options.repoRoot,
+    options.today ?? new Date(),
+  );
   if (ledger.inspectionError) {
     return { exitCode: 2, message: `${GUARD_NAME}: ${ledger.inspectionError}` };
   }
@@ -918,9 +961,9 @@ export function runParityOracleGuard(options: {
   };
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const added = requireAddedLines(REPO_ROOT, GUARD_NAME);
-  const result = runParityOracleGuard({
+  const result = await runParityOracleGuard({
     repoRoot: REPO_ROOT,
     addedLines: added,
   });
@@ -932,5 +975,5 @@ if (
   process.argv[1] &&
   path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])
 ) {
-  main();
+  await main();
 }

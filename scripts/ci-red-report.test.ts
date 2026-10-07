@@ -142,8 +142,8 @@ describe("ci-red-report", () => {
       failedRunLog: (runId) =>
         runId === 10
           ? [
-              "chromium / design editor\tRun shard\t2026-10-05T12:20:00Z ##[error] 1) [chromium] › e2e/canvas-invariants.spec.ts:42:1 › group fill persists",
-              "chromium / design editor\tRun shard\t2026-10-05T12:20:00Z ##[error] 2) [chromium] › e2e/inspector-styles.spec.ts:88:1 › empty stroke title opens color picker",
+              "chromium / design editor\tRender canvas spec\t2026-10-05T12:20:00Z ##[error] 1) [chromium] › e2e/canvas-invariants.spec.ts:42:1 › group fill persists",
+              "chromium / design editor\tRun inspector spec\t2026-10-05T12:20:00Z ##[error] 2) [chromium] › e2e/inspector-styles.spec.ts:88:1 › empty stroke title opens color picker",
               "chromium / design editor\tRun shard\t2026-10-05T12:20:00Z ##[notice] 2 failed, 0 flaky",
             ].join("\n")
           : "captured log without test annotations",
@@ -172,6 +172,14 @@ describe("ci-red-report", () => {
     );
     assert.ok(testRow);
     assert.equal(testRow[columns.fingerprint_grain], "test");
+    assert.equal(testRow[columns.step], "Render canvas spec");
+    const inspectorTestRow = reportRows.find((row) =>
+      /inspector-styles\.spec\.ts.*empty stroke title opens color picker/.test(
+        row[columns.test],
+      ),
+    );
+    assert.ok(inspectorTestRow);
+    assert.equal(inspectorTestRow[columns.step], "Run inspector spec");
     for (const row of reportRows) {
       assert.match(row[columns.fingerprint], /^sha256:[a-f0-9]{64}$/);
     }
@@ -414,15 +422,16 @@ describe("ci-red-report", () => {
     assert.equal(workflowFailure[0].fingerprintGrain, "workflow");
   });
 
-  it("includes timed-out main workflow runs and continues to ignore cancelled runs", async () => {
+  it("includes timed-out and startup-failed runs but ignores cancelled runs", async () => {
     const timedOut = run(42, { conclusion: "timed_out" });
+    const startupFailed = run(44, { conclusion: "startup_failure" });
     const cancelled = run(43, { event: "schedule", conclusion: "cancelled" });
     const stdout: string[] = [];
     const stderr: string[] = [];
     const exitCode = await runCiRedReportCli({
       api: (endpoint) => {
         if (endpoint.includes("event=push")) {
-          return paged("workflow_runs", [timedOut]);
+          return paged("workflow_runs", [timedOut, startupFailed]);
         }
         if (endpoint.includes("event=schedule")) {
           return paged("workflow_runs", [cancelled]);
@@ -443,9 +452,124 @@ describe("ci-red-report", () => {
       stdout.join(""),
       /no push-to-main or scheduled failures/,
     );
-    const rows = stdout.join("").trimEnd().split("\n").slice(1);
+    const [header, ...rows] = stdout.join("").trimEnd().split("\n");
     assert.equal(rows.length, 1);
     assert.match(rows[0], /\tworkflow\t/);
+    const columns = Object.fromEntries(
+      header.split("\t").map((name, index) => [name, index]),
+    );
+    const row = rows[0].split("\t");
+    assert.equal(row[columns.run_count], "2");
+    assert.deepEqual(
+      JSON.parse(row[columns.runs_json]).map(
+        ({ runId }: { runId: number }) => runId,
+      ),
+      [44, 42],
+    );
+  });
+
+  it("warns and keeps job-step fingerprints when case annotations lack a final summary", async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const exitCode = await runCiRedReportCli({
+      api: (endpoint) => {
+        if (endpoint.includes("event=push")) {
+          return paged("workflow_runs", [run(50)]);
+        }
+        if (endpoint.includes("event=schedule")) {
+          return paged("workflow_runs", []);
+        }
+        return paged("jobs", [
+          job(50, 501, {
+            name: "chromium / design editor",
+            steps: [step("Run shard", "failure")],
+          }),
+        ]);
+      },
+      failedRunLog: () =>
+        "chromium / design editor\tRun browser tests\t2026-10-05T12:20:00Z ##[error] 1) [chromium] › e2e/timeout.spec.ts:11:1 › run ended before final summary",
+      now,
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+    });
+
+    assert.equal(exitCode, 0);
+    assert.match(
+      stderr.join(""),
+      /case annotations for job chromium \/ design editor/,
+    );
+    assert.match(stderr.join(""), /no matching final complete summary/);
+    assert.match(stderr.join(""), /keeping job-step fingerprints/);
+    const [header, ...rows] = stdout[0].trimEnd().split("\n");
+    const columns = Object.fromEntries(
+      header.split("\t").map((name, index) => [name, index]),
+    );
+    assert.equal(rows.length, 1);
+    const row = rows[0].split("\t");
+    assert.equal(row[columns.fingerprint_grain], "job-step");
+    assert.equal(row[columns.step], "Run shard");
+    assert.equal(row[columns.test], "");
+  });
+
+  it("inspects generic workflow logs with bounded concurrency", async () => {
+    const genericRuns = Array.from({ length: 6 }, (_, index) =>
+      run(100 + index, {
+        name: "CI",
+        path: ".github/workflows/ci.yml@main",
+      }),
+    );
+    const logRunIds: number[] = [];
+    let activeLogs = 0;
+    let maxActiveLogs = 0;
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const exitCode = await runCiRedReportCli({
+      api: (endpoint) => {
+        if (endpoint.includes("event=push")) {
+          return paged("workflow_runs", genericRuns);
+        }
+        if (endpoint.includes("event=schedule")) {
+          return paged("workflow_runs", []);
+        }
+        const match = endpoint.match(/actions\/runs\/(\d+)\/jobs/);
+        if (!match) throw new Error(`unexpected endpoint ${endpoint}`);
+        const runId = Number(match[1]);
+        return paged("jobs", [
+          job(runId, runId * 10, {
+            name: "build",
+            run_id: runId,
+            steps: [step("execute", "failure")],
+          }),
+        ]);
+      },
+      failedRunLog: async (runId) => {
+        logRunIds.push(runId);
+        activeLogs += 1;
+        maxActiveLogs = Math.max(maxActiveLogs, activeLogs);
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return [
+            `build\tRun command\t2026-10-05T12:20:00Z ##[error] 1) [chromium] › e2e/ci-${runId}.spec.ts:1:1 › generic workflow failure`,
+            "build\tRun command\t2026-10-05T12:20:00Z ##[notice] 1 failed, 0 flaky",
+          ].join("\n");
+        } finally {
+          activeLogs -= 1;
+        }
+      },
+      now,
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+    });
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(stderr, []);
+    assert.deepEqual(
+      logRunIds.sort((left, right) => left - right),
+      [100, 101, 102, 103, 104, 105],
+    );
+    assert.equal(maxActiveLogs, 4);
+    assert.match(stdout.join(""), /generic workflow failure/);
+    assert.match(stdout.join(""), /\ttest\t/);
   });
 
   it("warns when failed-run logs are unavailable and keeps job-step rows", async () => {

@@ -66,7 +66,6 @@ if (typeof manifest.id !== "string" || !/^\d{12,}$/.test(manifest.id)) {
 const pluginId = manifest.id;
 const outputDir = path.dirname(manifestPath);
 mkdirSync(BUILD, { recursive: true });
-const plugin = compile("plugin.ts");
 const uiScript = compile("ui.ts").replaceAll(
   "__FIGMA_ORACLE_PLUGIN_ID__",
   pluginId,
@@ -75,13 +74,22 @@ const htmlTemplate = readFileSync(path.join(SOURCE, "ui.html"), "utf8");
 if (!htmlTemplate.includes("<!-- ORACLE_UI_SCRIPT -->")) {
   throw new Error("oracle page bridge UI script marker is missing");
 }
-writeFileSync(
-  path.join(outputDir, "ui.html"),
-  htmlTemplate.replace(
-    "<!-- ORACLE_UI_SCRIPT -->",
-    `<script>${uiScript}</script>`,
-  ),
+const html = htmlTemplate.replace(
+  "<!-- ORACLE_UI_SCRIPT -->",
+  `<script>${uiScript}</script>`,
 );
+const compiledPlugin = compile("plugin.ts");
+if (!compiledPlugin.includes("figma.showUI(__html__,")) {
+  throw new Error("compiled oracle page bridge UI HTML placeholder is missing");
+}
+const plugin = compiledPlugin.replace(
+  "figma.showUI(__html__,",
+  `figma.showUI(${JSON.stringify(html)},`,
+);
+if (plugin.includes("__html__")) {
+  throw new Error("compiled oracle page bridge leaves __html__ undefined");
+}
+writeFileSync(path.join(outputDir, "ui.html"), html);
 writeFileSync(
   manifestPath,
   `${JSON.stringify(

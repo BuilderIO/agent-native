@@ -9,7 +9,7 @@ const SEARCH_RESULT_LIMIT = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
 const MAX_RUN_DURATION_MS = 35 * 24 * 60 * 60 * 1000;
-const RED_CONCLUSIONS = new Set(["failure", "timed_out"]);
+const RED_CONCLUSIONS = new Set(["failure", "timed_out", "startup_failure"]);
 const WORKFLOW_RUN_QUERY_ATTEMPTS = 2;
 const EVENTS = ["push", "schedule"] as const;
 
@@ -56,6 +56,11 @@ export type CiRedRow = {
   fingerprintGrain: "test" | "job-step" | "workflow";
   fingerprint: string;
   url: string;
+};
+
+export type ParsedFailedTestCase = {
+  test: string;
+  step?: string;
 };
 
 type ApiReader = (endpoint: string) => string | Promise<string>;
@@ -422,7 +427,7 @@ function rowFor(
     workflowPath,
     job: normalizedJob,
     step: normalizedStep,
-    test: normalized(test),
+    test: test ? normalized(test) : "",
     fingerprintGrain: test
       ? "test"
       : job === "(no failed job reported)"
@@ -440,7 +445,7 @@ export function buildCiRedRows(
   now: Date,
   testFailuresByRunJob: ReadonlyMap<
     number,
-    ReadonlyMap<string, string[]>
+    ReadonlyMap<string, readonly (string | ParsedFailedTestCase)[]>
   > = new Map(),
 ): CiRedRow[] {
   const rows: CiRedRow[] = [];
@@ -478,11 +483,16 @@ export function buildCiRedRows(
       const testFailures =
         testFailuresByRunJob.get(run.id)?.get(job.name) ?? [];
       if (testFailures.length > 0) {
-        const failedStep =
+        const fallbackStep =
           job.steps.find((step) => RED_CONCLUSIONS.has(step.conclusion ?? ""))
             ?.name ?? "(failed test)";
-        for (const test of testFailures) {
-          rows.push(rowFor(run, concludedAt, job.name, failedStep, test));
+        for (const failure of testFailures) {
+          const test = typeof failure === "string" ? failure : failure.test;
+          const step =
+            typeof failure === "string"
+              ? fallbackStep
+              : failure.step || fallbackStep;
+          rows.push(rowFor(run, concludedAt, job.name, step, test));
         }
         continue;
       }
@@ -514,11 +524,16 @@ export function buildCiRedRows(
   );
 }
 
-export function parseFailedTestNames(log: string): Map<string, string[]> {
-  const annotations = new Map<string, Set<string>>();
+type ParsedFailedTestLog = {
+  failures: Map<string, ParsedFailedTestCase[]>;
+  incompleteJobs: string[];
+};
+
+function parseFailedTestLog(log: string): ParsedFailedTestLog {
+  const annotations = new Map<string, Map<string, ParsedFailedTestCase>>();
   const summaries = new Map<string, { failed: number; flaky: number }>();
   for (const line of log.split("\n")) {
-    const [rawJob, , ...messageParts] = line.split("\t");
+    const [rawJob, rawStep, ...messageParts] = line.split("\t");
     if (!rawJob || messageParts.length === 0) continue;
     const job = normalized(rawJob);
     const rawMessage = messageParts
@@ -542,36 +557,42 @@ export function parseFailedTestNames(log: string): Map<string, string[]> {
     const match = message.match(/^(?:\d+\)\s+)?\[([^\]]+)\]\s+›\s+(.+?)\s*$/);
     if (!match) continue;
     const test = `${normalized(match[1])} :: ${normalized(match[2])}`;
-    const names = annotations.get(job) ?? new Set<string>();
-    names.add(test);
-    annotations.set(job, names);
+    const tests = annotations.get(job) ?? new Map();
+    const step = rawStep?.trim();
+    const previous = tests.get(test);
+    if (!previous || (!previous.step && step)) {
+      tests.set(test, { test, ...(step ? { step } : {}) });
+    }
+    annotations.set(job, tests);
   }
-  const failures = new Map<string, string[]>();
-  for (const [job, summary] of summaries) {
-    const names = annotations.get(job);
+  const failures = new Map<string, ParsedFailedTestCase[]>();
+  const incompleteJobs: string[] = [];
+  for (const [job, tests] of annotations) {
+    const summary = summaries.get(job);
     if (
-      summary.failed > 0 &&
+      summary?.failed &&
       summary.flaky === 0 &&
-      names?.size === summary.failed
+      tests.size === summary.failed
     ) {
-      failures.set(job, [...names].sort());
+      failures.set(
+        job,
+        [...tests.values()].sort((left, right) =>
+          left.test.localeCompare(right.test),
+        ),
+      );
+    } else {
+      incompleteJobs.push(job);
     }
   }
-  return failures;
+  return { failures, incompleteJobs };
 }
 
-function mayContainTestFailures(
-  run: WorkflowRun,
-  jobs: WorkflowJob[],
-): boolean {
-  const testSignal = /(?:test|e2e|vitest|playwright|shard|spec)/i;
-  return (
-    testSignal.test(`${run.name ?? ""} ${run.path}`) ||
-    jobs.some(
-      (job) =>
-        testSignal.test(job.name) ||
-        job.steps.some((step) => testSignal.test(step.name)),
-    )
+export function parseFailedTestNames(log: string): Map<string, string[]> {
+  return new Map(
+    [...parseFailedTestLog(log).failures].map(([job, failures]) => [
+      job,
+      failures.map(({ test }) => test),
+    ]),
   );
 }
 
@@ -701,27 +722,40 @@ async function rowsFromApi(
   const jobsByRunId = new Map(
     redRuns.map((run, index) => [run.id, jobs[index]]),
   );
-  const logRuns = redRuns.filter((run) =>
-    mayContainTestFailures(run, jobsByRunId.get(run.id) ?? []),
-  );
-  const logs = await mapConcurrent(logRuns, 4, async (run) => {
+  const logs = await mapConcurrent(redRuns, 4, async (run) => {
     try {
       const log = await failedRunLog(run.id);
       if (log === null || log.length === 0) {
-        return [run.id, null, "gh returned no failed-run log content"] as const;
+        return [
+          run.id,
+          null,
+          null,
+          "gh returned no failed-run log content",
+        ] as const;
       }
-      return [run.id, parseFailedTestNames(log), null] as const;
+      return [run.id, parseFailedTestLog(log), null, null] as const;
     } catch {
       return [
         run.id,
+        null,
         null,
         "gh could not retrieve the failed-run log",
       ] as const;
     }
   });
-  const testFailuresByRunJob = new Map<number, Map<string, string[]>>();
-  for (const [runId, failures, unavailable] of logs) {
-    if (failures) testFailuresByRunJob.set(runId, failures);
+  const testFailuresByRunJob = new Map<
+    number,
+    ReadonlyMap<string, readonly ParsedFailedTestCase[]>
+  >();
+  for (const [runId, parsed, , unavailable] of logs) {
+    if (parsed) {
+      testFailuresByRunJob.set(runId, parsed.failures);
+      for (const job of parsed.incompleteJobs) {
+        warnings.push(
+          `run ${runId}: case annotations for job ${job} have no matching final complete summary; keeping job-step fingerprints`,
+        );
+      }
+    }
     if (unavailable) {
       warnings.push(
         `run ${runId}: failed-run log unavailable (${unavailable}); keeping job-step fingerprints`,

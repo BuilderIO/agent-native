@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { runInNewContext } from "node:vm";
 
 import {
+  captureSelectedDesignProbe,
+  captureSelectedFigmaProbe,
   parseRecorderManifest,
   requireExpectedFigmaPage,
   requireStableFigmaPage,
@@ -25,6 +28,73 @@ const validManifest = {
   designId: "local-design-123",
   values: { fill: "#D9D9D9" },
 };
+
+function createFigmaPage(
+  response: Record<string, unknown>,
+  selectedRows = [validManifest.probeMarker],
+) {
+  const requests: Array<{ message: any; targetOrigin: string }> = [];
+  let screenshotCalls = 0;
+  const frame = {
+    async evaluate(
+      callback: (args: unknown) => unknown,
+      args: unknown,
+    ): Promise<unknown> {
+      let listener: ((event: unknown) => void) | undefined;
+      const fakeWindow = {
+        addEventListener(_type: string, next: (event: unknown) => void) {
+          listener = next;
+        },
+        removeEventListener(_type: string, next: (event: unknown) => void) {
+          if (listener === next) listener = undefined;
+        },
+        setTimeout(callback: () => void, delay: number) {
+          return globalThis.setTimeout(callback, delay);
+        },
+        clearTimeout(handle: ReturnType<typeof setTimeout>) {
+          globalThis.clearTimeout(handle);
+        },
+        parent: {
+          postMessage(message: any, targetOrigin: string) {
+            requests.push({ message, targetOrigin });
+            queueMicrotask(() =>
+              listener?.({
+                data: {
+                  pluginMessage: {
+                    ...response,
+                    requestId: message.pluginMessage.requestId,
+                  },
+                },
+              }),
+            );
+          },
+        },
+      };
+      return await runInNewContext(`(${callback.toString()})(payload)`, {
+        window: fakeWindow,
+        document: { getElementById: () => ({}) },
+        payload: args,
+      });
+    },
+  };
+  const page = {
+    evaluate: async (_callback: unknown, marker: string) => ({
+      available: [marker],
+      selected: selectedRows,
+    }),
+    frames: () => [frame],
+    async screenshot() {
+      screenshotCalls += 1;
+    },
+  };
+  return {
+    page,
+    requests,
+    get screenshotCalls() {
+      return screenshotCalls;
+    },
+  };
+}
 
 describe("oracle-record manifest", () => {
   it("accepts a complete local probe manifest", () => {
@@ -89,6 +159,93 @@ describe("oracle-record manifest", () => {
       () => requireSelectedFigmaProbe(marker, [marker, marker], [marker]),
       /Figma must select exactly the marked oracle probe layer/,
     );
+  });
+
+  it("captures only the selected Figma probe through its plugin export", async () => {
+    const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    const fixture = createFigmaPage({
+      type: "selected-probe",
+      marker: validManifest.probeMarker,
+      png: Array.from(png),
+    });
+
+    assert.deepEqual(
+      await captureSelectedFigmaProbe(
+        fixture.page,
+        "123456789012",
+        validManifest.probeMarker,
+      ),
+      png,
+    );
+    assert.equal(fixture.requests.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(fixture.requests[0].message)), {
+      pluginMessage: {
+        type: "export-selected-probe",
+        requestId: fixture.requests[0].message.pluginMessage.requestId,
+        marker: validManifest.probeMarker,
+      },
+      pluginId: "123456789012",
+    });
+    assert.equal(fixture.requests[0].targetOrigin, "https://www.figma.com");
+    assert.equal(fixture.screenshotCalls, 0);
+  });
+
+  it("rejects a plugin export for a different layer and never falls back to a viewport shot", async () => {
+    const fixture = createFigmaPage({
+      type: "selected-probe",
+      marker: "AN-ORACLE-PROBE:fig.other.layer",
+      png: [137, 80, 78, 71],
+    });
+
+    await assert.rejects(
+      captureSelectedFigmaProbe(
+        fixture.page,
+        "123456789012",
+        validManifest.probeMarker,
+      ),
+      /Figma probe export did not match the selected marker/,
+    );
+    assert.equal(fixture.screenshotCalls, 0);
+  });
+
+  it("captures the matching Design probe element instead of its whole iframe", async () => {
+    const calls: unknown[] = [];
+    const page = {
+      frameLocator(selector: string) {
+        calls.push(["frameLocator", selector]);
+        return {
+          first() {
+            calls.push(["first"]);
+            return this;
+          },
+          locator(selector: string) {
+            calls.push(["locator", selector]);
+            return {
+              count: async () => 1,
+              screenshot: async (options: unknown) => {
+                calls.push(["screenshot", options]);
+              },
+            };
+          },
+        };
+      },
+    };
+
+    await captureSelectedDesignProbe(
+      page,
+      validManifest.probeMarker,
+      "/tmp/design-oracle-probe.png",
+    );
+
+    assert.deepEqual(calls, [
+      ["frameLocator", "iframe"],
+      ["first"],
+      [
+        "locator",
+        `[data-agent-native-layer-name="${validManifest.probeMarker}"]`,
+      ],
+      ["screenshot", { path: "/tmp/design-oracle-probe.png" }],
+    ]);
   });
 
   it("requires the live Figma page identity to match the manifest", () => {

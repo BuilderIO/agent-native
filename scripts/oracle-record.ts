@@ -19,6 +19,7 @@ const REPO_ROOT = path.resolve(
 );
 const ORACLE_DIR = "templates/design/parity/oracle";
 const ORACLE_ID = /^fig\.[a-z0-9]+(?:-[a-z0-9]+)*\.[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MAX_PROBE_PNG_BYTES = 4 * 1024 * 1024;
 const FigmaMethods = new Set([
   "figma-desktop-app-click",
   "figma-web-app-click",
@@ -275,6 +276,134 @@ async function verifyProbePage(page: any, marker: string): Promise<void> {
   requireSelectedFigmaProbe(marker, selection.available, selection.selected);
 }
 
+export async function readFigmaSelectedProbe(
+  page: any,
+  pluginId: string,
+  marker: string,
+): Promise<Uint8Array> {
+  const requestId = randomUUID();
+  if (pluginId.trim() === "") {
+    throw new Error("local oracle page bridge manifest has no plugin id");
+  }
+  const responses = await Promise.all(
+    page.frames().map(async (frame: any) => {
+      try {
+        return await frame.evaluate(
+          async ({
+            requestId,
+            pluginId,
+            marker,
+          }: {
+            requestId: string;
+            pluginId: string;
+            marker: string;
+          }) => {
+            if (!document.getElementById("agent-native-oracle-page-bridge")) {
+              return null;
+            }
+
+            return new Promise((resolve) => {
+              const timeout = window.setTimeout(() => {
+                window.removeEventListener("message", receive);
+                resolve({ found: true, probe: null });
+              }, 5_000);
+              const receive = (event: MessageEvent) => {
+                const message = (event.data as { pluginMessage?: unknown })
+                  ?.pluginMessage;
+                if (
+                  !message ||
+                  typeof message !== "object" ||
+                  (message as { type?: unknown }).type !== "selected-probe" ||
+                  (message as { requestId?: unknown }).requestId !== requestId
+                ) {
+                  return;
+                }
+                window.clearTimeout(timeout);
+                window.removeEventListener("message", receive);
+                resolve({ found: true, probe: message });
+              };
+              window.addEventListener("message", receive);
+              window.parent.postMessage(
+                {
+                  pluginMessage: {
+                    type: "export-selected-probe",
+                    requestId,
+                    marker,
+                  },
+                  pluginId,
+                },
+                "https://www.figma.com",
+              );
+            });
+          },
+          { requestId, pluginId, marker },
+        );
+      } catch (error) {
+        throw new Error("could not inspect a Figma page frame", {
+          cause: error,
+        });
+      }
+    }),
+  );
+  const matches = responses.filter((response: any) => response?.found === true);
+  if (matches.length !== 1) {
+    if (matches.length > 1) {
+      throw new Error("multiple active Figma page bridges are open");
+    }
+    throw new Error(
+      "active Figma page bridge is missing; build and run the local oracle page bridge before recording",
+    );
+  }
+  const probe = matches[0].probe;
+  if (!isRecord(probe) || probe.type !== "selected-probe") {
+    throw new Error("Figma selected probe bridge returned no export");
+  }
+  if (typeof probe.error === "string") {
+    throw new Error(`Figma selected probe export failed: ${probe.error}`);
+  }
+  if (probe.marker !== marker) {
+    throw new Error("Figma probe export did not match the selected marker");
+  }
+  if (
+    !Array.isArray(probe.png) ||
+    probe.png.length === 0 ||
+    probe.png.length > MAX_PROBE_PNG_BYTES ||
+    probe.png.some(
+      (byte) => !Number.isSafeInteger(byte) || byte < 0 || byte > 255,
+    )
+  ) {
+    throw new Error("Figma selected probe export returned invalid PNG bytes");
+  }
+  return Uint8Array.from(probe.png as number[]);
+}
+
+export async function captureSelectedFigmaProbe(
+  page: any,
+  pluginId: string,
+  marker: string,
+): Promise<Uint8Array> {
+  await verifyProbePage(page, marker);
+  return readFigmaSelectedProbe(page, pluginId, marker);
+}
+
+export async function captureSelectedDesignProbe(
+  page: any,
+  marker: string,
+  file: string,
+): Promise<void> {
+  const probe = page
+    .frameLocator("iframe")
+    .first()
+    .locator(`[data-agent-native-layer-name="${marker}"]`);
+  const matches = await probe.count();
+  if (matches !== 1) {
+    throw new Error(
+      `local Design preview must contain exactly one matching oracle probe layer; found ${matches}`,
+    );
+  }
+  await probe.screenshot({ path: file });
+}
+
 function readFigmaPageBridgePluginId(manifestPath: string): string {
   const bridgeManifestPath = path.resolve(process.cwd(), manifestPath);
   let pluginId: unknown;
@@ -483,24 +612,14 @@ async function record(
           manifest.figmaPageName,
           () => readFigmaActivePage(page, pluginId),
           async () => {
-            await verifyProbePage(page, manifest.probeMarker);
+            const probePng = await captureSelectedFigmaProbe(
+              page,
+              pluginId,
+              manifest.probeMarker,
+            );
             figmaInspector = await readFigmaInspector(page);
-            const viewport = await page.evaluate(() => ({
-              width: window.innerWidth,
-              height: window.innerHeight,
-            }));
-            const width = Math.min(980, viewport.width);
-            const top = Math.min(55, Math.max(0, viewport.height - 1));
             figmaShot = path.join(captureDir, "figma.png");
-            await page.screenshot({
-              path: figmaShot,
-              clip: {
-                x: viewport.width - width,
-                y: top,
-                width,
-                height: viewport.height - top,
-              },
-            });
+            writeFileSync(figmaShot, probePng);
           },
         );
         activeFigmaPage = verified.activePage;
@@ -545,8 +664,11 @@ async function record(
       );
       designInspector = await design.inspector();
       designShot = path.join(captureDir, "design.png");
-      const frame = design.page.locator("iframe").first();
-      await frame.screenshot({ path: designShot });
+      await captureSelectedDesignProbe(
+        design.page,
+        manifest.probeMarker,
+        designShot,
+      );
     } finally {
       await design.close();
     }

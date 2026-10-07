@@ -21,6 +21,10 @@ const pngBytes = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==",
   "base64",
 );
+const jpegBytes = Buffer.from(
+  "/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AKpAB//Z",
+  "base64",
+);
 
 function makeRoot(): string {
   return realpathSync(mkdtempSync(path.join(os.tmpdir(), "parity-oracle-")));
@@ -114,6 +118,23 @@ function pngWithIdat(data: Buffer): Buffer {
   return Buffer.concat(chunks);
 }
 
+function jpegWithoutScanData(): Buffer {
+  const scanMarker = jpegBytes.indexOf(Buffer.from([0xff, 0xda]));
+  const scanEnd = scanMarker + 2 + jpegBytes.readUInt16BE(scanMarker + 2);
+  return Buffer.concat([
+    jpegBytes.subarray(0, scanEnd),
+    Buffer.from([0xff, 0xd9]),
+  ]);
+}
+
+function jpegAbovePixelLimit(): Buffer {
+  const bytes = Buffer.from(jpegBytes);
+  const frameMarker = bytes.indexOf(Buffer.from([0xff, 0xc0]));
+  bytes.writeUInt16BE(65_535, frameMarker + 5);
+  bytes.writeUInt16BE(65_535, frameMarker + 7);
+  return bytes;
+}
+
 describe("parity oracle guard", () => {
   it("loads a seeded current record and verifies its evidence artifacts", () => {
     const record = oracle("fig.inspector.empty-fill-title");
@@ -125,13 +146,13 @@ describe("parity oracle guard", () => {
     );
   });
 
-  it("reports an empty ledger explicitly", () => {
+  it("reports an empty ledger explicitly", async () => {
     const root = makeRoot();
     try {
       mkdirSync(path.join(root, "templates/design/parity/oracle"), {
         recursive: true,
       });
-      const result = runParityOracleGuard({
+      const result = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),
@@ -169,7 +190,7 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("rejects a chosen record cited by an added parity test", () => {
+  it("rejects a chosen record cited by an added parity test", async () => {
     const root = makeRoot();
     try {
       writeEntry(root, {
@@ -178,7 +199,7 @@ describe("parity oracle guard", () => {
         reason: "Explicit product decision.",
         figmaBehavior: "unmeasured",
       });
-      const result = runParityOracleGuard({
+      const result = await runParityOracleGuard({
         repoRoot: root,
         addedLines: addedLines(
           root,
@@ -194,11 +215,11 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("requires every added parity test to cite a current record or explain none", () => {
+  it("requires every added parity test to cite a current record or explain none", async () => {
     const root = makeRoot();
     try {
       writeEntry(root);
-      const missing = runParityOracleGuard({
+      const missing = await runParityOracleGuard({
         repoRoot: root,
         addedLines: addedLines(
           root,
@@ -210,7 +231,7 @@ describe("parity oracle guard", () => {
       assert.equal(missing.exitCode, 1);
       assert.match(missing.message, /test block needs oracle: fig\./);
 
-      const missingAppCitation = runParityOracleGuard({
+      const missingAppCitation = await runParityOracleGuard({
         repoRoot: root,
         addedLines: addedLines(
           root,
@@ -225,7 +246,7 @@ describe("parity oracle guard", () => {
         /test block needs oracle: fig\./,
       );
 
-      const missingRootAppCitation = runParityOracleGuard({
+      const missingRootAppCitation = await runParityOracleGuard({
         repoRoot: root,
         addedLines: addedLines(
           root,
@@ -240,7 +261,7 @@ describe("parity oracle guard", () => {
         /test block needs oracle: fig\./,
       );
 
-      const explained = runParityOracleGuard({
+      const explained = await runParityOracleGuard({
         repoRoot: root,
         addedLines: addedLines(
           root,
@@ -252,7 +273,7 @@ describe("parity oracle guard", () => {
       assert.equal(explained.exitCode, 0, explained.message);
       assert.match(explained.message, /1 entry, 1 citation/);
 
-      const measured = runParityOracleGuard({
+      const measured = await runParityOracleGuard({
         repoRoot: root,
         addedLines: addedLines(
           root,
@@ -268,11 +289,45 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("requires oracle citations for parameterized test.each and it.each blocks", () => {
+  it("requires citations in tagged-template test.each and it.each blocks", async () => {
     const root = makeRoot();
     try {
       writeEntry(root);
-      const result = runParityOracleGuard({
+      const result = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/parity-inspector.spec.ts",
+          [
+            "test.each`",
+            "  case | expected",
+            '  ${"empty Fill"} | ${"Figma default"}',
+            '`("matches Figma for each case", () => {});',
+            "",
+            "it.each`",
+            "  case | expected",
+            '  ${"empty Fill"} | ${"native default"}',
+            '`("matches the native behavior for each case", () => {});',
+          ].join("\n"),
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(result.exitCode, 1, result.message);
+      assert.equal(
+        result.message.match(/test block needs oracle:/g)?.length,
+        2,
+        result.message,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("requires oracle citations for parameterized test.each and it.each blocks", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root);
+      const result = await runParityOracleGuard({
         repoRoot: root,
         addedLines: addedLines(
           root,
@@ -291,11 +346,11 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("does not require native evidence citations in guard tooling tests", () => {
+  it("does not require native evidence citations in guard tooling tests", async () => {
     const root = makeRoot();
     try {
       writeEntry(root);
-      const result = runParityOracleGuard({
+      const result = await runParityOracleGuard({
         repoRoot: root,
         addedLines: addedLines(
           root,
@@ -310,7 +365,7 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("rejects missing, retracted, and repeat-required record citations", () => {
+  it("rejects missing, retracted, and repeat-required record citations", async () => {
     const root = makeRoot();
     try {
       writeEntry(root);
@@ -328,7 +383,7 @@ describe("parity oracle guard", () => {
           });
         }
         const source = `// oracle: ${id}\ntest("uses the oracle", () => {});`;
-        const result = runParityOracleGuard({
+        const result = await runParityOracleGuard({
           repoRoot: root,
           addedLines: addedLines(root, spec, source),
           today: new Date("2026-10-06T00:00:00Z"),
@@ -342,7 +397,7 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("rechecks unchanged test citations when an oracle is retracted", () => {
+  it("rechecks unchanged test citations when an oracle is retracted", async () => {
     const root = makeRoot();
     try {
       writeEntry(root);
@@ -355,7 +410,7 @@ describe("parity oracle guard", () => {
         status: "retracted",
         retractionReason: "The captured evidence is invalid.",
       });
-      const result = runParityOracleGuard({
+      const result = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),
@@ -367,7 +422,7 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("rejects artifact hash mismatches and paths outside the entry directory", () => {
+  it("rejects artifact hash mismatches and paths outside the entry directory", async () => {
     const root = makeRoot();
     try {
       writeEntry(root);
@@ -379,7 +434,7 @@ describe("parity oracle guard", () => {
       const entry = JSON.parse(readFileSync(entryPath, "utf8"));
       entry.artifacts[0].sha256 = "0".repeat(64);
       writeFileSync(entryPath, JSON.stringify(entry));
-      const mismatch = runParityOracleGuard({
+      const mismatch = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),
@@ -389,7 +444,7 @@ describe("parity oracle guard", () => {
 
       entry.artifacts[0].path = "../../outside.png";
       writeFileSync(entryPath, JSON.stringify(entry));
-      const escaped = runParityOracleGuard({
+      const escaped = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),
@@ -401,11 +456,11 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("rejects incomplete image bytes and unsupported artifact kinds", () => {
+  it("rejects incomplete image bytes and unsupported artifact kinds", async () => {
     const root = makeRoot();
     try {
       writeEntry(root, {}, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-      const incompleteImage = runParityOracleGuard({
+      const incompleteImage = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),
@@ -422,7 +477,7 @@ describe("parity oracle guard", () => {
           },
         ],
       });
-      const unsupportedKind = runParityOracleGuard({
+      const unsupportedKind = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),
@@ -435,7 +490,40 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("rejects private Figma keys and citations to nonexistent oracle documents", () => {
+  it("decodes JPEG artifacts and enforces a pixel bound", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root, {}, jpegBytes);
+      const valid = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: new Map(),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(valid.exitCode, 0, valid.message);
+
+      writeEntry(root, {}, jpegWithoutScanData());
+      const missingScan = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: new Map(),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(missingScan.exitCode, 1);
+      assert.match(missingScan.message, /not a valid PNG or JPEG image/);
+
+      writeEntry(root, {}, jpegAbovePixelLimit());
+      const oversized = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: new Map(),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(oversized.exitCode, 1);
+      assert.match(oversized.message, /not a valid PNG or JPEG image/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects private Figma keys and citations to nonexistent oracle documents", async () => {
     const root = makeRoot();
     try {
       writeEntry(root, {
@@ -445,7 +533,7 @@ describe("parity oracle guard", () => {
           pageName: "private probe page",
         },
       });
-      const privateKey = runParityOracleGuard({
+      const privateKey = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),
@@ -456,7 +544,7 @@ describe("parity oracle guard", () => {
       writeEntry(root, {
         values: { nested: { figma_file_key: "must-not-be-committed" } },
       });
-      const nestedPrivateKey = runParityOracleGuard({
+      const nestedPrivateKey = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),
@@ -470,7 +558,7 @@ describe("parity oracle guard", () => {
           pageName: "https://www.figma.com/design/example-file-id/Probe",
         },
       });
-      const privateUrl = runParityOracleGuard({
+      const privateUrl = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),
@@ -479,7 +567,7 @@ describe("parity oracle guard", () => {
       assert.match(privateUrl.message, /private Figma locator/);
 
       writeEntry(root);
-      const inventedDoc = runParityOracleGuard({
+      const inventedDoc = await runParityOracleGuard({
         repoRoot: root,
         addedLines: addedLines(
           root,
@@ -495,13 +583,13 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("returns exit 2 when a changed-line diff is unavailable", () => {
+  it("returns exit 2 when a changed-line diff is unavailable", async () => {
     const root = makeRoot();
     try {
       mkdirSync(path.join(root, "templates/design/parity/oracle"), {
         recursive: true,
       });
-      const result = runParityOracleGuard({
+      const result = await runParityOracleGuard({
         repoRoot: root,
         addedLines: null,
         today: new Date("2026-10-06T00:00:00Z"),
@@ -513,13 +601,13 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("rejects PNGs with invalid chunk CRCs or invalid compressed pixel data", () => {
+  it("rejects PNGs with invalid chunk CRCs or invalid compressed pixel data", async () => {
     const root = makeRoot();
     try {
       const invalidCrc = Buffer.from(pngBytes);
       invalidCrc[29] ^= 1;
       writeEntry(root, {}, invalidCrc);
-      const badCrc = runParityOracleGuard({
+      const badCrc = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),
@@ -528,7 +616,7 @@ describe("parity oracle guard", () => {
       assert.match(badCrc.message, /not a valid PNG or JPEG image/);
 
       writeEntry(root, {}, pngWithIdat(Buffer.from("not a zlib stream")));
-      const badPixels = runParityOracleGuard({
+      const badPixels = await runParityOracleGuard({
         repoRoot: root,
         addedLines: new Map(),
         today: new Date("2026-10-06T00:00:00Z"),

@@ -31,21 +31,47 @@ describe("test-title production guard", () => {
     const workflow = parse(
       readFileSync(".github/workflows/test-title-production.yml", "utf8"),
     ) as {
-      on?: { pull_request?: { branches?: string[]; types?: string[] } };
-      jobs?: Record<string, { if?: string; steps?: Array<{ run?: string }> }>;
+      on?: {
+        pull_request?: { branches?: string[]; types?: string[] };
+        pull_request_target?: { branches?: string[]; types?: string[] };
+      };
+      permissions?: { contents?: string };
+      jobs?: Record<
+        string,
+        {
+          if?: string;
+          steps?: Array<{
+            run?: string;
+            uses?: string;
+            with?: Record<string, unknown>;
+          }>;
+        }
+      >;
     };
     const titleGuard = workflow.jobs?.["test-title-production"];
 
-    assert.deepEqual(workflow.on?.pull_request, {
+    assert.deepEqual(workflow.on?.pull_request_target, {
       branches: ["main"],
       types: ["opened", "synchronize", "reopened", "edited"],
     });
-    assert.match(
-      titleGuard?.if ?? "",
-      /startsWith\(github\.event\.pull_request\.title, 'test:'\)/,
+    assert.equal(workflow.on?.pull_request, undefined);
+    assert.deepEqual(workflow.permissions, { contents: "read" });
+    assert.equal(titleGuard?.if, undefined);
+    const checkout = titleGuard?.steps?.find((step) =>
+      step.uses?.startsWith("actions/checkout@"),
     );
-    assert.match(titleGuard?.if ?? "", /github\.event\.action == 'edited'/);
-    assert.match(titleGuard?.if ?? "", /github\.event\.changes\.title != null/);
+    assert.equal(
+      checkout?.with?.ref,
+      "${{ github.event.pull_request.base.sha }}",
+    );
+    assert.equal(checkout?.with?.["persist-credentials"], true);
+    assert.ok(
+      titleGuard?.steps?.some(
+        (step) =>
+          step.run?.includes("refs/pull/${PR_NUMBER}/head") &&
+          step.run.includes("EXPECTED_HEAD_SHA"),
+      ),
+    );
     assert.ok(
       titleGuard?.steps?.some((step) =>
         step.run?.includes("scripts/guard-test-title-production.ts"),
@@ -91,6 +117,38 @@ describe("test-title production guard", () => {
     assert.equal(result.exitCode, 1);
     assert.match(result.message, /production-code paths changed/);
     assert.match(result.message, /templates\/design\/app\/Editor\.tsx/);
+  });
+
+  it("rejects the title and production paths that shipped in PR #5229", () => {
+    const event = structuredClone(pullRequestEventFixture);
+    event.pull_request.title = "test: prove URL-backed visual edit parity";
+    const productionPaths = [
+      "templates/design/app/hooks/use-navigation-state.ts",
+      "templates/design/app/lib/design-editor-route.ts",
+      "templates/design/app/pages/design-editor/commands/import-figma-clipboard-into-design.ts",
+    ];
+    const result = runTestTitleGuard("pull_request_target", event, () =>
+      changedPathsFixture(...productionPaths),
+    );
+
+    assert.equal(result.exitCode, 1);
+    assert.match(result.message, /production-code paths changed/);
+    for (const path of productionPaths) {
+      assert.ok(result.message.includes(path), path);
+    }
+  });
+
+  it("checks mixed-case test titles with the same production-path policy", () => {
+    for (const title of ["Test: uppercase prefix", "TEST: uppercase prefix"]) {
+      const event = structuredClone(pullRequestEventFixture);
+      event.pull_request.title = title;
+      const result = runTestTitleGuard("pull_request_target", event, () =>
+        changedPathsFixture("templates/design/app/Editor.tsx"),
+      );
+
+      assert.equal(result.exitCode, 1, title);
+      assert.match(result.message, /production-code paths changed/);
+    }
   });
 
   it("protects the guard and CI selection paths from test-title PRs", () => {
@@ -169,7 +227,7 @@ describe("test-title production guard", () => {
     });
 
     assert.equal(result.exitCode, 0);
-    assert.match(result.message, /SKIPPED; only pull_request events/);
+    assert.match(result.message, /SKIPPED; only pull request events/);
   });
 
   it("returns exit 2 when required PR context is unavailable", () => {

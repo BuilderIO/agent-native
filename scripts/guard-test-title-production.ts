@@ -30,10 +30,10 @@ function readPullRequestContext(
   eventName: string | undefined,
   event: unknown,
 ): PullRequestContext | GuardResult {
-  if (eventName !== "pull_request") {
+  if (eventName !== "pull_request" && eventName !== "pull_request_target") {
     return failure(
       2,
-      `expected a pull_request event, received ${eventName ?? "no event name"}`,
+      `expected a pull request event, received ${eventName ?? "no event name"}`,
     );
   }
 
@@ -151,11 +151,11 @@ export function runTestTitleGuard(
   event: unknown,
   readDiff: DiffReader,
 ): GuardResult {
-  if (eventName !== "pull_request") {
+  if (eventName !== "pull_request" && eventName !== "pull_request_target") {
     return {
       exitCode: 0,
       message:
-        "guard-test-title-production: SKIPPED; only pull_request events have a PR title to inspect.",
+        "guard-test-title-production: SKIPPED; only pull request events have a PR title to inspect.",
     };
   }
 
@@ -221,7 +221,10 @@ function readGitDiff(baseSha: string, headSha: string, cwd: string): string {
 }
 
 function main(): void {
-  if (process.env.GITHUB_EVENT_NAME !== "pull_request") {
+  if (
+    process.env.GITHUB_EVENT_NAME !== "pull_request" &&
+    process.env.GITHUB_EVENT_NAME !== "pull_request_target"
+  ) {
     const result = runTestTitleGuard(
       process.env.GITHUB_EVENT_NAME,
       undefined,
