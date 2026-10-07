@@ -519,10 +519,9 @@ export async function retrieveAnalyticsPromptReferences(input: {
   const request = retrievalQuery(input.request);
   let cacheAllowed = true;
   let searchResults: AnalyticsQueryCatalogCandidate[];
-  // A source that is unavailable, or partial because one scope's lookup failed,
-  // hides references the other source's hits cannot stand in for, so neither
-  // "empty" nor "ok" holds. A search capped at its row limit still works, and
-  // large orgs always hit the cap, so truncation does not degrade the status.
+  // A source that is unavailable, partial, or truncated can hide references
+  // the other source's hits cannot stand in for, so neither "empty" nor "ok"
+  // holds even when this lookup found candidates.
   let catalogComplete: boolean;
   try {
     const search = await beforeDeadline(
@@ -545,7 +544,9 @@ export async function retrieveAnalyticsPromptReferences(input: {
     searchResults = search.value.candidates;
     catalogComplete =
       search.value.dashboardSearchStatus === "available" &&
-      search.value.dictionarySearchStatus === "available";
+      search.value.dictionarySearchStatus === "available" &&
+      !search.value.dashboardSearchTruncated &&
+      !search.value.dictionarySearchTruncated;
   } catch (error) {
     console.warn(
       "[analytics] Reference catalog unavailable; continuing without preload.",
