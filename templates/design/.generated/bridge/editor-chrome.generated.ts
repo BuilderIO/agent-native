@@ -3992,12 +3992,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       var backdropFilter = styles.getPropertyValue("backdrop-filter");
       return translate !== "" && translate !== "none" || rotate !== "" && rotate !== "none" || scale !== "" && scale !== "none" || styles.transform !== "none" || styles.perspective !== "none" || styles.filter !== "none" || backdropFilter !== "" && backdropFilter !== "none" || /(?:^|\\s)(?:layout|paint|strict|content)(?:\\s|$)/.test(styles.contain) || /transform|perspective|filter|contain/.test(styles.willChange) || styles.contentVisibility === "auto";
     }
-    function positionContainingBlockForElement(el) {
-      var fixed = window.getComputedStyle(el).position === "fixed";
+    function positionComputedStylesForElement(el, cache) {
+      var cached = cache.get(el);
+      if (cached) return cached;
+      var styles = window.getComputedStyle(el);
+      cache.set(el, styles);
+      return styles;
+    }
+    function positionContainingBlockForElement(el, cache) {
+      var fixed = positionComputedStylesForElement(el, cache).position === "fixed";
       var containingBlock = null;
       var ancestor = el.parentElement;
       while (ancestor) {
-        var styles = window.getComputedStyle(ancestor);
+        var styles = positionComputedStylesForElement(ancestor, cache);
         if (fixed && establishesPositioningContext(styles) || !fixed && (styles.position !== "static" || establishesPositioningContext(styles))) {
           containingBlock = ancestor;
           break;
@@ -4007,7 +4014,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var transform = { a: 1, b: 0, c: 0, d: 1 };
       for (ancestor = containingBlock; ancestor; ancestor = ancestor.parentElement) {
         transform = multiplyPositionTransforms(
-          positionElementTransform(window.getComputedStyle(ancestor)),
+          positionElementTransform(
+            positionComputedStylesForElement(ancestor, cache)
+          ),
           transform
         );
       }
@@ -5559,16 +5568,24 @@ export const editorChromeBridgeScript: string = `"use strict";
         )
       };
     }
-    function getElementInfo(el, portableComputedStylesCache, includePortableStyleSnapshot = true) {
+    function getElementInfo(el, portableComputedStylesCache, includePortableStyleSnapshot = true, sharedPositionComputedStylesCache) {
       var cs = window.getComputedStyle(el);
+      var positionComputedStylesCache = sharedPositionComputedStylesCache || /* @__PURE__ */ new WeakMap();
+      positionComputedStylesCache.set(el, cs);
       var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
       var boundingRect = rectInfoForElement(el);
       var componentName = componentNameForElement(el);
       var parentAutoLayout = autoLayoutParentInfo(el);
       var designParent = designParentForElement(el);
-      var positionReferenceRect = positionReferenceRectForElement(el);
-      var positionCoordinateContext = positionContainingBlockForElement(el);
       var parentStyles = designParent ? window.getComputedStyle(designParent) : null;
+      if (designParent && parentStyles) {
+        positionComputedStylesCache.set(designParent, parentStyles);
+      }
+      var positionReferenceRect = positionReferenceRectForElement(el);
+      var positionCoordinateContext = positionContainingBlockForElement(
+        el,
+        positionComputedStylesCache
+      );
       var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -5835,6 +5852,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function collectSelectableElementInfos(deep, atPoint, includePortableStyleSnapshot = true) {
       var targets = collectSelectableElements(deep);
+      var positionComputedStylesCache = /* @__PURE__ */ new WeakMap();
       if (atPoint) {
         targets = targets.filter(function(el) {
           return documentSpaceBoundsContainPoint(el, atPoint);
@@ -5842,14 +5860,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (!includePortableStyleSnapshot) {
         return targets.map(function(target) {
-          return getElementInfo(target, void 0, false);
+          return getElementInfo(
+            target,
+            void 0,
+            false,
+            positionComputedStylesCache
+          );
         });
       }
       portableStyleProbeDocument();
       var portableComputedStylesCache = createPortableStyleComputedStylesCache();
       try {
         return targets.map(function(target) {
-          return getElementInfo(target, portableComputedStylesCache, true);
+          return getElementInfo(
+            target,
+            portableComputedStylesCache,
+            true,
+            positionComputedStylesCache
+          );
         });
       } finally {
         if (portableComputedStylesCache) {

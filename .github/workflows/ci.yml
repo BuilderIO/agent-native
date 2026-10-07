@@ -449,7 +449,10 @@ jobs:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           pnpm exec playwright test \
+            e2e/canvas-invariants.spec.ts:508 \
             e2e/canvas-invariants.spec.ts:1286 \
+            e2e/canvas-invariants.spec.ts:1170 \
+            e2e/canvas-invariants.spec.ts:1320 \
             e2e/drag-and-drop.drag-feedback.spec.ts:24 \
             e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
             e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
@@ -458,11 +461,12 @@ jobs:
             e2e/parity-selection.spec.ts:451 \
             e2e/pasted-svg-image-inspector.spec.ts:656 \
             e2e/pasted-svg-image-inspector.spec.ts:693 \
+            e2e/position-alignment.spec.ts:335 \
             e2e/position-alignment.spec.ts:484 \
             e2e/position-alignment.spec.ts:529 \
             e2e/position-alignment.spec.ts:606 \
             e2e/position-alignment.spec.ts:646 \
-            --workers=1
+            --workers=2
 
   fast-tests:
     name: Fast tests

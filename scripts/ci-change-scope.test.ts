@@ -558,12 +558,27 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   };
   const regressionCases = step("Run focused Design regression cases");
   assert.ok(regressionCases.includes("timeout-minutes: 10"));
-  assert.ok(regressionCases.includes("--workers=1"));
+  assert.ok(regressionCases.includes("--workers=2"));
   const selectedTests = [
+    [
+      "e2e/canvas-invariants.spec.ts",
+      508,
+      "a child of an auto-layout parent still reports real geometry",
+    ],
     [
       "e2e/canvas-invariants.spec.ts",
       1286,
       "deleting a layer removes it from the document",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      1170,
+      "Escape on a rect drawn inside a frame clears, and never lands on the screen",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      1320,
+      "basic authoring raises no uncaught page errors",
     ],
     [
       "e2e/drag-and-drop.drag-feedback.spec.ts",
@@ -599,6 +614,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/pasted-svg-image-inspector.spec.ts",
       693,
       "rejected SVG HTML is consumed instead of inserted as native markup",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      335,
+      "Auto Layout matrix centers both axes and persists after reload",
     ],
     [
       "e2e/position-alignment.spec.ts",

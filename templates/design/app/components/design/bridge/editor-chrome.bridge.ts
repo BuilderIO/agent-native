@@ -4294,12 +4294,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function positionContainingBlockForElement(el: Element) {
-    var fixed = window.getComputedStyle(el).position === "fixed";
+  type PositionComputedStylesCache = WeakMap<Element, CSSStyleDeclaration>;
+
+  function positionComputedStylesForElement(
+    el: Element,
+    cache: PositionComputedStylesCache,
+  ) {
+    var cached = cache.get(el);
+    if (cached) return cached;
+    var styles = window.getComputedStyle(el);
+    cache.set(el, styles);
+    return styles;
+  }
+
+  function positionContainingBlockForElement(
+    el: Element,
+    cache: PositionComputedStylesCache,
+  ) {
+    var fixed =
+      positionComputedStylesForElement(el, cache).position === "fixed";
     var containingBlock: Element | null = null;
     var ancestor = el.parentElement;
     while (ancestor) {
-      var styles = window.getComputedStyle(ancestor);
+      var styles = positionComputedStylesForElement(ancestor, cache);
       if (
         (fixed && establishesPositioningContext(styles)) ||
         (!fixed &&
@@ -4319,7 +4336,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ancestor = ancestor.parentElement
     ) {
       transform = multiplyPositionTransforms(
-        positionElementTransform(window.getComputedStyle(ancestor)),
+        positionElementTransform(
+          positionComputedStylesForElement(ancestor, cache),
+        ),
         transform,
       );
     }
@@ -6398,18 +6417,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     el: Element,
     portableComputedStylesCache?: PortableStyleComputedStylesCache,
     includePortableStyleSnapshot = true,
+    sharedPositionComputedStylesCache?: PositionComputedStylesCache,
   ): unknown {
     var cs = window.getComputedStyle(el);
+    var positionComputedStylesCache =
+      sharedPositionComputedStylesCache || new WeakMap();
+    positionComputedStylesCache.set(el, cs);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
     var boundingRect = rectInfoForElement(el);
     var componentName = componentNameForElement(el);
     var parentAutoLayout = autoLayoutParentInfo(el);
     var designParent = designParentForElement(el);
-    var positionReferenceRect = positionReferenceRectForElement(el);
-    var positionCoordinateContext = positionContainingBlockForElement(el);
     var parentStyles = designParent
       ? window.getComputedStyle(designParent)
       : null;
+    if (designParent && parentStyles) {
+      positionComputedStylesCache.set(designParent, parentStyles);
+    }
+    var positionReferenceRect = positionReferenceRectForElement(el);
+    var positionCoordinateContext = positionContainingBlockForElement(
+      el,
+      positionComputedStylesCache,
+    );
     var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
     var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -6786,6 +6815,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     includePortableStyleSnapshot = true,
   ): unknown[] {
     var targets = collectSelectableElements(deep);
+    var positionComputedStylesCache: PositionComputedStylesCache =
+      new WeakMap();
     if (atPoint) {
       targets = targets.filter(function (el) {
         return documentSpaceBoundsContainPoint(el, atPoint);
@@ -6793,14 +6824,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (!includePortableStyleSnapshot) {
       return targets.map(function (target) {
-        return getElementInfo(target, undefined, false);
+        return getElementInfo(
+          target,
+          undefined,
+          false,
+          positionComputedStylesCache,
+        );
       });
     }
     portableStyleProbeDocument();
     var portableComputedStylesCache = createPortableStyleComputedStylesCache();
     try {
       return targets.map(function (target) {
-        return getElementInfo(target, portableComputedStylesCache, true);
+        return getElementInfo(
+          target,
+          portableComputedStylesCache,
+          true,
+          positionComputedStylesCache,
+        );
       });
     } finally {
       if (portableComputedStylesCache) {
