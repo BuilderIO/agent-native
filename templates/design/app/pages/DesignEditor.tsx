@@ -300,6 +300,7 @@ import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
 } from "@/components/design/editor/DesignWorkspaceRail";
+import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
 import { HistoryPanel } from "@/components/design/editor/HistoryPanel";
 import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
 import { MakeRealDialog } from "@/components/design/editor/MakeRealDialog";
@@ -24655,7 +24656,7 @@ function DesignEditor() {
 
   const zoomLabel = `${Math.round(zoom)}%`;
   const [openZoomControl, setOpenZoomControl] = useState<
-    "toolbar" | "inspector" | null
+    "toolbar" | "inspector" | "topbar" | null
   >(null);
   const [zoomInputValue, setZoomInputValue] = useState(zoomLabel);
   useEffect(() => {
@@ -26164,7 +26165,7 @@ function DesignEditor() {
     </Tooltip>
   );
 
-  const renderZoomControl = (controlId: "toolbar" | "inspector") => (
+  const renderZoomControl = (controlId: "toolbar" | "inspector" | "topbar") => (
     <DropdownMenu
       open={openZoomControl === controlId}
       onOpenChange={(open) => {
@@ -26184,10 +26185,20 @@ function DesignEditor() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 gap-0.5 px-1 text-[10px] tabular-nums text-muted-foreground cursor-pointer hover:text-foreground"
+              className={cn(
+                "h-6 cursor-pointer tabular-nums text-muted-foreground hover:text-foreground",
+                controlId === "topbar"
+                  ? "gap-1 rounded-md border border-border px-2 text-xs font-normal text-foreground"
+                  : "gap-0.5 px-1 text-[10px]",
+              )}
             >
               {zoomLabel}
-              <IconChevronDown className="size-2.5 opacity-60" />
+              <IconChevronDown
+                className={cn(
+                  "opacity-60",
+                  controlId === "topbar" ? "size-3" : "size-2.5",
+                )}
+              />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
@@ -26339,28 +26350,28 @@ function DesignEditor() {
   const pendingNodeRewriteLabel = t("designEditor.nodeRewrite.pendingReview", {
     count: pendingNodeRewriteProposals.length,
   });
-  const pendingNodeRewriteButtonContent = (
-    <>
-      {!rightToolbarCompact ? (
-        <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-      ) : null}
-      <IconFileStack className="size-3.5 shrink-0" />
-      {rightToolbarCompact ? (
-        <span className="min-w-4 rounded bg-primary/10 px-1 text-center text-[10px] font-semibold tabular-nums text-primary">
-          {pendingNodeRewriteProposals.length}
-        </span>
-      ) : (
-        <span className="truncate">{pendingNodeRewriteLabel}</span>
-      )}
-    </>
-  );
-  const pendingNodeRewriteButtonClassName = cn(
-    "h-8 rounded-md border-primary/30 bg-primary/5 text-xs hover:bg-primary/10",
-    rightToolbarCompact ? "min-w-10 gap-1 px-1.5" : "max-w-44 gap-1.5 px-2",
-  );
-  const pendingNodeRewriteControl =
-    pendingNodeRewriteProposals.length ===
-    0 ? null : pendingNodeRewriteProposals.length === 1 ? (
+  const renderPendingNodeRewriteControl = (compact: boolean) => {
+    const pendingNodeRewriteButtonContent = (
+      <>
+        {!compact ? (
+          <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+        ) : null}
+        <IconFileStack className="size-3.5 shrink-0" />
+        {compact ? (
+          <span className="min-w-4 rounded bg-primary/10 px-1 text-center text-[10px] font-semibold tabular-nums text-primary">
+            {pendingNodeRewriteProposals.length}
+          </span>
+        ) : (
+          <span className="truncate">{pendingNodeRewriteLabel}</span>
+        )}
+      </>
+    );
+    const pendingNodeRewriteButtonClassName = cn(
+      "h-8 rounded-md border-primary/30 bg-primary/5 text-xs hover:bg-primary/10",
+      compact ? "min-w-10 gap-1 px-1.5" : "max-w-44 gap-1.5 px-2",
+    );
+    return pendingNodeRewriteProposals.length ===
+      0 ? null : pendingNodeRewriteProposals.length === 1 ? (
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -26376,7 +26387,7 @@ function DesignEditor() {
             {pendingNodeRewriteButtonContent}
           </Button>
         </TooltipTrigger>
-        {rightToolbarCompact ? (
+        {compact ? (
           <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
         ) : null}
       </Tooltip>
@@ -26393,13 +26404,13 @@ function DesignEditor() {
                 aria-label={pendingNodeRewriteLabel}
               >
                 {pendingNodeRewriteButtonContent}
-                {!rightToolbarCompact ? (
+                {!compact ? (
                   <IconChevronDown className="size-3 shrink-0 opacity-70" />
                 ) : null}
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          {rightToolbarCompact ? (
+          {compact ? (
             <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
           ) : null}
         </Tooltip>
@@ -26424,6 +26435,7 @@ function DesignEditor() {
         </DropdownMenuContent>
       </DropdownMenu>
     );
+  };
 
   const publishWaitlistControl = (
     <Popover
@@ -26553,6 +26565,165 @@ function DesignEditor() {
     </Popover>
   );
 
+  // The controls below live in two places: the top bar (docked editor) and
+  // the minimal-UI right bar (which has no top bar). Build each once.
+  const presenceControl = hostEmbeddedEditor ? null : (
+    <PresenceBar
+      activeUsers={mergePresenceUsers(
+        currentUser ? [currentUser] : [],
+        activeUsers,
+        overviewActiveUsers,
+      )}
+      agentPresent={agentPresent || overviewAgentPresent}
+      agentActive={agentActive || overviewAgentActive}
+      currentUserEmail={currentUser?.email}
+      showCurrentUser
+      followingEmail={followingEmail}
+      onAvatarClick={handleAvatarClick}
+      disableAgentClick
+      className="shrink-0"
+    />
+  );
+
+  const reviewFeedbackControl =
+    canEditDesign && reviewAgentQueueCount > 0 ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-[var(--design-row-height)] gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
+        onClick={handleApplyReviewFeedback}
+        disabled={reviewFeedbackApplying}
+      >
+        {reviewFeedbackApplying ? (
+          <Spinner className="size-3.5" />
+        ) : (
+          <IconMessageCircle className="size-3.5" />
+        )}
+        {reviewFeedbackApplying
+          ? t("review.applyingFeedback")
+          : t("review.applyFeedback", { count: reviewAgentQueueCount })}
+      </Button>
+    ) : null;
+
+  const renderShareControl = (dense: boolean) =>
+    hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
+      <ShareButton
+        resourceType="design"
+        resourceId={id}
+        resourceTitle={design.title}
+        hideTriggerIcon
+        defaultOpen={shouldOpenShare}
+        shareUrl={editorShareUrl}
+        shareUrlLabel={t(
+          hasLocalhostScreens
+            ? "designEditor.liveCanvasLink"
+            : "designEditor.shareEditorLink",
+        )}
+        shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
+        roleCopy={{
+          commenter: {
+            label: t("designEditor.commenterRoleLabel"),
+            description: t("designEditor.commenterRoleDescription"),
+          },
+        }}
+        shareTabs={designShareTabs}
+        popoverClassName={designSharePopoverClassName}
+        triggerClassName={cn(
+          dense
+            ? "h-[var(--design-control-height)] px-[var(--design-baseline-unit)] text-xs"
+            : "h-[var(--design-row-height)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm",
+          "rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]",
+        )}
+      />
+    ) : sessionResolved ? (
+      signedOutPersistenceActions
+    ) : null;
+
+  const localPreviewRow =
+    activeScreenIsLocalSource &&
+    viewMode === "single" &&
+    !activeScreenSnapshotOnly &&
+    activeScreenPreviewUrl ? (
+      <div className="flex h-[var(--design-row-height)] min-w-0 items-center gap-[var(--design-baseline-half)]">
+        <a
+          href={activeScreenPreviewUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex h-[var(--design-control-height)] min-w-0 flex-1 items-center gap-[var(--design-baseline-half)] rounded-md border border-border bg-[var(--design-editor-panel-raised-bg)] px-[var(--design-baseline-unit)] text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={"Open local preview" /* i18n-ignore */}
+          title={activeScreenPreviewUrl}
+        >
+          <IconLink className="size-3 shrink-0" />
+          <span className="min-w-0 flex-1 truncate font-mono">
+            {activeScreenPreviewUrl}
+          </span>
+          <IconExternalLink className="size-3 shrink-0" />
+        </a>
+        {(activeLocalhostRouteIsWritable ||
+          activeLocalhostRouteIsCompiledSource) &&
+        canEditDesign &&
+        id ? (
+          activeLocalhostRouteIsCompiledSource ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="size-[var(--design-control-height)]"
+                    disabled
+                    aria-label={t("designEditor.applyToSource")}
+                  >
+                    <IconDeviceFloppy className="size-3" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t("designEditor.applyToSourceUnavailableCompiled")}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="size-[var(--design-control-height)]"
+                  disabled={
+                    applyToSourcePending || !activeLocalhostSourceWriteContent
+                  }
+                  aria-label={
+                    applyToSourcePending
+                      ? t("designEditor.writingToSource")
+                      : t("designEditor.applyToSource")
+                  }
+                  onClick={handleApplyToSource}
+                >
+                  {applyToSourcePending ? (
+                    <Spinner className="size-3" />
+                  ) : (
+                    <IconDeviceFloppy className="size-3" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {!activeLocalhostSourceWriteContent
+                  ? NO_LOCALHOST_WRITE_CONTENT_MESSAGE
+                  : activeLocalhostRelPath
+                    ? t("designEditor.applyToSourcePath", {
+                        path: activeLocalhostRelPath,
+                      })
+                    : t("designEditor.applyToSource")}
+              </TooltipContent>
+            </Tooltip>
+          )
+        ) : null}
+      </div>
+    ) : null;
+
+  // Minimal UI hides the top bar, so its floating right bar carries the same
+  // controls.
   const rightSidebarActions = (
     <div
       data-design-chrome-region="right-toolbar"
@@ -26565,21 +26736,7 @@ function DesignEditor() {
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <>
-              <PresenceBar
-                activeUsers={mergePresenceUsers(
-                  currentUser ? [currentUser] : [],
-                  activeUsers,
-                  overviewActiveUsers,
-                )}
-                agentPresent={agentPresent || overviewAgentPresent}
-                agentActive={agentActive || overviewAgentActive}
-                currentUserEmail={currentUser?.email}
-                showCurrentUser
-                followingEmail={followingEmail}
-                onAvatarClick={handleAvatarClick}
-                disableAgentClick
-                className="shrink-0"
-              />
+              {presenceControl}
               {sessionResolved && !isSignedIn ? publishWaitlistControl : null}
             </>
           )}
@@ -26590,143 +26747,45 @@ function DesignEditor() {
             edge on its own, and a shrink-0 row has no way to give that space
             back — it just overflows the panel. */}
         <div className="flex min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
-          {pendingNodeRewriteControl}
-          {canEditDesign && reviewAgentQueueCount > 0 ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-[var(--design-row-height)] gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
-              onClick={handleApplyReviewFeedback}
-              disabled={reviewFeedbackApplying}
-            >
-              {reviewFeedbackApplying ? (
-                <Spinner className="size-3.5" />
-              ) : (
-                <IconMessageCircle className="size-3.5" />
-              )}
-              {reviewFeedbackApplying
-                ? t("review.applyingFeedback")
-                : t("review.applyFeedback", { count: reviewAgentQueueCount })}
-            </Button>
-          ) : null}
+          {renderPendingNodeRewriteControl(rightToolbarCompact)}
+          {reviewFeedbackControl}
           {!sessionResolved || isSignedIn ? publishWaitlistControl : null}
-
-          {hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
-            <ShareButton
-              resourceType="design"
-              resourceId={id}
-              resourceTitle={design.title}
-              hideTriggerIcon
-              defaultOpen={shouldOpenShare}
-              shareUrl={editorShareUrl}
-              shareUrlLabel={t(
-                hasLocalhostScreens
-                  ? "designEditor.liveCanvasLink"
-                  : "designEditor.shareEditorLink",
-              )}
-              shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
-              roleCopy={{
-                commenter: {
-                  label: t("designEditor.commenterRoleLabel"),
-                  description: t("designEditor.commenterRoleDescription"),
-                },
-              }}
-              shareTabs={designShareTabs}
-              popoverClassName={designSharePopoverClassName}
-              triggerClassName="h-[var(--design-row-height)] rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
-            />
-          ) : sessionResolved ? (
-            signedOutPersistenceActions
-          ) : null}
+          {renderShareControl(false)}
         </div>
       </div>
-      {activeScreenIsLocalSource &&
-      viewMode === "single" &&
-      !activeScreenSnapshotOnly &&
-      activeScreenPreviewUrl ? (
-        <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 items-center gap-[var(--design-baseline-half)]">
-          <a
-            href={activeScreenPreviewUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex h-[var(--design-control-height)] min-w-0 flex-1 items-center gap-[var(--design-baseline-half)] rounded-md border border-border bg-[var(--design-editor-panel-raised-bg)] px-[var(--design-baseline-unit)] text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={"Open local preview" /* i18n-ignore */}
-            title={activeScreenPreviewUrl}
-          >
-            <IconLink className="size-3 shrink-0" />
-            <span className="min-w-0 flex-1 truncate font-mono">
-              {activeScreenPreviewUrl}
-            </span>
-            <IconExternalLink className="size-3 shrink-0" />
-          </a>
-          {(activeLocalhostRouteIsWritable ||
-            activeLocalhostRouteIsCompiledSource) &&
-          canEditDesign &&
-          id ? (
-            activeLocalhostRouteIsCompiledSource ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="size-[var(--design-control-height)]"
-                      disabled
-                      aria-label={t("designEditor.applyToSource")}
-                    >
-                      <IconDeviceFloppy className="size-3" />
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {t("designEditor.applyToSourceUnavailableCompiled")}
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    className="size-[var(--design-control-height)]"
-                    disabled={
-                      applyToSourcePending || !activeLocalhostSourceWriteContent
-                    }
-                    aria-label={
-                      applyToSourcePending
-                        ? t("designEditor.writingToSource")
-                        : t("designEditor.applyToSource")
-                    }
-                    onClick={handleApplyToSource}
-                  >
-                    {applyToSourcePending ? (
-                      <Spinner className="size-3" />
-                    ) : (
-                      <IconDeviceFloppy className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {!activeLocalhostSourceWriteContent
-                    ? NO_LOCALHOST_WRITE_CONTENT_MESSAGE
-                    : activeLocalhostRelPath
-                      ? t("designEditor.applyToSourcePath", {
-                          path: activeLocalhostRelPath,
-                        })
-                      : t("designEditor.applyToSource")}
-                </TooltipContent>
-              </Tooltip>
-            )
-          ) : null}
+      {localPreviewRow ? (
+        <div className="mt-[var(--design-baseline-half)]">
+          {localPreviewRow}
         </div>
       ) : null}
-      {/* Zoom sits here rather than in the inspector tab row below: sharing
-          that row truncated the "Comments" tab label at normal panel widths. */}
       <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center gap-[var(--design-baseline-half)]">
         <div className="shrink-0">{renderZoomControl("inspector")}</div>
       </div>
     </div>
+  );
+
+  const topBarVisible =
+    !embedded && !isVisualEditSurface && !minimalUi && !uiHidden;
+  const topBarControlsVisible = !initialGenerationChromeLimited;
+  // The mode switch used to live in the bottom toolbar, so it keeps that
+  // toolbar's gating.
+  const topBarShowsModes =
+    designBottomToolbarMode === "editor" && design && !questionFlowActive;
+  // Leaving Interact for Design needs a fresh runtime layer snapshot, same
+  // as the Interact bar's own Edit button.
+  const handleTopBarModeChange = (next: EditorMode) => {
+    if (mode === "interact" && next === "edit") {
+      setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
+    }
+    handleModeChange(next);
+  };
+  const topBarActions = (
+    <>
+      {renderPendingNodeRewriteControl(isMobileViewport)}
+      {reviewFeedbackControl}
+      {publishWaitlistControl}
+      {renderShareControl(true)}
+    </>
   );
 
   const renderResponsiveInteractBar = (floating: boolean) => (
@@ -26983,6 +27042,21 @@ function DesignEditor() {
       className="relative flex h-full flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]"
     >
       {id ? <VisualEditWebMcp getPrompt={visualEditPromptResult} /> : null}
+      {/* ── Render: top bar ── */}
+      {topBarVisible ? (
+        <EditorTopBar
+          mode={mode}
+          onModeChange={handleTopBarModeChange}
+          modes={topBarShowsModes ? undefined : []}
+          zoomControl={
+            topBarControlsVisible && !responsiveInteractActive
+              ? renderZoomControl("topbar")
+              : null
+          }
+          presence={topBarControlsVisible ? presenceControl : null}
+          actions={topBarControlsVisible ? topBarActions : null}
+        />
+      ) : null}
       {/* ── Render: Builder embed preview ── */}
       {isBuilderDesignEmbed && builderPreviewUrl && (
         <div className="absolute inset-0 z-50 flex flex-col bg-[var(--design-editor-canvas-bg)]">
@@ -27365,7 +27439,6 @@ function DesignEditor() {
               onScale={handleScaleTool}
               onMediaFiles={handleDesignMediaFiles}
               onCommentPin={handlePinToolToggle}
-              onModeChange={handleModeChange}
               shortcutsPanelOpen={keyboardShortcutsOpen}
             />
           )}
@@ -28700,7 +28773,16 @@ function DesignEditor() {
               className="absolute left-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
               onPointerDown={(event) => startSidebarResize("right", event)}
             />
-            {rightSidebarActions}
+            {minimalUi ? (
+              rightSidebarActions
+            ) : localPreviewRow ? (
+              <div
+                data-design-chrome-region="right-toolbar"
+                className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
+              >
+                {localPreviewRow}
+              </div>
+            ) : null}
             {mode === "edit" ? (
               <div className="min-h-0 flex-1">
                 <EditPanel {...editPanelProps} width={rightSidebarWidth} />

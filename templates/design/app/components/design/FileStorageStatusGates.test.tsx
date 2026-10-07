@@ -307,7 +307,6 @@ describe("DesignBottomToolbar file storage gate", () => {
         onScale={vi.fn()}
         onMediaFiles={vi.fn()}
         onCommentPin={vi.fn()}
-        onModeChange={vi.fn()}
         shortcutsPanelOpen={false}
       />,
     );

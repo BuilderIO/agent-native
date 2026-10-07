@@ -36,6 +36,31 @@ describe("Design editor header", () => {
     expect(surface).toContain("min-w-0");
   });
 
+  it("mounts the top bar only on the docked editor chrome", () => {
+    expect(editorSource).toContain(
+      "const topBarVisible =\n    !embedded && !isVisualEditSurface && !minimalUi && !uiHidden;",
+    );
+    expect(editorSource).toContain("{topBarVisible ? (\n        <EditorTopBar");
+  });
+
+  it("keeps the moved controls in minimal UI's own right bar", () => {
+    const railStart = editorSource.indexOf("{/* ── Render: right rail ── */}");
+    const railEnd = editorSource.indexOf(
+      "{minimalUi && !hostOwnsChrome ? (",
+      railStart,
+    );
+    const rail = editorSource.slice(railStart, railEnd);
+    // Docked rail: only the local-preview row. Minimal UI: the full action row.
+    expect(rail).toContain("{minimalUi ? (\n              rightSidebarActions");
+    expect(rail).toContain("{localPreviewRow}");
+    const minimalBarStart = editorSource.indexOf(
+      'data-design-minimal-bar="right"',
+    );
+    expect(
+      editorSource.slice(minimalBarStart, minimalBarStart + 400),
+    ).toContain("{rightSidebarActions}");
+  });
+
   it("puts the signed-out play control beside the presence slot", () => {
     expect(editorSource).toContain(
       "{sessionResolved && !isSignedIn ? publishWaitlistControl : null}",

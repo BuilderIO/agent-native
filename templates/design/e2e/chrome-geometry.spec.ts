@@ -405,6 +405,7 @@ async function assertEmptyLayersState(page: Page): Promise<void> {
   ).toHaveCount(0);
 }
 
+// oracle: none — the top bar assertions check its own 48px contract; Figma values live in chrome-geometry.reference.ts.
 test("keeps Design chrome geometry stable at compact and wide inspector widths", async ({
   page,
 }) => {
@@ -440,6 +441,12 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
     .first();
   const separatorGeometry = await readGeometry(separator);
   const currentPanelGeometry = await readGeometry(rightPanel);
+  const topBarGeometry = await readGeometry(
+    page.locator("[data-design-top-bar]"),
+  );
+  expect(topBarGeometry.y).toBe(0);
+  expect(topBarGeometry.height).toBe(48);
+  expect(currentPanelGeometry.y).toBe(topBarGeometry.height);
   const targetPanelWidth = 320;
   const dragStartX = separatorGeometry.x + separatorGeometry.width / 2;
   await page.mouse.move(

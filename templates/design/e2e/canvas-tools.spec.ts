@@ -139,6 +139,13 @@ function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
 }
 
+function modeButton(
+  page: Page,
+  mode: "annotate" | "edit" | "interact",
+): Locator {
+  return page.locator(`[data-design-top-bar] [data-design-mode="${mode}"]`);
+}
+
 function selectedLayerRow(page: Page): Locator {
   return page.locator('[role="treeitem"][aria-selected="true"]').first();
 }
@@ -1122,44 +1129,45 @@ function expectCloseToFrameSize(
   expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(2);
 }
 
-test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+// oracle: none — verifies mode-switch state wiring, not parity with a design reference.
+test("top bar modes toggle the editor mode buttons", async ({ page }) => {
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(toolButton(page, "Interact")).toHaveAttribute(
+  await expect(modeButton(page, "interact")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
 
-  await toolButton(page, "Interact").click();
+  await modeButton(page, "interact").click();
   const exitInteract = page.getByRole("button", {
     name: "Exit responsive preview",
   });
   await expect(exitInteract).toBeVisible();
   await expect(page.locator("[data-design-bottom-toolbar]")).toHaveCount(0);
   await exitInteract.click();
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
 
-  await toolButton(page, "Annotate").click();
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await modeButton(page, "annotate").click();
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(toolButton(page, "Interact")).toHaveAttribute(
+  await expect(modeButton(page, "interact")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
 
-  await toolButton(page, "Edit").click();
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+  await modeButton(page, "edit").click();
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -1293,6 +1301,7 @@ test("keyboard shortcuts dock opens without remounting the overview iframe", asy
   await expect(page.getByRole("button", { name: "More" })).toBeFocused();
 });
 
+// oracle: none — verifies Annotate drawing and undo behavior, not visual fidelity.
 test("overview Annotate draws around screens with stable iframes and stroke undo redo", async ({
   page,
 }) => {
@@ -1319,8 +1328,8 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
       };
     });
 
-  await toolButton(page, "Annotate").click();
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await modeButton(page, "annotate").click();
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -1364,7 +1373,7 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
     "true",
   );
   await expect(page.locator("[data-draw-overlay]")).toHaveClass(/invisible/);
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
