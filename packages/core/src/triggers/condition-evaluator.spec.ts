@@ -133,6 +133,127 @@ describe("evaluateCondition", () => {
     );
   });
 
+  it("does not reuse a cached classification across owners", async () => {
+    let ownerCalls = 0;
+    let otherOwnerCalls = 0;
+    async function* ownerStream() {
+      ownerCalls += 1;
+      yield { type: "text-delta", text: "yes" };
+    }
+    async function* otherOwnerStream() {
+      otherOwnerCalls += 1;
+      yield { type: "text-delta", text: "no" };
+    }
+    const ownerEngine = fakeEngine(ownerStream);
+    const otherOwnerEngine = fakeEngine(otherOwnerStream);
+    resolveEngineMock.mockImplementation(async ({ credentialIdentity }) =>
+      credentialIdentity.userEmail === "owner@example.com"
+        ? ownerEngine
+        : otherOwnerEngine,
+    );
+
+    const payload = { messageId: "shared-payload" };
+    await expect(
+      evaluateCondition("is this urgent?", payload, IDENTITY),
+    ).resolves.toBe(true);
+    await expect(
+      evaluateCondition("is this urgent?", payload, IDENTITY),
+    ).resolves.toBe(true);
+    await expect(
+      evaluateCondition("is this urgent?", payload, {
+        userEmail: "other@example.com",
+      }),
+    ).resolves.toBe(false);
+
+    expect(ownerCalls).toBe(1);
+    expect(otherOwnerCalls).toBe(1);
+  });
+
+  it("does not reuse a cached classification across models", async () => {
+    const models: string[] = [];
+    async function* yesStream(opts: { model?: string }) {
+      models.push(opts.model ?? "");
+      yield { type: "text-delta", text: "yes" };
+    }
+    resolveEngineMock.mockResolvedValue(fakeEngine(yesStream));
+    getStoredModelForEngineMock
+      .mockResolvedValueOnce("model-a")
+      .mockResolvedValueOnce("model-b");
+
+    const payload = { messageId: "shared-payload" };
+    await expect(
+      evaluateCondition("is this urgent?", payload, IDENTITY),
+    ).resolves.toBe(true);
+    await expect(
+      evaluateCondition("is this urgent?", payload, IDENTITY),
+    ).resolves.toBe(true);
+
+    expect(models).toEqual(["model-a", "model-b"]);
+  });
+
+  it("does not cache payloads that cannot be serialized", async () => {
+    let calls = 0;
+    async function* alternatingStream() {
+      calls += 1;
+      yield { type: "text-delta", text: calls === 1 ? "yes" : "no" };
+    }
+    resolveEngineMock.mockResolvedValue(fakeEngine(alternatingStream));
+    const payload: Record<string, unknown> = {};
+    payload.self = payload;
+
+    await expect(
+      evaluateCondition("is this urgent?", payload, IDENTITY),
+    ).resolves.toBe(true);
+    await expect(
+      evaluateCondition("is this urgent?", payload, IDENTITY),
+    ).resolves.toBe(false);
+
+    expect(calls).toBe(2);
+  });
+
+  it("evaluates payloads when serialization throws a non-Error", async () => {
+    let calls = 0;
+    async function* alternatingStream() {
+      calls += 1;
+      yield { type: "text-delta", text: calls === 1 ? "yes" : "no" };
+    }
+    resolveEngineMock.mockResolvedValue(fakeEngine(alternatingStream));
+    const payload = {
+      toJSON() {
+        throw "unavailable";
+      },
+    };
+
+    await expect(
+      evaluateCondition("is this urgent?", payload, IDENTITY),
+    ).resolves.toBe(true);
+    await expect(
+      evaluateCondition("is this urgent?", payload, IDENTITY),
+    ).resolves.toBe(false);
+
+    expect(calls).toBe(2);
+  });
+
+  it("uses a background-resolved engine when provided", async () => {
+    const models: string[] = [];
+    async function* yesStream(opts: { model?: string }) {
+      models.push(opts.model ?? "");
+      yield { type: "text-delta", text: "yes" };
+    }
+    const engine = fakeEngine(yesStream);
+
+    await expect(
+      evaluateCondition("is this urgent?", { messageId: "engine" }, IDENTITY, {
+        engine,
+        resolvedModel: "automation-model",
+      }),
+    ).resolves.toBe(true);
+
+    expect(resolveEngineMock).not.toHaveBeenCalled();
+    expect(getStoredModelForEngineMock).not.toHaveBeenCalled();
+    expect(models).toEqual(["automation-model"]);
+  });
+
   it("fails closed on an unexpected classifier response", async () => {
     async function* garbledStream() {
       yield { type: "text-delta", text: "maybe" };
