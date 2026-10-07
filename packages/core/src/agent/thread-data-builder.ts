@@ -1900,13 +1900,24 @@ export function foldThreadRunSuggestions(
     ? previous.runs
     : [];
   const oldRun = runs.find((entry) => entry.id === run.runId);
+  const previousSequence =
+    oldRun &&
+    Number.isSafeInteger(oldRun.lastSequence) &&
+    oldRun.lastSequence >= 0
+      ? oldRun.lastSequence
+      : 0;
+  const lastSequence = run.events.reduce(
+    (maximum, { seq }) =>
+      Number.isSafeInteger(seq) && seq >= 0 ? Math.max(maximum, seq) : maximum,
+    previousSequence,
+  );
   const snapshot: AgentRunSnapshot = {
     ...oldRun,
     id: run.runId,
     threadId: run.threadId,
     status,
     startedAt,
-    lastSequence: oldRun?.lastSequence ?? 0,
+    lastSequence,
   };
   return {
     ...repo,
