@@ -14,6 +14,7 @@ import {
   getQuery,
   getHeader,
   getRequestIP,
+  readBody as readH3Body,
   type H3Event,
 } from "h3";
 
@@ -6942,7 +6943,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // run could clobber the assistant message the server just
               // appended (and vice versa).
               return await withThreadDataLock(threadId, async () => {
-                const body = await readBody(event);
+                const rawBody = await readH3Body(event);
+                if (
+                  !rawBody ||
+                  typeof rawBody !== "object" ||
+                  Array.isArray(rawBody)
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid request body" };
+                }
+                const body = rawBody as Record<string, unknown>;
                 const bodyIncludesScope = Boolean(
                   body &&
                   typeof body === "object" &&
@@ -6985,17 +6995,33 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   typeof body === "object" &&
                   Object.prototype.hasOwnProperty.call(body, "threadData"),
                 );
-                if (hasThreadDataField && typeof body.threadData !== "string") {
+                const incomingThreadData = body.threadData;
+                if (
+                  hasThreadDataField &&
+                  typeof incomingThreadData !== "string"
+                ) {
                   setResponseStatus(event, 400);
                   return { error: "Invalid threadData JSON" };
                 }
                 // Empty threadData is the existing metadata-only save sentinel.
                 const hasThreadData =
-                  hasThreadDataField && body.threadData.length > 0;
+                  typeof incomingThreadData === "string" &&
+                  incomingThreadData.length > 0;
                 let newThreadData = hasThreadData
-                  ? body.threadData
+                  ? incomingThreadData
                   : thread.threadData;
-                let newMessageCount = body.messageCount ?? thread.messageCount;
+                if (
+                  body.messageCount !== undefined &&
+                  body.messageCount !== null &&
+                  typeof body.messageCount !== "number"
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid request body" };
+                }
+                let newMessageCount =
+                  typeof body.messageCount === "number"
+                    ? body.messageCount
+                    : thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;
                 const nextPreview =
@@ -7038,7 +7064,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 if (hasThreadData) {
                   let incoming: unknown;
                   try {
-                    incoming = JSON.parse(body.threadData);
+                    incoming = JSON.parse(incomingThreadData as string);
                   } catch {
                     setResponseStatus(event, 400);
                     return { error: "Invalid threadData JSON" };

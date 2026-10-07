@@ -452,6 +452,54 @@ describe("agent chat thread save route", () => {
     expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["JSON null", "null"],
+    ["a JSON array", "[]"],
+    ["a JSON string", '"invalid"'],
+    ["an empty body", ""],
+  ])("rejects %s before reading thread fields", async (_label, body) => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid request body" });
+    expect(threadStoreMocks.resolveThreadAccess).not.toHaveBeenCalled();
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it("rejects a nonnumeric message count before saving", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messageCount: "2" }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid request body" });
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
   it("preserves threadData for the metadata-only empty-string save sentinel", async () => {
     const h3App = await mountResourceRoutes();
     threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
