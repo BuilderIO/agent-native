@@ -33,6 +33,7 @@ import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
+import { generationTimingFields } from "../shared/generation-timing.js";
 import {
   createLayoutFitRevision,
   hashSlideContent,
@@ -839,9 +840,7 @@ export default defineAction({
         slide_id: slideId,
         edit_mode: "update_slide",
         edits_count: applied,
-        started_at_ms: startedAt,
-        ended_at_ms: endedAt,
-        duration_ms: Math.max(0, endedAt - startedAt),
+        ...generationTimingFields(startedAt, endedAt),
       },
       ctx,
     );

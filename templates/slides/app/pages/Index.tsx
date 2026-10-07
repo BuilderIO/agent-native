@@ -169,6 +169,8 @@ import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
+import { generationTimingFields } from "../../shared/generation-timing.js";
+
 const LazyDesignSystemSetup = lazy(() =>
   import("@/components/design-system/DesignSystemSetup").then(
     ({ DesignSystemSetup }) => ({
@@ -1309,9 +1311,7 @@ export default function Index({ active = true }: { active?: boolean }) {
           generation_attempt_id: generationAttemptId,
           output_id: deckId,
           output_type: "deck",
-          started_at_ms: generationStartedAt,
-          ended_at_ms: generationEndedAt,
-          duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
+          ...generationTimingFields(generationStartedAt, generationEndedAt),
           failure_code: failureCode,
           failure_stage: "setup",
           source: "new_deck_prompt",
@@ -1644,9 +1644,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         generation_attempt_id: generationAttemptId,
         output_id: deckId,
         output_type: "deck",
-        started_at_ms: generationStartedAt,
-        ended_at_ms: generationAcceptedAt,
-        duration_ms: Math.max(0, generationAcceptedAt - generationStartedAt),
+        ...generationTimingFields(generationStartedAt, generationAcceptedAt),
         source: "new_deck_prompt",
       });
     } catch (error) {

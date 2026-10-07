@@ -204,6 +204,9 @@ import {
   shouldActivateTextTool,
 } from "@/lib/text-tool-shortcut";
 
+import { generationTimingFields } from "../../shared/generation-timing.js";
+import { refreshDeckForGenerationOutcome } from "../lib/generation-lifecycle.js";
+
 type EditorSidePanel = "comments" | null;
 
 type PendingImagePreview = OptimisticImagePreview & {
@@ -391,11 +394,6 @@ export function syncSlideContentSnapshots(
   }
 }
 
-export type GenerationDeckRefreshResult =
-  | { status: "ready"; deck: Deck }
-  | { status: "not_ready" }
-  | { status: "failed" };
-
 type EmptyGenerationRecovery =
   | {
       kind: "retry_rollback";
@@ -487,24 +485,6 @@ function clearEmptyGenerationRecovery(
   } catch (error) {
     console.error("Failed to clear Slides generation recovery data.", error);
     return false;
-  }
-}
-
-export async function refreshDeckForGenerationOutcome(
-  refreshOpenDeck: (deckId: string) => Promise<Deck | null>,
-  deckId: string,
-): Promise<GenerationDeckRefreshResult> {
-  try {
-    let refreshedDeck = await refreshOpenDeck(deckId);
-    if (refreshedDeck === null) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      refreshedDeck = await refreshOpenDeck(deckId);
-    }
-    return refreshedDeck
-      ? { status: "ready", deck: refreshedDeck }
-      : { status: "not_ready" };
-  } catch {
-    return { status: "failed" };
   }
 }
 
@@ -1330,12 +1310,12 @@ export default function DeckEditor() {
     }
     generationSettlingAttemptRef.current = generationAttemptId;
     void (async () => {
-      const generationEndedAt = Date.now();
       try {
         const refreshResult = await refreshDeckForGenerationOutcome(
           refreshOpenDeck,
           id,
         );
+        const generationEndedAt = refreshResult.endedAt;
         if (
           generationSettlingAttemptRef.current !== generationAttemptId ||
           generationTerminalAttemptRef.current === generationAttemptId
@@ -1346,10 +1326,6 @@ export default function DeckEditor() {
         const refreshedDeck =
           refreshResult.status === "ready" ? refreshResult.deck : null;
         const startedAt = generationStartedAtRef.current;
-        const durationMs =
-          startedAt !== null
-            ? Math.max(0, generationEndedAt - startedAt)
-            : undefined;
         const properties = {
           app_name: "slides",
           template_name: "slides",
@@ -1362,9 +1338,7 @@ export default function DeckEditor() {
           ...(targetSlideCount !== null
             ? { target_slide_count: targetSlideCount }
             : {}),
-          ...(startedAt !== null ? { started_at_ms: startedAt } : {}),
-          ended_at_ms: generationEndedAt,
-          ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
+          ...generationTimingFields(startedAt ?? undefined, generationEndedAt),
           source: "new_deck_prompt",
         };
         if (refreshResult.status !== "ready") {
@@ -1761,11 +1735,7 @@ export default function DeckEditor() {
         output_type: "deck",
         slide_count: slideCount,
         source: "new_deck_prompt",
-        ...(startedAt !== null ? { started_at_ms: startedAt } : {}),
-        ended_at_ms: endedAt,
-        ...(startedAt !== null
-          ? { duration_ms: Math.max(0, endedAt - startedAt) }
-          : {}),
+        ...generationTimingFields(startedAt ?? undefined, endedAt),
       };
       try {
         if (!state.submitStarted || !state.sawActive || state.settling) {

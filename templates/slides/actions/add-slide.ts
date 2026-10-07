@@ -26,11 +26,9 @@ import {
   deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
-import {
-  generationTimingFields,
-  noteGenerationFirstOutput,
-} from "../server/lib/generation-completion.js";
+import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
+import { generationTimingFields } from "../shared/generation-timing.js";
 import {
   createLayoutFitRevision,
   hashSlideContent,

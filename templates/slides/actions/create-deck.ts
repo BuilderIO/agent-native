@@ -34,6 +34,7 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
+import { generationTimingFields } from "../shared/generation-timing.js";
 import {
   ensureUniqueSlideIds,
   rebindCreativeContextSlideLabels,
@@ -533,9 +534,7 @@ export default defineAction({
               reason: "postprocess_failed",
               persisted_output: true,
               error_type: postProcessErrorType,
-              started_at_ms: generationStartedAt,
-              ended_at_ms: generationEndedAt,
-              duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
+              ...generationTimingFields(generationStartedAt, generationEndedAt),
             },
             ctx,
           );
@@ -552,9 +551,7 @@ export default defineAction({
               output_id: deckId,
               output_type: "deck",
               slide_count: slides.length,
-              started_at_ms: generationStartedAt,
-              ended_at_ms: generationEndedAt,
-              duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
+              ...generationTimingFields(generationStartedAt, generationEndedAt),
               ...(loadedDesignSystem
                 ? { design_system_status: loadedDesignSystem.status }
                 : {}),
@@ -679,9 +676,7 @@ export default defineAction({
             reason: "postprocess_failed",
             persisted_output: true,
             error_type: postProcessErrorType,
-            started_at_ms: generationStartedAt,
-            ended_at_ms: generationEndedAt,
-            duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
+            ...generationTimingFields(generationStartedAt, generationEndedAt),
           },
           ctx,
         );
@@ -699,9 +694,7 @@ export default defineAction({
             output_id: id,
             output_type: "deck",
             slide_count: slides.length,
-            started_at_ms: generationStartedAt,
-            ended_at_ms: generationEndedAt,
-            duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
+            ...generationTimingFields(generationStartedAt, generationEndedAt),
           },
           ctx,
         );
@@ -721,9 +714,7 @@ export default defineAction({
             output_id: id,
             output_type: "deck",
             slide_count: slides.length,
-            started_at_ms: generationStartedAt,
-            ended_at_ms: generationEndedAt,
-            duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
+            ...generationTimingFields(generationStartedAt, generationEndedAt),
             ...(loadedDesignSystem
               ? { design_system_status: loadedDesignSystem.status }
               : {}),
@@ -772,9 +763,7 @@ export default defineAction({
               ? { output_id: generationOutputId, output_type: "deck" }
               : {}),
             slide_count: slides.length,
-            started_at_ms: generationStartedAt,
-            ended_at_ms: generationEndedAt,
-            duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
+            ...generationTimingFields(generationStartedAt, generationEndedAt),
             outcome: terminal.outcome,
             failure_code: terminal.failure_code,
             error_type: error instanceof Error ? error.name : "unknown_error",
