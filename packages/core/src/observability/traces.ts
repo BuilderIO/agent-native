@@ -291,6 +291,7 @@ function emitLlmGenerationTrackingEvent(args: {
     parentTurnId?: string;
   };
   createdAt: number;
+  endedAt: number;
   experimentAssignments?: Array<{
     experimentId: string;
     variantId: string;
@@ -361,6 +362,8 @@ function emitLlmGenerationTrackingEvent(args: {
     model_selection_source: args.modelSelectionSource,
     created_at: new Date(args.createdAt).toISOString(),
     created_at_ms: args.createdAt,
+    ended_at: new Date(args.endedAt).toISOString(),
+    ended_at_ms: args.endedAt,
     $ai_trace_id: args.runId,
     $ai_session_id: args.threadId ?? undefined,
     $ai_span_id: args.llmSpanId,
@@ -1371,6 +1374,7 @@ export async function instrumentAgentLoop(opts: {
                 spanId: trip.spanId,
                 model: trip.usage?.model ?? runUsage.model,
                 createdAt: trip.start,
+                endedAt: trip.end,
                 latencyMs: Math.max(0, trip.end - trip.start),
                 callUsage: trip.usage,
                 stopReason: trip.stopReason,
@@ -1396,6 +1400,7 @@ export async function instrumentAgentLoop(opts: {
                   spanId: spanId(),
                   model: runUsage.model,
                   createdAt: runStart,
+                  endedAt: runStart + derivedLlmDurationMs,
                   latencyMs: derivedLlmDurationMs,
                   callUsage: usage,
                   stopReason: undefined as string | undefined,
@@ -1498,6 +1503,7 @@ export async function instrumentAgentLoop(opts: {
                 ? capturedContent
                 : null,
             createdAt: generation.createdAt,
+            endedAt: generation.endedAt,
           });
 
           emitLlmGenerationTrackingEvent({
@@ -1547,6 +1553,7 @@ export async function instrumentAgentLoop(opts: {
                 : undefined,
             delegation: opts.delegation,
             createdAt: generation.createdAt,
+            endedAt: generation.endedAt,
             experimentAssignments: opts.experimentAssignments,
             modelSelectionSource: opts.modelSelectionSource,
             browserSessionId,

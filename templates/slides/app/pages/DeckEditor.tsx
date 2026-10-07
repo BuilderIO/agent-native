@@ -205,6 +205,9 @@ import {
   shouldActivateTextTool,
 } from "@/lib/text-tool-shortcut";
 
+import { generationTimingFields } from "../../shared/generation-timing.js";
+import { refreshDeckForGenerationOutcome } from "../lib/generation-lifecycle.js";
+
 type EditorSidePanel = "comments" | null;
 
 type PendingImagePreview = OptimisticImagePreview & {
@@ -392,11 +395,6 @@ export function syncSlideContentSnapshots(
   }
 }
 
-export type GenerationDeckRefreshResult =
-  | { status: "ready"; deck: Deck }
-  | { status: "not_ready" }
-  | { status: "failed" };
-
 type EmptyGenerationRecovery =
   | {
       kind: "retry_rollback";
@@ -488,24 +486,6 @@ function clearEmptyGenerationRecovery(
   } catch (error) {
     console.error("Failed to clear Slides generation recovery data.", error);
     return false;
-  }
-}
-
-export async function refreshDeckForGenerationOutcome(
-  refreshOpenDeck: (deckId: string) => Promise<Deck | null>,
-  deckId: string,
-): Promise<GenerationDeckRefreshResult> {
-  try {
-    let refreshedDeck = await refreshOpenDeck(deckId);
-    if (refreshedDeck === null) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      refreshedDeck = await refreshOpenDeck(deckId);
-    }
-    return refreshedDeck
-      ? { status: "ready", deck: refreshedDeck }
-      : { status: "not_ready" };
-  } catch {
-    return { status: "failed" };
   }
 }
 
@@ -1303,13 +1283,20 @@ export default function DeckEditor() {
     )
       return;
     if (!generationRunStartedRef.current) return;
+    const persistedGenerationStartedAt = generationContext?.generationStartedAt;
+    const generationStartedAt =
+      typeof persistedGenerationStartedAt === "number" &&
+      Number.isFinite(persistedGenerationStartedAt) &&
+      persistedGenerationStartedAt >= 0
+        ? persistedGenerationStartedAt
+        : Date.now();
     if (attemptObservedRun) {
       generationSawActiveRef.current = true;
-      generationStartedAtRef.current ??= Date.now();
+      generationStartedAtRef.current ??= generationStartedAt;
     }
     if (newDeckGenerationSignal) {
       generationSawActiveRef.current = true;
-      generationStartedAtRef.current ??= Date.now();
+      generationStartedAtRef.current ??= generationStartedAt;
       return;
     }
     if (
@@ -1326,6 +1313,7 @@ export default function DeckEditor() {
           refreshOpenDeck,
           id,
         );
+        const generationEndedAt = refreshResult.endedAt;
         if (
           generationSettlingAttemptRef.current !== generationAttemptId ||
           generationTerminalAttemptRef.current === generationAttemptId
@@ -1335,9 +1323,7 @@ export default function DeckEditor() {
         generationTerminalAttemptRef.current = generationAttemptId;
         const refreshedDeck =
           refreshResult.status === "ready" ? refreshResult.deck : null;
-        const durationMs = generationStartedAtRef.current
-          ? Math.max(0, Date.now() - generationStartedAtRef.current)
-          : undefined;
+        const startedAt = generationStartedAtRef.current;
         const properties = {
           app_name: "slides",
           template_name: "slides",
@@ -1350,7 +1336,7 @@ export default function DeckEditor() {
           ...(targetSlideCount !== null
             ? { target_slide_count: targetSlideCount }
             : {}),
-          ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
+          ...generationTimingFields(startedAt ?? undefined, generationEndedAt),
           source: "new_deck_prompt",
         };
         if (refreshResult.status !== "ready") {
@@ -1482,6 +1468,7 @@ export default function DeckEditor() {
     }
     retryEmptyGenerationInFlightRef.current = true;
     setRetryEmptyGenerationPending(true);
+    const retryStartedAt = Date.now();
     const originalSearchParams = new URLSearchParams(searchParams);
     const retryAttemptId = nanoid();
     const submitMessageId = nanoid();
@@ -1495,6 +1482,7 @@ export default function DeckEditor() {
     const retryContext = {
       ...generationContext,
       generationAttemptId: retryAttemptId,
+      generationStartedAt: retryStartedAt,
       generationFailureAttemptId:
         generationContext.generationFailureAttemptId ?? generationAttemptId,
     };
@@ -1670,6 +1658,7 @@ export default function DeckEditor() {
         generation_attempt_id: retryAttemptId,
         output_id: id,
         output_type: "deck",
+        started_at_ms: retryStartedAt,
         source: "empty_output_retry",
       });
       updateDeck(id, {
@@ -1727,6 +1716,15 @@ export default function DeckEditor() {
     ) => {
       if (generationTerminalAttemptRef.current === generationAttemptId) return;
       generationTerminalAttemptRef.current = generationAttemptId;
+      const persistedStartedAt = generationContext?.generationStartedAt;
+      const startedAt =
+        generationStartedAtRef.current ??
+        (typeof persistedStartedAt === "number" &&
+        Number.isFinite(persistedStartedAt) &&
+        persistedStartedAt >= 0
+          ? persistedStartedAt
+          : null);
+      const endedAt = Date.now();
       const properties = {
         app_name: "slides",
         template_name: "slides",
@@ -1735,6 +1733,7 @@ export default function DeckEditor() {
         output_type: "deck",
         slide_count: slideCount,
         source: "new_deck_prompt",
+        ...generationTimingFields(startedAt ?? undefined, endedAt),
       };
       try {
         if (!state.submitStarted || !state.sawActive || state.settling) {
@@ -1786,7 +1785,13 @@ export default function DeckEditor() {
         recordExit("route_exit", state);
       });
     };
-  }, [generationAttemptId, generationLifecycleOwnedByEditor, id, slideCount]);
+  }, [
+    generationAttemptId,
+    generationContext,
+    generationLifecycleOwnedByEditor,
+    id,
+    slideCount,
+  ]);
   const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
   const openCommentComposer = useCallback(
     (
