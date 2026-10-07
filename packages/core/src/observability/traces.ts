@@ -496,7 +496,7 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
-    onModelInput?: (messages: readonly unknown[]) => void;
+    onModelInput?: (messages: readonly unknown[]) => void | Promise<void>;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
@@ -511,7 +511,7 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
-    onModelInput?: (messages: readonly unknown[]) => void;
+    onModelInput?: (messages: readonly unknown[]) => void | Promise<void>;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
@@ -1075,11 +1075,7 @@ export async function instrumentAgentLoop(opts: {
               ? redactedMessages
               : undefined;
           }
-          try {
-            loopOpts.onModelInput?.(messages);
-          } catch {
-            // coercion-ok: tracing callbacks cannot change agent execution.
-          }
+          return loopOpts.onModelInput?.(messages);
         },
         onUsage: (callUsage: AgentLoopUsage) => {
           const trip = currentRoundTrip();

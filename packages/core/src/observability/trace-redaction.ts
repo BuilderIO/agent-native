@@ -1,3 +1,5 @@
+import { redactToolErrorMessage } from "./trace-error.js";
+
 const SENSITIVE_FIELD_PATTERN =
   /^(authorization|cookie|jwt|password|secret|token|bearer)$/i;
 const SENSITIVE_FIELD_SUFFIXES = [
@@ -32,6 +34,7 @@ export function redactSensitiveFields(value: unknown): unknown {
 }
 
 function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
+  if (typeof value === "string") return redactToolErrorMessage(value);
   if (value === null || typeof value !== "object") return value;
   if (seen.has(value as object)) return "[Circular]";
   seen.add(value as object);

@@ -183,6 +183,25 @@ describe("redactSensitiveFields", () => {
     expect(redactSensitiveFields(undefined)).toBeUndefined();
   });
 
+  it("redacts credentials inside string content", () => {
+    const out = redactSensitiveFields({
+      messages: [
+        {
+          role: "tool",
+          content: '{"secretKey":"tool-result-secret"}',
+        },
+      ],
+    });
+    expect(out).toEqual({
+      messages: [
+        {
+          role: "tool",
+          content: '{"secretKey":"[REDACTED]"}',
+        },
+      ],
+    });
+  });
+
   it("tolerates circular references by emitting [Circular]", () => {
     const a: any = { token: "t1", name: "alice" };
     a.self = a;
@@ -1314,8 +1333,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
               type: "tool-result",
               toolCallId: "call_abc",
               toolName: "search",
-              toolInput: '{"query":"gold"}',
-              content: "no rows",
+              toolInput: '{"secretKey":"tool-input-secret"}',
+              content: '{"secretKey":"tool-result-secret"}',
             },
           ],
         });
@@ -1361,7 +1380,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
           (message as { role?: string }).role === "tool",
       ) as { tool_call_id?: string; content?: string } | undefined;
     expect(laterInput?.tool_call_id).toBe("call_abc");
-    expect(laterInput?.content).toBe("no rows");
+    expect(laterInput?.content).toBe('{"secretKey":"[REDACTED]"}');
+    expect(JSON.stringify(events)).not.toContain("tool-input-secret");
+    expect(JSON.stringify(events)).not.toContain("tool-result-secret");
   });
 
   it("keeps tool detail in invocation order and pairs parallel calls by id", async () => {
