@@ -5760,6 +5760,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           : getCanvasPoint(clientX, clientY);
       const originCanvas = getCanvasPointFromCachedRect(e.clientX, e.clientY);
       const deepSelect = e.metaKey || e.ctrlKey;
+      const metaKey = e.metaKey;
+      const ctrlKey = e.ctrlKey;
       const marqueeToken = ++marqueeLifecycleRef.current;
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
@@ -5817,6 +5819,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           source: "marquee",
           additive: state.additive,
           shiftKey: state.additive,
+          metaKey,
+          ctrlKey,
           final: final === true,
         });
       };

@@ -11,6 +11,7 @@ import {
 
 const UNDO = process.platform === "darwin" ? "Meta+z" : "Control+z";
 const REDO = process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z";
+const DEEP_SELECT_MODIFIER = process.platform === "darwin" ? "Meta" : "Control";
 
 const SECOND_SCREEN = `<!doctype html>
 <html lang="en">
@@ -422,6 +423,77 @@ test("Shift-marquee child selection after a Screen pick deletes only the child",
       blueBoxButton.locator("xpath=ancestor::*[@role='treeitem'][1]"),
     ).toHaveAttribute("aria-selected", "true");
     await expect.poll(() => lastSelectedLayers(page)).toContain(homeId);
+
+    await page.keyboard.press("Delete");
+    await expect(blueBoxButton).toHaveCount(0);
+    await expect(layerRow(page, "Home")).toHaveCount(1);
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
+// oracle: none — this checks deep-select Delete provenance, not a Figma observation.
+test("deep-select marquee over a Screen deletes only the child", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).__DESIGN_TRACE = true;
+  });
+
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    await page
+      .locator(`[data-frame-id="${homeId}"] [data-frame-title]`)
+      .click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([homeId]);
+
+    const frame = page.locator(`[data-frame-id="${homeId}"]`);
+    const frameBox = await frame.boundingBox();
+    const screenIframe = page.locator(
+      `iframe[data-screen-iframe-id="${homeId}"]`,
+    );
+    const iframeBox = await screenIframe.boundingBox();
+    expect(frameBox).not.toBeNull();
+    expect(iframeBox).not.toBeNull();
+
+    const from = { x: frameBox!.x - 16, y: frameBox!.y - 16 };
+    const to = {
+      x: frameBox!.x + frameBox!.width + 16,
+      y: frameBox!.y + frameBox!.height + 16,
+    };
+    expect(from.x).toBeGreaterThan(0);
+    expect(from.y).toBeGreaterThan(0);
+    expect(to.x).toBeLessThan(1600);
+    expect(to.y).toBeLessThan(1000);
+    expect(from.x).toBeLessThan(iframeBox!.x);
+    expect(from.y).toBeLessThan(iframeBox!.y);
+    expect(to.x).toBeGreaterThan(iframeBox!.x + iframeBox!.width);
+    expect(to.y).toBeGreaterThan(iframeBox!.y + iframeBox!.height);
+
+    await page.keyboard.down(DEEP_SELECT_MODIFIER);
+    try {
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 12 });
+      await page.mouse.up();
+    } finally {
+      await page.keyboard.up(DEEP_SELECT_MODIFIER);
+    }
+
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    const blueBoxId = await blueBoxButton.getAttribute("data-layer-node-id");
+    expect(blueBoxId).toBeTruthy();
+    await expect(
+      blueBoxButton.locator("xpath=ancestor::*[@role='treeitem'][1]"),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
 
     await page.keyboard.press("Delete");
     await expect(blueBoxButton).toHaveCount(0);
