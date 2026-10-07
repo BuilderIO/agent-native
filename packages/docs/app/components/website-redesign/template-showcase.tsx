@@ -153,7 +153,7 @@ export function TemplateShowcase() {
                     })
                   }
                 >
-                  <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden bg-[var(--b-bg-page)]">
+                  <div className="relative aspect-[8/5] overflow-hidden bg-[var(--b-bg-page)]">
                     <TemplateScreenshot
                       alt={t("templateCard.screenshotAlt", {
                         name: app.name,
