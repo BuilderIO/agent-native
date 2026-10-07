@@ -904,6 +904,36 @@ describe("DeckContext fallback polling", () => {
     expect(hasFailedDeckSave("open-deck")).toBe(false);
   });
 
+  it("does not flag a deferred deck create as access lost while it saves", async () => {
+    const route = { deckId: "open-deck" as string | null };
+    const { api, result, rerender } = await renderOpenDeck({ route });
+    const localDeck = result.current.createDeck("Deferred Deck", {
+      deferPersistence: true,
+    });
+    let persistence: Promise<unknown> = Promise.resolve();
+    act(() => {
+      window.history.pushState({}, "", `/deck/${localDeck.id}`);
+      route.deckId = localDeck.id;
+      rerender();
+      persistence = result.current.ensureDeckPersisted(localDeck.id);
+    });
+
+    api.failDeckReads(404);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(deckCallIds(api.fetchMock)).toContain(localDeck.id);
+    expect(hasFailedDeckSave(localDeck.id)).toBe(false);
+
+    api.setServerDecks([openDeck(), localDeck]);
+    await act(async () => {
+      api.resolveCreate(new Response("", { status: 200 }));
+      await persistence;
+    });
+  });
+
   it("clears a read-side access-loss flag after a successful save", async () => {
     const deckId = "save-after-access-loss";
     window.history.pushState({}, "", `/deck/${deckId}`);

@@ -4759,6 +4759,7 @@ export function DeckProvider({
       if (read.status === "ok") clearDeckAccessLost(currentOpenId);
       else if (
         (read.status === "forbidden" || read.status === "not-found") &&
+        !pendingCreateIdsRef.current.has(currentOpenId) &&
         decksRef.current.some((d) => d.id === currentOpenId)
       ) {
         markDeckAccessLost(currentOpenId, read.error);
