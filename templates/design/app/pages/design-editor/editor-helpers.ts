@@ -196,7 +196,40 @@ export function withMeasuredGeometry(
       node = null;
     }
     if (!node) continue;
-    const box = node.getBoundingClientRect();
+    const rect = node.getBoundingClientRect();
+    let box = {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+    };
+    if (node.getAttribute("data-an-primitive") === "boolean-operand") {
+      const geometry = node as SVGGraphicsElement;
+      const bounds = geometry.getBBox?.();
+      const matrix = geometry.getScreenCTM?.();
+      if (bounds && matrix) {
+        const points: [number, number][] = [
+          [bounds.x, bounds.y],
+          [bounds.x + bounds.width, bounds.y],
+          [bounds.x, bounds.y + bounds.height],
+          [bounds.x + bounds.width, bounds.y + bounds.height],
+        ];
+        const xs = points.map(
+          ([x, y]) => matrix.a * x + matrix.c * y + matrix.e,
+        );
+        const ys = points.map(
+          ([x, y]) => matrix.b * x + matrix.d * y + matrix.f,
+        );
+        const left = Math.min(...xs);
+        const top = Math.min(...ys);
+        box = {
+          x: left,
+          y: top,
+          width: Math.max(...xs) - left,
+          height: Math.max(...ys) - top,
+        };
+      }
+    }
     if (box.width <= 0 && box.height <= 0) continue;
     const parent =
       node.getAttribute("data-an-primitive") === "boolean-operand"

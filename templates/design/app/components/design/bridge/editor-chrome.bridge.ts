@@ -4394,6 +4394,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             transform.d * scrollY,
         },
         transform: transform,
+        hasContainingBlock: true,
       };
     }
 

@@ -251,6 +251,51 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
     }
   });
 
+  it("refreshes boolean operand geometry from its SVG shape bounds", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    const boolean = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+    boolean.setAttribute("data-an-primitive", "boolean");
+    const mask = doc.createElementNS("http://www.w3.org/2000/svg", "mask");
+    const operand = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+    operand.id = "node-a";
+    operand.setAttribute("data-an-primitive", "boolean-operand");
+    boolean.appendChild(mask);
+    mask.appendChild(operand);
+    doc.body.appendChild(boolean);
+    Object.defineProperties(operand, {
+      getBBox: {
+        configurable: true,
+        value: () => ({ x: 10, y: 20, width: 30, height: 40 }),
+      },
+      getScreenCTM: {
+        configurable: true,
+        value: () => ({ a: 2, b: 0, c: 0, d: 3, e: 100, f: 200 }),
+      },
+    });
+    operand.getBoundingClientRect = () =>
+      ({ x: 0, y: 0, width: 800, height: 600 }) as DOMRect;
+    Object.defineProperties(iframe.contentWindow!, {
+      scrollX: { configurable: true, value: 5 },
+      scrollY: { configurable: true, value: 7 },
+    });
+
+    try {
+      const measured = withMeasuredGeometry(makeInfo("node-a"));
+
+      expect(measured.boundingRect).toEqual({
+        x: 125,
+        y: 267,
+        width: 60,
+        height: 120,
+      });
+    } finally {
+      document.body.removeChild(iframe);
+    }
+  });
+
   it("uses viewport coordinates for fixed elements without a containing block", () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");

@@ -4052,7 +4052,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             x: paddingQuad.p1.x + window.scrollX - transform.a * scrollX - transform.c * scrollY,
             y: paddingQuad.p1.y + window.scrollY - transform.b * scrollX - transform.d * scrollY
           },
-          transform
+          transform,
+          hasContainingBlock: true
         };
       }
       var rect = rectInfoForElement(containingBlock);

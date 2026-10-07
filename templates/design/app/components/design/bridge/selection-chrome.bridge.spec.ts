@@ -102,6 +102,76 @@ describe("editor chrome selection overlays", () => {
     }
   });
 
+  it("keeps fixed descendants on the document reference when getBoxQuads is available", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:3000px;height:1600px">
+        <div id="containing-block" style="transform:translate(10px,20px);width:300px;height:200px">
+          <div id="fixed" data-agent-native-node-id="fixed" style="position:fixed;left:35px;top:24px;width:80px;height:40px">Fixed</div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const containingBlock = document.querySelector("#containing-block")!;
+        Object.defineProperty(containingBlock, "getBoxQuads", {
+          configurable: true,
+          value: () => [{ p1: { x: 110, y: 120 } }],
+        });
+        (
+          window as Window & {
+            __positionSelections?: { payload: Record<string, unknown> }[];
+          }
+        ).__positionSelections = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "element-select") {
+            (
+              window as Window & {
+                __positionSelections?: { payload: Record<string, unknown> }[];
+              }
+            ).__positionSelections?.push(event.data);
+          }
+        });
+        window.scrollTo(50, 70);
+      });
+      await page.waitForFunction(
+        () => window.scrollX === 50 && window.scrollY === 70,
+      );
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await select(page, "#fixed");
+      await page.waitForFunction(
+        () =>
+          (
+            window as Window & {
+              __positionSelections?: unknown[];
+            }
+          ).__positionSelections?.length,
+      );
+
+      const selection = await page.evaluate(() => {
+        const selections = (
+          window as Window & {
+            __positionSelections?: {
+              payload: {
+                positionReferenceRect?: { x: number; y: number };
+                positionContainingBlockOrigin?: { x: number; y: number };
+              };
+            }[];
+          }
+        ).__positionSelections;
+        return selections?.[selections.length - 1]?.payload;
+      });
+
+      expect(selection).toMatchObject({
+        positionReferenceRect: { x: 0, y: 0 },
+        positionContainingBlockOrigin: { x: 160, y: 190 },
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("does not double-outline a selected frame, but keeps the parent cue for child layers", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
