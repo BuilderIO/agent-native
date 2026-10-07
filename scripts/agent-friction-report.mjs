@@ -2005,16 +2005,18 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
 ];
 
 const FEEDBACK_RELEASE_CONTEXT_RE =
-  /\b(?:feedback|sweeps?|reviews?|triage)\b/gi;
+  /\bfeedback\s+(?:sweeps?|reviews?|skills?|workflows?|triage)\b/gi;
 const FEEDBACK_RELEASE_ACTION_RE =
-  /\b(?:add|include|check|scan|review|inspect|cover|monitor|track|surface|look\s+at|make sure|miss(?:ed|ing)?|skip(?:ped|ping)?|ignor(?:e|ed|ing)|overlook(?:ed|ing)|forget|forgot|forgotten|did(?:n['’]?t| not)\s+(?:include|check|scan|review|cover)|not\s+(?:included|checked|scanned|reviewed|covered))\b/gi;
+  /\b(?:add(?:s|ed|ing)?|includ(?:e|es|ed|ing)|check(?:s|ed|ing)?|scan(?:s|ned|ning)?|review(?:s|ed|ing)?|inspect(?:s|ed|ing)?|cover(?:s|ed|ing)?|monitor(?:s|ed|ing)?|track(?:s|ed|ing)?|surfac(?:e|es|ed|ing)|look\s+at|make\s+sure|miss(?:ed|ing)?|skip(?:ped|ping)?|ignor(?:e|es|ed|ing)|overlook(?:s|ed|ing)?|forget(?:s|ting)?|forgot|forgotten|did(?:n['’]?t| not)\s+(?:include|check|scan|review|cover)|not\s+(?:included|checked|scanned|reviewed|covered))\b/gi;
 const FEEDBACK_RELEASE_TARGET_RE =
-  /\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b/gi;
+  /\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ed|ing)?|packages?|desktop\s+(?:apps?|builds?))\b/gi;
 const FEEDBACK_RELEASE_FAILURE_RE =
-  /\b(?:fail(?:ed|ing|ure|ures)?|broken|stale|missing|unavailable|incomplete|errored?|red)\b/gi;
+  /\b(?:fail(?:ed|ing|ure|ures)?|broken|stale|missing|unavailable|incomplete|errors?|errored?|red)\b/gi;
 
 function matchesFeedbackReleaseCoverage(message) {
-  const clauses = String(message).split(/[.!?;:\n]+/);
+  const clauses = String(message).split(
+    /[.!?;:\n]+|,\s*(?=(?:and|but|or|so|then|while|although|however|you|we|the|this|please|i|it|they|our|my|add|include|check|scan|inspect|review|make\s+sure|look)\b)/i,
+  );
   return clauses.some((clause) => {
     const spans = (pattern) =>
       [...clause.matchAll(pattern)].map((match) => ({
@@ -2044,17 +2046,12 @@ function matchesFeedbackReleaseCoverage(message) {
             : end < span.start
               ? span.start - end <= 120
               : true;
-        return (
-          actions.some(nearby) &&
-          contexts.some(
-            (context) =>
-              nearby(context) ||
-              actions.some(
-                (action) =>
-                  Math.abs(context.start - action.start) <= 80 &&
-                  nearby(action),
-              ),
-          )
+        return actions.some(
+          (action) =>
+            nearby(action) &&
+            contexts.some(
+              (context) => Math.abs(context.start - action.start) <= 60,
+            ),
         );
       }),
     );
@@ -2064,11 +2061,16 @@ function matchesFeedbackReleaseCoverage(message) {
 const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [true, "We are not scanning deployment failures in the feedback review."],
   [true, "The feedback sweep missed desktop release failures."],
-  [true, "Add failed app deploys to the sweep."],
-  [true, "Please also scan package publish failures during reviews."],
-  [true, "Make sure the review includes desktop release failures."],
+  [true, "Add failed app deploys to the feedback sweep."],
+  [true, "Please also scan package publish failures during feedback reviews."],
+  [true, "Make sure the feedback review includes desktop release failures."],
   [true, "Check the feedback sweep for failed publishes."],
   [true, "The feedback sweep should include failed deploys."],
+  [true, "Please include deployment error in the feedback sweep."],
+  [true, "Please include deployment errors in the feedback sweep."],
+  [true, "The feedback sweep missed desktop build failures."],
+  [true, "We are not scanning deployment failures in the feedback review."],
+  [true, "The feedback sweep, going forward, should include failed deploys."],
   [false, "Add package publishing support to the app."],
   [false, "Include desktop release management in the product."],
   [false, "Add desktop release controls to the feedback app."],
@@ -2078,6 +2080,17 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
     false,
     "The feedback sweep is done; add desktop release controls to the app.",
   ],
+  [false, "Code review: add failed desktop release controls to the app."],
+  [
+    false,
+    "The feedback sweep is complete, and the code review asks to add failed desktop release controls.",
+  ],
+  [
+    false,
+    "The feedback comment was helpful, add failed desktop release controls.",
+  ],
+  [false, "The feedback sweep missed arbitrary app build failures."],
+  [false, "Add failed app builds to the feedback app."],
   [false, "The app deploy and package publish both succeeded."],
   [false, "The review found an unrelated desktop bug."],
 ];
