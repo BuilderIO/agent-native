@@ -18,6 +18,7 @@ import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconCheckbox,
   IconChecks,
+  IconCircleCheck,
   IconComponents,
   IconDots,
   IconExternalLink,
@@ -70,17 +71,22 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
+import {
+  useDesignSystemWorkflows,
+  useDesignSystemWorkflowsState,
+} from "@/hooks/use-design-system-workflows";
 import {
   formatDesignTokenValue,
   getCssColorToken,
 } from "@/lib/design-system-preview";
+import { submitDesignSystemWaitlist } from "@/lib/design-system-waitlist";
 
 import { QueryErrorState } from "../components/QueryErrorState";
 import {
@@ -122,8 +128,30 @@ function isSettledBuilderRefresh(result: BuilderRefreshResult): boolean {
   );
 }
 
+function getDesignSystemsPageMode({
+  designSystems,
+  systemsEnabled,
+  systemsFlagStatus,
+  isLoading,
+  isError,
+}: {
+  designSystems: DesignSystem[];
+  systemsEnabled: boolean;
+  systemsFlagStatus: "loading" | "ready" | "unavailable";
+  isLoading: boolean;
+  isError: boolean;
+}): "loading" | "error" | "comingSoon" | "empty" | "systems" {
+  if (designSystems.length > 0) return "systems";
+  if (isError) return "error";
+  if (systemsFlagStatus === "loading") return "loading";
+  if (!systemsEnabled) return "comingSoon";
+  if (isLoading) return "loading";
+  return "empty";
+}
+
 export default function DesignSystems() {
-  const systemsEnabled = useDesignSystemWorkflows();
+  const systemsFlag = useDesignSystemWorkflowsState();
+  const systemsEnabled = systemsFlag.enabled;
   const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -148,6 +176,19 @@ export default function DesignSystems() {
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [waitlistStatus, setWaitlistStatus] = useState<
+    "idle" | "joining" | "joined" | "error"
+  >("idle");
+
+  const handleJoinWaitlist = useCallback(async () => {
+    setWaitlistStatus("joining");
+    try {
+      await submitDesignSystemWaitlist();
+      setWaitlistStatus("joined");
+    } catch {
+      setWaitlistStatus("error");
+    }
+  }, []);
 
   const { data, isLoading, isError, isFetching, refetch } = useActionQuery<{
     designSystems: DesignSystem[];
@@ -171,7 +212,14 @@ export default function DesignSystems() {
   const activeBuilderRefreshesRef = useRef(new Set<string>());
 
   const designSystems = data?.designSystems ?? [];
-  const isEmpty = !isLoading && !isError && designSystems.length === 0;
+  const pageMode = getDesignSystemsPageMode({
+    designSystems,
+    systemsEnabled,
+    systemsFlagStatus: systemsFlag.status,
+    isLoading,
+    isError,
+  });
+  const isEmpty = pageMode === "empty";
   const selectedDesignSystemId = searchParams.get("designSystemId");
   const selectedDesignSystem = useMemo(
     () =>
@@ -535,14 +583,19 @@ export default function DesignSystems() {
     <>
       <div className="flex-1 overflow-y-auto">
         <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-          {isLoading ? (
-            <LoadingSkeleton />
-          ) : isError ? (
+          {pageMode === "error" ? (
             <QueryErrorState
               onRetry={() => void refetch()}
               retrying={isFetching}
             />
-          ) : isEmpty ? (
+          ) : pageMode === "comingSoon" ? (
+            <ComingSoonState
+              onJoinWaitlist={() => void handleJoinWaitlist()}
+              waitlistStatus={waitlistStatus}
+            />
+          ) : pageMode === "loading" ? (
+            <LoadingSkeleton />
+          ) : pageMode === "empty" ? (
             <EmptyState onCreateClick={handleCreateClick} />
           ) : (
             <>
@@ -1473,7 +1526,7 @@ function EmptyState({
   const systemsEnabled = useDesignSystemWorkflows();
   return (
     <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
+      <div className="mb-6 flex size-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
         <IconComponents className="w-7 h-7 text-primary" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
@@ -1492,6 +1545,56 @@ function EmptyState({
           </Link>
         </Button>
       )}
+    </div>
+  );
+}
+
+function ComingSoonState({
+  onJoinWaitlist,
+  waitlistStatus,
+}: {
+  onJoinWaitlist: () => void;
+  waitlistStatus: "idle" | "joining" | "joined" | "error";
+}) {
+  const t = useT();
+  return (
+    <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
+      <div className="mb-6 flex size-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
+        {waitlistStatus === "joined" ? (
+          <IconCircleCheck className="w-7 h-7 text-primary" />
+        ) : (
+          <IconComponents className="w-7 h-7 text-primary" />
+        )}
+      </div>
+      <h2
+        aria-live="polite"
+        className="text-xl font-semibold text-foreground mb-2"
+      >
+        {waitlistStatus === "joined"
+          ? t("designSystems.waitlist.joined")
+          : t("designSystems.comingSoonTitle")}
+      </h2>
+      {waitlistStatus === "error" ? (
+        <p role="alert" className="mb-4 text-sm text-destructive">
+          {t("designSystems.waitlist.error")}
+        </p>
+      ) : null}
+      {waitlistStatus !== "joined" ? (
+        <Button
+          className="cursor-pointer"
+          onClick={onJoinWaitlist}
+          disabled={waitlistStatus === "joining"}
+        >
+          {waitlistStatus === "joining" ? (
+            <>
+              <Spinner className="size-4" />
+              {t("designSystems.waitlist.joining")}
+            </>
+          ) : (
+            t("designSystems.waitlist.join")
+          )}
+        </Button>
+      ) : null}
     </div>
   );
 }
