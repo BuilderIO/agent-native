@@ -84,7 +84,14 @@ export async function getPreviewDraft(page: Page, documentId: string) {
     `get-preview-document-draft (${response.status()}): ${text}`,
   ).toBe(true);
   return (
-    JSON.parse(text) as { draft: { title: string; content: string } | null }
+    JSON.parse(text) as {
+      draft: {
+        title: string;
+        content: string;
+        editorSessionId?: string | null;
+        editGeneration?: number | null;
+      } | null;
+    }
   ).draft;
 }
 
@@ -983,4 +990,18 @@ export function integrityFailures(record: ScenarioRecord): string[] {
       (entry) =>
         `${entry.at} ${entry.surface}: lost ${JSON.stringify(entry.lost)}, duplicated ${JSON.stringify(entry.duplicated)}`,
     );
+}
+
+const HISTORY_OUTCOMES = ["preserved-to-history", "merged-displaced"] as const;
+
+/** Recovery copy, error toasts and saves sent to History, none of which a clean save shows. */
+export function noiseFailures(tabs: readonly TabRecord[]): string[] {
+  return tabs.flatMap((tab) => [
+    ...tab.recovery.map((notice) => `${tab.label} showed "${notice}"`),
+    ...tab.errorToasts.map((toast) => `${tab.label} toasted "${toast}"`),
+    ...HISTORY_OUTCOMES.filter((outcome) => tab.saveOutcomes[outcome]).map(
+      (outcome) =>
+        `${tab.label} had ${tab.saveOutcomes[outcome]} saves ${outcome}`,
+    ),
+  ]);
 }

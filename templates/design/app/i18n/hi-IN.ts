@@ -1566,6 +1566,8 @@ export default {
     assetAdded: "संपत्ति जोड़ी गई",
     assetsNoImageUrl: "Assets ने कोई छवि URL नहीं लौटाया।",
     failedToUploadFile: "फ़ाइल अपलोड करने में विफल",
+    imageAttachmentUnavailable:
+      "इस छवि को दृश्य इनपुट के रूप में तैयार नहीं किया जा सका। छोटी PNG, JPG, GIF या WebP फ़ाइल जोड़ें।",
     attachmentsTooLarge:
       "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
     failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
@@ -1989,6 +1991,15 @@ export default {
       "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Builder Enterprise योजना आवश्यक है",
   },
   designSystems: {
+    comingSoonTitle: "डिज़ाइन सिस्टम जल्द आ रहे हैं",
+    waitlist: {
+      join: "प्रतीक्षा सूची में शामिल हों",
+      joining: "शामिल हो रहे हैं…",
+      joined: "आप प्रतीक्षा सूची में हैं",
+      error: "प्रतीक्षा सूची में शामिल नहीं हो सके। कृपया फिर से कोशिश करें।",
+      unavailable:
+        "प्रतीक्षा सूची में शामिल होना अभी उपलब्ध नहीं है। कृपया बाद में फिर से कोशिश करें।",
+    },
     deleteError: "डिज़ाइन सिस्टम को हटाया नहीं जा सका",
     updateSuccess: "डिज़ाइन सिस्टम अपडेट किया गया",
     updateError: "डिज़ाइन सिस्टम अपडेट नहीं किया जा सका",

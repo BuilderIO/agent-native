@@ -2004,6 +2004,161 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   ],
 ];
 
+const FEEDBACK_RELEASE_CONTEXT_RE =
+  /\bfeedback\s+(?:sweeps?|reviews?|skills?|workflows?|triage)\b/gi;
+const FEEDBACK_RELEASE_ACTION_RE =
+  /\b(?:add|include|check|scan|inspect|cover|monitor|track|surface|look\s+at|make\s+sure|miss(?:ed|es|ing)?|skip(?:ped|ping)?|ignor(?:e|ed|ing)|overlook(?:ed|ing)|forget|forgot|forgotten|aren['’]?t\s+scanning|are not\s+scanning|isn['’]?t\s+scanning|is not\s+scanning|doesn['’]?t\s+(?:scan|check|include)|does not\s+(?:scan|check|include)|didn['’]?t\s+(?:scan|check|include)|did not\s+(?:scan|check|include))\b/gi;
+const FEEDBACK_RELEASE_TARGET_RE =
+  /\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ed|ing)?|packages?|desktop\s+(?:apps?|builds?))\b/gi;
+const FEEDBACK_RELEASE_FAILURE_RE =
+  /\b(?:fail(?:ed|ing|ure|ures)?|broken|stale|missing|unavailable|incomplete|errors?|errored?|red)\b/gi;
+const FEEDBACK_RELEASE_NEGATIVE_REQUEST_RE =
+  /\b(?:do\s+not|don['’]?t|never|should\s+not|shouldn['’]?t)\s*$/i;
+const FEEDBACK_RELEASE_PRODUCT_REQUEST_RE =
+  /\b(?:controls?|features?|management|support|settings?|tooling|tools?|buttons?|options?|integrations?|pages?|widgets?|chrome)\b/i;
+
+function matchesFeedbackReleaseCoverage(message) {
+  const clauses = String(message).split(
+    /[.!?;\n]+|,\s*(?=(?:and|but|or|so|then|while|although|however|you|we|the|this|please|i|it|they|our|my)\b)/i,
+  );
+  return clauses.some((clause) => {
+    const spans = (pattern) =>
+      [...clause.matchAll(pattern)].map((match) => ({
+        start: match.index,
+        end: match.index + match[0].length,
+      }));
+    const contexts = spans(FEEDBACK_RELEASE_CONTEXT_RE);
+    const actions = spans(FEEDBACK_RELEASE_ACTION_RE);
+    const targets = spans(FEEDBACK_RELEASE_TARGET_RE);
+    const failures = spans(FEEDBACK_RELEASE_FAILURE_RE);
+
+    if (
+      !actions.length ||
+      !contexts.length ||
+      !targets.length ||
+      !failures.length
+    )
+      return false;
+
+    const lowerBound = (matches, position) => {
+      let low = 0;
+      let high = matches.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (matches[middle].start < position) low = middle + 1;
+        else high = middle;
+      }
+      return low;
+    };
+    const distance = (left, right) =>
+      left.end < right.start
+        ? right.start - left.end
+        : right.end < left.start
+          ? left.start - right.end
+          : 0;
+
+    return actions.some((action) => {
+      const requestPrefix = clause.slice(
+        Math.max(0, action.start - 40),
+        action.start,
+      );
+      if (FEEDBACK_RELEASE_NEGATIVE_REQUEST_RE.test(requestPrefix)) {
+        return false;
+      }
+
+      const contextIndex = lowerBound(contexts, action.start - 60);
+      if (
+        contextIndex === contexts.length ||
+        contexts[contextIndex].start > action.start + 60
+      ) {
+        return false;
+      }
+
+      const targetStart = lowerBound(targets, action.start - 180);
+      for (
+        let targetIndex = targetStart;
+        targetIndex < targets.length &&
+        targets[targetIndex].start <= action.end + 180;
+        targetIndex += 1
+      ) {
+        const target = targets[targetIndex];
+        const failureStart = lowerBound(failures, target.start - 80);
+        for (
+          let failureIndex = failureStart;
+          failureIndex < failures.length &&
+          failures[failureIndex].start <= target.end + 60;
+          failureIndex += 1
+        ) {
+          const failure = failures[failureIndex];
+          if (distance(target, failure) > 60) continue;
+          const coverage = {
+            start: Math.min(target.start, failure.start),
+            end: Math.max(target.end, failure.end),
+          };
+          const requestWindow = clause.slice(
+            Math.max(0, Math.min(action.start, coverage.start) - 60),
+            Math.min(clause.length, Math.max(action.end, coverage.end) + 60),
+          );
+          if (
+            distance(action, coverage) <= 120 &&
+            !FEEDBACK_RELEASE_PRODUCT_REQUEST_RE.test(requestWindow)
+          ) {
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+  });
+}
+
+const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
+  [true, "We are not scanning deployment failures in the feedback review."],
+  [true, "The feedback sweep missed desktop release failures."],
+  [true, "The feedback sweep misses failed deployment alerts."],
+  [true, "The feedback sweep doesn't include failed deployments."],
+  [true, "Add failed app deploys to the feedback sweep."],
+  [true, "Please also scan package publish failures during feedback reviews."],
+  [true, "Make sure the feedback review includes desktop release failures."],
+  [true, "Check the feedback sweep for failed publishes."],
+  [true, "The feedback sweep should include failed deploys."],
+  [true, "Please include deployment error in the feedback sweep."],
+  [true, "Please include deployment errors in the feedback sweep."],
+  [true, "The feedback sweep missed desktop build failures."],
+  [true, "We are not scanning deployment failures in the feedback review."],
+  [true, "The feedback sweep, going forward, should include failed deploys."],
+  [true, "Feedback review: please include failed desktop releases."],
+  [true, "Feedback review: please scan failed deploys for the app."],
+  [true, "In the feedback review, scan deployment failures."],
+  [false, "Don't include failed deployments in the feedback sweep."],
+  [false, "Feedback review: add failed desktop release controls to the app."],
+  [false, "Add package publishing support to the app."],
+  [false, "Include desktop release management in the product."],
+  [false, "Add desktop release controls to the feedback app."],
+  [false, "Check package publishing settings in the feedback app."],
+  [false, "The desktop release missed its target date."],
+  [false, "The feedback review was useful but a desktop release had failures."],
+  [
+    false,
+    "The feedback sweep is done; add desktop release controls to the app.",
+  ],
+  [false, "Code review: add failed desktop release controls to the app."],
+  [
+    false,
+    "The feedback sweep is complete, and the code review asks to add failed desktop release controls.",
+  ],
+  [
+    false,
+    "The feedback comment was helpful, add failed desktop release controls.",
+  ],
+  [false, "Feedback review: add controls for desktop release failures."],
+  [false, "The feedback sweep missed arbitrary app build failures."],
+  [false, "Add failed app builds to the feedback app."],
+  [false, "The app deploy and package publish both succeeded."],
+  [false, "The review found an unrelated desktop bug."],
+  [false, `${"deployment ".repeat(4000)}${"failure ".repeat(4000)}`],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -2040,6 +2195,12 @@ if (process.argv.includes("--self-test")) {
     ...BETA_OVERVERIFICATION_REGEX_CASES.filter(
       ([expected, message]) =>
         BETA_OVERVERIFICATION_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        matchesFeedbackReleaseCoverage(message) !== expected,
     ),
   );
   failures.push(
@@ -2124,7 +2285,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2391,6 +2552,14 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback (default channel coverage, 2026-10-05)",
     re: /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b/i,
+  },
+  {
+    key: "feedback-release-coverage",
+    label:
+      "Had to ask the feedback sweep to inspect failed deploys or publishes",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (deployment/release scan coverage, 2026-10-06)",
+    re: { test: matchesFeedbackReleaseCoverage },
   },
   {
     key: "a2a-user-identity-boundary",

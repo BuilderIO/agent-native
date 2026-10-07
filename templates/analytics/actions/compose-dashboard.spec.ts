@@ -67,6 +67,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: mocks.applyText,
+  getText: vi.fn(async () => ""),
   hasCollabState: mocks.hasCollabState,
   seedFromText: mocks.seedFromText,
 }));

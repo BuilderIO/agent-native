@@ -8,6 +8,17 @@ const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
 const readPrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
 const recordReplayFrictionMock = vi.hoisted(() => vi.fn());
+const performanceMocks = vi.hoisted(() => ({
+  getSessionPerformanceSummaries: vi.fn(),
+  getPerformanceCoverageStart: vi.fn(),
+}));
+
+vi.mock("./session-performance.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./session-performance.js")>()),
+  getSessionPerformanceSummaries:
+    performanceMocks.getSessionPerformanceSummaries,
+  getPerformanceCoverageStart: performanceMocks.getPerformanceCoverageStart,
+}));
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -48,6 +59,7 @@ import { schema } from "../db/index.js";
 import {
   assertReplayKeyBudget,
   compactSessionRecordingSummary,
+  getSessionRecordingPerformance,
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
   getSessionReplayTokenizedSummary,
@@ -269,6 +281,91 @@ describe("session replay list page", () => {
     expect(conditionText(conditions[1])).not.toContain("clips");
     expect(conditionText(conditions[2])).toContain("clips");
     expect(conditionText(orders[1])).toContain("nulls last");
+  });
+});
+
+describe("session recording performance", () => {
+  const summary = {
+    ttfbMs: null,
+    lcpMs: 4_200,
+    inpMs: null,
+    cls: null,
+    slowRequests: null,
+    maxRequestMs: null,
+    atLeast: [],
+    incomplete: false,
+  };
+
+  beforeEach(() => {
+    performanceMocks.getPerformanceCoverageStart.mockResolvedValue(
+      "2026-09-20T00:00:00.000Z",
+    );
+    performanceMocks.getSessionPerformanceSummaries.mockImplementation(
+      async () => new Map([["r1", summary]]),
+    );
+  });
+
+  it("reads only recordings the viewer can access, and says which were never measured", async () => {
+    const rows = [
+      {
+        id: "r1",
+        sessionId: "s1",
+        ownerEmail: "owner@example.test",
+        orgId: "org_1",
+      },
+      {
+        id: "r2",
+        sessionId: "s2",
+        ownerEmail: "owner@example.test",
+        orgId: "org_1",
+      },
+    ];
+    let condition: unknown;
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn((where: unknown) => {
+            condition = where;
+            return { limit: vi.fn(async () => rows) };
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    const result = await getSessionRecordingPerformance(
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+      ["r1", "r2", "r1", "r-unreadable"],
+    );
+
+    expect(result).toEqual({
+      performance: { r1: summary, r2: null },
+      coverageStartedAt: "2026-09-20T00:00:00.000Z",
+    });
+    expect(conditionText(condition)).toContain("viewer@example.test");
+    expect(conditionText(condition)).toContain("r-unreadable");
+    expect(
+      performanceMocks.getSessionPerformanceSummaries,
+    ).toHaveBeenCalledWith(
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+      rows,
+    );
+  });
+
+  it("reports coverage without reading recordings when given no ids", async () => {
+    const db = { select: vi.fn() };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      getSessionRecordingPerformance(
+        { userEmail: "viewer@example.test", orgId: null },
+        [],
+      ),
+    ).resolves.toEqual({
+      performance: {},
+      coverageStartedAt: "2026-09-20T00:00:00.000Z",
+    });
+    expect(db.select).not.toHaveBeenCalled();
   });
 });
 

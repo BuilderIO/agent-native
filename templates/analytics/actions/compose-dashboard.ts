@@ -240,6 +240,7 @@ export default defineAction({
     }
 
     let finalConfig: Record<string, unknown>;
+    let updatedAt: string;
     let appendedCount = composedPanels.length;
     let skippedExistingIds: string[] = [];
     let refreshedExistingIds: string[] = [];
@@ -304,6 +305,7 @@ export default defineAction({
         },
       );
       finalConfig = saved.config as Record<string, unknown>;
+      updatedAt = saved.updatedAt;
     } else {
       finalConfig = withFilters({
         name: dashboardName,
@@ -311,7 +313,13 @@ export default defineAction({
           "First-party analytics dashboard composed from the metric catalog.",
         panels: composedPanels,
       });
-      await upsertDashboard(args.dashboardId, "sql", finalConfig, ctx);
+      const saved = await upsertDashboard(
+        args.dashboardId,
+        "sql",
+        finalConfig,
+        ctx,
+      );
+      updatedAt = saved.updatedAt;
     }
 
     const panelCount = Array.isArray(finalConfig.panels)
@@ -325,7 +333,12 @@ export default defineAction({
       refreshedExistingIds.length > 0;
 
     if (changed) {
-      queueDashboardCollabSync(args.dashboardId, finalConfig, "agent");
+      void queueDashboardCollabSync(
+        args.dashboardId,
+        updatedAt,
+        () => getDashboard(args.dashboardId, ctx),
+        "agent",
+      );
       track(
         "dashboard_saved",
         {

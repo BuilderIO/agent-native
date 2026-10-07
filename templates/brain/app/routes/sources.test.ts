@@ -74,7 +74,7 @@ describe("add source drawer config validation", () => {
     const source = readRouteSource("./sources.tsx");
 
     expect(source).toContain(
-      "const formConfigInvalid =\n    slackChannelIssues.length > 0 || githubRepoIssues.length > 0;",
+      "const formConfigInvalid =\n    slackChannelIssues.length > 0 ||\n    githubRepoIssues.length > 0 ||\n    zoomMeetingIdIssues.length > 0;",
     );
     expect(source).toContain("formConfigInvalid ||");
 

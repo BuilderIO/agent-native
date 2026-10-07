@@ -194,6 +194,17 @@ for (const target of targets) {
         `${target.app} verification returned an error`,
       ).toBeLessThan(400);
       expect(new URL(verificationPage.url()).origin).toBe(target.origin);
+      const continueButton = verificationPage.locator(
+        'form button[type="submit"]',
+      );
+      await expect(
+        continueButton,
+        `${target.app} emailed link did not stop at the scanner-safe confirmation page`,
+      ).toBeVisible();
+      await continueButton.click();
+      await expect
+        .poll(() => new URL(verificationPage.url()).pathname)
+        .not.toContain("/_agent-native/auth/email-link/landing");
       expect(new URL(verificationPage.url()).pathname).not.toMatch(
         /sign-in|login/i,
       );

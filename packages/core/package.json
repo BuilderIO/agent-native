@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.201.1",
+  "version": "0.202.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -36,7 +36,8 @@
     "src/templates/headless",
     "src/templates/chat",
     "src/templates/workspace-core",
-    "src/templates/workspace-root"
+    "src/templates/workspace-root",
+    "src/templates/factory"
   ],
   "type": "module",
   "sideEffects": [
@@ -477,6 +478,7 @@
     "./agent/chatgpt-subscription-contract": "./dist/agent/chatgpt-subscription-contract.js",
     "./agent/engine/provider-env-vars": "./dist/agent/engine/provider-env-vars.js",
     "./agent/model-config": "./dist/agent/model-config.js",
+    "./agent/model-version": "./dist/agent/model-version.js",
     "./app-config": "./dist/app-config/index.js",
     "./audit/types": "./dist/audit/types.js",
     "./changelog/parse": "./dist/changelog/parse.js",
@@ -567,6 +569,7 @@
     "./observability/types": "./dist/observability/types.js",
     "./onboarding/types": "./dist/onboarding/types.js",
     "./onboarding/workspace-services": "./dist/onboarding/workspace-services.js",
+    "./onboarding/app-profile-data": "./dist/onboarding/app-profile-data.js",
     "./org/app-roles": "./dist/org/app-roles.js",
     "./org/permissions": "./dist/org/permissions.js",
     "./org/sign-in-methods": "./dist/org/sign-in-methods.js",

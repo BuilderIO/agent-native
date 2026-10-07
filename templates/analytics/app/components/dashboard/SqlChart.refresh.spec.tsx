@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     refetch: vi.fn(),
   },
   queryEnabled: undefined as boolean | undefined,
+  queryRefreshToken: undefined as number | undefined,
   queryKey: null as string[] | null,
   createDemoChartTrendRows: vi.fn((rows: Record<string, unknown>[]) => rows),
   embeddedExtensionProps: null as Record<string, unknown> | null,
@@ -42,10 +43,11 @@ vi.mock("@/lib/sql-query", () => ({
     queryKey: string[],
     _sql: string,
     _source: string,
-    options?: { enabled?: boolean },
+    options?: { enabled?: boolean; refreshToken?: number },
   ) => {
     mocks.queryKey = queryKey;
     mocks.queryEnabled = options?.enabled;
+    mocks.queryRefreshToken = options?.refreshToken;
     return mocks.query;
   },
 }));
@@ -89,6 +91,7 @@ describe("SqlChart refresh feedback", () => {
     mocks.query.error = null;
     mocks.query.refetch = vi.fn();
     mocks.queryEnabled = undefined;
+    mocks.queryRefreshToken = undefined;
     mocks.queryKey = null;
     mocks.embeddedExtensionProps = null;
   });
@@ -144,6 +147,57 @@ describe("SqlChart refresh feedback", () => {
       container.querySelector('[data-dashboard-report-loading="true"]'),
     ).toBeNull();
     expect(container.textContent).toContain("42");
+  });
+
+  it("passes dashboard refresh tokens through to the query hook", async () => {
+    const panel = {
+      id: "signups",
+      title: "Signups",
+      sql: "SELECT 42 AS value",
+      source: "bigquery" as const,
+      chartType: "metric" as const,
+      width: 1,
+    };
+
+    await act(async () => {
+      root.render(<SqlChart panel={panel} refreshToken={0} />);
+    });
+    expect(mocks.queryRefreshToken).toBe(0);
+    expect(mocks.query.refetch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(<SqlChart panel={panel} refreshToken={1} />);
+    });
+
+    expect(mocks.queryRefreshToken).toBe(1);
+    expect(mocks.query.refetch).not.toHaveBeenCalled();
+  });
+
+  it("routes the error-card refresh action through its dashboard callback", async () => {
+    const panel = {
+      id: "signups",
+      title: "Signups",
+      sql: "SELECT 42 AS value",
+      source: "bigquery" as const,
+      chartType: "metric" as const,
+      width: 1,
+    };
+    const onRefreshRequested = vi.fn();
+    mocks.query.data = { rows: [] };
+    mocks.query.error = new Error("query failed");
+
+    await act(async () => {
+      root.render(
+        <SqlChart panel={panel} onRefreshRequested={onRefreshRequested} />,
+      );
+    });
+
+    const refreshButton = container.querySelector("button");
+    expect(refreshButton).not.toBeNull();
+    await act(async () => {
+      refreshButton?.click();
+    });
+    expect(onRefreshRequested).toHaveBeenCalledTimes(1);
   });
 
   it("renders cached data without starting a query when loading is disabled", async () => {
@@ -331,7 +385,38 @@ describe("SqlChart refresh feedback", () => {
     await act(async () => {
       retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(mocks.query.refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.queryRefreshToken).toBe(1);
+  });
+
+  it("keeps the last good rows visible when a refresh fails", async () => {
+    const panel = {
+      id: "signups",
+      title: "Signups",
+      sql: "SELECT 42 AS value",
+      source: "bigquery" as const,
+      chartType: "metric" as const,
+      width: 1,
+    };
+    const onRefreshRequested = vi.fn();
+    mocks.query.data = { rows: [{ value: 42 }] };
+    mocks.query.error = new Error("forced refresh failed");
+
+    await act(async () => {
+      root.render(
+        <SqlChart panel={panel} onRefreshRequested={onRefreshRequested} />,
+      );
+    });
+
+    expect(container.textContent).toContain("42");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "forced refresh failed",
+    );
+    const refreshButton = container.querySelector("button");
+    expect(refreshButton).not.toBeNull();
+    await act(async () => {
+      refreshButton?.click();
+    });
+    expect(onRefreshRequested).toHaveBeenCalledTimes(1);
   });
 
   it("does not expose a retry for a disabled query with a cached error", async () => {
