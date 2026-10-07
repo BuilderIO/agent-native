@@ -506,8 +506,10 @@ describe("action discovery", () => {
       content,
     });
     expect(seenArgs[0]).toEqual([
-      "--id=abc",
-      "--title=Hi there",
+      "--id",
+      "abc",
+      "--title",
+      "Hi there",
       `--content=${content}`,
     ]);
   });

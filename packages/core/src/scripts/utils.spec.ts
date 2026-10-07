@@ -49,7 +49,10 @@ describe("parseArgs", () => {
   it("preserves values that begin with option syntax", () => {
     const content = "---\nname: spell-check\n---\n# Spell check";
 
-    expect(parseArgs(serializeCliArgs({ content }))).toEqual({ content });
+    const args = serializeCliArgs({ title: "Hi there", content });
+
+    expect(args).toEqual(["--title", "Hi there", `--content=${content}`]);
+    expect(parseArgs(args)).toEqual({ title: "Hi there", content });
   });
 
   it("parses --flag as boolean true", () => {

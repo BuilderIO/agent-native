@@ -23,12 +23,12 @@ export function parseArgs(args: string[]): Record<string, string> {
 }
 
 export function serializeCliArgs(args: Record<string, unknown>): string[] {
-  return Object.entries(args).map(([key, raw]) => {
+  return Object.entries(args).flatMap(([key, raw]) => {
     const value =
       raw != null && typeof raw === "object"
         ? JSON.stringify(raw)
         : String(raw);
-    return `--${key}=${value}`;
+    return value.startsWith("--") ? [`--${key}=${value}`] : [`--${key}`, value];
   });
 }
 
