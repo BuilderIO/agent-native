@@ -463,7 +463,7 @@ describe("StorageSetupCard", () => {
     expect(settledRetryButton?.disabled).toBe(false);
   });
 
-  it("shows localized browser-tab recovery for embedded Builder connection errors", () => {
+  it("shows localized browser-tab recovery for embedded Builder launch errors", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
       start: mocks.start,
       cancel: mocks.cancel,
@@ -475,10 +475,9 @@ describe("StorageSetupCard", () => {
       agentNativeProvisioningEnabled: true,
       statusResolved: true,
       statusReadSettledCount: 1,
-      errorKind: "connection",
+      errorKind: "launch",
       hasFetchedStatus: true,
-      error:
-        "Couldn't open Builder from this chat host. Open this app in a browser tab and try Use Builder.io again.",
+      error: "No se pudo abrir Builder desde este host de chat.",
     });
 
     act(() => {

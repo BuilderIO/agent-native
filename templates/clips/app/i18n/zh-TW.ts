@@ -1394,7 +1394,7 @@ const messages = {
     builderConnectPopupError:
       "無法開啟 Builder.io。如果此應用程式嵌入在聊天中，請在瀏覽器分頁中開啟；否則請重試。",
     builderConnectError:
-      "Builder.io 設定未完成。請再試一次，或使用下方的儲存空間選項。",
+      "Builder.io 設定未完成。請再試一次，或選擇相容 S3 的儲存空間。",
     builderConnectErrorAskAdmin:
       "Builder.io 設定未完成。請再試一次，或請擁有者或管理員設定儲存空間。",
     builderStatusReadError: "無法檢查 Builder.io 連線。",

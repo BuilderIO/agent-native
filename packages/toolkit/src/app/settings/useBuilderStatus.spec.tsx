@@ -13,6 +13,7 @@ import {
   useBuilderStatus,
   useBuilderConnectFlow,
   withBuilderConnectTrackingParams,
+  type BuilderConnectTransport,
   type BuilderConnectionScope,
 } from "./useBuilderStatus.js";
 
@@ -51,6 +52,7 @@ function setEmbeddedWindow(embedded: boolean) {
 function BuilderConnectProbeContent({
   enabled = true,
   popupUrl,
+  transport,
   provisionAccount = false,
   startProvisionAccount,
   startScope,
@@ -58,6 +60,7 @@ function BuilderConnectProbeContent({
 }: {
   enabled?: boolean;
   popupUrl?: string;
+  transport?: BuilderConnectTransport;
   provisionAccount?: boolean;
   startProvisionAccount?: boolean;
   startScope?: BuilderConnectionScope;
@@ -66,6 +69,7 @@ function BuilderConnectProbeContent({
   const flow = useBuilderConnectFlow({
     enabled,
     popupUrl,
+    transport,
     provisionAccount,
     onConnected,
   });
@@ -2873,6 +2877,46 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
+  it("reports an invalid desktop connect URL as a setup-start error", async () => {
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+    const openConnectUrl = vi.fn(async () => ({ ok: true as const }));
+    const transport: BuilderConnectTransport = {
+      readStatus: vi.fn(async () => ({
+        ...connectedBuilderStatus,
+        configured: false,
+        connectUrl: "https://builder.example/connect",
+      })),
+      activateAccount: vi.fn(async () => ({
+        ok: false as const,
+        code: "network_error" as const,
+        message: null,
+      })),
+      openConnectUrl,
+    };
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe transport={transport} />);
+    });
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain(
+      "Couldn't start Builder.io setup. Refresh this page and try again.",
+    );
+    expect(container.textContent).not.toContain(
+      "Couldn't read the Builder.io connections.",
+    );
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("connection");
+    expect(openConnectUrl).not.toHaveBeenCalled();
+  });
+
   it("asks the MCP host to open Builder when an embedded chat sandbox blocks popups", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     setEmbeddedWindow(true);
@@ -2936,6 +2980,37 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("Allow popups");
+  });
+
+  it("marks an embedded host that cannot open Builder as a launch error", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    setEmbeddedWindow(true);
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        ...connectedBuilderStatus,
+        configured: false,
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("launch");
+    expect(container.textContent).toContain(
+      "Couldn't open Builder from this chat host.",
+    );
   });
 
   it("does not open the MCP host after cancelling a pending embedded startup", async () => {

@@ -1460,7 +1460,7 @@ const messages = {
     builderConnectPopupError:
       "تعذّر فتح Builder.io. إذا كان التطبيق مضمّنًا في محادثة، فافتحه في علامة تبويب بالمتصفح؛ وإلا فحاول مرة أخرى.",
     builderConnectError:
-      "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو استخدم خيار التخزين أدناه.",
+      "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اختر تخزينًا متوافقًا مع S3.",
     builderConnectErrorAskAdmin:
       "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اطلب من مالك أو مسؤول إعداد التخزين.",
     builderStatusReadError: "تعذّر التحقق من اتصال Builder.io.",

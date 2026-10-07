@@ -1494,7 +1494,7 @@ const messages = {
     builderConnectPopupError:
       "No se pudo abrir Builder.io. Si esta aplicación está integrada en un chat, ábrela en una pestaña del navegador; de lo contrario, inténtalo de nuevo.",
     builderConnectError:
-      "No se pudo completar la configuración de Builder.io. Inténtalo de nuevo o usa la opción de almacenamiento de abajo.",
+      "No se pudo completar la configuración de Builder.io. Inténtalo de nuevo o elige almacenamiento compatible con S3.",
     builderConnectErrorAskAdmin:
       "No se pudo completar la configuración de Builder.io. Inténtalo de nuevo o pide a un propietario o administrador que configure el almacenamiento.",
     builderStatusReadError: "No se pudo comprobar la conexión con Builder.io.",

@@ -1473,7 +1473,7 @@ const messages = {
     builderConnectPopupError:
       "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
     builderConnectError:
-      "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、下のストレージオプションをご利用ください。",
+      "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、S3 互換ストレージを選択してください。",
     builderConnectErrorAskAdmin:
       "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、オーナーまたは管理者にストレージの設定を依頼してください。",
     builderStatusReadError: "Builder.io の接続を確認できませんでした。",

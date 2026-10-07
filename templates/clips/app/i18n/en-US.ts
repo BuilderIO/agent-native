@@ -1388,7 +1388,7 @@ const messages = {
     builderConnectPopupError:
       "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, try again.",
     builderConnectError:
-      "Builder.io setup didn't finish. Try again, or use the storage option below.",
+      "Builder.io setup didn't finish. Try again, or choose S3-compatible storage.",
     builderConnectErrorAskAdmin:
       "Builder.io setup didn't finish. Try again, or ask an owner or admin to set up storage.",
     builderStatusReadError: "Couldn't check your Builder.io connection.",

@@ -1484,7 +1484,7 @@ const messages = {
     builderConnectPopupError:
       "Não foi possível abrir o Builder.io. Se este app estiver incorporado em um chat, abra-o em uma aba do navegador; caso contrário, tente novamente.",
     builderConnectError:
-      "Não foi possível concluir a configuração do Builder.io. Tente novamente ou use a opção de armazenamento abaixo.",
+      "Não foi possível concluir a configuração do Builder.io. Tente novamente ou escolha um armazenamento compatível com S3.",
     builderConnectErrorAskAdmin:
       "Não foi possível concluir a configuração do Builder.io. Tente novamente ou peça a um proprietário ou administrador para configurar o armazenamento.",
     builderStatusReadError:

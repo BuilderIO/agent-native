@@ -243,7 +243,7 @@ export interface BuilderConnectStartOptions {
   scope?: BuilderConnectionScope;
 }
 
-export type BuilderConnectErrorKind = "status-read" | "connection";
+export type BuilderConnectErrorKind = "status-read" | "connection" | "launch";
 
 export interface BuilderConnectFlow {
   configured: boolean;
@@ -1457,7 +1457,7 @@ export function useBuilderConnectFlow(
           ) {
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError(t("agentChat.settingsShell.builder.grantsFailed"));
+            setError(t("agentChat.settingsShell.builder.setupStartFailed"));
             return;
           }
           const result = await openDesktopConnectUrl({
@@ -1489,7 +1489,10 @@ export function useBuilderConnectFlow(
           if (!embeddedWindow) {
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError("Couldn't open Builder. Allow popups and try again.");
+            setError(
+              "Couldn't open Builder. Allow popups and try again.",
+              "launch",
+            );
             return;
           }
 
@@ -1539,7 +1542,10 @@ export function useBuilderConnectFlow(
             if (!mountedRef.current || openedByHost) return;
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError(t("agentChat.settingsShell.builder.setupHostFailed"));
+            setError(
+              t("agentChat.settingsShell.builder.setupHostFailed"),
+              "launch",
+            );
           })();
         } else {
           const isCurrentConnectAttempt = () =>

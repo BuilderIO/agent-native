@@ -192,7 +192,7 @@ export function StorageSetupCard({
     builderConnect.cancel();
   }, [builderConnect.cancel]);
   const builderConnectErrorMessage = builderConnect.error
-    ? /popup|chat host/i.test(builderConnect.error)
+    ? builderConnect.errorKind === "launch"
       ? t("storageSetup.builderConnectPopupError")
       : builderConnect.errorKind === "status-read"
         ? t("storageSetup.builderStatusReadError")
