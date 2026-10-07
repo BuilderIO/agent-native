@@ -4719,6 +4719,7 @@ export async function runAgentLoop(opts: {
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  onModelInput?: (messages: readonly unknown[]) => void;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
@@ -5257,6 +5258,11 @@ export async function runAgentLoop(opts: {
         };
 
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
+        try {
+          opts.onModelInput?.(contextMessages);
+        } catch {
+          // coercion-ok: tracing callbacks cannot change agent execution.
+        }
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();

@@ -11,6 +11,16 @@ describe("redactToolErrorMessage", () => {
     expect(redacted).toBe('{"client_secret": "[REDACTED]"');
     expect(redacted).not.toContain("partial secret value");
   });
+
+  it("redacts camelCase secret-key fields in JSON-like output", () => {
+    expect(
+      redactToolErrorMessage(
+        '{"secretKey":"actual-secret-value","workspaceSecretKey":"also-secret","signingKey":"signing-secret","encryptionKey":"encryption-secret","publicKey":"visible"}',
+      ),
+    ).toBe(
+      '{"secretKey":"[REDACTED]","workspaceSecretKey":"[REDACTED]","signingKey":"[REDACTED]","encryptionKey":"[REDACTED]","publicKey":"visible"}',
+    );
+  });
 });
 
 describe("toolErrorSignature", () => {

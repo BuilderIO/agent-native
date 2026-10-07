@@ -496,6 +496,7 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
+    onModelInput?: (messages: readonly unknown[]) => void;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
@@ -510,6 +511,7 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
+    onModelInput?: (messages: readonly unknown[]) => void;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
@@ -626,6 +628,7 @@ export async function instrumentAgentLoop(opts: {
     assistantText: BoundedAssistantText;
   }> = [];
   const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
+  let pendingModelInput: unknown[] | undefined;
   type CostCalculator = (
     inputTokens: number,
     outputTokens: number,
@@ -832,11 +835,10 @@ export async function instrumentAgentLoop(opts: {
               spanId: spanId(),
               start: modelStreamOpenedAt,
               end: modelStreamOpenedAt,
-              ...(config.capturePrompts
-                ? { input: [...loopOpts.messages] }
-                : {}),
+              ...(pendingModelInput ? { input: pendingModelInput } : {}),
               assistantText: createBoundedAssistantText(),
             });
+            pendingModelInput = undefined;
             startOtelModelSpan(tripIndex);
           }
         } else if (modelStreamOpenedAt !== null) {
@@ -1066,6 +1068,19 @@ export async function instrumentAgentLoop(opts: {
         runId,
         send: instrumentedSend,
         onOutcome: instrumentedOutcome,
+        onModelInput: (messages) => {
+          if (config.capturePrompts) {
+            const redactedMessages = redactSensitiveFields(messages);
+            pendingModelInput = Array.isArray(redactedMessages)
+              ? redactedMessages
+              : undefined;
+          }
+          try {
+            loopOpts.onModelInput?.(messages);
+          } catch {
+            // coercion-ok: tracing callbacks cannot change agent execution.
+          }
+        },
         onUsage: (callUsage: AgentLoopUsage) => {
           const trip = currentRoundTrip();
           if (trip) trip.usage = callUsage;

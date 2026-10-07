@@ -42,6 +42,11 @@ describe("redactSensitiveFields", () => {
       google_oauth_client_secret: "namespaced-client-secret",
       gcp_service_account_private_key: "service-account-private-key",
       providerPrivateKey: "provider-private-key",
+      secretKey: "secret-key-value",
+      workspaceSecretKey: "workspace-secret-key-value",
+      signingKey: "signing-key-value",
+      encryptionKey: "encryption-key-value",
+      publicKey: "public-key-value",
       openaiApiKey: "provider-api-key",
       "request.headers.authorization": "Bearer nested-key",
       "x-goog-api-key": "provider-key",
@@ -81,6 +86,11 @@ describe("redactSensitiveFields", () => {
       google_oauth_client_secret: "[REDACTED]",
       gcp_service_account_private_key: "[REDACTED]",
       providerPrivateKey: "[REDACTED]",
+      secretKey: "[REDACTED]",
+      workspaceSecretKey: "[REDACTED]",
+      signingKey: "[REDACTED]",
+      encryptionKey: "[REDACTED]",
+      publicKey: "public-key-value",
       openaiApiKey: "[REDACTED]",
       "request.headers.authorization": "[REDACTED]",
       "x-goog-api-key": "[REDACTED]",
@@ -1281,7 +1291,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     };
 
     await instrumentAgentLoop({
-      runAgentLoop: async ({ send, messages }) => {
+      runAgentLoop: async ({ send, messages, onModelInput }) => {
+        onModelInput?.(messages);
         send({ type: "model_stream", status: "start" });
         send({
           type: "tool_start",
@@ -1308,6 +1319,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
             },
           ],
         });
+        onModelInput?.(messages);
         send({ type: "model_stream", status: "start" });
         send({ type: "text", text: "Nothing found." });
         send({ type: "model_stream", status: "end" });
@@ -2917,7 +2929,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     };
 
     await instrumentAgentLoop({
-      runAgentLoop: async ({ send, messages, onUsage }) => {
+      runAgentLoop: async ({ send, onUsage, onModelInput }) => {
+        onModelInput?.([
+          { role: "user", content: "context after transformation" },
+        ]);
         send({ type: "model_stream", status: "start" });
         send({ type: "text", text: "Let me look." });
         onUsage?.({
@@ -2928,12 +2943,15 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
           model: "claude-test",
         } as any);
         send({ type: "model_stream", status: "end", reason: "tool_use" });
-        messages.push({ role: "assistant", content: "Let me look." });
 
         send({ type: "tool_start", id: "a", tool: "read", input: {} });
         send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
-        messages.push({ role: "user", content: "ok" });
 
+        onModelInput?.([
+          { role: "user", content: "context after transformation" },
+          { role: "assistant", content: "Let me look." },
+          { role: "user", content: "ok" },
+        ]);
         send({ type: "model_stream", status: "start" });
         send({ type: "text", text: "Port 8080." });
         onUsage?.({
@@ -2978,10 +2996,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     );
 
     expect(generations[0]?.properties?.["$ai_input"]).toEqual([
-      { role: "user", content: "read the config" },
+      { role: "user", content: "context after transformation" },
     ]);
     expect(generations[1]?.properties?.["$ai_input"]).toEqual([
-      { role: "user", content: "read the config" },
+      { role: "user", content: "context after transformation" },
       { role: "assistant", content: "Let me look." },
       { role: "user", content: "ok" },
     ]);

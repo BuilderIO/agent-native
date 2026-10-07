@@ -4595,6 +4595,7 @@ describe("runAgentLoop", () => {
 
   it("brackets each engine call with a model_stream start/end pair", async () => {
     let streamCalls = 0;
+    const streamedMessages: unknown[] = [];
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -4607,12 +4608,14 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        streamedMessages.push(opts.messages);
         yield { type: "text-delta", text: "answer" };
       },
     };
     const events: AgentChatEvent[] = [];
+    const capturedInputs: unknown[] = [];
 
     await runAgentLoop({
       engine,
@@ -4623,9 +4626,11 @@ describe("runAgentLoop", () => {
       actions: {},
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      onModelInput: (messages) => capturedInputs.push(messages),
     });
 
     expect(streamCalls).toBe(1);
+    expect(capturedInputs).toEqual(streamedMessages);
     expect(events[0]).toEqual({ type: "model_stream", status: "start" });
     expect(modelStreamBracket(events)).toEqual([
       { type: "model_stream", status: "start" },
