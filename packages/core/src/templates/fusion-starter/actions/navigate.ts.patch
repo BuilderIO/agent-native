@@ -1,7 +1,7 @@
 ===================================================================
 --- a/actions/navigate.ts
 +++ b/actions/navigate.ts
-@@ -1,20 +1,37 @@
+@@ -1,25 +1,39 @@
 -import { defineAction } from "@agent-native/core/action";
 +/**
 + * Navigate the UI to a view.
@@ -15,7 +15,6 @@
 + * Options:
 + *   --view   View name to navigate to
 + *   --path   URL path to navigate to
-+ *   --threadId Chat thread ID to open on the chat route
 + */
 +
 +import { defineAction, fail } from "@agent-native/core/action";
@@ -29,7 +28,7 @@
    schema: z.object({
      view: z.string().optional().describe("View name to navigate to"),
      path: z.string().optional().describe("URL path to navigate to"),
-     threadId: z.string().optional().describe("Chat thread ID to open"),
+-    threadId: z.string().optional().describe("Chat thread ID to open"),
    }),
    http: false,
    run: async (args) => {
@@ -42,3 +41,8 @@
      const nav: Record<string, string> = {};
      if (args.view) nav.view = args.view;
      if (args.path) nav.path = args.path;
+-    if (args.threadId) nav.threadId = args.threadId;
+     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+     await writeAppStateForCurrentTab("navigate", nav);
+     return `Navigating to ${args.view || args.path}`;
+   },

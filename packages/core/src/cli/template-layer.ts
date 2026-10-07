@@ -55,7 +55,7 @@ export function applyTemplateLayer(
   const inScope = (rel: string) =>
     !options.only || rel === options.only || rel.startsWith(`${options.only}/`);
   for (const rel of layer.delete.filter(inScope)) {
-    fs.rmSync(path.join(dest, rel), { recursive: true, force: true });
+    fs.rmSync(pathInside(dest, rel), { recursive: true, force: true });
   }
   for (const rel of listLayerFiles(layerDir).filter(inScope)) {
     const source = path.join(layerDir, rel);
@@ -83,6 +83,17 @@ export function applyTemplateLayer(
     JSON.parse(fs.readFileSync(path.join(layerDir, "package.json"), "utf-8")),
   );
   fs.writeFileSync(basePkgPath, `${JSON.stringify(merged, null, 2)}\n`);
+}
+
+function pathInside(root: string, rel: string): string {
+  const resolved = path.resolve(root, rel);
+  const fromRoot = path.relative(path.resolve(root), resolved);
+  if (!fromRoot || fromRoot.startsWith("..") || path.isAbsolute(fromRoot)) {
+    throw new Error(
+      `Template layer path "${rel}" must name something inside the template.`,
+    );
+  }
+  return resolved;
 }
 
 /** The unified diff a layer stores for `rel` to turn `before` into `after`. */
