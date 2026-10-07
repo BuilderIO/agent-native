@@ -1,4 +1,7 @@
-import type { AssistantChatHistoryVersion } from "@agent-native/core/client/agent-chat";
+import {
+  isOpenAiMcpAppHost,
+  type AssistantChatHistoryVersion,
+} from "@agent-native/core/client/agent-chat";
 import { isAssistantChatHistoryVersion } from "@agent-native/core/client/assistant-chat-history-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -85,6 +88,7 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const openAiWidget = isOpenAiMcpAppHost();
   const navigation = useNavigation();
   const pendingPathname = navigation.location?.pathname ?? null;
   const chromePathname = pendingPathname ?? location.pathname;
