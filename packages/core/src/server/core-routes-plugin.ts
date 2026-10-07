@@ -6077,9 +6077,11 @@ export function createCoreRoutesPlugin(
             // from this route's own deliberate 4xx responses above and
             // useless for the composer's generic "could not upload" copy.
             // Normalize to one clear failure instead of leaking whatever
-            // status the active provider happened to respond with.
+            // status the active provider happened to respond with. Use 503
+            // (not 502/504) since gateway statuses get rewritten by the CDN
+            // layer anyway — see cdnSafeOriginStatus.
             console.error("[file-upload] provider upload failed", error);
-            setResponseStatus(event, 502);
+            setResponseStatus(event, 503);
             return {
               error:
                 "The configured storage provider could not upload this file. Try again or check Settings → File uploads.",

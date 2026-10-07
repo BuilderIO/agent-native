@@ -35,7 +35,8 @@ function makeBody(bytes: Uint8Array, mimeType: string): BodyInit {
 // signed-URL flow PUTs raw bytes straight to GCS, so it never hits that
 // body-sniffing path.
 function builderMisparsesContentTypeAsJsonBody(mimeType: string): boolean {
-  return mimeType === "application/json" || mimeType === "text/plain";
+  const normalized = mimeType.toLowerCase();
+  return normalized === "application/json" || normalized === "text/plain";
 }
 
 function shouldUseSignedUrlUpload(
