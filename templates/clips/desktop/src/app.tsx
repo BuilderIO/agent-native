@@ -138,6 +138,10 @@ import {
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
+  getPopoverAutoSizeOptions,
+  type PopoverResizePurpose,
+} from "./lib/popover-sizing";
+import {
   changeRecordFirstFiles,
   effectiveLocalRecordingMode,
   loadRecordFirstFiles,
@@ -939,9 +943,13 @@ function measurePopoverHeight(el: HTMLElement): number {
 
 function usePopoverAutoSize(
   ref: RefObject<HTMLElement | null>,
-  options: { disabled: boolean; width: number },
+  options: {
+    disabled: boolean;
+    width: number;
+    purpose: PopoverResizePurpose;
+  },
 ): void {
-  const { disabled, width } = options;
+  const { disabled, purpose, width } = options;
 
   useEffect(() => {
     const el = ref.current;
@@ -961,7 +969,7 @@ function usePopoverAutoSize(
       ) {
         lastHeight = height;
         lastWidth = width;
-        invoke("resize_popover", { height, width }).catch(() => {});
+        invoke("resize_popover", { height, width, purpose }).catch(() => {});
       }
     };
 
@@ -1020,7 +1028,7 @@ function usePopoverAutoSize(
       portalObserver.disconnect();
       resizeObserver.disconnect();
     };
-  }, [disabled, ref, width]);
+  }, [disabled, purpose, ref, width]);
 }
 
 export function App({
@@ -2928,15 +2936,20 @@ export function App({
     setPopoverView,
     appRef,
   );
-  usePopoverAutoSize(appRef, {
-    disabled:
-      (popoverView !== "settings" && !popoverVisible) ||
-      isRecording ||
-      recordingFlowActive ||
-      recordingStartPending,
-    width:
-      popoverView === "settings" ? 720 : popoverView === "memory" ? 440 : 320,
-  });
+  const popoverLayoutView =
+    popoverView === "settings"
+      ? "settings"
+      : popoverView === "memory"
+        ? "memory"
+        : "recorder";
+  usePopoverAutoSize(
+    appRef,
+    getPopoverAutoSizeOptions(
+      popoverLayoutView,
+      popoverVisible,
+      isRecording || recordingFlowActive || recordingStartPending,
+    ),
+  );
 
   const loadPendingUploads = useCallback(async () => {
     const sequence = ++recoveryLookupSequence.current;
