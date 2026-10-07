@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 
 import {
   readZoomUntilAvailable,
@@ -22,8 +21,8 @@ describe("runtime budget zoom waits", () => {
       () => now,
     );
 
-    assert.equal(zoom, 42);
-    assert.deepEqual(waits, [250]);
+    expect(zoom).toBe(42);
+    expect(waits).toEqual([250]);
   });
 
   it("stops retrying unreadable zoom at the deadline", async () => {
@@ -44,9 +43,9 @@ describe("runtime budget zoom waits", () => {
       () => now,
     );
 
-    assert.equal(zoom, null);
-    assert.equal(reads, 2);
-    assert.deepEqual(waits, [250, 250]);
+    expect(zoom).toBeNull();
+    expect(reads).toBe(2);
+    expect(waits).toEqual([250, 250]);
   });
 
   it("bounds a stalled animation-frame wait", async () => {
@@ -56,8 +55,8 @@ describe("runtime budget zoom waits", () => {
       25,
     );
 
-    assert.equal(frameArrived, false);
-    assert.ok(Date.now() - startedAt < 1_000);
+    expect(frameArrived).toBe(false);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
 
   it("resolves as soon as the animation-frame callback arrives", async () => {
@@ -66,6 +65,6 @@ describe("runtime budget zoom waits", () => {
       1_000,
     );
 
-    assert.equal(frameArrived, true);
+    expect(frameArrived).toBe(true);
   });
 });
