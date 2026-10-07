@@ -1,0 +1,118 @@
+---
+title: "In App umwandeln"
+description: "Der /turn-into-app-Skill wandelt einen Thread, einen Skill, eine Tabelle oder ein Claude- oder ChatGPT-Projekt in eine lauffähige Agent-Native-App um, die auf einer befüllten, domänenspezifischen Oberfläche startet."
+---
+
+# In App umwandeln
+
+`/turn-into-app` ist ein Skill, der einen bereits bewährten Arbeitsablauf in eine Agent-Native-App umwandelt. Die Quelle kann ein Thread, ein Skill, eine Tabelle oder ein Claude- oder ChatGPT-Projekt sein. Die App öffnet sich in Ihrer Welt, befüllt mit Beispieldaten in der Form der Quelle, wobei der In-App-Agent hinter Steuerelementen an den Objekten arbeitet, auf die er wirkt. Ein Formular unter einer Schrittleiste ist genau das Ergebnis, das der Skill vermeiden soll.
+
+## Installation {#install}
+
+```bash
+npx @agent-native/skills@latest add --skill turn-into-app
+```
+
+Derselbe Skill wird mit der Core-CLI ausgeliefert:
+
+```bash
+npx @agent-native/core@latest skills add turn-into-app
+```
+
+In einem Projekt, das bereits die Agent-Native-CLI hat, tut `agent-native skills add turn-into-app` dasselbe. In der [Skills-Anleitung](/docs/skills-guide) erfahren Sie, wie Skills installiert und geladen werden.
+
+## Aufrufen {#invoke}
+
+| Befehl                             | Quelle                                                            |
+| ---------------------------------- | ----------------------------------------------------------------- |
+| `/turn-into-app`                   | Der sichtbare Projektkontext, andernfalls der aktuelle Thread     |
+| `/turn-into-app /some-skill`       | Der genannte Skill, sofort verpackt, auch am Anfang eines Threads |
+| `/turn-into-app ./forecast.xlsx`   | Eine Tabelle, umgewandelt in eine Workbench                       |
+| `/turn-into-app ./project-export/` | Ein Export eines Claude- oder ChatGPT-Projekts                    |
+
+Ohne Argument baut der Skill die letzte erfolgreiche, wiederholbare Aufgabe und benennt sie. Ein durchgespieltes Beispiel, etwa ein Konto oder ein Deal, ist ein Beleg für die Aufgabe, nicht ihr Schema. Lässt sich keine Aufgabe identifizieren, sagt der Skill, was fehlt, statt die allgemeine Frage „Welche App möchten Sie?“ zu stellen.
+
+## Wo er läuft {#hosts}
+
+| Host                                                     | Was passiert                                                                                                         |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Claude Code, Codex, Cursor, andere lokale Coding-Agenten | Erstellt, startet und prüft die App in Ihrem Checkout.                                                               |
+| Claude oder ChatGPT im Web                               | Schreibt ein begrenztes Briefing und übergibt es über den Dispatch-Connector an Builder. Er führt selbst nichts aus. |
+
+Ein Host gilt als lokal, wenn er ein echtes Arbeitsverzeichnis, ein Terminal und einen Workspace hat. Ein Builder- oder Dispatch-Connector macht einen Host nicht zu einem Browser-Host.
+
+Auf einem Browser-Host benötigt der Skill den Agent-Native-Dispatch-MCP-Connector (`https://dispatch.agent-native.com/mcp`, OAuth) und ruft dessen Aktion `start-workspace-app-creation` auf. Der Host kann die App weder ausführen noch prüfen, daher bleibt der Bericht ausstehend oder unverifiziert, bis der von Dispatch zurückgegebene Branch gebaut wurde. Der Skill meldet, was Dispatch tatsächlich zurückgegeben hat, und erfindet nie eine Branch-URL. Für ein ChatGPT-Projekt oder jeden Host, der nur MCP bereitstellt, legen Sie die Skill-Anweisungen in die Projektanweisungen oder in die Wissensdateien.
+
+## Quellen {#sources}
+
+- **Threads.** Die letzte konkrete, wiederholbare Aufgabe ist das Produkt.
+- **Skills.** Die Schritte, die menschlichen Entscheidungspunkte und die schreibgeschützten Regeln des Skills werden zur App. Führt der Skill Plandateien, bleiben diese Dateien über den Local File Mode die maßgebliche Quelle, und die App ist ausschließlich lokal.
+- **Tabellen.** Zuerst wird jedes Arbeitsblatt inventarisiert. Die Struktur entscheidet, welche Zellen Eingaben und Ausgaben sind; Farbe ist nur ein schwacher Hinweis. Die Arbeitsmappe wird nie in einen Prompt, in SQL oder in den Anwendungszustand kopiert. Ein Google-Sheets-Link ist nur dann eine Quelle, wenn er über eine authentifizierte Sheets- oder Drive-Verbindung lesbar ist; andernfalls bittet der Skill um einen Export.
+- **Claude- und ChatGPT-Projekte.** Sichtbare Anweisungen, Wissensdateien und mitgelieferte frühere Läufe sind die Quelle. Der Connector liest keine verborgenen Projekt-Chats, privaten URLs oder Zugangsdaten, und es gibt keinen Importer für geteilte Links. Fügen Sie einen Export bei, wenn der Kontext nicht sichtbar ist.
+
+## Was Sie erhalten {#what-you-get}
+
+- **Eine aus der Quelle gewählte Form.** Der Skill wählt einen von 13 Archetypen, etwa Triage-Warteschlange, Pipeline-Board, Live-Workbench, Zeitplanraster, Review-Diff oder Monitor. Der Archetyp ist das Objekt, das der Nutzer betrachtet, nicht der Ablauf, dem er folgt. Quellschritte werden daher zu Zuständen von Objekten (Entwurf, Geprüft, Freigegeben) statt zu einem Stepper oder Assistenten.
+- **Eine benannte visuelle Richtung.** Eine von sechs Richtungen (`ledger`, `control-room`, `paper-desk`, `studio-canvas`, `tidepool`, `signal-board`) mit hellen und dunklen Tokens, gewählt anhand des Archetyps und der Domäne der Quelle. Eine bestehende Marke oder Ihre ausdrückliche Vorgabe hat Vorrang.
+- **Ein befüllter erster Bildschirm.** `/` landet auf einer benannten Domänenroute mit synthetischen, als Beispiel gekennzeichneten Daten in der Form der Quelle. Ein Leerzustand, ein Hero, der erste Schritt des Ablaufs oder ein Formular gilt als Mangel, es sei denn, die Quelle selbst ist formularartig.
+- **Agent-Momente an den Objekten.** Jedes mit KI gekennzeichnete Steuerelement übergibt einen begrenzten Prompt an die Agent-Seitenleiste. Das Objekt zeigt sofort einen Arbeitszustand, und das Ergebnis landet mit Übernehmen, Bearbeiten und Wiederholen wieder darauf. Folgefragen bleiben im selben Thread.
+- **Eine echte Agent-Native-App.** Deterministische Arbeit sind `defineAction`-Dateien, die sowohl die UI als auch der Agent aufrufen. Die App nutzt die Standard-Einrichtung „Use Builder.io oder Custom keys“, schreibt die aktuelle Ansicht und Auswahl in den Anwendungszustand und hat eine `AGENTS.md`, die den In-App-Agenten über die neue App informiert.
+
+Der Skill speichert sein Quell-Briefing als `docs/brief.md` und hängt den Oberflächenentwurf an `DESIGN.md` an.
+
+## Ablauf eines Laufs {#how-it-works}
+
+1. **Briefing.** Er liest die gesamte Quelle und schreibt ein kurzes Briefing: die Aufgabe, höchstens drei Agent-Momente, Invarianten, Datenrisiken, maßgebliche Quelle und Annahmen.
+2. **Entwurf.** Er legt Archetyp, Richtung, Shell, ersten Viewport samt Beispieldaten und Agent-Momente fest und postet das Briefing einmal als Checkpoint. Er macht ohne Warten weiter.
+3. **Gerüst.** Er erstellt die echte App mit dem Chat-Template und überschreibt nie eine bestehende App.
+
+   ```bash
+   npx --yes @agent-native/core@latest create <slug> --standalone --template chat
+   ```
+
+   Innerhalb eines bestehenden Agent-Native-Workspace führt er stattdessen `pnpm exec agent-native add-app <slug> --template chat` im Workspace-Stammverzeichnis aus.
+
+4. **Bauen.** Aktionen, Domänenoberfläche, Beispieldaten, Agent-Momente und Agent-Anweisungen werden gemeinsam gebaut.
+5. **Review.** Er startet die App und prüft Screenshots. Siehe unten.
+6. **Verifizieren.** Er führt `pnpm typecheck`, `pnpm agent-native:doctor` und `pnpm build` aus und schreibt dann den Abschlussbericht.
+
+Der Skill peilt etwa 45 Minuten an. Sind beim Start des Reviews bereits 35 Minuten vergangen, führt er einen Durchgang aus und listet die offenen Kriterien auf.
+
+## Die Screenshot-Review-Schleife {#review-loop}
+
+Vor der Übergabe startet der Skill den Dev-Server und fotografiert `/` in Desktop- und Smartphone-Größe in Hell und Dunkel, dazu das wichtigste Agent-Steuerelement nach einem Klick. Er bewertet die Aufnahmen anhand einer Rubrik mit 12 Zeilen: Wirkung des ersten Viewports, Domänenpassung, Hierarchie, Chrome-Disziplin, Beispieldaten, Typografie, Farbe, Feinschliff, Agent und UI zusammen, 390-px-Layout, Dunkelmodus und Barrierefreiheit.
+
+Manche Befunde lassen die Review unabhängig vom Durchschnittswert scheitern: eine Stepper- oder Assistenten-Shell, `/` öffnet nicht auf der Domänenroute, ein leerer oder rein formularartiger erster Viewport, Standard-Tokens des Gerüsts, abgeschnittener Text, rohes Markdown, seitliches Scrollen bei 390 px oder ein Konsolenfehler. Er behebt jeden Befund in einem Durchgang, setzt zurück, was der Klick verändert hat, und fotografiert erneut. Standard sind zwei Durchgänge, ein dritter nur, wenn der zweite die Messlatte noch verfehlt und die Zeit reicht. Die Messlatte ist ein Mittelwert von mindestens 4,0 ohne Kriterium unter 3 und ohne automatisches Scheitern.
+
+Screenshots werden in `.tmp/ui-review/out/` der App gespeichert, und der Abschlussbericht listet ihre Pfade und Bewertungen auf. Ein in der UI landendes Ergebnis lässt sich nur mit einem verbundenen KI-Anbieter ausprobieren; ohne einen vermerkt der Bericht, dass das Ergebnis nicht ausprobiert wurde.
+
+## Ausführen und bereitstellen {#run-deploy}
+
+Für die lokale Review setzt der Skill `AUTH_DISABLED=1` in der ignorierten `.env` der App, weil ein frischer Screenshot-Browser nicht angemeldet ist. Dies gilt nur für die Loopback-Entwicklung. Es wird vor dem abschließenden `pnpm build` entfernt und darf nie committet oder bereitgestellt werden. Ohne diese Einstellung zeigt die App beim Öffnen eine Karte „Continue as local dev“.
+
+So führen Sie die App selbst aus:
+
+```bash
+pnpm dev
+```
+
+Um lokal Ihren eigenen Modellanbieter zu nutzen, tragen Sie einen Schlüssel wie `ANTHROPIC_API_KEY` in dieselbe `.env` ein. Andernfalls zeigt die Agent-Seitenleiste die gemeinsame Einrichtung „Use Builder.io oder Custom keys“.
+
+Der Skill stellt nur bereit, wenn Sie darum bitten oder der Anbieter bereits konfiguriert ist. Ein gesunder lokaler Build gibt dennoch einen Block „production configuration errors“ mit Exit-Code 0 aus. Das ist die Bereitstellungs-Checkliste: ein stabiles `BETTER_AUTH_SECRET` und eine persistente `DATABASE_URL`, plus `A2A_SECRET` für eine App innerhalb eines Workspace. Der Skill meldet diese als ausstehenden Schritt und erzeugt keine Platzhalterwerte. Siehe [Eine App bereitstellen](/docs/deploy-an-app) und [Einen Workspace bereitstellen](/docs/workspace-deployment).
+
+Der Abschlussbericht kennzeichnet Belege getrennt: lokal ausgeführt, lokal verifiziert, build-bereit, bereitgestellt und live verifiziert sind unterschiedliche Zustände, und der Bericht lässt nie zu, dass einer für einen anderen steht.
+
+## Bekannte Grenzen {#limits}
+
+- **`.env` bearbeiten, während der Dev-Server läuft.** Ein direktes Neuladen nach einer `.env`-Änderung gerät in eine Schleife auf der lokalen Datenbanksperre und liefert 500er. Stoppen Sie den Server, bearbeiten Sie `.env` und starten Sie ihn neu.
+- **Mehrdeutige Tabellen.** Bleiben die infrage kommenden Arbeitsabläufe oder die Zuordnung von Ein- und Ausgaben nach einer begrenzten Prüfung wesentlich mehrdeutig, stellt der Skill eine kompakte Frage mit seiner empfohlenen Interpretation. In einem Headless-Lauf gibt er die Frage aus, hält die Annahme im Briefing fest und baut weiter.
+- **Tabellen auf einem Browser-Host.** Eine Arbeitsmappe kann nicht angehängt werden; der Host übergibt eine begrenzte CSV-Darstellung als Text oder eine öffentliche URL, und die Übergabe nennt, was weggelassen wurde.
+- **Zellfarben.** Eine Textvorschau kann Farben nicht belegen, daher liest der Skill auf einem lokalen Host sowohl Formeln als auch zwischengespeicherte Werte und behandelt Farbe als schwachen Hinweis.
+- **Local-File-Mode-Apps.** Eine App, deren maßgebliche Quelle die Dateien des Hosts sind, ist ausschließlich lokal und wird nicht bereitgestellt.
+- **Übergaben von Browser-Hosts.** Das Ergebnis bleibt unverifiziert, bis Dispatch einen gebauten Branch zurückgibt. Der Skill kann die App dort weder ausführen noch fotografieren.
+
+## Wie geht es weiter {#whats-next}
+
+- [Skills-Anleitung](/docs/skills-guide), um zu erfahren, wie Skills installiert und geladen werden
+- [Dispatch](/docs/dispatch) für den Connector, der von Claude und ChatGPT im Web genutzt wird
+- [Eine App bereitstellen](/docs/deploy-an-app), um die generierte App in die Produktion zu bringen
