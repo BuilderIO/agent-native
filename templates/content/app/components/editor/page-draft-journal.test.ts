@@ -8,6 +8,7 @@ import {
   PageDraftJournalError,
   readPageDraftJournal,
   sweepLegacyRetainedPageDraftMarkers,
+  updatePageDraftJournalTitle,
   writePageDraftJournal,
   type PageDraftJournalScope,
 } from "./page-draft-journal";
@@ -130,6 +131,51 @@ describe("Page draft journal", () => {
     });
     expect(readPageDraftJournal(scope)?.snapshot.content).toBe("Newest");
     expect(readPageDraftJournal(scope)?.snapshot.saveAttemptId).toBeUndefined();
+  });
+
+  it("updates only the matching writer draft title and preserves snapshot metadata", () => {
+    const originalSnapshot = {
+      ...snapshot,
+      baseRevision: "base-revision",
+      authoredBaseRevision: "authored-base-revision",
+      authoredBaseContent: "authored base",
+      authoredCandidateContent: "authored candidate",
+      saveAttemptId: "save-attempt",
+      priorSaveAttemptIds: ["prior-attempt"],
+      equivalentSaveAttemptIds: ["equivalent-attempt"],
+    };
+    writePageDraftJournal({
+      scope,
+      snapshot: originalSnapshot,
+    });
+    writePageDraftJournal({
+      scope: { ...scope, writerId: "other-tab" },
+      snapshot: { ...originalSnapshot, title: "Other tab title" },
+    });
+
+    expect(
+      updatePageDraftJournalTitle(scope, "Local title", "Peer title"),
+    ).toBe(true);
+    expect(
+      listPageDraftJournal(scope).find(
+        (entry) => entry.scope.writerId === scope.writerId,
+      )?.snapshot,
+    ).toEqual({ ...originalSnapshot, title: "Peer title" });
+    expect(
+      listPageDraftJournal(scope).find(
+        (entry) => entry.scope.writerId === "other-tab",
+      )?.snapshot.title,
+    ).toBe("Other tab title");
+  });
+
+  it("leaves a journal snapshot unchanged when the expected title no longer matches", () => {
+    writePageDraftJournal({ scope, snapshot });
+    const before = readPageDraftJournal(scope);
+
+    expect(
+      updatePageDraftJournalTitle(scope, "Stale title", "Peer title"),
+    ).toBe(false);
+    expect(readPageDraftJournal(scope)).toEqual(before);
   });
 
   it("reports a failed synchronous write as a typed failure", () => {

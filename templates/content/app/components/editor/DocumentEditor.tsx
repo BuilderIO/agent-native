@@ -231,6 +231,7 @@ import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
+  updatePageDraftJournalTitle,
   writePageDraftJournal,
 } from "./page-draft-journal";
 import { PageDraftRecovery } from "./PageDraftRecovery";
@@ -2823,14 +2824,20 @@ function PageEditorSessionBody({
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const activeContentSavesRef = useRef(0);
+  const recoveryDraftRetentionQueueRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
   const recoveryDraftRef = useRef<{
     version: number;
     title: string;
     content: string;
+    deferredReason: "conflict" | null;
     editorSessionId: string | null;
     editGeneration: number | null;
+    contentBase: DocumentContentBase;
     supersedable?: boolean;
   } | null>(null);
+  const syncRecoveryDraftTitleRef = useRef<(title: string) => void>(() => {});
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
   );
@@ -3050,7 +3057,7 @@ function PageEditorSessionBody({
     };
   }, []);
 
-  const journalWriteErrorShownRef = useRef(false);
+  const recoveryWriteErrorShownRef = useRef(false);
   const journalScope = useCallback(
     () =>
       session?.email
@@ -3116,11 +3123,11 @@ function PageEditorSessionBody({
               : {}),
           },
         });
-        journalWriteErrorShownRef.current = false;
+        recoveryWriteErrorShownRef.current = false;
       } catch {
-        if (!journalWriteErrorShownRef.current) {
+        if (!recoveryWriteErrorShownRef.current) {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
-          journalWriteErrorShownRef.current = true;
+          recoveryWriteErrorShownRef.current = true;
         }
       }
     },
@@ -3146,9 +3153,9 @@ function PageEditorSessionBody({
           });
         }
       } catch {
-        if (!journalWriteErrorShownRef.current) {
+        if (!recoveryWriteErrorShownRef.current) {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
-          journalWriteErrorShownRef.current = true;
+          recoveryWriteErrorShownRef.current = true;
         }
       }
     },
@@ -3278,11 +3285,13 @@ function PageEditorSessionBody({
       localTitle === lastSaved.title ||
       (titleExternalIsNewer && !titleFocusedRef.current);
     if (adopt) {
+      localTitleRef.current = serverTitle;
       setLocalTitle(serverTitle);
       lastSavedTitleRef.current = {
         title: serverTitle,
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
       };
+      syncRecoveryDraftTitleRef.current(serverTitle);
     }
   }, [document, isLinkedLocalSourceDocument, titleExternalIsNewer, localTitle]);
 
@@ -4146,8 +4155,10 @@ function PageEditorSessionBody({
           version: result.draft.version,
           title,
           content,
+          deferredReason,
           editorSessionId: result.draft.editorSessionId,
           editGeneration: result.draft.editGeneration,
+          contentBase: { ...contentBase },
           supersedable,
         };
         return;
@@ -4162,8 +4173,10 @@ function PageEditorSessionBody({
           version: result.draft.version,
           title,
           content,
+          deferredReason,
           editorSessionId: result.draft.editorSessionId,
           editGeneration: result.draft.editGeneration,
+          contentBase: { ...contentBase },
           supersedable,
         };
         return;
@@ -4173,9 +4186,6 @@ function PageEditorSessionBody({
     },
     [documentId, t],
   );
-  const recoveryDraftRetentionQueueRef = useRef<Promise<void>>(
-    Promise.resolve(),
-  );
   const queueRecoveryDraftRetention = useCallback(
     (
       title: string,
@@ -4184,58 +4194,123 @@ function PageEditorSessionBody({
       editorSessionId: string,
       editGeneration: number,
       contentBase?: DocumentContentBase,
+      supersedable = false,
     ) => {
-      const retain = () =>
-        retainRecoveryDraft(
-          title,
+      const retain = () => {
+        const retainedTitle =
+          supersedable &&
+          localTitleRef.current === lastSavedTitleRef.current.title
+            ? localTitleRef.current
+            : title;
+        return retainRecoveryDraft(
+          retainedTitle,
           content,
           deferredReason,
           editorSessionId,
           editGeneration,
           contentBase,
+          supersedable,
         );
+      };
       const queued = recoveryDraftRetentionQueueRef.current.then(
         retain,
         retain,
       );
       recoveryDraftRetentionQueueRef.current = queued.catch(() => undefined);
+      if (supersedable) {
+        void queued
+          .then(() => {
+            const current = recoveryDraftRef.current;
+            const adoptedTitle =
+              localTitleRef.current === lastSavedTitleRef.current.title
+                ? localTitleRef.current
+                : null;
+            if (
+              adoptedTitle &&
+              current?.supersedable &&
+              current.title !== adoptedTitle
+            ) {
+              syncRecoveryDraftTitleRef.current(adoptedTitle);
+            }
+          })
+          .catch(() => undefined);
+      }
       return queued;
     },
     [retainRecoveryDraft],
   );
+  const syncRecoveryDraftTitle = useCallback(
+    (title: string) => {
+      const current = recoveryDraftRef.current;
+      if (!current?.supersedable || current.title === title) return;
+      const scope = journalScope();
+      if (scope) {
+        try {
+          updatePageDraftJournalTitle(scope, current.title, title);
+          recoveryWriteErrorShownRef.current = false;
+        } catch {
+          if (!recoveryWriteErrorShownRef.current) {
+            toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+            recoveryWriteErrorShownRef.current = true;
+          }
+        }
+      }
+      void queueRecoveryDraftRetention(
+        title,
+        current.content,
+        current.deferredReason,
+        current.editorSessionId ?? editorSessionIdRef.current!,
+        current.editGeneration ?? editorEditGenerationRef.current,
+        current.contentBase,
+        true,
+      ).catch(() => {
+        if (!recoveryWriteErrorShownRef.current) {
+          toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+          recoveryWriteErrorShownRef.current = true;
+        }
+      });
+    },
+    [journalScope, queueRecoveryDraftRetention, t],
+  );
+  syncRecoveryDraftTitleRef.current = syncRecoveryDraftTitle;
   const clearRecoveryDraft = useCallback(
     async (
       persistedTitle: string,
       persistedContent: string,
       persistedBy?: { editorSessionId: string; editGeneration: number },
     ) => {
-      const current = recoveryDraftRef.current;
-      if (
-        !current ||
-        !(
-          mayClearRecoveryDraft(current, {
-            title: persistedTitle,
-            content: persistedContent,
-          }) ||
-          (persistedBy &&
-            ownRecoveryDraftSupersededBySave(current, persistedBy))
-        )
-      ) {
-        return;
-      }
-      const result = await updatePreviewDocumentDraftRef.current({
-        operation: "delete",
-        documentId,
-        expectedVersion: current.version,
-        expectedTitle: current.title,
-        expectedContent: current.content,
-        expectedEditorSessionId: current.editorSessionId ?? undefined,
-        expectedEditGeneration: current.editGeneration ?? undefined,
-      });
-      if (result.status !== "deleted" && result.draft !== null) {
-        throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
-      }
-      recoveryDraftRef.current = null;
+      const clear = async () => {
+        const current = recoveryDraftRef.current;
+        if (
+          !current ||
+          !(
+            mayClearRecoveryDraft(current, {
+              title: persistedTitle,
+              content: persistedContent,
+            }) ||
+            (persistedBy &&
+              ownRecoveryDraftSupersededBySave(current, persistedBy))
+          )
+        ) {
+          return;
+        }
+        const result = await updatePreviewDocumentDraftRef.current({
+          operation: "delete",
+          documentId,
+          expectedVersion: current.version,
+          expectedTitle: current.title,
+          expectedContent: current.content,
+          expectedEditorSessionId: current.editorSessionId ?? undefined,
+          expectedEditGeneration: current.editGeneration ?? undefined,
+        });
+        if (result.status !== "deleted" && result.draft !== null) {
+          throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
+        }
+        recoveryDraftRef.current = null;
+      };
+      const queued = recoveryDraftRetentionQueueRef.current.then(clear, clear);
+      recoveryDraftRetentionQueueRef.current = queued.catch(() => undefined);
+      return queued;
     },
     [documentId, t],
   );
@@ -4288,7 +4363,7 @@ function PageEditorSessionBody({
               contentEditVersionRef.current !== contentEditVersion ||
               contentObservationEpochRef.current !== contentObservationEpoch;
             const recovery = result?.recoveryDraft;
-            return retainRecoveryDraft(
+            return queueRecoveryDraftRetention(
               snapshotChanged
                 ? localTitleRef.current
                 : (recovery?.title ?? title),
@@ -4323,7 +4398,7 @@ function PageEditorSessionBody({
     [
       clearRecoveryDraft,
       documentId,
-      retainRecoveryDraft,
+      queueRecoveryDraftRetention,
       saveDocumentImmediately,
     ],
   );
@@ -6526,7 +6601,7 @@ function PageEditorSessionBody({
       const resolved = await resolveReconcileChoice(
         base,
         async (recovery, reviewedBase) => {
-          await retainRecoveryDraft(
+          await queueRecoveryDraftRetention(
             recovery.localTitle,
             recovery.localDraft,
             documentReconcileConflict?.reason === "conflict"
@@ -6583,7 +6658,7 @@ function PageEditorSessionBody({
       queryClient,
       resolveReconcileChoice,
       resolvePreviewDocumentDraft,
-      retainRecoveryDraft,
+      queueRecoveryDraftRetention,
       t,
     ],
   );

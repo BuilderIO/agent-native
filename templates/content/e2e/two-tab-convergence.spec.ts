@@ -434,6 +434,155 @@ test.describe("two tabs editing one page at beta cadence", () => {
     });
   });
 
+  test("Keep Mine retains a peer title adopted while an editor recovery draft is pending", async ({
+    context,
+  }, testInfo) => {
+    await runScenario(
+      "peer-title-retained-recovery",
+      testInfo,
+      context,
+      async (s) => {
+        const { first: a, second: b } = await openPair(s, 0);
+        const aMarker = s.markers.next("A");
+        const peerTitle = `Peer title ${s.id.slice(0, 8)}`;
+        const collabUpdatePath = `/_agent-native/collab/${s.id}/update`;
+        const collabUpdateMatcher = (url: URL) =>
+          url.pathname === collabUpdatePath;
+        let failedCollabUpdates = 0;
+        await a.route(collabUpdateMatcher, (route) => {
+          failedCollabUpdates++;
+          return route.fulfill({
+            status: 503,
+            body: "Collaboration flush held for recovery regression",
+          });
+        });
+        await a.evaluate(() => {
+          const original = window.setTimeout.bind(window);
+          (window as any).__recoveryOriginalSetTimeout = original;
+          window.setTimeout = ((
+            handler: TimerHandler,
+            timeout?: number,
+            ...args: any[]
+          ) =>
+            original(
+              handler,
+              timeout === 800 ? 60_000 : timeout,
+              ...args,
+            )) as typeof window.setTimeout;
+        });
+
+        await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+        await expect
+          .poll(() => getPreviewDraft(s.reader, s.id), {
+            message:
+              "A's failed collaboration flush should retain its unsaved body",
+            timeout: 30_000,
+          })
+          .toMatchObject({ content: expect.stringContaining(aMarker) });
+        await expect.poll(() => failedCollabUpdates).toBeGreaterThan(0);
+
+        const titleInput = b.getByLabel("Document title");
+        await titleInput.fill(peerTitle);
+        await titleInput.press("Tab");
+        await expect
+          .poll(async () => (await getDocument(s.reader, s.id)).title, {
+            message: "B's title should reach the canonical page",
+            timeout: 30_000,
+          })
+          .toBe(peerTitle);
+        await expect(a.getByLabel("Document title")).toHaveValue(peerTitle, {
+          timeout: 30_000,
+        });
+
+        const journal = await a.evaluate((documentId) => {
+          for (let index = 0; index < localStorage.length; index++) {
+            const key = localStorage.key(index);
+            if (!key?.startsWith("content-page-draft-journal-v1:")) continue;
+            const raw = localStorage.getItem(key);
+            if (!raw) continue;
+            const entry = JSON.parse(raw);
+            if (entry?.scope?.documentId === documentId) return { key, entry };
+          }
+          return null;
+        }, s.id);
+        expect(journal?.entry.snapshot).toMatchObject({
+          title: peerTitle,
+          content: expect.stringContaining(aMarker),
+        });
+
+        const trash = a.getByRole("link", { name: "Trash", exact: true });
+        await trash.click();
+        await expect(trash).toHaveAttribute("aria-current", "page");
+        await a.evaluate(() => {
+          const original = (window as any)
+            .__recoveryOriginalSetTimeout as typeof window.setTimeout;
+          if (original) window.setTimeout = original;
+          delete (window as any).__recoveryOriginalSetTimeout;
+        });
+        await a.unroute(collabUpdateMatcher);
+
+        const retained = await getPreviewDraft(s.reader, s.id);
+        expect(
+          retained && { title: retained.title, content: retained.content },
+        ).toEqual({
+          title: peerTitle,
+          content: expect.stringContaining(aMarker),
+        });
+        const beforeRecovery = await getDocument(s.reader, s.id);
+        expect(beforeRecovery.title).toBe(peerTitle);
+        expect(beforeRecovery.content).not.toContain(aMarker);
+
+        // Remove only this editor's journal entry so recovery must use the
+        // retained server draft, as it does after local storage is unavailable.
+        if (journal) {
+          await a.evaluate((key) => localStorage.removeItem(key), journal.key);
+        }
+        const recovery = await RequestGate.action(
+          a,
+          "resolve-preview-document-draft",
+        );
+        recovery.hold();
+        await a.goto(`/page/${s.id}`, { waitUntil: "domcontentloaded" });
+        await expect
+          .poll(() => recovery.queued, {
+            message:
+              "recovery should attempt its automatic stale-version choice",
+            timeout: 30_000,
+          })
+          .toBeGreaterThan(0);
+        await postAction(s.reader, "update-document", {
+          id: s.id,
+          description: "Touched while retained recovery was waiting",
+        });
+        await recovery.release();
+        const keepMine = a.getByRole("button", {
+          name: "Keep my version",
+          exact: true,
+        });
+        await expect(keepMine).toBeVisible({ timeout: 30_000 });
+        await keepMine.click();
+        await expect
+          .poll(async () => getDocument(s.reader, s.id), {
+            message:
+              "Keep Mine should restore A's body without undoing B's title",
+            timeout: 30_000,
+          })
+          .toMatchObject({
+            title: peerTitle,
+            content: expect.stringContaining(aMarker),
+          });
+        await expectEditorReady(a);
+        await expect(a.locator(EDITOR)).toContainText(aMarker);
+        s.notes.failedCollabUpdates = failedCollabUpdates;
+        s.notes.keepMineTitle = peerTitle;
+        s.expectedNoise = [
+          'A showed "Unsaved page draft"',
+          'A showed "Choose which version to keep"',
+        ];
+      },
+    );
+  });
+
   test("alternating edits in different paragraphs keep both tabs' text", async ({
     context,
   }, testInfo) => {

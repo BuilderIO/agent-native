@@ -177,6 +177,34 @@ export function writePageDraftJournal(input: {
   return entry;
 }
 
+export function updatePageDraftJournalTitle(
+  scope: PageDraftJournalScope,
+  expectedTitle: string,
+  title: string,
+): boolean {
+  const normalized = normalizedScope(scope);
+  const itemKey = key(normalized);
+  try {
+    const store = storage();
+    const raw = store.getItem(itemKey);
+    if (raw === null) return false;
+    const entry = parseEntry(raw, itemKey);
+    if (entry.snapshot.title !== expectedTitle) return false;
+    store.setItem(
+      itemKey,
+      JSON.stringify({
+        ...entry,
+        snapshot: { ...entry.snapshot, title },
+        writtenAt: Date.now(),
+      }),
+    );
+  } catch (cause) {
+    if (cause instanceof PageDraftJournalError) throw cause;
+    throw new PageDraftJournalError("write_failed", cause);
+  }
+  return true;
+}
+
 export function listPageDraftJournal(
   scope: Omit<PageDraftJournalScope, "writerId">,
 ): PageDraftJournalEntry[] {
