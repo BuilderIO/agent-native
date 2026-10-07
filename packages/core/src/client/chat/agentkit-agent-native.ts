@@ -1307,6 +1307,27 @@ function mergeStoredAndIncomingMessages(
   return [...messages.values()];
 }
 
+function mergeLegacyRootMessages(
+  snapshotMessages: AgentMessage[],
+  legacyMessages: AgentMessage[],
+): AgentMessage[] {
+  const merged = [...snapshotMessages];
+  for (const message of legacyMessages) {
+    const createdAt = Date.parse(message.createdAt ?? "");
+    const index = merged.findIndex((candidate) => {
+      const candidateCreatedAt = Date.parse(candidate.createdAt ?? "");
+      return (
+        Number.isFinite(createdAt) &&
+        Number.isFinite(candidateCreatedAt) &&
+        candidateCreatedAt > createdAt
+      );
+    });
+    if (index === -1) merged.push(message);
+    else merged.splice(index, 0, message);
+  }
+  return merged;
+}
+
 function mergeStoredAndIncomingToolCalls(
   stored: AgentToolCall[],
   incoming: AgentToolCall[],
@@ -1841,6 +1862,37 @@ export function createAgentNativeAgentKitTransport(
       threadId,
       updatedAt,
     );
+    const agentKitMessages = Array.isArray(agentKit?.messages)
+      ? (agentKit.messages as AgentMessage[])
+      : undefined;
+    const agentKitMessageIds = new Set(
+      agentKitMessages?.map((message) => message.id) ?? [],
+    );
+    const legacyRootMessages = storedMessageProjection.filter((message) => {
+      if (agentKitMessageIds.has(message.id)) return false;
+      const metadata = asRecord(message.metadata);
+      const custom = asRecord(metadata?.custom);
+      if (
+        typeof metadata?.runId === "string" ||
+        typeof custom?.submittedRunId === "string" ||
+        typeof custom?.agentKitMessageId === "string"
+      ) {
+        return false;
+      }
+      return !message.parts.some((part) => {
+        if (part.type !== "data") return false;
+        const repositoryPart = asRecord(part.data);
+        return repositoryPart?.type === "tool-call";
+      });
+    });
+    const mergeAllStoredMessages =
+      agentKit?._mergeRootMessages === true || agentKitMessages?.length === 0;
+    const messagesWithLegacyRoot =
+      agentKitMessages &&
+      agentKit?._mergeRootMessages !== true &&
+      agentKitMessages.length > 0
+        ? mergeLegacyRootMessages(agentKitMessages, legacyRootMessages)
+        : undefined;
     const protocolSnapshot = agentKit
       ? parseAgentThreadSnapshot({
           id: threadId,
@@ -1848,14 +1900,13 @@ export function createAgentNativeAgentKitTransport(
           createdAt,
           updatedAt,
           metadata: asRecord(stored.metadata) ?? undefined,
-          messages: Array.isArray(agentKit.messages)
-            ? agentKit._mergeRootMessages === true ||
-              agentKit.messages.length === 0
+          messages: agentKitMessages
+            ? mergeAllStoredMessages
               ? mergeStoredAndIncomingMessages(
                   storedMessageProjection,
-                  agentKit.messages as AgentMessage[],
+                  agentKitMessages,
                 )
-              : agentKit.messages
+              : (messagesWithLegacyRoot ?? agentKitMessages)
             : storedMessageProjection,
           events: agentKit.events,
           runs: agentKit.runs,
@@ -3203,12 +3254,9 @@ export function createAgentNativeAgentKitTransport(
         if (fromMessageId) {
           const repository = storedRepository(source);
           const agentKit = asRecord(repository.agentKit);
-          const sourceMessages =
-            agentKit?._mergeRootMessages === true
-              ? projectThread(threadId, source).messages
-              : Array.isArray(agentKit?.messages)
-                ? agentKit.messages
-                : repository.messages;
+          const sourceMessages = agentKit
+            ? projectThread(threadId, source).messages
+            : repository.messages;
           if (!Array.isArray(sourceMessages)) {
             throw new Error(
               "The Agent-Native thread cannot be forked from a message without durable history.",

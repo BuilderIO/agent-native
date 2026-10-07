@@ -1655,6 +1655,40 @@ describe("buildUserMessage", () => {
 });
 
 describe("mergeThreadDataForClientSave", () => {
+  it("keeps run status from the highest sequence across stale snapshots", () => {
+    const run = (status: string, lastSequence: number) => ({
+      id: "run-1",
+      threadId: "thread-1",
+      status,
+      lastSequence,
+    });
+    const merge = (
+      existingRun: ReturnType<typeof run>,
+      incomingRun: ReturnType<typeof run>,
+    ) =>
+      mergeThreadDataForClientSave(
+        {
+          agentKit: { runs: [existingRun], activeRunIds: ["run-1"] },
+        },
+        {
+          agentKit: { runs: [incomingRun], activeRunIds: ["run-1"] },
+        },
+      ).agentKit;
+
+    expect(merge(run("running", 5), run("completed", 4))).toMatchObject({
+      runs: [{ status: "running", lastSequence: 5 }],
+      activeRunIds: ["run-1"],
+    });
+    expect(merge(run("completed", 4), run("running", 5))).toMatchObject({
+      runs: [{ status: "running", lastSequence: 5 }],
+      activeRunIds: ["run-1"],
+    });
+    expect(merge(run("running", 5), run("completed", 5))).toMatchObject({
+      runs: [{ status: "completed", lastSequence: 5 }],
+      activeRunIds: [],
+    });
+  });
+
   it("upserts event deltas, restores contiguous run sequences, and keeps annotations", () => {
     const existing = {
       messages: [],

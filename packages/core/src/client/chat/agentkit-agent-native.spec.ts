@@ -1001,7 +1001,17 @@ describe("createAgentNativeAgentKitTransport", () => {
     };
     let repository: Record<string, any> = {
       messages: [legacyMessage],
-      agentKit: { messages: [] },
+      agentKit: {
+        messages: [
+          {
+            id: "agentkit-reply",
+            role: "assistant",
+            parts: [{ type: "text", text: "A newer reply." }],
+            status: "complete",
+            createdAt: "2026-10-01T00:00:00.500Z",
+          },
+        ],
+      },
     };
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -1038,9 +1048,24 @@ describe("createAgentNativeAgentKitTransport", () => {
       fetch: fetcher as typeof fetch,
     });
     const loaded = await transport.getThreadSnapshot?.({ threadId });
-    expect(loaded?.messages.map((message) => message.id)).toContain(
+    expect(loaded?.messages.map((message) => message.id)).toEqual([
       "legacy-user",
+      "agentkit-reply",
+    ]);
+    const legacyFork = await transport.forkThread?.({
+      threadId,
+      fromMessageId: "legacy-user",
+    });
+    const legacyForkRequest = fetcher.mock.calls.find(([input]) =>
+      String(input).endsWith(`/threads/${threadId}/fork`),
     );
+    const legacyForkSource = JSON.parse(
+      String(legacyForkRequest?.[1]?.body),
+    ).source;
+    expect(legacyForkSource.messageCount).toBe(1);
+    expect(legacyFork?.messages.map((message) => message.id)).toEqual([
+      "legacy-user",
+    ]);
     const nextMessage = {
       id: "new-assistant",
       role: "assistant" as const,
@@ -1058,28 +1083,31 @@ describe("createAgentNativeAgentKitTransport", () => {
     const reloaded = await transport.getThreadSnapshot?.({ threadId });
 
     expect(repository.agentKit.messages).toMatchObject([
+      { id: "agentkit-reply", role: "assistant" },
       { id: "new-assistant", role: "assistant" },
     ]);
     expect(reloaded?.messages.map((message) => message.id)).toEqual([
       "legacy-user",
+      "agentkit-reply",
       "new-assistant",
     ]);
     const fork = await transport.forkThread?.({
       threadId,
-      fromMessageId: "legacy-user",
+      fromMessageId: "agentkit-reply",
     });
-    const forkRequest = fetcher.mock.calls.find(([input, init]) =>
-      String(input).endsWith(`/threads/${threadId}/fork`),
-    );
+    const forkRequest = fetcher.mock.calls
+      .filter(([input]) => String(input).endsWith(`/threads/${threadId}/fork`))
+      .at(-1);
     const forkSource = JSON.parse(String(forkRequest?.[1]?.body)).source;
-    expect(forkSource.messageCount).toBe(1);
+    expect(forkSource.messageCount).toBe(2);
     expect(
       JSON.parse(forkSource.threadData).agentKit.messages.map(
         (message: { id: string }) => message.id,
       ),
-    ).toEqual(["legacy-user"]);
+    ).toEqual(["legacy-user", "agentkit-reply"]);
     expect(fork?.messages.map((message) => message.id)).toEqual([
       "legacy-user",
+      "agentkit-reply",
     ]);
     await transport.dispose();
   });

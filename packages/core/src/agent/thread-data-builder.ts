@@ -1795,6 +1795,12 @@ function latestSnapshotRun(runs: unknown): AgentRunSnapshot | undefined {
   }, undefined);
 }
 
+function isTerminalRunStatus(status: unknown): boolean {
+  return (
+    status === "completed" || status === "failed" || status === "cancelled"
+  );
+}
+
 function latestStoredUser(repo: any): any {
   return repo?.messages
     ?.map((entry: any) => getStoredMessage(entry))
@@ -2264,15 +2270,21 @@ function mergeAgentKitHistory(
       continue;
     }
     const richer = newer.lastSequence >= run.lastSequence ? newer : run;
+    const statusRun =
+      run.lastSequence > newer.lastSequence
+        ? run
+        : newer.lastSequence > run.lastSequence
+          ? newer
+          : isTerminalRunStatus(run.status)
+            ? run
+            : newer;
     runs.set(run.id, {
       ...run,
       ...newer,
       ...richer,
       metadata: { ...run.metadata, ...newer.metadata, ...richer.metadata },
       lastSequence: Math.max(newer.lastSequence, run.lastSequence),
-      status: ["completed", "failed", "cancelled"].includes(run.status)
-        ? run.status
-        : newer.status,
+      status: statusRun.status,
     });
   }
   if (runs.size > 0) {
