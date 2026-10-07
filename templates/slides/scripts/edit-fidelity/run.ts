@@ -108,6 +108,7 @@ const VALUE_FLAGS = new Set([
   "--seeds",
   "--authoring-source",
   "--authoring-flow",
+  "--authoring-case",
   "--line-key-platform",
 ]);
 const opt = (name: string) => {
@@ -172,9 +173,13 @@ const authoringCorpusOnly = argv.includes("--authoring-corpus");
 const authoringFuzzOnly = argv.includes("--authoring-fuzz");
 const authoringSourceFilter = opt("--authoring-source");
 const authoringFlowFilter = opt("--authoring-flow");
+const authoringCaseFilter = opt("--authoring-case");
 const authoringFlows = ["slash", "shortcut", "list", "paste"] as const;
 if ((authoringSourceFilter || authoringFlowFilter) && !authoringCorpusOnly) {
   fatal("--authoring-source and --authoring-flow require --authoring-corpus");
+}
+if (authoringCaseFilter && !authoringOnly) {
+  fatal("--authoring-case requires --authoring");
 }
 if (
   authoringFlowFilter &&
@@ -2421,7 +2426,12 @@ async function runCaretQa(page: Page, base: string) {
   return problems;
 }
 
-async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
+async function runAuthoringParityQa(
+  page: Page,
+  base: string,
+  outRoot: string,
+  caseFilter?: string,
+) {
   const problems: string[] = [];
   let firstMarkupMismatch = "";
   const shortcuts = [
@@ -2482,9 +2492,22 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
       id: "authoring-list-boundary-backspace",
       kind: "styled-boundary-backspace" as const,
     },
+    {
+      id: "authoring-empty-soft-break-delete",
+      kind: "empty-soft-break-delete" as const,
+    },
+    {
+      id: "authoring-paragraph-bullet-delete",
+      kind: "paragraph-bullet-delete" as const,
+    },
     { id: "authoring-soft-break-slash", kind: "soft-break-slash" as const },
   ];
-  const cases = allCases;
+  const cases = allCases.filter(
+    (test) => !caseFilter || test.id.includes(caseFilter),
+  );
+  if (!cases.length) {
+    throw new Error(`no authoring parity cases match ${caseFilter}`);
+  }
 
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
   await ensureSignedIn(page);
@@ -2510,6 +2533,20 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
           id: test.id,
           content:
             '<div class="fmd-slide"><div class="fmd-text-box"><p style="color: red">Before</p></div></div>',
+        };
+      }
+      if (test.kind === "empty-soft-break-delete") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><div class="fmd-text-box"><p>Alpha<br></p><p></p></div></div>',
+        };
+      }
+      if (test.kind === "paragraph-bullet-delete") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><section><p>Before</p><p data-slide-plain-row="true" style="color:red"><span>●</span><span>After</span></p><blockquote><p></p></blockquote></section></div>',
         };
       }
       if (
@@ -2869,6 +2906,114 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
           const text = await editor.innerText();
           if (text.includes("/"))
             throw new Error("slash token remained in slide text");
+        });
+      } else if (test.kind === "empty-soft-break-delete") {
+        await editor.evaluate((element: HTMLElement) => {
+          const paragraph = element.querySelector(":scope > p");
+          if (!paragraph) throw new Error("first paragraph is missing");
+          const range = document.createRange();
+          range.setStart(paragraph, paragraph.childNodes.length);
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        });
+        await editor.press("Delete");
+        await editor.pressSequentially("x");
+        await finish(index, async () => {
+          const state = await editor.evaluate((element: HTMLElement) => {
+            const selection = window.getSelection();
+            const paragraph = element.firstElementChild;
+            return {
+              blockCount: element.children.length,
+              tagName: paragraph?.tagName ?? null,
+              lineParts: Array.from(paragraph?.childNodes ?? [], (node) =>
+                node instanceof HTMLBRElement ? "BR" : (node.textContent ?? ""),
+              ),
+              anchorText: selection?.anchorNode?.textContent ?? null,
+              anchorOffset: selection?.anchorOffset ?? null,
+              caretInside: Boolean(
+                selection?.anchorNode && element.contains(selection.anchorNode),
+              ),
+            };
+          });
+          if (
+            state.blockCount !== 1 ||
+            state.tagName !== "P" ||
+            JSON.stringify(state.lineParts) !==
+              JSON.stringify(["Alpha", "BR", "x"]) ||
+            state.anchorText !== "x" ||
+            state.anchorOffset !== 1 ||
+            !state.caretInside
+          ) {
+            throw new Error(
+              `Delete after a trailing soft break misplaced the caret: ${JSON.stringify(state)}`,
+            );
+          }
+        });
+      } else if (test.kind === "paragraph-bullet-delete") {
+        await editor.evaluate((element: HTMLElement) => {
+          const paragraph = element.querySelector(
+            ':scope > p:not([data-slide-plain-row="true"])',
+          );
+          const text = paragraph?.firstChild;
+          if (!(text instanceof Text))
+            throw new Error(
+              `plain paragraph text is missing in ${element.parentElement?.outerHTML ?? element.outerHTML}`,
+            );
+          const range = document.createRange();
+          range.setStart(text, text.length);
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        });
+        await editor.press("Delete");
+        await finish(index, async () => {
+          const state = await editor.evaluate((element: HTMLElement) => ({
+            blockCount: element.children.length,
+            rowTag: element.firstElementChild?.tagName ?? null,
+            rowText:
+              element.firstElementChild?.lastElementChild?.textContent ?? null,
+            rowStyle:
+              (element.firstElementChild as HTMLElement | null)?.style.color ??
+              null,
+            rowAttribute:
+              element.firstElementChild?.getAttribute("data-slide-plain-row") ??
+              null,
+            retainedSentinel: Boolean(
+              element.querySelector(":scope > blockquote > p"),
+            ),
+            markerText:
+              element.firstElementChild?.firstElementChild?.textContent ?? null,
+            markup: element.innerHTML,
+            anchorText: window.getSelection()?.anchorNode?.textContent ?? null,
+            anchorOffset: window.getSelection()?.anchorOffset ?? null,
+            caretInside: Boolean(
+              window.getSelection()?.anchorNode &&
+              element.contains(window.getSelection()!.anchorNode),
+            ),
+            markerCount: Array.from(element.querySelectorAll("span")).filter(
+              (span) => /^[●•]$/u.test(span.textContent?.trim() ?? ""),
+            ).length,
+          }));
+          if (
+            state.blockCount !== 2 ||
+            state.rowTag !== "P" ||
+            state.rowText !== "BeforeAfter" ||
+            state.rowStyle !== "red" ||
+            state.rowAttribute !== "true" ||
+            !state.retainedSentinel ||
+            state.markerText !== "●" ||
+            state.markerCount !== 1 ||
+            state.anchorText !== "Before" ||
+            state.anchorOffset !== "Before".length ||
+            !state.caretInside
+          ) {
+            throw new Error(
+              `Delete failed to preserve the receiving bullet row: ${JSON.stringify(state)}`,
+            );
+          }
         });
       } else if (test.kind === "soft-break-slash") {
         await editor.press(lineEndKey);
@@ -6272,7 +6417,12 @@ async function main() {
 
     if (authoringOnly) {
       const page = await context.newPage();
-      const problems = await runAuthoringParityQa(page, base, outRoot);
+      const problems = await runAuthoringParityQa(
+        page,
+        base,
+        outRoot,
+        authoringCaseFilter,
+      );
       await page.close();
       if (problems.length) {
         console.error(

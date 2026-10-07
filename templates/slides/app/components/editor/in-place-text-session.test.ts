@@ -1862,6 +1862,46 @@ describe("in-place text session: deleting", () => {
     expect(el.innerHTML).toBe("<p>Alpha<br>xBeta</p>");
   });
 
+  it("keeps the caret after a trailing soft break when Delete joins an empty paragraph", () => {
+    const el = mount('<div id="t"><p>Alpha<br></p><p></p></div>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstElementChild!, el.firstElementChild!.childNodes.length);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+    type(el, "x");
+
+    expect(el.innerHTML).toBe("<p>Alpha<br>x</p>");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(el, "x"));
+    expect(window.getSelection()?.anchorOffset).toBe(1);
+  });
+
+  it.each([
+    [
+      "a styled paragraph row",
+      '<p data-slide-plain-row="true" style="display:flex;gap:12px"><span>●</span><span>After</span></p>',
+    ],
+    [
+      "a styled div row",
+      '<div data-slide-plain-row="true" style="display:flex;gap:12px"><span>●</span><span>After</span></div>',
+    ],
+  ])("preserves %s when Delete joins the preceding paragraph", (_name, row) => {
+    const el = mount(`<div id="t"><p>Before</p>${row}</div>`);
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Before"), "Before".length);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+
+    expect(el.children).toHaveLength(1);
+    const mergedRow = el.firstElementChild as HTMLElement;
+    expect(mergedRow.hasAttribute("data-slide-plain-row")).toBe(true);
+    expect(mergedRow.style.cssText).toBe("display: flex; gap: 12px;");
+    expect(mergedRow.firstElementChild?.textContent).toBe("●");
+    expect(mergedRow.lastElementChild?.textContent).toBe("BeforeAfter");
+    expect(window.getSelection()?.anchorNode?.textContent).toBe("Before");
+    expect(el.contains(window.getSelection()?.anchorNode ?? null)).toBe(true);
+    expect(window.getSelection()?.anchorOffset).toBe("Before".length);
+  });
+
   it("keeps the caret after a trailing soft break when merging on Backspace", () => {
     const el = mount('<div id="t"><p>Alpha<br></p><p>Beta</p></div>');
     session = startInPlaceTextSession(el);

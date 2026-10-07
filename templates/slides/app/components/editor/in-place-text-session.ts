@@ -17,6 +17,7 @@ import {
   isMarkdownBulletPrefixInMarker,
   removeEmptyBulletAtCaret,
   rowTextRange,
+  rowTextContainer,
   stripCopiedIdentity,
   ZERO_WIDTH_SPACE,
 } from "./bullet-editing";
@@ -2528,7 +2529,8 @@ export function startInPlaceTextSession(
             ) as HTMLElement | undefined) ?? into)
         : into;
     const join = textOffset(target, target, target.childNodes.length, true);
-    if (hasRenderedContent(from)) {
+    const sourceHasContent = hasRenderedContent(from);
+    if (sourceHasContent) {
       if (
         from.tagName === "P" &&
         (["P", "LI"].includes(target.tagName) ||
@@ -2540,7 +2542,45 @@ export function startInPlaceTextSession(
       }
     }
     if (from.parentNode !== target) from.remove();
+    if (!sourceHasContent) {
+      let tail: Node | null = target.lastChild;
+      while (tail instanceof Element && !(tail instanceof HTMLBRElement)) {
+        tail = tail.lastChild;
+      }
+      if (tail instanceof HTMLBRElement && tail.parentNode) {
+        placeCaret(
+          tail.parentNode,
+          Array.from(tail.parentNode.childNodes).indexOf(tail) + 1,
+        );
+        return;
+      }
+    }
     placeCaret(...textPoint(target, join, true, true));
+  }
+
+  function prependParagraphIntoRow(row: HTMLElement, paragraph: HTMLElement) {
+    const marker = rowMarker(row);
+    const content = rowTextRange(row, marker);
+    const contentStart = textOffset(
+      row,
+      content.startContainer,
+      content.startOffset,
+      true,
+    );
+    const textContainer = rowTextContainer(row, marker);
+    const insertionIndex = textContainer === row ? content.startOffset : 0;
+    const before = textContainer.childNodes[insertionIndex] ?? null;
+    const insertedLength = textOffset(
+      paragraph,
+      paragraph,
+      paragraph.childNodes.length,
+      true,
+    );
+    for (const child of Array.from(paragraph.childNodes)) {
+      textContainer.insertBefore(child, before);
+    }
+    paragraph.remove();
+    placeCaret(...textPoint(row, contentStart + insertedLength, true, true));
   }
 
   function plainifyQuote(quote: HTMLElement) {
@@ -2575,7 +2615,12 @@ export function startInPlaceTextSession(
         return false;
       }
       const next = block.nextElementSibling;
-      if (!(next instanceof HTMLElement) || next.tagName !== "P") return false;
+      if (!(next instanceof HTMLElement)) return false;
+      if (isBulletRow(next) || next.hasAttribute("data-slide-plain-row")) {
+        prependParagraphIntoRow(next, block);
+        return true;
+      }
+      if (next.tagName !== "P") return false;
       appendBlockContents(block, next);
       return true;
     }
