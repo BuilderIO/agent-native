@@ -16,7 +16,10 @@ import { Link } from "react-router";
 import { sendAhrefsEvent } from "../../lib/ahrefs-analytics";
 import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
 import { sitePathForLocale } from "../docs-locale";
-import { TEMPLATE_SCREENSHOTS } from "../template-screenshots";
+import {
+  getScreenshotTileScaleX,
+  TEMPLATE_SCREENSHOTS,
+} from "../template-screenshots";
 import { TemplateScreenshot } from "../TemplateScreenshot";
 import { AppStatusBadge } from "./ds/app-status-badge";
 import { Button } from "./ds/button";
@@ -153,11 +156,13 @@ export function TemplateShowcase() {
                     })
                   }
                 >
-                  <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden bg-[var(--b-bg-page)]">
+                  <div className="relative aspect-[8/5] overflow-hidden bg-[var(--b-bg-page)]">
                     <TemplateScreenshot
                       alt={t("templateCard.screenshotAlt", {
                         name: app.name,
                       })}
+                      frame={app.slug === "clips"}
+                      scaleX={getScreenshotTileScaleX(app.slug)}
                       sizes={CARD_IMAGE_SIZES}
                       variants={TEMPLATE_SCREENSHOTS[app.slug]}
                     />

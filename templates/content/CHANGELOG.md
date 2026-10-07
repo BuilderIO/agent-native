@@ -7,7 +7,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
-- Documents opened in ChatGPT show their saved content right away.
+- ChatGPT widgets show saved document bodies in read-only mode without a Content session.
 - Fixed Content pages that opened to an error in ChatGPT widgets
 
 ## 2026-10-06
