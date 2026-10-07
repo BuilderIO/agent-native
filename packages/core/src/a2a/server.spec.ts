@@ -21,6 +21,7 @@ const getApprovalMock = vi.hoisted(() => vi.fn());
 const claimApprovalMock = vi.hoisted(() => vi.fn());
 const settleApprovalMock = vi.hoisted(() => vi.fn());
 const recordServicePrincipalDenialMock = vi.hoisted(() => vi.fn());
+const processA2ATaskFromQueueMock = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -41,7 +42,7 @@ vi.mock("../server/framework-request-handler.js", () => ({
 
 vi.mock("./handlers.js", () => ({
   handleJsonRpcH3: handleJsonRpcH3Mock,
-  processA2ATaskFromQueue: vi.fn(async () => undefined),
+  processA2ATaskFromQueue: processA2ATaskFromQueueMock,
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
@@ -112,6 +113,7 @@ describe("mountA2A auth", () => {
     getApprovalMock.mockReset();
     claimApprovalMock.mockReset();
     settleApprovalMock.mockReset();
+    processA2ATaskFromQueueMock.mockReset().mockResolvedValue(undefined);
     process.env = { ...originalEnv, NODE_ENV: "production" };
   });
 
@@ -153,6 +155,33 @@ describe("mountA2A auth", () => {
     });
 
     expect(response.url).toBe("https://agent.example/workspace/rpc/a2a");
+  });
+
+  it("preserves retryable principal-policy failures from async task processing", async () => {
+    process.env.NODE_ENV = "test";
+    delete process.env.A2A_SECRET;
+    const { ServicePrincipalRefusedError } =
+      await import("../org/service-principal-guard.js");
+    processA2ATaskFromQueueMock.mockRejectedValueOnce(
+      new ServicePrincipalRefusedError(
+        "service_principal_unavailable",
+        "Policy store unavailable.",
+      ),
+    );
+
+    const handler = await mountedA2AProcessorHandler(config);
+    const event: any = {
+      method: "POST",
+      headers: {},
+      path: "/_agent-native/a2a/_process-task",
+      context: {},
+      body: { taskId: "task-1" },
+    };
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Policy store unavailable.",
+    });
+    expect(event._status).toBe(503);
   });
 
   it("authenticates custom mounted cards from app or endpoint identity", async () => {

@@ -109,6 +109,37 @@ describe("create-org-service-token", () => {
     expect(revokeAction.toolCallable).toBe(false);
   });
 
+  it("audits token creation and re-minting without inputs or credential data", () => {
+    const args = { name: "ci", ownerEmail: "owner@example.com" };
+    const result = {
+      id: "tok-1",
+      token: "svc-secret-value",
+      serviceName: "ci",
+      serviceEmail: "svc-ci@service.org-1",
+    };
+    const meta = {
+      caller: "http",
+      userEmail: "admin@example.com",
+      orgId: "org-1",
+    };
+    const audit = createAction.audit;
+    const target = audit?.target?.(args, result, meta);
+    const summary = audit?.summary?.(args, result, meta);
+
+    expect(audit?.recordInputs).toBe(false);
+    expect(target).toEqual({
+      type: "service-principal",
+      id: "ci",
+      orgId: "org-1",
+      visibility: "admins",
+    });
+    expect(summary).toBe("Created or re-minted an organization service token.");
+    expect(JSON.stringify({ target, summary })).not.toContain(result.token);
+    expect(JSON.stringify({ target, summary })).not.toContain(
+      result.serviceEmail,
+    );
+  });
+
   it("mints for an org admin and returns the token exactly once", async () => {
     const res = await createAction.run({ name: "ci" }, CTX());
     expect(mintOrgServiceTokenMock).toHaveBeenCalledWith({

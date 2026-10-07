@@ -24,6 +24,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { orgAdminAudit } from "../../audit/org-admin.js";
 import {
   getServicePrincipalPolicy,
   upsertServicePrincipalPolicy,
@@ -75,6 +76,13 @@ export default defineAction({
     allowedActions: allowedActionsSchema.nullable().optional(),
   }),
   toolCallable: false,
+  audit: orgAdminAudit({
+    targetType: "service-principal",
+    targetId: (_args, result) =>
+      (result as { serviceName?: string } | undefined)?.serviceName,
+    recordInputs: false,
+    summary: () => "Created or re-minted an organization service token.",
+  }),
   run: async (args, ctx) => {
     const caller = await requireServiceTokenCaller({
       userEmail: ctx?.userEmail,

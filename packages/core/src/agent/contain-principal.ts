@@ -7,7 +7,7 @@
  *
  * A run's owner is its chat thread's `owner_email`. `abortRunDurably` logs and
  * swallows a failed SQL write, so the outcome is re-read from `agent_runs`:
- * a run still `running` afterwards is reported, never counted as aborted.
+ * only a confirmed `aborted` status counts as aborted.
  */
 import { ensureChatThreadTables } from "../chat-threads/store.js";
 import { getDbExec } from "../db/client.js";
@@ -45,10 +45,14 @@ export async function containServicePrincipal(
     try {
       await abortRunDurably(runId, reason);
       const status = await getRunStatus(runId);
-      if (status === "running") {
+      if (status === "aborted") {
+        result.abortedRuns += 1;
+      } else if (status === "running") {
         result.containmentErrors.push(`${runId}: still running after abort`);
       } else {
-        result.abortedRuns += 1;
+        result.containmentErrors.push(
+          `${runId}: ${status ?? "unknown"} after abort; not confirmed aborted`,
+        );
       }
     } catch (error) {
       result.containmentErrors.push(

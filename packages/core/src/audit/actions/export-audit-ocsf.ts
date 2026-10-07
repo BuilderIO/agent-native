@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { auditEventToOcsf, OCSF_SCHEMA_VERSION } from "../ocsf.js";
-import { resolveAuditReadScope } from "../read-scope.js";
+import { AuditAccessError, resolveAuditReadScope } from "../read-scope.js";
 import { MAX_LIMIT, queryAuditEventPage } from "../store.js";
 
 // Audit timestamps are assigned before inserts become visible. The settle delay
@@ -10,12 +10,8 @@ import { MAX_LIMIT, queryAuditEventPage } from "../store.js";
 const SETTLE_MS = 5000;
 const REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
-interface EventCursor {
-  createdAt: number;
-  id: string;
-}
-
 interface CursorBounds {
+  orgId: string;
   sinceMs?: number;
   untilMs?: number;
 }
@@ -23,13 +19,13 @@ interface CursorBounds {
 type ExportCursor = CursorBounds &
   (
     | {
-        version: 2;
+        version: 3;
         mode: "paging";
-        after: EventCursor;
+        after: { createdAt: number; id: string };
         beforeMs: number;
         watermarkMs: number;
       }
-    | { version: 2; mode: "ready"; watermarkMs: number }
+    | { version: 3; mode: "ready"; watermarkMs: number }
   );
 
 const timeInput = z.union([z.number(), z.string()]);
@@ -56,26 +52,24 @@ function encodeCursor(cursor: ExportCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
 
-function decodeCursor(cursor: string): ExportCursor | EventCursor {
+function decodeCursor(cursor: string): ExportCursor {
   try {
     const parsed: unknown = JSON.parse(
       Buffer.from(cursor, "base64url").toString("utf8"),
     );
-    if (Array.isArray(parsed)) {
-      const [createdAt, id] = parsed;
-      if (Number.isFinite(createdAt) && typeof id === "string" && id) {
-        return { createdAt, id };
-      }
-    } else if (parsed && typeof parsed === "object") {
+    if (parsed && typeof parsed === "object") {
       const value = parsed as Record<string, unknown>;
       if (
-        value.version === 2 &&
+        value.version === 3 &&
         (value.mode === "ready" || value.mode === "paging") &&
+        typeof value.orgId === "string" &&
+        value.orgId.length > 0 &&
         Number.isFinite(value.watermarkMs) &&
         (value.sinceMs === undefined || Number.isFinite(value.sinceMs)) &&
         (value.untilMs === undefined || Number.isFinite(value.untilMs))
       ) {
         const bounds = {
+          orgId: value.orgId,
           ...(typeof value.sinceMs === "number"
             ? { sinceMs: value.sinceMs }
             : {}),
@@ -85,7 +79,7 @@ function decodeCursor(cursor: string): ExportCursor | EventCursor {
         };
         if (value.mode === "ready") {
           return {
-            version: 2,
+            version: 3,
             mode: "ready",
             watermarkMs: value.watermarkMs as number,
             ...bounds,
@@ -101,7 +95,7 @@ function decodeCursor(cursor: string): ExportCursor | EventCursor {
           after.id
         ) {
           return {
-            version: 2,
+            version: 3,
             mode: "paging",
             after: { createdAt: after.createdAt as number, id: after.id },
             beforeMs: value.beforeMs as number,
@@ -120,17 +114,18 @@ function decodeCursor(cursor: string): ExportCursor | EventCursor {
 
 function assertCursorBounds(cursor: ExportCursor, bounds: CursorBounds): void {
   if (
+    cursor.orgId !== bounds.orgId ||
     (bounds.sinceMs !== undefined && bounds.sinceMs !== cursor.sinceMs) ||
     (bounds.untilMs !== undefined && bounds.untilMs !== cursor.untilMs)
   ) {
     throw badRequest(
-      "since and until must match the values used with this cursor.",
+      "The organization, since, and until values must match the values used with this cursor.",
     );
   }
 }
 
 export default defineAction({
-  description: `Export the organization's audit trail as OCSF ${OCSF_SCHEMA_VERSION} API Activity events (class 6003) for a SIEM. Owners and admins only; returns the organization's shared trail (org and admins events), oldest first. Pull incrementally: pass the previous nextCursor as cursor and store every returned nextCursor, including when events is empty; empty pages advance the ready watermark. A five-minute rolling overlap can replay recent events to catch late commits; deduplicate across polls by metadata.uid. Use list-audit-events instead to browse or answer 'what changed'.`,
+  description: `Export the organization's audit trail as OCSF ${OCSF_SCHEMA_VERSION} API Activity events (class 6003) for a SIEM. Owners and admins only; returns the organization's shared trail (org and admins events), oldest first. Pull incrementally: pass the previous nextCursor as cursor and store every returned nextCursor, including when events is empty; empty pages advance the ready watermark. Cursors are bound to the organization that issued them; restart the export after switching organizations. A five-minute rolling overlap can replay recent events to catch late commits; deduplicate across polls by metadata.uid. Use list-audit-events instead to browse or answer 'what changed'.`,
   schema: z.object({
     since: timeInput
       .optional()
@@ -159,12 +154,17 @@ export default defineAction({
   },
   run: async (args, ctx) => {
     const scope = await resolveAuditReadScope(ctx, "organization");
+    if (!scope.orgId) {
+      throw new AuditAccessError(
+        "Select an organization to export the organization audit log.",
+      );
+    }
     const requestedSinceMs = parseTime(args.since, "since");
     const requestedUntilMs = parseTime(args.until, "until");
-    const decoded = args.cursor ? decodeCursor(args.cursor) : undefined;
-    const cursor = decoded && "version" in decoded ? decoded : undefined;
+    const cursor = args.cursor ? decodeCursor(args.cursor) : undefined;
     if (cursor) {
       assertCursorBounds(cursor, {
+        orgId: scope.orgId,
         sinceMs: requestedSinceMs,
         untilMs: requestedUntilMs,
       });
@@ -179,17 +179,13 @@ export default defineAction({
     const after =
       cursor?.mode === "paging"
         ? cursor.after
-        : decoded && "createdAt" in decoded
-          ? decoded
-          : cursor
-            ? {
-                createdAt: Math.max(0, cursor.watermarkMs - REPLAY_WINDOW_MS),
-                id: "",
-              }
-            : undefined;
-    const watermarkMs =
-      cursor?.watermarkMs ??
-      (decoded && "createdAt" in decoded ? decoded.createdAt : 0);
+        : cursor
+          ? {
+              createdAt: Math.max(0, cursor.watermarkMs - REPLAY_WINDOW_MS),
+              id: "",
+            }
+          : undefined;
+    const watermarkMs = cursor?.watermarkMs ?? 0;
     const page = await queryAuditEventPage(scope, {
       order: "asc",
       limit: args.limit,
@@ -201,8 +197,9 @@ export default defineAction({
     const nextCursor =
       page.hasMore && last
         ? encodeCursor({
-            version: 2,
+            version: 3,
             mode: "paging",
+            orgId: scope.orgId,
             after: { createdAt: last.createdAt, id: last.id },
             beforeMs,
             watermarkMs,
@@ -210,8 +207,9 @@ export default defineAction({
             ...(untilMs !== undefined ? { untilMs } : {}),
           })
         : encodeCursor({
-            version: 2,
+            version: 3,
             mode: "ready",
+            orgId: scope.orgId,
             watermarkMs: Math.max(watermarkMs, beforeMs),
             ...(sinceMs !== undefined ? { sinceMs } : {}),
             ...(untilMs !== undefined ? { untilMs } : {}),

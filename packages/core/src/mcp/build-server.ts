@@ -2908,6 +2908,7 @@ export async function createMCPServerForRequest(
           assertServicePrincipalMayCall(allowedActions, name);
         } catch (error) {
           if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+          if (error.statusCode !== 403) throw error;
           failure = {
             errorType: error.errorCode,
             errorMessage: error.message,

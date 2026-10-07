@@ -50,6 +50,20 @@ describe("containServicePrincipal", () => {
     expect(res.containmentErrors).toEqual(["r1: still running after abort"]);
   });
 
+  it.each(["completed", "error", "interrupted", null])(
+    "does not count %s as aborted without a confirmed aborted status",
+    async (status) => {
+      statusMock.mockResolvedValueOnce(status).mockResolvedValueOnce("aborted");
+
+      const res = await containServicePrincipal("org-1", "ci");
+
+      expect(res.abortedRuns).toBe(1);
+      expect(res.containmentErrors).toEqual([
+        `r1: ${status ?? "unknown"} after abort; not confirmed aborted`,
+      ]);
+    },
+  );
+
   it("keeps going after one abort throws and reports it", async () => {
     abortMock.mockRejectedValueOnce(new Error("boom"));
     const res = await containServicePrincipal("org-1", "ci");

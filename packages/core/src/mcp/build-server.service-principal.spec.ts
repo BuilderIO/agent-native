@@ -237,15 +237,12 @@ describe("MCP tools/call for a service principal", () => {
     expect(recordActionAuditMock).toHaveBeenCalledTimes(1);
   });
 
-  it("answers a retryable error, with no denial row, when the policy cannot be read", async () => {
+  it("propagates a retryable policy-store error instead of returning a terminal tool result", async () => {
     evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
     const client = await clientFor(serviceIdentity);
-    const result: any = await client.callTool({
-      name: "list-docs",
-      arguments: {},
-    });
-    expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain("could not be verified");
+    await expect(
+      client.callTool({ name: "list-docs", arguments: {} }),
+    ).rejects.toThrow(/could not be verified/i);
     expect(runs).toEqual([]);
     expect(recordActionAuditMock).not.toHaveBeenCalled();
   });

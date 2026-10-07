@@ -218,18 +218,38 @@ describe("export-audit-ocsf", () => {
     ]).toEqual(["existing", "late"]);
   });
 
-  it("continues a cursor issued before overlap-aware cursor pagination", async () => {
-    await insertAuditEvent(makeEvent({ id: "first", createdAt: 100 }));
-    await insertAuditEvent(makeEvent({ id: "second", createdAt: 200 }));
-    const legacyCursor = Buffer.from(JSON.stringify([100, "first"])).toString(
-      "base64url",
-    );
+  it("rejects a cursor when it is reused in another organization", async () => {
+    await addMember("other-admin@example.test", "admin", "org-b");
+    const first = await exportAuditOcsf.run({}, admin);
 
-    const result = await exportAuditOcsf.run({ cursor: legacyCursor }, admin);
+    await expect(
+      exportAuditOcsf.run(
+        { cursor: first.nextCursor ?? undefined },
+        { userEmail: "other-admin@example.test", orgId: "org-b" },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("organization"),
+    });
+  });
 
-    expect(result.events.map((event) => event.metadata.uid)).toEqual([
-      "second",
-    ]);
+  it("rejects cursors that predate organization-bound cursor pagination", async () => {
+    const legacyCursors = [
+      Buffer.from(JSON.stringify([100, "first"])).toString("base64url"),
+      Buffer.from(
+        JSON.stringify({
+          version: 2,
+          mode: "ready",
+          watermarkMs: 100,
+        }),
+      ).toString("base64url"),
+    ];
+
+    for (const cursor of legacyCursors) {
+      await expect(
+        exportAuditOcsf.run({ cursor }, admin),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    }
   });
 
   it("filters by since and until as ISO strings or epoch ms", async () => {

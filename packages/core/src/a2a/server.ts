@@ -674,7 +674,10 @@ export function mountA2A(
         return { ok: true };
       } catch (err: any) {
         console.error("[a2a] process-task failed:", err);
-        setResponseStatus(event, 500);
+        setResponseStatus(
+          event,
+          err instanceof ServicePrincipalRefusedError ? err.statusCode : 500,
+        );
         return { error: err?.message ?? "process-task failed" };
       }
     }),
