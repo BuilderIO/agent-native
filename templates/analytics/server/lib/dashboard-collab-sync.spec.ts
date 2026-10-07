@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  applyText: vi.fn(async () => undefined),
-  hasCollabState: vi.fn(async () => false),
-  seedFromText: vi.fn(async () => undefined),
+  applyText: vi.fn(async (..._args: unknown[]) => undefined),
 }));
 
 vi.mock("@agent-native/core/collab", () => mocks);
@@ -14,9 +12,6 @@ const { DASHBOARD_COLLAB_SYNC_TIMEOUT_MS, queueDashboardCollabSync } =
 describe("dashboard collab sync", () => {
   beforeEach(() => {
     mocks.applyText.mockClear();
-    mocks.hasCollabState.mockClear();
-    mocks.hasCollabState.mockResolvedValue(true);
-    mocks.seedFromText.mockClear();
   });
 
   it("loads the latest dashboard before applying queued full-text syncs", async () => {
@@ -24,21 +19,29 @@ describe("dashboard collab sync", () => {
       config: { name: "Old dashboard" },
       updatedAt: "2026-10-06T00:00:00.000Z",
     };
-    let releaseCollabRead!: (exists: boolean) => void;
-    mocks.hasCollabState.mockImplementationOnce(
-      () =>
-        new Promise<boolean>((resolve) => {
-          releaseCollabRead = resolve;
-        }),
-    );
+    let releaseDashboardRead!: () => void;
+    let markDashboardReadStarted!: () => void;
+    const dashboardReadStarted = new Promise<void>((resolve) => {
+      markDashboardReadStarted = resolve;
+    });
+    let readCount = 0;
+    const loadDashboard = async () => {
+      if (readCount++ === 0) {
+        markDashboardReadStarted();
+        await new Promise<void>((resolve) => {
+          releaseDashboardRead = resolve;
+        });
+      }
+      return dashboard;
+    };
 
     const firstSync = queueDashboardCollabSync(
       "traffic",
       dashboard.updatedAt,
-      async () => dashboard,
+      loadDashboard,
       "agent",
     );
-    await vi.waitFor(() => expect(mocks.hasCollabState).toHaveBeenCalledOnce());
+    await dashboardReadStarted;
 
     dashboard = {
       config: { name: "Latest dashboard" },
@@ -47,29 +50,18 @@ describe("dashboard collab sync", () => {
     const secondSync = queueDashboardCollabSync(
       "traffic",
       dashboard.updatedAt,
-      async () => dashboard,
+      loadDashboard,
       "agent",
     );
 
-    releaseCollabRead(true);
+    releaseDashboardRead();
     await Promise.all([firstSync, secondSync]);
 
     expect(mocks.applyText).toHaveBeenCalledTimes(2);
-    expect(mocks.applyText).toHaveBeenNthCalledWith(
-      1,
-      "dash-traffic",
-      JSON.stringify(dashboard.config),
-      "content",
-      "agent",
-    );
-    expect(mocks.applyText).toHaveBeenNthCalledWith(
-      2,
-      "dash-traffic",
-      JSON.stringify(dashboard.config),
-      "content",
-      "agent",
-    );
-    expect(mocks.seedFromText).not.toHaveBeenCalled();
+    expect(mocks.applyText.mock.calls.map((call) => call.slice(0, 4))).toEqual([
+      ["dash-traffic", JSON.stringify(dashboard.config), "content", "agent"],
+      ["dash-traffic", JSON.stringify(dashboard.config), "content", "agent"],
+    ]);
   });
 
   it("reapplies the latest dashboard if it changes during a collab write", async () => {
@@ -101,20 +93,52 @@ describe("dashboard collab sync", () => {
     await sync;
 
     expect(mocks.applyText).toHaveBeenCalledTimes(2);
-    expect(mocks.applyText).toHaveBeenNthCalledWith(
-      1,
-      "dash-traffic",
-      JSON.stringify({ name: "Older dashboard" }),
-      "content",
+    expect(mocks.applyText.mock.calls.map((call) => call.slice(0, 4))).toEqual([
+      [
+        "dash-traffic",
+        JSON.stringify({ name: "Older dashboard" }),
+        "content",
+        "agent",
+      ],
+      [
+        "dash-traffic",
+        JSON.stringify({ name: "Latest dashboard" }),
+        "content",
+        "agent",
+      ],
+    ]);
+  });
+
+  it("retries when the merged Yjs snapshot differs from the dashboard", async () => {
+    const dashboard = {
+      config: { name: "Latest dashboard" },
+      updatedAt: "2026-10-06T00:00:01.000Z",
+    };
+    let applyCount = 0;
+    mocks.applyText.mockImplementation(async (...args: unknown[]) => {
+      applyCount++;
+      const requestedText = args[1] as string;
+      const options = args[4] as {
+        validateSnapshot: (snapshot: string) => void;
+      };
+      options.validateSnapshot(
+        applyCount === 1 ? "merged peer snapshot" : requestedText,
+      );
+      return undefined;
+    });
+
+    await queueDashboardCollabSync(
+      "traffic",
+      dashboard.updatedAt,
+      async () => dashboard,
       "agent",
     );
-    expect(mocks.applyText).toHaveBeenNthCalledWith(
-      2,
-      "dash-traffic",
-      JSON.stringify({ name: "Latest dashboard" }),
-      "content",
-      "agent",
-    );
+
+    expect(applyCount).toBe(2);
+    expect(mocks.applyText.mock.calls.map((call) => call.slice(0, 4))).toEqual([
+      ["dash-traffic", JSON.stringify(dashboard.config), "content", "agent"],
+      ["dash-traffic", JSON.stringify(dashboard.config), "content", "agent"],
+    ]);
   });
 
   it("releases the document queue on timeout and repairs a late stale write", async () => {
@@ -173,13 +197,12 @@ describe("dashboard collab sync", () => {
       await lateRepairApplied;
 
       expect(mocks.applyText).toHaveBeenCalledTimes(3);
-      expect(mocks.applyText).toHaveBeenNthCalledWith(
-        3,
+      expect(mocks.applyText.mock.calls[2]?.slice(0, 4)).toEqual([
         "dash-traffic",
         JSON.stringify({ name: "Latest dashboard" }),
         "content",
         "agent",
-      );
+      ]);
     } finally {
       vi.useRealTimers();
     }
@@ -241,13 +264,12 @@ describe("dashboard collab sync", () => {
       await repairApplied;
 
       expect(mocks.applyText).toHaveBeenCalledTimes(3);
-      expect(mocks.applyText).toHaveBeenNthCalledWith(
-        3,
+      expect(mocks.applyText.mock.calls[2]?.slice(0, 4)).toEqual([
         "dash-traffic",
         JSON.stringify({ name: "Latest dashboard" }),
         "content",
         "agent",
-      );
+      ]);
     } finally {
       vi.useRealTimers();
     }

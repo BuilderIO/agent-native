@@ -1,8 +1,4 @@
-import {
-  applyText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
+import { applyText } from "@agent-native/core/collab";
 
 export const DASHBOARD_COLLAB_SYNC_TIMEOUT_MS = 2_000;
 
@@ -17,6 +13,13 @@ class DashboardCollabSyncTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(`timed out after ${timeoutMs}ms`);
     this.name = "DashboardCollabSyncTimeoutError";
+  }
+}
+
+class DashboardCollabSnapshotMismatchError extends Error {
+  constructor() {
+    super("The collaboration document did not match the dashboard snapshot.");
+    this.name = "DashboardCollabSnapshotMismatchError";
   }
 }
 
@@ -51,7 +54,6 @@ async function syncDashboardToCollab(
   const startedAt = Date.now();
   const sync = (async () => {
     for (let attempt = 0; attempt < 5; attempt++) {
-      const exists = await hasCollabState(docId);
       const dashboard = await loadDashboard();
       if (!dashboard) {
         throw new Error(
@@ -64,10 +66,17 @@ async function syncDashboardToCollab(
         );
       }
       const configStr = JSON.stringify(dashboard.config);
-      if (exists) {
-        await applyText(docId, configStr, "content", requestSource);
-      } else {
-        await seedFromText(docId, configStr);
+      try {
+        await applyText(docId, configStr, "content", requestSource, {
+          validateSnapshot(snapshot) {
+            if (snapshot !== configStr) {
+              throw new DashboardCollabSnapshotMismatchError();
+            }
+          },
+        });
+      } catch (error) {
+        if (error instanceof DashboardCollabSnapshotMismatchError) continue;
+        throw error;
       }
 
       const latest = await loadDashboard();

@@ -447,6 +447,36 @@ describe("dashboards-store concurrency", () => {
     expect(state.revisions).toEqual([]);
   });
 
+  it("advances fenced write tokens when two saves share a millisecond", async () => {
+    const expectedUpdatedAt = state.dashboard.updatedAt;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(expectedUpdatedAt));
+
+    try {
+      const first = await upsertDashboard(
+        "traffic",
+        "sql",
+        { name: "Traffic", panels: [panel("a"), panel("writer-one")] },
+        ctx,
+        expectedUpdatedAt,
+      );
+
+      expect(first.updatedAt).toBe("2026-07-09T00:00:00.001Z");
+      await expect(
+        upsertDashboard(
+          "traffic",
+          "sql",
+          { name: "Traffic", panels: [panel("a"), panel("writer-two")] },
+          ctx,
+          expectedUpdatedAt,
+        ),
+      ).rejects.toBeInstanceOf(DashboardConflictError);
+      expect(readPanelIds()).toEqual(["a", "writer-one"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("coalesces an unchanged dashboard autosave with the latest revision", async () => {
     state.revisions = [
       {
