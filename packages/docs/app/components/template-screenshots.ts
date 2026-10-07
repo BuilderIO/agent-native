@@ -48,18 +48,3 @@ export const TEMPLATE_SCREENSHOTS = {
     light: "/app-hero-screenshots/chat-light.jpg",
   },
 } as const;
-
-export const TEMPLATE_TILE_ZOOM = {
-  clips: 1.1,
-  plan: 1.24,
-  design: 1.1,
-  content: 1.28,
-  slides: 1.12,
-  analytics: 1.3,
-  mail: 1.24,
-  forms: 1.28,
-  assets: 1.3,
-  calendar: 1.28,
-  dispatch: 1.24,
-  chat: 1.24,
-} as const;
