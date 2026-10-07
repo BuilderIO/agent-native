@@ -198,19 +198,32 @@ export function measurePositionCoordinateContext(
   }
 
   const documentRoot = element.ownerDocument.documentElement;
-  const positionReferenceRect = frame
-    ? documentRect(frame, view)
-    : {
-        x: 0,
-        y: 0,
+  const isFixed = view.getComputedStyle(element).position === "fixed";
+  const scrollX = view.scrollX;
+  const scrollY = view.scrollY;
+  const containingBlock = positionContainingBlock(element, view);
+  const fixedWithoutContainingBlock = isFixed && !containingBlock;
+  const positionReferenceRect = fixedWithoutContainingBlock
+    ? {
+        x: scrollX,
+        y: scrollY,
         width: documentRoot.clientWidth,
         height: documentRoot.clientHeight,
-      };
-  const containingBlock = positionContainingBlock(element, view);
+      }
+    : frame
+      ? documentRect(frame, view)
+      : {
+          x: 0,
+          y: 0,
+          width: documentRoot.clientWidth,
+          height: documentRoot.clientHeight,
+        };
   if (!containingBlock) {
     return {
       positionReferenceRect,
-      positionContainingBlockOrigin: { x: 0, y: 0 },
+      positionContainingBlockOrigin: fixedWithoutContainingBlock
+        ? { x: scrollX, y: scrollY }
+        : { x: 0, y: 0 },
       positionContainingBlockTransform: IDENTITY_TRANSFORM,
     };
   }
