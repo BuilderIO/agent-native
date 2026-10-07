@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let queueRows: Record<string, any>[] = [];
+let failNextDispatchStateRead = false;
 function affected(n: number) {
   return { rows: [], rowsAffected: n };
 }
@@ -106,7 +107,35 @@ const queueDb = {
         rowsAffected: 0,
       };
     }
+    if (
+      s.includes(
+        "SELECT task_id, owner_email, org_id FROM agent_team_run_queue",
+      )
+    ) {
+      const [updatedBefore, limit] = args;
+      return {
+        rows: queueRows
+          .filter(
+            (x) =>
+              x.owner_email !== null &&
+              (x.status === "queued" || x.status === "running") &&
+              x.updated_at <= updatedBefore,
+          )
+          .sort((a, b) => a.updated_at - b.updated_at)
+          .slice(0, limit)
+          .map((x) => ({
+            task_id: x.task_id,
+            owner_email: x.owner_email,
+            org_id: x.org_id,
+          })),
+        rowsAffected: 0,
+      };
+    }
     if (s.includes("SELECT * FROM agent_team_run_queue WHERE task_id = ?")) {
+      if (failNextDispatchStateRead) {
+        failNextDispatchStateRead = false;
+        throw new Error("dispatch state read unavailable");
+      }
       const r = queueRows.find((x) => x.task_id === args[0]);
       return { rows: r ? [{ ...r }] : [], rowsAffected: 0 };
     }
@@ -115,6 +144,8 @@ const queueDb = {
 };
 vi.mock("../db/client.js", () => ({
   getDbExec: () => queueDb,
+  describeDbError: (error: unknown) =>
+    error instanceof Error ? error.message : String(error),
   retryOnDdlRace: (fn: () => unknown) => fn(),
 }));
 
@@ -356,6 +387,7 @@ const queue = await import("./agent-teams-run-queue.js");
 const {
   listAgentTeamBackgroundTranscriptEvents,
   processAgentTeamRun,
+  reconcileStaleAgentTeamRuns,
   reconcileAgentTeamRunsForOwner,
   stopAgentTeamBackgroundRun,
 } = await import("./agent-teams.js");
@@ -408,6 +440,7 @@ function resolveConfig() {
 describe("processAgentTeamRun (durable serverless execution)", () => {
   beforeEach(() => {
     queueRows = [];
+    failNextDispatchStateRead = false;
     appState.clear();
     threadData.clear();
     dispatches.length = 0;
@@ -745,7 +778,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     nowSpy.mockRestore();
   });
 
-  it("fails stale queued work when the processor rejects the self-dispatch", async () => {
+  it("keeps stale queued work retryable when self-dispatch rejects", async () => {
     const now = Date.UTC(2026, 5, 2, 12, 0, 0);
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
     await seedTask("t5-dispatch-fail");
@@ -762,13 +795,61 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       reconcileAgentTeamRunsForOwner(OWNER),
     );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      reconcileAgentTeamRunsForOwner(OWNER),
+    );
 
     const task = appState.get("agent-task:t5-dispatch-fail");
-    expect(task.status).toBe("errored");
-    expect(task.error).toContain("Failed to start sub-agent");
+    expect(task.status).toBe("running");
+    expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1);
     expect(
       (await queue.getAgentTeamRunDispatchState("t5-dispatch-fail"))?.status,
-    ).toBe("failed");
+    ).toBe("running");
+    nowSpy.mockRestore();
+  });
+
+  it("does not fail a task when its queue state cannot be read", async () => {
+    const now = Date.UTC(2026, 5, 2, 12, 0, 0);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    await seedTask("t5-queue-read-fail");
+    const row = queueRows.find((x) => x.task_id === "t5-queue-read-fail");
+    if (!row) throw new Error("missing queued task row");
+    row.status = "running";
+    row.updated_at = now - 30_000;
+    appState.get("agent-task:t5-queue-read-fail").startedAt = now - 120_000;
+    failNextDispatchStateRead = true;
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      reconcileAgentTeamRunsForOwner(OWNER),
+    );
+
+    expect(appState.get("agent-task:t5-queue-read-fail").status).toBe(
+      "running",
+    );
+    expect(
+      (await queue.getAgentTeamRunDispatchState("t5-queue-read-fail"))?.status,
+    ).toBe("running");
+    nowSpy.mockRestore();
+  });
+
+  it("reconciles stale queued work across owners from the durable sweep", async () => {
+    const now = Date.UTC(2026, 5, 2, 12, 0, 0);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    await seedTask("t5-durable-sweep");
+    const row = queueRows.find((x) => x.task_id === "t5-durable-sweep");
+    if (!row) throw new Error("missing queued task row");
+    row.updated_at = now - queue.RUN_DISPATCH_STUCK_AFTER_MS - 1;
+
+    await expect(reconcileStaleAgentTeamRuns()).resolves.toEqual({
+      examined: 1,
+      failed: 0,
+    });
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({
+      taskId: "t5-durable-sweep",
+      body: { mode: "start" },
+    });
+    expect(appState.get("agent-task:t5-durable-sweep").status).toBe("running");
     nowSpy.mockRestore();
   });
 

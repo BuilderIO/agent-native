@@ -23,6 +23,8 @@ const getA2AContinuationsMock = vi.hoisted(() => vi.fn());
 const dispatchA2AContinuationMock = vi.hoisted(() => vi.fn());
 const bumpRunProgressMock = vi.hoisted(() => vi.fn(async () => {}));
 const integrationRequestContextMock = vi.hoisted(() => vi.fn());
+const getOrgDomainMock = vi.hoisted(() => vi.fn(async () => "builder.io"));
+const getOrgA2ASecretMock = vi.hoisted(() => vi.fn(async () => "org-secret"));
 
 const slackIntegrationContext = {
   taskId: "integration-task-1",
@@ -73,8 +75,8 @@ vi.mock("../a2a/client.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
-  getOrgDomain: vi.fn(async () => "builder.io"),
-  getOrgA2ASecret: vi.fn(async () => "org-secret"),
+  getOrgDomain: getOrgDomainMock,
+  getOrgA2ASecret: getOrgA2ASecretMock,
 }));
 
 vi.mock("../server/request-context.js", () => ({
@@ -165,6 +167,8 @@ describe("call-agent action", () => {
       url: "https://slides.agent-native.test",
     });
     resolveRemoteAgentTokenMock.mockResolvedValue(undefined);
+    getOrgDomainMock.mockReset().mockResolvedValue("builder.io");
+    getOrgA2ASecretMock.mockReset().mockResolvedValue("org-secret");
     managedHandlerMock.mockReset();
     clearHostedRuntimeEnv();
     integrationRequestContextMock.mockReturnValue(slackIntegrationContext);
@@ -338,6 +342,33 @@ describe("call-agent action", () => {
     });
   });
 
+  it("explains a missing workspace domain when it causes peer auth rejection", async () => {
+    getOrgDomainMock.mockResolvedValueOnce(null);
+    callAgentMock.mockRejectedValueOnce(
+      new RemoteAgentCredentialRejectedError({ status: 401 }),
+    );
+    const { run } = await import("./call-agent.js");
+
+    await expect(
+      run({ agent: "slides", message: "make a deck" }),
+    ).rejects.toMatchObject({
+      errorCode: "a2a_caller_org_domain_missing",
+      message: expect.stringContaining("workspace has no domain configured"),
+    });
+  });
+
+  it("does not send an A2A request when workspace identity lookup fails", async () => {
+    getOrgDomainMock.mockRejectedValueOnce(
+      new Error("organization lookup unavailable"),
+    );
+    const { run } = await import("./call-agent.js");
+
+    await expect(
+      run({ agent: "slides", message: "make a deck" }),
+    ).rejects.toThrow("organization lookup unavailable");
+    expect(callAgentMock).not.toHaveBeenCalled();
+  });
+
   it("uses the resolved token and lets the client derive the hosted card root", async () => {
     findAgentMock.mockResolvedValueOnce({
       name: "Hosted Slides",
@@ -345,6 +376,12 @@ describe("call-agent action", () => {
       auth: { type: "bearer", credentialRef: "slides-token" },
     });
     resolveRemoteAgentTokenMock.mockResolvedValueOnce("resolved-token");
+    getOrgDomainMock.mockRejectedValueOnce(
+      new Error("organization lookup unavailable"),
+    );
+    getOrgA2ASecretMock.mockRejectedValueOnce(
+      new Error("organization secret lookup unavailable"),
+    );
     callAgentMock.mockResolvedValueOnce("sent");
     const { run } = await import("./call-agent.js");
 
@@ -366,6 +403,39 @@ describe("call-agent action", () => {
     );
     expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty("cardUrl");
     expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty("orgSecret");
+    expect(getOrgDomainMock).not.toHaveBeenCalled();
+    expect(getOrgA2ASecretMock).not.toHaveBeenCalled();
+  });
+
+  it("skips workspace identity reads for hosted auth in streamed calls", async () => {
+    findAgentMock.mockResolvedValueOnce({
+      name: "Hosted Slides",
+      url: "https://slides.agent-native.test/_agent-native/a2a",
+      auth: { type: "bearer", credentialRef: "slides-token" },
+    });
+    resolveRemoteAgentTokenMock.mockResolvedValueOnce("resolved-token");
+    getOrgDomainMock.mockRejectedValueOnce(
+      new Error("organization lookup unavailable"),
+    );
+    getOrgA2ASecretMock.mockRejectedValueOnce(
+      new Error("organization secret lookup unavailable"),
+    );
+    callAgentMock.mockResolvedValueOnce("sent");
+    const { run } = await import("./call-agent.js");
+
+    await expect(
+      run({ agent: "hosted-slides", message: "make a deck" }, {
+        send: vi.fn(),
+        threadId: "thread-qa",
+      } as any),
+    ).resolves.toBe("sent");
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test/_agent-native/a2a",
+      expect.any(String),
+      expect.objectContaining({ apiKey: "resolved-token" }),
+    );
+    expect(getOrgDomainMock).not.toHaveBeenCalled();
+    expect(getOrgA2ASecretMock).not.toHaveBeenCalled();
   });
 
   it("forwards Slack source context as structured A2A data", async () => {
@@ -618,6 +688,57 @@ describe("call-agent action", () => {
         durationMs: expect.any(Number),
       }),
     );
+  });
+
+  it("explains missing workspace identity before invoking a direct action", async () => {
+    getOrgDomainMock.mockResolvedValueOnce(null);
+    const { run } = await import("./call-agent.js");
+
+    const result = await run({
+      agent: "analytics",
+      action: "gong-calls",
+      input: { company: "Edmunds", days: 90 },
+    });
+
+    expect(result).toContain("workspace has no domain configured");
+    expect(invokeActionMock).not.toHaveBeenCalled();
+  });
+
+  it("does not require workspace identity when a direct action has hosted auth", async () => {
+    findAgentMock.mockResolvedValueOnce({
+      name: "Hosted Analytics",
+      url: "https://analytics.agent-native.test",
+      auth: { type: "bearer", credentialRef: "analytics-token" },
+    });
+    resolveRemoteAgentTokenMock.mockResolvedValueOnce("resolved-token");
+    getOrgDomainMock.mockRejectedValueOnce(
+      new Error("organization lookup unavailable"),
+    );
+    getOrgA2ASecretMock.mockRejectedValueOnce(
+      new Error("organization secret lookup unavailable"),
+    );
+    invokeActionMock.mockResolvedValueOnce({
+      action: "gong-calls",
+      status: "completed",
+      output: '{"total":13}',
+    });
+    const { run } = await import("./call-agent.js");
+
+    await expect(
+      run({
+        agent: "hosted-analytics",
+        action: "gong-calls",
+        input: { company: "Edmunds", days: 90 },
+      }),
+    ).resolves.toBe('{"total":13}');
+    expect(invokeActionMock).toHaveBeenCalledWith(
+      "https://analytics.agent-native.test",
+      "gong-calls",
+      { company: "Edmunds", days: 90 },
+      expect.objectContaining({ apiKey: "resolved-token" }),
+    );
+    expect(getOrgDomainMock).not.toHaveBeenCalled();
+    expect(getOrgA2ASecretMock).not.toHaveBeenCalled();
   });
 
   it("tells the model to keep polling the same task after a bounded wait", async () => {

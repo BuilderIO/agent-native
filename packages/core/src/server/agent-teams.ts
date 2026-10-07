@@ -73,6 +73,7 @@ import {
   completeAgentTeamRun,
   getAgentTeamRunDispatchState,
   listActiveAgentTeamTaskIdsForOwner,
+  listStaleActiveAgentTeamRuns,
   MAX_AGENT_TEAM_CONTINUATIONS,
   MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS,
   RUN_DISPATCH_STUCK_AFTER_MS,
@@ -136,6 +137,8 @@ export function evaluateSubagentDepth(
 }
 
 const RUN_QUEUE_HEARTBEAT_MS = 5_000;
+const RUN_DISPATCH_RETRY_COOLDOWN_MS = 60_000;
+const recentRunDispatchAttempts = new Map<string, number>();
 
 export interface AgentTask {
   taskId: string;
@@ -602,34 +605,42 @@ async function refireStuckAgentTeamRunIfNeeded(
   const idleFor = Date.now() - dispatch.updatedAt;
   if (idleFor < RUN_DISPATCH_STUCK_AFTER_MS) return;
   if (idleFor >= RUN_PROCESSING_STUCK_AFTER_MS) return;
-  try {
-    await dispatchAgentTeamRun({
-      event,
-      taskId: task.taskId,
-      body: { mode: dispatch.continuationCount > 0 ? "continue" : "start" },
-    });
-  } catch (err) {
-    await failReconciledTask(
-      task,
-      dispatch.ownerEmail,
-      subAgentDispatchFailureMessage(err),
-    );
+  const now = Date.now();
+  for (const [taskId, attemptedAt] of recentRunDispatchAttempts) {
+    if (now - attemptedAt >= RUN_PROCESSING_STUCK_AFTER_MS) {
+      recentRunDispatchAttempts.delete(taskId);
+    }
   }
+  const lastAttemptAt = recentRunDispatchAttempts.get(task.taskId);
+  if (lastAttemptAt && now - lastAttemptAt < RUN_DISPATCH_RETRY_COOLDOWN_MS) {
+    return;
+  }
+  // Tray reads can trigger reconciliation frequently; the durable sweep still
+  // retries once a minute if the current dispatch attempt cannot reach a worker.
+  recentRunDispatchAttempts.set(task.taskId, now);
+  await dispatchAgentTeamRun({
+    event,
+    taskId: task.taskId,
+    body: { mode: dispatch.continuationCount > 0 ? "continue" : "start" },
+  });
 }
 
 async function reconcileTaskWithRun(
   task: AgentTask,
   event?: any,
 ): Promise<AgentTask> {
-  let dispatch: Awaited<ReturnType<typeof getAgentTeamRunDispatchState>> = null;
-  try {
-    dispatch = await getAgentTeamRunDispatchState(task.taskId);
-  } catch {
-    dispatch = null;
-  }
+  const dispatch = await getAgentTeamRunDispatchState(task.taskId);
   applyDispatchMetadataToTask(task, dispatch);
 
-  if (task.status !== "running") return task;
+  if (task.status !== "running") {
+    if (dispatch?.status === "queued" || dispatch?.status === "running") {
+      await completeAgentTeamRun(
+        task.taskId,
+        task.status === "completed" ? "done" : "failed",
+      );
+    }
+    return task;
+  }
 
   if (dispatch) {
     const ownerEmail = dispatch.ownerEmail ?? getRequestUserEmail() ?? null;
@@ -702,10 +713,52 @@ export async function reconcileAgentTeamRunsForOwner(
     try {
       const task = await loadTask(taskId);
       if (task) await reconcileTaskWithRun(task, event);
-    } catch {
-      // best-effort per task — one bad row shouldn't block the rest
+    } catch (error) {
+      // Best-effort per task — one bad row shouldn't block the rest.
+      console.warn(
+        `[agent-teams] could not reconcile task ${taskId}:`,
+        describeDbError(error),
+      );
     }
   }
+}
+
+export async function reconcileStaleAgentTeamRuns(
+  event?: any,
+  limit = 50,
+): Promise<{ examined: number; failed: number }> {
+  const candidates = await listStaleActiveAgentTeamRuns(
+    Date.now() - RUN_DISPATCH_STUCK_AFTER_MS,
+    limit,
+  );
+  let examined = 0;
+  let failed = 0;
+  for (const candidate of candidates) {
+    try {
+      await runWithRequestContext(
+        {
+          userEmail: candidate.ownerEmail,
+          orgId: candidate.orgId ?? undefined,
+        },
+        async () => {
+          const task = await loadTask(candidate.taskId);
+          if (task) {
+            await reconcileTaskWithRun(task, event);
+          } else {
+            await completeAgentTeamRun(candidate.taskId, "failed");
+          }
+        },
+      );
+      examined += 1;
+    } catch (error) {
+      failed += 1;
+      console.warn(
+        `[agent-teams] stale run reconciliation failed for task ${candidate.taskId}:`,
+        describeDbError(error),
+      );
+    }
+  }
+  return { examined, failed };
 }
 
 function generateTaskId(): string {
@@ -1241,15 +1294,24 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
       orgId,
       payload,
     });
-    await dispatchAgentTeamRun({
-      taskId,
-      body: { mode: "start" },
-    });
   } catch (err) {
     await failReconciledTask(
       task,
       opts.ownerEmail,
       subAgentDispatchFailureMessage(err),
+    );
+    return task;
+  }
+
+  try {
+    await dispatchAgentTeamRun({
+      taskId,
+      body: { mode: "start" },
+    });
+  } catch (err) {
+    console.warn(
+      `[agent-teams] initial dispatch failed for task ${taskId}; the queued run remains retryable:`,
+      describeDbError(err),
     );
   }
 
@@ -1793,10 +1855,9 @@ export async function processAgentTeamRun(
                       },
                     });
                   } catch (err) {
-                    await failReconciledTask(
-                      task,
-                      ownerEmail || null,
-                      subAgentDispatchFailureMessage(err),
+                    console.warn(
+                      `[agent-teams] continuation dispatch failed for task ${task.taskId}; the queued run remains retryable:`,
+                      describeDbError(err),
                     );
                   }
                   return;

@@ -265,6 +265,7 @@ import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   getCurrentDelegationDepth,
   processAgentTeamRun,
+  reconcileStaleAgentTeamRuns,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
 import {
@@ -8289,6 +8290,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const staleAgentTeamRuns = await reconcileStaleAgentTeamRuns(
+              event,
+            ).catch((error: unknown) => {
+              console.error(
+                "[agent-chat] durable Agent Teams reconciliation failed:",
+                error,
+              );
+              return null;
+            });
             const { runRecurringSweepHandlers } =
               await import("../jobs/sweep-hooks.js");
             const sweepContext = {
@@ -8333,6 +8343,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: false,
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8344,15 +8355,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!triggerAvailability.available) {
               if (
                 appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null
+                automationFailureAlerts === null ||
+                staleAgentTeamRuns === null ||
+                staleAgentTeamRuns.failed > 0
               ) {
                 setResponseStatus(event, 500);
               }
               return {
                 ok:
                   appSweepHandlers.failed.length === 0 &&
-                  automationFailureAlerts !== null,
+                  automationFailureAlerts !== null &&
+                  staleAgentTeamRuns !== null &&
+                  staleAgentTeamRuns.failed === 0,
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8365,12 +8381,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await processRecurringJobs(schedulerDeps);
               if (
                 appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null
+                automationFailureAlerts === null ||
+                staleAgentTeamRuns === null ||
+                staleAgentTeamRuns.failed > 0
               ) {
                 setResponseStatus(event, 500);
                 return {
                   ok: false,
                   staleRunsReaped,
+                  staleAgentTeamRuns,
                   chatHealth,
                   automationFailureAlerts,
                   unclaimedBackgroundRuns,
@@ -8380,6 +8399,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: true,
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8391,6 +8411,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,

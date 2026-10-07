@@ -112,6 +112,30 @@ const mockDb = {
         rowsAffected: 0,
       };
     }
+    if (
+      s.includes(
+        "SELECT task_id, owner_email, org_id FROM agent_team_run_queue",
+      )
+    ) {
+      const [updatedBefore, limit] = args;
+      return {
+        rows: rows
+          .filter(
+            (x) =>
+              x.owner_email !== null &&
+              (x.status === "queued" || x.status === "running") &&
+              x.updated_at <= updatedBefore,
+          )
+          .sort((a, b) => a.updated_at - b.updated_at)
+          .slice(0, limit)
+          .map((x) => ({
+            task_id: x.task_id,
+            owner_email: x.owner_email,
+            org_id: x.org_id,
+          })),
+        rowsAffected: 0,
+      };
+    }
     if (s.includes("SELECT * FROM agent_team_run_queue WHERE task_id = ?")) {
       const r = rows.find((x) => x.task_id === args[0]);
       return { rows: r ? [{ ...r }] : [], rowsAffected: 0 };
@@ -215,5 +239,23 @@ describe("agent_team_run_queue", () => {
     expect(ids).toContain("a");
     expect(ids).not.toContain("b");
     expect(ids).not.toContain("c");
+  });
+
+  it("lists bounded stale runs with their owner and org scope", async () => {
+    await enqueue("oldest", "first@example.com");
+    await enqueue("newer", "second@example.com");
+    await enqueue("fresh", "third@example.com");
+    await queue.completeAgentTeamRun("newer", "done");
+    const oldest = rows.find((row) => row.task_id === "oldest")!;
+    oldest.updated_at = 10;
+    oldest.org_id = "org-first";
+    const newer = rows.find((row) => row.task_id === "newer")!;
+    newer.updated_at = 20;
+    const fresh = rows.find((row) => row.task_id === "fresh")!;
+    fresh.updated_at = 30;
+
+    await expect(queue.listStaleActiveAgentTeamRuns(25, 1)).resolves.toEqual([
+      { taskId: "oldest", ownerEmail: "first@example.com", orgId: "org-first" },
+    ]);
   });
 });

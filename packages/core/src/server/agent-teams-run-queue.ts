@@ -242,6 +242,31 @@ export async function listActiveAgentTeamTaskIdsForOwner(
   return rows.map((r: any) => String(r.task_id));
 }
 
+export async function listStaleActiveAgentTeamRuns(
+  updatedBefore: number,
+  limit = 50,
+): Promise<
+  Array<{ taskId: string; ownerEmail: string; orgId: string | null }>
+> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT task_id, owner_email, org_id FROM agent_team_run_queue
+            WHERE owner_email IS NOT NULL
+              AND BTRIM(owner_email) <> ''
+              AND status IN ('queued', 'running')
+              AND updated_at <= ?
+          ORDER BY updated_at ASC
+          LIMIT ?`,
+    args: [updatedBefore, limit],
+  });
+  return rows.map((row: any) => ({
+    taskId: String(row.task_id),
+    ownerEmail: String(row.owner_email),
+    orgId: (row.org_id as string | null) ?? null,
+  }));
+}
+
 export async function getAgentTeamRunDispatchState(
   taskId: string,
 ): Promise<AgentTeamRunQueueRow | null> {

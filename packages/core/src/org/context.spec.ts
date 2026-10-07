@@ -1427,9 +1427,9 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
     expect(await getOrgDomain("org1")).toBeNull();
   });
 
-  it("getOrgDomain returns null on DB error", async () => {
+  it("getOrgDomain preserves DB errors", async () => {
     mockExecute.mockRejectedValueOnce(new Error("boom"));
-    expect(await getOrgDomain("org1")).toBeNull();
+    await expect(getOrgDomain("org1")).rejects.toThrow("boom");
   });
 
   it("getOrgA2ASecret returns the secret or null", async () => {
@@ -1442,6 +1442,13 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
     expect(await getOrgA2ASecret("org1")).toBeNull();
   });
 
+  it("getOrgA2ASecret preserves DB errors", async () => {
+    mockExecute.mockRejectedValueOnce(new Error("secret lookup failed"));
+    await expect(getOrgA2ASecret("org1")).rejects.toThrow(
+      "secret lookup failed",
+    );
+  });
+
   it("getA2ASecretByDomain lowercases the domain in the lookup", async () => {
     queueSelect([{ a2a_secret: "byDomain" }]);
     const secret = await getA2ASecretByDomain("ACME.com");
@@ -1449,9 +1456,9 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
     expect(mockExecute.mock.calls[0][0].args).toEqual(["acme.com"]);
   });
 
-  it("getA2ASecretByDomain returns null on DB error", async () => {
+  it("getA2ASecretByDomain preserves DB errors", async () => {
     mockExecute.mockRejectedValueOnce(new Error("boom"));
-    expect(await getA2ASecretByDomain("acme.com")).toBeNull();
+    await expect(getA2ASecretByDomain("acme.com")).rejects.toThrow("boom");
   });
 
   it("resolves org credentials with normalized domain and preserves lookup failures", async () => {
