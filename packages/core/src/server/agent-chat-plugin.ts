@@ -220,7 +220,7 @@ import {
   WORKSPACE_OWNER,
 } from "../resources/store.js";
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
-import { serializeCliArgs } from "../scripts/parse-args.js";
+import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import {
@@ -1605,45 +1605,12 @@ export function createAgentChatPlugin(
 
                   const tokens: string[] = [];
                   if (typeof input?.args === "string" && input.args.trim()) {
-                    let current = "";
-                    let inSingle = false;
-                    let inDouble = false;
-                    let escape = false;
-                    for (let i = 0; i < input.args.length; i++) {
-                      const char = input.args[i];
-                      if (escape) {
-                        current += char;
-                        escape = false;
-                        continue;
-                      }
-                      if (char === "\\") {
-                        if (inSingle) {
-                          current += char;
-                        } else {
-                          escape = true;
-                        }
-                        continue;
-                      }
-                      if (char === "'" && !inDouble) {
-                        inSingle = !inSingle;
-                        continue;
-                      }
-                      if (char === '"' && !inSingle) {
-                        inDouble = !inDouble;
-                        continue;
-                      }
-                      if (/\s/.test(char) && !inSingle && !inDouble) {
-                        if (current.length > 0) {
-                          tokens.push(current);
-                          current = "";
-                        }
-                        continue;
-                      }
-                      current += char;
-                    }
-                    if (current.length > 0) {
-                      tokens.push(current);
-                    }
+                    tokens.push(
+                      ...normalizeShellArgs(input.args, {
+                        backslashEscapes: true,
+                        splitAllWhitespace: true,
+                      }),
+                    );
                   } else if (input && typeof input === "object") {
                     const actionArgs: Record<string, unknown> = {};
                     for (const [k, v] of Object.entries(input)) {

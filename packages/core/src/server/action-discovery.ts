@@ -4,7 +4,7 @@ import "../authorization/check-action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
-import { serializeCliArgs } from "../scripts/parse-args.js";
+import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
 
 let _fs: typeof import("fs") | undefined;
@@ -71,67 +71,6 @@ export function mergePackageActions(
   }
 }
 
-type ShellArgToken = { value: string; quoted: boolean };
-
-function splitShellArgs(input: string): ShellArgToken[] {
-  const tokens: ShellArgToken[] = [];
-  let current = "";
-  let inDouble = false;
-  let inSingle = false;
-  let wasQuoted = false;
-
-  const pushToken = () => {
-    tokens.push({ value: current, quoted: wasQuoted });
-    current = "";
-    wasQuoted = false;
-  };
-
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-    if (ch === '"' && !inSingle) {
-      inDouble = !inDouble;
-      wasQuoted = true;
-      continue;
-    }
-    if (ch === "'" && !inDouble) {
-      inSingle = !inSingle;
-      wasQuoted = true;
-      continue;
-    }
-    if ((ch === " " || ch === "\t") && !inDouble && !inSingle) {
-      if (current.length > 0 || wasQuoted) {
-        pushToken();
-      }
-      continue;
-    }
-    current += ch;
-  }
-  if (current.length > 0 || wasQuoted) {
-    pushToken();
-  }
-  return tokens;
-}
-
-function normalizeShellArgs(tokens: ShellArgToken[]): string[] {
-  const normalized: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    const next = tokens[i + 1];
-    if (
-      token.value.startsWith("--") &&
-      !token.value.includes("=") &&
-      next?.quoted &&
-      next.value.startsWith("--")
-    ) {
-      normalized.push(`${token.value}=${next.value}`);
-      i++;
-    } else {
-      normalized.push(token.value);
-    }
-  }
-  return normalized;
-}
-
 function wrapDefaultExport(
   name: string,
   defaultFn: (args: string[]) => Promise<void>,
@@ -155,7 +94,7 @@ function wrapDefaultExport(
     run: async (args: Record<string, string>): Promise<string> => {
       const cliArgs =
         args.args && Object.keys(args).length === 1
-          ? normalizeShellArgs(splitShellArgs(args.args))
+          ? normalizeShellArgs(args.args)
           : serializeCliArgs(args);
       return captureCliOutput(() => defaultFn(cliArgs));
     },

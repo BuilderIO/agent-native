@@ -32,6 +32,88 @@ export function serializeCliArgs(args: Record<string, unknown>): string[] {
   });
 }
 
+type ShellArgToken = { value: string; quoted: boolean };
+
+type NormalizeShellArgsOptions = {
+  backslashEscapes?: boolean;
+  splitAllWhitespace?: boolean;
+};
+
+export function normalizeShellArgs(
+  input: string,
+  options: NormalizeShellArgsOptions = {},
+): string[] {
+  const tokens: ShellArgToken[] = [];
+  let current = "";
+  let inDouble = false;
+  let inSingle = false;
+  let wasQuoted = false;
+  let escape = false;
+
+  const pushToken = () => {
+    tokens.push({ value: current, quoted: wasQuoted });
+    current = "";
+    wasQuoted = false;
+  };
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (escape) {
+      current += ch;
+      escape = false;
+      continue;
+    }
+    if (options.backslashEscapes && ch === "\\") {
+      if (inSingle) {
+        current += ch;
+      } else {
+        escape = true;
+      }
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      wasQuoted = true;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      wasQuoted = true;
+      continue;
+    }
+    if (
+      (options.splitAllWhitespace
+        ? /\s/.test(ch)
+        : ch === " " || ch === "\t") &&
+      !inSingle &&
+      !inDouble
+    ) {
+      if (current.length > 0 || wasQuoted) pushToken();
+      continue;
+    }
+    current += ch;
+  }
+  if (current.length > 0 || wasQuoted) pushToken();
+
+  const normalized: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const next = tokens[i + 1];
+    if (
+      token.value.startsWith("--") &&
+      !token.value.includes("=") &&
+      next?.quoted &&
+      next.value.startsWith("--")
+    ) {
+      normalized.push(`${token.value}=${next.value}`);
+      i++;
+    } else {
+      normalized.push(token.value);
+    }
+  }
+  return normalized;
+}
+
 export function camelCaseArgs(
   args: Record<string, string>,
 ): Record<string, string> {
