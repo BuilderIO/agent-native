@@ -566,8 +566,12 @@ function sanitizeHtmlString(
       },
     );
   const withoutFalseBooleanMediaAttrs = sanitized.replace(
-    /(<video\b[^>]*?)\s+(autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/gi,
-    "$1",
+    /<video\b[^>]*>/gi,
+    (tag) =>
+      tag.replace(
+        /\s+(autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/gi,
+        "",
+      ),
   );
   return withoutFalseBooleanMediaAttrs.replace(/<video\b[^>]*>/gi, (tag) => {
     const hasAutoplay = /\sautoplay(?:\s|=|\/?>)/i.test(tag);

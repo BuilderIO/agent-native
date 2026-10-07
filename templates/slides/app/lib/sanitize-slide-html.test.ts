@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { extractMermaidBlocks } from "./mermaid-blocks";
 import {
@@ -151,6 +151,31 @@ describe("sanitizeSlideUrl", () => {
     expect(html).toContain("<video");
     expect(html).not.toContain("javascript:");
     expect(html).not.toContain("data:video");
+  });
+
+  it("removes every false video boolean in DOM and SSR sanitizers", () => {
+    const source =
+      '<video controls="false" autoplay="false" loop="false" muted="false" playsinline="false"></video><video playsinline="false" muted="false" loop="false" autoplay="false" controls="false"></video>';
+    const domResult = sanitizeSlideHtml(source);
+    expect(domResult).not.toMatch(
+      /\b(?:autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/i,
+    );
+    expect(domResult).not.toMatch(
+      /\b(?:autoplay|controls|loop|muted|playsinline)(?:="")?/i,
+    );
+
+    vi.stubGlobal("DOMParser", undefined);
+    try {
+      const ssrResult = sanitizeSlideHtml(source);
+      expect(ssrResult).not.toMatch(
+        /\b(?:autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/i,
+      );
+      expect(ssrResult).not.toMatch(
+        /\b(?:autoplay|controls|loop|muted|playsinline)(?:="")?/i,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("gates blob video previews and preserves autoplay settings in thumbnails", () => {

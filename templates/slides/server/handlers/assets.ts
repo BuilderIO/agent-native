@@ -8,6 +8,7 @@ import {
 import { parseBase64DataUrl } from "@agent-native/core/shared";
 import { and, desc, eq } from "drizzle-orm";
 import {
+  assertBodySize,
   defineEventHandler,
   getRouterParam,
   setResponseStatus,
@@ -25,6 +26,11 @@ type AuthedSlidesSession = SlidesRequestAuthContext & { email: string };
 
 export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024;
 export const MAX_VIDEO_ASSET_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
+export const MAX_ASSET_REQUEST_SIZE =
+  MAX_ASSET_FILE_SIZE + MAX_MULTIPART_OVERHEAD_BYTES;
+export const MAX_VIDEO_ASSET_REQUEST_SIZE =
+  MAX_VIDEO_ASSET_FILE_SIZE + MAX_MULTIPART_OVERHEAD_BYTES;
 
 export interface UploadedAsset {
   url: string;
@@ -395,6 +401,7 @@ export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
     return { error: authError };
   }
 
+  await assertBodySize(event, MAX_VIDEO_ASSET_REQUEST_SIZE);
   const parts = await readMultipartFormData(event);
   const filePart = parts?.find((part) => part.name === "file");
   if (!filePart?.data) {
@@ -428,6 +435,7 @@ export const uploadAsset = defineEventHandler(async (event) => {
     return { error: authError };
   }
 
+  await assertBodySize(event, MAX_ASSET_REQUEST_SIZE);
   const parts = await readMultipartFormData(event);
   const filePart = parts?.find((p) => p.name === "file");
   if (!filePart || !filePart.data) {

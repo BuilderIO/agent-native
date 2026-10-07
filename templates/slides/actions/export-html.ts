@@ -477,6 +477,7 @@ export function buildStandaloneHtml(
 
       function showSlide(index) {
         if (index < 0 || index >= totalSlides) return;
+        slides[currentSlide].querySelectorAll('video').forEach(function(video) { video.pause(); });
         slides[currentSlide].style.display = 'none';
         currentSlide = index;
         slides[currentSlide].style.display = 'flex';
@@ -510,6 +511,7 @@ export function buildStandaloneHtml(
       fitSlide();
 
       document.addEventListener('keydown', function(e) {
+        if (e.target instanceof Element && e.target.closest('video, audio')) return;
         switch (e.key) {
           case 'ArrowRight':
           case 'ArrowDown':
@@ -552,6 +554,7 @@ export function buildStandaloneHtml(
       // Click to advance (left third = back, right two-thirds = forward)
       document.getElementById('viewport').addEventListener('click', function(e) {
         if (e.target.closest('.bottom-bar')) return;
+        if (e.target instanceof Element && e.target.closest('video, audio')) return;
         var rect = this.getBoundingClientRect();
         var x = e.clientX - rect.left;
         if (x < rect.width / 3) {

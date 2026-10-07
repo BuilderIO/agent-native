@@ -59,3 +59,43 @@ it("preserves safe video playback in standalone HTML exports", () => {
   expect(html).toMatch(/<video[^>]*\bplaysinline\b/);
   expect(html).not.toContain("javascript:");
 });
+
+it("keeps video controls from navigating or continuing playback off-slide", async () => {
+  const window = new Window({ settings: { enableJavaScriptEvaluation: true } });
+  const html = buildStandaloneHtml("Video deck", [
+    {
+      id: "video-slide",
+      content:
+        '<video controls><source src="https://media.example.com/clip.mp4" type="video/mp4"></video>',
+    },
+    { id: "next-slide", content: "<p>Next</p>" },
+  ]);
+  window.document.write(html);
+  await window.happyDOM.whenAsyncComplete();
+
+  const counter = window.document.getElementById("counter");
+  const video = window.document.querySelector("video");
+  const viewport = window.document.getElementById("viewport");
+  const pause = vi.fn();
+  if (!video || !viewport) throw new Error("Expected exported video slide");
+  video.pause = pause;
+
+  video.click();
+  expect(counter?.textContent).toBe("1 / 2");
+
+  for (const key of [" ", "ArrowRight"]) {
+    const event = new window.KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    video.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(counter?.textContent).toBe("1 / 2");
+  }
+
+  viewport.click();
+  expect(counter?.textContent).toBe("2 / 2");
+  expect(pause).toHaveBeenCalledTimes(1);
+  await window.happyDOM.abort();
+});
