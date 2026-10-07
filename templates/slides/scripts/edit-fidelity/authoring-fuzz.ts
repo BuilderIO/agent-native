@@ -962,6 +962,9 @@ export async function runAuthoringFuzz(
               parent: Node;
               receiverText: string;
               sourceText: string;
+              sourceFormatting: Array<{ text: string; marks: string[] }>;
+              receiverAttributes: string;
+              receiverStyles: Record<string, string>;
             };
           };
         };
@@ -1072,6 +1075,52 @@ export async function runAuthoringFuzz(
             ]),
           ) as Record<string, string>;
         };
+        const authoredAttributes = (element: Element) =>
+          Array.from(element.attributes)
+            .map(({ name, value }) => `${name}=${value}`)
+            .sort()
+            .join("\n");
+        const visibleText = (value: string) =>
+          value.replaceAll(/[\u200b\ufeff]/g, "").replaceAll("\u00a0", " ");
+        const inlineFormatting = (
+          block: HTMLElement,
+          start = 0,
+          end = Number.POSITIVE_INFINITY,
+        ) => {
+          const runs: Array<{ text: string; marks: string[] }> = [];
+          const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+          let offset = 0;
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const text = node as Text;
+            const value = visibleText(text.data);
+            const from = Math.max(start, offset);
+            const to = Math.min(end, offset + value.length);
+            if (from < to) {
+              const marks: string[] = [];
+              for (
+                let current = text.parentElement;
+                current && current !== block;
+                current = current.parentElement
+              ) {
+                marks.unshift(
+                  `${current.tagName}:${authoredAttributes(current)}`,
+                );
+              }
+              const slice = value.slice(from - offset, to - offset);
+              const previousRun = runs.at(-1);
+              if (
+                previousRun &&
+                JSON.stringify(previousRun.marks) === JSON.stringify(marks)
+              ) {
+                previousRun.text += slice;
+              } else {
+                runs.push({ text: slice, marks });
+              }
+            }
+            offset += value.length;
+          }
+          return runs;
+        };
         const merge =
           phase === "capture"
             ? (() => {
@@ -1106,6 +1155,9 @@ export async function runAuthoringFuzz(
                       parent: receiver.parentNode as Node,
                       receiverText: receiver.textContent ?? "",
                       sourceText: source.textContent ?? "",
+                      sourceFormatting: inlineFormatting(source),
+                      receiverAttributes: authoredAttributes(receiver),
+                      receiverStyles: styleValues(receiver),
                     }
                   : undefined;
               })()
@@ -1290,6 +1342,18 @@ export async function runAuthoringFuzz(
           ) {
             throw new Error(
               `block-edge ${operation.kind === "backspace-block-edge" ? "Backspace" : "Delete"} setup did not create adjacent paragraphs inside the editing root`,
+            );
+          }
+          if (
+            requireMerge &&
+            merge &&
+            (!merge.sourceText.trim() ||
+              !merge.sourceFormatting.some(
+                ({ text, marks }) => text.trim() && marks.length > 0,
+              ))
+          ) {
+            throw new Error(
+              "block-edge setup needs a non-empty source paragraph with inline formatting",
             );
           }
           scope.__authoringFuzzSiblingSnapshot = {
@@ -1524,6 +1588,35 @@ export async function runAuthoringFuzz(
           if (actualText !== expectedText) {
             failures.push(
               `block-edge ${mergeAssertion.direction === "backward" ? "Backspace" : "Delete"} changed the receiving text (${actualText.length} vs ${expectedText.length} characters; receiver=${normalizeText(mergeAssertion.receiverText).length}, source=${normalizeText(mergeAssertion.sourceText).length})`,
+            );
+          }
+          const receiverFormatting = inlineFormatting(
+            mergeAssertion.receiver,
+            visibleText(mergeAssertion.receiverText).length,
+            visibleText(mergeAssertion.receiverText).length +
+              visibleText(mergeAssertion.sourceText).length,
+          );
+          if (
+            JSON.stringify(receiverFormatting) !==
+            JSON.stringify(mergeAssertion.sourceFormatting)
+          ) {
+            failures.push(
+              `block-edge ${action} did not preserve source inline formatting (sourceRuns=${mergeAssertion.sourceFormatting.length}, mergedRuns=${receiverFormatting.length}, sourceMarks=${mergeAssertion.sourceFormatting.map(({ marks }) => marks.length).join(",")}, mergedMarks=${receiverFormatting.map(({ marks }) => marks.length).join(",")})`,
+            );
+          }
+          const changedReceiverStyle = changedStyleProperties(
+            mergeAssertion.receiver,
+            mergeAssertion.receiverStyles,
+          );
+          if (
+            authoredAttributes(mergeAssertion.receiver) !==
+            mergeAssertion.receiverAttributes
+          ) {
+            failures.push(`block-edge ${action} changed receiver attributes`);
+          }
+          if (changedReceiverStyle.length) {
+            failures.push(
+              `block-edge ${action} changed receiver style (${changedReceiverStyle.slice(0, 6).join(", ")})`,
             );
           }
         }
@@ -3074,9 +3167,11 @@ export async function runAuthoringFuzz(
           await editor.press(lineStartKey);
           await editor.press("Enter");
           break;
-        case "backspace-block-edge":
+        case "backspace-block-edge": {
           await newPlainLine("block-edge Backspace");
-          await typeText(`merge${activeIndex}`);
+          const leftToken = `merge-left-${activeIndex}`;
+          const rightToken = `merge-right-${activeIndex}`;
+          await typeText(leftToken);
           await editor.press(lineEndKey);
           await editor.press("Enter");
           if (!(await plainLineState()).valid) {
@@ -3084,10 +3179,17 @@ export async function runAuthoringFuzz(
               "block-edge Backspace setup did not create a plain paragraph",
             );
           }
+          await editor.press(`${modifier}+B`);
+          await editor.press(`${modifier}+I`);
+          await typeText(rightToken);
+          await editor.press(`${modifier}+I`);
+          await editor.press(`${modifier}+B`);
+          await placeCaretAtToken(rightToken, "start");
           await snapshotEditorSiblings("capture", operation, true);
           await editor.press(lineStartKey);
           await editor.press("Backspace");
           break;
+        }
         case "delete-block-edge": {
           await newPlainLine("block-edge Delete");
           const leftToken = `delete-left-${activeIndex}`;
@@ -3095,7 +3197,11 @@ export async function runAuthoringFuzz(
           await typeText(leftToken);
           await editor.press(lineEndKey);
           await editor.press("Enter");
+          await editor.press(`${modifier}+B`);
+          await editor.press(`${modifier}+I`);
           await typeText(rightToken);
+          await editor.press(`${modifier}+I`);
+          await editor.press(`${modifier}+B`);
           await placeCaretAtToken(leftToken, "end");
           await snapshotEditorSiblings("capture", operation, true);
           await editor.press("Delete");

@@ -1831,21 +1831,21 @@ describe("in-place text session: deleting", () => {
 
   it("merges paragraphs on Delete while keeping receiver style and inline marks", () => {
     const el = mount(
-      '<div id="t"><p style="color: blue; font-size: 30px"><em>Alpha</em></p><p style="color: red"><strong>Beta</strong></p></div>',
+      '<div id="t"><p style="color: blue; font-size: 30px"><em>Alpha</em></p><p style="color: red"><a href="https://example.com/merge"><strong>Beta</strong></a></p></div>',
     );
     session = startInPlaceTextSession(el);
     caret(textOf(el, "Alpha"), 5);
 
     expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
     expect(el.innerHTML).toBe(
-      '<p style="color: blue; font-size: 30px"><em>Alpha</em><strong>Beta</strong></p>',
+      '<p style="color: blue; font-size: 30px"><em>Alpha</em><a href="https://example.com/merge"><strong>Beta</strong></a></p>',
     );
     expect(el.children).toHaveLength(1);
     expect(window.getSelection()?.anchorNode).toBe(textOf(el, "Alpha"));
     expect(window.getSelection()?.anchorOffset).toBe(5);
     session.end();
     expect(el.innerHTML).toBe(
-      '<p style="color: blue; font-size: 30px"><em>Alpha</em><strong>Beta</strong></p>',
+      '<p style="color: blue; font-size: 30px"><em>Alpha</em><a href="https://example.com/merge"><strong>Beta</strong></a></p>',
     );
   });
 
