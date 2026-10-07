@@ -718,6 +718,28 @@ describe("session replay screenshot asset checks", () => {
     image.remove();
   });
 
+  it("preflights inline image data with uppercase media types", async () => {
+    const image = document.createElement("img");
+    image.src = (await dataPng(4_000, 3_000)).replace(
+      "data:image/",
+      "DATA:IMAGE/",
+    );
+    document.body.appendChild(image);
+    const probes = stubImageProbes(
+      () =>
+        new Response(pngBlob(4_000, 3_000), {
+          headers: { "content-type": "image/png" },
+        }),
+    );
+
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    expect(probes).toHaveLength(1);
+
+    image.remove();
+  });
+
   it("checks image dimensions before decoding large raster assets", async () => {
     const image = document.createElement("img");
     image.src = "https://assets.example.test/large.png";

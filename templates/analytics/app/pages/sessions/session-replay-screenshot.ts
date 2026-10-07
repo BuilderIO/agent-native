@@ -436,7 +436,7 @@ function imageResourcesInDocuments(
   const addUrl = (value: string, baseURI: string, document: Document) => {
     const normalizedValue = value.trim();
     if (
-      normalizedValue.startsWith("data:image/") &&
+      /^data:image\//i.test(normalizedValue) &&
       normalizedValue.length > MAX_INLINE_ASSET_BYTES
     ) {
       throw new ReplayScreenshotAssetError();
@@ -455,7 +455,7 @@ function imageResourcesInDocuments(
       const urls = urlsByDocument.get(document) ?? new Set<string>();
       urls.add(url.href);
       urlsByDocument.set(document, urls);
-    } else if (url.protocol === "data:" && url.href.startsWith("data:image/")) {
+    } else if (url.protocol === "data:" && /^data:image\//i.test(url.href)) {
       const urls = urlsByDocument.get(document) ?? new Set<string>();
       urls.add(url.href);
       urlsByDocument.set(document, urls);
@@ -537,10 +537,10 @@ function imageResourcesInDocuments(
       if (
         source &&
         !source.trim().startsWith("#") &&
-        !source.trim().startsWith("data:image/")
+        !/^data:image\//i.test(source.trim())
       ) {
         throw new ReplayScreenshotAssetError();
-      } else if (source?.trim().startsWith("data:image/")) {
+      } else if (source && /^data:image\//i.test(source.trim())) {
         addUrl(source, current.baseURI, current);
       }
     }
