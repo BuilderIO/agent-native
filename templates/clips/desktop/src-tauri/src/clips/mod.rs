@@ -1458,9 +1458,6 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
     if voice_woken {
         return Ok(());
     }
-    if is_recording_active(&app) {
-        return Ok(());
-    }
     if let Some(w) = app.get_webview_window("popover") {
         let tray_center = app
             .try_state::<TrayAnchor>()

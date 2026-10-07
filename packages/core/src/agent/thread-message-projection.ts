@@ -98,11 +98,16 @@ function eventMessageIdsByRun(
 function assistantRunId(
   value: Record<string, unknown>,
   runIdsByMessageId: Map<string, Set<string>>,
+  inferredRunId?: string,
 ): string | undefined {
   if (value.role !== "assistant") return undefined;
   const eventRunIds =
     typeof value.id === "string" ? runIdsByMessageId.get(value.id) : undefined;
-  return eventRunIds?.size === 1 ? [...eventRunIds][0] : explicitRunId(value);
+  return (
+    (eventRunIds?.size === 1 ? [...eventRunIds][0] : undefined) ??
+    explicitRunId(value) ??
+    (eventRunIds?.size ? undefined : inferredRunId)
+  );
 }
 
 function text(
@@ -301,6 +306,7 @@ export function projectRootAssistantMessages(input: {
 }): {
   representedRootMessageIds: Set<string>;
   snapshotMessageIdsByRootMessageId: Map<string, string>;
+  snapshotRunIdsByMessageId: Map<string, string>;
 } {
   const rootMessages = Array.isArray(input.rootMessages)
     ? input.rootMessages.flatMap((value) => {
@@ -316,10 +322,61 @@ export function projectRootAssistantMessages(input: {
     : [];
   const runIdsByMessageId = eventRunIds(input.events, input.runs);
   const messageIdsByRun = eventMessageIdsByRun(runIdsByMessageId);
-  const snapshotMessagesByRunId = new Map<string, Record<string, unknown>[]>();
+  const snapshotUserIdsByRun = new Map<string, string | null>();
+  for (const root of rootMessages) {
+    if (root.role !== "user") continue;
+    const custom = record(record(root.metadata)?.custom);
+    const snapshotId =
+      typeof custom?.agentKitMessageId === "string"
+        ? custom.agentKitMessageId
+        : typeof root.id === "string"
+          ? root.id
+          : undefined;
+    const runId = custom?.submittedRunId;
+    if (!snapshotId || typeof runId !== "string") continue;
+    snapshotUserIdsByRun.set(
+      snapshotId,
+      snapshotUserIdsByRun.has(snapshotId) ? null : runId,
+    );
+  }
+  const snapshotUserCounts = new Map<string, number>();
   for (const candidate of snapshotMessages) {
-    const runId = assistantRunId(candidate, runIdsByMessageId);
-    if (!runId) continue;
+    if (candidate.role !== "user" || typeof candidate.id !== "string") continue;
+    snapshotUserCounts.set(
+      candidate.id,
+      (snapshotUserCounts.get(candidate.id) ?? 0) + 1,
+    );
+  }
+  for (const [snapshotId, runId] of snapshotUserIdsByRun) {
+    if (snapshotUserCounts.get(snapshotId) !== 1 || runId === null) {
+      snapshotUserIdsByRun.delete(snapshotId);
+    }
+  }
+  const snapshotMessagesByRunId = new Map<string, Record<string, unknown>[]>();
+  const snapshotRunIdsByMessageId = new Map<string, string>();
+  let submittedRunId: string | undefined;
+  for (const candidate of snapshotMessages) {
+    if (candidate.role === "user") {
+      const candidateRunId =
+        typeof candidate.id === "string"
+          ? snapshotUserIdsByRun.get(candidate.id)
+          : undefined;
+      submittedRunId =
+        typeof candidateRunId === "string" ? candidateRunId : undefined;
+      continue;
+    }
+    if (candidate.role !== "assistant") continue;
+    const eventRunIds =
+      typeof candidate.id === "string"
+        ? runIdsByMessageId.get(candidate.id)
+        : undefined;
+    const inferredRunId =
+      !eventRunIds?.size && !explicitRunId(candidate)
+        ? submittedRunId
+        : undefined;
+    const runId = assistantRunId(candidate, runIdsByMessageId, inferredRunId);
+    if (!runId || typeof candidate.id !== "string") continue;
+    if (inferredRunId) snapshotRunIdsByMessageId.set(candidate.id, runId);
     const candidates = snapshotMessagesByRunId.get(runId);
     if (candidates) candidates.push(candidate);
     else snapshotMessagesByRunId.set(runId, [candidate]);
@@ -347,8 +404,9 @@ export function projectRootAssistantMessages(input: {
       matchingCandidate !== undefined &&
       (explicitRunId(matchingCandidate) === runId ||
         (typeof matchingCandidate.id === "string" &&
-          runIdsByMessageId.get(matchingCandidate.id)?.size === 1 &&
-          messageIdsByRun.get(runId)?.size === 1));
+          (snapshotRunIdsByMessageId.get(matchingCandidate.id) === runId ||
+            (runIdsByMessageId.get(matchingCandidate.id)?.size === 1 &&
+              messageIdsByRun.get(runId)?.size === 1))));
     if (
       sameRunMatches.length === 1 &&
       (exactTextMatch ||
@@ -390,6 +448,7 @@ export function projectRootAssistantMessages(input: {
   return {
     representedRootMessageIds: represented,
     snapshotMessageIdsByRootMessageId,
+    snapshotRunIdsByMessageId,
   };
 }
 

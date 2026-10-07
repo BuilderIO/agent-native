@@ -137,6 +137,7 @@ import {
   MACOS_UPDATE_RESTART_MESSAGE,
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
+import { getPopoverAutoSizeOptions } from "./lib/popover-sizing";
 import {
   changeRecordFirstFiles,
   effectiveLocalRecordingMode,
@@ -939,7 +940,10 @@ function measurePopoverHeight(el: HTMLElement): number {
 
 function usePopoverAutoSize(
   ref: RefObject<HTMLElement | null>,
-  options: { disabled: boolean; width: number },
+  options: {
+    disabled: boolean;
+    width: number;
+  },
 ): void {
   const { disabled, width } = options;
 
@@ -2928,15 +2932,18 @@ export function App({
     setPopoverView,
     appRef,
   );
-  usePopoverAutoSize(appRef, {
-    disabled:
-      (popoverView !== "settings" && !popoverVisible) ||
-      isRecording ||
-      recordingFlowActive ||
-      recordingStartPending,
-    width:
-      popoverView === "settings" ? 720 : popoverView === "memory" ? 440 : 320,
-  });
+  const popoverLayoutView =
+    popoverView === "settings"
+      ? "settings"
+      : popoverView === "memory"
+        ? "memory"
+        : "recorder";
+  const popoverAutoSizeOptions = getPopoverAutoSizeOptions(
+    popoverLayoutView,
+    popoverVisible,
+    recordingStartPending,
+  );
+  usePopoverAutoSize(appRef, popoverAutoSizeOptions);
 
   const loadPendingUploads = useCallback(async () => {
     const sequence = ++recoveryLookupSequence.current;
