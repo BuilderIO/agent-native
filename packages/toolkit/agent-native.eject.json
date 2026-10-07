@@ -201,7 +201,8 @@
         "sonner",
         "tailwind-merge"
       ],
-      "verification": ["pnpm typecheck"]
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/use-action"]
     },
     {
       "id": "toolkit/app-chat",
@@ -649,7 +650,8 @@
         "@tanstack/react-query",
         "next-themes",
         "react",
-        "react-router"
+        "react-router",
+        "sonner"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1316,7 +1318,12 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app/transcription"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["@agent-native/core", "@tabler/icons-react", "react"],
+      "dependencies": [
+        "@agent-native/core",
+        "@tabler/icons-react",
+        "react",
+        "sonner"
+      ],
       "verification": ["pnpm typecheck"],
       "protectedImports": ["@agent-native/core/client/i18n"]
     },
