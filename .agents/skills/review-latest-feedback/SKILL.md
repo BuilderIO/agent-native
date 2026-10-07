@@ -1,9 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep recent Slack, GitHub issues, Sentry, Agent-Native Analytics errors,
-  actionable automated diagnostics, and linked-tracker feedback: answer
-  reporters first, then fix verified bugs and actionable
+  Sweep recent Slack, GitHub issues, CI failures, Sentry, first-party
+  Agent-Native Analytics errors, actionable automated diagnostics, and
+  linked-tracker feedback: answer reporters first, then fix verified bugs and
+  actionable
   objective UI defects at the owning boundary, require human signoff for
   subjective UI changes, build features the invoking user endorsed with an
   :upvote:, and recap every disposition. Use for scheduled or manual sweeps.
@@ -92,7 +93,8 @@ For clusters, post one owner status with each source permalink and
   **Clustered**, or **Abandoned - no answer in 4 days**. Apply the reaction
   gate above.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
-  **Deployed - live unverified**, **Not reproducible - attempted**, or
+  **Deployed - live unverified**, **Not reproducible - attempted**,
+  **Quarantined** (owner, expiry, issue; track to fix or restore), or
   **In progress**.
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
@@ -285,6 +287,12 @@ the cursor: recent open or unresolved items with no maintainer disposition,
 deduplicated against Slack. If a source cannot be read, record it as
 **unavailable**. Never report "nothing matched" for a source you could not
 query.
+
+### CI failures are a first-class source
+
+Run `pnpm ci:red-report`; follow the [CI triage procedure](references/ci-red-report.md).
+The five-day report covers failed push/scheduled main workflows. Query failure
+is **CI unavailable**, never empty; record every row.
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
@@ -576,10 +584,12 @@ Reaction-gated skips: N · claimed N · answered N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
+CI: N runs · N fingerprints · <queried / unavailable>
 
 | Tracker/source | Reporter | Status | Repro (expected/actual) | Pre/post | Runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 18 / [thread](...) | ... | <disposition> | steps; expected/actual | before/after | source/tests/build/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
+| CI [run](...) · workflow · fingerprint | N/A | <class> · <disposition> | job/step; expected/actual | before/after | local fix/quarantine | N/A | owner/[issue](...) | N/A | N/A |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete

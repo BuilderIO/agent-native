@@ -1,0 +1,465 @@
+#!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+const ORACLE_DIR = "templates/design/parity/oracle";
+const ORACLE_ID = /^fig\.[a-z0-9]+(?:-[a-z0-9]+)*\.[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const FigmaMethods = new Set([
+  "figma-desktop-app-click",
+  "figma-inspector-read",
+  "cdp-plugin-api",
+  "cdp-input",
+]);
+
+type RecorderManifest = {
+  id: string;
+  claim: string;
+  area: string;
+  gesture: string;
+  nativeObservation: string;
+  operator: string;
+  measuredBy: string;
+  trials: string;
+  figmaPageName: string;
+  probeMarker: string;
+  designId: string;
+  values: Record<string, unknown>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function containsPrivateFigmaLocator(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsPrivateFigmaLocator);
+  if (typeof value === "string") {
+    return /https?:\/\/(?:www\.)?figma\.com\/(?:file|design|proto|board|slides|deck)\/[^/?#\s]+/i.test(
+      value,
+    );
+  }
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([key, child]) => {
+    const normalizedKey = key.replace(/[^a-z]/gi, "").toLowerCase();
+    return (
+      normalizedKey === "filekey" ||
+      normalizedKey === "figmafilekey" ||
+      containsPrivateFigmaLocator(child)
+    );
+  });
+}
+
+function requireString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`manifest is missing ${field}`);
+  }
+  return value.trim();
+}
+
+export function parseRecorderManifest(value: unknown): RecorderManifest {
+  if (!isRecord(value)) throw new Error("manifest must be a JSON object");
+  if (containsPrivateFigmaLocator(value)) {
+    throw new Error("private Figma locators are not accepted in the manifest");
+  }
+  const manifest: RecorderManifest = {
+    id: requireString(value.id, "id"),
+    claim: requireString(value.claim, "claim"),
+    area: requireString(value.area, "area"),
+    gesture: requireString(value.gesture, "gesture"),
+    nativeObservation: requireString(
+      value.nativeObservation,
+      "nativeObservation",
+    ),
+    operator: requireString(value.operator, "operator"),
+    measuredBy: requireString(value.measuredBy, "measuredBy"),
+    trials: requireString(value.trials, "trials"),
+    figmaPageName: requireString(value.figmaPageName, "figmaPageName"),
+    probeMarker: requireString(value.probeMarker, "probeMarker"),
+    designId: requireString(value.designId, "designId"),
+    values: isRecord(value.values) ? value.values : {},
+  };
+  if (!ORACLE_ID.test(manifest.id)) {
+    throw new Error("id must match fig.<area>.<slug>");
+  }
+  if (!FigmaMethods.has(manifest.measuredBy)) {
+    throw new Error(`unsupported measuredBy method: ${manifest.measuredBy}`);
+  }
+  if (manifest.probeMarker !== `AN-ORACLE-PROBE:${manifest.id}`) {
+    throw new Error(`probeMarker must equal AN-ORACLE-PROBE:${manifest.id}`);
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(manifest.designId)) {
+    throw new Error("designId must be a local Design id");
+  }
+  if (Object.keys(manifest.values).length === 0) {
+    throw new Error("manifest values must include the measured observables");
+  }
+  return manifest;
+}
+
+export function requireSelectedDesignProbe(
+  marker: string,
+  available: unknown,
+  selected: unknown,
+): void {
+  if (
+    !Array.isArray(available) ||
+    available.filter((name) => name === marker).length !== 1 ||
+    !Array.isArray(selected) ||
+    selected.length !== 1 ||
+    selected[0] !== marker
+  ) {
+    throw new Error(
+      "Design must select exactly the marked oracle probe layer before recording",
+    );
+  }
+}
+
+function readManifest(file: string): RecorderManifest {
+  const absolute = path.resolve(process.cwd(), file);
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(absolute, "utf8"));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`cannot read recorder manifest: ${detail}`, {
+      cause: error,
+    });
+  }
+  return parseRecorderManifest(value);
+}
+
+function sha256(file: string): string {
+  return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
+
+function appBuild(): { commit: string; dirty: boolean } {
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  }).trim();
+  const status = execFileSync(
+    "git",
+    ["status", "--porcelain", "--untracked-files=no"],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    },
+  );
+  return { commit, dirty: status.trim().length > 0 };
+}
+
+async function verifyProbePage(page: any, marker: string): Promise<void> {
+  const found = await page.evaluate((expected: string) => {
+    return Array.from(
+      document.querySelectorAll('[role="row"][data-testid^="layer-row"]'),
+    ).some((row) => {
+      const rect = row.getBoundingClientRect();
+      const visible =
+        rect.width > 0 &&
+        rect.height > 0 &&
+        getComputedStyle(row).visibility !== "hidden";
+      const label = (row.textContent || "").replace(/\s+/g, " ").trim();
+      return visible && label === expected;
+    });
+  }, marker);
+  if (!found) {
+    throw new Error(
+      "Figma layer panel does not show the exact marked oracle probe layer",
+    );
+  }
+}
+
+async function readFigmaInspector(page: any): Promise<Record<string, string>> {
+  return page.evaluate(() => {
+    const values: Record<string, string> = {};
+    for (const input of document.querySelectorAll("input")) {
+      const rect = input.getBoundingClientRect();
+      const label =
+        input.getAttribute("aria-label") || input.getAttribute("data-tooltip");
+      if (label && rect.width > 2 && rect.x > window.innerWidth - 260) {
+        values[label] =
+          `${(input as HTMLInputElement).value}${(input as HTMLInputElement).disabled ? " (disabled)" : ""}`;
+      }
+    }
+    return values;
+  });
+}
+
+function appendArtifact(
+  entryId: string,
+  stagingDir: string,
+  fileName: string,
+  kind: string,
+): { path: string; kind: string; sha256: string } {
+  const file = path.join(stagingDir, fileName);
+  const bytes = readFileSync(file);
+  if (bytes.byteLength < 1_000) {
+    throw new Error(`${kind} capture is empty or unexpectedly small`);
+  }
+  return {
+    path: `${ORACLE_DIR}/${entryId}/${fileName}`,
+    kind,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+async function record(manifest: RecorderManifest): Promise<string> {
+  const finalRoot = path.join(REPO_ROOT, ORACLE_DIR);
+  const finalEntry = path.join(finalRoot, `${manifest.id}.json`);
+  const finalArtifacts = path.join(finalRoot, manifest.id);
+  if (existsSync(finalEntry) || existsSync(finalArtifacts)) {
+    throw new Error(`oracle id already exists: ${manifest.id}`);
+  }
+
+  const tmpRoot = path.join(REPO_ROOT, ".tmp");
+  mkdirSync(tmpRoot, { recursive: true });
+  const staging = path.join(
+    tmpRoot,
+    `oracle-record-${process.pid}-${Date.now()}`,
+  );
+  const captureDir = path.join(staging, "capture");
+  const stagedArtifacts = path.join(staging, manifest.id);
+  mkdirSync(captureDir, { recursive: true });
+  mkdirSync(stagedArtifacts, { recursive: true });
+  mkdirSync(finalRoot, { recursive: true });
+
+  let artifactsPublished = false;
+  try {
+    const [
+      { withLock, FIGMA_LOGIN_COOKIE },
+      { CDP_URL, chromium },
+      { openEditor },
+      { sheet },
+    ] = await Promise.all([
+      import("../.agents/skills/design-clip-repro/harness/figlib.mjs"),
+      import("../.agents/skills/design-clip-repro/harness/harness-env.mjs"),
+      import("../.agents/skills/design-clip-repro/harness/dlib.mjs"),
+      import("../.agents/skills/design-clip-repro/harness/sheet.mjs"),
+    ]);
+
+    let figmaShot = "";
+    let figmaInspector: Record<string, string> = {};
+    await withLock("osmouse", async () => {
+      const browser = await chromium.connectOverCDP(CDP_URL);
+      try {
+        const page = browser
+          .contexts()
+          .flatMap((context: any) => context.pages())
+          .find((candidate: any) =>
+            candidate.url().includes("figma.com/design/"),
+          );
+        if (!page) throw new Error("no native Figma design tab is open");
+        const cookies = await page.context().cookies("https://www.figma.com");
+        if (
+          !cookies.some(
+            (cookie: { name: string }) => cookie.name === FIGMA_LOGIN_COOKIE,
+          )
+        ) {
+          throw new Error(
+            "Figma login cookie is unavailable; no capture was written",
+          );
+        }
+        await verifyProbePage(page, manifest.probeMarker);
+        figmaInspector = await readFigmaInspector(page);
+        const viewport = await page.evaluate(() => ({
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }));
+        const width = Math.min(980, viewport.width);
+        const top = Math.min(55, Math.max(0, viewport.height - 1));
+        figmaShot = path.join(captureDir, "figma.png");
+        await page.screenshot({
+          path: figmaShot,
+          clip: {
+            x: viewport.width - width,
+            y: top,
+            width,
+            height: viewport.height - top,
+          },
+        });
+      } finally {
+        await browser.close();
+      }
+    });
+
+    const design = await openEditor(manifest.designId);
+    let designShot: string;
+    let designInspector: Record<string, string>;
+    try {
+      const files = await design.files();
+      const probeComment = `<!-- ${manifest.probeMarker} -->`;
+      if (
+        !Object.values(files).some((content: string) =>
+          content.includes(probeComment),
+        )
+      ) {
+        throw new Error(
+          "local Design file is not marked as the matching oracle probe",
+        );
+      }
+      const availableProbes = await design.page.evaluate(
+        (marker: string) =>
+          [...document.querySelectorAll('[role="treeitem"], [role="row"]')]
+            .filter((row) => (row as HTMLElement).offsetParent !== null)
+            .map((row) => (row.textContent || "").trim().split("\n")[0])
+            .filter((name) => name === marker),
+        manifest.probeMarker,
+      );
+      const selection = await design.selectLayer(manifest.probeMarker);
+      if (selection.result !== `clicked: ${manifest.probeMarker}`) {
+        throw new Error(
+          `could not select the marked Design oracle probe: ${selection.result}`,
+        );
+      }
+      requireSelectedDesignProbe(
+        manifest.probeMarker,
+        availableProbes,
+        selection.selected,
+      );
+      designInspector = await design.inspector();
+      designShot = path.join(captureDir, "design.png");
+      const frame = design.page.locator("iframe").first();
+      await frame.screenshot({ path: designShot });
+    } finally {
+      await design.close();
+    }
+
+    await sheet(
+      `Design oracle ${manifest.id}`,
+      [
+        { label: "Native Figma", image: figmaShot },
+        { label: "Design", image: designShot },
+      ],
+      { columns: 2, out: path.join(captureDir, "comparison.jpg") },
+    );
+
+    for (const name of ["figma.png", "design.png", "comparison.jpg"]) {
+      copyFileSync(
+        path.join(captureDir, name),
+        path.join(stagedArtifacts, name),
+      );
+    }
+    const artifacts = [
+      appendArtifact(
+        manifest.id,
+        stagedArtifacts,
+        "figma.png",
+        "figma-screenshot",
+      ),
+      appendArtifact(
+        manifest.id,
+        stagedArtifacts,
+        "design.png",
+        "design-screenshot",
+      ),
+      appendArtifact(
+        manifest.id,
+        stagedArtifacts,
+        "comparison.jpg",
+        "comparison-sheet",
+      ),
+    ];
+    const entry = {
+      schemaVersion: 1,
+      id: manifest.id,
+      claim: manifest.claim,
+      area: manifest.area,
+      basis: "measured",
+      status: "current",
+      measuredBy: manifest.measuredBy,
+      operator: manifest.operator,
+      date: new Date().toISOString().slice(0, 10),
+      gesture: manifest.gesture,
+      nativeObservation: manifest.nativeObservation,
+      trials: manifest.trials,
+      values: {
+        ...manifest.values,
+        nativeFigmaInspector: figmaInspector,
+        designInspector,
+      },
+      figma: {
+        fileKeyWithheld: true,
+        pageName: manifest.figmaPageName,
+        probeLayerName: manifest.probeMarker,
+        appBuild: "not exposed by the native Figma page",
+      },
+      designBuild: appBuild(),
+      source:
+        "Captured by scripts/oracle-record.ts from the marked native Figma probe and matching local Design probe.",
+      artifacts,
+    };
+
+    const stagedEntry = path.join(staging, `${manifest.id}.json`);
+    writeFileSync(stagedEntry, `${JSON.stringify(entry, null, 2)}\n`, {
+      flag: "wx",
+    });
+    renameSync(stagedArtifacts, finalArtifacts);
+    artifactsPublished = true;
+    try {
+      renameSync(stagedEntry, finalEntry);
+    } catch (error) {
+      rmSync(finalArtifacts, { recursive: true, force: true });
+      artifactsPublished = false;
+      throw error;
+    }
+    return finalEntry;
+  } finally {
+    if (artifactsPublished && !existsSync(finalEntry)) {
+      rmSync(finalArtifacts, { recursive: true, force: true });
+    }
+    rmSync(staging, { recursive: true, force: true });
+  }
+}
+
+function main(): void {
+  const [flag, manifestPath] = process.argv.slice(2);
+  if (flag !== "--manifest" || !manifestPath) {
+    console.error(
+      "usage: pnpm design:oracle-record -- --manifest <probe.json>",
+    );
+    process.exitCode = 2;
+    return;
+  }
+  let manifest: RecorderManifest;
+  try {
+    manifest = readManifest(manifestPath);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`[oracle-record] ${detail}`);
+    process.exitCode = 2;
+    return;
+  }
+  void record(manifest).then(
+    (file) => {
+      console.log(`[oracle-record] wrote ${path.relative(REPO_ROOT, file)}`);
+    },
+    (error) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[oracle-record] ${detail}; no partial oracle entry was kept`,
+      );
+      process.exitCode = 2;
+    },
+  );
+}
+
+if (
+  process.argv[1] &&
+  path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])
+) {
+  main();
+}
