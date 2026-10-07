@@ -2734,7 +2734,6 @@ export class AgentKitClient implements AgentKitController {
     const key = this.runKey(input.threadId, result.runId);
     const existingConsumer = this.consumers.get(key);
     if (existingConsumer) {
-      this.scheduleQueuePromotion(input.threadId);
       void (async () => {
         await Promise.allSettled([existingConsumer]);
         if (!this.disposed) {
@@ -2751,7 +2750,6 @@ export class AgentKitClient implements AgentKitController {
       result.runId,
       this.consume(input.threadId, result.runId),
     );
-    this.scheduleQueuePromotion(input.threadId);
   }
 
   public async resolveConnectionRequest(
