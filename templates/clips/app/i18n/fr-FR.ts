@@ -1407,6 +1407,14 @@ const messages = {
     agentTitle: "Créez un compte Clips gratuit pour rejoindre la conversation",
     genericTitle: "Créez un compte Clips gratuit pour continuer",
     description: "Vous reviendrez à ce clip dès que vous aurez terminé.",
+    verificationPendingTitle: "Vérifiez votre adresse e-mail",
+    verificationPendingCopy:
+      "Nous avons envoyé un e-mail de vérification à {{email}}. Ouvrez-le pour terminer la création de votre compte et revenir à ce clip.",
+    resendVerification: "Renvoyer l’e-mail de vérification",
+    resendingVerification: "Envoi de l’e-mail de vérification...",
+    verificationEmailResent: "Un nouvel e-mail de vérification a été envoyé.",
+    verificationEmailFailed:
+      "Nous n’avons pas pu renvoyer l’e-mail de vérification. Réessayez ou connectez-vous avec un lien par e-mail.",
     passwordsMismatch: "Les mots de passe ne correspondent pas.",
     commentIntent: "commenter",
     reactIntent: "ajouter une réaction",
