@@ -859,6 +859,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
       figmaPasteImagesDontShowAgain: "Ne plus afficher",
+      figmaPasteUploadImage: "Importer une image",
+      figmaPasteUploadImageFor: "Importer « {{name}} »",
+      figmaPasteImageFallbackName: "Image {{index}}",
+      figmaPasteUploadImageSuccess: "Image ajoutée",
+      figmaPasteUploadImageInvalid:
+        "Choisissez un fichier image, par exemple SVG, PNG ou JPG.",
+      figmaPasteUploadImageError: "Impossible d’ajouter cette image",
       figmaHydrationDialogTitle: "Connecter Figma pour charger les images",
       figmaHydrationDialogDescription:
         "Saisissez votre token d'accès Figma pour charger {{count}} image{{plural}} manquante{{plural}} dans l'écran{{screensPlural}} importé{{screensPlural}}.",

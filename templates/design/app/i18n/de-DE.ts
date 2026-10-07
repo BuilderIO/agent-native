@@ -857,6 +857,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
       figmaPasteImagesDontShowAgain: "Nicht mehr anzeigen",
+      figmaPasteUploadImage: "Bild hochladen",
+      figmaPasteUploadImageFor: "„{{name}}“ hochladen",
+      figmaPasteImageFallbackName: "Bild {{index}}",
+      figmaPasteUploadImageSuccess: "Bild eingefügt",
+      figmaPasteUploadImageInvalid:
+        "Wähle eine Bilddatei, z. B. SVG, PNG oder JPG.",
+      figmaPasteUploadImageError: "Das Bild konnte nicht eingefügt werden",
       figmaHydrationDialogTitle: "Figma verbinden, um Bilder zu laden",
       figmaHydrationDialogDescription:
         "Gib deinen Figma-Zugriffstoken ein, um {{count}} fehlendes{{plural}} Bild{{plural}} in den importierten Screen{{screensPlural}} zu laden.",

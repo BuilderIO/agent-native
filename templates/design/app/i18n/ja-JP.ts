@@ -853,6 +853,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
       figmaPasteImagesDontShowAgain: "今後は表示しない",
+      figmaPasteUploadImage: "画像をアップロード",
+      figmaPasteUploadImageFor: "「{{name}}」をアップロード",
+      figmaPasteImageFallbackName: "画像 {{index}}",
+      figmaPasteUploadImageSuccess: "画像を埋めました",
+      figmaPasteUploadImageInvalid:
+        "SVG、PNG、JPG などの画像ファイルを選択してください。",
+      figmaPasteUploadImageError: "その画像を埋められませんでした",
       figmaHydrationDialogTitle: "Figma を接続して画像を読み込む",
       figmaHydrationDialogDescription:
         "Figma アクセストークンを入力して、インポートされた画面{{screensPlural}}の不足している {{count}} 枚の画像{{plural}}を読み込んでください。",

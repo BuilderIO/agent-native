@@ -420,6 +420,19 @@ Tell users who need a path based only on Figma's public contract to copy a
 frame **link** ("Copy link to selection" in Figma). Current Cmd+C is exact
 when `selectedNodeData` is present, with conservative fallback if it changes.
 
+#### Missing images after a paste without a token
+
+A paste imported without a Figma token (`strategy: "localKiwi"`) carries image
+hashes, not bytes: each IMAGE fill is a `url('about:blank')` placeholder on an
+element stamped `data-figma-image-ref="<hash>"`. Fill it in place rather than
+inserting a new image layer and resizing it:
+
+- The user has the image (a Figma export, an SVG, a screenshot): `upload-image`,
+  then `fill-figma-paste-image --fileId <id> --imageUrl <url>`. Add `--hash`
+  when the screen has more than one missing image; the error lists them.
+- The user has the original `.fig`: upload it with `hydrateFileIds`.
+- Figma is connected: `hydrate-figma-paste-images --fileId <id>`.
+
 ### Reading a Figma file/frame without importing it
 
 **When the user just asks a question about a Figma file/frame** ("what's in

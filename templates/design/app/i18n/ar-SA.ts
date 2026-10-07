@@ -837,6 +837,12 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
       figmaPasteImagesDontShowAgain: "عدم الإظهار مرة أخرى",
+      figmaPasteUploadImage: "رفع صورة",
+      figmaPasteUploadImageFor: "رفع “{{name}}”",
+      figmaPasteImageFallbackName: "صورة {{index}}",
+      figmaPasteUploadImageSuccess: "تمت إضافة الصورة",
+      figmaPasteUploadImageInvalid: "اختر ملف صورة، مثل SVG أو PNG أو JPG.",
+      figmaPasteUploadImageError: "تعذّر ملء هذه الصورة",
       figmaHydrationDialogTitle: "ربط Figma لتحميل الصور",
       figmaHydrationDialogDescription:
         "أدخل رمز الوصول إلى Figma لتحميل {{count}} صورة{{plural}} مفقودة في الشاشة{{screensPlural}} المستوردة.",

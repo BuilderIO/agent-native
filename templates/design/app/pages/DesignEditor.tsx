@@ -8370,6 +8370,8 @@ function DesignEditor() {
     },
     [getUnprojectedScreenContent, id],
   );
+  const getScreenContentRef = useRef(getScreenContent);
+  getScreenContentRef.current = getScreenContent;
   const lastDurableLockedLayerCountRef = useRef(0);
   const durableLockedLayerCount = useMemo(
     () =>
@@ -14427,6 +14429,8 @@ function DesignEditor() {
             count={count}
             designId={id ?? ""}
             fileIds={fileIds}
+            getScreenContent={(fileId) => getScreenContentRef.current(fileId)}
+            uploadImage={(file) => uploadImageFileForHtmlRef.current(file)}
             onConnect={() => {
               setFigmaHydrationFileIds(fileIds);
               setFigmaHydrationOpen(true);
@@ -14644,6 +14648,8 @@ function DesignEditor() {
     },
     [canUploadDesignMedia, readFileAsDataUrl, requestFileStorageSetup],
   );
+  const uploadImageFileForHtmlRef = useRef(uploadImageFileForHtml);
+  uploadImageFileForHtmlRef.current = uploadImageFileForHtml;
 
   const uploadMediaFileForHtml = useCallback(
     (file: File) =>

@@ -1,25 +1,31 @@
 /**
  * Shown after a clipboard paste whose IMAGE fills could not be resolved. A
- * Figma clipboard carries image hashes, never bytes, so the fix is the original
- * `.fig` or a connected token. Collapsed it is one line of state; the two
- * choices and the opt-out live behind the expand, because most pastes are
- * geometry work where the missing photos do not matter yet.
+ * Figma clipboard carries image hashes, never bytes, so the fix is an image the
+ * user already has, the original `.fig`, or a connected token. Collapsed it is
+ * one line of state; the choices and the opt-out live behind the expand,
+ * because most pastes are geometry work where the missing photos do not matter
+ * yet.
  *
  * The expand is a popover rather than in-place content: a toast sits at the
  * bottom of the viewport and Sonner measures a custom toast once, so growing
  * this element pushed the choices off the bottom of the screen.
  */
 
+import {
+  actionErrorMessage,
+  callAction,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBellOff,
   IconChevronDown,
   IconPhotoOff,
+  IconPhotoUp,
   IconPlugConnected,
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -27,27 +33,42 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
 import {
   hydrateImagesFromFig,
   MAX_FIG_UPLOAD_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
+import {
+  listMissingFigmaImages,
+  type MissingFigmaImage,
+} from "@/lib/figma-missing-images";
 import { cn } from "@/lib/utils";
 
 interface FigmaPasteImagesNoticeProps {
   count: number;
   designId: string;
   fileIds: string[];
+  getScreenContent: (fileId: string) => string;
+  uploadImage: (file: File) => Promise<string>;
   onConnect: () => void;
   onDismissForever: () => void;
   onHydrated: () => void;
   onClose: () => void;
 }
 
+const imageKey = (image: MissingFigmaImage) => `${image.fileId}:${image.hash}`;
+
+function isImageFile(file: File) {
+  return file.type.startsWith("image/") || /\.svg$/i.test(file.name);
+}
+
 export function FigmaPasteImagesNotice({
   count,
   designId,
   fileIds,
+  getScreenContent,
+  uploadImage,
   onConnect,
   onDismissForever,
   onHydrated,
@@ -56,8 +77,77 @@ export function FigmaPasteImagesNotice({
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [filled, setFilled] = useState<ReadonlySet<string>>(() => new Set());
   const figInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  // The chooser can dismiss the popover, so the target outlives the list.
+  const uploadTargetRef = useRef<{
+    image: MissingFigmaImage;
+    othersMissing: number;
+  } | null>(null);
   const [noticeEl, setNoticeEl] = useState<HTMLDivElement | null>(null);
+
+  const missingImages = useMemo(
+    () =>
+      expanded
+        ? listMissingFigmaImages(
+            fileIds.map((fileId) => ({
+              fileId,
+              html: getScreenContent(fileId),
+            })),
+          ).filter((image) => !filled.has(imageKey(image)))
+        : [],
+    [expanded, fileIds, filled, getScreenContent],
+  );
+  const remaining = Math.max(0, count - filled.size);
+
+  function chooseImage(image: MissingFigmaImage) {
+    uploadTargetRef.current = {
+      image,
+      othersMissing: missingImages.length - 1,
+    };
+    imageInputRef.current?.click();
+  }
+
+  async function handleImageSelected(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    const target = uploadTargetRef.current;
+    if (!file || !target) return;
+    if (!isImageFile(file)) {
+      toast.error(t("designEditor.import.figmaPasteUploadImageInvalid"));
+      return;
+    }
+    setBusy(true);
+    const loadingToastId = toast.loading(
+      t("designEditor.toasts.imageUploading"),
+    );
+    try {
+      const imageUrl = await uploadImage(file);
+      // uploadImage already surfaced why: storage setup or an upload error.
+      if (!imageUrl) return;
+      await callAction("fill-figma-paste-image", {
+        fileId: target.image.fileId,
+        hash: target.image.hash,
+        imageUrl,
+      });
+      onHydrated();
+      setFilled((current) => new Set(current).add(imageKey(target.image)));
+      toast.success(t("designEditor.import.figmaPasteUploadImageSuccess"));
+      if (target.othersMissing <= 0) onClose();
+    } catch (error) {
+      toast.error(t("designEditor.import.figmaPasteUploadImageError"), {
+        description:
+          actionErrorMessage(error) ??
+          (error instanceof Error ? error.message : t("common.genericError")),
+      });
+    } finally {
+      toast.dismiss(loadingToastId);
+      setBusy(false);
+    }
+  }
 
   async function handleFigSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -121,12 +211,19 @@ export function FigmaPasteImagesNotice({
         className="hidden"
         onChange={(event) => void handleFigSelected(event)}
       />
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*,.svg"
+        className="hidden"
+        onChange={(event) => void handleImageSelected(event)}
+      />
       <div className="flex items-center gap-2 px-1">
         <IconPhotoOff className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-xs">
           {t("designEditor.import.figmaPasteImagesNeedToken", {
-            count,
-            plural: count === 1 ? "" : "s",
+            count: remaining,
+            plural: remaining === 1 ? "" : "s",
           })}
         </span>
         <Popover open={expanded} onOpenChange={setExpanded}>
@@ -148,6 +245,46 @@ export function FigmaPasteImagesNotice({
             sideOffset={8}
             className="w-56 origin-[--radix-popover-content-transform-origin] p-1"
           >
+            {missingImages.length === 1 ? (
+              <button
+                type="button"
+                className={rowClass}
+                disabled={busy}
+                onClick={() => chooseImage(missingImages[0]!)}
+              >
+                <IconPhotoUp className="size-3.5 shrink-0 text-muted-foreground" />
+                {t("designEditor.import.figmaPasteUploadImage")}
+              </button>
+            ) : missingImages.length > 1 ? (
+              <>
+                <div className="max-h-48 overflow-y-auto">
+                  {missingImages.map((image, index) => (
+                    <button
+                      key={imageKey(image)}
+                      type="button"
+                      className={rowClass}
+                      disabled={busy}
+                      onClick={() => chooseImage(image)}
+                    >
+                      <IconPhotoUp className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 truncate">
+                        {t("designEditor.import.figmaPasteUploadImageFor", {
+                          name:
+                            image.layerName ??
+                            t(
+                              "designEditor.import.figmaPasteImageFallbackName",
+                              {
+                                index: index + 1,
+                              },
+                            ),
+                        })}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <Separator className="my-1" />
+              </>
+            ) : null}
             <button
               type="button"
               className={rowClass}

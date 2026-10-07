@@ -841,6 +841,12 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
       figmaPasteImagesDontShowAgain: "फिर से न दिखाएँ",
+      figmaPasteUploadImage: "इमेज अपलोड करें",
+      figmaPasteUploadImageFor: "“{{name}}” अपलोड करें",
+      figmaPasteImageFallbackName: "इमेज {{index}}",
+      figmaPasteUploadImageSuccess: "इमेज भर दी गई",
+      figmaPasteUploadImageInvalid: "SVG, PNG या JPG जैसी कोई इमेज फ़ाइल चुनें।",
+      figmaPasteUploadImageError: "वह इमेज नहीं भरी जा सकी",
       figmaHydrationDialogTitle: "छवियाँ लोड करने के लिए Figma जोड़ें",
       figmaHydrationDialogDescription:
         "आयातित screen{{screensPlural}} में {{count}} गायब छवि{{plural}} लोड करने के लिए अपना Figma access token दर्ज करें।",
