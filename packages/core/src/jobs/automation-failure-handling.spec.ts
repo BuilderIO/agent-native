@@ -188,7 +188,7 @@ vi.mock("./scheduler-health.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./scheduler-health.js")>()),
   acquireAutomationSchedulerLease: vi.fn(async () => "test-lease"),
   releaseAutomationSchedulerLease: vi.fn(async () => undefined),
-  renewAutomationSchedulerLease: vi.fn(async () => undefined),
+  renewAutomationSchedulerLease: vi.fn(async () => true),
   recordAutomationSchedulerHealth: vi.fn(async () => undefined),
 }));
 
