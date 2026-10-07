@@ -171,6 +171,12 @@ export interface ElementInfo {
     width: number;
     height: number;
   };
+  positionReferenceRect?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
   textContent?: string;
   textContentTruncated?: boolean;
   htmlContent?: string;

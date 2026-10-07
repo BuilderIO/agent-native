@@ -535,6 +535,7 @@ import {
   readDesignClipboardPayloadFromSystem,
   readSystemClipboard,
 } from "@/lib/design-clipboard";
+import { hasExplicitOverviewZoomCommand as hasExplicitOverviewZoomCommandFromSearchParams } from "@/lib/design-editor-route";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
@@ -1314,10 +1315,22 @@ function readRenderedLayerInfo(
       if (!element) continue;
       const computed = preview.getComputedStyle(element);
       const parent = element.parentElement;
+      let positionReference = parent;
+      while (
+        positionReference &&
+        positionReference.getAttribute("data-an-primitive") !== "frame"
+      ) {
+        positionReference = positionReference.parentElement;
+      }
+      positionReference ??= preview.document.body;
       const parentComputed = parent
         ? preview.getComputedStyle(parent)
         : undefined;
       const rect = element.getBoundingClientRect();
+      const parentRect = parent?.getBoundingClientRect();
+      const positionReferenceRect = positionReference?.getBoundingClientRect();
+      const scrollX = preview.scrollX || preview.pageXOffset || 0;
+      const scrollY = preview.scrollY || preview.pageYOffset || 0;
       if (rect.width <= 0 || rect.height <= 0) continue;
       return {
         ...base,
@@ -1328,11 +1341,27 @@ function readRenderedLayerInfo(
           zIndex: computed.zIndex,
         },
         boundingRect: {
-          x: rect.x,
-          y: rect.y,
+          x: rect.x + scrollX,
+          y: rect.y + scrollY,
           width: rect.width,
           height: rect.height,
         },
+        parentBoundingRect: parentRect
+          ? {
+              x: parentRect.x + scrollX,
+              y: parentRect.y + scrollY,
+              width: parentRect.width,
+              height: parentRect.height,
+            }
+          : undefined,
+        positionReferenceRect: positionReferenceRect
+          ? {
+              x: positionReferenceRect.x + scrollX,
+              y: positionReferenceRect.y + scrollY,
+              width: positionReferenceRect.width,
+              height: positionReferenceRect.height,
+            }
+          : undefined,
         ...(parentComputed
           ? {
               parentDisplay: parentComputed.display,
@@ -6881,12 +6910,9 @@ function DesignEditor() {
     getOverviewDisplayZoom(overviewCanvasZoom, overviewZoomScale),
   );
   const zoom = viewMode === "overview" ? overviewZoom : screenZoom;
-  const initialOverviewZoomValue = initialSearchParams.get("zoom");
   const hasExplicitOverviewZoomCommand =
     viewMode === "overview" &&
-    initialSearchParams.get("view") === "overview" &&
-    initialOverviewZoomValue !== null &&
-    Number.isFinite(Number(initialOverviewZoomValue));
+    hasExplicitOverviewZoomCommandFromSearchParams(initialSearchParams);
   const setZoomForView = useCallback(
     (targetView: "single" | "overview", update: SetStateAction<number>) => {
       if (targetView === "overview") {
@@ -13141,6 +13167,7 @@ function DesignEditor() {
                   authoredSizeStyles: elementInfo.authoredSizeStyles,
                   boundingRect: elementInfo.boundingRect,
                   parentBoundingRect: elementInfo.parentBoundingRect,
+                  positionReferenceRect: elementInfo.positionReferenceRect,
                 }
               : current,
           );
@@ -24134,6 +24161,8 @@ function DesignEditor() {
             boundingRect: measured.boundingRect,
             parentBoundingRect:
               measured.parentBoundingRect ?? current.parentBoundingRect,
+            positionReferenceRect:
+              measured.positionReferenceRect ?? current.positionReferenceRect,
             computedStyles: {
               ...measured.computedStyles,
               ...current.computedStyles,

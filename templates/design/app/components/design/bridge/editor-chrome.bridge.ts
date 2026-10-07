@@ -807,7 +807,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var host = ensureEditorChromeHost();
     editorChromeHostObserver?.disconnect();
     editorChromeDocumentObserver?.disconnect();
-    editorChromeHostObserver = new MutationObserver(repairEditorChromeHost);
+    editorChromeHostObserver = new MutationObserver(function () {
+      if (
+        !editorChromeHost ||
+        editorChromeNodes.some(function (node) {
+          return node.parentNode !== editorChromeHost;
+        })
+      ) {
+        repairEditorChromeHost();
+      }
+    });
     editorChromeHostObserver.observe(host, { childList: true });
     editorChromeDocumentObserver = new MutationObserver(function () {
       if (
@@ -4193,6 +4202,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el.parentElement;
   }
 
+  function positionReferenceForElement(el: Element): Element | null {
+    var ancestor = el.parentElement;
+    while (ancestor) {
+      if (ancestor.getAttribute("data-an-primitive") === "frame") {
+        return ancestor;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return el.ownerDocument.body || el.ownerDocument.documentElement;
+  }
+
   function autoLayoutParentInfo(el: Element) {
     var parent = designParentForElement(el);
     if (
@@ -6222,6 +6242,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var componentName = componentNameForElement(el);
     var parentAutoLayout = autoLayoutParentInfo(el);
     var designParent = designParentForElement(el);
+    var positionReference = positionReferenceForElement(el);
     var parentStyles = designParent
       ? window.getComputedStyle(designParent)
       : null;
@@ -6337,6 +6358,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       boundingRect,
       parentBoundingRect: designParent
         ? rectInfoForElement(designParent)
+        : undefined,
+      positionReferenceRect: positionReference
+        ? rectInfoForElement(positionReference)
         : undefined,
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       textContentTruncated: el.textContent
@@ -6721,6 +6745,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:" +
       cursor +
       ";";
+    if (pos.length === 2) handle.style.zIndex = "4";
     if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
     if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
     if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -10869,6 +10894,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           pos === hoveredRadiusHandleKey || pos === activeRadiusHandleKey;
         handle.style.visibility = isRadiusHandleVisible ? "visible" : "hidden";
         handle.style.pointerEvents = isRadiusHandleVisible ? "auto" : "none";
+        handle.style.zIndex = isRadiusHandleVisible ? "5" : "2";
         handle.style.width = size + "px";
         handle.style.height = size + "px";
         handle.style.borderWidth = 1.5 * line + "px";
@@ -25943,6 +25969,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // otherwise pull focus back into the editable so the keystroke
           // lands as text — and never reaches host shortcuts.
           if (!isEditorTypingTarget(activeNow)) {
+            if (e.key === "Delete" || e.key === "Backspace") {
+              var unfocusedEditHotkey = {
+                key: e.key,
+                code: e.code,
+                metaKey: !!e.metaKey,
+                ctrlKey: !!e.ctrlKey,
+                shiftKey: !!e.shiftKey,
+                altKey: !!e.altKey,
+                repeat: !!e.repeat,
+              };
+              stopNativeInteraction(e);
+              if (finishActiveTextEdit) finishActiveTextEdit(true);
+              postDesignHotkey(unfocusedEditHotkey);
+              return;
+            }
             try {
               activeTextEditEl.focus();
               collapseSelectionIntoContents(activeTextEditEl);
@@ -28494,6 +28535,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       if (e.data.applied) {
+        if (moveWasInsert && move.el && move.el.isConnected) {
+          move.el.removeAttribute("data-agent-native-transient-drag-clone");
+        }
         if (!moveWasInsert && move.el && move.el.isConnected && move.target) {
           applyRuntimeReorder(move.el, move.target);
           selectedEl = move.el;

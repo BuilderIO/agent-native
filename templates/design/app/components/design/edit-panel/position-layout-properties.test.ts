@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { ElementInfo } from "../types";
 import {
+  authoredPositionOffset,
   constraintsStylePatch,
   definiteAuthoredOffset,
   deriveConstraintsValue,
+  measuredPositionOffset,
 } from "./position-layout-properties";
 
 function element(overrides: Partial<ElementInfo> = {}): ElementInfo {
@@ -36,6 +38,52 @@ describe("definiteAuthoredOffset", () => {
   it("treats an empty string or undefined as unset", () => {
     expect(definiteAuthoredOffset("")).toBeUndefined();
     expect(definiteAuthoredOffset(undefined)).toBeUndefined();
+  });
+});
+
+describe("measuredPositionOffset", () => {
+  it("uses the nearest frame origin even when a Group is the direct parent", () => {
+    const selected = element({
+      boundingRect: { x: 100, y: 100, width: 80, height: 80 },
+      parentBoundingRect: { x: 20, y: 20, width: 160, height: 160 },
+      positionReferenceRect: { x: 0, y: 0, width: 400, height: 400 },
+    });
+
+    expect(measuredPositionOffset(selected, "x")).toBe(100);
+    expect(measuredPositionOffset(selected, "y")).toBe(100);
+  });
+
+  it("resets position to a nested Frame's origin", () => {
+    const selected = element({
+      boundingRect: { x: 230, y: 70, width: 80, height: 80 },
+      parentBoundingRect: { x: 220, y: 60, width: 200, height: 200 },
+      positionReferenceRect: { x: 220, y: 60, width: 200, height: 200 },
+    });
+
+    expect(measuredPositionOffset(selected, "x")).toBe(10);
+    expect(measuredPositionOffset(selected, "y")).toBe(10);
+  });
+
+  it("uses the rendered offset directly when no parent geometry is available", () => {
+    const selected = element({
+      boundingRect: { x: 24, y: 24, width: 80, height: 40 },
+      parentBoundingRect: undefined,
+    });
+
+    expect(measuredPositionOffset(selected, "x")).toBe(24);
+    expect(measuredPositionOffset(selected, "y")).toBe(24);
+  });
+});
+
+describe("authoredPositionOffset", () => {
+  it("converts Frame-relative X/Y back to a Group's local CSS offset", () => {
+    const selected = element({
+      parentBoundingRect: { x: 20, y: 20, width: 160, height: 160 },
+      positionReferenceRect: { x: 0, y: 0, width: 400, height: 400 },
+    });
+
+    expect(authoredPositionOffset(selected, "x", 110)).toBe(90);
+    expect(authoredPositionOffset(selected, "y", 115)).toBe(95);
   });
 });
 

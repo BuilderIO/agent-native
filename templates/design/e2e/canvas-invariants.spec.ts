@@ -66,6 +66,15 @@ const BLANK_PAGE = `<!doctype html>
   <body style="margin:0;min-height:${PAGE_H}px;background:#ffffff"></body>
 </html>`;
 
+const DRAW_FRAME_PAGE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Frame drawing</title></head>
+  <body style="margin:0;min-height:${PAGE_H}px;background:#ffffff">
+    <div data-agent-native-node-id="draw-frame" data-agent-native-layer-name="Frame" data-an-primitive="frame"
+         style="position:absolute;left:60px;top:80px;width:320px;height:260px;background:#e4e4e7"></div>
+  </body>
+</html>`;
+
 interface Rect {
   left: number;
   top: number;
@@ -113,13 +122,29 @@ async function newDesign(page: Page, content: string): Promise<string> {
 }
 
 async function indexHtml(page: Page, designId: string): Promise<string> {
-  const result = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
-    .then((r) => r.json());
-  return (
-    (result.files ?? []).find((f: any) => f.filename === "index.html")
-      ?.content ?? ""
+  const response = await page.request.get(
+    `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
   );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design failed: ${response.status()} ${(await response.text()).slice(0, 200)}`,
+    );
+  }
+  const result = await response.json();
+  const file = Array.isArray(result.files)
+    ? result.files.find((entry: unknown) => {
+        return (
+          typeof entry === "object" &&
+          entry !== null &&
+          "filename" in entry &&
+          entry.filename === "index.html"
+        );
+      })
+    : undefined;
+  if (!file || typeof file.content !== "string") {
+    throw new Error(`get-design returned no index.html for design ${designId}`);
+  }
+  return file.content;
 }
 
 function toolbar(page: Page): Locator {
@@ -270,25 +295,36 @@ async function selectOnCanvas(page: Page, id: string): Promise<void> {
   await page.waitForTimeout(1800);
 }
 
-async function contentSize(page: Page): Promise<{ w: number; h: number }> {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator("body")
-    .evaluate(() => ({
-      w: document.documentElement.clientWidth,
-      h: document.documentElement.clientHeight,
-    }));
-}
-
 async function toScreenPoint(page: Page, x: number, y: number) {
-  const card = await page.locator("[data-screen-card]").first().boundingBox();
-  if (!card) throw new Error("no screen card");
-  const size = await contentSize(page);
+  const snapshot = await page.waitForFunction<{
+    frame: { x: number; y: number; width: number; height: number };
+    size: { width: number; height: number };
+  }>(
+    () => {
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      if (!iframe) return null;
+
+      const rect = iframe.getBoundingClientRect();
+      const width = iframe.offsetWidth;
+      const height = iframe.offsetHeight;
+      if (rect.width <= 0 || rect.height <= 0 || width <= 0 || height <= 0) {
+        return null;
+      }
+      return {
+        frame: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        size: { width, height },
+      };
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+  const { frame, size } = await snapshot.jsonValue();
+  await snapshot.dispose();
   return {
-    x: card.x + (x / size.w) * card.width,
-    y: card.y + (y / size.h) * card.height,
+    x: frame.x + (x / size.width) * frame.width,
+    y: frame.y + (y / size.height) * frame.height,
   };
 }
 
@@ -463,12 +499,26 @@ test.describe("inspector reports the truth", () => {
     await selectLayerRow(page, "Title");
 
     const rendered = await renderedRect(page, "intro-title");
-    const w = num(await inspectorField(page, "W"));
-    const h = num(await inspectorField(page, "H"));
-    expect(
-      [w > 0, h > 0],
-      `Title renders ${rendered.width}x${rendered.height} but the inspector shows W=${w} H=${h}.`,
-    ).toEqual([true, true]);
+    const widthControl = page.getByRole("button", { name: /^W \d/ });
+    const heightControl = page.getByRole("button", { name: /^H \d/ });
+    await expect(widthControl).toBeVisible();
+    await expect(heightControl).toBeVisible();
+    const [widthLabel, heightLabel] = await Promise.all([
+      widthControl
+        .getAttribute("aria-label")
+        .then(async (label) => label ?? (await widthControl.innerText())),
+      heightControl
+        .getAttribute("aria-label")
+        .then(async (label) => label ?? (await heightControl.innerText())),
+    ]);
+    const w = Number.parseFloat(
+      /W\s+(-?[\d.]+)/.exec(widthLabel ?? "")?.[1] ?? "",
+    );
+    const h = Number.parseFloat(
+      /H\s+(-?[\d.]+)/.exec(heightLabel ?? "")?.[1] ?? "",
+    );
+    expect(Math.abs(w - rendered.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(h - rendered.height)).toBeLessThanOrEqual(1);
   });
 
   test("setting X moves the element by exactly that amount", async ({
@@ -1106,14 +1156,8 @@ test.describe("selection", () => {
   test("Escape on a rect drawn inside a frame clears, and never lands on the screen", async ({
     page,
   }) => {
-    const id = await newDesign(page, BLANK_PAGE);
+    const id = await newDesign(page, DRAW_FRAME_PAGE);
     await openEditor(page, id);
-    await drawWith(page, "Frame", {
-      left: 60,
-      top: 80,
-      width: 320,
-      height: 260,
-    });
     await drawWith(page, "Rectangle", {
       left: 110,
       top: 130,
@@ -1279,4 +1323,55 @@ test("basic authoring raises no uncaught page errors", async ({ page }) => {
   await page.keyboard.press(`${MOD}+Shift+z`);
   await page.waitForTimeout(1500);
   expect(pageErrors, `uncaught errors: ${pageErrors.join(" | ")}`).toEqual([]);
+});
+
+test("editor readiness stays stable across ordinary overlay mutations", async ({
+  page,
+}) => {
+  const id = await newDesign(page, BLANK_PAGE);
+  await openEditor(page, id);
+  const preview = page
+    .frameLocator("iframe[data-design-preview-iframe]")
+    .first();
+  const chromeHost = preview.locator("[data-agent-native-editor-chrome-host]");
+  const shield = preview.locator('[data-agent-native-edit-overlay="shield"]');
+  await expect(shield).toBeVisible();
+
+  await page.evaluate(() => {
+    const state = window as Window & { __editorChromeReadyCount?: number };
+    state.__editorChromeReadyCount = 0;
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "agent-native:editor-chrome-ready") {
+        state.__editorChromeReadyCount =
+          (state.__editorChromeReadyCount ?? 0) + 1;
+      }
+    });
+  });
+
+  await chromeHost.evaluate((host) => {
+    const transient = document.createElement("div");
+    transient.setAttribute("data-agent-native-edit-overlay", "test-overlay");
+    host.appendChild(transient);
+    transient.remove();
+  });
+  await page.waitForTimeout(100);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __editorChromeReadyCount?: number })
+          .__editorChromeReadyCount ?? 0,
+    ),
+  ).toBe(0);
+
+  await shield.evaluate((element) => element.remove());
+  await expect(shield).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { __editorChromeReadyCount?: number })
+            .__editorChromeReadyCount ?? 0,
+      ),
+    )
+    .toBe(1);
 });

@@ -186,6 +186,7 @@ export type CheckSelection = Record<CheckName, boolean>;
 
 export type ChangeScope = {
   changedPaths: string[];
+  designCanvasE2eSpecs: string[];
   docsOnly: boolean;
   full: boolean;
   nonDocsPaths: string[];
@@ -414,7 +415,8 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
 function isDesignDndRuntimePath(path: string): boolean {
   if (
     DESIGN_CANVAS_E2E_FILES.has(path) ||
-    DESIGN_CANVAS_CONFIG_FILES.has(path)
+    DESIGN_CANVAS_CONFIG_FILES.has(path) ||
+    designCanvasE2eSpecsForPaths([path]).length > 0
   ) {
     return true;
   }
@@ -433,6 +435,22 @@ function isDesignDndRuntimePath(path: string): boolean {
     /\.(?:[cm]?[jt]sx?)$/u.test(path);
 
   return designAppSource || designSharedRuntimeSource;
+}
+
+export function designCanvasE2eSpecsForPaths(
+  paths: readonly string[],
+): string[] {
+  return [
+    ...new Set(
+      paths
+        .map(normalizeChangedPath)
+        .filter(
+          (path) =>
+            path.startsWith("templates/design/e2e/") &&
+            /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path),
+        ),
+    ),
+  ].sort();
 }
 
 function isContentConvergenceRuntimePath(path: string): boolean {
@@ -666,6 +684,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
 
   return {
     changedPaths,
+    designCanvasE2eSpecs: designCanvasE2eSpecsForPaths(changedPaths),
     docsOnly,
     full,
     nonDocsPaths,
@@ -695,6 +714,7 @@ function writeOutputs(scope: ChangeScope): void {
       `docs_only=${scope.docsOnly ? "true" : "false"}`,
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
+      `design_canvas_e2e_files=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,

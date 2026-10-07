@@ -88,6 +88,55 @@ export function definiteAuthoredOffset(
   return raw;
 }
 
+export function measuredPositionOffset(
+  element: Pick<
+    ElementInfo,
+    | "boundingRect"
+    | "parentBoundingRect"
+    | "parentAutoLayout"
+    | "positionReferenceRect"
+  >,
+  axis: "x" | "y",
+): number {
+  const referenceBounds =
+    element.positionReferenceRect ??
+    element.parentBoundingRect ??
+    element.parentAutoLayout?.boundingRect;
+  const childOffset = element.boundingRect[axis];
+  return referenceBounds ? childOffset - referenceBounds[axis] : childOffset;
+}
+
+export function authoredPositionOffset(
+  element: Pick<
+    ElementInfo,
+    "parentBoundingRect" | "parentAutoLayout" | "positionReferenceRect"
+  >,
+  axis: "x" | "y",
+  referenceOffset: number,
+): number {
+  const parentBounds =
+    element.parentBoundingRect ?? element.parentAutoLayout?.boundingRect;
+  const referenceBounds = element.positionReferenceRect ?? parentBounds;
+  if (!parentBounds || !referenceBounds) return referenceOffset;
+  return referenceOffset - (parentBounds[axis] - referenceBounds[axis]);
+}
+
+function measuredPositionValue(
+  element: ElementInfo,
+  axis: "x" | "y",
+  livePosition?: string,
+): string {
+  const parentBounds =
+    element.parentBoundingRect ?? element.parentAutoLayout?.boundingRect;
+  const referenceBounds = element.positionReferenceRect ?? parentBounds;
+  const referenceOffset = livePosition
+    ? Number.parseFloat(livePosition) +
+      (parentBounds?.[axis] ?? 0) -
+      (referenceBounds?.[axis] ?? parentBounds?.[axis] ?? 0)
+    : measuredPositionOffset(element, axis);
+  return String(Number(referenceOffset.toFixed(2))) + "px";
+}
+
 function percentageLength(raw: string | undefined): boolean {
   return !!raw && /^-?(?:\d+\.?\d*|\.\d+)%$/.test(raw.trim());
 }
@@ -319,11 +368,9 @@ export function PositionLayoutProperties({
       value === "top" ? "top" : value === "bottom" ? "bottom" : "center-v",
     );
   };
+  const liveDragPosition = useLiveDragPosition(element.selector);
   const authoredLeft = authoredStyleValue(element, "left");
   const authoredTop = authoredStyleValue(element, "top");
-  const liveDragPosition = useLiveDragPosition(element.selector);
-  const displayedLeft = liveDragPosition?.left ?? authoredLeft;
-  const displayedTop = liveDragPosition?.top ?? authoredTop;
   const authoredTransform = authoredStyleValue(element, "transform");
   const rotationTransform = isMixedValue(styles.transform)
     ? undefined
@@ -461,11 +508,10 @@ export function PositionLayoutProperties({
               tooltipLabel="X-position"
               precision={2}
               value={
-                isMixedValue(displayedLeft)
+                isMixedValue(authoredLeft) || isMixedValue(styles.left)
                   ? MIXED_VALUE
-                  : (definiteAuthoredOffset(displayedLeft) ?? "")
+                  : measuredPositionValue(element, "x", liveDragPosition?.left)
               }
-              placeholder={element.boundingRect.x}
               inputClassName="h-6"
               onChange={(v, meta) => {
                 commitStylePatch(
@@ -473,7 +519,8 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    left: `${v}px`,
+                    left:
+                      String(authoredPositionOffset(element, "x", v)) + "px",
                   },
                   onStyleChange,
                   onStylesChange,
@@ -505,11 +552,10 @@ export function PositionLayoutProperties({
               tooltipLabel="Y-position"
               precision={2}
               value={
-                isMixedValue(displayedTop)
+                isMixedValue(authoredTop) || isMixedValue(styles.top)
                   ? MIXED_VALUE
-                  : (definiteAuthoredOffset(displayedTop) ?? "")
+                  : measuredPositionValue(element, "y", liveDragPosition?.top)
               }
-              placeholder={element.boundingRect.y}
               inputClassName="h-6"
               onChange={(v, meta) => {
                 commitStylePatch(
@@ -517,7 +563,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    top: `${v}px`,
+                    top: String(authoredPositionOffset(element, "y", v)) + "px",
                   },
                   onStyleChange,
                   onStylesChange,

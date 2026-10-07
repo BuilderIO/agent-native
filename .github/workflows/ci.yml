@@ -48,6 +48,7 @@ jobs:
       lanes_matrix: ${{ steps.lanes.outputs.matrix }}
       has_tests: ${{ steps.lanes.outputs.has_tests }}
       core_test_files: ${{ steps.lanes.outputs.core_test_files }}
+      design_canvas_e2e_files: ${{ steps.scope.outputs.design_canvas_e2e_files }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -458,9 +459,23 @@ jobs:
             e2e/parity-report-interactions.spec.ts \
             e2e/parity-oversized-nested.spec.ts \
             e2e/parity-alt-drag-duplicate.spec.ts \
+            e2e/parity-selection.spec.ts \
             e2e/z-order-parity.spec.ts \
-            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|a layer dragged below the rendered Screen card moves to the board|a drag released inside rendered Hug overflow stays in its source Screen|a held screen child dropped beyond the rendered board window persists at that canvas point|overview screen creation and duplicate undo/redo keep screens selected and visible|cross-axis oversized drop rejects nested insertion despite main-axis fit|width-only oversized drop previews the outer fallback insertion slot|oversized drop from nested plain frames previews and lands in nearest fitting ancestor|oversized drop leaves a fitting static section without a valid ancestor|report path: board frame drops directly into a nested screen frame and survives undo/redo|report path: held board text drop into a nested frame shows guide and ghost, preserves z-order, and reloads|report path: a board layer crossing a nested frame lands directly above it in the outer frame|moves an absolute child into empty parent space directly after its exited frame|Figma G8 multi-selection preserves native order, painted order, and one-step undo|Figma G9 Bring to Front reorders an auto-layout child and undo restores it" \
+            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|a layer dragged below the rendered Screen card moves to the board|a drag released inside rendered Hug overflow stays in its source Screen|a held screen child dropped beyond the rendered board window persists at that canvas point|overview screen creation and duplicate undo/redo keep screens selected and visible|cross-axis oversized drop rejects nested insertion despite main-axis fit|width-only oversized drop previews the outer fallback insertion slot|oversized drop from nested plain frames previews and lands in nearest fitting ancestor|oversized drop leaves a fitting static section without a valid ancestor|report path: board frame drops directly into a nested screen frame and survives undo/redo|report path: held board text drop into a nested frame shows guide and ghost, preserves z-order, and reloads|report path: a board layer crossing a nested frame lands directly above it in the outer frame|moves an absolute child into empty parent space directly after its exited frame|selected nested frame drag from its grandchild tracks the pointer and persists|G10: dropping a board Frame into an overlapping Frame persists its board position|G11: overlapping board Frames keep the dragged Frame at the drop position|Figma G8 multi-selection preserves native order, painted order, and one-step undo|Figma G9 Bring to Front reorders an auto-layout child and undo restores it" \
             --workers=1
+
+      - name: Run changed Design E2E specs
+        working-directory: templates/design
+        env:
+          DESIGN_CANVAS_E2E_FILES: ${{ needs.change-scope.outputs.design_canvas_e2e_files }}
+        run: |
+          mapfile -t changed_design_e2e_specs < <(
+            node -e 'for (const file of JSON.parse(process.env.DESIGN_CANVAS_E2E_FILES || "[]")) { if (!/^templates\/design\/e2e\/[A-Za-z0-9._/-]+\.(spec|test)\.[cm]?[jt]sx?$/.test(file)) throw new Error(`unexpected Design E2E path: ${file}`); console.log(file.slice("templates/design/".length)); }'
+          )
+          if ((${#changed_design_e2e_specs[@]} > 0)); then
+            E2E_RUN_ID=design-changed-${{ github.run_id }}-${{ github.run_attempt }} \
+              pnpm exec playwright test "${changed_design_e2e_specs[@]}" --workers=1
+          fi
 
   fast-tests:
     name: Fast tests

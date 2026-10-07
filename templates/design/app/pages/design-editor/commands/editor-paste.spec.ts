@@ -10,6 +10,9 @@ vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => toastError(...args) },
 }));
 
+import { getDesignClipboardTrustToken } from "@/lib/design-clipboard";
+import { serializeDesignClipboardPayload } from "@/lib/design-import";
+
 import { runEditorPaste, type EditorPasteArgs } from "./editor-paste";
 import { parsePastedSvg } from "./pasted-svg";
 
@@ -209,7 +212,7 @@ describe("runEditorPaste", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it("leaves malformed SVG-looking clipboard HTML to native paste", () => {
+  it("consumes rejected SVG HTML instead of letting the browser insert it", () => {
     const h = harness();
     const malformedSvg = '<svg width="17" height="9"><path d="M0 0"></svg>';
     const handlePastedSvg = vi.fn(
@@ -221,8 +224,73 @@ describe("runEditorPaste", () => {
     runEditorPaste(h.args, event);
 
     expect(handlePastedSvg).toHaveBeenCalledWith(malformedSvg);
-    expect(event.defaultPrevented).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
     expect(h.pasted).toBe(0);
+    expect(toastError).toHaveBeenCalledWith("common.genericError");
+  });
+
+  it("pastes a trusted Design SVG layer payload before importing raw SVG markup", () => {
+    const h = harness();
+    const trustToken = "design-clipboard-test-token";
+    const localStorageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: { getItem: () => trustToken, setItem: () => {} },
+    });
+    let markerText = "";
+    const payload = {
+      version: 1 as const,
+      entries: [
+        {
+          html: '<svg width="17" height="9"><text x="1" y="8">kept as a Design layer</text></svg>',
+          rootNodeId: "vector-1",
+          sourceFileId: "screen-1",
+        },
+      ],
+    };
+    const adoptDesignClipboardPayload = vi.fn();
+    const handlePastedSvg = vi.fn(() => false);
+    h.args.adoptDesignClipboardPayload = adoptDesignClipboardPayload;
+    h.args.handlePastedSvg = handlePastedSvg;
+    const event = pasteEvent({
+      "text/plain": "kept as a Design layer",
+    });
+
+    try {
+      markerText = serializeDesignClipboardPayload(
+        payload.entries[0]!.html,
+        payload,
+        getDesignClipboardTrustToken() ?? undefined,
+      );
+      Object.assign(event.clipboardData!, {
+        getData: (type: string) =>
+          type === "text/html"
+            ? markerText
+            : type === "text/plain"
+              ? "kept as a Design layer"
+              : "",
+      });
+      runEditorPaste(h.args, event);
+    } finally {
+      if (localStorageDescriptor) {
+        Object.defineProperty(window, "localStorage", localStorageDescriptor);
+      } else {
+        Reflect.deleteProperty(window, "localStorage");
+      }
+    }
+
+    expect(adoptDesignClipboardPayload).toHaveBeenCalledWith(
+      payload,
+      markerText,
+      "kept as a Design layer",
+    );
+    expect(handlePastedSvg).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+    expect(h.pasted).toBe(1);
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("says why a Figma link paste produced no screen", () => {

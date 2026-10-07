@@ -50,6 +50,31 @@ export function runEditorPaste(
     return;
   }
   if (isDesignHotkeyEditableTarget(event.target)) return;
+  const clipboardResult = readDesignClipboardPayloadFromDataTransfer(
+    event.clipboardData,
+  );
+  const clipboardPlainText = event.clipboardData?.getData("text/plain") ?? "";
+  const matchesInMemoryClipboard =
+    lastWrittenClipboardPlainTextRef.current !== null &&
+    clipboardPlainText === lastWrittenClipboardPlainTextRef.current;
+  if (
+    canEditDesign &&
+    (clipboardResult || (hasCanvasClipboard && matchesInMemoryClipboard))
+  ) {
+    if (
+      clipboardResult &&
+      clipboardResult.markerText !== lastWrittenClipboardMarkerRef.current
+    ) {
+      adoptDesignClipboardPayload(
+        clipboardResult.payload,
+        clipboardResult.markerText,
+        clipboardResult.plainText,
+      );
+    }
+    event.preventDefault();
+    void handlePasteSelection();
+    return;
+  }
   const svgHtml = event.clipboardData?.getData("text/html") ?? "";
   const svgText = event.clipboardData?.getData("text/plain") ?? "";
   const svgSource = /<svg\b/i.test(svgHtml)
@@ -57,9 +82,11 @@ export function runEditorPaste(
     : /<svg\b/i.test(svgText)
       ? svgText
       : "";
-  if (svgSource && canEditDesign && handlePastedSvg(svgSource)) {
+  let rejectedSvgMarkup = false;
+  if (svgSource && canEditDesign) {
     event.preventDefault();
-    return;
+    if (handlePastedSvg(svgSource)) return;
+    rejectedSvgMarkup = true;
   }
   const files = Array.from(event.clipboardData?.items ?? [])
     .filter((item) => item.kind === "file")
@@ -83,16 +110,15 @@ export function runEditorPaste(
   const svgMarkup = extractSvgMarkup(
     event.clipboardData?.getData("text/plain") ?? "",
   );
-  if (
-    svgMarkup &&
-    canEditDesign &&
-    !readDesignClipboardPayloadFromDataTransfer(event.clipboardData) &&
-    typeof File !== "undefined"
-  ) {
+  if (svgMarkup && canEditDesign && typeof File !== "undefined") {
     event.preventDefault();
     void handlePastedFiles([
       new File([svgMarkup], "pasted.svg", { type: "image/svg+xml" }),
     ]);
+    return;
+  }
+  if (rejectedSvgMarkup) {
+    toast.error(t("common.genericError"));
     return;
   }
   if (isAttemptedFigmaPaste(event.clipboardData)) {
@@ -102,25 +128,4 @@ export function runEditorPaste(
     return;
   }
   if (!canEditDesign) return;
-  const clipboardResult = readDesignClipboardPayloadFromDataTransfer(
-    event.clipboardData,
-  );
-  if (
-    clipboardResult &&
-    clipboardResult.markerText !== lastWrittenClipboardMarkerRef.current
-  ) {
-    adoptDesignClipboardPayload(
-      clipboardResult.payload,
-      clipboardResult.markerText,
-      clipboardResult.plainText,
-    );
-  }
-  const clipboardPlainText = event.clipboardData?.getData("text/plain") ?? "";
-  const matchesInMemoryClipboard =
-    lastWrittenClipboardPlainTextRef.current !== null &&
-    clipboardPlainText === lastWrittenClipboardPlainTextRef.current;
-  if (clipboardResult || (hasCanvasClipboard && matchesInMemoryClipboard)) {
-    event.preventDefault();
-    void handlePasteSelection();
-  }
 }

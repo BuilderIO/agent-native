@@ -199,7 +199,17 @@ export function withMeasuredGeometry(
     if (!node) continue;
     const box = node.getBoundingClientRect();
     if (box.width <= 0 && box.height <= 0) continue;
-    const parentBox = node.parentElement?.getBoundingClientRect();
+    const parent = node.parentElement;
+    const parentBox = parent?.getBoundingClientRect();
+    let positionReference = parent;
+    while (
+      positionReference &&
+      positionReference.getAttribute("data-an-primitive") !== "frame"
+    ) {
+      positionReference = positionReference.parentElement;
+    }
+    positionReference ??= node.ownerDocument.body;
+    const positionReferenceBox = positionReference?.getBoundingClientRect();
     const scrollX = frame.contentWindow?.scrollX ?? 0;
     const scrollY = frame.contentWindow?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);
@@ -219,6 +229,14 @@ export function withMeasuredGeometry(
             height: parentBox.height,
           }
         : info.parentBoundingRect,
+      positionReferenceRect: positionReferenceBox
+        ? {
+            x: positionReferenceBox.x + scrollX,
+            y: positionReferenceBox.y + scrollY,
+            width: positionReferenceBox.width,
+            height: positionReferenceBox.height,
+          }
+        : info.positionReferenceRect,
       computedStyles: computed
         ? {
             color: computed.color,

@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+
+import { parse } from "yaml";
 
 import {
   QUERY_BUDGET_APPS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
+  designCanvasE2eSpecsForPaths,
   shardQueryBudgetApps,
   isDocsPath,
   isGuardScopedScriptPath,
@@ -427,6 +431,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/e2e/parity-report-interactions.spec.ts",
     "templates/design/e2e/parity-oversized-nested.spec.ts",
     "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
+    "templates/design/e2e/parity-selection.spec.ts",
     "templates/design/e2e/z-order-parity.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
     "templates/design/e2e/responsive-overview-regressions.spec.ts",
@@ -457,13 +462,22 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/app/i18n-keyboard-shortcuts.ts",
     "templates/design/app/assets/icon.ts",
     "templates/design/public/favicon.svg",
-    "templates/design/e2e/overview-wheel-zoom.spec.ts",
   ]) {
     assert.equal(
       classifyChangedPaths([path]).checks.design_canvas_interaction_e2e,
       false,
       path,
     );
+  }
+
+  for (const path of [
+    "templates/design/e2e/overview-wheel-zoom.spec.ts",
+    "templates/design/e2e/position-alignment.spec.ts",
+    "templates/design/e2e/drag-and-drop.drag-feedback.spec.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.design_canvas_interaction_e2e, true, path);
+    assert.deepEqual(scope.designCanvasE2eSpecs, [path], path);
   }
 
   assert.equal(
@@ -475,6 +489,60 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     classifyChangedPaths(["docs/guide.md"]).checks
       .design_canvas_interaction_e2e,
     false,
+  );
+});
+
+test("the Design interaction gate runs G7 and every changed Design E2E spec", () => {
+  const workflow = parse(readFileSync(".github/workflows/ci.yml", "utf8")) as {
+    jobs?: {
+      "change-scope"?: { outputs?: Record<string, unknown> };
+      "design-canvas-interaction-acceptance"?: {
+        steps?: Array<{
+          name?: string;
+          env?: Record<string, unknown>;
+          run?: unknown;
+        }>;
+      };
+    };
+  };
+  const outputs = workflow.jobs?.["change-scope"]?.outputs;
+  assert.equal(
+    outputs?.design_canvas_e2e_files,
+    "${{ steps.scope.outputs.design_canvas_e2e_files }}",
+  );
+  const steps =
+    workflow.jobs?.["design-canvas-interaction-acceptance"]?.steps ?? [];
+  const fixedMatrix = steps.find(
+    (step) => step.name === "Run focused Design canvas interaction cases",
+  );
+  assert.equal(typeof fixedMatrix?.run, "string");
+  assert.ok(String(fixedMatrix?.run).includes("e2e/parity-selection.spec.ts"));
+  assert.ok(
+    String(fixedMatrix?.run).includes(
+      "selected nested frame drag from its grandchild tracks the pointer and persists",
+    ),
+  );
+  assert.ok(
+    String(fixedMatrix?.run).includes(
+      "G10: dropping a board Frame into an overlapping Frame persists its board position",
+    ),
+  );
+  assert.ok(
+    String(fixedMatrix?.run).includes(
+      "G11: overlapping board Frames keep the dragged Frame at the drop position",
+    ),
+  );
+
+  const changedSpecs = steps.find(
+    (step) => step.name === "Run changed Design E2E specs",
+  );
+  assert.equal(
+    changedSpecs?.env?.DESIGN_CANVAS_E2E_FILES,
+    "${{ needs.change-scope.outputs.design_canvas_e2e_files }}",
+  );
+  assert.equal(typeof changedSpecs?.run, "string");
+  assert.ok(
+    String(changedSpecs?.run).includes('"${changed_design_e2e_specs[@]}"'),
   );
 });
 
