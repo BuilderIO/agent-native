@@ -571,9 +571,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
-  assert.ok(regressionCases.includes("timeout-minutes: 7"));
-  assert.ok(workflow.includes("timeout-minutes: 9"));
-  assert.ok(regressionCases.includes("--workers=1"));
+  assert.deepEqual(
+    [...regressionCases.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
+      Number(count),
+    ),
+    [1, 1],
+  );
   const designJobStart = workflow.indexOf(
     "  design-canvas-interaction-acceptance:\n",
   );
@@ -582,6 +585,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const designJob = workflow.slice(
     designJobStart,
     designJobEnd === -1 ? undefined : designJobEnd,
+  );
+  const jobTimeout = Number(
+    designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
+  );
+  const stepTimeout = Number(
+    regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
+  assert.ok(
+    jobTimeout >= stepTimeout + 5,
+    "job timeout must leave five minutes for setup around the focused test step",
   );
   assert.match(
     designJob,
