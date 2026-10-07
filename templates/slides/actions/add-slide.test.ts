@@ -364,6 +364,35 @@ describe("add-slide", () => {
       expect(reported()[0]?.[1]).not.toHaveProperty("duration_ms");
     });
 
+    it("ends generation timing before reading the slide count", async () => {
+      await writeFirstSlide("turn-read-latency", "run-read-latency");
+      let now = 500;
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+
+      try {
+        await trackGenerationCompletedForRun(
+          {
+            runId: "run-read-latency",
+            turnId: "turn-read-latency",
+            status: "completed",
+          },
+          finished,
+          async () => {
+            now = 900;
+            return 5;
+          },
+        );
+      } finally {
+        vi.restoreAllMocks();
+      }
+
+      expect(reported()[0]?.[1]).toMatchObject({
+        started_at_ms: 100,
+        ended_at_ms: 500,
+        duration_ms: 400,
+      });
+    });
+
     it("keeps waiting when an errored chunk chains a continuation, and drops the turn if that fails", async () => {
       await writeFirstSlide("turn-retry", "run-chunk-1");
 

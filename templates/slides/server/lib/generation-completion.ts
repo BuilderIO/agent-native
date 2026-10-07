@@ -216,6 +216,7 @@ export async function trackGenerationCompletedForRun(
     }
     return;
   }
+  const generationEndedAt = Date.now();
   const claim = await claimFinalization(turnKey, local);
   if (!claim) return;
   const { outputs, owner, held } = claim;
@@ -239,7 +240,6 @@ export async function trackGenerationCompletedForRun(
   for (const output of outputs) {
     const slideCount = counts.get(output.deckId) ?? null;
     if (slideCount === null || slideCount === 0) continue;
-    const generationEndedAt = Date.now();
     track(
       "generation_completed",
       {
