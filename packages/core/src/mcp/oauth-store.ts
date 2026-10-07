@@ -60,7 +60,6 @@ export const MCP_OAUTH_ACCESS_TOKEN_TTL: string = _accessTokenTtl.str;
 export const MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: number =
   _accessTokenTtl.seconds;
 
-export const MCP_OAUTH_REFRESH_TOKEN_TTL_MS = 365 * 24 * 60 * 60_000;
 export const MCP_OAUTH_REGISTER_MAX = 60;
 export const MCP_OAUTH_REGISTER_WINDOW_MS = 60_000;
 
@@ -222,6 +221,25 @@ function numOrNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function refreshTokenExpiryFromRow(row: any): number | null {
+  const value = Object.prototype.hasOwnProperty.call(row, "expires_at")
+    ? row.expires_at
+    : row.expiresAt;
+  if (value === null) return null;
+  const expiresAt = numOrNull(value);
+  if (expiresAt === null) {
+    throw new Error("OAuth refresh-token expiry is missing or invalid");
+  }
+  return expiresAt;
+}
+
+function isRefreshTokenExpired(
+  row: OAuthRefreshTokenRow,
+  now = Date.now(),
+): boolean {
+  return row.expiresAt !== null && row.expiresAt < now;
+}
+
 function mapClientRow(row: any): OAuthClientRow {
   const redirectUris = parseJsonStringArray(
     row.redirect_uris ?? row.redirectUris,
@@ -280,7 +298,7 @@ function mapRefreshRow(row: any): OAuthRefreshTokenRow {
     scope: row.scope,
     resource: row.resource,
     createdAt: numOrNull(row.created_at ?? row.createdAt),
-    expiresAt: numOrNull(row.expires_at ?? row.expiresAt),
+    expiresAt: refreshTokenExpiryFromRow(row),
     lastUsedAt: numOrNull(row.last_used_at ?? row.lastUsedAt),
     revokedAt: numOrNull(row.revoked_at ?? row.revokedAt),
     replacedByHash: row.replaced_by_hash ?? row.replacedByHash ?? null,
@@ -514,7 +532,7 @@ export async function createOAuthRefreshToken(
     scope: params.scope,
     resource: params.resource,
     createdAt: now,
-    expiresAt: now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS,
+    expiresAt: null,
     lastUsedAt: null,
     revokedAt: null,
     replacedByHash: null,
@@ -565,12 +583,12 @@ export async function rotateOAuthRefreshToken(
   if (
     !hasIssuanceOwner(old) ||
     old.revokedAt != null ||
-    (old.expiresAt ?? 0) < now
+    isRefreshTokenExpired(old, now)
   )
     return null;
 
   const update = await client.execute({
-    sql: `UPDATE mcp_oauth_refresh_tokens SET revoked_at = ?, last_used_at = ?, replaced_by_hash = ? WHERE token_hash = ? AND revoked_at IS NULL AND expires_at >= ? AND owner_email = ? AND issued_for_email = ?`,
+    sql: `UPDATE mcp_oauth_refresh_tokens SET revoked_at = ?, last_used_at = ?, replaced_by_hash = ? WHERE token_hash = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at >= ?) AND owner_email = ? AND issued_for_email = ?`,
     args: [now, now, newHash, oldHash, now, old.ownerEmail, old.issuedForEmail],
   });
   if (update.rowsAffected === 0) return null;
@@ -583,7 +601,7 @@ export async function rotateOAuthRefreshToken(
     id: randomUUID(),
     tokenHash: newHash,
     createdAt: now,
-    expiresAt: now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS,
+    expiresAt: null,
     lastUsedAt: null,
     revokedAt: null,
     replacedByHash: null,
@@ -628,7 +646,7 @@ export async function getOAuthRefreshToken(
   if (
     !hasIssuanceOwner(row) ||
     row.revokedAt != null ||
-    (row.expiresAt ?? 0) < Date.now()
+    isRefreshTokenExpired(row)
   ) {
     return null;
   }
@@ -636,9 +654,8 @@ export async function getOAuthRefreshToken(
 }
 
 /**
- * Slide the refresh-token's expiry window on each successful use so that active
- * users never hit the TTL. Records `last_used_at` and extends `expires_at` to
- * `now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS`.
+ * Remove the expiry from an existing grant on successful use. Refresh grants
+ * remain valid until they are revoked or their owner loses access.
  * The caller supplies the owner whose membership it verified.
  */
 export async function touchOAuthRefreshToken(
@@ -651,15 +668,8 @@ export async function touchOAuthRefreshToken(
   const tokenHash = hashOAuthToken(refreshToken);
   const now = Date.now();
   const result = await client.execute({
-    sql: `UPDATE mcp_oauth_refresh_tokens SET last_used_at = ?, expires_at = ? WHERE token_hash = ? AND revoked_at IS NULL AND expires_at >= ? AND owner_email = ? AND issued_for_email = ? AND BTRIM(issued_for_email) <> ''`,
-    args: [
-      now,
-      now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS,
-      tokenHash,
-      now,
-      expectedOwnerEmail,
-      expectedOwnerEmail,
-    ],
+    sql: `UPDATE mcp_oauth_refresh_tokens SET last_used_at = ?, expires_at = NULL WHERE token_hash = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at >= ?) AND owner_email = ? AND issued_for_email = ? AND BTRIM(issued_for_email) <> ''`,
+    args: [now, tokenHash, now, expectedOwnerEmail, expectedOwnerEmail],
   });
   if (result.rowsAffected === 0) return "invalid";
   if (result.rowsAffected === 1) return "renewed";

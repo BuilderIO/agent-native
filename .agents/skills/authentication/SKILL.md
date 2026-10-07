@@ -76,7 +76,7 @@ Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;
 advertising `offline_access` lets hosts such as ChatGPT retain refresh access.
 Refresh tokens are stored hashed and are not rotated: a refresh returns the
-same token and slides its 365-day expiry. MCP OAuth and connect tokens carry
+same token, with no fixed expiry. MCP OAuth and connect tokens carry
 the org chosen when they were issued, so `verifyAuth` and the token endpoint
 re-check live org membership on every use. A removed member gets a 401 or
 `invalid_grant`; a failed check answers a retryable 503. Offboarding revokes

@@ -1,15 +1,176 @@
 ---
 title: "Deno Deploy"
-description: "Localized pointer to the the Nitro deno-deploy preset."
+description: "deno deploy CLI로 독립 실행형 Agent-Native 앱을 Deno Deploy에 배포합니다."
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Deno Deploy
 
-Read the [English Deno Deploy guide](/docs/deno-deploy) for the build steps and
-provider-specific production configuration.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`deno-deploy`.
+Deno Deploy는 Deno의 글로벌 네트워크에서 앱을 실행하므로 서버를 설정하거나 계속 실행해 둘 필요가 없습니다. 빌드하면 앱이 앱의 페이지와 API를 처리하는 하나의 Deno 서버로 변환되며, Deno Deploy는 앱에 HTTPS가 적용된 공개 주소를 제공합니다.
+
+이 가이드는 독립 실행형 앱 하나를 처음부터 배포하는 과정을 안내합니다. 앱을 만들고, 프로덕션 데이터베이스와 인증 시크릿을 지정하고, 데이터베이스를 준비하고, Deno용으로 빌드한 다음, `deno deploy` 명령으로 완성된 빌드를 업로드합니다.
+
+<Callout tone="info">
+
+Node.js `22.22+`가 필요합니다.
+
+</Callout>
+
+Deno Deploy 계정과 컴퓨터에 설치된 [Deno](https://docs.deno.com/runtime/getting_started/installation/)도 필요합니다. 이 가이드의 명령은 자신의 컴퓨터에서 실행하세요. 앱은 Node.js로 빌드하며, 완성된 빌드는 `deno deploy` 명령이 Deno Deploy에 업로드합니다.
+
+## 1단계: 앱 만들기 {#step-1-create-the-app}
+
+새 독립 실행형 앱을 만듭니다. 아래 예시는 Chat 템플릿으로 앱을 만들지만, 어떤 템플릿으로든 시작할 수 있습니다. 앱 폴더로 이동한 뒤 의존성을 설치하세요. `corepack enable`은 앱이 기대하는 `pnpm` 버전을 활성화하므로 `pnpm`을 직접 설치할 필요가 없습니다.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+원한다면 `my-app`을 원하는 앱 이름으로 바꾸세요. 이 가이드의 나머지 부분은 앱 폴더 안에 있다고 가정합니다.
+
+<Callout tone="info">
+
+이 명령이 피어 종속성 오류로 실패한다면 npx 캐시에 있는 오래된 패키지가 원인일 수 있습니다. `npx clear-npx-cache`를 실행해 캐시를 지운 다음 명령을 다시 실행하세요.
+
+</Callout>
+
+## 2단계: 환경 시크릿 구성하기 {#step-2-configure-environment-secrets}
+
+앱은 프로덕션 설정을 환경 변수에서 읽습니다.
+
+| 변수                 | 필수   | 용도                                          |
+| -------------------- | ------ | --------------------------------------------- |
+| `DATABASE_URL`       | 예     | 앱을 PostgreSQL 데이터베이스에 연결합니다     |
+| `BETTER_AUTH_SECRET` | 예     | 사용자 세션에 서명합니다                      |
+| `BETTER_AUTH_URL`    | 아니요 | 사용자가 앱에 접속하는 공개 주소를 설정합니다 |
+
+아래의 export 명령을 실행하면 이 셸에서 이후 명령이 동작합니다. 배포하기 전에 같은 변수를 호스트의 프로젝트 또는 서비스 환경 설정에도 저장하세요. Deno Deploy에 저장하는 방법은 5단계에서 설명합니다.
+
+### 데이터베이스 URL {#database-url}
+
+로컬 개발 중에는 `DATABASE_URL`이 설정되지 않으면 앱이 로컬 데이터베이스에 데이터를 저장합니다. 배포된 앱에는 배포 후에도 데이터를 유지하는 실제 PostgreSQL 데이터베이스가 필요합니다. Deno Deploy는 요청 사이에 파일을 유지하지 않으므로 데이터베이스는 Deno Deploy 밖에 있어야 합니다. 프로바이더에서 연결 문자열을 복사해 export하세요.
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[데이터베이스 프로바이더 가이드](/docs/neon)에서 프로바이더별로 연결 문자열을 찾는 위치를 확인할 수 있습니다.
+
+<Callout tone="warning">
+
+Neon, Supabase, Amazon RDS 등 영구적인 PostgreSQL 프로바이더를 선택하세요.
+
+</Callout>
+
+### 인증 시크릿 {#auth-secret}
+
+이 값은 한 번만 생성하고 배포할 때마다 바꾸지 마세요.
+
+앱은 `BETTER_AUTH_SECRET`을 사용해 사용자 세션에 서명합니다. 이 값이 바뀌면 로그인한 모든 사용자가 로그아웃됩니다. 아래 명령은 임의의 값을 생성합니다.
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+생성한 값은 비밀번호 관리자처럼 안전한 곳에 저장하세요. 배포할 때마다 같은 값을 사용합니다.
+
+### 공개 URL {#public-url}
+
+선택 사항입니다. 사용자 지정 도메인, 리버스 프록시, 또는 고정된 공개 origin이 필요한 인증이나 OAuth 흐름을 사용할 때 설정하세요.
+
+`BETTER_AUTH_URL`은 사용자가 앱에 접속하는 공개 주소입니다. 이 값이 없으면 앱은 들어오는 요청마다 자신의 주소를 판단합니다. Deno Deploy가 제공하는 주소에서는 대개 문제가 없지만, 사용자 지정 도메인을 연결할 때는 로그인 링크와 OAuth 리디렉션이 그 도메인을 사용하도록 이 값을 설정하세요.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 3단계: 마이그레이션 {#step-3-migrate}
+
+마이그레이션은 앱에 필요한 테이블을 데이터베이스에 만들고 업데이트합니다. 첫 배포 전에 이 명령을 실행하세요.
+
+```bash
+pnpm migrate:production
+```
+
+이 명령은 자신의 컴퓨터에서 실행되며, 2단계에서 export한 `DATABASE_URL`로 프로덕션 데이터베이스에 연결합니다. 앱을 업그레이드한 뒤에는 새 버전을 배포하기 전에 다시 실행하세요.
+
+## 4단계: 빌드 {#step-4-build}
+
+Deno Deploy용으로 앱을 빌드합니다.
+
+```bash
+NITRO_PRESET=deno_deploy pnpm build
+```
+
+`NITRO_PRESET=deno_deploy`는 Deno Deploy에 필요한 `Deno.serve()`를 사용하는 Deno 서버로 앱을 빌드합니다. 빌드는 서버를 `.output/server/index.ts`에, 정적 파일을 `.output/public`에 씁니다. 앱의 의존성이 서버에 번들되므로 `.output` 폴더는 아무것도 설치하지 않고 단독으로 실행됩니다.
+
+## 5단계: Deno Deploy에서 앱 만들기 및 시크릿 저장하기 {#step-5-create-the-app-on-deno-deploy-and-save-the-secrets}
+
+빌드 출력 폴더로 이동한 다음, 그 폴더에서 Deno Deploy에 앱을 만듭니다.
+
+```bash
+cd .output
+
+deno deploy create --source local --runtime-mode dynamic --entrypoint server/index.ts
+```
+
+이 명령은 대화형 설정을 열어 로그인을 진행하고, 사용할 조직과 앱 이름을 묻습니다. `--source local`은 GitHub에서 빌드하는 대신 현재 폴더를 업로드합니다. `--runtime-mode dynamic`과 `--entrypoint server/index.ts`는 Deno Deploy가 4단계의 서버를 실행하도록 지정합니다. 앱은 이미 빌드했으므로 빌드 단계를 구성할 필요가 없습니다.
+
+필수 변수 두 개를 앱의 시크릿으로 저장합니다.
+
+```bash
+deno deploy env add DATABASE_URL "$DATABASE_URL" --secret
+
+deno deploy env add BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" --secret
+```
+
+각 명령은 2단계에서 export한 값을 읽어 Deno Deploy에 저장하므로 시크릿을 직접 붙여 넣을 필요가 없습니다. `--secret`은 각 값을 시크릿으로 표시합니다. `BETTER_AUTH_URL`을 설정했다면 같은 방법으로 저장하세요. 이 값들은 나중에 Deno Deploy 대시보드의 앱 설정에서 확인하고 변경할 수도 있습니다.
+
+## 6단계: 배포 {#step-6-deploy}
+
+<Steps>
+
+### 프로덕션에 배포하기
+
+`.output` 폴더에서 빌드를 프로덕션 주소에 게시합니다.
+
+```bash
+deno deploy --prod
+```
+
+시크릿을 저장한 뒤 다시 배포하면 실행 중인 앱에 시크릿이 확실히 적용됩니다.
+
+### 앱 열기
+
+명령이 끝나면 `my-app.your-org.deno.net`과 같은 형태의 앱 주소가 출력됩니다. 그 주소를 열고 첫 계정을 만듭니다.
+
+</Steps>
+
+## 업데이트 배포하기 {#deploy-updates}
+
+새 버전을 배포하려면 마이그레이션을 실행하고, 다시 빌드한 다음, `.output` 폴더에서 배포하세요.
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=deno_deploy pnpm build
+
+cd .output
+
+deno deploy --prod --org your-org --app my-app
+```
+
+빌드할 때마다 `.output` 폴더가 교체되므로 `--org`와 `--app`으로 조직 이름과 앱 이름을 지정하세요. 저장한 시크릿은 앱에 그대로 유지되므로 5단계를 반복할 필요가 없습니다.
+
+## 다음 단계 {#whats-next}
+
+- [**Node.js**](/docs/node-js) - 직접 관리하는 머신에서 앱을 실행합니다
+- [**배포 환경 변수**](/docs/deployment-environment-variables) - 전체 프로덕션 설정 목록
+- [**배포**](/docs/deployment) - 호스팅 대상과 사전 요구 사항을 비교합니다
