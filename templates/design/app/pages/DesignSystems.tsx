@@ -206,7 +206,6 @@ export default function DesignSystems() {
     isLoading,
     isError,
   });
-  const isEmpty = pageMode === "empty";
   const selectedDesignSystemId = searchParams.get("designSystemId");
   const selectedDesignSystem = useMemo(
     () =>
