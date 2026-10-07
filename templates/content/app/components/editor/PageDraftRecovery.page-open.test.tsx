@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const openAiHost = vi.hoisted(() => ({
   isOpenAiMcpAppHost: vi.fn(() => false),
+  isOpenAiMcpDirectoryWidgetHost: vi.fn(() => false),
 }));
 
 const server = vi.hoisted(() => ({
@@ -32,6 +33,13 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
     await importOriginal<
       typeof import("@agent-native/core/client/agent-chat")
     >();
+  return { ...actual, isOpenAiMcpAppHost: openAiHost.isOpenAiMcpAppHost };
+});
+vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/client/mcp-app-host")
+    >();
   return { ...actual, ...openAiHost };
 });
 vi.mock("@agent-native/core/client/hooks", () => {
@@ -48,6 +56,7 @@ vi.mock("@agent-native/core/client/hooks", () => {
     getBrowserTabId: () => "tab-1",
     useDbSync: vi.fn(),
     useSession: () => ({ session: server.session }),
+    setClientAppState: vi.fn(() => Promise.resolve()),
     useActionMutation: () => ({ mutate: vi.fn(), mutateAsync: server.mutate }),
     useActionQuery: (name: string, params: unknown, options: object) =>
       useQuery({
@@ -67,6 +76,8 @@ vi.mock("react-router", async (importOriginal) => {
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/components/editor/DocumentEditor", async () => {
   const React = await import("react");
+  const { TooltipProvider } = await import("@/components/ui/tooltip");
+  const { VisualEditor } = await import("./VisualEditor");
   const { usePageOpenDocument } = await import("@/hooks/use-documents");
   const { PageDraftRecovery } = await import("./PageDraftRecovery");
   return {
@@ -77,9 +88,13 @@ vi.mock("@/components/editor/DocumentEditor", async () => {
       return React.createElement(PageDraftRecovery, {
         document,
         children: React.createElement(
-          "div",
-          { className: "ProseMirror" },
-          document.content,
+          TooltipProvider,
+          null,
+          React.createElement(VisualEditor, {
+            content: document.content,
+            editable: false,
+            onChange: () => {},
+          }),
         ),
       });
     },
@@ -170,6 +185,7 @@ describe("Page draft recovery on a page open", () => {
     server.mutate.mockReturnValue(new Promise(() => {}));
     server.session = { email: "writer@example.test", orgId: "org" };
     openAiHost.isOpenAiMcpAppHost.mockReturnValue(false);
+    openAiHost.isOpenAiMcpDirectoryWidgetHost.mockReturnValue(false);
     originalWindowStorage = Object.getOwnPropertyDescriptor(
       window,
       "localStorage",
@@ -180,6 +196,16 @@ describe("Page draft recovery on a page open", () => {
       value: storage,
     });
     vi.stubGlobal("localStorage", storage);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("{}", {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
     // Mirrors the app's query client, whose reads stay fresh for 30s.
     queryClient = new QueryClient({
       defaultOptions: { queries: { staleTime: 30_000 } },
@@ -275,6 +301,7 @@ describe("Page draft recovery on a page open", () => {
   });
 
   it("paints the scoped document body on /page/:id without a cookie session", async () => {
+    openAiHost.isOpenAiMcpDirectoryWidgetHost.mockReturnValue(true);
     openAiHost.isOpenAiMcpAppHost.mockReturnValue(true);
     server.session = null;
     startPageOpenDocumentReads(queryClient, "page");
@@ -287,7 +314,9 @@ describe("Page draft recovery on a page open", () => {
           createElement(
             MemoryRouter,
             {
-              initialEntries: ["/page/page?__an_mcp_chat_bridge=1&embedded=1"],
+              initialEntries: [
+                "/page/page?__an_mcp_chat_bridge=1&embedded=1&__an_embed_token=scoped-ticket&__an_mcp_directory_widget=1",
+              ],
             },
             createElement(
               Routes,

@@ -16,6 +16,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { isOpenAiMcpDirectoryWidgetHost } from "@agent-native/core/client/mcp-app-host";
 import {
   useCreateResourceSuggestionProposal,
   useDecideResourceSuggestion,
@@ -185,6 +186,7 @@ import {
   usePendingCommentDraft,
 } from "./CommentsSidebar";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
+import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
 import {
   DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME,
   DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,
@@ -2436,10 +2438,11 @@ function PageEditorSessionBody({
   const processBuilderBodies = useProcessBuilderBodyHydration(
     document.bodyHydration?.databaseDocumentId ?? documentId,
   );
-  const canEdit = document.canEdit === true;
-  const canEditRef = useRef(canEdit);
   const navigate = useNavigate();
   const location = useLocation();
+  const openAiWidget = isOpenAiMcpDirectoryWidgetHost();
+  const canEdit = document.canEdit === true && !openAiWidget;
+  const canEditRef = useRef(canEdit);
   const contentSpacesQuery = useContentSpaces();
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
   const localWorkspaceMode =
@@ -2467,6 +2470,7 @@ function PageEditorSessionBody({
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
   const canComment =
+    !openAiWidget &&
     !isLocalFileDocument &&
     (document.canComment ??
       (document.accessRole === "owner" ||
@@ -2651,6 +2655,7 @@ function PageEditorSessionBody({
   const canStartSuggestionRef = useRef(canSuggest);
   canStartSuggestionRef.current = canSuggest;
   const canDelete =
+    !openAiWidget &&
     !isLocalFileDocument &&
     !document.database?.systemRole &&
     (document.canManage === true ||
@@ -3193,7 +3198,10 @@ function PageEditorSessionBody({
       }
     : undefined;
 
-  const collabEnabled = !isLocalFileDocument;
+  const collabEnabled = shouldUseLiveDocumentCollaboration({
+    isLocalFileDocument,
+    openAiWidget,
+  });
   const collabDocumentId =
     collabEnabled && !isDocumentCreationPending(document) ? documentId : null;
   const {
@@ -8919,7 +8927,7 @@ function PageEditorSessionBody({
                       return primaryEditorWithStarter;
                     })()}
                     {!bodyHydrationPending &&
-                    !isLocalFileDocument &&
+                    collabEnabled &&
                     canEdit &&
                     !collabSynced ? (
                       <div
