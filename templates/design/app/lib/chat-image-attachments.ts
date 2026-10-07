@@ -1,3 +1,5 @@
+import { imageContentFromDataUrl } from "@agent-native/core/client/agent-chat";
+
 const CHAT_IMAGE_ATTACHMENT_TYPES = new Set([
   "image/gif",
   "image/jpeg",
@@ -55,4 +57,24 @@ export function imageAttachmentsFromUploadedFiles(
     images.push(image);
   }
   return images;
+}
+
+export function imageContentPartsFromDataUrls(images: readonly string[]) {
+  const content: NonNullable<ReturnType<typeof imageContentFromDataUrl>>[] = [];
+  for (const image of images) {
+    const part = imageContentFromDataUrl(image);
+    if (!part) throw new MissingVisualImagePayloadError();
+    content.push(part);
+  }
+  return content;
+}
+
+export function agentChatContentFromImages(
+  message: string,
+  images: readonly string[],
+) {
+  return [
+    { type: "text" as const, text: message },
+    ...imageContentPartsFromDataUrls(images),
+  ];
 }

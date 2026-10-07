@@ -980,6 +980,7 @@ import {
   designIntakeQuestionDirectives,
   designVariantGenerationDirectives,
   formatUploadedFileContext,
+  agentChatContentFromImages,
   imageAttachmentsFromUploadedFiles,
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
@@ -28840,6 +28841,7 @@ function DesignEditor() {
         ) => {
           const images = imageAttachmentsFromUploadedFiles(files);
           if (isBuilderDesignEmbed) {
+            const content = agentChatContentFromImages(prompt, images);
             const referenceContext = referenceImageContextDirectives(
               images.length,
             ).join("\n");
@@ -28849,7 +28851,12 @@ function DesignEditor() {
                 data: {
                   message: prompt,
                   submit: true,
-                  ...(images.length ? { images } : {}),
+                  ...(images.length
+                    ? {
+                        images,
+                        content,
+                      }
+                    : {}),
                   ...(referenceContext ? { context: referenceContext } : {}),
                 },
               },

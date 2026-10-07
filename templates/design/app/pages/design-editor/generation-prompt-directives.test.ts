@@ -3,6 +3,7 @@ import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { describe, expect, it } from "vitest";
 
 import {
+  agentChatContentFromImages,
   imageAttachmentsFromUploadedFiles,
   MissingVisualImagePayloadError,
 } from "@/lib/chat-image-attachments";
@@ -35,6 +36,27 @@ describe("imageAttachmentsFromUploadedFiles", () => {
         { type: "application/pdf", originalName: "brief.pdf" },
       ]),
     ).toEqual([image]);
+  });
+});
+
+describe("agentChatContentFromImages", () => {
+  it("puts image data in MCP content alongside the visible user message", () => {
+    expect(
+      agentChatContentFromImages("Review this screenshot", [
+        "data:IMAGE/JPG;base64,AQID",
+      ]),
+    ).toEqual([
+      { type: "text", text: "Review this screenshot" },
+      { type: "image", data: "AQID", mimeType: "image/jpeg" },
+    ]);
+  });
+
+  it("rejects image data the host relay cannot deliver", () => {
+    expect(() =>
+      agentChatContentFromImages("Review this screenshot", [
+        "data:image/bmp;base64,AQID",
+      ]),
+    ).toThrow(MissingVisualImagePayloadError);
   });
 });
 

@@ -138,6 +138,31 @@ describe("preUploadAttachments", () => {
     expect(att.data).toBe(`data:image/jpg;base64,${JPEG_BASE64}`);
   });
 
+  it("recovers uppercase inline image data URLs from the URL field", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/photo.jpg",
+      provider: "builder",
+    });
+
+    const att = makeImageAtt({
+      name: "photo.jpg",
+      contentType: "image/jpg",
+      data: undefined,
+      url: `data:IMAGE/JPG;base64,${JPEG_BASE64}`,
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({ mimeType: "image/jpeg" }),
+    );
+    expect(att.data).toBe(`data:IMAGE/JPG;base64,${JPEG_BASE64}`);
+    expect(att.url).toBe("https://cdn.example.com/photo.jpg");
+    expect(result.uploaded[0]?.contentType).toBe("image/jpeg");
+  });
+
   it("uses the serialized data URL MIME type when it differs from the original file type", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/logo.png",

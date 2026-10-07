@@ -890,7 +890,7 @@ function imageContentFromBase64(
   };
 }
 
-function imageContentFromDataUrl(
+export function imageContentFromDataUrl(
   dataUrl: string,
 ): McpAppModelContextContentPart | null {
   const match = /^data:(image\/(?:png|jpeg|jpg|gif|webp));base64,(.*)$/i.exec(
