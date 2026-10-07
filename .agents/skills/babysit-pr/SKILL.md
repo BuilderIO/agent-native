@@ -12,8 +12,10 @@ metadata:
 Monitor PR #$ARGUMENTS in the current repo and fix CI failures and human or bot
 review feedback. A standalone `/babysit-pr` may stop after 30 minutes of green
 CI and no new feedback. When invoked by `/ship`, honor its inherited
-`ship_mode` in this foreground task. `/ship` and standalone `/babysit-pr` stay
-foreground-only; do not create or resume a durable watcher or use PR leases.
+`ship_mode` and reuse `/ship`'s same-thread heartbeat in Codex; do not create a
+second automation. Standalone `/babysit-pr` stays foreground-only and does not
+create or resume an automation unless the user explicitly asks for recurring
+follow-up. Do not use PR leases.
 
 A request to monitor or fix a PR does not authorize pushing to a PR authored by
 someone else. Push to that PR only when the user explicitly authorizes a push to
@@ -98,14 +100,18 @@ gh api user --jq .login
 gh pr view <number> --json state,mergedAt,closedAt,author,headRepository,headRepositoryOwner,headRefName,headRefOid,baseRefName,mergeCommit
 ```
 
-If the query fails or is ambiguous, stay foreground-only until its state is
-known. A closed, unmerged PR ends babysitting and is reported as unsuccessful.
+If the query fails or is ambiguous, do not act on cached evidence. Retry only
+after live state is available; under `/ship`, keep its same-thread heartbeat
+as the sole reentry path while state is unresolved. A closed, unmerged PR ends
+babysitting and is reported as unsuccessful.
 If a PR is already merged under inherited `ship_mode=merge-authorized`,
 continue the post-merge path here. Standalone and ready-only invocations report
 an unexpected merge without rotating.
 
-1. Run one foreground tick immediately and continue until this mode's endpoint.
-   Do not create or mutate automations for this workflow.
+1. Run one foreground tick immediately. Under `/ship`, preserve its goal and
+   task-scoped heartbeat through this mode's endpoint. Standalone babysitting
+   continues in the foreground without automation unless recurring follow-up
+   was explicitly requested. Never create a duplicate heartbeat.
 2. Before each PR write, reread the live state. Push normally (never force).
    Query and record `headRepository.nameWithOwner`, `headRefName`, and
    `headRefOid`. Resolve the writable push remote by matching its URL to that
@@ -480,7 +486,10 @@ missing, preserve the source branch. Continue through:
    babysitting or `ship_mode=ready-only`, retain the source branch unless the
    user requested that exact rotation in this task.
 
-The foreground task owns this continuation; no watcher or lease is required.
+The `/ship` goal and its same-thread heartbeat own this continuation. Keep the
+heartbeat active until `origin/main` ancestry and branch disposition are
+verified, then pause it and verify the saved automation state before completing
+the goal.
 
 PR merge by itself is not parent handoff or goal completion. If the exact head
 OID is unavailable, preserve the source branch and report that safe disposition
