@@ -64,6 +64,7 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     );
   });
 
+  // oracle: none — this checks editor wiring, not a measured Figma behavior.
   it("keeps support files out of the visual screen layer list and Cmd+A", () => {
     const selectAllFrames = editorSource.slice(
       editorSource.indexOf("const handleSelectAllFrames = useCallback"),

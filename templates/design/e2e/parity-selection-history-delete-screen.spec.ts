@@ -183,6 +183,7 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
   ).toEqual([]);
 });
 
+// oracle: none — this checks app deletion behavior, not a Figma observation.
 test("deleting a selected child layer keeps its owning Screen", async ({
   page,
 }) => {
@@ -215,6 +216,7 @@ test("deleting a selected child layer keeps its owning Screen", async ({
   }
 });
 
+// oracle: none — this checks app selection history, not a Figma observation.
 test("undo restores a child layer with its additive Screen selection", async ({
   page,
 }) => {
@@ -265,6 +267,7 @@ test("undo restores a child layer with its additive Screen selection", async ({
   }
 });
 
+// oracle: none — this checks app selection and deletion behavior, not a Figma observation.
 test("marquee-selecting child elements after a Screen pick deletes only the elements", async ({
   page,
 }) => {
@@ -328,6 +331,7 @@ test("marquee-selecting child elements after a Screen pick deletes only the elem
   }
 });
 
+// oracle: none — this checks retry behavior after an action failure, not Figma behavior.
 test("failed Screen deletion keeps the explicit Screen target for retry", async ({
   page,
 }) => {
@@ -396,6 +400,7 @@ test("failed Screen deletion keeps the explicit Screen target for retry", async 
   }
 });
 
+// oracle: none — this checks app selection behavior, not a Figma observation.
 test("marquee selection persists and deletes Screens after a prior layer selection", async ({
   page,
 }) => {
