@@ -86,7 +86,9 @@ jobs:
     needs: [verify-stable-release, pause-netlify-builds]
     if: >-
       ${{ always() && !cancelled() &&
-      needs.verify-stable-release.outputs.verified != 'true' &&
+      (needs.verify-stable-release.result == 'skipped' ||
+      (needs.verify-stable-release.result == 'success' &&
+      needs.verify-stable-release.outputs.verified == 'false')) &&
       needs.pause-netlify-builds.result == 'success' }}
     permissions:
       contents: read
@@ -110,7 +112,9 @@ jobs:
     needs: [verify-stable-release, pause-netlify-builds, migrate]
     if: >-
       ${{ always() && !cancelled() &&
-      needs.verify-stable-release.outputs.verified != 'true' &&
+      (needs.verify-stable-release.result == 'skipped' ||
+      (needs.verify-stable-release.result == 'success' &&
+      needs.verify-stable-release.outputs.verified == 'false')) &&
       needs.pause-netlify-builds.result == 'success' &&
       needs.migrate.result == 'success' }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
@@ -130,7 +134,11 @@ jobs:
   pause-netlify-builds:
     name: Pause docs site's Git-connected Netlify builds
     needs: [verify-stable-release]
-    if: ${{ always() && !cancelled() && needs.verify-stable-release.outputs.verified != 'true' }}
+    if: >-
+      ${{ always() && !cancelled() &&
+      (needs.verify-stable-release.result == 'skipped' ||
+      (needs.verify-stable-release.result == 'success' &&
+      needs.verify-stable-release.outputs.verified == 'false')) }}
     concurrency:
       group: agent-native-production-site-fw
       cancel-in-progress: false
@@ -294,7 +302,11 @@ jobs:
   restore-netlify-builds:
     name: Restore docs site's Git-connected Netlify builds
     needs: [verify-stable-release, pause-netlify-builds, migrate, deploy]
-    if: ${{ always() && !cancelled() && needs.verify-stable-release.outputs.verified != 'true' }}
+    if: >-
+      ${{ always() && !cancelled() &&
+      (needs.verify-stable-release.result == 'skipped' ||
+      (needs.verify-stable-release.result == 'success' &&
+      needs.verify-stable-release.outputs.verified == 'false')) }}
     runs-on: ubuntu-latest
     concurrency:
       group: agent-native-production-site-fw

@@ -205,7 +205,7 @@ describe("release everything workflow", () => {
     assert.match(String(pauseDocsBuilds.needs), /verify-stable-release/);
     assert.match(
       String(pauseDocsBuilds.if),
-      /!cancelled\(\).*needs\.verify-stable-release\.outputs\.verified != 'true'/,
+      /!cancelled\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'/,
     );
     assert.deepEqual(migrateDocs.needs, [
       "verify-stable-release",
@@ -218,23 +218,15 @@ describe("release everything workflow", () => {
     ]);
     assert.match(
       String(migrateDocs.if),
-      /always\(\).*needs\.verify-stable-release\.outputs\.verified != 'true'.*needs\.pause-netlify-builds\.result == 'success'/,
+      /always\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'.*needs\.pause-netlify-builds\.result == 'success'/,
     );
     assert.match(
       String(deployDocs.if),
-      /always\(\).*needs\.verify-stable-release\.outputs\.verified != 'true'.*needs\.pause-netlify-builds\.result == 'success'.*needs\.migrate\.result == 'success'/,
+      /always\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'.*needs\.pause-netlify-builds\.result == 'success'.*needs\.migrate\.result == 'success'/,
     );
     assert.match(
       String(restoreDocsBuilds.if),
-      /!cancelled\(\).*needs\.verify-stable-release\.outputs\.verified != 'true'/,
-    );
-    assert.doesNotMatch(
-      String(pauseDocsBuilds.if),
-      /needs\.verify-stable-release\.result/,
-    );
-    assert.doesNotMatch(
-      String(restoreDocsBuilds.if),
-      /needs\.verify-stable-release\.result/,
+      /!cancelled\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'/,
     );
     assert.deepEqual(docsInputs, {
       source_ref: {
