@@ -9,10 +9,7 @@ import { parseArgs } from "node:util";
 
 import { chromium, type CDPSession, type Page } from "@playwright/test";
 
-import {
-  readZoomUntilAvailable,
-  waitForAnimationFrame,
-} from "./runtime-budget-zoom.ts";
+import { readZoomUntilAvailable } from "./runtime-budget-zoom.ts";
 
 type BudgetFile = {
   copies: number;
@@ -306,59 +303,36 @@ const zoomOf = () =>
     const match = /scale\(([0-9.]+)\)/.exec(transform);
     return match ? Number(match[1]) * 100 : null;
   });
-async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
-  // A CI runner reads the zoom back several times slower than a laptop.
+async function zoomTo(target: number): Promise<boolean> {
   const startedAt = Date.now();
-  const giveUpAt = startedAt + 60_000;
-  let inputs = 0;
-  while (Date.now() < giveUpAt) {
-    const zoom = await readZoomUntilAvailable(
-      zoomOf,
-      (ms) => page.waitForTimeout(ms),
-      giveUpAt,
-      () => cdp.send("Runtime.terminateExecution"),
-    );
-    if (zoom === null) break;
-    const off = Math.log(zoom / target);
-    if (Math.abs(off) < 0.06) break;
-    // Keep Ctrl+wheel deltas out of the pinch band and scale them to the
-    // remaining distance so a long zoom does not time out on a loaded runner.
-    await cdp.send("Input.dispatchMouseEvent", {
-      type: "mouseWheel",
-      x,
-      y,
-      deltaX: 0,
-      deltaY: Math.sign(off) * Math.min(240, Math.max(40, Math.abs(off) * 600)),
-      modifiers: 2,
-    });
-    inputs += 1;
-    // Wait for the camera to apply each input before measuring again.
-    const frameArrived = await waitForAnimationFrame(
-      () =>
-        page.evaluate(
-          () =>
-            new Promise<void>((resolve) =>
-              requestAnimationFrame(() => resolve()),
-            ),
-        ),
-      giveUpAt - Date.now(),
-      () => cdp.send("Runtime.terminateExecution"),
-    );
-    if (!frameArrived) break;
-  }
-  await page.waitForTimeout(
-    Math.min(1_500, Math.max(0, giveUpAt - Date.now())),
-  );
+  // This benchmark measures camera-driven rendering and preview churn; wheel
+  // forwarding is covered by parity-pan-zoom-mouse.spec.ts.
+  const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
+  await readout.click();
+  const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
+  await zoomInput.fill(`${target}%`);
+  await zoomInput.press("Enter");
   const actual = await readZoomUntilAvailable(
-    zoomOf,
+    async () => {
+      const zoom = await zoomOf();
+      const label = (await readout.textContent())?.trim();
+      return zoom !== null &&
+        Math.round(zoom) === target &&
+        label === `${target}%`
+        ? zoom
+        : null;
+    },
     (ms) => page.waitForTimeout(ms),
-    giveUpAt,
+    startedAt + 10_000,
     () => cdp.send("Runtime.terminateExecution"),
   );
-  const arrived = actual !== null && Math.abs(Math.log(actual / target)) < 0.15;
+  const arrived = actual !== null;
   if (!arrived) {
+    const actualZoom = await zoomOf();
+    const actualText =
+      actualZoom === null ? "unavailable" : `${actualZoom.toFixed(1)}%`;
     console.log(
-      `  zoom ${target}% ended at ${actual ?? "unavailable"}% after ${inputs} inputs in ${Date.now() - startedAt}ms`,
+      `  zoom ${target}% ended at ${actualText} with readout ${(await readout.textContent())?.trim() ?? "unavailable"} after ${Date.now() - startedAt}ms`,
     );
   }
   return arrived;
@@ -459,12 +433,6 @@ const visits = [
   "Icons 2",
   "Dashboard 4",
 ];
-const zoomPoints = [
-  [640, 360],
-  [500, 300],
-  [800, 420],
-  [600, 500],
-] as const;
 let zoomCycleBoots = 0;
 let zoomCycleRemounts = 0;
 
@@ -475,8 +443,8 @@ async function runSession() {
     const heading = editorFrame("dashboard-2.html")
       .locator("main header h1")
       .first();
-    const box = await settledBox(heading);
-    await zoomTo(60, Math.round(box.x + 4), Math.round(box.y + box.height / 2));
+    await settledBox(heading);
+    await zoomTo(60);
     await page.waitForTimeout(2500);
 
     await step("select", async () => {
@@ -554,12 +522,11 @@ async function runSession() {
       await page.waitForTimeout(1500);
       return duplicated && undone;
     });
-    const [x, y] = zoomPoints[iteration % zoomPoints.length]!;
     await step("zoomCycle", async () => {
       const startedAt = await now();
       let arrivedEverywhere = true;
       for (const zoom of [13, 31, 7, 145, 10]) {
-        arrivedEverywhere = (await zoomTo(zoom, x, y)) && arrivedEverywhere;
+        arrivedEverywhere = (await zoomTo(zoom)) && arrivedEverywhere;
       }
       zoomCycleBoots += await countSince("liveInserts", startedAt);
       zoomCycleRemounts += await countSince("previewRemounts", startedAt);
@@ -598,7 +565,7 @@ async function runSession() {
       return true;
     });
     await page.keyboard.press("Escape");
-    await zoomTo(8, 640, 360);
+    await zoomTo(8);
     heapSeries.push(await heapAfterGcMB(cdp));
   }
 }
