@@ -888,6 +888,7 @@ test.describe("Esc / Enter traversal from a real drill-in", () => {
       })
       .toContain("Card");
 
+    await page.locator("iframe[data-design-preview-iframe]").first().focus();
     await page.keyboard.press("Enter");
     await expect
       .poll(async () => (await selectedLayerNames(page)).join("|"), {

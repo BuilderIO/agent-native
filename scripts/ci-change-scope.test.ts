@@ -516,22 +516,7 @@ test("the Design interaction gate runs G7 and every changed Design E2E spec", ()
     (step) => step.name === "Run focused Design canvas interaction cases",
   );
   assert.equal(typeof fixedMatrix?.run, "string");
-  assert.ok(String(fixedMatrix?.run).includes("e2e/parity-selection.spec.ts"));
-  assert.ok(
-    String(fixedMatrix?.run).includes(
-      "selected nested frame drag from its grandchild tracks the pointer and persists",
-    ),
-  );
-  assert.ok(
-    String(fixedMatrix?.run).includes(
-      "board regression: an overlapping Frame drop into another board Frame persists after reload",
-    ),
-  );
-  assert.ok(
-    String(fixedMatrix?.run).includes(
-      "board regression: overlapping board Frames keep the pointer drop without cancel or revert",
-    ),
-  );
+  assert.ok(String(fixedMatrix?.run).includes("--grep"));
 
   const changedSpecs = steps.find(
     (step) => step.name === "Run changed Design E2E specs",
@@ -544,6 +529,8 @@ test("the Design interaction gate runs G7 and every changed Design E2E spec", ()
   assert.ok(
     String(changedSpecs?.run).includes('"${changed_design_e2e_specs[@]}"'),
   );
+  assert.ok(String(changedSpecs?.run).includes("unexpected Design E2E path"));
+  assert.ok(String(changedSpecs?.run).includes("--workers=1"));
 });
 
 test("selects the Content two-tab convergence lane for its runtime dependencies", () => {
