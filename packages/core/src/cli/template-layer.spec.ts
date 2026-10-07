@@ -197,6 +197,24 @@ describe("applyTemplateLayer", () => {
     ).toBe(routeV1);
   });
 
+  it("refuses to patch a base symlink that points out of the destination", () => {
+    const outside = write(path.join(tmpDir, "outside"), {
+      "_index.tsx": routeV1,
+    });
+    const dest = base();
+    const route = path.join(dest, "app/routes/_index.tsx");
+    fs.rmSync(route);
+    fs.symlinkSync(path.join(outside, "_index.tsx"), route);
+    const layerDir = layer();
+
+    expect(() =>
+      applyTemplateLayer(layerDir, readTemplateLayer(layerDir)!, dest),
+    ).toThrow(/must name something inside the template/);
+    expect(fs.readFileSync(path.join(outside, "_index.tsx"), "utf-8")).toBe(
+      routeV1,
+    );
+  });
+
   it("limits itself to one subtree when asked", () => {
     const layerDir = layer();
     const dest = base();

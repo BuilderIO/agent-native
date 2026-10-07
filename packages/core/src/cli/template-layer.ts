@@ -127,6 +127,12 @@ function applyLayerPatch(patchFile: string, dest: string, rel: string): void {
       `Template layer patch ${patchFile} targets ${rel}, which the base template no longer has.`,
     );
   }
+  // Writing a patched file follows a symlink at the target itself.
+  if (!isInside(fs.realpathSync(dest), fs.realpathSync(target))) {
+    throw new Error(
+      `Template layer path "${rel}" must name something inside the template.`,
+    );
+  }
   const patched = applyPatch(
     fs.readFileSync(target, "utf-8"),
     fs.readFileSync(patchFile, "utf-8"),
