@@ -1,6 +1,7 @@
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import { z } from "zod";
 
+import { clipHead, clipTail } from "./clip-text.js";
 import type { EngineMessage, EngineTool } from "./engine/types.js";
 
 export const FOLLOW_UP_SUGGESTIONS_TOOL_NAME = "suggest-follow-ups";
@@ -16,12 +17,17 @@ export const FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION =
   "The final reply above has already been delivered. Complete only its missing follow-up metadata by calling suggest-follow-ups once, using the request, reply, and tools used above. " +
   "An empty list is valid when no useful next action exists. Do not repeat the reply, perform more work, or call other tools.";
 
-const MAX_COMPLETION_REQUEST_CHARS = 2_000;
-const MAX_COMPLETION_REPLY_CHARS = 4_000;
+// The ask sits at the end of a long pasted document and a long reply's
+// conclusions sit at the end, so a clip keeps the tail.
+const COMPLETION_REQUEST_HEAD_CHARS = 500;
+const COMPLETION_REQUEST_TAIL_CHARS = 1_500;
+const COMPLETION_REPLY_TAIL_CHARS = 4_000;
 const MAX_COMPLETION_TOOL_NAMES = 30;
 
-function clip(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
+function clipMiddle(text: string, head: number, tail: number): string {
+  return text.length > head + tail
+    ? `${clipHead(text, head)}\n…\n${clipTail(text, tail)}`
+    : text;
 }
 
 /**
@@ -40,9 +46,9 @@ export function buildFollowUpCompletionMessages(input: {
     .slice(0, MAX_COMPLETION_TOOL_NAMES);
   const sections = [
     requestText
-      ? `<user-request>\n${clip(requestText, MAX_COMPLETION_REQUEST_CHARS)}\n</user-request>`
+      ? `<user-request>\n${clipMiddle(requestText, COMPLETION_REQUEST_HEAD_CHARS, COMPLETION_REQUEST_TAIL_CHARS)}\n</user-request>`
       : "",
-    `<final-reply>\n${clip(input.replyText.trim(), MAX_COMPLETION_REPLY_CHARS)}\n</final-reply>`,
+    `<final-reply>\n${clipMiddle(input.replyText.trim(), 0, COMPLETION_REPLY_TAIL_CHARS)}\n</final-reply>`,
     toolNames.length > 0
       ? `<tools-used>${toolNames.join(", ")}</tools-used>`
       : "",

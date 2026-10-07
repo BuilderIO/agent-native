@@ -143,6 +143,7 @@ import {
   drainAgentWarnings,
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
+import { clipHead } from "./clip-text.js";
 import {
   buildSystemManifestSections,
   readContextXraySystemSections,
@@ -2859,6 +2860,39 @@ export interface AgentLoopUsage {
   firstEngineEventAtMs?: number;
 }
 
+/**
+ * Folds one loop attempt's usage into a running total. Every wrapper that
+ * re-enters `runAgentLoop` merges through this, so a field added to
+ * `AgentLoopUsage` cannot be reported by the loop and dropped by a wrapper.
+ */
+export function mergeAgentLoopUsage(
+  total: AgentLoopUsage,
+  next: AgentLoopUsage,
+): void {
+  total.inputTokens += next.inputTokens;
+  total.outputTokens += next.outputTokens;
+  total.cacheReadTokens += next.cacheReadTokens;
+  total.cacheWriteTokens += next.cacheWriteTokens;
+  for (const key of [
+    "builderCreditsUsed",
+    "llmCalls",
+    "followUpMs",
+    "followUpInputTokens",
+    "receiptUnverifiedCount",
+    "receiptChangedFalseCount",
+  ] as const) {
+    if (typeof next[key] === "number") {
+      total[key] = (total[key] ?? 0) + next[key];
+    }
+  }
+  total.engineName = next.engineName ?? total.engineName;
+  total.model = next.model;
+  if (next.usageReported) total.usageReported = true;
+  // Keep the earliest attempt's first event — a later continuation
+  // attempt starting fresh must not overwrite genuine first-token timing.
+  total.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
+}
+
 export type AgentLoopOutcome =
   | { state: "completed" }
   | { state: "input_required"; code: string; message: string }
@@ -3443,6 +3477,50 @@ export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
 const MAX_ALREADY_LOADED_TOOL_SEARCHES = 4;
 const MAX_STOP_ERROR_LINE_CHARS = 300;
+
+/** `error: message` for a JSON `{ error, message }` result; `undefined` when the text is not one. */
+function jsonErrorCause(text: string): string | undefined {
+  if (!text.startsWith("{")) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+    // coercion-ok: unparseable text is not a JSON error result; the caller reads its first line
+  } catch {
+    return undefined;
+  }
+  const { error, message } = (parsed ?? {}) as Record<string, unknown>;
+  if (typeof error !== "string" || !error.trim()) return undefined;
+  return typeof message === "string" && message.trim()
+    ? `${error}: ${message}`
+    : error;
+}
+
+function errorCauseLine(text: string): string {
+  const body = text.trim().replace(/^Error running [^\s:]+:\s*/, "");
+  return (
+    (jsonErrorCause(body) ?? body)
+      .split(/\r?\n/)
+      .find((line) => line.trim())
+      ?.trim() ?? ""
+  );
+}
+
+/**
+ * The line of a failed tool result that names the cause, for a message the
+ * user reads. It takes the credential-sanitized text and keeps identifiers and
+ * emails, since a column or account name is the diagnosis; the trace-grade
+ * `toolErrorSignature` redacts those. A pretty-printed JSON error opens with
+ * `Error running x: {`, and a `(errorCode: ...)` suffix keeps it from parsing,
+ * so a bare first line can be only a bracket.
+ */
+function stopErrorLine(sanitizedResult: string): string {
+  const lines = sanitizedResult.split(/\r?\n/).filter((line) => line.trim());
+  for (const candidate of [sanitizedResult, ...lines]) {
+    const cause = errorCauseLine(candidate);
+    if (/[\p{L}\p{N}]/u.test(cause)) return cause;
+  }
+  return errorCauseLine(sanitizedResult) || "(no error text)";
+}
 
 function isToolCallTimeoutResult(content: string): boolean {
   return /tool call timed out after \d+(?:\.\d+)? seconds?/i.test(content);
@@ -6083,6 +6161,11 @@ export async function runAgentLoop(opts: {
 
     const approvedToolCallKeys = new Set<string>(opts.approvedToolCalls ?? []);
 
+    // A tool-search in this step loads schemas the model can call only on the
+    // next step, so a sibling search must not read them as already callable.
+    const toolNamesLoadedThisStep = new Set<string>();
+    let countedAlreadyLoadedSearchThisStep = false;
+
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
@@ -6235,17 +6318,13 @@ export async function runAgentLoop(opts: {
           const result =
             `Stopped after ${anyArgsCount} attempts at ${toolCall.name} that all failed the same way ` +
             `with different arguments. Last error: ${sanitizedResult}`;
-          const lastErrorLine =
-            sanitizedResult
-              .split(/\r?\n/)
-              .find((line) => line.trim())
-              ?.trim() ?? "(no error text)";
+          const lastErrorLine = stopErrorLine(sanitizedResult);
           requestedActionStop ??= {
             message:
               `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way. ` +
               `Last error: ${
                 lastErrorLine.length > MAX_STOP_ERROR_LINE_CHARS
-                  ? `${lastErrorLine.slice(0, MAX_STOP_ERROR_LINE_CHARS)}…`
+                  ? `${clipHead(lastErrorLine, MAX_STOP_ERROR_LINE_CHARS)}…`
                   : lastErrorLine
               }\n\nAnything completed before this is saved.`,
             errorCode: "repeated_tool_error_across_arguments",
@@ -7004,29 +7083,48 @@ export async function runAgentLoop(opts: {
           result = resultStr;
           if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
             const matched = extractToolSearchResultNames(rawForAgent);
-            const added = expandActiveTools(matched);
-            if (added.length > 0) {
-              result += `\n\nLoaded matching tool schemas for the next step, not this one: ${added.join(", ")}`;
+            for (const name of expandActiveTools(matched)) {
+              toolNamesLoadedThisStep.add(name);
+            }
+            const loadedThisStep = matched.filter((name) =>
+              toolNamesLoadedThisStep.has(name),
+            );
+            if (loadedThisStep.length > 0) {
+              result += `\n\nLoaded matching tool schemas for the next step, not this one: ${loadedThisStep.join(", ")}`;
+              alreadyLoadedToolSearches = 0;
             } else if (
               matched.length > 0 &&
               matched.every((name) => activeToolNames.has(name))
             ) {
+              const priorMessage = (rawForAgent as { message?: unknown })
+                .message;
               result = JSON.stringify(
                 {
                   ...(rawForAgent as Record<string, unknown>),
                   alreadyLoaded: true,
-                  message: `All ${matched.length} matches are already callable; call them directly.`,
+                  message: [
+                    `All ${matched.length} matches are already callable; call them directly.`,
+                    typeof priorMessage === "string" ? priorMessage : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
                 },
                 null,
                 2,
               );
-              alreadyLoadedToolSearches += 1;
+              // One count per step, reset by any progress: parallel searches
+              // are one repeat, and a run that searches between writes is not
+              // repeating.
+              if (!countedAlreadyLoadedSearchThisStep) {
+                countedAlreadyLoadedSearchThisStep = true;
+                alreadyLoadedToolSearches += 1;
+              }
               if (
                 alreadyLoadedToolSearches >= MAX_ALREADY_LOADED_TOOL_SEARCHES
               ) {
                 requestedActionStop ??= {
                   message:
-                    `Stopped because tool-search was used ${alreadyLoadedToolSearches} times to look for tools that were already callable, ` +
+                    `Stopped because tool-search was used ${alreadyLoadedToolSearches} times in a row to look for tools that were already callable, ` +
                     "which means the same step is repeating rather than making progress. " +
                     "Everything completed before this point is preserved above.",
                   errorCode: "repeated_tool_call",
@@ -7106,6 +7204,9 @@ export async function runAgentLoop(opts: {
           }
         } else {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
+          // Only a write or a receipt is progress; a read-only call between
+          // redundant searches is the same repeating step.
+          if (!actionIsReadOnly || receipt) alreadyLoadedToolSearches = 0;
           if (receipt && receipt.verified !== true) {
             usage.receiptUnverifiedCount =
               (usage.receiptUnverifiedCount ?? 0) + 1;
@@ -7705,25 +7806,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     engineName: opts.engine.name,
     model: opts.model,
   };
-  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
-    usage.inputTokens += next.inputTokens;
-    usage.outputTokens += next.outputTokens;
-    usage.cacheReadTokens += next.cacheReadTokens;
-    usage.cacheWriteTokens += next.cacheWriteTokens;
-    if (next.builderCreditsUsed !== undefined) {
-      usage.builderCreditsUsed =
-        (usage.builderCreditsUsed ?? 0) + next.builderCreditsUsed;
-    }
-    usage.engineName = next.engineName ?? usage.engineName;
-    usage.model = next.model;
-    if (typeof next.llmCalls === "number") {
-      usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
-    }
-    if (next.usageReported) usage.usageReported = true;
-    // Keep the earliest attempt's first event — a later continuation
-    // attempt starting fresh must not overwrite genuine first-token timing.
-    usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
-  };
+  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) =>
+    mergeAgentLoopUsage(usage, next);
 
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
   const resumeResumableErrorsInProcess =

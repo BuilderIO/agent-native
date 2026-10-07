@@ -122,4 +122,95 @@ describe("SqlChart render contract parity", () => {
     expect(planPanelRender(rows, target).missingKeys).toEqual([]);
     expect(await renderText(target, rows)).not.toContain(BANNER);
   });
+
+  it("shows No data for a funnel exactly when the plan says the funnel is empty", async () => {
+    const funnel = panel({
+      chartType: "funnel",
+      config: { xKey: "stage", yKey: "users" },
+    });
+    const numericLabels = [
+      { stage: 1, users: 100 },
+      { stage: 2, users: 50 },
+    ];
+    const healthy = [
+      { stage: "visit", users: 100 },
+      { stage: "signup", users: 40 },
+    ];
+
+    expect(planPanelRender(numericLabels, funnel).empty).toBe(true);
+    expect(await renderText(funnel, numericLabels)).toContain("common.noData");
+
+    expect(planPanelRender(healthy, funnel).empty).toBe(false);
+    const text = await renderText(funnel, healthy);
+    expect(text).not.toContain("common.noData");
+    expect(text).toContain("visit");
+    expect(text).toContain("signup");
+  });
+
+  it("shows No data for a heatmap exactly when the plan finds no value column", async () => {
+    const heatmap = panel({ chartType: "heatmap" });
+    const oneColumn = [{ cohort: "w1" }, { cohort: "w2" }];
+    const withValues = [
+      { cohort: "w1", segment: "a", retained: 0.5 },
+      { cohort: "w2", segment: "a", retained: 0.4 },
+    ];
+
+    expect(planPanelRender(oneColumn, heatmap).empty).toBe(true);
+    expect(await renderText(heatmap, oneColumn)).toContain("common.noData");
+
+    expect(planPanelRender(withValues, heatmap).empty).toBe(false);
+    const text = await renderText(heatmap, withValues);
+    expect(text).not.toContain("common.noData");
+    expect(text).toContain("0.5");
+  });
+
+  it.each([
+    [
+      "funnel",
+      panel({ chartType: "funnel", config: { xKey: "stgae", yKey: "users" } }),
+      [
+        { stage: 1, users: 100 },
+        { stage: 2, users: 50 },
+      ],
+    ],
+    [
+      "heatmap",
+      panel({ chartType: "heatmap", config: { xKey: "cohrt" } }),
+      [{ cohort: "w1" }, { cohort: "w2" }],
+    ],
+  ])(
+    "explains a %s that has rows but draws nothing",
+    async (_, target, rows) => {
+      const plan = planPanelRender(rows, target);
+      expect(plan.empty).toBe(true);
+      expect(plan.rows.length).toBeGreaterThan(0);
+      expect(plan.missingKeys.length).toBeGreaterThan(0);
+
+      const text = await renderText(target, rows);
+      expect(text).toContain("common.noData");
+      expect(text).toContain(`${BANNER} ${plan.missingKeys.join(", ")}`);
+    },
+  );
+
+  it("still renders a chart whose key lists hold a string instead of crashing", async () => {
+    const rows = [
+      { week: "2026-09-01", signups: 3, rate: 0.3 },
+      { week: "2026-09-08", signups: 5, rate: 0.4 },
+    ];
+    const lineWithStringKeys = panel({
+      chartType: "line",
+      config: { rightYKeys: "rate", yKeys: "signups" } as never,
+    });
+    const comboWithStringBarKeys = panel({
+      chartType: "combo",
+      config: { yKeys: ["signups"], barKeys: "signups" } as never,
+    });
+
+    expect(await renderText(lineWithStringKeys, rows)).not.toContain(
+      "common.noData",
+    );
+    expect(await renderText(comboWithStringBarKeys, rows)).not.toContain(
+      "common.noData",
+    );
+  });
 });

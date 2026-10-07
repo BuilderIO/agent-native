@@ -11,6 +11,7 @@ import {
   attachToolSearch,
   createToolSearchEntry,
   filterActionsForAgentDiscovery,
+  isTargetedToolSearch,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
 } from "./tool-search.js";
@@ -634,6 +635,76 @@ describe("tool-search", () => {
       });
 
       expect(result.query).toBe("email | report | events | calendar | csv");
+      expect(result.message).toContain("Only the first 5 queries were used");
+      expect(result.message).toContain("delete");
+    });
+
+    it("says so when names past the limit are ignored", () => {
+      const names = Array.from({ length: 22 }, (_, i) => `tool-${i}`);
+      const result = searchToolRegistry(registry, { names });
+
+      expect(result.query).toBe(`names: ${names.slice(0, 20).join(", ")}`);
+      expect(result.message).toContain("Only the first 20 names were used");
+      expect(result.message).toContain("2 more were ignored");
+      expect(result.message).toContain("tool-21");
+    });
+
+    it("keeps the per-name misses and adds the truncation note", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["email", "report", "events", "calendar", "csv", "delete"],
+        names: ["no-such-tool"],
+      });
+
+      expect(result.message).toContain("No tool named no-such-tool");
+      expect(result.message).toContain("Only the first 5 queries were used");
+    });
+
+    it("does not mention truncation when nothing was dropped", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["email", "report"],
+      });
+
+      expect(result.message ?? "").not.toContain("Only the first");
+    });
+
+    it("never cuts the ignored-entries note inside an emoji", () => {
+      const loneSurrogate =
+        /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+      for (let pad = 0; pad < 2; pad += 1) {
+        const result = searchToolRegistry(registry, {
+          queries: [
+            "email",
+            "report",
+            "events",
+            "calendar",
+            "csv",
+            `${"a".repeat(pad)}${"😀".repeat(120)}`,
+          ],
+        });
+        expect(result.message).toContain("Only the first 5 queries");
+        expect(result.message).not.toMatch(loneSurrogate);
+      }
+    });
+
+    describe("isTargetedToolSearch", () => {
+      it.each([
+        ["a query", { query: "email" }, true],
+        ["a queries array", { queries: ["email"] }, true],
+        ["a bare string queries", { queries: "email" }, true],
+        ["a names array", { names: ["send-email"] }, true],
+        ["a bare string names", { names: "send-email" }, true],
+        ["no arguments", {}, false],
+        ["blank entries", { query: " ", queries: [" "], names: [""] }, false],
+        ["a nested list", { queries: [["email"]] }, false],
+        ["a non-string list", { queries: [1], names: [{}] }, false],
+      ])("agrees with the search on %s", (_label, args, targeted) => {
+        expect(isTargetedToolSearch(args)).toBe(targeted);
+        if (targeted) {
+          expect(
+            searchToolRegistry(registry, args).results.length,
+          ).toBeGreaterThan(0);
+        }
+      });
     });
 
     it("keeps a repeat guard per query, flagging the call only when all repeated", async () => {

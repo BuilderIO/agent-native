@@ -5,11 +5,15 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { isSafeDashboardId } from "../server/lib/dashboard-id";
 import {
   describePanelOutcome,
+  pageDashboardConfig,
   verifyDashboardPanels,
 } from "../server/lib/dashboard-panel-verification";
+import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import { getDashboard } from "../server/lib/dashboards-store";
+import { clipHead } from "../shared/panel-render-contract";
 
 const INSPECT_BUDGET_MS = 45_000;
 const MAX_PANEL_IDS_LISTED = 40;
@@ -51,24 +55,35 @@ export default defineAction({
         statusCode: 401,
       });
     }
+    if (!isSafeDashboardId(args.dashboardId)) {
+      fail(
+        `${JSON.stringify(clipHead(args.dashboardId, 60))} is not a dashboard id: ids hold only letters, digits, dot, dash and underscore.`,
+        { errorCode: "invalid_dashboard_id", statusCode: 400 },
+      );
+    }
     const dashboard = await getDashboard(args.dashboardId, {
       email,
       orgId: getRequestOrgId() || null,
     });
-    if (!dashboard) {
+    // The page falls back to the shipped seed when the dashboard has no row.
+    const seed = dashboard ? null : loadDashboardSeed(args.dashboardId);
+    if (!dashboard && !seed) {
       fail(
         `Dashboard "${args.dashboardId}" was not found, or you don't have access to it.`,
         { errorCode: "dashboard_not_found", statusCode: 404 },
       );
     }
-    if (dashboard.kind !== "sql") {
+    if (dashboard && dashboard.kind !== "sql") {
       fail(
         `inspect-dashboard-panel only supports SQL dashboards; "${args.dashboardId}" is ${dashboard.kind}.`,
         { errorCode: "dashboard_not_sql", statusCode: 400 },
       );
     }
 
-    const config = dashboard.config;
+    const config = pageDashboardConfig(
+      dashboard ? dashboard.config : seed!,
+      args.dashboardId,
+    );
     const panels = Array.isArray(config.panels)
       ? (config.panels as Record<string, unknown>[])
       : [];
@@ -101,7 +116,7 @@ export default defineAction({
     const [inspected] = verification.panels;
     return {
       dashboardId: args.dashboardId,
-      dashboardUpdatedAt: dashboard.updatedAt,
+      dashboardUpdatedAt: dashboard?.updatedAt,
       filterState: verification.filterState,
       ...inspected,
       config: panel.config ?? null,

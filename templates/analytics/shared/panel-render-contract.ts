@@ -5,6 +5,11 @@ import {
   type SqlPanel,
   type SqlPanelConfig,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import { normalizeDashboardConfig } from "./dashboard-config-normalization";
+import {
+  resolveDashboardFunnelRows,
+  type DashboardFunnelRows,
+} from "./dashboard-funnel";
 
 export { PANEL_CHART_TYPES };
 
@@ -13,17 +18,23 @@ export const LEGACY_CHART_TYPE_ALIASES: Record<string, ChartType> = {
   "stacked-area": "area",
 };
 
-export const PANEL_TOP_LEVEL_KEYS = [
-  "id",
-  "title",
-  "sql",
-  "source",
-  "chartType",
-  "width",
-  "columns",
-  "config",
-  "tab",
-] as const satisfies readonly (keyof SqlPanel)[];
+// `satisfies Record<keyof SqlPanel, ...>` fails the build when SqlPanel gains a
+// field the contract has not registered, as PANEL_CONFIG_KEYS does for config.
+const PANEL_TOP_LEVEL_KEY_SET = {
+  id: true,
+  title: true,
+  sql: true,
+  source: true,
+  chartType: true,
+  width: true,
+  columns: true,
+  config: true,
+  tab: true,
+} satisfies Record<keyof SqlPanel, true>;
+
+export const PANEL_TOP_LEVEL_KEYS = Object.keys(
+  PANEL_TOP_LEVEL_KEY_SET,
+) as (keyof SqlPanel)[];
 
 interface PanelConfigKeyInfo {
   onlyFor?: readonly ChartType[];
@@ -74,8 +85,18 @@ const CONFIG_KEY_ALIASES: Record<string, string> = {
   showLegend: "legend",
 };
 
-const ROLLING_AVERAGE_HINT =
-  "there is no native rolling or moving-average option. Add a window-function column to the panel SQL (for example AVG(value) OVER (ORDER BY week ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS value_4wk_avg) and list it in config.yKeys. If config.pivot is set it drops extra columns, so remove pivot or emit the average as an extra series row.";
+const ROLLING_WINDOW = "ORDER BY week ROWS BETWEEN 3 PRECEDING AND CURRENT ROW";
+
+// First-party SQL runs under an approved-function allowlist that has no AVG
+// (server/lib/first-party-analytics-sql-policy.ts), so the average there is
+// SUM over COUNT on the same window.
+function rollingAverageHint(source: unknown): string {
+  const column =
+    source === "first-party"
+      ? `SUM(value) OVER (${ROLLING_WINDOW}) * 1.0 / COUNT(value) OVER (${ROLLING_WINDOW}) AS value_4wk_avg; AVG is not an approved function in first-party SQL`
+      : `AVG(value) OVER (${ROLLING_WINDOW}) AS value_4wk_avg`;
+  return `there is no native rolling or moving-average option. Add a window-function column to the panel SQL (for example ${column}) and list it in config.yKeys. If config.pivot is set it drops extra columns, so remove pivot or emit the average as an extra series row.`;
+}
 
 export interface ConfigKeyIssue {
   panelId?: string;
@@ -85,7 +106,9 @@ export interface ConfigKeyIssue {
     | "unknown-key"
     | "misplaced-key"
     | "unknown-chart-type"
-    | "wrong-chart-type";
+    | "wrong-chart-type"
+    | "invalid-value"
+    | "duplicate-panel-id";
   message: string;
   didYouMean?: string;
 }
@@ -96,6 +119,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/**
+ * At most the first `max` UTF-16 units of `text`. A cut inside an emoji drops
+ * the half, because a provider API rejects a request holding a lone surrogate.
+ */
+export function clipHead(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const last = text.charCodeAt(max - 1);
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
 }
 
 export function stableStringify(value: unknown): string {
@@ -120,7 +153,7 @@ export function panelLabel(
     typeof panel.id === "string" && panel.id.trim() ? panel.id.trim() : "";
   const title =
     typeof panel.title === "string" && panel.title.trim()
-      ? panel.title.trim().slice(0, 60)
+      ? clipHead(panel.title.trim(), 60)
       : "";
   const base = id ? `panel "${id}"` : `panel[${index ?? "?"}]`;
   return title ? `${base} ("${title}")` : base;
@@ -185,7 +218,7 @@ function unknownConfigKeyIssue(
   ) {
     return {
       ...base,
-      message: `${label} config.${key} is not a renderer option: ${ROLLING_AVERAGE_HINT}`,
+      message: `${label} config.${key} is not a renderer option: ${rollingAverageHint(panel.source)}`,
     };
   }
   const didYouMean = hasOwn(CONFIG_KEY_ALIASES, key)
@@ -201,15 +234,70 @@ function unknownConfigKeyIssue(
   };
 }
 
+interface ConfigValueShape {
+  valid: (value: unknown) => boolean;
+  expected: string;
+}
+
+const STRING_ARRAY_SHAPE: ConfigValueShape = {
+  valid: (value) =>
+    Array.isArray(value) && value.every((item) => typeof item === "string"),
+  expected: "an array of result column names",
+};
+
+const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
+  yKeys: STRING_ARRAY_SHAPE,
+  rightYKeys: STRING_ARRAY_SHAPE,
+  barKeys: STRING_ARRAY_SHAPE,
+  pivot: {
+    valid: (value) =>
+      isRecord(value) &&
+      ["xKey", "seriesKey", "valueKey"].every(
+        (key) => typeof value[key] === "string" && value[key] !== "",
+      ),
+    expected: "an object with string xKey, seriesKey and valueKey",
+  },
+};
+
+// The store promotes legacy panel fields written under config on every read
+// and write, so judge the panel the way it will be saved.
+function storedPanel(panel: Record<string, unknown>): Record<string, unknown> {
+  return normalizeDashboardConfig({ panels: [panel] }).panels[0];
+}
+
+export function duplicatePanelIds(panels: readonly unknown[]): Set<string> {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const panel of panels) {
+    if (!isRecord(panel) || typeof panel.id !== "string") continue;
+    (seen.has(panel.id) ? duplicates : seen).add(panel.id);
+  }
+  return duplicates;
+}
+
+export function duplicatePanelIdIssue(
+  panel: Record<string, unknown>,
+): ConfigKeyIssue {
+  return {
+    panelId: typeof panel.id === "string" ? panel.id : undefined,
+    path: "id",
+    key: "id",
+    kind: "duplicate-panel-id",
+    message: `${panelLabel(panel)} shares its id with another panel: this dashboard has duplicate panel ids, and edits reach only the first copy. Rename one copy first (update-dashboard op replace /panels/<index>/id), then retry.`,
+  };
+}
+
 /**
  * Keys the renderer would silently ignore. With `baseline`, only keys whose
  * value differs from the baseline panel are reported, so a legacy stray key
  * never blocks an unrelated edit.
  */
 export function unknownPanelConfigKeys(
-  panel: Record<string, unknown>,
-  baseline?: Record<string, unknown>,
+  rawPanel: Record<string, unknown>,
+  rawBaseline?: Record<string, unknown>,
 ): ConfigKeyIssue[] {
+  const panel = storedPanel(rawPanel);
+  const baseline = rawBaseline && storedPanel(rawBaseline);
   const issues: ConfigKeyIssue[] = [];
   const label = panelLabel(panel);
   const panelId = typeof panel.id === "string" ? panel.id : undefined;
@@ -267,12 +355,22 @@ export function unknownPanelConfigKeys(
         }
         continue;
       }
+      const shape = CONFIG_VALUE_SHAPES[key];
+      if (shape && !shape.valid(value) && changedConfig(key, panel.config)) {
+        issues.push({
+          panelId,
+          path: `config.${key}`,
+          key,
+          kind: "invalid-value",
+          message: `${label} config.${key} must be ${shape.expected}, not ${clipHead(stableStringify(value), 60)}.`,
+        });
+      }
       const onlyFor = CONFIG_KEY_INFO[key].onlyFor;
       if (
         onlyFor &&
         resolvedChartType &&
         !onlyFor.includes(resolvedChartType as ChartType) &&
-        (changedConfig(key, panel.config) || changedTopLevel("chartType"))
+        changedConfig(key, panel.config)
       ) {
         issues.push({
           panelId,
@@ -299,16 +397,27 @@ export function validatePanelContract(
   next: Record<string, unknown>,
   touchedIds: ReadonlySet<string>,
 ): ConfigKeyIssue[] {
+  // First match wins, like the edit API that picks the panel.
   const baseById = new Map<string, Record<string, unknown>>();
   for (const panel of Array.isArray(base?.panels) ? base.panels : []) {
     if (isRecord(panel) && typeof panel.id === "string") {
-      baseById.set(panel.id, panel);
+      if (!baseById.has(panel.id)) baseById.set(panel.id, panel);
     }
   }
+  const nextPanels = Array.isArray(next.panels) ? next.panels : [];
+  const duplicates = duplicatePanelIds(nextPanels);
   const issues: ConfigKeyIssue[] = [];
-  for (const panel of Array.isArray(next.panels) ? next.panels : []) {
+  const reportedDuplicates = new Set<string>();
+  for (const panel of nextPanels) {
     if (!isRecord(panel) || typeof panel.id !== "string") continue;
     if (!touchedIds.has(panel.id)) continue;
+    if (duplicates.has(panel.id)) {
+      if (!reportedDuplicates.has(panel.id)) {
+        reportedDuplicates.add(panel.id);
+        issues.push(duplicatePanelIdIssue(panel));
+      }
+      continue;
+    }
     issues.push(...unknownPanelConfigKeys(panel, baseById.get(panel.id)));
   }
   return issues;
@@ -353,9 +462,12 @@ function detectKeys(
     return { xKey, yKeys: forcedYKeys.filter((key) => colSet.has(key)) };
   }
 
-  const yKeys = (config?.yKeys ?? (config?.yKey ? [config.yKey] : [])).filter(
-    (key) => colSet.has(key),
-  );
+  const configured = Array.isArray(config?.yKeys)
+    ? config.yKeys
+    : config?.yKey
+      ? [config.yKey]
+      : [];
+  const yKeys = configured.filter((key) => colSet.has(key));
   if (yKeys.length === 0) {
     for (const c of cols) {
       if (c === xKey) continue;
@@ -370,6 +482,12 @@ function detectKeys(
 }
 
 type RenderPanel = Pick<SqlPanel, "chartType" | "config">;
+
+// A model-written config can hold a string where a list belongs. The renderer
+// tolerates that, so planning must not throw on it.
+function keyList(value: unknown): string[] {
+  return Array.isArray(value) ? value : [];
+}
 
 /**
  * `boundColumns` are the columns the renderer reads after pivoting; null when
@@ -395,8 +513,8 @@ function collectMissingKeys(
     check(config.pivot.valueKey, raw);
   } else {
     check(config?.yKey, raw);
-    for (const key of config?.yKeys ?? []) check(key, raw);
-    for (const key of config?.rightYKeys ?? []) check(key, raw);
+    for (const key of keyList(config?.yKeys)) check(key, raw);
+    for (const key of keyList(config?.rightYKeys)) check(key, raw);
   }
   for (const col of Array.isArray(config?.columns) ? config.columns : []) {
     check(col?.key, bound);
@@ -426,13 +544,16 @@ function collectIgnoredConfig(
   const config = panel.config;
   const ignored: { key: string; reason: string }[] = [];
   const pivotSeries = seriesKeys?.length ? seriesKeys : null;
+  const configuredYKeys = keyList(config?.yKeys);
+  const rightYKeys = keyList(config?.rightYKeys);
+  const barKeys = keyList(config?.barKeys);
 
   // yKey beside pivot names the value column in every catalog pivot panel, so
   // only a yKeys list the pivot drops is a requested series.
-  if (config?.pivot && pivotSeries && config.yKeys?.length) {
+  if (config?.pivot && pivotSeries && configuredYKeys.length) {
     const differs =
-      config.yKeys.length !== pivotSeries.length ||
-      config.yKeys.some((key) => !pivotSeries.includes(key));
+      configuredYKeys.length !== pivotSeries.length ||
+      configuredYKeys.some((key) => !pivotSeries.includes(key));
     if (differs) {
       ignored.push({
         key: "yKeys",
@@ -443,7 +564,7 @@ function collectIgnoredConfig(
   }
 
   const plotted = new Set(yKeys);
-  const notPlotted = (config?.rightYKeys ?? []).filter(
+  const notPlotted = rightYKeys.filter(
     (key) => !plotted.has(key) && !missingKeys.includes(key),
   );
   if (notPlotted.length > 0) {
@@ -455,7 +576,7 @@ function collectIgnoredConfig(
   const usesDualAxis = ["line", "area", "bar", "combo"].includes(
     LEGACY_CHART_TYPE_ALIASES[panel.chartType] ?? panel.chartType,
   );
-  const right = new Set(config?.rightYKeys ?? []);
+  const right = new Set(rightYKeys);
   if (
     usesDualAxis &&
     yKeys.length > 0 &&
@@ -469,14 +590,14 @@ function collectIgnoredConfig(
     });
   }
 
-  if (config?.barKeys?.length) {
+  if (barKeys.length) {
     if (panel.chartType !== "combo") {
       ignored.push({
         key: "barKeys",
         reason: 'barKeys only applies to chartType "combo".',
       });
     } else {
-      const notSeries = config.barKeys.filter((key) => !plotted.has(key));
+      const notSeries = barKeys.filter((key) => !plotted.has(key));
       if (notSeries.length > 0) {
         ignored.push({
           key: "barKeys",
@@ -488,13 +609,80 @@ function collectIgnoredConfig(
   return ignored;
 }
 
+const MAX_CHART_POINTS = 400;
+
+/** Rows a chart draws: line, area, combo and heatmap keep the newest, the rest the first. */
+export function limitChartRows(
+  rows: Record<string, unknown>[],
+  chartType: ChartType,
+): Record<string, unknown>[] {
+  if (
+    rows.length <= MAX_CHART_POINTS ||
+    ![
+      "line",
+      "area",
+      "bar",
+      "combo",
+      "pie",
+      "heatmap",
+      "funnel",
+      "callout",
+    ].includes(chartType)
+  ) {
+    return rows;
+  }
+  return chartType !== "line" &&
+    chartType !== "area" &&
+    chartType !== "combo" &&
+    chartType !== "heatmap"
+    ? rows.slice(0, MAX_CHART_POINTS)
+    : rows.slice(-MAX_CHART_POINTS);
+}
+
+export interface HeatmapKeys {
+  xKey: string;
+  valueKey: string;
+  rowKey: string;
+}
+
+/** The columns the heatmap reads; no value column means it draws nothing. */
+export function resolveHeatmapKeys(
+  rows: Record<string, unknown>[],
+  config?: SqlPanel["config"],
+): HeatmapKeys {
+  if (rows.length === 0) return { xKey: "", valueKey: "", rowKey: "" };
+  const cols = Object.keys(rows[0]);
+  const sample = rows[0];
+  const xKey =
+    config?.xKey || cols.find((c) => typeof sample[c] === "string") || cols[0];
+  const valueKey =
+    config?.yKey ||
+    cols.find((c) => c !== xKey && typeof sample[c] === "number") ||
+    cols[1] ||
+    "";
+  const rowKey =
+    config?.color ||
+    cols.find(
+      (c) => c !== xKey && c !== valueKey && typeof sample[c] === "string",
+    ) ||
+    "";
+  return { xKey, valueKey, rowKey };
+}
+
 export interface PanelRenderPlan {
   /** Post-pivot rows; the array the renderer tests for "No data". */
   rows: Record<string, unknown>[];
   rawColumns: string[];
   xKey: string;
   yKeys: string[];
+  /** The viewer sees "No data": no rows, or a funnel or heatmap that finds nothing to draw. */
   empty: boolean;
+  /** Rows that draw something; 0 when `empty`. */
+  renderedRowCount: number;
+  /** Set for a funnel panel; the renderer draws exactly these items. */
+  funnel: DashboardFunnelRows | null;
+  /** Set for a heatmap panel; the renderer reads exactly these columns. */
+  heatmap: HeatmapKeys | null;
   missingKeys: string[];
   ignoredConfig: { key: string; reason: string }[];
 }
@@ -515,7 +703,23 @@ export function planPanelRender(
       : null;
   const rows = pivoted ? pivoted.rows : rawRows;
   const { xKey, yKeys } = detectKeys(rows, config, pivoted?.seriesKeys);
-  const empty = rows.length === 0;
+  const noRows = rows.length === 0;
+  const funnel =
+    panel.chartType === "funnel"
+      ? resolveDashboardFunnelRows(
+          limitChartRows(rows, panel.chartType),
+          config?.xKey,
+          config?.yKey,
+        )
+      : null;
+  const heatmap =
+    panel.chartType === "heatmap"
+      ? resolveHeatmapKeys(limitChartRows(rows, panel.chartType), config)
+      : null;
+  const empty =
+    noRows ||
+    (funnel !== null && funnel.items.length === 0) ||
+    (heatmap !== null && !heatmap.valueKey);
 
   // No raw rows means no columns to bind against: unknown, not missing.
   const missingKeys =
@@ -523,12 +727,23 @@ export function planPanelRender(
       ? []
       : collectMissingKeys(
           rawColumns,
-          empty ? rawColumns : Object.keys(rows[0]),
+          noRows ? rawColumns : Object.keys(rows[0]),
           panel,
         );
-  const ignoredConfig = empty
+  const ignoredConfig = noRows
     ? []
     : collectIgnoredConfig(panel, yKeys, pivoted?.seriesKeys, missingKeys);
 
-  return { rows, rawColumns, xKey, yKeys, empty, missingKeys, ignoredConfig };
+  return {
+    rows,
+    rawColumns,
+    xKey,
+    yKeys,
+    empty,
+    renderedRowCount: empty ? 0 : (funnel?.items.length ?? rows.length),
+    funnel,
+    heatmap,
+    missingKeys,
+    ignoredConfig,
+  };
 }

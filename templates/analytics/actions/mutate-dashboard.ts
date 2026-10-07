@@ -1,5 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import { fail, type WriteReceipt } from "@agent-native/core/action";
+import { fail } from "@agent-native/core/action";
 import {
   buildDeepLink,
   getRequestOrgId,
@@ -9,12 +9,15 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
+  dashboardWriteReceipt,
+  requireEditableDashboard,
+} from "../server/lib/dashboard-agent-write";
+import {
   DASHBOARD_COLLAB_SYNC_TIMEOUT_MS,
   queueDashboardCollabSync,
 } from "../server/lib/dashboard-collab-sync";
 import {
   annotateSummary,
-  describePanelOutcome,
   verdictFields,
   verifyPanelWrite,
   type PanelVerification,
@@ -296,50 +299,6 @@ async function validateMutationSql(
   });
 }
 
-/**
- * What the save proved, for the loop's final-answer guard. Failing checks come
- * first so the receipt's check cap never drops the reason.
- */
-function writeReceipt(
-  dashboardId: string,
-  appliedOps: number,
-  verdict: PanelWriteVerdict | null,
-): WriteReceipt {
-  const saved = `Saved ${appliedOps} op(s) to "${dashboardId}"`;
-  const panels = verdict?.verification?.panels ?? [];
-  if (!verdict || verdict.verified === null || panels.length === 0) {
-    return {
-      changed: true,
-      verified: true,
-      summary: `${saved}; no panel render was affected.`,
-    };
-  }
-  const checks = panels
-    .map((panel) => ({
-      id: panel.panelId,
-      ok: panel.status === "ok" && panel.staticIssues.length === 0,
-      detail: describePanelOutcome(panel),
-    }))
-    .sort((a, b) => Number(a.ok) - Number(b.ok));
-  const failing = checks.filter((check) => !check.ok);
-  const titleOf = new Map(panels.map((panel) => [panel.panelId, panel.title]));
-  return {
-    changed: true,
-    verified: verdict.verified,
-    summary:
-      failing.length === 0
-        ? `${saved}; ${panels.length} panel(s) verified rendering: ${panels
-            .slice(0, 3)
-            .map((panel) => `"${panel.title}"`)
-            .join(", ")}.`
-        : `${saved} but NOT verified: ${failing
-            .slice(0, 2)
-            .map((check) => `"${titleOf.get(check.id)}" ${check.detail}`)
-            .join("; ")}.`,
-    checks,
-  };
-}
-
 function movedPanelIdsFrom(operations: DashboardMutationOperation[]): string[] {
   const moved = new Set<string>();
   for (const op of operations) {
@@ -440,6 +399,7 @@ export default defineAction({
         signal: actionContext?.signal,
         allowEmptyResult: args.allowEmptyResult,
         memo: verificationMemo,
+        dashboardId,
       });
     }
 
@@ -498,12 +458,11 @@ export default defineAction({
     let noop = false;
 
     if (args.dryRun === true) {
-      const existing = await getDashboard(dashboardId, ctx);
-      if (!existing) {
-        throw new Error(
-          `dashboard "${dashboardId}" not found (or you don't have access).`,
-        );
-      }
+      const existing = await requireEditableDashboard(
+        dashboardId,
+        ctx,
+        await getDashboard(dashboardId, ctx),
+      );
       const computed = computeMutation(existing);
       root = computed.nextRoot;
       operations = computed.nextOperations;
@@ -527,6 +486,7 @@ export default defineAction({
           dashboardId,
           ctx,
           async (existing) => {
+            await requireEditableDashboard(dashboardId, ctx, existing);
             const computed = computeMutation(existing);
             root = computed.nextRoot;
             operations = computed.nextOperations;
@@ -597,7 +557,13 @@ export default defineAction({
       dashboardFieldsChanged: mutation.dashboardFieldsChanged,
       ...verdictFields(verdict),
       ...(agentCaller && args.dryRun !== true && !noop
-        ? { _receipt: writeReceipt(dashboardId, operations.length, verdict) }
+        ? {
+            _receipt: dashboardWriteReceipt(
+              dashboardId,
+              `Saved ${operations.length} op(s) to "${dashboardId}"`,
+              verdict,
+            ),
+          }
         : {}),
       ...(args.dryRun === true || noop
         ? { collabSync: { status: "skipped" as const } }
@@ -625,7 +591,7 @@ export default defineAction({
         `${summary} ` +
         (args.returnConfig === true
           ? ""
-          : "Full config omitted; call get-sql-dashboard with includeConfig=true only if full SQL/config is needed."),
+          : "Full config omitted; call get-sql-dashboard with panelIds for a panel's SQL and config (includeConfig=true only to review the whole dashboard)."),
     };
   },
   link: ({ result }) => {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const store = new Map<string, { config: Record<string, unknown> }>();
 
 const mocks = vi.hoisted(() => ({
+  assertDashboardEditable: vi.fn(async (): Promise<void> => undefined),
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(),
   upsertDashboardWithRetry: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("@agent-native/core/collab", () => ({
   seedFromText: vi.fn(async () => undefined),
 }));
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: mocks.assertDashboardEditable,
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
   upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
@@ -54,8 +56,36 @@ vi.mock("../server/lib/first-party-analytics.js", async (importOriginal) => ({
 }));
 
 const { default: composeDashboard } = await import("./compose-dashboard");
+const { buildPanel, listMetricKeys } =
+  await import("../server/lib/first-party-metric-catalog");
 
 const agent = { userEmail: "alice@example.com", orgId: null, caller: "tool" };
+
+/** Rows that satisfy every key a catalog panel's config binds. */
+function rowsBoundBy(config: Record<string, any>): Record<string, unknown>[] {
+  const pivot = config.pivot as Record<string, string> | undefined;
+  const dateKeys = new Set([config.xKey, pivot?.xKey]);
+  const keys = new Set<string>(
+    [
+      config.xKey,
+      config.yKey,
+      ...(config.yKeys ?? []),
+      pivot?.xKey,
+      pivot?.seriesKey,
+      pivot?.valueKey,
+      ...(config.columns ?? []).flatMap((col: any) => [col.key, col.linkKey]),
+    ].filter(Boolean),
+  );
+  if (keys.size === 0) keys.add("count");
+  return ["2026-09-01", "2026-09-02"].map((day) =>
+    Object.fromEntries(
+      Array.from(keys, (key) => [
+        key,
+        dateKeys.has(key) ? day : key === pivot?.seriesKey ? "mail" : 3,
+      ]),
+    ),
+  );
+}
 const LONG_ROWS = [
   { date: "2026-09-01", template: "mail", count: 3 },
   { date: "2026-09-01", template: "clips", count: 4 },
@@ -74,6 +104,7 @@ function result(rows: Record<string, unknown>[]) {
 beforeEach(() => {
   store.clear();
   vi.clearAllMocks();
+  mocks.assertDashboardEditable.mockResolvedValue(undefined);
   mocks.resolvePanel.mockResolvedValue(result(LONG_ROWS));
   mocks.getDashboard.mockImplementation(async (id: string) => {
     const saved = store.get(id);
@@ -111,7 +142,168 @@ describe("compose-dashboard verified writes", () => {
       }),
     ]);
     expect(composed.message).toContain("Verified: Signups Over Time");
+    expect(composed._receipt).toMatchObject({
+      changed: true,
+      verified: true,
+      subject: "growth",
+      summary: expect.stringContaining('Saved "growth" with 1 panel(s)'),
+      checks: [{ id: "signups-over-time", ok: true }],
+    });
     expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+  });
+
+  // The agent cannot edit a catalog panel's config, so no catalog metric may
+  // be refused by a rule about config keys.
+  it.each(listMetricKeys())(
+    "composes the catalog metric %s through the gate",
+    async (metric) => {
+      mocks.resolvePanel.mockResolvedValue(
+        result(rowsBoundBy(buildPanel(metric)!.config)),
+      );
+
+      const composed: any = await composeDashboard.run(
+        { dashboardId: "growth", metrics: [metric] },
+        agent,
+      );
+
+      expect(composed).toMatchObject({ saved: true, verified: true });
+      expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    ["appends", {}],
+    ["refreshes", { refreshExisting: true }],
+  ])(
+    "%s a catalog panel on an existing dashboard without the key rules",
+    async (_, extra) => {
+      store.set("growth", {
+        config: {
+          name: "Growth",
+          panels: [
+            {
+              ...buildPanel("sessions-by-app")!,
+              sql: "SELECT 'mail' AS app, 1 AS count",
+              config: { xKey: "app", yKey: "count" },
+            },
+          ],
+        },
+      });
+      const metrics = extra.refreshExisting
+        ? ["sessions-by-app"]
+        : ["activation-funnel"];
+      mocks.resolvePanel.mockResolvedValue(
+        result(rowsBoundBy(buildPanel(metrics[0])!.config)),
+      );
+
+      const composed: any = await composeDashboard.run(
+        { dashboardId: "growth", metrics, ...extra },
+        agent,
+      );
+
+      expect(composed).toMatchObject({ saved: true, verified: true });
+      expect(composed.verification).toEqual([
+        expect.objectContaining({ panelId: metrics[0], status: "ok" }),
+      ]);
+    },
+  );
+
+  it("still gates a catalog panel on how it renders", async () => {
+    mocks.resolvePanel.mockResolvedValue(
+      result([{ template: "mail", count: 3 }]),
+    );
+
+    await expect(
+      composeDashboard.run(
+        { dashboardId: "growth", metrics: ["sessions-by-app"] },
+        agent,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "dashboard_panel_verification_failed",
+      message: expect.stringContaining('panel "sessions-by-app"'),
+    });
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("says verified:false in the receipt for a saved empty panel", async () => {
+    mocks.resolvePanel.mockResolvedValue({
+      rows: [],
+      schema: ["date", "template", "count"].map((name) => ({
+        name,
+        type: "STRING",
+      })),
+    });
+
+    const composed: any = await composeDashboard.run(
+      {
+        dashboardId: "growth",
+        metrics: ["signups-over-time"],
+        allowEmptyResult: true,
+      },
+      agent,
+    );
+
+    expect(composed._receipt).toMatchObject({
+      changed: true,
+      verified: false,
+      subject: "growth",
+    });
+  });
+
+  it("emits no receipt when the append changed nothing", async () => {
+    await composeDashboard.run(
+      { dashboardId: "growth", metrics: ["signups-over-time"] },
+      agent,
+    );
+    mocks.upsertDashboard.mockClear();
+
+    const again: any = await composeDashboard.run(
+      { dashboardId: "growth", metrics: ["signups-over-time"] },
+      agent,
+    );
+
+    expect(again.changed).toBe(false);
+    expect(again._receipt).toBeUndefined();
+  });
+
+  describe("edit permission comes before any panel SQL runs", () => {
+    const viewerError = () =>
+      Object.assign(
+        new Error("Requires editor role on dashboard growth (have viewer)"),
+        { statusCode: 403 },
+      );
+
+    it.each([
+      ["an append", {}],
+      ["an overwrite", { overwrite: true }],
+    ])("refuses a viewer on %s without executing a panel", async (_, extra) => {
+      store.set("growth", { config: { name: "Growth", panels: [] } });
+      mocks.assertDashboardEditable.mockRejectedValue(viewerError());
+
+      await expect(
+        composeDashboard.run(
+          { dashboardId: "growth", metrics: ["signups-over-time"], ...extra },
+          agent,
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "dashboard_forbidden",
+        statusCode: 403,
+      });
+      expect(mocks.resolvePanel).not.toHaveBeenCalled();
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
+    it("lets anyone create a dashboard that does not exist yet", async () => {
+      mocks.assertDashboardEditable.mockRejectedValue(viewerError());
+
+      const composed: any = await composeDashboard.run(
+        { dashboardId: "brand-new", metrics: ["signups-over-time"] },
+        agent,
+      );
+
+      expect(composed.saved).toBe(true);
+      expect(mocks.assertDashboardEditable).not.toHaveBeenCalled();
+    });
   });
 
   it("refuses a caller-supplied chart type the renderer does not know", async () => {
@@ -184,6 +376,7 @@ describe("compose-dashboard verified writes", () => {
 
     expect(composed.saved).toBe(true);
     expect(composed.verified).toBeUndefined();
+    expect(composed._receipt).toBeUndefined();
     expect(mocks.resolvePanel).not.toHaveBeenCalled();
   });
 });

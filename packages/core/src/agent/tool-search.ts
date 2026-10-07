@@ -2,6 +2,7 @@ import { isActionHiddenFromEveryAgentSurface } from "../action.js";
 import { parseMcpToolName } from "../mcp-client/manager.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 import { getRequestRunContext } from "../server/request-context.js";
+import { clipHead } from "./clip-text.js";
 import type { ActionEntry } from "./production-agent.js";
 
 export const TOOL_SEARCH_ACTION_NAME = "tool-search";
@@ -184,17 +185,32 @@ export function searchToolRegistry(
   args: ToolSearchArgs = {},
   options: ToolSearchOptions = {},
 ): ToolSearchOutput {
-  const queries = parseStringList(
-    [String(args.query ?? ""), args.queries],
-    MAX_QUERIES,
-  );
-  const names = parseStringList([args.names], MAX_NAMES);
+  const { parsedQueries, parsedNames } = parseToolSearchLists(args);
+  const queries = parsedQueries.kept;
+  const names = parsedNames.kept;
+  // Providers rarely enforce `maxItems`; a silently dropped entry reads as a
+  // tool that loaded.
+  const truncationNote = [
+    droppedEntriesNote("queries", MAX_QUERIES, parsedQueries.dropped),
+    droppedEntriesNote("names", MAX_NAMES, parsedNames.dropped),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const withTruncationNote = (output: ToolSearchOutput): ToolSearchOutput =>
+    truncationNote
+      ? {
+          ...output,
+          message: [output.message, truncationNote].filter(Boolean).join(" "),
+        }
+      : output;
   const targets: SearchTarget[] = [
     ...queries.map((query) => ({ query })),
     ...(names.length > 0 ? [{ names }] : []),
   ];
   if (targets.length <= 1) {
-    return searchOnce(registry, targets[0] ?? { query: "" }, args, options);
+    return withTruncationNote(
+      searchOnce(registry, targets[0] ?? { query: "" }, args, options),
+    );
   }
   const parts = targets.map((target) =>
     searchOnce(registry, target, args, options),
@@ -218,14 +234,14 @@ export function searchToolRegistry(
         .filter((part) => !part.repeated && part.message)
         .map((part) => part.message)
         .join(" ");
-  return {
+  return withTruncationNote({
     query: parts.map((part) => part.query).join(" | "),
     totalTools: Math.max(...parts.map((part) => part.totalTools)),
     count: results.length,
     ...(allRepeated ? { repeated: true } : {}),
     ...(message ? { message } : {}),
     results,
-  };
+  });
 }
 
 type SearchTarget = { query: string } | { names: string[] };
@@ -457,10 +473,34 @@ function rememberToolSearchResult(
 
 function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
-  return `${value.slice(0, max - 1).trimEnd()}…`;
+  return `${clipHead(value, max - 1).trimEnd()}…`;
 }
 
-function parseStringList(values: unknown[], max: number): string[] {
+function parseToolSearchLists(args: ToolSearchArgs) {
+  return {
+    parsedQueries: parseStringList(
+      [String(args.query ?? ""), args.queries],
+      MAX_QUERIES,
+    ),
+    parsedNames: parseStringList([args.names], MAX_NAMES),
+  };
+}
+
+/**
+ * Whether a search names anything to look for. A menu search (no query,
+ * queries or names) only lists, so a caller that grants tools from a search
+ * result must not grant from it. Reads the lists exactly as the search does,
+ * so a form the search accepts is never read as a menu search.
+ */
+export function isTargetedToolSearch(args: object): boolean {
+  const { parsedQueries, parsedNames } = parseToolSearchLists(args);
+  return parsedQueries.kept.length > 0 || parsedNames.kept.length > 0;
+}
+
+function parseStringList(
+  values: unknown[],
+  max: number,
+): { kept: string[]; dropped: string[] } {
   const unique = new Map<string, string>();
   for (const item of values.flat()) {
     if (typeof item !== "string") continue;
@@ -469,7 +509,17 @@ function parseStringList(values: unknown[], max: number): string[] {
       unique.set(trimmed.toLowerCase(), trimmed);
     }
   }
-  return [...unique.values()].slice(0, max);
+  const all = [...unique.values()];
+  return { kept: all.slice(0, max), dropped: all.slice(max) };
+}
+
+function droppedEntriesNote(
+  kind: string,
+  max: number,
+  dropped: readonly string[],
+): string {
+  if (dropped.length === 0) return "";
+  return `Only the first ${max} ${kind} were used; ${dropped.length} more were ignored (${truncate(dropped.join(", "), 200)}). Request them in another call.`;
 }
 
 function parseLimit(value: unknown, fallback: number, max: number): number {

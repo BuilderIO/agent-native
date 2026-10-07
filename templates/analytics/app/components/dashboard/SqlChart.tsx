@@ -4,10 +4,12 @@ import {
   EmbeddedExtension,
   ExtensionSlot,
 } from "@agent-native/toolkit/app/extensions";
-import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
+import type { DashboardFunnelRows } from "@shared/dashboard-funnel";
 import {
   isNumericLikeValue,
+  limitChartRows,
   planPanelRender,
+  type HeatmapKeys,
 } from "@shared/panel-render-contract";
 import {
   IconArrowsSort,
@@ -89,34 +91,7 @@ import type {
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
 
-const MAX_CHART_POINTS = 400;
-
-export function limitChartRows(
-  rows: Record<string, unknown>[],
-  chartType: ChartType,
-): Record<string, unknown>[] {
-  if (
-    rows.length <= MAX_CHART_POINTS ||
-    ![
-      "line",
-      "area",
-      "bar",
-      "combo",
-      "pie",
-      "heatmap",
-      "funnel",
-      "callout",
-    ].includes(chartType)
-  ) {
-    return rows;
-  }
-  return chartType !== "line" &&
-    chartType !== "area" &&
-    chartType !== "combo" &&
-    chartType !== "heatmap"
-    ? rows.slice(0, MAX_CHART_POINTS)
-    : rows.slice(-MAX_CHART_POINTS);
-}
+export { limitChartRows };
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -1339,18 +1314,6 @@ export function SqlChart({
     );
   }
 
-  if (plan.empty) {
-    return (
-      <div
-        className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
-      >
-        <p className="text-sm text-muted-foreground text-center">
-          {t("common.noData")}
-        </p>
-      </div>
-    );
-  }
-
   const missingConfigKeys = plan.missingKeys;
   const withConfigWarning = (node: ReactNode) => {
     if (refreshError) {
@@ -1389,6 +1352,22 @@ export function SqlChart({
       node
     );
   };
+
+  if (plan.empty) {
+    const noData = (
+      <div
+        className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
+      >
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
+      </div>
+    );
+    // A funnel or heatmap with rows that draws nothing keeps the warning and
+    // refresh banner that say why; a result with no rows to plot is a bare
+    // "No data".
+    return plan.rows.length === 0 ? noData : withConfigWarning(noData);
+  }
 
   if (chartType === "metric") {
     return withConfigWarning(<MetricRenderer rows={rows} panel={panel} />);
@@ -1445,15 +1424,15 @@ export function SqlChart({
     );
   }
 
-  if (chartType === "funnel") {
+  if (chartType === "funnel" && plan.funnel) {
     return withConfigWarning(
-      <FunnelRenderer rows={chartRows} panel={panel} colors={colors} />,
+      <FunnelRenderer funnel={plan.funnel} panel={panel} colors={colors} />,
     );
   }
 
-  if (chartType === "heatmap") {
+  if (chartType === "heatmap" && plan.heatmap) {
     return withConfigWarning(
-      <HeatmapRenderer rows={chartRows} panel={panel} />,
+      <HeatmapRenderer rows={chartRows} panel={panel} keys={plan.heatmap} />,
     );
   }
 
@@ -2545,33 +2524,14 @@ function TimeSeriesRenderer({
 }
 
 function FunnelRenderer({
-  rows,
+  funnel,
   panel,
   colors,
 }: {
-  rows: Record<string, unknown>[];
+  funnel: DashboardFunnelRows;
   panel: SqlPanel;
   colors: string[];
 }) {
-  const t = useT();
-  const funnel = useMemo(
-    () =>
-      resolveDashboardFunnelRows(rows, panel.config?.xKey, panel.config?.yKey),
-    [rows, panel.config?.xKey, panel.config?.yKey],
-  );
-
-  if (funnel.items.length === 0) {
-    return (
-      <div
-        className={`flex items-center justify-center py-8 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
-      >
-        <p className="text-sm text-muted-foreground text-center">
-          {t("common.noData")}
-        </p>
-      </div>
-    );
-  }
-
   const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
   const formatter = panel.config?.yFormatter;
   const funnelColors = colors.length > 0 ? colors : DEFAULT_COLORS;
@@ -2621,42 +2581,16 @@ function FunnelRenderer({
 function HeatmapRenderer({
   rows,
   panel,
+  keys,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
+  keys: HeatmapKeys;
 }) {
-  const t = useT();
-  const cfg = panel.config;
-  const yFormatter = cfg?.yFormatter;
+  const yFormatter = panel.config?.yFormatter;
+  const { xKey: xK, valueKey: valK, rowKey: rowK } = keys;
 
-  const { valueKey, rowKey, xValues, yValues, grid, stats } = useMemo(() => {
-    if (rows.length === 0) {
-      return {
-        xKey: "",
-        valueKey: "",
-        rowKey: "",
-        xValues: [] as string[],
-        yValues: [] as string[],
-        grid: new Map<string, number>(),
-        stats: new Map<string, { mean: number; std: number }>(),
-      };
-    }
-    const cols = Object.keys(rows[0]);
-    const sample = rows[0] as Record<string, unknown>;
-    const xK =
-      cfg?.xKey || cols.find((c) => typeof sample[c] === "string") || cols[0];
-    const valK =
-      cfg?.yKey ||
-      cols.find((c) => c !== xK && typeof sample[c] === "number") ||
-      cols[1] ||
-      "";
-    const rowK =
-      cfg?.color ||
-      cols.find(
-        (c) => c !== xK && c !== valK && typeof sample[c] === "string",
-      ) ||
-      "";
-
+  const { xValues, yValues, grid, stats } = useMemo(() => {
     const xs: string[] = [];
     const ys: string[] = [];
     const seenX = new Set<string>();
@@ -2693,28 +2627,8 @@ function HeatmapRenderer({
         vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
       s.set(xv, { mean, std: Math.sqrt(variance) });
     }
-    return {
-      xKey: xK,
-      valueKey: valK,
-      rowKey: rowK,
-      xValues: xs,
-      yValues: ys,
-      grid: g,
-      stats: s,
-    };
-  }, [rows, cfg?.xKey, cfg?.yKey, cfg?.color]);
-
-  if (rows.length === 0 || !valueKey) {
-    return (
-      <div
-        className={`flex items-center justify-center py-8 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
-      >
-        <p className="text-sm text-muted-foreground text-center">
-          {t("common.noData")}
-        </p>
-      </div>
-    );
-  }
+    return { xValues: xs, yValues: ys, grid: g, stats: s };
+  }, [rows, xK, valK, rowK]);
 
   const cellColor = (xv: string, v: number | undefined) => {
     if (v == null) return undefined;
@@ -2734,7 +2648,7 @@ function HeatmapRenderer({
         <thead>
           <tr className="border-b border-border">
             <th className="text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap">
-              {rowKey || ""}
+              {rowK}
             </th>
             {xValues.map((xv) => (
               <th

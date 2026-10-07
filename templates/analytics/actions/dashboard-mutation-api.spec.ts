@@ -442,6 +442,9 @@ describe("dashboard mutation api", () => {
     );
     expect(DASHBOARD_MUTATION_API_TYPES).toMatch(/chartType\?:.*"combo"/);
     expect(DASHBOARD_MUTATION_API_TYPES).toContain("window-function column");
+    expect(DASHBOARD_MUTATION_API_TYPES).toContain(
+      "first-party: AVG is not an approved function",
+    );
     expect(DASHBOARD_MUTATION_EXAMPLES.join("\n")).not.toContain("yAxis");
     expect(() =>
       applyDashboardMutationOperations(clone(config()), [

@@ -7,6 +7,7 @@ import {
 } from "../app/pages/adhoc/sql-dashboard/types";
 
 const mocks = vi.hoisted(() => ({
+  assertDashboardEditable: vi.fn(async (): Promise<void> => undefined),
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
   upsertDashboardWithRetry: vi.fn(),
@@ -75,6 +76,7 @@ vi.mock("@agent-native/core/collab", () => ({
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: mocks.assertDashboardEditable,
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
   upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
@@ -157,6 +159,8 @@ function renderedRows(root: { columns?: number; panels: unknown[] }) {
 
 describe("mutate-dashboard", () => {
   beforeEach(() => {
+    mocks.assertDashboardEditable.mockReset();
+    mocks.assertDashboardEditable.mockResolvedValue(undefined);
     mocks.getDashboard.mockReset();
     mocks.upsertDashboard.mockClear();
     mocks.upsertDashboardWithRetry.mockReset();
@@ -1405,9 +1409,82 @@ describe("mutate-dashboard", () => {
         agent,
       );
 
-      expect(saved).toMatchObject({ saved: true, verified: null });
+      expect(saved).toMatchObject({
+        saved: true,
+        verified: true,
+        noRenderAffected: true,
+      });
+      expect(saved.message).toContain("No panel render was affected");
+      expect(saved._receipt.summary).toContain("no panel render was affected");
       expect(mocks.resolvePanel).not.toHaveBeenCalled();
       expect(mocks.dryRunQuerySchema).not.toHaveBeenCalled();
+    });
+
+    describe("edit permission comes before any panel SQL runs", () => {
+      const viewerError = () =>
+        Object.assign(
+          new Error("Requires editor role on dashboard growth (have viewer)"),
+          { statusCode: 403 },
+        );
+      const sqlEdit = {
+        ...updatePanel("signups-by-app", {
+          sql: "SELECT week, app, n FROM t WHERE r = '{{timeRange}}' LIMIT 3",
+        }),
+      };
+
+      function expectNothingRan() {
+        expect(mocks.resolvePanel).not.toHaveBeenCalled();
+        expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+        expect(mocks.dryRunQuerySchema).not.toHaveBeenCalled();
+        expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+      }
+
+      it.each([
+        ["a dry run", { ...sqlEdit, dryRun: true }],
+        ["a save", sqlEdit],
+      ])(
+        "refuses a viewer on %s without executing the panel",
+        async (_, args) => {
+          mocks.assertDashboardEditable.mockRejectedValue(viewerError());
+
+          await expect(mutateDashboard.run(args, agent)).rejects.toMatchObject({
+            errorCode: "dashboard_forbidden",
+            statusCode: 403,
+            message: expect.stringContaining("have viewer"),
+          });
+          expectNothingRan();
+        },
+      );
+
+      it("refuses a viewer who is not an agent caller the same way", async () => {
+        mocks.assertDashboardEditable.mockRejectedValue(viewerError());
+
+        await expect(
+          mutateDashboard.run({ ...sqlEdit, dryRun: true }),
+        ).rejects.toMatchObject({ errorCode: "dashboard_forbidden" });
+        expectNothingRan();
+      });
+
+      it("fails a dry run on an unknown dashboard as not found", async () => {
+        mocks.getDashboard.mockResolvedValue(null);
+
+        await expect(
+          mutateDashboard.run({ ...sqlEdit, dryRun: true }, agent),
+        ).rejects.toMatchObject({
+          errorCode: "dashboard_not_found",
+          statusCode: 404,
+        });
+        expectNothingRan();
+      });
+
+      it("does not mistake an infrastructure failure for a permission answer", async () => {
+        mocks.assertDashboardEditable.mockRejectedValue(new Error("db down"));
+
+        await expect(
+          mutateDashboard.run({ ...sqlEdit, dryRun: true }, agent),
+        ).rejects.toThrow("db down");
+        expectNothingRan();
+      });
     });
 
     it("runs the same verification on a dry run and still writes nothing", async () => {
@@ -1517,6 +1594,7 @@ describe("mutate-dashboard", () => {
         expect(saved._receipt).toMatchObject({
           changed: true,
           verified: true,
+          subject: "growth",
           summary: expect.stringContaining('"Signups by app"'),
           checks: [{ id: "signups-by-app", ok: true }],
         });
@@ -1590,6 +1668,7 @@ describe("mutate-dashboard", () => {
         expect(saved._receipt).toEqual({
           changed: true,
           verified: true,
+          subject: "growth",
           summary: expect.stringContaining("no panel render was affected"),
         });
       });

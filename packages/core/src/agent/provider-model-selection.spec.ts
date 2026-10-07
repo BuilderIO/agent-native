@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BUILDER_MODEL_CONFIG } from "./model-config.js";
+
 const orgStore = new Map<string, Record<string, unknown>>();
 const userStore = new Map<string, Record<string, unknown>>();
 const scopedSecrets = new Map<string, string>();
@@ -674,7 +676,16 @@ describe("resolveUncheckedDefaultModelReplacement", () => {
 });
 
 describe("applyUncheckedDefaultModelReplacement", () => {
-  const builderEngine = { name: "builder", defaultModel: "gpt-6-luna" };
+  const builderEngine = {
+    name: "builder",
+    defaultModel: BUILDER_MODEL_CONFIG.defaultModel,
+  };
+  // Catalog ids come back from a write unchanged; a legacy alias would be
+  // canonicalized to a newer id and the assertions below would chase it.
+  const [checkedModel, otherCheckedModel] =
+    BUILDER_MODEL_CONFIG.supportedModels.filter(
+      (id) => id !== "auto" && id !== builderEngine.defaultModel,
+    );
 
   beforeEach(() => {
     requestUserEmail = OWNER;
@@ -687,18 +698,18 @@ describe("applyUncheckedDefaultModelReplacement", () => {
       { userEmail: OWNER, orgId: ORG },
       "builder",
       "org",
-      ["gpt-6-sol", "claude-opus-5-5"],
+      [checkedModel, otherCheckedModel],
     );
     expect(
       await applyUncheckedDefaultModelReplacement(builderEngine, {
-        model: "gpt-6-luna",
+        model: builderEngine.defaultModel,
         source: "default",
       }),
-    ).toEqual({ model: "gpt-6-sol", source: "provider-selection-fallback" });
+    ).toEqual({ model: checkedModel, source: "provider-selection-fallback" });
   });
 
   it("keeps the default label while the default is checked or nothing is selected", async () => {
-    const selection = { model: "gpt-6-luna", source: "default" };
+    const selection = { model: builderEngine.defaultModel, source: "default" };
     expect(
       await applyUncheckedDefaultModelReplacement(builderEngine, selection),
     ).toBe(selection);
@@ -706,7 +717,7 @@ describe("applyUncheckedDefaultModelReplacement", () => {
       { userEmail: OWNER, orgId: ORG },
       "builder",
       "org",
-      ["gpt-6-sol", "gpt-6-luna"],
+      [checkedModel, builderEngine.defaultModel],
     );
     expect(
       await applyUncheckedDefaultModelReplacement(builderEngine, selection),
@@ -718,10 +729,10 @@ describe("applyUncheckedDefaultModelReplacement", () => {
       { userEmail: OWNER, orgId: ORG },
       "builder",
       "org",
-      ["gpt-6-sol"],
+      [checkedModel],
     );
     for (const source of ["request", "configured", "stored"]) {
-      const selection = { model: "gpt-6-luna", source };
+      const selection = { model: builderEngine.defaultModel, source };
       expect(
         await applyUncheckedDefaultModelReplacement(builderEngine, selection),
       ).toBe(selection);
@@ -731,7 +742,7 @@ describe("applyUncheckedDefaultModelReplacement", () => {
   it("keeps the default label when the selection can't be read", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     settingsReadThrows = true;
-    const selection = { model: "gpt-6-luna", source: "default" };
+    const selection = { model: builderEngine.defaultModel, source: "default" };
     expect(
       await applyUncheckedDefaultModelReplacement(builderEngine, selection),
     ).toBe(selection);

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  assertDashboardEditable: vi.fn(async (): Promise<void> => undefined),
+  dryRunQuery: vi.fn(async (): Promise<string | null> => null),
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(async () => ({
     archivedAt: null,
@@ -51,13 +53,14 @@ vi.mock("@agent-native/core/collab", () => ({
   seedFromText: vi.fn(async () => undefined),
 }));
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: mocks.assertDashboardEditable,
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
   upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
   DashboardConflictError: class DashboardConflictError extends Error {},
 }));
 vi.mock("../server/lib/bigquery", () => ({
-  dryRunQuery: vi.fn(async () => null),
+  dryRunQuery: mocks.dryRunQuery,
   dryRunQuerySchema: vi.fn(async () => ({ error: null })),
 }));
 vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
@@ -101,7 +104,35 @@ function dashboard(panels: Record<string, unknown>[]) {
   return { name: "Growth", panels };
 }
 
+const setSql = (sql: string) => ({
+  dashboardId: "growth",
+  ops: [{ op: "set" as const, path: "/panels/0/sql", value: sql }],
+});
+
+const timeRange = {
+  id: "timeRange",
+  type: "select",
+  label: "Range",
+  default: "30d",
+  options: ["7d", "30d"].map((value) => ({ value, label: value })),
+};
+
+function filteredDashboard() {
+  return {
+    name: "Growth",
+    filters: [timeRange],
+    panels: [
+      pivotPanel({
+        sql: "SELECT week, app, n FROM t WHERE r = '{{timeRange}}'",
+      }),
+    ],
+  };
+}
+
 beforeEach(() => {
+  mocks.assertDashboardEditable.mockReset();
+  mocks.assertDashboardEditable.mockResolvedValue(undefined);
+  mocks.dryRunQuery.mockClear();
   mocks.getDashboard.mockReset();
   mocks.getDashboard.mockResolvedValue({
     kind: "sql",
@@ -200,11 +231,6 @@ describe("update-dashboard verified writes", () => {
   });
 
   describe("ops", () => {
-    const setSql = (sql: string) => ({
-      dashboardId: "growth",
-      ops: [{ op: "set" as const, path: "/panels/0/sql", value: sql }],
-    });
-
     it("refuses an agent op that blanks a pivoted panel, against the pre-edit config", async () => {
       mocks.resolvePanel.mockResolvedValue(result(WIDE_ROWS));
 
@@ -236,7 +262,173 @@ describe("update-dashboard verified writes", () => {
         agent,
       );
 
-      expect(saved.verified).toBeNull();
+      expect(saved).toMatchObject({ verified: true, noRenderAffected: true });
+      expect(saved._receipt).toMatchObject({
+        changed: true,
+        verified: true,
+        subject: "growth",
+        summary: expect.stringContaining("no panel render was affected"),
+      });
+      expect(mocks.resolvePanel).not.toHaveBeenCalled();
+    });
+
+    it("verifies the panels a filter default change re-resolves", async () => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: filteredDashboard(),
+      });
+      mocks.resolvePanel.mockResolvedValue({
+        rows: [],
+        schema: ["week", "app", "n"].map((name) => ({ name, type: "STRING" })),
+      });
+
+      const saved: any = await updateDashboard.run(
+        {
+          dashboardId: "growth",
+          ops: [{ op: "set", path: "/filters/0/default", value: "7d" }],
+        },
+        agent,
+      );
+
+      expect(mocks.resolvePanel).toHaveBeenCalledOnce();
+      expect(saved).toMatchObject({ verified: false });
+      expect(saved.unverified[0]).toMatchObject({
+        panelId: "by-app",
+        status: "empty",
+      });
+      expect(saved._receipt).toMatchObject({
+        changed: true,
+        verified: false,
+        subject: "growth",
+        checks: [{ id: "by-app", ok: false }],
+      });
+    });
+
+    it("verifies the panels a filter removal re-resolves", async () => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: filteredDashboard(),
+      });
+
+      const saved: any = await updateDashboard.run(
+        { dashboardId: "growth", ops: [{ op: "remove", path: "/filters/0" }] },
+        agent,
+      );
+
+      expect(saved.verified).toBe(false);
+      expect(saved.unverified[0]).toMatchObject({ panelId: "by-app" });
+      expect(saved._receipt).toMatchObject({ verified: false });
+    });
+
+    it("emits a receipt for an agent ops write and none for a UI caller", async () => {
+      const edit = setSql("SELECT week, app, n FROM t LIMIT 9");
+
+      const agentSaved: any = await updateDashboard.run(edit, agent);
+      const uiSaved: any = await updateDashboard.run(edit, frontend);
+
+      expect(agentSaved._receipt).toMatchObject({
+        changed: true,
+        verified: true,
+        subject: "growth",
+        summary: expect.stringContaining('Saved 1 op(s) to "growth"'),
+        checks: [{ id: "by-app", ok: true }],
+      });
+      expect(uiSaved._receipt).toBeUndefined();
+    });
+  });
+
+  describe("write receipt", () => {
+    it("covers a config replace, saying verified:false when the panel is empty", async () => {
+      mocks.resolvePanel.mockResolvedValue({
+        rows: [],
+        schema: ["week", "app", "n"].map((name) => ({ name, type: "STRING" })),
+      });
+
+      const saved: any = await updateDashboard.run(
+        {
+          dashboardId: "growth",
+          config: dashboard([
+            pivotPanel({ sql: "SELECT week, app, n FROM e" }),
+          ]),
+          allowEmptyResult: true,
+        },
+        agent,
+      );
+
+      expect(saved._receipt).toMatchObject({
+        changed: true,
+        verified: false,
+        subject: "growth",
+        summary: expect.stringContaining("NOT verified"),
+      });
+    });
+
+    it("covers a panelOrder write as a verified change with no render affected", async () => {
+      const saved: any = await updateDashboard.run(
+        { dashboardId: "growth", panelOrder: ["by-app"] },
+        agent,
+      );
+
+      expect(saved._receipt).toMatchObject({
+        changed: true,
+        verified: true,
+        subject: "growth",
+        summary: expect.stringContaining("no panel render was affected"),
+      });
+      expect(mocks.resolvePanel).not.toHaveBeenCalled();
+    });
+
+    it("emits no receipt for a UI full-config save", async () => {
+      const saved: any = await updateDashboard.run(
+        { dashboardId: "growth", config: dashboard([pivotPanel()]) },
+        frontend,
+      );
+
+      expect(saved._receipt).toBeUndefined();
+    });
+  });
+
+  describe("edit permission comes before any panel SQL runs", () => {
+    const viewerError = () =>
+      Object.assign(
+        new Error("Requires editor role on dashboard growth (have viewer)"),
+        { statusCode: 403 },
+      );
+    const writes: [string, Record<string, unknown>][] = [
+      [
+        "a config replace",
+        {
+          dashboardId: "growth",
+          config: dashboard([pivotPanel({ sql: "SELECT 1 AS n" })]),
+        },
+      ],
+      ["an ops edit", setSql("SELECT week, app, n FROM t LIMIT 9")],
+      ["a panelOrder edit", { dashboardId: "growth", panelOrder: ["by-app"] }],
+    ];
+
+    it.each(writes)("refuses a viewer on %s", async (_, args) => {
+      mocks.assertDashboardEditable.mockRejectedValue(viewerError());
+
+      await expect(
+        updateDashboard.run(args as never, agent),
+      ).rejects.toMatchObject({
+        errorCode: "dashboard_forbidden",
+        statusCode: 403,
+      });
+      expect(mocks.resolvePanel).not.toHaveBeenCalled();
+      expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
+    it("fails an ops edit of an unknown dashboard as not found", async () => {
+      mocks.getDashboard.mockResolvedValue(null);
+
+      await expect(
+        updateDashboard.run(setSql("SELECT week, app, n FROM t"), agent),
+      ).rejects.toMatchObject({
+        errorCode: "dashboard_not_found",
+        statusCode: 404,
+      });
       expect(mocks.resolvePanel).not.toHaveBeenCalled();
     });
   });

@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics";
 import {
   PANEL_CHART_TYPES,
+  PANEL_TOP_LEVEL_KEYS,
+  clipHead,
+  duplicatePanelIds,
   editDistance,
   isNumericLikeValue,
+  limitChartRows,
   missingKeysFromColumns,
   planPanelRender,
   stableStringify,
@@ -353,5 +358,326 @@ describe("helpers", () => {
     expect(isNumericLikeValue("12.5")).toBe(true);
     expect(isNumericLikeValue(" ")).toBe(false);
     expect(isNumericLikeValue(Number.NaN)).toBe(false);
+  });
+});
+
+describe("planPanelRender empty for funnel and heatmap", () => {
+  it("is empty when the funnel reader finds no label/value items", () => {
+    const funnel = (rows: Record<string, unknown>[]) =>
+      planPanelRender(rows, {
+        chartType: "funnel",
+        config: { xKey: "stage", yKey: "users" },
+      });
+
+    for (const rows of [
+      [
+        { stage: 1, users: 100 },
+        { stage: 2, users: 50 },
+      ],
+      [
+        { stage: null, users: 100 },
+        { stage: "", users: 50 },
+      ],
+      [
+        { stage: "visit", users: -1 },
+        { stage: "signup", users: -5 },
+      ],
+      [{ stage: new Date("2026-09-01"), users: 3 }],
+    ]) {
+      const plan = funnel(rows);
+      expect(plan.rows.length).toBeGreaterThan(0);
+      expect(plan).toMatchObject({ empty: true, renderedRowCount: 0 });
+      expect(plan.funnel?.items).toEqual([]);
+    }
+
+    const healthy = funnel([
+      { stage: "visit", users: 100 },
+      { stage: "signup", users: 40 },
+      { stage: null, users: 9 },
+    ]);
+    expect(healthy.empty).toBe(false);
+    expect(healthy.renderedRowCount).toBe(2);
+    expect(healthy.funnel?.items.map((item) => item.label)).toEqual([
+      "visit",
+      "signup",
+    ]);
+  });
+
+  it("is empty when the heatmap has no value column to read", () => {
+    const heatmap = (rows: Record<string, unknown>[]) =>
+      planPanelRender(rows, { chartType: "heatmap" });
+
+    const oneColumn = heatmap([{ cohort: "w1" }, { cohort: "w2" }]);
+    expect(oneColumn).toMatchObject({ empty: true, renderedRowCount: 0 });
+    expect(oneColumn.heatmap?.valueKey).toBe("");
+
+    const withValues = heatmap([{ cohort: "w1", retained: 0.5 }]);
+    expect(withValues.empty).toBe(false);
+    expect(withValues.heatmap).toMatchObject({
+      xKey: "cohort",
+      valueKey: "retained",
+    });
+  });
+
+  it("judges only the rows the renderer keeps when a funnel has more than the point cap", () => {
+    const rows = [
+      ...Array.from({ length: 400 }, (_, i) => ({ stage: i, users: 1 })),
+      { stage: "late", users: 5 },
+    ];
+
+    const plan = planPanelRender(rows, {
+      chartType: "funnel",
+      config: { xKey: "stage", yKey: "users" },
+    });
+
+    expect(plan.empty).toBe(true);
+    expect(limitChartRows(rows, "funnel")).toHaveLength(400);
+  });
+
+  it("leaves other chart types alone", () => {
+    const plan = planPanelRender([{ stage: 1, users: 100 }], {
+      chartType: "bar",
+    });
+
+    expect(plan).toMatchObject({ empty: false, funnel: null, heatmap: null });
+    expect(plan.renderedRowCount).toBe(1);
+  });
+});
+
+describe("planPanelRender with malformed key lists", () => {
+  const rows = [
+    { week: "2026-09-01", signups: 3, rate: 0.3 },
+    { week: "2026-09-08", signups: 5, rate: 0.4 },
+  ];
+
+  it("does not throw on a string where the renderer tolerates one", () => {
+    expect(() =>
+      planPanelRender(rows, {
+        chartType: "line",
+        config: { rightYKeys: "rate" } as never,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      planPanelRender(rows, {
+        chartType: "combo",
+        config: { yKeys: ["signups"], barKeys: "signups" } as never,
+      }),
+    ).not.toThrow();
+  });
+
+  it("treats a non-array yKeys as unset instead of crashing detection", () => {
+    const plan = planPanelRender(rows, {
+      chartType: "line",
+      config: { yKeys: "rate", yKey: "rate" } as never,
+    });
+
+    expect(plan.yKeys).toEqual(["rate"]);
+    expect(plan.empty).toBe(false);
+  });
+});
+
+describe("unknownPanelConfigKeys on shipped panels and value shapes", () => {
+  const stray = (chartType: string, config: Record<string, unknown>) => ({
+    id: "sessions",
+    title: "Sessions",
+    chartType,
+    config,
+  });
+
+  it("does not re-flag an unchanged inert color when only the chart type changes", () => {
+    const base = stray("area", { color: "#5b8def", yKeys: ["n"] });
+    const next = stray("line", { color: "#5b8def", yKeys: ["n"] });
+
+    expect(unknownPanelConfigKeys(next, base)).toEqual([]);
+  });
+
+  it("still flags a color that was added or changed on a non-heatmap panel", () => {
+    const base = stray("area", { yKeys: ["n"] });
+
+    expect(
+      unknownPanelConfigKeys(stray("area", { color: "#fff" }), base),
+    ).toEqual([expect.objectContaining({ kind: "wrong-chart-type" })]);
+    expect(
+      unknownPanelConfigKeys(
+        stray("line", { color: "#000" }),
+        stray("area", { color: "#fff" }),
+      ),
+    ).toEqual([expect.objectContaining({ kind: "wrong-chart-type" })]);
+  });
+
+  it("accepts legacy panel fields under config because the store promotes them", () => {
+    const issues = unknownPanelConfigKeys({
+      id: "legacy",
+      title: "Legacy",
+      chartType: "line",
+      config: {
+        width: 3,
+        title: "Renamed",
+        sql: "SELECT 1",
+        source: "bigquery",
+        tab: "growth",
+        yKeys: ["n"],
+      },
+    });
+
+    expect(issues).toEqual([]);
+  });
+
+  it("flags a misshapen key list or pivot with the offending key", () => {
+    const issues = unknownPanelConfigKeys(
+      stray("combo", {
+        yKeys: "n",
+        rightYKeys: [1],
+        barKeys: { a: 1 },
+        pivot: { xKey: "week" },
+      }),
+    );
+
+    expect(issues.map((issue) => [issue.kind, issue.key])).toEqual([
+      ["invalid-value", "yKeys"],
+      ["invalid-value", "rightYKeys"],
+      ["invalid-value", "barKeys"],
+      ["invalid-value", "pivot"],
+    ]);
+    expect(issues[0].message).toContain("config.yKeys must be an array");
+  });
+
+  it("does not flag a misshapen value the baseline already had", () => {
+    const config = { yKeys: "n" };
+
+    expect(
+      unknownPanelConfigKeys(stray("line", config), stray("line", config)),
+    ).toEqual([]);
+  });
+});
+
+describe("rolling-average hint by source", () => {
+  const hintFor = (source: string) =>
+    unknownPanelConfigKeys({
+      id: "p",
+      title: "P",
+      source,
+      chartType: "line",
+      config: { rollingAverage: 4 },
+    })[0].message;
+  const exampleIn = (message: string) =>
+    /for example (.+?) AS value_4wk_avg/.exec(message)?.[1] ?? "";
+  const query = (expression: string) =>
+    `SELECT date_trunc('week', timestamp) AS week, ${expression} AS value_4wk_avg FROM analytics_events GROUP BY 1`;
+
+  it("recommends a window function the first-party SQL policy accepts", () => {
+    const message = hintFor("first-party");
+
+    expect(message).toContain("window-function column");
+    expect(message).toContain("AVG is not an approved function");
+    expect(() =>
+      validateFirstPartyAnalyticsSql(query(exampleIn(message))),
+    ).not.toThrow();
+  });
+
+  it("keeps AVG() OVER for BigQuery, which the first-party policy would reject", () => {
+    const message = hintFor("bigquery");
+
+    expect(exampleIn(message)).toContain("AVG(value) OVER");
+    expect(message).not.toContain("not an approved function");
+    expect(() =>
+      validateFirstPartyAnalyticsSql(query(exampleIn(message))),
+    ).toThrow(/unapproved SQL function/);
+  });
+});
+
+describe("duplicate panel ids", () => {
+  const dup = (title: string) => ({
+    id: "dup",
+    title,
+    chartType: "line",
+  });
+
+  it("blocks a touched panel whose id is shared and names the problem once", () => {
+    const base = { panels: [dup("A"), dup("B")] };
+    const next = { panels: [dup("A edited"), dup("B")] };
+
+    expect(validatePanelContract(base, next, new Set(["dup"]))).toEqual([
+      expect.objectContaining({
+        kind: "duplicate-panel-id",
+        panelId: "dup",
+      }),
+    ]);
+    expect(validatePanelContract(base, next, new Set())).toEqual([]);
+  });
+
+  it("says plainly that the dashboard has duplicate ids and how to fix it, even when the duplicate was already saved", () => {
+    const saved = { panels: [dup("A"), dup("B")] };
+
+    const [issue] = validatePanelContract(saved, saved, new Set(["dup"]));
+
+    expect(issue.message).toContain("this dashboard has duplicate panel ids");
+    expect(issue.message).toContain("Rename one copy");
+    expect(issue.message).toContain("/panels/<index>/id");
+  });
+
+  it("finds ids that appear more than once", () => {
+    expect(
+      duplicatePanelIds([dup("A"), { id: "solo" }, dup("B"), "junk"]),
+    ).toEqual(new Set(["dup"]));
+  });
+});
+
+describe("clipHead", () => {
+  const LONE_SURROGATE =
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+  it("leaves text within the limit alone", () => {
+    expect(clipHead("abc", 3)).toBe("abc");
+    expect(clipHead("", 3)).toBe("");
+  });
+
+  it("cuts plain text at the limit", () => {
+    expect(clipHead("abcdef", 4)).toBe("abcd");
+  });
+
+  it("drops half an emoji instead of keeping a lone surrogate", () => {
+    const text = `ab${"😀"}cd`;
+
+    expect(clipHead(text, 3)).toBe("ab");
+    expect(clipHead(text, 4)).toBe("ab😀");
+    expect(clipHead(text, 3)).not.toMatch(LONE_SURROGATE);
+  });
+
+  it("keeps a panel label with an emoji at the cut well formed", () => {
+    for (const prefix of ["", "x"]) {
+      const [issue] = validatePanelContract(
+        null,
+        {
+          panels: [
+            {
+              id: "p",
+              title: `${prefix}${"😀".repeat(60)}`,
+              chartType: "line",
+              config: { rollingAvg: 4 },
+            },
+          ],
+        },
+        new Set(["p"]),
+      );
+
+      expect(issue.message).not.toMatch(LONE_SURROGATE);
+    }
+  });
+});
+
+describe("PANEL_TOP_LEVEL_KEYS", () => {
+  it("lists every SqlPanel field in a stable order", () => {
+    expect(PANEL_TOP_LEVEL_KEYS).toEqual([
+      "id",
+      "title",
+      "sql",
+      "source",
+      "chartType",
+      "width",
+      "columns",
+      "config",
+      "tab",
+    ]);
   });
 });

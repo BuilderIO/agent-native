@@ -147,6 +147,160 @@ describe("tool-search expansion", () => {
     );
   });
 
+  it("keeps the search's own notes when every match is already callable", async () => {
+    const { searchResults } = await run(
+      ["starter", "tool-search"],
+      [[searchCall("s1", { names: ["starter", "ghost-tool"] })]],
+    );
+    const parsed = JSON.parse(searchResults[0]);
+    expect(parsed.alreadyLoaded).toBe(true);
+    expect(parsed.message).toContain("already callable");
+    expect(parsed.message).toContain("No tool named ghost-tool");
+  });
+
+  it("does not stop a run whose searches for callable tools are separated by writes", async () => {
+    const writer: ActionEntry = {
+      tool: {
+        description: "Write a record",
+        parameters: {
+          type: "object",
+          properties: { n: { type: "number" } },
+        },
+      },
+      readOnly: false,
+      run: async () => "wrote",
+    };
+    const queries = ["starter", "starter one", "starter two", "starter three"];
+    const { events, searchResults } = await run(
+      ["starter", "writer", "tool-search"],
+      queries.flatMap((query, index) => [
+        [searchCall(`s${index}`, { query })],
+        [
+          {
+            type: "tool-call" as const,
+            id: `w${index}`,
+            name: "writer",
+            input: { n: index },
+          },
+        ],
+      ]),
+      {
+        starter: tool("Starter tool"),
+        writer,
+        "alpha-tool": tool("Alpha reporting capability"),
+      },
+    );
+    expect(searchResults).toHaveLength(4);
+    expect(
+      events.filter((e) => e.type === "tool_done" && e.tool === "writer"),
+    ).toHaveLength(4);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "done" }),
+    );
+  });
+
+  describe("searches paired with a successful non-search call", () => {
+    const reader = (
+      run: ActionEntry["run"] = async () => "read",
+    ): ActionEntry => ({
+      tool: {
+        description: "Read a record",
+        parameters: { type: "object", properties: { n: { type: "number" } } },
+      },
+      readOnly: true,
+      run,
+    });
+    const pairedTurns = (count: number) =>
+      Array.from({ length: count }, (_, index) => [
+        searchCall(`s${index}`, { query: `starter ${index}` }),
+        {
+          type: "tool-call" as const,
+          id: `r${index}`,
+          name: "reader",
+          input: { n: index },
+        },
+      ]);
+    const registry = (entry: ActionEntry) => ({
+      starter: tool("Starter tool"),
+      reader: entry,
+      "alpha-tool": tool("Alpha reporting capability"),
+    });
+
+    it("still stops when each redundant search is followed by a read-only call", async () => {
+      const { events, searchResults } = await run(
+        ["starter", "reader", "tool-search"],
+        pairedTurns(8),
+        registry(reader()),
+      );
+      expect(searchResults).toHaveLength(4);
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+      );
+    });
+
+    it("treats a call that returned a receipt as progress even when it is read-only", async () => {
+      const { events, searchResults } = await run(
+        ["starter", "reader", "tool-search"],
+        pairedTurns(6),
+        registry(
+          reader(async () => ({
+            _receipt: { changed: true, verified: true, summary: "Checked." },
+          })),
+        ),
+      );
+      expect(searchResults).toHaveLength(6);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+      );
+    });
+  });
+
+  it("does not read a tool a sibling search loaded this step as already callable", async () => {
+    const { seenTools, searchResults } = await run(
+      ["starter", "tool-search"],
+      [
+        [
+          searchCall("s1", { query: "alpha reporting" }),
+          searchCall("s2", { query: "alpha" }),
+          searchCall("s3", { query: "reporting alpha" }),
+        ],
+      ],
+    );
+    expect(searchResults).toHaveLength(3);
+    for (const result of searchResults) {
+      expect(result).not.toContain("alreadyLoaded");
+      expect(result).not.toContain("call them directly");
+      expect(result).toContain("for the next step, not this one: alpha-tool");
+    }
+    expect(seenTools[1].filter((name) => name === "alpha-tool")).toHaveLength(
+      1,
+    );
+  });
+
+  it("counts parallel searches for callable tools as one repeat", async () => {
+    const { events, searchResults } = await run(
+      ["starter", "tool-search"],
+      [
+        [
+          searchCall("s1", { query: "starter" }),
+          searchCall("s2", { query: "starter one" }),
+          searchCall("s3", { query: "starter two" }),
+        ],
+        [searchCall("s4", { query: "starter three" })],
+      ],
+    );
+    expect(searchResults).toHaveLength(4);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "done" }),
+    );
+  });
+
   it("does not claim a match is callable when it cannot be loaded", async () => {
     const registry = {
       starter: tool("Starter tool"),

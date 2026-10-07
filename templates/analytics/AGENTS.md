@@ -10,7 +10,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 
 ## Data questions
 
-- Edit a panel on the open dashboard with `get-sql-dashboard` (`panelIds`), then `mutate-dashboard`. A dashboard edit is done only when `mutate-dashboard` returns `verified: true`. On `verified: false`, an error, or "the change isn't visible", call `inspect-dashboard-panel` before saying anything; "Applied N ops", a raw `bigquery` result, or no warning banner is not proof.
+- Edit a panel on the open dashboard with `get-sql-dashboard` (`panelIds`), then `mutate-dashboard`. A dashboard edit is done only when `mutate-dashboard` returns `verified: true`. `noRenderAffected: true` means no chart changed. On `verified: false`, an error, or "the change isn't visible", follow `nextStep` and call `inspect-dashboard-panel` before saying anything; "Applied N ops", a raw `bigquery` result, or no warning banner is not proof.
 - Start from the closest query example (a preloaded reference, else one `search-analytics-query-catalog`); to build or clone a dashboard from another, call `search-dashboard-references`, then inspect matches with `get-sql-dashboard` or `get-explorer-dashboard` by `kind`. A match is context, not live data.
 - Use one bounded SQL or server-side `run-code` call for lists, filters, counts, or cohorts. If the catalog misses, make one discovery pass (`list-data-dictionary`, `search-bigquery-schema`, `data-source-status`) before querying; do not fan out per item or add unasked breakdowns.
 - Give a concise, evidence-backed answer with source, window, filters, sample size, join method, and caveats. Label figures “Unverified” if no live query ran; never cite the public `demo` source as real evidence unless asked.

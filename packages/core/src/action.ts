@@ -137,12 +137,21 @@ export function fail(message: string, options: FailOptions = {}): never {
  * - `changed: false`: nothing was written (a no-op); not a completed side effect.
  * - `verified: true`: the effect was observed. `false`: it was checked and did
  *   not hold. `"unverified"`: it could not be checked.
- * - Bounds, enforced by the loop: summary 200 chars, 8 checks, 5 warnings.
+ * - `subject`: the stable target of the write, such as a dashboard id. Later
+ *   receipts from the same action with the same subject that are `changed` and
+ *   `verified: true` supersede this one, so a no-op that was then fixed does
+ *   not flag the answer. A receipt with failing checks is superseded only when
+ *   those later receipts carry an `ok` check with the same `id` for every
+ *   check that failed here, because a verified write speaks only for what it
+ *   checked. Without a subject a receipt is never superseded.
+ * - Bounds, enforced by the loop: summary and subject 200 chars, 8 checks, 5
+ *   warnings.
  */
 export interface WriteReceipt {
   changed: boolean;
   verified: true | false | "unverified";
   summary: string;
+  subject?: string;
   checks?: Array<{ id: string; ok: boolean; detail?: string }>;
   warnings?: string[];
 }

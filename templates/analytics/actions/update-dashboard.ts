@@ -14,6 +14,10 @@ import {
   interpolateDashboardPanelSql,
 } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import { dryRunQuery } from "../server/lib/bigquery";
+import {
+  dashboardWriteReceipt,
+  requireEditableDashboard,
+} from "../server/lib/dashboard-agent-write";
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import { serializeProgramDescriptorInput } from "../server/lib/dashboard-panel-query";
 import {
@@ -641,6 +645,7 @@ function dashboardResult(
   returnConfig = false,
   updatedAt?: string,
   verdict: PanelWriteVerdict | null = null,
+  receiptSaved?: string,
 ) {
   const compact = compactDashboardResult(config, movedPanelIds);
   summary = annotateSummary(summary, verdict);
@@ -652,6 +657,9 @@ function dashboardResult(
     appliedOps,
     summary,
     ...verdictFields(verdict),
+    ...(receiptSaved
+      ? { _receipt: dashboardWriteReceipt(dashboardId, receiptSaved, verdict) }
+      : {}),
     ...(updatedAt ? { updatedAt } : {}),
     ...(returnConfig ? { config } : {}),
     urlPath: `/dashboards/${dashboardId}`,
@@ -664,7 +672,7 @@ function dashboardResult(
       `${summary} First panels: ${compact.firstPanelIds.join(", ")}.` +
       (returnConfig
         ? ""
-        : " Full config omitted; call get-sql-dashboard with includeConfig=true only if full SQL/config is needed."),
+        : " Full config omitted; call get-sql-dashboard with panelIds for a panel's SQL and config (includeConfig=true only to review the whole dashboard)."),
   };
 }
 
@@ -784,6 +792,7 @@ export default defineAction({
     if (args.config) {
       // A dashboard that does not exist yet has no base, so every panel is new.
       const before = await getDashboard(dashboardId, ctx);
+      if (before) await requireEditableDashboard(dashboardId, ctx, before);
       assertValidDashboardConfig(args.config, {
         baseline: before ? before.config : null,
       });
@@ -796,6 +805,7 @@ export default defineAction({
             signal: actionContext?.signal,
             allowEmptyResult: args.allowEmptyResult,
             memo: verificationMemo,
+            dashboardId,
           })
         : null;
       let saved: DashboardRecord;
@@ -835,15 +845,18 @@ export default defineAction({
         args.returnConfig === true,
         saved.updatedAt,
         verdict,
+        agentCaller ? `Saved dashboard "${dashboardId}"` : undefined,
       );
     }
 
     if (args.panelOrder) {
       let orderDetails!: PanelOrderResult;
+      let orderVerdict: PanelWriteVerdict | null = null;
       const saved = await upsertDashboardWithRetry(
         dashboardId,
         ctx,
-        (existing) => {
+        async (existing) => {
+          await requireEditableDashboard(dashboardId, ctx, existing);
           const root = existing.config as Record<string, unknown>;
           // applyPanelOrder edits `root` in place, so the pre-edit config must be copied first.
           const baseline = JSON.parse(JSON.stringify(root)) as Record<
@@ -856,6 +869,14 @@ export default defineAction({
             fail(err instanceof Error ? err.message : String(err));
           }
           assertValidDashboardConfig(root, { baseline });
+          if (agentCaller) {
+            orderVerdict = await verifyPanelWrite({
+              base: baseline,
+              next: root,
+              signal: actionContext?.signal,
+              dashboardId,
+            });
+          }
           return { kind: existing.kind, body: root };
         },
       );
@@ -863,7 +884,7 @@ export default defineAction({
       queueDashboardCollabSync(
         dashboardId,
         root,
-        isAgentCaller(actionContext?.caller) ? "agent" : undefined,
+        agentCaller ? "agent" : undefined,
       );
       trackDashboardSaved(dashboardId, root, actionContext);
       return dashboardResult(
@@ -874,6 +895,8 @@ export default defineAction({
         orderDetails.movedPanelIds,
         args.returnConfig === true,
         saved.updatedAt,
+        orderVerdict,
+        agentCaller ? `Saved panel order for "${dashboardId}"` : undefined,
       );
     }
 
@@ -883,17 +906,13 @@ export default defineAction({
       dashboardId,
       ctx,
       async (existing) => {
+        await requireEditableDashboard(dashboardId, ctx, existing);
         const root = existing.config as Record<string, unknown>;
         // The ops below edit `root` in place, so the pre-edit config must be copied first.
         const baseline = JSON.parse(JSON.stringify(root)) as Record<
           string,
           unknown
         >;
-        const base =
-          agentCaller &&
-          args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))
-            ? baseline
-            : null;
         const details: string[] = [];
         for (const op of args.ops!) {
           try {
@@ -908,13 +927,16 @@ export default defineAction({
           const sqlError = await validatePanelSql(root);
           if (sqlError) fail(sqlError);
         }
-        if (base) {
+        // Filter and variable edits re-resolve every panel's SQL, so the gate
+        // diffs every agent write rather than guessing from the op paths.
+        if (agentCaller) {
           opsVerdict = await verifyPanelWrite({
-            base,
+            base: baseline,
             next: root,
             signal: actionContext?.signal,
             allowEmptyResult: args.allowEmptyResult,
             memo: verificationMemo,
+            dashboardId,
           });
         }
         appliedDetails = details;
@@ -939,6 +961,9 @@ export default defineAction({
       args.returnConfig === true,
       saved.updatedAt,
       opsVerdict,
+      agentCaller
+        ? `Saved ${appliedDetails.length} op(s) to "${dashboardId}"`
+        : undefined,
     );
   },
   link: ({ result }) => {

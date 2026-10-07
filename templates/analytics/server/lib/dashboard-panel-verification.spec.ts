@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
   dryRun: vi.fn(),
   credentials: vi.fn(),
+  planFailure: { current: null as Error | null },
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -17,11 +18,27 @@ vi.mock("./dashboard-panel-source-resolver", () => ({
   resolveAnalyticsPanelSource: mocks.resolve,
 }));
 vi.mock("./bigquery", () => ({ dryRunQuerySchema: mocks.dryRun }));
+vi.mock("../../shared/panel-render-contract", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../shared/panel-render-contract")>();
+  return {
+    ...actual,
+    planPanelRender: (...args: Parameters<typeof actual.planPanelRender>) => {
+      if (mocks.planFailure.current) throw mocks.planFailure.current;
+      return actual.planPanelRender(...args);
+    },
+  };
+});
 
 const {
+  annotateSummary,
+  describePanelOutcome,
   formatVerificationFailure,
+  isAgentCaller,
+  pageDashboardConfig,
   resolveVerificationVars,
   touchedPanelIds,
+  verdictFields,
   verifyDashboardPanels,
   verifyPanelWrite,
 } = await import("./dashboard-panel-verification");
@@ -80,6 +97,7 @@ const LONG = [
 ];
 
 beforeEach(() => {
+  mocks.planFailure.current = null;
   mocks.resolve.mockReset();
   mocks.dryRun.mockReset();
   mocks.dryRun.mockResolvedValue({ error: null });
@@ -487,6 +505,76 @@ describe("verifyDashboardPanels", () => {
     expect(fresh.blocking).toBe(true);
   });
 
+  describe("server-authored panels", () => {
+    const catalogBar = panel({
+      chartType: "bar",
+      config: { xKey: "week", yKey: "signups", color: "#10b981" },
+    });
+    const serverAuthoredPanelIds = new Set(["p1"]);
+
+    it("skips the config-key rules for them and still verifies the render", async () => {
+      mocks.resolve.mockResolvedValue(rows(WIDE));
+      const config = dashboard([catalogBar]);
+
+      const agentAuthored = await verifyDashboardPanels(config, ["p1"]);
+      const serverAuthored = await verifyDashboardPanels(config, ["p1"], {
+        serverAuthoredPanelIds,
+      });
+
+      expect(agentAuthored.panels[0].staticIssues).toEqual([
+        expect.objectContaining({ kind: "wrong-chart-type", key: "color" }),
+      ]);
+      expect(serverAuthored.panels[0]).toMatchObject({
+        status: "ok",
+        staticIssues: [],
+      });
+      expect(serverAuthored.verified).toBe(true);
+
+      mocks.resolve.mockResolvedValue(rows([{ week: "2026-09-01", n: 1 }]));
+      const unbound = await verifyDashboardPanels(config, ["p1"], {
+        serverAuthoredPanelIds,
+      });
+      expect(unbound.panels[0].status).toBe("missing-columns");
+      expect(unbound.blocking).toBe(true);
+    });
+
+    it("keeps the chart type and the id, which come from the agent's request", async () => {
+      mocks.resolve.mockResolvedValue(rows(WIDE));
+
+      const misspelled = await verifyDashboardPanels(
+        dashboard([{ ...catalogBar, chartType: "lien" }]),
+        ["p1"],
+        { serverAuthoredPanelIds },
+      );
+      const duplicated = await verifyDashboardPanels(
+        dashboard([catalogBar, catalogBar]),
+        ["p1"],
+        { serverAuthoredPanelIds },
+      );
+
+      expect(misspelled.panels[0].staticIssues).toEqual([
+        expect.objectContaining({ kind: "unknown-chart-type" }),
+      ]);
+      expect(duplicated.panels[0].staticIssues).toEqual([
+        expect.objectContaining({ kind: "duplicate-panel-id" }),
+      ]);
+    });
+
+    it("lets verifyPanelWrite save a new server-authored panel the key rules would refuse", async () => {
+      mocks.resolve.mockResolvedValue(rows(WIDE));
+      const next = dashboard([catalogBar]);
+
+      await expect(
+        verifyPanelWrite({ base: null, next }),
+      ).rejects.toMatchObject({
+        errorCode: "dashboard_panel_verification_failed",
+      });
+      await expect(
+        verifyPanelWrite({ base: null, next, serverAuthoredPanelIds }),
+      ).resolves.toMatchObject({ verified: true });
+    });
+  });
+
   it("requires an authenticated context", async () => {
     mocks.credentials.mockReturnValue(null);
 
@@ -540,13 +628,24 @@ describe("verifyPanelWrite", () => {
     return next;
   }
 
-  it("returns verified:null and executes nothing when no render field changed", async () => {
+  it("returns verified:true with noRenderAffected and executes nothing when no render field changed", async () => {
     const next = JSON.parse(JSON.stringify(base));
     next.panels[0].title = "Renamed";
 
     const verdict = await verifyPanelWrite({ base, next });
 
-    expect(verdict).toMatchObject({ verified: null, verification: null });
+    expect(verdict).toMatchObject({
+      verified: true,
+      noRenderAffected: true,
+      verification: null,
+    });
+    expect(verdictFields(verdict)).toMatchObject({
+      verified: true,
+      noRenderAffected: true,
+    });
+    expect(annotateSummary("Saved.", verdict)).toContain(
+      "No panel render was affected",
+    );
     expect(mocks.resolve).not.toHaveBeenCalled();
   });
 
@@ -757,4 +856,357 @@ describe("formatVerificationFailure", () => {
     expect(message).toMatch(/^Not saved:/);
     expect(message.length).toBeLessThanOrEqual(1500);
   });
+});
+
+describe("isAgentCaller", () => {
+  it("covers every caller an agent loop writes through, and no UI or HTTP caller", () => {
+    for (const caller of ["tool", "mcp", "a2a", "webmcp", "automation"]) {
+      expect(isAgentCaller(caller)).toBe(true);
+    }
+    for (const caller of ["frontend", "http", "cli", undefined]) {
+      expect(isAgentCaller(caller)).toBe(false);
+    }
+  });
+});
+
+describe("duplicate panel ids", () => {
+  const SECOND_SQL = "SELECT week, signups FROM second_copy";
+  const first = (overrides: Record<string, unknown> = {}) =>
+    panel({
+      id: "dup",
+      sql: "SELECT week, signups FROM first_copy",
+      ...overrides,
+    });
+  const second = (overrides: Record<string, unknown> = {}) =>
+    panel({ id: "dup", sql: SECOND_SQL, ...overrides });
+
+  it("runs the first panel with the id, the one the edit API addresses, and flags the duplicate", async () => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+
+    const result = await verifyDashboardPanels(dashboard([first(), second()]), [
+      "dup",
+    ]);
+
+    expect(mocks.resolve).toHaveBeenCalledTimes(1);
+    expect(mocks.resolve.mock.calls[0][0].query).toContain("first_copy");
+    expect(result.panels[0].staticIssues).toEqual([
+      expect.objectContaining({ kind: "duplicate-panel-id", panelId: "dup" }),
+    ]);
+    expect(result).toMatchObject({ verified: false, blocking: true });
+  });
+
+  it("refuses an edit to a duplicated id instead of verifying a copy that was not edited", async () => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+    const base = dashboard([first(), second()]);
+    const next = dashboard([
+      first({ sql: "SELECT week, signups FROM edited_first_copy" }),
+      second(),
+    ]);
+
+    const attempt = verifyPanelWrite({ base, next });
+
+    await expect(attempt).rejects.toMatchObject({
+      errorCode: "dashboard_panel_verification_failed",
+    });
+    expect((await attempt.catch((e) => e)).message).toContain(
+      "shares its id with another panel",
+    );
+    expect(mocks.resolve.mock.calls[0][0].query).toContain("edited_first_copy");
+  });
+
+  it("treats a change to any copy as touching the id", () => {
+    const base = dashboard([first(), second()]);
+    const next = dashboard([first(), second({ sql: "SELECT 2 AS n" })]);
+
+    expect(touchedPanelIds(base, next)).toEqual({
+      direct: ["dup"],
+      affected: [],
+    });
+    expect(touchedPanelIds(base, base)).toEqual({ direct: [], affected: [] });
+  });
+});
+
+describe("failure messages with several blocking panels", () => {
+  const WIDE_12 = [
+    Object.fromEntries(
+      ["week", ...Array.from({ length: 11 }, (_, i) => `metric_${i}`)].map(
+        (key, i) => [key, i === 0 ? "2026-09-01" : i],
+      ),
+    ),
+  ];
+
+  async function blockers(count: number, yKey?: string) {
+    mocks.resolve.mockResolvedValue(rows(WIDE_12));
+    const ids = Array.from({ length: count }, (_, i) => `pivot_panel_${i}`);
+    const verification = await verifyDashboardPanels(
+      dashboard(
+        ids.map((id) =>
+          panel({
+            id,
+            title: `Pivoted panel number ${id}`,
+            config: {
+              ...(yKey ? { yKey } : {}),
+              pivot: { xKey: "week", seriesKey: "app", valueKey: "sharing" },
+            },
+          }),
+        ),
+      ),
+      ids,
+      { maxExecuted: count },
+    );
+    return { ids, message: formatVerificationFailure(verification.panels) };
+  }
+
+  it.each([3, 4, 7])(
+    "keeps every panel's fix hint within the cap for %i blockers",
+    async (count) => {
+      const { ids, message } = await blockers(count, "sharing");
+
+      expect(message.length).toBeLessThanOrEqual(1500);
+      const lines = message.split("\n").filter((l) => l.startsWith("- panel"));
+      expect(lines.length).toBeGreaterThanOrEqual(3);
+      for (const line of lines) {
+        expect(line).toContain("Remove config.pivot and config.yKey");
+        expect(line).toContain("config.yKeys to the numeric columns");
+        expect(line).toMatch(/or change the SQL back to long format\.$/);
+      }
+      expect(lines.map((l) => /"(pivot_panel_\d)"/.exec(l)![1])).toEqual(
+        ids.slice(0, lines.length),
+      );
+      if (count > lines.length) {
+        expect(message).toContain(`+${count - lines.length} more`);
+      }
+    },
+  );
+
+  it("tells the agent to clear the leftover yKey beside a stale pivot, and only then", async () => {
+    const withYKey = await blockers(1, "sharing");
+    const without = await blockers(1);
+
+    expect(withYKey.message).toContain("config.yKey (patch both to null)");
+    expect(without.message).toContain("Remove config.pivot (patch it to null)");
+    expect(without.message).not.toContain("patch both");
+  });
+});
+
+describe("renderer-aware verification", () => {
+  it("reports a funnel the viewer sees as empty, not ok", async () => {
+    mocks.resolve.mockResolvedValue(
+      rows([
+        { stage: 1, users: 100 },
+        { stage: 2, users: 50 },
+      ]),
+    );
+    const config = dashboard([
+      panel({
+        chartType: "funnel",
+        config: { xKey: "stage", yKey: "users" },
+      }),
+    ]);
+
+    const result = await verifyDashboardPanels(config, ["p1"]);
+
+    expect(result.panels[0]).toMatchObject({
+      status: "empty",
+      rowCount: 2,
+      renderedRowCount: 0,
+    });
+    expect(result).toMatchObject({ verified: false, blocking: true });
+  });
+
+  it("says rows came back but none render, never that the query is empty", async () => {
+    const funnel = panel({
+      chartType: "funnel",
+      config: { xKey: "stage", yKey: "users" },
+    });
+    mocks.resolve.mockResolvedValue(
+      rows([
+        { stage: 1, users: 100 },
+        { stage: 2, users: 50 },
+      ]),
+    );
+    const withRows = (await verifyDashboardPanels(dashboard([funnel]), ["p1"]))
+      .panels[0];
+    mocks.resolve.mockResolvedValue(
+      rows(
+        [],
+        ["stage", "users"].map((name) => ({ name, type: "STRING" })),
+      ),
+    );
+    const noRows = (await verifyDashboardPanels(dashboard([funnel]), ["p1"]))
+      .panels[0];
+
+    expect(describePanelOutcome(withRows)).toContain("returns 2 row(s) but 0");
+    expect(describePanelOutcome(withRows)).not.toContain("no rows");
+    expect(describePanelOutcome(noRows)).toBe(
+      'returns no rows, so it shows "No data"',
+    );
+  });
+
+  it("reports a single-column heatmap as empty", async () => {
+    mocks.resolve.mockResolvedValue(rows([{ cohort: "w1" }, { cohort: "w2" }]));
+
+    const result = await verifyDashboardPanels(
+      dashboard([panel({ chartType: "heatmap" })]),
+      ["p1"],
+    );
+
+    expect(result.panels[0].status).toBe("empty");
+  });
+
+  it("turns a renderer failure into a typed verdict that names the panel and blocks the save", async () => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+    mocks.planFailure.current = new Error("boom in planning");
+    const base = dashboard([panel()]);
+    const next = dashboard([panel({ config: { yKeys: ["signups"] } })]);
+
+    const attempt = verifyPanelWrite({ base, next });
+
+    await expect(attempt).rejects.toMatchObject({
+      errorCode: "dashboard_panel_verification_failed",
+    });
+    const error = await attempt.catch((e) => e);
+    expect(error.message).toContain('panel "p1"');
+    expect(error.message).toContain("the renderer cannot draw this result");
+    expect(error.details.verification.panels[0].status).toBe("render-error");
+  });
+
+  it("blocks a misshapen key list with a typed issue before it can crash anything", async () => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+    const base = dashboard([panel()]);
+    const next = dashboard([panel({ config: { yKeys: "signups" } })]);
+
+    const attempt = verifyPanelWrite({ base, next });
+
+    await expect(attempt).rejects.toMatchObject({
+      errorCode: "dashboard_panel_verification_failed",
+    });
+    expect((await attempt.catch((e) => e)).message).toContain(
+      "config.yKeys must be an array",
+    );
+  });
+});
+
+describe("what the store saves is what gets verified", () => {
+  it("runs the SQL a legacy config.sql is promoted to and accepts legacy panel fields under config", async () => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+    const legacy = panel({
+      sql: "SELECT week, signups FROM stale",
+      config: { sql: "SELECT week, signups FROM promoted", width: 3 },
+    });
+
+    const result = await verifyDashboardPanels(dashboard([legacy]), ["p1"]);
+
+    expect(mocks.resolve.mock.calls[0][0].query).toContain("promoted");
+    expect(result.panels[0].staticIssues).toEqual([]);
+    expect(result.panels[0].status).toBe("ok");
+  });
+
+  it("applies the known first-party repairs the page applies, only for that dashboard", async () => {
+    const stored = {
+      name: "First-party",
+      filters: [
+        { ...TIME_RANGE_FILTER, default: "all" },
+        {
+          id: "emailFilter",
+          label: "Email",
+          type: "select",
+          default: "all",
+          options: [{ value: "all", label: "All" }],
+        },
+      ],
+      panels: [panel()],
+    };
+
+    const repaired = pageDashboardConfig(
+      stored,
+      "agent-native-templates-first-party-bigquery-v2",
+    );
+    const untouched = pageDashboardConfig(stored, "some-user-dashboard");
+
+    expect(resolveVerificationVars(repaired)).toMatchObject({
+      timeRange: "90d",
+      emailFilter: "exclude_builder",
+    });
+    expect(resolveVerificationVars(untouched).timeRange).toBe("all");
+  });
+
+  it("verifies a write with the repaired defaults when the dashboard id is known", async () => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+    const stored = {
+      name: "First-party",
+      filters: [{ ...TIME_RANGE_FILTER, default: "all" }],
+      panels: [panel()],
+    };
+    const next = JSON.parse(JSON.stringify(stored));
+    next.panels[0].config = { yKeys: ["signups"] };
+
+    const verdict = await verifyPanelWrite({
+      base: stored,
+      next,
+      dashboardId: "agent-native-templates-first-party-bigquery-v2",
+    });
+
+    expect(verdict.verified).toBe(true);
+    expect(mocks.resolve.mock.calls[0][0].query).toContain("range = '90d'");
+  });
+});
+
+describe("error text from the warehouse", () => {
+  it("redacts and clips a dry-run failure like an executed one", async () => {
+    mocks.dryRun.mockResolvedValue({
+      error: `Access Denied on project builder-3b0a2 token=sk_live_abcdef0123456789 ${"x".repeat(900)}`,
+    });
+
+    const result = await verifyDashboardPanels(dashboard([panel()]), ["p1"]);
+
+    const [verified] = result.panels;
+    expect(verified.status).toBe("query-error");
+    expect(verified.error).not.toContain("sk_live_abcdef0123456789");
+    expect(verified.error).toContain("[redacted]");
+    expect(verified.error!.length).toBeLessThanOrEqual(501);
+  });
+});
+
+describe("clipping text a model reads", () => {
+  const LONE_SURROGATE =
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  // One extra character flips whether a cut lands inside an emoji pair; the
+  // text stays under the 500 units the warehouse-error redaction keeps.
+  const EMOJI_RUNS = ["😀".repeat(200), `x${"😀".repeat(199)}`];
+  const TITLES = ["a", "aa"];
+
+  it.each(EMOJI_RUNS.flatMap((text) => TITLES.map((title) => [title, text])))(
+    "never ends a failure line or a sampled cell on half an emoji (%s, %#)",
+    async (shortTitle, text) => {
+      mocks.resolve.mockResolvedValue({ error: "bad_query", message: text });
+      const ids = ["p1", "p2", "p3", "p4"];
+      const failed = await verifyDashboardPanels(
+        dashboard(
+          ids.map((id) =>
+            panel({ id, title: id === "p1" ? text : shortTitle + id }),
+          ),
+        ),
+        ids,
+      );
+      mocks.resolve.mockResolvedValue(
+        rows([{ week: "2026-09-01", note: text }]),
+      );
+      const sampled = await verifyDashboardPanels(
+        dashboard([panel({ chartType: "table" })]),
+        ["p1"],
+        { sampleRows: 1 },
+      );
+
+      expect(formatVerificationFailure(failed.panels)).not.toMatch(
+        LONE_SURROGATE,
+      );
+      expect(describePanelOutcome(failed.panels[0])).not.toMatch(
+        LONE_SURROGATE,
+      );
+      expect(JSON.stringify(sampled.panels[0].sample)).not.toMatch(
+        LONE_SURROGATE,
+      );
+    },
+  );
 });

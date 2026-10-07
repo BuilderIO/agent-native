@@ -8,6 +8,7 @@ import type {
 } from "./engine/types.js";
 import {
   runAgentLoop,
+  runAgentLoopWithMainChatInternalContinuations,
   type ActionEntry,
   type AgentLoopFinalResponseGuard,
   type AgentLoopFinalResponseGuardContext,
@@ -45,6 +46,7 @@ async function run(opts: {
   turns: EngineContentPart[][];
   action: ActionEntry;
   guard?: AgentLoopFinalResponseGuard;
+  loop?: typeof runAgentLoop;
 }) {
   const events: AgentChatEvent[] = [];
   const seenMessages: string[] = [];
@@ -73,7 +75,7 @@ async function run(opts: {
       };
     },
   };
-  const usage = await runAgentLoop({
+  const usage = await (opts.loop ?? runAgentLoop)({
     engine,
     model: "test-model",
     systemPrompt: "system",
@@ -135,6 +137,95 @@ describe("write receipts in the agent loop", () => {
     expect(result.texts.at(-1)).toBe(
       "Write check:\n- write-thing: changed=true verified=false. Saved; the panel was not checked.\n\nIt is still done.",
     );
+  });
+
+  it("does not flag the answer when a later verified write fixed an earlier no-op", async () => {
+    const receipts: WriteReceipt[] = [
+      {
+        changed: false,
+        verified: true,
+        summary: "No-op: already had that.",
+        subject: "dash-1",
+      },
+      {
+        changed: true,
+        verified: true,
+        summary: "Line added.",
+        subject: "dash-1",
+      },
+    ];
+    let calls = 0;
+    const result = await run({
+      turns: [[toolCall()], [toolCall()], [text("Done, line added.")]],
+      action: writeAction(undefined, {
+        run: async () => ({ _receipt: receipts[calls++] }),
+      }),
+    });
+
+    expect(result.streamCalls()).toBe(3);
+    expect(result.texts).toEqual(["Done, line added."]);
+    expect(result.usage.receiptChangedFalseCount).toBe(1);
+  });
+
+  it("still flags a no-op whose subject was never fixed, and lists only that receipt", async () => {
+    const receipts: WriteReceipt[] = [
+      {
+        changed: false,
+        verified: true,
+        summary: "Dash 1 no-op.",
+        subject: "dash-1",
+      },
+      {
+        changed: true,
+        verified: true,
+        summary: "Dash 1 fixed.",
+        subject: "dash-1",
+      },
+      {
+        changed: false,
+        verified: true,
+        summary: "Dash 2 no-op.",
+        subject: "dash-2",
+      },
+    ];
+    let calls = 0;
+    const result = await run({
+      turns: [
+        [toolCall()],
+        [toolCall()],
+        [toolCall()],
+        [text("Done.")],
+        [text("Done again.")],
+      ],
+      action: writeAction(undefined, {
+        run: async () => ({ _receipt: receipts[calls++] }),
+      }),
+    });
+
+    expect(result.streamCalls()).toBe(5);
+    const retryBlock = result.seenMessages[4].split("<response-guard>")[1]!;
+    expect(retryBlock).toContain("Dash 2 no-op.");
+    expect(retryBlock).not.toContain("Dash 1 no-op.");
+    expect(result.texts.at(-1)).toBe(
+      "Write check:\n- write-thing: changed=false verified=true. Dash 2 no-op.\n\nDone again.",
+    );
+  });
+
+  it("keeps the receipt counters through the main-chat wrapper", async () => {
+    const result = await run({
+      turns: [[toolCall()], [text("Done.")], [text("Still done.")]],
+      action: writeAction({
+        _receipt: {
+          changed: false,
+          verified: false,
+          summary: "Nothing changed.",
+        },
+      }),
+      loop: runAgentLoopWithMainChatInternalContinuations,
+    });
+
+    expect(result.usage.receiptUnverifiedCount).toBe(1);
+    expect(result.usage.receiptChangedFalseCount).toBe(1);
   });
 
   it("allows only one receipt retry per turn even if the model writes again", async () => {

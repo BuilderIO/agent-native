@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildFollowUpCompletionMessages,
   followUpSuggestionsTool,
   identifyFollowUpSuggestions,
   parseFollowUpSuggestions,
@@ -97,5 +98,56 @@ describe("agent-authored follow-ups", () => {
     expect(followUpSuggestionsTool.description).toContain(
       "current screen/selection",
     );
+  });
+
+  describe("completion digest", () => {
+    const digestText = (input: {
+      requestText?: string;
+      replyText: string;
+    }): string => {
+      const [message] = buildFollowUpCompletionMessages({
+        ...input,
+        toolNames: [],
+      });
+      return (message.content[0] as { text: string }).text;
+    };
+
+    it("keeps the head and tail of a long request, so the ask after a pasted document survives", () => {
+      const text = digestText({
+        requestText: `INTRO ${"x".repeat(6_000)} FINAL-QUESTION: which segment grew?`,
+        replyText: "ok",
+      });
+      expect(text).toContain("INTRO");
+      expect(text).toContain("FINAL-QUESTION: which segment grew?");
+      expect(text.length).toBeLessThan(3_000);
+    });
+
+    it("keeps the tail of a long reply, where its conclusions sit", () => {
+      const text = digestText({
+        replyText: `OPENING ${"y".repeat(9_000)} RECOMMENDATION: ship the fix`,
+      });
+      expect(text).toContain("RECOMMENDATION: ship the fix");
+      expect(text).not.toContain("OPENING");
+      expect(text.length).toBeLessThan(5_000);
+    });
+
+    it("never cuts the digest inside an emoji at the head or tail boundary", () => {
+      const loneSurrogate =
+        /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+      for (let pad = 0; pad < 2; pad += 1) {
+        const request = `${"a".repeat(499 + pad)}${"😀".repeat(2_000)}`;
+        const reply = `${"😀".repeat(5_000)}${"c".repeat(pad)}`;
+        const text = digestText({ requestText: request, replyText: reply });
+        expect(text).not.toMatch(loneSurrogate);
+        expect(text).toContain("😀");
+        expect(text.length).toBeLessThan(8_000);
+      }
+    });
+
+    it("passes a short request and reply through unchanged", () => {
+      const text = digestText({ requestText: "Hi there", replyText: "Done." });
+      expect(text).toContain("<user-request>\nHi there\n</user-request>");
+      expect(text).toContain("<final-reply>\nDone.\n</final-reply>");
+    });
   });
 });

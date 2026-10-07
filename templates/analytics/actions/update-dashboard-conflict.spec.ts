@@ -44,6 +44,7 @@ let row: { config: Record<string, unknown>; updatedAt: string } | null = null;
 let nextUpdatedAt = 0;
 
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: vi.fn(async () => undefined),
   DashboardConflictError: mocks.DashboardConflictError,
   getDashboard: vi.fn(async () =>
     row ? { kind: "sql", config: row.config } : null,

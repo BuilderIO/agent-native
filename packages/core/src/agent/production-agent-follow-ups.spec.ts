@@ -23,6 +23,7 @@ import { TripWire } from "./processors.js";
 import {
   actionsToEngineTools,
   runAgentLoop,
+  runAgentLoopWithMainChatInternalContinuations,
   type ActionEntry,
 } from "./production-agent.js";
 import * as runStore from "./run-store.js";
@@ -184,6 +185,26 @@ describe("native agent follow-up publication", () => {
       readJournal.mockRestore();
       clearLedger.mockRestore();
     }
+  });
+
+  it("reports the follow-up call's cost through the main-chat wrapper", async () => {
+    const { opts } = setup([
+      [
+        ...step([reply()]),
+        { type: "usage", inputTokens: 100, outputTokens: 30 },
+      ],
+      [
+        ...step([call()], "tool_use"),
+        { type: "usage", inputTokens: 200, outputTokens: 40 },
+      ],
+    ]);
+    const usage = await runAgentLoopWithMainChatInternalContinuations(opts);
+    expect(usage).toMatchObject({
+      llmCalls: 2,
+      inputTokens: 300,
+      followUpInputTokens: 200,
+    });
+    expect(usage.followUpMs).toBeGreaterThanOrEqual(0);
   });
 
   it.each([undefined, 512, 128, 32_768])(

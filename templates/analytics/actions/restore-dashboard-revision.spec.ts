@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: vi.fn(async () => undefined),
   restoreDashboardRevision: mocks.restoreDashboardRevision,
   getDashboard: mocks.getDashboard,
 }));
@@ -119,6 +120,13 @@ describe("restore-dashboard-revision action", () => {
     });
     expect(result.nextStep).toContain("inspect-dashboard-panel");
     expect(result.message).toMatch(/^SAVED BUT NOT VERIFIED: Restored/);
+    expect(result._receipt).toMatchObject({
+      changed: true,
+      verified: false,
+      subject: "dashboard-1",
+      summary: expect.stringContaining('Restored "dashboard-1" from history'),
+      checks: [{ id: "by-app", ok: false }],
+    });
   });
 
   it("reports a clean restore as verified", async () => {
@@ -134,6 +142,12 @@ describe("restore-dashboard-revision action", () => {
 
     expect(result.verified).toBe(true);
     expect(result.message).toContain("Verified: By app -> 1 rows");
+    expect(result._receipt).toMatchObject({
+      changed: true,
+      verified: true,
+      subject: "dashboard-1",
+      checks: [{ id: "by-app", ok: true }],
+    });
   });
 
   it("says so when the restore saved but verification could not run", async () => {
@@ -147,6 +161,27 @@ describe("restore-dashboard-revision action", () => {
     expect(result.snapshotRevisionId).toBe("snapshot-1");
     expect(result.verified).toBe(false);
     expect(result.nextStep).toContain("restore was saved");
+    expect(result._receipt).toMatchObject({
+      changed: true,
+      verified: "unverified",
+      subject: "dashboard-1",
+    });
+  });
+
+  it("never runs a panel for a viewer, whose restore the store refuses", async () => {
+    mocks.restoreDashboardRevision.mockRejectedValue(
+      Object.assign(
+        new Error(
+          "Requires editor role on dashboard dashboard-1 (have viewer)",
+        ),
+        { statusCode: 403 },
+      ),
+    );
+
+    await expect(restoreDashboard.run(args, agent)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(mocks.resolvePanel).not.toHaveBeenCalled();
   });
 
   it("leaves UI restores unverified and unchanged", async () => {
@@ -157,6 +192,7 @@ describe("restore-dashboard-revision action", () => {
     const result: any = await restoreDashboard.run(args);
 
     expect(result.verified).toBeUndefined();
+    expect(result._receipt).toBeUndefined();
     expect(result.message).toBe('Restored dashboard "Growth" from history.');
     expect(mocks.getDashboard).not.toHaveBeenCalled();
     expect(mocks.resolvePanel).not.toHaveBeenCalled();

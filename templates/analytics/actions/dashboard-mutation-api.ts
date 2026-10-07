@@ -50,7 +50,7 @@ type PanelTimeScope =
 type PanelConfig = Record<string, unknown> & {
   /** Use "dashboard" for AI-generated first-party panels by default. */
   timeScope?: PanelTimeScope;
-  /** Renderer options only; other keys are rejected. Honored: ${Object.keys(PANEL_CONFIG_KEYS).join(", ")}. No rolling-average option: add a window-function column in sql and list it in yKeys. */
+  /** Renderer options only; other keys are rejected. Honored: ${Object.keys(PANEL_CONFIG_KEYS).join(", ")}. No rolling-average option: add a window-function column in sql and list it in yKeys (bigquery: AVG(v) OVER (...); first-party: AVG is not an approved function, use SUM(v) OVER (...) * 1.0 / COUNT(v) OVER (...)). */
 };
 
 type PanelPatch = {

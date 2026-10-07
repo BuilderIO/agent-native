@@ -12,7 +12,11 @@ import type {
   DashboardFilter,
   SqlPanel,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import {
+  clipHead,
+  duplicatePanelIdIssue,
+  duplicatePanelIds,
   isNumericLikeValue,
   missingKeysFromColumns,
   planPanelRender,
@@ -25,14 +29,20 @@ import {
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
 import { dryRunQuerySchema, type DryRunQueryResult } from "./bigquery";
+import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import type { DashboardPanelSource } from "./dashboard-panel-query";
-import { buildPanelQuery, runResolvedPanel } from "./dashboard-panel-runner";
+import {
+  buildPanelQuery,
+  describeError,
+  runResolvedPanel,
+} from "./dashboard-panel-runner";
 
 export type PanelVerificationStatus =
   | "ok"
   | "empty"
   | "missing-columns"
   | "query-error"
+  | "render-error"
   | "unverified";
 
 export type PanelUnverifiedNote =
@@ -102,6 +112,12 @@ export interface VerifyOptions {
   base?: Record<string, unknown> | null;
   /** Reuse results across a retried write inside one action call. */
   memo?: Map<string, PanelVerification>;
+  /**
+   * Panels whose config the server wrote, such as catalog panels. The agent
+   * cannot edit that config, so the config-key rules skip them; the chart
+   * type and id still come from the agent's request and stay checked.
+   */
+  serverAuthoredPanelIds?: ReadonlySet<string>;
 }
 
 export const PANEL_VERIFICATION_BUDGET_MS = 18_000;
@@ -109,6 +125,9 @@ const DEFAULT_MAX_EXECUTED = 6;
 const DEFAULT_MAX_BYTES_TO_EXECUTE = 50 * 1024 ** 3;
 const MAX_SAMPLE_ROWS = 20;
 const MAX_COLUMNS_LISTED = 60;
+const MAX_COLUMNS_IN_MESSAGE = 6;
+const MAX_BLOCKERS_SHOWN = 4;
+const MIN_DETAIL_CHARS = 40;
 const SAMPLE_CELL_CHARS = 80;
 const RESOLVED_SQL_CHARS = 2000;
 const FAILURE_MESSAGE_CHARS = 1500;
@@ -124,9 +143,32 @@ const NOTE_REASONS: Record<PanelUnverifiedNote, string> = {
     "more panels were affected than the per-save verification cap runs",
 };
 
+const AGENT_CALLERS: ReadonlySet<string> = new Set([
+  "tool",
+  "mcp",
+  "a2a",
+  "webmcp",
+  "automation",
+]);
+
 /** Agent callers get the strict verified-write boundary; UI saves keep today's behavior. */
 export function isAgentCaller(caller: string | undefined): boolean {
-  return caller === "tool" || caller === "mcp" || caller === "a2a";
+  return caller !== undefined && AGENT_CALLERS.has(caller);
+}
+
+/**
+ * The config the dashboard page renders: the store's legacy-key promotion,
+ * then the known first-party repairs get-sql-dashboard applies on every read.
+ * Without a `dashboardId` no repair applies.
+ */
+export function pageDashboardConfig(
+  config: Record<string, unknown>,
+  dashboardId?: string,
+): Record<string, unknown> {
+  const normalized = normalizeDashboardConfig(config);
+  return dashboardId
+    ? repairKnownFirstPartyDashboardQueries(dashboardId, normalized).config
+    : normalized;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -191,29 +233,39 @@ function renderFingerprint(panel: Record<string, unknown>): string {
  * widths and moves touch nothing.
  */
 export function touchedPanelIds(
-  base: Record<string, unknown> | null | undefined,
-  next: Record<string, unknown>,
+  rawBase: Record<string, unknown> | null | undefined,
+  rawNext: Record<string, unknown>,
 ): { direct: string[]; affected: string[] } {
-  const baseById = new Map<string, Record<string, unknown>>();
+  const base = rawBase && normalizeDashboardConfig(rawBase);
+  const next = normalizeDashboardConfig(rawNext);
+  // Copies of one id pair up in order, so a change to any copy touches the id.
+  const baseCopies = new Map<string, Record<string, unknown>[]>();
   for (const panel of base ? panelsOf(base) : []) {
-    if (typeof panel.id === "string") baseById.set(panel.id, panel);
+    if (typeof panel.id !== "string") continue;
+    baseCopies.set(panel.id, [...(baseCopies.get(panel.id) ?? []), panel]);
   }
   const baseVars = base ? resolveVerificationVars(base) : {};
   const nextVars = resolveVerificationVars(next);
-  const direct: string[] = [];
-  const affected: string[] = [];
+  const seen = new Map<string, number>();
+  const direct = new Set<string>();
+  const affected = new Set<string>();
   for (const panel of panelsOf(next)) {
     if (typeof panel.id !== "string" || !hasSqlToRun(panel)) continue;
-    const before = baseById.get(panel.id);
+    const copy = seen.get(panel.id) ?? 0;
+    seen.set(panel.id, copy + 1);
+    const before = baseCopies.get(panel.id)?.[copy];
     if (!before || renderFingerprint(before) !== renderFingerprint(panel)) {
-      direct.push(panel.id);
+      direct.add(panel.id);
     } else if (
       resolvedSqlOf(before, baseVars) !== resolvedSqlOf(panel, nextVars)
     ) {
-      affected.push(panel.id);
+      affected.add(panel.id);
     }
   }
-  return { direct, affected };
+  return {
+    direct: Array.from(direct),
+    affected: Array.from(affected).filter((id) => !direct.has(id)),
+  };
 }
 
 function sqlTokens(sql: unknown): string[] {
@@ -254,7 +306,7 @@ function truncateCell(value: unknown): unknown {
         : null;
   if (text === null) return value;
   return text.length > SAMPLE_CELL_CHARS
-    ? `${text.slice(0, SAMPLE_CELL_CHARS)}…`
+    ? `${clipHead(text, SAMPLE_CELL_CHARS)}…`
     : text;
 }
 
@@ -288,7 +340,11 @@ function fixHint(
     const numeric = columns.filter((col) =>
       isNumericLikeValue(firstRow?.[col]),
     );
-    return `config.pivot expects long-format rows with columns ${[pivot.xKey, pivot.seriesKey, pivot.valueKey].join(", ")}, but the query returns [${columns.slice(0, 12).join(", ")}]. Remove config.pivot (patch it to null) and set config.yKeys to the numeric columns [${numeric.join(", ")}] to plot the wide-format result, or change the SQL back to long format.`;
+    // The long-format yKey names the value column the wide result no longer has.
+    const cleared = panel.config?.yKey
+      ? "config.pivot and config.yKey (patch both to null)"
+      : "config.pivot (patch it to null)";
+    return `config.pivot expects long-format rows with columns ${[pivot.xKey, pivot.seriesKey, pivot.valueKey].join(", ")}, but the query returns wide-format columns. Remove ${cleared} and set config.yKeys to the numeric columns to plot${numeric.length > 0 ? ` [${numeric.slice(0, 6).join(", ")}${numeric.length > 6 ? ", ..." : ""}]` : ""}, or change the SQL back to long format.`;
   }
   return `Add ${missingKeys.join(", ")} to the SQL select list, or remove it from config (xKey, yKey, yKeys, rightYKeys, columns).`;
 }
@@ -318,6 +374,7 @@ interface RunState {
   ctx: NonNullable<ReturnType<typeof getCredentialContext>>;
   deadline: number;
   baseById: Map<string, Record<string, unknown>>;
+  duplicateIds: Set<string>;
   sampleRows: number;
   maxBytes: number;
 }
@@ -350,10 +407,13 @@ async function verifyOne(
   const panelId = String(panel.id);
   const title = typeof panel.title === "string" ? panel.title : panelId;
   const source = typeof panel.source === "string" ? panel.source : "";
-  const staticIssues = unknownPanelConfigKeys(
-    panel,
-    state.baseById.get(panelId),
-  );
+  const serverAuthored = opts.serverAuthoredPanelIds?.has(panelId) === true;
+  const staticIssues = [
+    ...unknownPanelConfigKeys(panel, state.baseById.get(panelId)).filter(
+      (issue) => !serverAuthored || issue.kind === "unknown-chart-type",
+    ),
+    ...(state.duplicateIds.has(panelId) ? [duplicatePanelIdIssue(panel)] : []),
+  ];
   const result = (
     fields: Partial<PanelVerification> & { status: PanelVerificationStatus },
   ): PanelVerification => {
@@ -377,6 +437,10 @@ async function verifyOne(
       resolvedSql: "",
       ms: Date.now() - startedAt,
       ...fields,
+      // Every error leaves through the redaction and clip the executed path uses.
+      ...(fields.error === undefined
+        ? {}
+        : { error: describeError(fields.error) }),
       columns: columns.slice(0, MAX_COLUMNS_LISTED),
     };
   };
@@ -392,7 +456,7 @@ async function verifyOne(
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  const resolvedSql = query.slice(0, RESOLVED_SQL_CHARS);
+  const resolvedSql = clipHead(query, RESOLVED_SQL_CHARS);
   const sentinel = interpolationFailure(query, panel.sql, vars);
   if (sentinel) {
     return result({ status: "query-error", error: sentinel, resolvedSql });
@@ -492,9 +556,19 @@ async function verifyOne(
     });
   }
 
-  const plan = planPanelRender(data.rows, rendered, {
-    timeRange: timeRangeDays(vars.timeRange),
-  });
+  let plan: ReturnType<typeof planPanelRender>;
+  try {
+    plan = planPanelRender(data.rows, rendered, {
+      timeRange: timeRangeDays(vars.timeRange),
+    });
+  } catch (error) {
+    // The renderer would crash on this config and result, so it is a verdict.
+    return finish({
+      status: "render-error",
+      error: `the renderer cannot draw this result: ${error instanceof Error ? error.message : String(error)}`,
+      rowCount: data.rows.length,
+    });
+  }
   const schemaColumns = data.schema.map((field) => field.name);
   const columns = data.rows.length > 0 ? plan.rawColumns : schemaColumns;
   // A zero-row result still carries its schema, so a config that cannot bind
@@ -515,7 +589,7 @@ async function verifyOne(
   return finish({
     status,
     rowCount: data.rows.length,
-    renderedRowCount: data.rows.length > 0 ? plan.rows.length : 0,
+    renderedRowCount: plan.renderedRowCount,
     columns,
     columnCount: columns.length,
     missingKeys,
@@ -534,7 +608,11 @@ function blocksSave(
 ): boolean {
   if (panel.staticIssues.length > 0) return true;
   if (panel.status === "empty") return !allowEmptyResult;
-  return panel.status === "missing-columns" || panel.status === "query-error";
+  return (
+    panel.status === "missing-columns" ||
+    panel.status === "query-error" ||
+    panel.status === "render-error"
+  );
 }
 
 /**
@@ -544,10 +622,11 @@ function blocksSave(
  * skipped source is `unverified` with a note, never `ok`.
  */
 export async function verifyDashboardPanels(
-  config: Record<string, unknown>,
+  rawConfig: Record<string, unknown>,
   panelIds: readonly string[],
   opts: VerifyOptions = {},
 ): Promise<DashboardVerification> {
+  const config = normalizeDashboardConfig(rawConfig);
   const startedAt = Date.now();
   const budgetMs = opts.budgetMs ?? PANEL_VERIFICATION_BUDGET_MS;
   const filterState =
@@ -571,11 +650,17 @@ export async function verifyDashboardPanels(
     );
   }
 
-  const byId = new Map(
-    panelsOf(config).flatMap((panel) =>
-      typeof panel.id === "string" ? [[panel.id, panel] as const] : [],
-    ),
-  );
+  // The first panel with an id is the one the edit API addresses.
+  const firstById = (panels: Record<string, unknown>[]) => {
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const panel of panels) {
+      if (typeof panel.id === "string" && !byId.has(panel.id)) {
+        byId.set(panel.id, panel);
+      }
+    }
+    return byId;
+  };
+  const byId = firstById(panelsOf(config));
   const requested = Array.from(new Set(panelIds));
   const unknown = requested.filter((id) => !byId.has(id));
   if (unknown.length > 0) {
@@ -589,11 +674,10 @@ export async function verifyDashboardPanels(
     opts,
     ctx,
     deadline: startedAt + budgetMs,
-    baseById: new Map(
-      (opts.base ? panelsOf(opts.base) : []).flatMap((panel) =>
-        typeof panel.id === "string" ? [[panel.id, panel] as const] : [],
-      ),
+    baseById: firstById(
+      opts.base ? panelsOf(normalizeDashboardConfig(opts.base)) : [],
     ),
+    duplicateIds: duplicatePanelIds(panelsOf(config)),
     sampleRows: Math.max(0, Math.min(opts.sampleRows ?? 0, MAX_SAMPLE_ROWS)),
     maxBytes: opts.maxBytesToExecute ?? DEFAULT_MAX_BYTES_TO_EXECUTE,
   };
@@ -631,45 +715,76 @@ export async function verifyDashboardPanels(
   };
 }
 
-function describeProblem(panel: PanelVerification): string {
+/**
+ * `nextStep` is the sentence telling the agent what to do. It stays separate
+ * so a length clip shortens the detail around it, never the fix.
+ */
+function problemSegments(panel: PanelVerification): {
+  detail: string[];
+  nextStep?: string;
+  columns?: string;
+} {
   const filters = Object.entries(panel.resolvedFilters)
     .map(([key, value]) => `${key}=${value}`)
     .join(", ");
-  const parts: string[] = panel.staticIssues
+  const detail: string[] = panel.staticIssues
     .slice(0, 2)
     .map((issue) => issue.message);
   if (panel.status === "query-error") {
-    parts.push(`the query fails: ${panel.error}`);
+    detail.push(`the query fails: ${panel.error}`);
+  } else if (panel.status === "render-error") {
+    detail.push(panel.error ?? "the renderer cannot draw this result");
   } else if (panel.status === "empty") {
-    parts.push(
+    detail.push(
       panel.rowCount === 0
         ? `returns 0 rows with the dashboard's default filters${filters ? ` (${filters})` : ""}, so the viewer sees "No data"`
         : `returns ${panel.rowCount} row(s) but 0 render, so the viewer sees "No data"`,
     );
   } else if (panel.status === "missing-columns") {
-    parts.push("renders without configured columns");
-  }
-  if (panel.columns.length > 0) {
-    parts.push(`result columns [${panel.columns.slice(0, 12).join(", ")}]`);
+    detail.push("renders without configured columns");
   }
   if (panel.missingKeys.length > 0) {
-    parts.push(`config binds missing [${panel.missingKeys.join(", ")}]`);
+    detail.push(`config binds missing [${panel.missingKeys.join(", ")}]`);
   }
   for (const ignored of panel.ignoredConfig.slice(0, 2)) {
-    parts.push(`config.${ignored.key} ignored: ${ignored.reason}`);
+    detail.push(`config.${ignored.key} ignored: ${ignored.reason}`);
   }
-  if (panel.hint) parts.push(panel.hint);
-  if (panel.status === "empty" && panel.staticIssues.length === 0) {
-    parts.push(
-      "If no rows is expected right now, retry with allowEmptyResult:true",
-    );
-  }
-  return parts.join("; ");
+  const nextStep =
+    panel.hint?.replace(/\.$/, "") ??
+    (panel.status === "empty" && panel.staticIssues.length === 0
+      ? "If no rows is expected right now, retry with allowEmptyResult:true"
+      : undefined);
+  const columns =
+    panel.columns.length > 0
+      ? `result columns [${panel.columns.slice(0, MAX_COLUMNS_IN_MESSAGE).join(", ")}${panel.columns.length > MAX_COLUMNS_IN_MESSAGE ? ", ..." : ""}]`
+      : undefined;
+  return { detail, nextStep, columns };
 }
 
+function describeProblem(panel: PanelVerification): string {
+  const { detail, nextStep, columns } = problemSegments(panel);
+  return [...detail, nextStep, columns].filter(Boolean).join("; ");
+}
+
+function clip(text: string, maxChars: number): string {
+  return text.length > maxChars ? `${clipHead(text, maxChars - 1)}…` : text;
+}
+
+const shortLine = (panel: PanelVerification) => `- panel "${panel.panelId}": `;
+
 function describeBlocker(panel: PanelVerification, maxChars: number): string {
-  const line = `- panel "${panel.panelId}" ("${panel.title.slice(0, 40)}") [${panel.source}]: ${describeProblem(panel)}.`;
-  return line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line;
+  const full = `- panel "${panel.panelId}" ("${clipHead(panel.title, 40)}") [${panel.source}]: ${describeProblem(panel)}.`;
+  const { detail, nextStep } = problemSegments(panel);
+  if (full.length <= maxChars || !nextStep) return clip(full, maxChars);
+  // Over budget: drop the title and shorten the detail so the next step stays whole.
+  const prefix = shortLine(panel);
+  const room = maxChars - prefix.length - nextStep.length - 3;
+  const shortDetail =
+    room >= MIN_DETAIL_CHARS ? clip(detail.join("; "), room) : "";
+  return clip(
+    `${prefix}${[shortDetail, nextStep].filter(Boolean).join("; ")}.`,
+    maxChars,
+  );
 }
 
 /**
@@ -679,18 +794,41 @@ function describeBlocker(panel: PanelVerification, maxChars: number): string {
 export function formatVerificationFailure(
   blockers: readonly PanelVerification[],
 ): string {
-  const shown = blockers.slice(0, 4);
   const header = `Not saved: ${blockers.length === 1 ? "this panel" : `${blockers.length} panels`} would not render correctly with the dashboard's default filters, so the dashboard is unchanged.`;
-  const more =
-    blockers.length > shown.length
-      ? `(+${blockers.length - shown.length} more panel(s) not shown)`
-      : "";
   const footer =
     "Fix the panel and call again; dryRun:true previews the same check without saving.";
-  const perPanelChars = Math.floor(
-    (FAILURE_MESSAGE_CHARS - header.length - more.length - footer.length - 8) /
-      shown.length,
-  );
+  const moreNote = (shown: number) =>
+    blockers.length > shown
+      ? `(+${blockers.length - shown} more panel(s) not shown)`
+      : "";
+  const budgetFor = (shown: number) =>
+    Math.floor(
+      (FAILURE_MESSAGE_CHARS -
+        header.length -
+        moreNote(shown).length -
+        footer.length -
+        8) /
+        shown,
+    );
+  // Show fewer panels rather than clip a fix: every shown line keeps its next step whole.
+  let count = Math.min(blockers.length, MAX_BLOCKERS_SHOWN);
+  while (
+    count > 1 &&
+    blockers
+      .slice(0, count)
+      .some(
+        (panel) =>
+          shortLine(panel).length +
+            (problemSegments(panel).nextStep?.length ?? 0) +
+            1 >
+          budgetFor(count),
+      )
+  ) {
+    count--;
+  }
+  const shown = blockers.slice(0, count);
+  const more = moreNote(count);
+  const perPanelChars = budgetFor(count);
   return [
     header,
     ...shown.map((panel) => describeBlocker(panel, perPanelChars)),
@@ -700,8 +838,9 @@ export function formatVerificationFailure(
 }
 
 export interface PanelWriteVerdict {
-  /** null when no render-affecting panel was touched. */
-  verified: boolean | null;
+  verified: boolean;
+  /** True when no panel the viewer renders differently was touched, so nothing needed to run. */
+  noRenderAffected?: true;
   verification: DashboardVerification | null;
   proof: {
     panelId: string;
@@ -728,13 +867,17 @@ export function describePanelOutcome(panel: PanelVerification): string {
   }
   if (panel.status === "unverified") {
     const why = panel.note ? NOTE_REASONS[panel.note] : "could not be checked";
-    return panel.error ? `${why} (${panel.error.slice(0, 200)})` : why;
+    return panel.error ? `${why} (${clipHead(panel.error, 200)})` : why;
   }
-  if (panel.status === "empty") return 'returns no rows, so it shows "No data"';
+  if (panel.status === "empty") {
+    return panel.rowCount
+      ? `returns ${panel.rowCount} row(s) but 0 render (its keys or labels give nothing to draw), so it shows "No data"`
+      : 'returns no rows, so it shows "No data"';
+  }
   if (panel.status === "query-error") {
-    return `query failed: ${panel.error?.slice(0, 200)}`;
+    return `query failed: ${panel.error ? clipHead(panel.error, 200) : ""}`;
   }
-  return describeProblem(panel).slice(0, 600);
+  return clipHead(describeProblem(panel), 600);
 }
 
 export interface PanelWriteGateOptions {
@@ -746,6 +889,10 @@ export interface PanelWriteGateOptions {
   /** Only for a panel the user expects to have no rows right now. */
   allowEmptyResult?: boolean;
   memo?: Map<string, PanelVerification>;
+  /** Lets the gate apply the same known-dashboard repairs the page reads through. */
+  dashboardId?: string;
+  /** See VerifyOptions: render verification still runs on these panels. */
+  serverAuthoredPanelIds?: ReadonlySet<string>;
 }
 
 /**
@@ -756,17 +903,28 @@ export interface PanelWriteGateOptions {
 export async function verifyPanelWrite(
   options: PanelWriteGateOptions,
 ): Promise<PanelWriteVerdict> {
-  const { direct, affected } = touchedPanelIds(options.base, options.next);
+  const base = options.base
+    ? pageDashboardConfig(options.base, options.dashboardId)
+    : null;
+  const next = pageDashboardConfig(options.next, options.dashboardId);
+  const { direct, affected } = touchedPanelIds(base, next);
   if (direct.length + affected.length === 0) {
-    return { verified: null, verification: null, proof: [], unverified: [] };
+    return {
+      verified: true,
+      noRenderAffected: true,
+      verification: null,
+      proof: [],
+      unverified: [],
+    };
   }
   const verification = await verifyDashboardPanels(
-    options.next,
+    next,
     [...direct, ...affected],
     {
       signal: options.signal,
-      base: options.base,
+      base,
       memo: options.memo,
+      serverAuthoredPanelIds: options.serverAuthoredPanelIds,
     },
   );
   const allowEmpty = options.allowEmptyResult === true;
@@ -841,6 +999,7 @@ export function verdictFields(
   if (!verdict) return {};
   return {
     verified: verdict.verified,
+    ...(verdict.noRenderAffected ? { noRenderAffected: true } : {}),
     ...(verdict.proof.length > 0 ? { verification: verdict.proof } : {}),
     ...(verdict.unverified.length > 0
       ? { unverified: verdict.unverified }
@@ -854,7 +1013,10 @@ export function annotateSummary(
   verdict: PanelWriteVerdict | null,
   options: { saved?: boolean } = {},
 ): string {
-  if (!verdict || verdict.verified === null) return summary;
+  if (!verdict) return summary;
+  if (verdict.noRenderAffected) {
+    return `${summary} No panel render was affected, so there was nothing to verify.`;
+  }
   if (verdict.verified) {
     const shown = verdict.proof.slice(0, 3).map((panel) => {
       const rows = panel.rowCount === null ? "" : ` -> ${panel.rowCount} rows`;

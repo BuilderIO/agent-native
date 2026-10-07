@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { dashboardWriteReceipt } from "../server/lib/dashboard-agent-write";
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import {
   annotateSummary,
@@ -73,6 +74,7 @@ export default defineAction({
           next: dashboard.config,
           signal: actionContext?.signal,
           mode: "report",
+          dashboardId: args.dashboardId,
         });
       } catch (error) {
         verdict = {
@@ -91,6 +93,15 @@ export default defineAction({
       updatedAt: dashboard.updatedAt,
       snapshotRevisionId,
       ...verdictFields(verdict),
+      ...(verdict
+        ? {
+            _receipt: dashboardWriteReceipt(
+              dashboard.id,
+              `Restored "${dashboard.id}" from history`,
+              verdict,
+            ),
+          }
+        : {}),
       message: annotateSummary(
         `Restored dashboard "${dashboard.title}" from history.`,
         verdict,

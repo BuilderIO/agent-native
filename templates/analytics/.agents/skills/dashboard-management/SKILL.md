@@ -463,10 +463,17 @@ When the user asks to change an existing panel on the open dashboard:
    ids, not shifted array indexes. The short `code` form is only for compact
    layout/config edits; do not stream a large multi-panel SQL script.
 3. Read the verification result before saying anything about the chart.
-   `verified: true` means the saved config renders. On `verified: false`, an
-   error, or the user saying the change is not visible, call
-   `inspect-dashboard-panel` for that panel, fix what it reports, and verify
-   again. Never describe a visible change you have not verified.
+   `verified` is always `true` or `false`. `verified: true` means every panel
+   the edit touched renders; with `noRenderAffected: true` the edit changed no
+   chart (a title, width, or move), nothing needed to run, and it is done.
+   `verified: false` means the edit saved but a panel is not confirmed: each
+   `unverified[]` entry says why and `nextStep` says what to call. On
+   `verified: false`, an error, or the user saying the change is not visible,
+   call `inspect-dashboard-panel` for that panel, fix what it reports, and
+   verify again. Never describe a visible change you have not verified.
+   `update-dashboard`, `compose-dashboard`, and `restore-dashboard-revision`
+   return the same fields. Editing a dashboard you can only view fails with
+   `dashboard_forbidden` before any SQL runs.
 
 For SQL-only panel edits, use `dashboard.panel("id").setSql("...")`. If the
 metric semantics changed, also update the visible definition with
@@ -565,8 +572,9 @@ Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` cal
 - **Read the verification result and report it.** `mutate-dashboard` returns
   `verified`, `panelCount`, `appliedOps`, `panelOrder`, `firstPanelIds`,
   `changedPanelIds`, `commandLog`, and a `summary` string. The tool's own echo is
-  not proof the chart renders: only `verified: true` is. On `verified: false`,
-  call `inspect-dashboard-panel` for the changed panels.
+  not proof the chart renders: only `verified: true` is (with
+  `noRenderAffected: true` no chart changed). On `verified: false`, follow
+  `nextStep` and call `inspect-dashboard-panel` for the changed panels.
 
 ```bash
 # Add or edit several panels in ONE atomic call (never one call per panel)

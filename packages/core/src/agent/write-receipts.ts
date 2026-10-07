@@ -1,4 +1,5 @@
 import type { WriteReceipt } from "../action.js";
+import { clipHead } from "./clip-text.js";
 import type { AgentLoopFinalResponseGuardResult } from "./production-agent.js";
 
 export type ToolWriteReceipt = WriteReceipt & { tool: string };
@@ -11,6 +12,7 @@ export interface WriteReceiptGuard {
 }
 
 const MAX_SUMMARY_CHARS = 200;
+const MAX_SUBJECT_CHARS = 200;
 const MAX_DETAIL_CHARS = 160;
 const MAX_CHECKS = 8;
 const MAX_WARNINGS = 5;
@@ -19,7 +21,33 @@ const MAX_RECEIPT_LINE_CHARS = 480;
 const MAX_RECEIPT_LINES = 6;
 
 const clip = (text: string, max: number) =>
-  text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  text.length > max ? `${clipHead(text, max - 1)}…` : text;
+
+// Bidi overrides and isolates reorder the line the user reads, and zero-width
+// space, word joiner, BOM and tag characters hide text. ZWJ, ZWNJ and the
+// directional marks stay: they change the meaning of Persian, Indic and emoji
+// text.
+const HIDING_CHARS =
+  /[\u200b\u2060\ufeff\u202a-\u202e\u2066-\u2069\u{E0000}-\u{E007F}]/gu;
+
+/**
+ * Receipt text can carry strings an author of the written record controls
+ * (panel titles, column aliases). It reaches a user-role retry message and
+ * a user-visible block, so it is one line with no control characters and no
+ * angle brackets that could close the `<write-receipts>` tag.
+ */
+function sanitizeText(text: string, max: number): string {
+  return clip(
+    text
+      .replace(/[\p{Cc}\u2028\u2029]/gu, " ")
+      .replace(HIDING_CHARS, "")
+      .replace(/</g, "‹")
+      .replace(/>/g, "›")
+      .replace(/\s+/g, " ")
+      .trim(),
+    max,
+  );
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -27,8 +55,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseReceipt(raw: unknown): WriteReceipt | null {
   if (!isRecord(raw)) return null;
-  const { changed, verified, summary, checks, warnings } = raw;
+  const { changed, verified, summary, subject, checks, warnings } = raw;
   if (typeof changed !== "boolean" || typeof summary !== "string") return null;
+  if (subject !== undefined && typeof subject !== "string") return null;
   if (verified !== true && verified !== false && verified !== "unverified") {
     return null;
   }
@@ -65,6 +94,9 @@ function parseReceipt(raw: unknown): WriteReceipt | null {
     changed,
     verified,
     summary: clip(summary, MAX_SUMMARY_CHARS),
+    ...(subject?.trim()
+      ? { subject: clip(subject.trim(), MAX_SUBJECT_CHARS) }
+      : {}),
     ...(parsedChecks ? { checks: parsedChecks } : {}),
     ...(warnings
       ? {
@@ -95,14 +127,52 @@ function receiptLine(receipt: ToolWriteReceipt): string {
   const failed = (receipt.checks ?? [])
     .filter((check) => !check.ok)
     .map((check) =>
-      check.detail ? `${check.id} (${check.detail})` : check.id,
+      check.detail
+        ? `${sanitizeText(check.id, MAX_DETAIL_CHARS)} (${sanitizeText(check.detail, MAX_DETAIL_CHARS)})`
+        : sanitizeText(check.id, MAX_DETAIL_CHARS),
     );
   return clip(
-    `- ${receipt.tool}: changed=${receipt.changed} verified=${receipt.verified}. ${receipt.summary}${
+    `- ${receipt.tool}: changed=${receipt.changed} verified=${receipt.verified}. ${sanitizeText(receipt.summary, MAX_SUMMARY_CHARS)}${
       failed.length > 0 ? ` Failed checks: ${failed.join("; ")}.` : ""
     }`,
     MAX_RECEIPT_LINE_CHARS,
   );
+}
+
+/**
+ * A flagged receipt is dropped once later verified changes from the same tool
+ * to the same subject re-checked everything it failed on. A verified receipt
+ * speaks only for the parts it checked, so one with no matching `ok` checks
+ * (an edit that touched nothing the failure was about) supersedes nothing that
+ * carried a failing check. A flagged receipt with no failing checks is dropped
+ * by any such later change. A receipt with no subject is never superseded.
+ */
+function stillFlaggedReceipts(
+  receipts: readonly ToolWriteReceipt[],
+): ToolWriteReceipt[] {
+  return receipts.filter((receipt, index) => {
+    if (receipt.verified === true && receipt.changed) return false;
+    const { subject } = receipt;
+    if (!subject) return true;
+    const verifiedLater = receipts
+      .slice(index + 1)
+      .filter(
+        (later) =>
+          later.tool === receipt.tool &&
+          later.subject === subject &&
+          later.changed &&
+          later.verified === true,
+      );
+    if (verifiedLater.length === 0) return true;
+    const rechecked = new Set(
+      verifiedLater.flatMap((later) =>
+        (later.checks ?? []).filter((check) => check.ok).map(({ id }) => id),
+      ),
+    );
+    return (receipt.checks ?? []).some(
+      (check) => !check.ok && !rechecked.has(check.id),
+    );
+  });
 }
 
 /**
@@ -113,9 +183,7 @@ export function writeReceiptGuard(
   receipts: readonly ToolWriteReceipt[],
   alreadyRetried: boolean,
 ): WriteReceiptGuard | null {
-  const flagged = receipts.filter(
-    (receipt) => receipt.verified !== true || !receipt.changed,
-  );
+  const flagged = stillFlaggedReceipts(receipts);
   if (flagged.length === 0) return null;
   const lines = flagged.slice(0, MAX_RECEIPT_LINES).map(receiptLine);
   if (flagged.length > MAX_RECEIPT_LINES) {

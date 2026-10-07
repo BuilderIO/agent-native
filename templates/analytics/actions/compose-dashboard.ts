@@ -8,6 +8,10 @@ import {
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import {
+  dashboardWriteReceipt,
+  requireEditableDashboard,
+} from "../server/lib/dashboard-agent-write";
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import {
   annotateSummary,
@@ -188,6 +192,12 @@ export default defineAction({
         ? (JSON.parse(args.metrics) as unknown[])
         : [];
 
+    // Composing into an existing dashboard needs edit rights before any SQL
+    // is validated or run for it.
+    const existing = await getDashboard(args.dashboardId, ctx);
+    if (existing)
+      await requireEditableDashboard(args.dashboardId, ctx, existing);
+
     const requests: NormalizedRequest[] = [];
     for (const raw of rawMetrics) {
       const normalized = normalizeRequest(raw);
@@ -239,7 +249,6 @@ export default defineAction({
       createdMetrics.push(req.metric);
     }
 
-    const existing = await getDashboard(args.dashboardId, ctx);
     const dashboardName =
       args.title?.trim() ||
       (existing && typeof existing.config?.name === "string"
@@ -324,6 +333,8 @@ export default defineAction({
               signal: actionContext?.signal,
               allowEmptyResult: args.allowEmptyResult,
               memo: verificationMemo,
+              dashboardId: args.dashboardId,
+              serverAuthoredPanelIds: new Set([...refreshed, ...appendedIds]),
             });
           }
           return { kind: "sql" as const, body: merged };
@@ -344,6 +355,8 @@ export default defineAction({
           signal: actionContext?.signal,
           allowEmptyResult: args.allowEmptyResult,
           memo: verificationMemo,
+          dashboardId: args.dashboardId,
+          serverAuthoredPanelIds: new Set(composedPanels.map(({ id }) => id)),
         });
       }
       await upsertDashboard(args.dashboardId, "sql", finalConfig, ctx);
@@ -424,6 +437,15 @@ export default defineAction({
       invalidMetrics,
       skippedExistingIds,
       ...verdictFields(verdict),
+      ...(agentCaller && changed
+        ? {
+            _receipt: dashboardWriteReceipt(
+              args.dashboardId,
+              `Saved "${args.dashboardId}" with ${panelCount} panel(s)`,
+              verdict,
+            ),
+          }
+        : {}),
       urlPath: `/dashboards/${args.dashboardId}`,
       deepLink: buildDeepLink({
         app: "analytics",
