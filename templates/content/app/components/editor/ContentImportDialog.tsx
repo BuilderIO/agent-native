@@ -391,11 +391,14 @@ export function ContentImportDialog({
         t("contentImport.importFailed");
       // An import that stopped partway names the pages it already created;
       // importing again with the same key finishes it.
+      const incomplete =
+        (importError as { errorCode?: unknown } | null)?.errorCode ===
+        "IMPORT_INCOMPLETE";
       const recorded = (
         importError as { details?: { documentIds?: unknown } } | null
       )?.details?.documentIds;
       setPhase("previewing");
-      setError(message);
+      setError(incomplete ? t("contentImport.importIncomplete") : message);
       publishState("failed", {
         files,
         plan,
