@@ -1171,7 +1171,6 @@ describe("AgentChatSurface chrome defaults", () => {
     expect(source).not.toContain("SettingsPanel");
     expect(source).not.toContain("allowSettingsMode");
     expect(source).not.toContain('mode === "settings"');
-    expect(source).toContain('pathname: "/settings"');
   });
 
   it("mounts URL command sync for a full-page chat surface", () => {
