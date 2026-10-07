@@ -75,7 +75,7 @@ function TemplateFallbackArt({ template }: { template: Template }) {
   }
 
   return (
-    <div className="relative w-full">
+    <div className="builder-brand-tokens relative w-full">
       <BuilderImage
         src={template.screenshot.dark}
         crossOrigin="anonymous"
