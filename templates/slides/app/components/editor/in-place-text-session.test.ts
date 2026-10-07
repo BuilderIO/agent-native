@@ -2331,6 +2331,7 @@ describe("in-place text session: undo", () => {
     let undone = 0;
     while (session.undo()) undone++;
     expect(undone).toBe(IN_PLACE_TEXT_UNDO_LIMIT);
+    expect(session.historyStats().countEvictions).toBe(5);
   });
 
   it("retains enough undo steps for a 500-operation authoring session", () => {
@@ -2346,6 +2347,7 @@ describe("in-place text session: undo", () => {
     while (session.undo()) undone++;
     expect(undone).toBe(3000);
     expect(el.innerHTML).toBe(original);
+    expect(session.historyStats().byteEvictions).toBe(0);
   });
 
   it("keeps redo available after a no-op Tab command", () => {
@@ -2372,6 +2374,9 @@ describe("in-place text session: undo", () => {
     expect(session.undo()).toBe(true);
     expect(session.undo()).toBe(false);
     expect(el.textContent).toBe(large);
+    expect(session.historyStats().byteEvictions).toBeGreaterThan(0);
+    expect(session.historyStats().bytesEvicted).toBeGreaterThan(0);
+    expect(session.historyStats().initialStateEvicted).toBe(true);
   });
 });
 
@@ -3247,6 +3252,95 @@ describe("in-place text session: commands", () => {
     expect(el.children[2]?.tagName).toBe("P");
     expect(el.children[2]?.textContent).not.toContain("---");
   });
+
+  it("converts a divider when inserted text has no input data", () => {
+    const el = mount('<p id="t"><span style="color: red">---</span></p>');
+    session = startInPlaceTextSession(el);
+    const dashes = textOf(el, "---");
+    dashes.data += " ";
+    caret(dashes, dashes.length);
+
+    el.dispatchEvent(
+      new InputEvent("input", {
+        inputType: "insertText",
+        data: null,
+        bubbles: true,
+      }),
+    );
+
+    expect(session.element.querySelectorAll(":scope > hr")).toHaveLength(1);
+  });
+
+  it("converts a divider after a replacement inserts a non-breaking space", () => {
+    const el = mount('<p id="t"><span style="color: red">---</span></p>');
+    session = startInPlaceTextSession(el);
+    const dashes = textOf(el, "---");
+    dashes.data += "\u00a0";
+    caret(dashes, dashes.length);
+
+    el.dispatchEvent(
+      new InputEvent("input", {
+        inputType: "insertReplacementText",
+        data: "\u00a0",
+        bubbles: true,
+      }),
+    );
+
+    expect(session.element.querySelectorAll(":scope > hr")).toHaveLength(1);
+  });
+
+  it("converts a divider after native input inserts a non-breaking space", () => {
+    const el = mount('<p id="t"><span style="color: red">---</span></p>');
+    session = startInPlaceTextSession(el);
+    const dashes = textOf(el, "---");
+    dashes.data += "\u00a0";
+    caret(dashes, dashes.length);
+
+    el.dispatchEvent(
+      new InputEvent("input", {
+        inputType: "insertText",
+        data: "\u00a0",
+        bubbles: true,
+      }),
+    );
+
+    expect(session.element.querySelectorAll(":scope > hr")).toHaveLength(1);
+  });
+
+  it.each(["insertText", "insertReplacementText"] as const)(
+    "keeps native %s when beforeinput has no text payload",
+    (inputType) => {
+      const original =
+        '<p id="t"><span style="color: red">replace me</span></p>';
+      const el = mount(original);
+      session = startInPlaceTextSession(el);
+      const text = textOf(el, "replace me");
+      caret(text, text.length);
+
+      const before = beforeInput(el, inputType, { data: null });
+      expect(before.defaultPrevented).toBe(false);
+
+      text.insertData(text.length, "!");
+      caret(text, text.length);
+      el.dispatchEvent(
+        new InputEvent("input", {
+          inputType,
+          data: null,
+          bubbles: true,
+        }),
+      );
+
+      expect(session.element.innerHTML).toBe(
+        '<span style="color: red">replace me!</span>',
+      );
+      expect(session.undo()).toBe(true);
+      expect(session.element.innerHTML).toBe(
+        '<span style="color: red">replace me</span>',
+      );
+      session.end();
+      expect(session.element.outerHTML).toBe(original);
+    },
+  );
 
   it("converts a bullet shortcut after a break without restyling earlier text", () => {
     const el = mount(

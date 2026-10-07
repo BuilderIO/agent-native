@@ -581,7 +581,7 @@ export function createAuthoringFuzzPlan(
 }
 
 const MAX_FAILURE_LOG_OPERATIONS = 20;
-const MAX_FAILURE_MESSAGE_LENGTH = 1600;
+const MAX_FAILURE_MESSAGE_LENGTH = 3500;
 
 export function formatAuthoringFuzzFailure(
   seed: number,
@@ -682,6 +682,51 @@ export async function runAuthoringFuzz(
   page.on("pageerror", onPageError);
   page.on("response", onResponse);
   page.on("requestfailed", onRequestFailed);
+  await page.evaluate(() => {
+    const scope = window as Window & {
+      __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
+      __slidesAuthoringInputTraceInstalled?: boolean;
+    };
+    if (scope.__slidesAuthoringInputTraceInstalled) return;
+    const trace: Array<Record<string, unknown>> = [];
+    const record = (event: Event) => {
+      if (!(event instanceof InputEvent)) return;
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const root =
+        target instanceof Element
+          ? target.closest<HTMLElement>(
+              '[contenteditable="true"][data-editing-block="true"]',
+            )
+          : target.parentElement?.closest<HTMLElement>(
+              '[contenteditable="true"][data-editing-block="true"]',
+            );
+      if (!root) return;
+      const data = event.data;
+      const relevant =
+        event.inputType === "insertReplacementText" ||
+        data === null ||
+        data === "" ||
+        /[ \u00a0\-+*_~`]/u.test(data);
+      if (!relevant) return;
+      const lastCodePoint = data?.codePointAt(data.length - 1);
+      trace.push({
+        type: event.type,
+        inputType: event.inputType,
+        dataLength: data?.length ?? null,
+        lastCodePoint: lastCodePoint?.toString(16) ?? null,
+        cancelable: event.cancelable,
+        composing: event.isComposing,
+        trusted: event.isTrusted,
+        defaultPrevented: event.defaultPrevented,
+      });
+      if (trace.length > 100) trace.shift();
+    };
+    document.addEventListener("beforeinput", record, true);
+    document.addEventListener("input", record, true);
+    scope.__slidesAuthoringInputTraceInstalled = true;
+    scope.__slidesAuthoringInputTrace = trace;
+  });
 
   let activeIndex = -1;
   let activePhase = "setup";
@@ -4008,8 +4053,17 @@ export async function runAuthoringFuzz(
       page.evaluate((selector: string) => {
         const root = document.querySelector(selector);
         const selection = window.getSelection();
+        const historyStats =
+          root instanceof HTMLElement
+            ? ((
+                root as HTMLElement & {
+                  __slidesInPlaceTextHistoryStats?: Record<string, unknown>;
+                }
+              ).__slidesInPlaceTextHistoryStats ?? null)
+            : null;
         return {
           html: root instanceof HTMLElement ? root.innerHTML : null,
+          historyStats,
           inside:
             root instanceof HTMLElement &&
             !!selection?.rangeCount &&
@@ -4203,11 +4257,31 @@ export async function runAuthoringFuzz(
     };
   } catch (error) {
     const prefix = replay();
+    const diagnostics = await page
+      .evaluate((selector: string) => {
+        const root = document.querySelector(selector);
+        const scope = window as Window & {
+          __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
+        };
+        return {
+          historyStats:
+            root instanceof HTMLElement
+              ? ((
+                  root as HTMLElement & {
+                    __slidesInPlaceTextHistoryStats?: Record<string, unknown>;
+                  }
+                ).__slidesInPlaceTextHistoryStats ?? null)
+              : null,
+          recentInputEvents:
+            scope.__slidesAuthoringInputTrace?.slice(-12) ?? [],
+        };
+      }, editorSelector)
+      .catch(() => null);
     throw formatAuthoringFuzzFailure(
       seed,
       activePhase,
       prefix,
-      String(error),
+      `${String(error)}\ndiagnostics: ${JSON.stringify(diagnostics)}`,
       options.browser,
     );
   } finally {
