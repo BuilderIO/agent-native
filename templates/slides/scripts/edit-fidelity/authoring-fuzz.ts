@@ -167,6 +167,11 @@ export function lineNavigationKeys(platform: string) {
     : { start: "Home", end: "End" };
 }
 
+export function isBrowserSessionPath(pathname: string) {
+  const basePath = "/_agent-native/browser-sessions";
+  return pathname === basePath || pathname.startsWith(`${basePath}/`);
+}
+
 export function authoringFuzzLineNavigationKeys(
   platform: string,
   override?: ReturnType<typeof lineNavigationKeys>,
@@ -649,7 +654,7 @@ export async function runAuthoringFuzz(
     pageErrors.push(error.stack ?? error.message);
   const onRequestFailed = (request: any) => {
     const url = request.url();
-    if (!url.includes("/_agent-native/browser-sessions/")) return;
+    if (!isBrowserSessionPath(new URL(url).pathname)) return;
     pageErrors.push(
       `browser-session request failed: ${url} (${request.failure()?.errorText ?? "unknown"})`,
     );

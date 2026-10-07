@@ -11,6 +11,7 @@ import {
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
+  isBrowserSessionPath,
   isCaretScrollOnlyChange,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
@@ -411,6 +412,17 @@ it("uses the caller's line navigation keys for fuzz operations", () => {
   expect(authoringFuzzLineNavigationKeys("linux")).toEqual(
     lineNavigationKeys("linux"),
   );
+});
+
+it("captures failed browser-session registration and subroute requests", () => {
+  expect(isBrowserSessionPath("/_agent-native/browser-sessions")).toBe(true);
+  expect(
+    isBrowserSessionPath("/_agent-native/browser-sessions/abc/claim"),
+  ).toBe(true);
+  expect(isBrowserSessionPath("/_agent-native/browser-sessions-extra")).toBe(
+    false,
+  );
+  expect(isBrowserSessionPath("/_agent-native/actions/patch-deck")).toBe(false);
 });
 
 it("maps absolute seeds to stable synthetic and committed layout profiles", () => {

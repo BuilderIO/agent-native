@@ -4660,6 +4660,7 @@ async function runAuthoringFuzzQa(
     );
     const slideId = `authoring-fuzz-${round}`;
     let deckId: string | null = null;
+    let authoringSucceeded = false;
     try {
       const created = await action(page, "create-deck", {
         title: `[edit-fidelity] authoring fuzz ${seed}`,
@@ -4741,13 +4742,14 @@ async function runAuthoringFuzzQa(
           );
         },
       });
+      authoringSucceeded = true;
       console.log(
         `[edit-fidelity] fuzz seed=${result.seed} passed ${result.stepsRun} steps on ${profile ? `committed-${profile.kind}` : "synthetic"} (${result.undoSteps} undo steps)`,
       );
     } catch (error) {
-      problems.push(
-        `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`,
-      );
+      const problem = `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`;
+      problems.push(problem);
+      console.error(`[edit-fidelity] ${problem}`);
     } finally {
       const cleanupErrors: string[] = [];
       const onConsole = (message: { type(): string; text(): string }) => {
@@ -4763,11 +4765,13 @@ async function runAuthoringFuzzQa(
           cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
         }
       };
+      if (deckId && authoringSucceeded) {
+        page.on("console", onConsole);
+        page.on("pageerror", onPageError);
+        page.on("response", onResponse);
+      }
       try {
         if (deckId) {
-          page.on("console", onConsole);
-          page.on("pageerror", onPageError);
-          page.on("response", onResponse);
           try {
             if ((await editorState(page, slideId)).editing) {
               await exitEdit(page, slideId, "escape");
@@ -4775,10 +4779,12 @@ async function runAuthoringFuzzQa(
           } catch (error) {
             cleanupErrors.push(`could not exit editing: ${String(error)}`);
           }
-          try {
-            await settleSaved(page, deckId, slideId, () => 0);
-          } catch (error) {
-            cleanupErrors.push(`could not settle saves: ${String(error)}`);
+          if (authoringSucceeded) {
+            try {
+              await settleSaved(page, deckId, slideId, () => 0);
+            } catch (error) {
+              cleanupErrors.push(`could not settle saves: ${String(error)}`);
+            }
           }
           try {
             await page.goto(`${base}/home`, {
@@ -4799,16 +4805,16 @@ async function runAuthoringFuzzQa(
           }
         }
       } finally {
-        if (deckId) {
+        if (deckId && authoringSucceeded) {
           page.off("console", onConsole);
           page.off("pageerror", onPageError);
           page.off("response", onResponse);
         }
       }
       if (cleanupErrors.length) {
-        problems.push(
-          `seed ${seed}: scratch deck cleanup failed (${cleanupErrors.join("; ")})`,
-        );
+        const problem = `seed ${seed}: scratch deck cleanup failed (${cleanupErrors.join("; ")})`;
+        problems.push(problem);
+        console.error(`[edit-fidelity] ${problem}`);
       }
     }
   }
@@ -6254,7 +6260,9 @@ async function main() {
       );
       await page.close();
       if (problems.length) {
-        console.error(`[edit-fidelity] authoring fuzz: ${problems.join("; ")}`);
+        console.error(
+          `[edit-fidelity] authoring fuzz completed with ${problems.length} failed seed or cleanup check(s); details are printed above`,
+        );
         return 1;
       }
       return 0;
