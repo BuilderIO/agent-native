@@ -128,7 +128,7 @@ return { id, _receipt };
 - `verified: false` or `changed: false` forces one honest-reconciliation retry per turn: the model must say what the receipt shows and may not call the change visible or working. If the retry is spent, the answer is prefixed with the receipt block.
 - `verified: "unverified"` only prefixes that note; no retry.
 - A receipt that is present but malformed counts as `unverified`, never clean. `changed: false` also records the call as `completedSideEffect: false`.
-- Set `subject` (the stable target, such as a dashboard id) so a later `changed: true, verified: true` receipt from the same action and subject can supersede an earlier flagged one in the same turn. When the earlier receipt had failing or unverified `checks`, the later receipts must carry an `ok: true` check with the same `id` for each; a receipt without checks never clears one that had them. Receipts without a `subject` are never superseded.
+- Set `subject` (the stable target, such as a dashboard id) so a later `changed: true, verified: true` receipt for the same subject can supersede an earlier flagged one in the same turn. When the earlier receipt had failing or unverified `checks`, the later receipts (from this action or another that writes the same subject) must carry an `ok: true` check with the same `id` for each; a receipt without checks never clears one that had them. A flagged receipt with no failing checks is superseded only by the same action. Receipts without a `subject` are never superseded.
 
 A receipt is not an error channel. A write that did not achieve the requested state throws (`fail()`); return `changed: false` only for a benign no-op, such as the record already being in the requested state.
 

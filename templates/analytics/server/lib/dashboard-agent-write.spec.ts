@@ -131,6 +131,88 @@ describe("dashboardWriteReceipt", () => {
     });
   });
 
+  describe("section and extension panels", () => {
+    const visual = (change: "added" | "changed" | "removed") => ({
+      panelId: "s",
+      title: "Overview",
+      chartType: "section",
+      change,
+    });
+    const visualPanel = () =>
+      panel({
+        panelId: "s",
+        title: "Overview",
+        chartType: "section",
+        rowCount: null,
+        renderedRowCount: null,
+        columns: [],
+        visualOnly: true,
+      });
+
+    it("stays verified but says the edit was not data-checked, never that panels rendered", () => {
+      const receipt = dashboardWriteReceipt(
+        "growth",
+        'Saved 1 op(s) to "growth"',
+        verdict({
+          visualOnly: [visual("changed")],
+          verification: { panels: [visualPanel()] },
+        }),
+      );
+
+      expect(receipt).toMatchObject({
+        changed: true,
+        verified: true,
+        subject: "growth",
+        summary: expect.stringContaining(
+          "1 section/extension panel(s) not data-checked",
+        ),
+        checks: [
+          {
+            id: "s",
+            ok: true,
+            detail: expect.stringContaining("only its config was checked"),
+          },
+        ],
+      });
+      expect(receipt.summary).toContain("no data panel was affected");
+      expect(receipt.summary).not.toContain("verified rendering");
+    });
+
+    it("reports the rendered data panels and the unchecked visual panels together", () => {
+      const receipt = dashboardWriteReceipt(
+        "growth",
+        'Saved "growth"',
+        verdict({
+          visualOnly: [visual("added")],
+          verification: { panels: [panel(), visualPanel()] },
+        }),
+      );
+
+      expect(receipt.summary).toContain("not data-checked");
+      expect(receipt.summary).toContain(
+        '1 panel(s) verified rendering: "By app"',
+      );
+    });
+
+    it("says a removed visual panel was not data-checked even though no panel was run", () => {
+      const receipt = dashboardWriteReceipt(
+        "growth",
+        'Saved "growth"',
+        verdict({
+          visualOnly: [visual("removed")],
+          verification: { panels: [] },
+        }),
+      );
+
+      expect(receipt).toMatchObject({
+        changed: true,
+        verified: true,
+        summary: expect.stringContaining("not data-checked"),
+      });
+      expect(receipt.verified).not.toBe("unverified");
+    });
+  });
+
   it("lists failing checks first and names the failing panel", () => {
     const receipt = dashboardWriteReceipt(
       "growth",

@@ -30,10 +30,18 @@ function clipMiddle(text: string, head: number, tail: number): string {
     : text;
 }
 
+// Providers reject an empty first user message or an empty assistant text, so a
+// turn with no request text or no reply text still sends a stated absence.
+const NO_REQUEST_TEXT = "(No request text was recorded for this turn.)";
+const NO_REPLY_TEXT = "(The reply had no text.)";
+
 /**
  * The completion call sends a different tools array than the turn did, so it
  * can never read the turn's prompt cache. It carries a bounded digest of the
- * turn instead of re-prefilling the whole conversation at full price.
+ * turn instead of re-prefilling the whole conversation at full price. The
+ * digest keeps the shape of a finished turn (request, reply, then the
+ * instruction as the last user message) so role alternation is valid for every
+ * provider and the instruction stays the message a prefix match finds.
  */
 export function buildFollowUpCompletionMessages(input: {
   requestText?: string;
@@ -41,21 +49,45 @@ export function buildFollowUpCompletionMessages(input: {
   toolNames: readonly string[];
 }): EngineMessage[] {
   const requestText = input.requestText?.trim();
+  const replyText = input.replyText.trim();
   const toolNames = [...new Set(input.toolNames)]
     .filter((name) => name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME)
     .slice(0, MAX_COMPLETION_TOOL_NAMES);
-  const sections = [
+  const request = [
     requestText
       ? `<user-request>\n${clipMiddle(requestText, COMPLETION_REQUEST_HEAD_CHARS, COMPLETION_REQUEST_TAIL_CHARS)}\n</user-request>`
       : "",
-    `<final-reply>\n${clipMiddle(input.replyText.trim(), 0, COMPLETION_REPLY_TAIL_CHARS)}\n</final-reply>`,
     toolNames.length > 0
       ? `<tools-used>${toolNames.join(", ")}</tools-used>`
       : "",
-    FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
   ].filter(Boolean);
   return [
-    { role: "user", content: [{ type: "text", text: sections.join("\n\n") }] },
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: request.length > 0 ? request.join("\n\n") : NO_REQUEST_TEXT,
+        },
+      ],
+    },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: replyText
+            ? clipMiddle(replyText, 0, COMPLETION_REPLY_TAIL_CHARS)
+            : NO_REPLY_TEXT,
+        },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION },
+      ],
+    },
   ];
 }
 

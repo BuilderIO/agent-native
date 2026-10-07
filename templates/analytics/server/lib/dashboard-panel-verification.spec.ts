@@ -38,6 +38,7 @@ const {
   pageDashboardConfig,
   resolveVerificationVars,
   touchedPanelIds,
+  touchedVisualPanels,
   verdictFields,
   verifyDashboardPanels,
   verifyPanelWrite,
@@ -1211,4 +1212,170 @@ describe("clipping text a model reads", () => {
       );
     },
   );
+});
+
+describe("section and extension panels", () => {
+  const section = (overrides: Record<string, unknown> = {}) => ({
+    id: "s",
+    title: "Overview",
+    chartType: "section",
+    width: 6,
+    ...overrides,
+  });
+  const extension = (overrides: Record<string, unknown> = {}) => ({
+    id: "x",
+    title: "Embed",
+    chartType: "extension",
+    width: 3,
+    config: { extensionId: "ext-1" },
+    ...overrides,
+  });
+  const base = dashboard([panel(), section(), extension()]);
+
+  describe("touchedVisualPanels", () => {
+    it("reports a section or extension panel that was added, edited or removed", () => {
+      const next = dashboard([
+        panel(),
+        section({ title: "Renamed" }),
+        extension({ id: "x2" }),
+      ]);
+
+      expect(touchedVisualPanels(base, next)).toEqual([
+        {
+          panelId: "s",
+          title: "Renamed",
+          chartType: "section",
+          change: "changed",
+        },
+        {
+          panelId: "x2",
+          title: "Embed",
+          chartType: "extension",
+          change: "added",
+        },
+        {
+          panelId: "x",
+          title: "Embed",
+          chartType: "extension",
+          change: "removed",
+        },
+      ]);
+    });
+
+    it("ignores moves, unchanged panels and data-panel edits", () => {
+      const next = JSON.parse(JSON.stringify(base));
+      next.panels[0].sql = "SELECT 2";
+      next.panels.reverse();
+
+      expect(touchedVisualPanels(base, next)).toEqual([]);
+    });
+
+    it("treats every section and extension panel of a new dashboard as added", () => {
+      expect(touchedVisualPanels(null, base).map((c) => c.change)).toEqual([
+        "added",
+        "added",
+      ]);
+    });
+  });
+
+  describe("verifyPanelWrite", () => {
+    it("never claims no render was affected for a visible edit, and says its data was not checked", async () => {
+      const next = dashboard([
+        panel(),
+        section({ title: "Renamed" }),
+        extension(),
+      ]);
+
+      const verdict = await verifyPanelWrite({ base, next });
+
+      expect(verdict).toMatchObject({
+        verified: true,
+        visualOnly: [{ panelId: "s", change: "changed" }],
+      });
+      expect(verdict.noRenderAffected).toBeUndefined();
+      expect(verdict.verification?.panels).toEqual([
+        expect.objectContaining({
+          panelId: "s",
+          status: "ok",
+          visualOnly: true,
+        }),
+      ]);
+      const fields = verdictFields(verdict);
+      expect(fields).toMatchObject({
+        verified: true,
+        visualOnly: [{ panelId: "s", change: "changed" }],
+      });
+      expect(fields).not.toHaveProperty("noRenderAffected");
+      const message = annotateSummary("Saved.", verdict);
+      expect(message).toContain('changed "Renamed"');
+      expect(message).toContain("not their data");
+      expect(message).not.toContain("No panel render was affected");
+      expect(mocks.resolve).not.toHaveBeenCalled();
+    });
+
+    it("reports a removed extension panel as a visible change with nothing to check", async () => {
+      const verdict = await verifyPanelWrite({
+        base,
+        next: dashboard([panel(), section()]),
+      });
+
+      expect(verdict).toMatchObject({
+        verified: true,
+        visualOnly: [{ panelId: "x", change: "removed" }],
+        proof: [],
+      });
+      expect(verdict.noRenderAffected).toBeUndefined();
+      expect(annotateSummary("Saved.", verdict)).toContain('removed "Embed"');
+    });
+
+    it("still applies the config-key rules to an agent-authored extension panel", async () => {
+      const next = dashboard([
+        panel(),
+        section(),
+        extension({ config: { extensionId: "ext-1", yKye: ["n"] } }),
+      ]);
+
+      const attempt = verifyPanelWrite({ base, next });
+
+      await expect(attempt).rejects.toMatchObject({
+        errorCode: "dashboard_panel_verification_failed",
+      });
+      expect((await attempt.catch((e) => e)).message).toContain("yKye");
+      expect(mocks.resolve).not.toHaveBeenCalled();
+    });
+
+    it("does not send the agent to inspect a panel that has nothing to inspect", async () => {
+      const next = dashboard([
+        panel(),
+        section(),
+        extension({ config: { extensionId: "ext-1", yKye: ["n"] } }),
+      ]);
+
+      const verdict = await verifyPanelWrite({ base, next, mode: "report" });
+
+      expect(verdict.verified).toBe(false);
+      expect(verdict.nextStep).toContain("fix the config of x");
+      expect(verdict.nextStep).not.toContain("inspect-dashboard-panel");
+    });
+
+    it("verifies a changed data panel and a section edit in the same save", async () => {
+      mocks.resolve.mockResolvedValue(rows(WIDE));
+      const before = dashboard([panel(), section()]);
+      const next = dashboard([
+        panel({ sql: "SELECT week, signups FROM edited" }),
+        section({ title: "Renamed" }),
+      ]);
+
+      const verdict = await verifyPanelWrite({ base: before, next });
+
+      expect(verdict.verified).toBe(true);
+      expect(verdict.proof).toEqual([
+        expect.objectContaining({ panelId: "p1", status: "ok" }),
+      ]);
+      expect(verdict.visualOnly).toHaveLength(1);
+      const message = annotateSummary("Saved.", verdict);
+      expect(message).toContain("Verified: Signups");
+      expect(message).toContain("not their data");
+    });
+  });
 });

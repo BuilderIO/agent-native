@@ -743,7 +743,7 @@ export default defineAction({
       .optional()
       .describe(
         "Only used with `config`. The dashboard `updatedAt` observed before this edit was built (from get-sql-dashboard or a prior update-dashboard result). " +
-          "When provided, the save is fenced against concurrent writers: if someone else (another tab, user, or agent call) saved in between, this call is rejected with a conflict error instead of silently overwriting their change — re-fetch and reapply. Omit only for a brand-new dashboard or a one-shot write that isn't derived from a prior read.",
+          "When provided, the save is fenced against concurrent writers: if someone else (another tab, user, or agent call) saved in between, this call is rejected with a conflict error instead of silently overwriting their change — re-fetch and reapply. Omit only for a brand-new dashboard or a one-shot write that isn't derived from a prior read; an agent save without it is still rejected if the dashboard changed while the save was being verified.",
       ),
     allowEmptyResult: z
       .boolean()
@@ -808,17 +808,16 @@ export default defineAction({
             dashboardId,
           })
         : null;
+      // Verification can run for seconds after `before` was read, so an agent
+      // save without a caller-supplied revision is fenced to the record it
+      // verified against. Other callers keep last-write-wins unless they send one.
+      const fence =
+        args.expectedUpdatedAt ?? (agentCaller ? before?.updatedAt : undefined);
       let saved: DashboardRecord;
       try {
         saved =
-          args.expectedUpdatedAt !== undefined
-            ? await upsertDashboard(
-                dashboardId,
-                "sql",
-                args.config,
-                ctx,
-                args.expectedUpdatedAt,
-              )
+          fence !== undefined
+            ? await upsertDashboard(dashboardId, "sql", args.config, ctx, fence)
             : await upsertDashboard(dashboardId, "sql", args.config, ctx);
       } catch (err) {
         if (err instanceof DashboardConflictError) {

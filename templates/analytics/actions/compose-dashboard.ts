@@ -26,6 +26,7 @@ import {
   getDashboard,
   upsertDashboard,
   upsertDashboardWithRetry,
+  type DashboardRecord,
 } from "../server/lib/dashboards-store";
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
 import {
@@ -36,6 +37,8 @@ import {
   type MetricWindow,
   usesFirstPartyDashboardFilters,
 } from "../server/lib/first-party-metric-catalog";
+import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
+import { stableStringify } from "../shared/panel-render-contract";
 
 const WINDOWS = new Set<MetricWindow>(["30d", "90d", "all"]);
 
@@ -99,6 +102,18 @@ function filterId(filter: unknown): string | null {
   }
   const id = (filter as { id?: unknown }).id;
   return typeof id === "string" && id.trim() ? id : null;
+}
+
+/** The store skips a save whose normalized config equals the stored one. */
+function changesRecord(
+  record: Pick<DashboardRecord, "kind" | "config">,
+  next: Record<string, unknown>,
+): boolean {
+  return (
+    record.kind !== "sql" ||
+    stableStringify(normalizeDashboardConfig(record.config)) !==
+      stableStringify(normalizeDashboardConfig(next))
+  );
 }
 
 function withFirstPartyDashboardFilters(
@@ -265,12 +280,17 @@ export default defineAction({
         : config;
     }
 
-    let finalConfig: Record<string, unknown>;
+    let finalConfig!: Record<string, unknown>;
     let appendedCount = composedPanels.length;
     let skippedExistingIds: string[] = [];
     let refreshedExistingIds: string[] = [];
+    // Whether the store persisted anything, judged against the record the save
+    // was made over; the counters miss filter-only and identical-config saves.
+    let changed = true;
+    let appended = existing !== null && !args.overwrite;
 
-    if (existing && !args.overwrite) {
+    const appendToExisting = async () => {
+      appended = true;
       const saved = await upsertDashboardWithRetry(
         args.dashboardId,
         ctx,
@@ -326,6 +346,7 @@ export default defineAction({
                 : dashboardName,
             panels: [...mergedExistingPanels, ...toAppend],
           });
+          changed = changesRecord(freshExisting, merged);
           if (agentCaller) {
             verdict = await verifyPanelWrite({
               base: existingConfig,
@@ -341,6 +362,10 @@ export default defineAction({
         },
       );
       finalConfig = saved.config as Record<string, unknown>;
+    };
+
+    if (existing && !args.overwrite) {
+      await appendToExisting();
     } else {
       finalConfig = withFilters({
         name: dashboardName,
@@ -359,18 +384,21 @@ export default defineAction({
           serverAuthoredPanelIds: new Set(composedPanels.map(({ id }) => id)),
         });
       }
-      await upsertDashboard(args.dashboardId, "sql", finalConfig, ctx);
+      // Validation and verification take seconds, so another call may have
+      // created this dashboard since `existing` was read.
+      const latest = await getDashboard(args.dashboardId, ctx);
+      if (latest) await requireEditableDashboard(args.dashboardId, ctx, latest);
+      if (latest && !args.overwrite) {
+        await appendToExisting();
+      } else {
+        changed = !latest || changesRecord(latest, finalConfig);
+        await upsertDashboard(args.dashboardId, "sql", finalConfig, ctx);
+      }
     }
 
     const panelCount = Array.isArray(finalConfig.panels)
       ? (finalConfig.panels as unknown[]).length
       : 0;
-
-    const changed =
-      !existing ||
-      args.overwrite === true ||
-      appendedCount > 0 ||
-      refreshedExistingIds.length > 0;
 
     if (changed) {
       queueDashboardCollabSync(args.dashboardId, finalConfig, "agent");
@@ -391,26 +419,22 @@ export default defineAction({
     }
 
     const parts: string[] = [];
-    if (existing && !args.overwrite) {
-      if (!changed) {
-        parts.push(`No changes were needed for "${args.dashboardId}"`);
-      } else if (refreshedExistingIds.length > 0) {
+    if (!changed) {
+      parts.push(`No changes were needed for "${args.dashboardId}"`);
+    } else if (appended) {
+      if (refreshedExistingIds.length > 0) {
         parts.push(
           `Refreshed ${refreshedExistingIds.length} existing panel(s)`,
         );
       }
-      if (changed) {
-        parts.push(
-          `Appended ${appendedCount} panel(s) to "${args.dashboardId}"`,
-        );
-      }
-      if (skippedExistingIds.length > 0) {
-        parts.push(`${skippedExistingIds.length} already present`);
-      }
+      parts.push(`Appended ${appendedCount} panel(s) to "${args.dashboardId}"`);
     } else {
       parts.push(
         `${existing ? "Replaced" : "Created"} "${args.dashboardId}" with ${createdMetrics.length} panel(s)`,
       );
+    }
+    if (appended && skippedExistingIds.length > 0) {
+      parts.push(`${skippedExistingIds.length} already present`);
     }
     if (unknownMetrics.length > 0) {
       parts.push(

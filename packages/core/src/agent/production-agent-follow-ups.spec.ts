@@ -305,7 +305,11 @@ describe("native agent follow-up publication", () => {
           ?.id,
       );
       expect(turns.map((turn) => turn.requests.length)).toEqual([1, 2]);
-      expect(turns[1].requests[1].messages).toHaveLength(1);
+      expect(turns[1].requests[1].messages.map((m) => m.role)).toEqual([
+        "user",
+        "assistant",
+        "user",
+      ]);
       expect(digestText(turns[1].requests[1])).toContain(followUp.prompt);
       expect(digestText(turns[1].requests[1])).toContain("Refined the layout.");
       await cold.loadThread("thread-1");
@@ -380,12 +384,18 @@ describe("native agent follow-up publication", () => {
         content: [
           {
             type: "text",
-            text: [
-              "<user-request>\nCreate a design. <current-screen>canvas</current-screen>\n</user-request>",
-              "<final-reply>\nCreated your design.\n</final-reply>",
-              FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
-            ].join("\n\n"),
+            text: "<user-request>\nCreate a design. <current-screen>canvas</current-screen>\n</user-request>",
           },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Created your design." }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION },
         ],
       },
     ]);
@@ -431,7 +441,11 @@ describe("native agent follow-up publication", () => {
     expect(requests[2].tools.map((tool) => tool.name)).toEqual([
       FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
     ]);
-    expect(requests[2].messages).toHaveLength(1);
+    expect(requests[2].messages.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+    ]);
     expect(JSON.stringify(requests[2].messages).length).toBeLessThan(8_000);
     expect(JSON.stringify(requests[2])).not.toContain("BULK-RESULT");
     expect(digestText(requests[2])).toContain("Create a design.");

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import type { EngineMessage } from "./engine/types.js";
 import {
   buildFollowUpCompletionMessages,
+  FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
   followUpSuggestionsTool,
   identifyFollowUpSuggestions,
   parseFollowUpSuggestions,
@@ -101,53 +104,132 @@ describe("agent-authored follow-ups", () => {
   });
 
   describe("completion digest", () => {
-    const digestText = (input: {
+    const build = (input: {
       requestText?: string;
       replyText: string;
-    }): string => {
-      const [message] = buildFollowUpCompletionMessages({
-        ...input,
-        toolNames: [],
+      toolNames?: string[];
+    }) => buildFollowUpCompletionMessages({ toolNames: [], ...input });
+    const textOf = (message: EngineMessage): string =>
+      message.content
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join("");
+    const requestOf = (input: Parameters<typeof build>[0]) =>
+      textOf(build(input)[0]);
+    const replyOf = (input: Parameters<typeof build>[0]) =>
+      textOf(build(input)[1]);
+    const totalLength = (input: Parameters<typeof build>[0]) =>
+      build(input).reduce((sum, message) => sum + textOf(message).length, 0);
+
+    it("keeps the shape of a finished turn: request, reply, then the instruction as the last user message", () => {
+      const messages = build({
+        requestText: "Create a design.",
+        replyText: "Created your design.",
+        toolNames: ["generate-design"],
       });
-      return (message.content[0] as { text: string }).text;
-    };
+      expect(messages.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+        "user",
+      ]);
+      expect(textOf(messages[0])).toBe(
+        "<user-request>\nCreate a design.\n</user-request>\n\n<tools-used>generate-design</tools-used>",
+      );
+      expect(textOf(messages[1])).toBe("Created your design.");
+      expect(textOf(messages[2])).toBe(
+        FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+      );
+    });
+
+    // scripts/qa-standalone-chat-dev-smoke.ts finds the follow-up pass by this
+    // prefix on the last user message.
+    it("leaves a prefix detector on the last user message matching the follow-up pass, even for a huge turn", () => {
+      const prefix = "The final reply above has already been delivered.";
+      for (const input of [
+        { requestText: "hi", replyText: "ok" },
+        { requestText: "q".repeat(100_000), replyText: "r".repeat(100_000) },
+        { replyText: "" },
+      ]) {
+        const lastUser = build(input)
+          .filter((m) => m.role === "user")
+          .at(-1)!;
+        expect(textOf(lastUser).startsWith(prefix)).toBe(true);
+      }
+    });
 
     it("keeps the head and tail of a long request, so the ask after a pasted document survives", () => {
-      const text = digestText({
+      const input = {
         requestText: `INTRO ${"x".repeat(6_000)} FINAL-QUESTION: which segment grew?`,
         replyText: "ok",
-      });
+      };
+      const text = requestOf(input);
       expect(text).toContain("INTRO");
       expect(text).toContain("FINAL-QUESTION: which segment grew?");
       expect(text.length).toBeLessThan(3_000);
     });
 
     it("keeps the tail of a long reply, where its conclusions sit", () => {
-      const text = digestText({
+      const input = {
         replyText: `OPENING ${"y".repeat(9_000)} RECOMMENDATION: ship the fix`,
-      });
+      };
+      const text = replyOf(input);
       expect(text).toContain("RECOMMENDATION: ship the fix");
       expect(text).not.toContain("OPENING");
       expect(text.length).toBeLessThan(5_000);
+    });
+
+    it("stays bounded however large the request, reply, and tool list grow", () => {
+      expect(
+        totalLength({
+          requestText: "q".repeat(500_000),
+          replyText: "r".repeat(500_000),
+          toolNames: Array.from({ length: 500 }, (_, i) => `tool-${i}-name`),
+        }),
+      ).toBeLessThan(8_000);
+    });
+
+    it("sends a stated absence, never an empty message, for a missing request or reply", () => {
+      const messages = build({ replyText: "  \n " });
+      for (const message of messages) {
+        expect(textOf(message).trim()).not.toBe("");
+      }
+      expect(messages.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+        "user",
+      ]);
     });
 
     it("never cuts the digest inside an emoji at the head or tail boundary", () => {
       const loneSurrogate =
         /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
       for (let pad = 0; pad < 2; pad += 1) {
-        const request = `${"a".repeat(499 + pad)}${"😀".repeat(2_000)}`;
-        const reply = `${"😀".repeat(5_000)}${"c".repeat(pad)}`;
-        const text = digestText({ requestText: request, replyText: reply });
-        expect(text).not.toMatch(loneSurrogate);
-        expect(text).toContain("😀");
-        expect(text.length).toBeLessThan(8_000);
+        const input = {
+          requestText: `${"a".repeat(499 + pad)}${"😀".repeat(2_000)}`,
+          replyText: `${"😀".repeat(5_000)}${"c".repeat(pad)}`,
+        };
+        for (const message of build(input)) {
+          expect(textOf(message)).not.toMatch(loneSurrogate);
+        }
+        expect(requestOf(input)).toContain("😀");
+        expect(replyOf(input)).toContain("😀");
+        expect(totalLength(input)).toBeLessThan(8_000);
       }
     });
 
     it("passes a short request and reply through unchanged", () => {
-      const text = digestText({ requestText: "Hi there", replyText: "Done." });
-      expect(text).toContain("<user-request>\nHi there\n</user-request>");
-      expect(text).toContain("<final-reply>\nDone.\n</final-reply>");
+      const input = { requestText: "Hi there", replyText: "Done." };
+      expect(requestOf(input)).toBe(
+        "<user-request>\nHi there\n</user-request>",
+      );
+      expect(replyOf(input)).toBe("Done.");
+    });
+
+    it("lists each tool used once and never the follow-up tool itself", () => {
+      const text = requestOf({
+        replyText: "ok",
+        toolNames: ["a", "b", "a", FOLLOW_UP_SUGGESTIONS_TOOL_NAME],
+      });
+      expect(text).toContain("<tools-used>a, b</tools-used>");
     });
   });
 });

@@ -79,6 +79,8 @@ export interface PanelVerification {
   truncated?: boolean;
   error?: string;
   note?: PanelUnverifiedNote;
+  /** A section or extension panel: nothing to run, so only its config was checked. */
+  visualOnly?: true;
   hint?: string;
   sample?: Record<string, unknown>[];
   ms: number;
@@ -268,6 +270,53 @@ export function touchedPanelIds(
   };
 }
 
+export interface VisualPanelChange {
+  panelId: string;
+  title: string;
+  chartType: string;
+  change: "added" | "changed" | "removed";
+}
+
+/**
+ * Section and extension panels an edit added, changed or removed. They draw
+ * config, not rows, so nothing can be run for them, but the viewer still sees
+ * the edit: it is never "no render affected", and only static checks apply.
+ */
+export function touchedVisualPanels(
+  rawBase: Record<string, unknown> | null | undefined,
+  rawNext: Record<string, unknown>,
+): VisualPanelChange[] {
+  const visualById = (config: Record<string, unknown> | null | undefined) =>
+    new Map(
+      (config ? panelsOf(normalizeDashboardConfig(config)) : [])
+        .filter((panel) => typeof panel.id === "string" && !hasSqlToRun(panel))
+        .map((panel) => [panel.id as string, panel]),
+    );
+  const before = visualById(rawBase);
+  const after = visualById(rawNext);
+  const describe = (
+    panel: Record<string, unknown>,
+    change: VisualPanelChange["change"],
+  ): VisualPanelChange => ({
+    panelId: String(panel.id),
+    title: typeof panel.title === "string" ? panel.title : String(panel.id),
+    chartType: String(panel.chartType),
+    change,
+  });
+  return [
+    ...Array.from(after.values()).flatMap((panel) => {
+      const prior = before.get(String(panel.id));
+      if (!prior) return [describe(panel, "added")];
+      return stableStringify(prior) === stableStringify(panel)
+        ? []
+        : [describe(panel, "changed")];
+    }),
+    ...Array.from(before.values())
+      .filter((panel) => !after.has(String(panel.id)))
+      .map((panel) => describe(panel, "removed")),
+  ];
+}
+
 function sqlTokens(sql: unknown): string[] {
   const names = new Set<string>();
   for (const match of serializePanelSql(sql).matchAll(/\{\{[?/]?(\w+)\}\}/g)) {
@@ -445,7 +494,7 @@ async function verifyOne(
     };
   };
 
-  if (!hasSqlToRun(panel)) return result({ status: "ok" });
+  if (!hasSqlToRun(panel)) return result({ status: "ok", visualOnly: true });
 
   let query: string;
   try {
@@ -841,6 +890,11 @@ export interface PanelWriteVerdict {
   verified: boolean;
   /** True when no panel the viewer renders differently was touched, so nothing needed to run. */
   noRenderAffected?: true;
+  /**
+   * Section and extension panels the edit added, changed or removed. The
+   * viewer sees the edit, but only their config could be checked, never data.
+   */
+  visualOnly?: VisualPanelChange[];
   verification: DashboardVerification | null;
   proof: {
     panelId: string;
@@ -863,7 +917,9 @@ export interface PanelWriteVerdict {
 /** One line saying what the viewer sees, or why that could not be checked. */
 export function describePanelOutcome(panel: PanelVerification): string {
   if (panel.status === "ok" && panel.staticIssues.length === 0) {
-    return `renders ${panel.renderedRowCount} row(s), columns [${panel.columns.slice(0, 12).join(", ")}]`;
+    return panel.visualOnly
+      ? `is a ${panel.chartType} panel with no data to run; only its config was checked`
+      : `renders ${panel.renderedRowCount} row(s), columns [${panel.columns.slice(0, 12).join(", ")}]`;
   }
   if (panel.status === "unverified") {
     const why = panel.note ? NOTE_REASONS[panel.note] : "could not be checked";
@@ -908,7 +964,8 @@ export async function verifyPanelWrite(
     : null;
   const next = pageDashboardConfig(options.next, options.dashboardId);
   const { direct, affected } = touchedPanelIds(base, next);
-  if (direct.length + affected.length === 0) {
+  const visual = touchedVisualPanels(base, next);
+  if (direct.length + affected.length + visual.length === 0) {
     return {
       verified: true,
       noRenderAffected: true,
@@ -917,9 +974,12 @@ export async function verifyPanelWrite(
       unverified: [],
     };
   }
+  const visualIds = visual
+    .filter((change) => change.change !== "removed")
+    .map((change) => change.panelId);
   const verification = await verifyDashboardPanels(
     next,
-    [...direct, ...affected],
+    [...direct, ...affected, ...visualIds],
     {
       signal: options.signal,
       base,
@@ -928,7 +988,7 @@ export async function verifyPanelWrite(
     },
   );
   const allowEmpty = options.allowEmptyResult === true;
-  const directIds = new Set(direct);
+  const directIds = new Set([...direct, ...visualIds]);
   const blockers = verification.panels.filter(
     (panel) => directIds.has(panel.panelId) && blocksSave(panel, allowEmpty),
   );
@@ -947,7 +1007,11 @@ export async function verifyPanelWrite(
   const notRun = attention.filter(
     (panel) => panel.note === "not_executed:over_budget",
   );
-  const problems = attention.filter((panel) => !notRun.includes(panel));
+  const problems = attention.filter(
+    (panel) => !notRun.includes(panel) && !panel.visualOnly,
+  );
+  // inspect-dashboard-panel refuses a section or extension panel.
+  const configProblems = attention.filter((panel) => panel.visualOnly);
   const idList = (panels: PanelVerification[]) =>
     `${panels
       .slice(0, 5)
@@ -955,6 +1019,7 @@ export async function verifyPanelWrite(
       .join(", ")}${panels.length > 5 ? ` (+${panels.length - 5} more)` : ""}`;
   return {
     verified,
+    ...(visual.length > 0 ? { visualOnly: visual } : {}),
     verification,
     proof: verification.panels
       .filter((panel) => panel.rowCount !== null)
@@ -982,6 +1047,11 @@ export async function verifyPanelWrite(
                   `REQUIRED: call inspect-dashboard-panel for ${idList(problems)} and confirm the panel renders before telling the user the change is visible. Do not claim success; each unverified[].reason says why.`,
                 ]
               : []),
+            ...(configProblems.length > 0
+              ? [
+                  `REQUIRED: fix the config of ${idList(configProblems)} (section/extension panels have nothing to inspect) before telling the user the change is visible. Do not claim success; each unverified[].reason says why.`,
+                ]
+              : []),
             ...(notRun.length > 0
               ? [
                   `Not run: ${idList(notRun)} were beyond the per-save cap of ${DEFAULT_MAX_EXECUTED} executed panels, so only the verified panels are confirmed. Call inspect-dashboard-panel before claiming the others render.`,
@@ -1000,12 +1070,24 @@ export function verdictFields(
   return {
     verified: verdict.verified,
     ...(verdict.noRenderAffected ? { noRenderAffected: true } : {}),
+    ...(verdict.visualOnly ? { visualOnly: verdict.visualOnly } : {}),
     ...(verdict.proof.length > 0 ? { verification: verdict.proof } : {}),
     ...(verdict.unverified.length > 0
       ? { unverified: verdict.unverified }
       : {}),
     ...(verdict.nextStep ? { nextStep: verdict.nextStep } : {}),
   };
+}
+
+/** Says the viewer-visible edits no data check covered; empty when the edit touched no section or extension panel. */
+export function describeVisualOnly(verdict: PanelWriteVerdict): string {
+  const changes = verdict.visualOnly ?? [];
+  if (changes.length === 0) return "";
+  const shown = changes
+    .slice(0, 3)
+    .map((panel) => `${panel.change} "${panel.title}"`);
+  const more = changes.length - shown.length;
+  return `Section/extension panels have no data to run, so only their config was checked, not their data: ${shown.join(", ")}${more > 0 ? ` (+${more} more)` : ""}.`;
 }
 
 export function annotateSummary(
@@ -1017,13 +1099,23 @@ export function annotateSummary(
   if (verdict.noRenderAffected) {
     return `${summary} No panel render was affected, so there was nothing to verify.`;
   }
+  const visual = describeVisualOnly(verdict);
   if (verdict.verified) {
     const shown = verdict.proof.slice(0, 3).map((panel) => {
       const rows = panel.rowCount === null ? "" : ` -> ${panel.rowCount} rows`;
       return `${panel.title}${rows}, columns [${panel.columns.join(", ")}]`;
     });
     const more = verdict.proof.length - shown.length;
-    return `${summary} Verified: ${shown.join("; ")}${more > 0 ? ` (+${more} more)` : ""}.`;
+    const checked =
+      shown.length > 0
+        ? `Verified: ${shown.join("; ")}${more > 0 ? ` (+${more} more)` : ""}.`
+        : "No data panel was affected.";
+    return [summary, checked, visual].filter(Boolean).join(" ");
   }
-  return `${options.saved === false ? "NOT VERIFIED" : "SAVED BUT NOT VERIFIED"}: ${summary} ${verdict.nextStep}`;
+  return [
+    `${options.saved === false ? "NOT VERIFIED" : "SAVED BUT NOT VERIFIED"}: ${summary} ${verdict.nextStep}`,
+    visual,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }

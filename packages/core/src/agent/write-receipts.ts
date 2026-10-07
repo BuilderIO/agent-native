@@ -140,12 +140,15 @@ function receiptLine(receipt: ToolWriteReceipt): string {
 }
 
 /**
- * A flagged receipt is dropped once later verified changes from the same tool
- * to the same subject re-checked everything it failed on. A verified receipt
- * speaks only for the parts it checked, so one with no matching `ok` checks
- * (an edit that touched nothing the failure was about) supersedes nothing that
- * carried a failing check. A flagged receipt with no failing checks is dropped
- * by any such later change. A receipt with no subject is never superseded.
+ * A flagged receipt is dropped once later verified changes to the same subject
+ * re-checked everything it failed on. A verified receipt speaks only for the
+ * parts it checked, so one with no matching `ok` checks (an edit that touched
+ * nothing the failure was about) supersedes nothing that carried a failing
+ * check. A later receipt from another tool counts only against a failing
+ * check, because that check id is what ties the two tools' receipts to the
+ * same fault; a flagged receipt with no failing checks is dropped only by a
+ * later change from its own tool. A receipt with no subject is never
+ * superseded.
  */
 function stillFlaggedReceipts(
   receipts: readonly ToolWriteReceipt[],
@@ -154,11 +157,12 @@ function stillFlaggedReceipts(
     if (receipt.verified === true && receipt.changed) return false;
     const { subject } = receipt;
     if (!subject) return true;
+    const failing = (receipt.checks ?? []).filter((check) => !check.ok);
     const verifiedLater = receipts
       .slice(index + 1)
       .filter(
         (later) =>
-          later.tool === receipt.tool &&
+          (later.tool === receipt.tool || failing.length > 0) &&
           later.subject === subject &&
           later.changed &&
           later.verified === true,
@@ -169,9 +173,7 @@ function stillFlaggedReceipts(
         (later.checks ?? []).filter((check) => check.ok).map(({ id }) => id),
       ),
     );
-    return (receipt.checks ?? []).some(
-      (check) => !check.ok && !rechecked.has(check.id),
-    );
+    return failing.some((check) => !rechecked.has(check.id));
   });
 }
 

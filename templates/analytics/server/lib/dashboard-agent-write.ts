@@ -85,7 +85,8 @@ export function dashboardWriteReceipt(
     };
   }
   const panels = verdict?.verification?.panels ?? [];
-  if (!verdict || panels.length === 0) {
+  const visualCount = verdict?.visualOnly?.length ?? 0;
+  if (!verdict || (panels.length === 0 && visualCount === 0)) {
     return {
       ...base,
       verified: "unverified",
@@ -94,6 +95,12 @@ export function dashboardWriteReceipt(
       ),
     };
   }
+  // A section or extension edit is seen by the viewer but has no data to check.
+  const notDataChecked =
+    visualCount > 0
+      ? `${visualCount} section/extension panel(s) not data-checked (config only); `
+      : "";
+  const rendered = panels.filter((panel) => !panel.visualOnly);
   const rows = panels
     .map((panel) => ({
       title: panel.title,
@@ -112,10 +119,14 @@ export function dashboardWriteReceipt(
     verified: verdict.verified,
     summary: summary(
       failing.length === 0
-        ? `${saved}; ${panels.length} panel(s) verified rendering: ${panels
-            .slice(0, 3)
-            .map((panel) => `"${panel.title}"`)
-            .join(", ")}.`
+        ? `${saved}; ${notDataChecked}${
+            rendered.length > 0
+              ? `${rendered.length} panel(s) verified rendering: ${rendered
+                  .slice(0, 3)
+                  .map((panel) => `"${panel.title}"`)
+                  .join(", ")}.`
+              : "no data panel was affected."
+          }`
         : `${saved} but NOT verified: ${failing
             .slice(0, 2)
             .map((row) => `"${row.title}" ${row.detail}`)

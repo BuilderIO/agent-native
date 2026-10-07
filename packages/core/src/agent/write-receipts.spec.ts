@@ -292,6 +292,87 @@ describe("writeReceiptGuard", () => {
     });
   });
 
+  describe("supersession across tools", () => {
+    const failed = receipt({
+      tool: "mutate-dashboard",
+      verified: false,
+      subject: "dash-1",
+      summary: "P5 broke",
+      checks: [
+        { id: "P5", ok: false, detail: "no rows" },
+        { id: "P1", ok: true },
+      ],
+    });
+    const fix = (overrides: Partial<ToolWriteReceipt> = {}) =>
+      receipt({
+        tool: "update-dashboard",
+        subject: "dash-1",
+        summary: "fixed",
+        checks: [{ id: "P5", ok: true }],
+        ...overrides,
+      });
+
+    it("clears a failure that another tool's verified fix covered on the same subject", () => {
+      expect(writeReceiptGuard([failed, fix()], false)).toBeNull();
+    });
+
+    it("keeps a failure the other tool's fix only partly covered", () => {
+      const twoBroken = receipt({
+        ...failed,
+        checks: [
+          { id: "P5", ok: false },
+          { id: "P6", ok: false },
+        ],
+      });
+      const guard = writeReceiptGuard([twoBroken, fix()], false);
+      expect(guard?.maxRetries).toBe(1);
+      expect(guard?.retryMessage).toContain("Failed checks: P5; P6");
+      expect(
+        writeReceiptGuard(
+          [twoBroken, fix(), fix({ checks: [{ id: "P6", ok: true }] })],
+          false,
+        ),
+      ).toBeNull();
+    });
+
+    it("keeps a failure when the other tool's fix was for a different subject", () => {
+      expect(
+        writeReceiptGuard([failed, fix({ subject: "dash-2" })], false),
+      ).not.toBeNull();
+    });
+
+    it("keeps a summary-only failure unless the same tool fixed it", () => {
+      const summaryOnly = receipt({
+        tool: "mutate-dashboard",
+        changed: false,
+        subject: "dash-1",
+      });
+      expect(writeReceiptGuard([summaryOnly, fix()], false)).not.toBeNull();
+      expect(
+        writeReceiptGuard(
+          [
+            summaryOnly,
+            receipt({ tool: "mutate-dashboard", subject: "dash-1" }),
+          ],
+          false,
+        ),
+      ).toBeNull();
+    });
+
+    it("keeps a failure when the other tool's fix was itself flagged or came first", () => {
+      expect(
+        writeReceiptGuard([failed, fix({ verified: false })], false),
+      ).not.toBeNull();
+      expect(writeReceiptGuard([fix(), failed], false)).not.toBeNull();
+    });
+
+    it("never supersedes a receipt with no subject, whatever tool fixed it", () => {
+      expect(
+        writeReceiptGuard([{ ...failed, subject: undefined }, fix()], false),
+      ).not.toBeNull();
+    });
+  });
+
   it("never supersedes a receipt that has no subject", () => {
     const guard = writeReceiptGuard(
       [receipt({ changed: false }), receipt()],

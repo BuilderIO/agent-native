@@ -272,6 +272,37 @@ describe("update-dashboard verified writes", () => {
       expect(mocks.resolvePanel).not.toHaveBeenCalled();
     });
 
+    it("says an added section was not data-checked instead of claiming no render was affected", async () => {
+      const saved: any = await updateDashboard.run(
+        {
+          dashboardId: "growth",
+          ops: [
+            {
+              op: "insert",
+              path: "/panels/-",
+              value: {
+                id: "overview",
+                title: "Overview",
+                chartType: "section",
+                width: 6,
+              },
+            },
+          ],
+        },
+        agent,
+      );
+
+      expect(saved.verified).toBe(true);
+      expect(saved.noRenderAffected).toBeUndefined();
+      expect(saved.visualOnly).toEqual([
+        expect.objectContaining({ panelId: "overview", change: "added" }),
+      ]);
+      expect(saved.message).toContain("not their data");
+      expect(saved._receipt.summary).toContain("not data-checked");
+      expect(saved._receipt.summary).not.toContain("no panel render");
+      expect(mocks.resolvePanel).not.toHaveBeenCalled();
+    });
+
     it("verifies the panels a filter default change re-resolves", async () => {
       mocks.getDashboard.mockResolvedValue({
         kind: "sql",
