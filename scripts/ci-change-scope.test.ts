@@ -557,13 +557,109 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
-  assert.ok(regressionCases.includes("timeout-minutes: 10"));
-  assert.ok(regressionCases.includes("--workers=2"));
+  const designJobStart = workflow.indexOf(
+    "  design-canvas-interaction-acceptance:\n",
+  );
+  assert.notEqual(designJobStart, -1);
+  const designJobEnd = workflow.indexOf("\n  fast-tests:\n", designJobStart);
+  const designJob = workflow.slice(
+    designJobStart,
+    designJobEnd === -1 ? undefined : designJobEnd,
+  );
+  assert.ok(designJob.includes("needs: change-scope"));
+  assert.ok(
+    designJob.includes(
+      "if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
+    ),
+  );
+  const jobTimeout = Number(
+    designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
+  );
+  const stepTimeout = Number(
+    regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
+  assert.ok(
+    Number.isInteger(jobTimeout) && jobTimeout > 0 && jobTimeout < 10,
+    `Design acceptance job must stop before ten minutes (got ${jobTimeout})`,
+  );
+  assert.ok(
+    Number.isInteger(stepTimeout) &&
+      stepTimeout <= 7 &&
+      stepTimeout < jobTimeout,
+    `focused Design tests need a seven-minute cap below the ${jobTimeout}-minute job cap (got ${stepTimeout})`,
+  );
+  assert.match(
+    designJob,
+    /strategy:\n\s+fail-fast: false\n\s+matrix:\n\s+shard:/u,
+  );
+  const matrixStart = designJob.indexOf("      matrix:");
+  const stepsStart = designJob.indexOf("    steps:", matrixStart);
+  const matrix = designJob.slice(matrixStart, stepsStart);
+  for (const shard of ["inspector", "drag-1", "drag-2", "position"]) {
+    assert.ok(
+      matrix.includes(shard),
+      `missing Design regression shard: ${shard}`,
+    );
+  }
+  assert.ok(
+    regressionCases.includes(
+      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+  );
+  const workerCounts = [...regressionCases.matchAll(/--workers=(\d+)/gu)].map(
+    ([, count]) => Number(count),
+  );
+  assert.ok(workerCounts.length > 0, "Design E2E shards must set workers");
+  assert.ok(
+    regressionCases.includes(
+      'pnpm exec playwright test "${focused_specs[@]}" --workers=1',
+    ),
+  );
+  assert.ok(
+    workerCounts.every((count) => count === 1),
+    `Design E2E shards share PGlite state and must use one worker (got ${workerCounts})`,
+  );
+  const fastTestsJob = workflow.slice(workflow.indexOf("  fast-tests:\n"));
+  const needsStart = fastTestsJob.indexOf("    needs:");
+  const needsEnd = fastTestsJob.indexOf("    if:", needsStart);
+  assert.notEqual(needsStart, -1);
+  assert.notEqual(needsEnd, -1);
+  assert.ok(
+    fastTestsJob
+      .slice(needsStart, needsEnd)
+      .includes("design-canvas-interaction-acceptance"),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}",
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes('if [ "$DESIGN_CANVAS_E2E" = "true" ]; then'),
+  );
+  assert.ok(
+    fastTestsJob.includes('if [ "$DESIGN_CANVAS_RESULT" != "success" ]; then'),
+  );
   const selectedTests = [
+    [
+      "e2e/canvas-invariants.spec.ts",
+      383,
+      "X/Y match the element's real position, not 0,0",
+    ],
     [
       "e2e/canvas-invariants.spec.ts",
       508,
       "a child of an auto-layout parent still reports real geometry",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      538,
+      "setting X moves the element by exactly that amount",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      553,
+      "setting Y moves the element by exactly that amount",
     ],
     [
       "e2e/canvas-invariants.spec.ts",
@@ -604,6 +700,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/parity-selection.spec.ts",
       451,
       "board regression: overlapping board Frames keep the pointer drop without cancel or revert",
+    ],
+    [
+      "e2e/parity-selection.spec.ts",
+      572,
+      "selected nested frame drag from its grandchild tracks the pointer and persists",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      900,
+      "resizing a selected element emits a visual-style-change payload",
     ],
     [
       "e2e/pasted-svg-image-inspector.spec.ts",
@@ -649,8 +755,24 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     )[line - 1];
     assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
   }
-  assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts"));
-  assert.ok(!workflow.includes("Run changed Design E2E specs"));
+  const duplicateSource = readFileSync(
+    "templates/design/e2e/drag-and-drop.moving-by-drag.spec.ts",
+    "utf8",
+  );
+  const duplicateStart = duplicateSource.indexOf(
+    'test("Alt+drag leaves the original and creates a copy"',
+  );
+  assert.notEqual(duplicateStart, -1);
+  const duplicateEnd = duplicateSource.indexOf("\n  test(", duplicateStart + 1);
+  const duplicateCase = duplicateSource.slice(
+    duplicateStart,
+    duplicateEnd === -1 ? undefined : duplicateEnd,
+  );
+  assert.ok(
+    duplicateCase.includes('data-agent-native-transient-drag-clone="true"'),
+  );
+  assert.match(duplicateCase, /\.toBe\(0\);/u);
+  assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts:900"));
 });
 
 test("a deleted Design E2E path runs the focused interaction suite", () => {
