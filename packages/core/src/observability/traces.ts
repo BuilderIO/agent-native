@@ -234,6 +234,10 @@ function redactToolErrorMessage(
   return redactToolErrorMessageText(value, options);
 }
 
+function prepareCapturedModelInput(messages: unknown): unknown {
+  return redactSensitiveFields(toPostHogMessages(messages));
+}
+
 export function httpStatusFromError(err: unknown): number | undefined {
   if (typeof err !== "object" || err === null) return undefined;
   const candidate =
@@ -442,7 +446,7 @@ function buildGenerationContent(args: {
   const { config } = args;
 
   const input = config.capturePrompts
-    ? boundAiContent(toPostHogMessages(redactSensitiveFields(args.messages)))
+    ? boundAiContent(args.messages)
     : undefined;
 
   const toolCalls = args.toolSpans
@@ -634,6 +638,7 @@ export async function instrumentAgentLoop(opts: {
   }> = [];
   const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
   let pendingModelInput: unknown[] | undefined;
+  let pendingModelInputStartedAt: number | undefined;
   type CostCalculator = (
     inputTokens: number,
     outputTokens: number,
@@ -844,6 +849,7 @@ export async function instrumentAgentLoop(opts: {
               assistantText: createBoundedAssistantText(),
             });
             pendingModelInput = undefined;
+            pendingModelInputStartedAt = undefined;
             startOtelModelSpan(tripIndex);
           }
         } else if (modelStreamOpenedAt !== null) {
@@ -1077,10 +1083,11 @@ export async function instrumentAgentLoop(opts: {
           ? {
               onModelInput: (messages: readonly unknown[]) => {
                 if (config.capturePrompts) {
-                  const redactedMessages = redactSensitiveFields(messages);
-                  pendingModelInput = Array.isArray(redactedMessages)
-                    ? redactedMessages
+                  const capturedMessages = prepareCapturedModelInput(messages);
+                  pendingModelInput = Array.isArray(capturedMessages)
+                    ? capturedMessages
                     : undefined;
+                  pendingModelInputStartedAt = Date.now();
                 }
                 return loopOpts.onModelInput?.(messages);
               },
@@ -1245,8 +1252,11 @@ export async function instrumentAgentLoop(opts: {
           ? Math.max(0, usage.firstEngineEventAtMs - runStart)
           : undefined;
 
+      const pendingModelCallFailed =
+        runStatus === "error" && pendingModelInput !== undefined;
       const modelCallFailed =
         failedInsideModelCall ||
+        pendingModelCallFailed ||
         (modelRoundTrips.length === 0 &&
           cutOffReason === null &&
           reportedToolFailures === 0);
@@ -1255,7 +1265,7 @@ export async function instrumentAgentLoop(opts: {
       if (usage || runStatus === "error") {
         llmCallCount =
           usage?.llmCalls ??
-          (modelRoundTrips.length > 0 ? modelRoundTrips.length : 1);
+          Math.max(1, modelRoundTrips.length + Number(pendingModelCallFailed));
         const runUsage = usage ?? {
           inputTokens: 0,
           outputTokens: 0,
@@ -1300,7 +1310,9 @@ export async function instrumentAgentLoop(opts: {
                   .sort(([a], [b]) => a - b)
                   .map(([, detail]) => detail),
                 isFirst: index === 0,
-                isLast: index === modelRoundTrips.length - 1,
+                isLast:
+                  !pendingModelCallFailed &&
+                  index === modelRoundTrips.length - 1,
               }))
             : [
                 {
@@ -1311,7 +1323,11 @@ export async function instrumentAgentLoop(opts: {
                   callUsage: usage,
                   stopReason: undefined as string | undefined,
                   tokensKnown: usageReported,
-                  input: pendingModelInput ?? requestMessages,
+                  input:
+                    pendingModelInput ??
+                    (config.capturePrompts
+                      ? prepareCapturedModelInput(requestMessages)
+                      : requestMessages),
                   assistantText: assistantTextCapture.parts.join(""),
                   assistantTextTruncated: assistantTextCapture.truncated,
                   toolSpans: collectedToolSpans,
@@ -1322,6 +1338,28 @@ export async function instrumentAgentLoop(opts: {
                   isLast: true,
                 },
               ];
+
+        if (pendingModelCallFailed && modelRoundTrips.length > 0) {
+          generations.push({
+            spanId: spanId(),
+            model: runUsage.model,
+            createdAt: pendingModelInputStartedAt ?? runEnd,
+            latencyMs: Math.max(
+              0,
+              runEnd - (pendingModelInputStartedAt ?? runEnd),
+            ),
+            callUsage: undefined,
+            stopReason: "error",
+            tokensKnown: false,
+            input: pendingModelInput,
+            assistantText: "",
+            assistantTextTruncated: false,
+            toolSpans: [],
+            toolDetails: [],
+            isFirst: false,
+            isLast: true,
+          });
+        }
 
         for (const generation of generations) {
           const callUsage = generation.callUsage;

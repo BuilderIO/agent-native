@@ -2,7 +2,7 @@ const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
 
 const STANDALONE_API_KEY_PATTERN =
   /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
-const TRUNCATED_STANDALONE_API_KEY_PATTERN =
+const INCOMPLETE_STANDALONE_API_KEY_PATTERN =
   /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{0,7}|(?:sk|rk)_[A-Za-z0-9_]{0,12}|AIza[A-Za-z0-9_-]{0,15}|gh[pousr]_[A-Za-z0-9]{0,15})$/g;
 const CONNECTION_FIELD =
   "(?:database[_ -]?(?:url|uri|dsn)|db[_ -]?(?:url|uri|dsn)|connection[_ -]?(?:string|url|uri)|dsn|(?:postgres(?:ql)?|mysql|mariadb|mongodb|mongo|redis|rediss|amqp|mssql|cockroachdb)[_ -]?(?:url|uri|dsn|connection[_ -]?string))";
@@ -19,6 +19,9 @@ const PRIVATE_KEY_BLOCK_PATTERN =
 const URI_USERINFO_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)([^/?#\s]*@)/gi;
 const TRUNCATED_URI_AUTHORITY_PATTERN =
   /\b([a-z][a-z0-9+.-]*:\/\/)([^/?#\s]+)$/gi;
+// A numeric tail can be a host port, so only treat a nonnumeric suffix as userinfo.
+const INCOMPLETE_URI_USERINFO_PATTERN =
+  /\b([a-z][a-z0-9+.-]*:\/\/)([^/:?#\s]+):((?!\d+$)[^/?#@\s]+)$/gi;
 const CREDENTIAL_HEADER_PATTERN =
   /(["']?\b(?:authorization|cookie)\b["']?\s*[:=]\s*)(?:(\[(?:\\.|[^\]])*\])|(["'])(?:\\.|(?!\3)[\s\S])*?\3|[^\r\n"'{}\]]+)/gim;
 
@@ -57,11 +60,11 @@ export function redactToolErrorMessage(
     )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
     .replace(URI_USERINFO_PATTERN, "$1[REDACTED]@")
+    .replace(INCOMPLETE_URI_USERINFO_PATTERN, "$1[REDACTED]")
+    .replace(INCOMPLETE_STANDALONE_API_KEY_PATTERN, "[REDACTED]")
     .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
   if (!options.truncated) return redacted;
-  return redacted
-    .replace(TRUNCATED_URI_AUTHORITY_PATTERN, "$1[REDACTED]")
-    .replace(TRUNCATED_STANDALONE_API_KEY_PATTERN, "[REDACTED]");
+  return redacted.replace(TRUNCATED_URI_AUTHORITY_PATTERN, "$1[REDACTED]");
 }
 
 function boundToolErrorMessage(redacted: string): string {

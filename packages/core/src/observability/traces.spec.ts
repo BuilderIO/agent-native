@@ -9,6 +9,7 @@ import type { TrackingEvent } from "../tracking/types.js";
 import { registerObservabilityProvider } from "./otel-provider.js";
 import { MAX_AI_CONTENT_BYTES } from "./posthog-ai.js";
 import * as traceStore from "./store.js";
+import * as traceRedaction from "./trace-redaction.js";
 import { instrumentAgentLoop, redactSensitiveFields } from "./traces.js";
 import {
   type AgentSpan,
@@ -698,6 +699,83 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(JSON.stringify(llmSpan?.metadata)).not.toContain(
       "Do not persist this system instruction.",
     );
+  });
+
+  it("projects inline attachments before redacting captured model input", async () => {
+    const events: TrackingEvent[] = [];
+    const inlineImageData = "A".repeat(512_000);
+    const redactSpy = vi.spyOn(traceRedaction, "redactSensitiveFields");
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ onModelInput }) => {
+        onModelInput?.([
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "What is in this image?" },
+              {
+                type: "image",
+                mediaType: "image/png",
+                data: inlineImageData,
+              },
+            ],
+          },
+        ]);
+        return {
+          inputTokens: 5,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-attachment-before-redaction",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(redactSpy).toHaveBeenCalledTimes(1);
+    expect(
+      redactSpy.mock.calls.some(([value]) =>
+        (JSON.stringify(value) ?? "").includes(inlineImageData),
+      ),
+    ).toBe(false);
+    expect(events[0]?.properties?.["$ai_input"]).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What is in this image?" },
+          {
+            type: "text",
+            text: `[image: image/png, ~${Math.floor((inlineImageData.length * 3) / 4)} bytes]`,
+          },
+        ],
+      },
+    ]);
   });
 
   it("does not observe model input when prompt capture is disabled", async () => {
@@ -3214,6 +3292,79 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(failed?.properties?.["$ai_input"]).toEqual([
       { role: "user", content: "transformed prompt sent to the model" },
     ]);
+  });
+
+  it("keeps a later pre-stream failure input after earlier model round trips", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send, onModelInput, onUsage }) => {
+        onModelInput?.([
+          { role: "user", content: "first model invocation input" },
+        ]);
+        send({ type: "model_stream", status: "start" });
+        onUsage?.({
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        } as any);
+        send({ type: "model_stream", status: "end", reason: "tool_use" });
+        onModelInput?.([
+          { role: "user", content: "later invocation failed before streaming" },
+        ]);
+        throw new Error("second model call failed before streaming");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-later-model-failed-before-stream",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const generations = byName.get("$ai_generation") ?? [];
+    expect(generations).toHaveLength(2);
+    expect(generations[0]?.properties?.["$ai_input"]).toEqual([
+      { role: "user", content: "first model invocation input" },
+    ]);
+    expect(generations[0]?.properties?.["$ai_is_error"]).toBe(false);
+    expect(generations[1]?.properties?.["$ai_input"]).toEqual([
+      {
+        role: "user",
+        content: "later invocation failed before streaming",
+      },
+    ]);
+    expect(generations[1]?.properties?.["$ai_is_error"]).toBe(true);
+    expect(
+      (generations[1]?.properties?.["$ai_error"] as { message: string })
+        ?.message,
+    ).toBe("second model call failed before streaming");
+    expect(byName.get("$ai_trace")?.[0]?.properties?.llm_calls).toBe(2);
   });
 
   it("marks the failing layer: the model call, the tool, or the run", async () => {

@@ -4593,9 +4593,10 @@ describe("runAgentLoop", () => {
   const modelStreamBracket = (events: AgentChatEvent[]) =>
     events.filter((event) => event.type === "model_stream");
 
-  it("brackets each engine call with a model_stream start/end pair", async () => {
+  it("brackets each call and gives the observer an isolated media projection", async () => {
     let streamCalls = 0;
     const streamedMessages: unknown[] = [];
+    const imageData = "a".repeat(1024 * 1024);
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -4622,7 +4623,15 @@ describe("runAgentLoop", () => {
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "go" },
+            { type: "image", mediaType: "image/png", data: imageData },
+          ],
+        },
+      ],
       actions: {},
       send: (event) => events.push(event),
       signal: new AbortController().signal,
@@ -4642,7 +4651,22 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(1);
-    expect(capturedInputs).toEqual(streamedMessages);
+    expect(capturedInputs).toEqual([
+      [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "go" },
+            { type: "text", text: "[image: image/png, ~786432 bytes]" },
+          ],
+        },
+      ],
+    ]);
+    const modelInput = streamedMessages[0] as Array<{
+      content: Array<{ data?: string; text?: string }>;
+    }>;
+    expect(modelInput[0]?.content[0]?.text).toBe("go");
+    expect(modelInput[0]?.content[1]?.data).toBe(imageData);
     expect(events[0]).toEqual({ type: "model_stream", status: "start" });
     expect(modelStreamBracket(events)).toEqual([
       { type: "model_stream", status: "start" },

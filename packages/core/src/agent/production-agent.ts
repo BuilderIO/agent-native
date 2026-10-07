@@ -4712,13 +4712,60 @@ type ModelInputObserver = (
   messages: readonly unknown[],
 ) => void | Promise<void>;
 
+function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
+  const seen = new WeakMap<object, unknown>();
+  const project = (value: unknown, isImageListEntry = false): unknown => {
+    if (!value || typeof value !== "object") return value;
+    const existing = seen.get(value);
+    if (existing !== undefined) return existing;
+    if (Array.isArray(value)) {
+      const projected: unknown[] = [];
+      seen.set(value, projected);
+      for (const entry of value) {
+        projected.push(project(entry, isImageListEntry));
+      }
+      return projected;
+    }
+
+    const part = value as Record<string, unknown>;
+    const isMedia =
+      isImageListEntry || part.type === "image" || part.type === "file";
+    if (isMedia) {
+      const mediaType =
+        typeof part.mediaType === "string" ? part.mediaType : "unknown";
+      const filename =
+        part.type === "file" && typeof part.filename === "string"
+          ? ` ${part.filename}`
+          : "";
+      const label = part.type === "file" ? `file${filename}` : "image";
+      const data = typeof part.data === "string" ? part.data : "";
+      return {
+        type: "text",
+        text: `[${label}: ${mediaType}, ~${Math.floor((data.length * 3) / 4)} bytes]`,
+      };
+    }
+
+    const projected: Record<string, unknown> = {};
+    seen.set(value, projected);
+    for (const [key, nested] of Object.entries(part)) {
+      projected[key] =
+        key === "images" && Array.isArray(nested)
+          ? project(nested, true)
+          : project(nested);
+    }
+    return projected;
+  };
+
+  return project(messages) as unknown[];
+}
+
 function notifyModelInputObserver(
   observer: ModelInputObserver | undefined,
   messages: readonly unknown[],
 ): void {
   if (!observer) return;
   try {
-    const result = observer(structuredClone(messages));
+    const result = observer(projectModelInputForObserver(messages));
     if (result !== undefined) {
       void Promise.resolve(result).catch(() => {
         // coercion-ok: observer failures cannot change agent execution.

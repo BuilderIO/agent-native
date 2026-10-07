@@ -39,7 +39,13 @@ const SENSITIVE_FIELD_SUFFIXES = [
   "accesskey",
   "authorization",
   "subscriptionkey",
+  "webhookurl",
 ];
+
+const SLACK_WEBHOOK_URL_PATTERN =
+  /https?:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+/gi;
+const LABELED_WEBHOOK_URL_PATTERN =
+  /(\b[A-Za-z0-9_.-]*webhook[_ -]?url\b["']?\s*[:=]\s*["']?)(https?:\/\/[^\s"'<>()[\]{}]+)/gi;
 
 function isSensitiveFieldName(field: string): boolean {
   return field.split(/[.:/\[\]]+/).some((part) => {
@@ -53,8 +59,20 @@ export function redactSensitiveFields(value: unknown): unknown {
   return redactWalk(value, new WeakSet<object>());
 }
 
+function redactCapturedString(value: string): string {
+  return redactToolErrorMessage(value)
+    .replace(
+      LABELED_WEBHOOK_URL_PATTERN,
+      (_match, prefix: string, rawUrl: string) => {
+        const trailingPunctuation = rawUrl.match(/[.,;!?]+$/)?.[0] ?? "";
+        return `${prefix}[REDACTED]${trailingPunctuation}`;
+      },
+    )
+    .replace(SLACK_WEBHOOK_URL_PATTERN, "[REDACTED]");
+}
+
 function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
-  if (typeof value === "string") return redactToolErrorMessage(value);
+  if (typeof value === "string") return redactCapturedString(value);
   if (value === null || typeof value !== "object") return value;
   if (seen.has(value as object)) return "[Circular]";
   seen.add(value as object);

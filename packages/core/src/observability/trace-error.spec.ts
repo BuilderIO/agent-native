@@ -40,6 +40,9 @@ describe("redactToolErrorMessage", () => {
     expect(redactToolErrorMessage("https://example.com/path")).toBe(
       "https://example.com/path",
     );
+    expect(redactToolErrorMessage("https://example.com:8443")).toBe(
+      "https://example.com:8443",
+    );
   });
 
   it("redacts an incomplete URI authority at a bounded trace capture", () => {
@@ -54,6 +57,24 @@ describe("redactToolErrorMessage", () => {
         truncated: true,
       }),
     ).toBe("postgresql://[REDACTED]");
+  });
+
+  it("redacts credential tails when a provider interrupts below the content limit", () => {
+    const interruptedUri = redactToolErrorMessage(
+      "postgresql://alice:partial-secret",
+      {
+        truncated: false,
+      },
+    );
+    const interruptedKey = redactToolErrorMessage(
+      "The provider reply ended at sk-ant-",
+      { truncated: false },
+    );
+
+    expect(interruptedUri).toBe("postgresql://[REDACTED]");
+    expect(interruptedUri).not.toContain("partial-secret");
+    expect(interruptedKey).toBe("The provider reply ended at [REDACTED]");
+    expect(interruptedKey).not.toContain("sk-ant-");
   });
 });
 
