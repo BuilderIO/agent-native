@@ -77,7 +77,7 @@ export function sessionEventTenantKey(
   return orgId ? `org:${orgId}` : `user:${ownerEmail}`;
 }
 
-function viewerTenantKeys(scope: SessionEventScope): string[] {
+export function viewerTenantKeys(scope: SessionEventScope): string[] {
   return scope.orgId
     ? [
         sessionEventTenantKey(scope.userEmail, scope.orgId),
@@ -119,7 +119,7 @@ export function sessionIdOf(value: string | null | undefined): string | null {
 }
 
 /** Hashed, so caller text never makes a primary key too long to index. */
-function stableId(prefix: string, parts: readonly string[]): string {
+export function stableId(prefix: string, parts: readonly string[]): string {
   const digest = createHash("sha256")
     .update(JSON.stringify(parts))
     .digest("hex");
@@ -307,7 +307,7 @@ async function sessionEventIndexReady(db: any): Promise<boolean> {
   return indexTablesReady;
 }
 
-function warnIndexFailure(message: string, error: unknown): void {
+export function warnIndexFailure(message: string, error: unknown): void {
   const now = Date.now();
   if (now - (lastWarnAt.get(message) ?? 0) < WARN_INTERVAL_MS) return;
   lastWarnAt.set(message, now);
@@ -580,7 +580,7 @@ function isoTimestamp(value: string, endOfDay = false): string {
   return new Date(value).toISOString();
 }
 
-function isoDate(value: string | undefined, fallback: Date): string {
+export function isoDate(value: string | undefined, fallback: Date): string {
   return (
     value === undefined ? fallback.toISOString() : isoTimestamp(value)
   ).slice(0, 10);

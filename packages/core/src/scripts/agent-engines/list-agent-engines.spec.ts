@@ -186,7 +186,7 @@ describe("list-agent-engines", () => {
     // No organization OpenAI key is saved, but its models still belong to the
     // organization, which is where an admin's key would go.
     expect(byName("ai-sdk:openai")).toMatchObject({
-      supportedModels: ["gpt-6-sol"],
+      supportedModels: ["gpt-6.1-sol"],
       modelSelection: { state: "selected", scope: "org" },
     });
     expect(byName("ai-sdk:google")?.modelSelection).toEqual({

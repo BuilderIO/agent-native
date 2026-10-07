@@ -1,5 +1,48 @@
 # @agent-native/toolkit
 
+## 0.203.0
+
+### Patch Changes
+
+- 8944abb: Accept SVG files in agent chat again, as reference attachments. A dropped file that can't be added now shows a short, wrapping error naming the file instead of a clipped list of accepted types, and prompt composers without their own error surface show the rejection inline instead of ignoring the file.
+- 6b0f888: Show per-run provider or Builder credit costs in chat, and keep historical usage without billing metadata unclassified across usage dashboards.
+- d317d31: Keep model choices current and show the Builder.io included-services count immediately.
+- Release all public npm packages with a patch version bump.
+- 6f748b3: Keep ocean renderer tuning and color modules out of the signup hydration entry chunk.
+- de755c7: Keep signup wave backgrounds empty until the ocean is ready and position them clear of the marketing copy.
+- Updated dependencies [3d573d7]
+- Updated dependencies
+- Updated dependencies [3d573d7]
+- Updated dependencies [4738d38]
+  - @agent-native/agentkit@0.203.0
+
+## 0.202.0
+
+### Minor Changes
+
+- c8fa837: Render hosted sign-in pages on the server, blur the signup form panel backdrop, and use the shared Calendar wave across signup pages and the homepage hero.
+
+### Patch Changes
+
+- b22060c: Report why agent runs fail. `agent_run_outcome` now carries a `cause` (one of `AGENT_TROUBLE_CAUSES`) for a failed or interrupted run whose error code names one. It never carries the run's error message, and a code that is not an identifier, such as a sentence a route error set as its `data.code`, is sent as `unrecognized_code` (`agentErrorCodeForTelemetry`), so Analytics groups every other failure by its code. Stopped runs are reported unsampled under their own per-page cap, thumbs-up or thumbs-down feedback sends `agent_feedback_submitted` with the browser session, and every pageview carries `agent_signals: 1` so Analytics counts cancelled runs, thumbs-down, and quick backs only for sessions whose client reports them. Every pageview also carries a `page_load_id` that stays the same until the page reloads, so Analytics can tell a return to the previous page from a page another tab opened.
+
+  A turn the server refuses at its start, such as a chat with no model connected (`AGENT_CHAT_AI_SETUP_REQUIRED`, now named `no_model_connected`), reports its outcome under the turn id the server recorded. Framework route errors now keep a thrown error's `data.code` as `code` in the JSON body; before, the client only saw the HTTP status, so a chat with no model connected read as `forbidden`. A provider error whose HTTP status sits on a wrapped cause, like the Ollama provider's `status_code`, is now classified as `http_<status>`, so it reads as `provider_error` and gets the same retry handling as any other provider's status. `agent_chat_stuck_detected` now fires once per run, and only while the stuck banner shows. A session replay's console errors now carry `exception: false` for a plain `console.error` and `exception: true` for an exception Monitoring captured, so Analytics can tell which errors could have become issues. A session replay network event for a request the browser cancelled because the page was navigating or reloading now carries `pageLeaving: true`, so Analytics doesn't read it as a network failure.
+
+- a983e22: Wrap agent prompt suggestions onto up to two lines, and fade the edge of the row when more suggestions are scrolled out of view.
+- 123cf36: Keep Builder setup CTAs on the shared account chooser with one-click activation.
+- a652cbc: Make agent activity details readable, bounded, and keyboard accessible.
+- ef0662e: A collaborative editor no longer doubles a peer's text when a saved revision carrying it arrives before the peer's Yjs update. The editor now catches its live document up before merging any snapshot that is not collab-backed, not only revision-less ones. A failed catch-up is retried twice before the editor merges the snapshot without it.
+- ae80a65: Use a subtle dark surface for chat composers instead of an idle border.
+- a9879f8: Status checks that get refreshed mid-request now return the fresh answer instead of reporting the server as unreachable, so chat no longer gets stuck on "Couldn't confirm AI is ready" with prompts waiting to send. Retry on that message now clears the stuck state.
+- Release all public npm packages with a patch version bump.
+- edc7f35: Shareable resources can take access requests. Set `accessRequests: true` on `registerShareableResource`, and a signed-in viewer who gets `denied` from `get-resource-access-status` sees `canRequest` and can call `request-resource-access` with an optional note. The owner and people shared directly as Admin, while their access still resolves, get an inbox notification and the `core.access-requested` email, which link to `/access-requests/<id>`; `approve-resource-access-request` grants through the same organization and recipient rules as `share-resource`, never lowers a stronger role, even one granted mid-approval, and emails the requester `core.access-granted`, returning `email` as `sent`, `skipped` (no email set up, or a test identity), or `failed`, while `decline-resource-access-request` records the decision without telling the requester, who can ask again after seven days. Requests are capped per requester and per owner each day, and asking again while a request is open notifies no one twice; a request whose send was cut off before anyone was told can be asked again, which sends it again under the same idempotency keys. `useResourceAccessGate` now offers `requestAccess` and checks the status every half minute while a request is open; `useAccessRequestReview` and `useResourceAccessRequests` read requests for review, the list returning the newest 50 with `hasMore`. Toolkit's `ResourceAccessScreen` takes a `request` prop for Request access with a note, `AccessRequestApprovalPage` is the review page an app mounts at `/access-requests/:requestId`, and the share panels of `ShareButton` and `ShareDialog` list pending requests with Allow and Decline for people who manage access.
+- 053539c: Add `get-resource-access-status`, which tells an app what a link the viewer can't open should say: `denied` (it exists, but not for them), `missing`, `trashed` (only to people who could open it), `signed-out`, or `allowed`. It never returns the resource's title, owner, visibility, or workspace, and signed-out callers learn nothing about existence. Shareable resources can declare an `availability` rule, such as not being in the trash, which joins the lightweight access projection. Apps read the status with `useResourceAccessGate` from `@agent-native/core/client/sharing` and render Toolkit's `ResourceAccessScreen`. A registration's `canManageAccess` hook now always receives the whole row, including during lightweight access checks. A registration can also declare a `fallbackAccessContext: { columns, resolve }`, such as the authority a space lends its members, which the status uses when the viewer's own context can't open the resource. Its columns join the lightweight projection, so `resolve` gets the row already loaded; `resolveAccess` and the share actions don't read it.
+- 84e173d: Agent chat rechecks provider readiness before submission and shows pending feedback while it checks.
+- fa322d4: Route explicit local chat handoffs through the ChatGPT MCP App host.
+- dfff955: Chat and composer pieces no longer make large host editors re-render in a loop: a closed file storage setup popover stops measuring its anchor on every render, and the assistant chat reports its message count only when the count changes.
+- Updated dependencies
+  - @agent-native/agentkit@0.202.0
+
 ## 0.201.1
 
 ### Patch Changes
@@ -1043,17 +1086,5 @@
 
 - 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
   inside blocks created through the shared slash-command menu.
-
-## 0.10.3
-
-### Patch Changes
-
-- 180b41d: Preserve native pointer, keyboard, accessibility, and ref props when legacy Toolkit buttons are composed as menu triggers.
-
-## 0.10.2
-
-### Patch Changes
-
-- 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

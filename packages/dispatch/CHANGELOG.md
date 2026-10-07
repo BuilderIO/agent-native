@@ -1,5 +1,45 @@
 # @agent-native/dispatch
 
+## 0.40.15
+
+### Patch Changes
+
+- 6b0f888: Show per-run provider or Builder credit costs in chat, and keep historical usage without billing metadata unclassified across usage dashboards.
+- Release all public npm packages with a patch version bump.
+- 2b08ee1: Remove background fills from the Dispatch app card grid.
+- Updated dependencies [8944abb]
+- Updated dependencies [6b0f888]
+- Updated dependencies [d317d31]
+- Updated dependencies
+- Updated dependencies [6f748b3]
+- Updated dependencies [de755c7]
+  - @agent-native/toolkit@0.203.0
+
+## 0.40.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- b52ed3a: Bind cross-app MCP tokens to their endpoint, preserve verified user identity before organization fallback, and deduplicate organization-principal A2A submissions.
+- 42355e4: Dispatch shows configured first-party apps in its launchers by default.
+- c8fa837: Render hosted sign-in pages on the server, blur the signup form panel backdrop, and use the shared Calendar wave across signup pages and the homepage hero.
+- dbe2b81: Fix the thread debug inspector: folded run ids no longer appear as duplicate standalone rows, a deep-linked run outside the most recent window is fetched explicitly instead of silently showing the latest run, and thread-scoped traces (no run id) are now visible in the Thread tab.
+- Updated dependencies [b22060c]
+- Updated dependencies [a983e22]
+- Updated dependencies [123cf36]
+- Updated dependencies [a652cbc]
+- Updated dependencies [ef0662e]
+- Updated dependencies [ae80a65]
+- Updated dependencies [a9879f8]
+- Updated dependencies
+- Updated dependencies [edc7f35]
+- Updated dependencies [053539c]
+- Updated dependencies [c8fa837]
+- Updated dependencies [84e173d]
+- Updated dependencies [fa322d4]
+- Updated dependencies [dfff955]
+  - @agent-native/toolkit@0.202.0
+
 ## 0.40.13
 
 ### Patch Changes
@@ -1122,19 +1162,5 @@
 ### Patch Changes
 
 - d525c66: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
-
-## 0.27.8
-
-### Patch Changes
-
-- 8d34d57: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
-
-## 0.27.7
-
-### Patch Changes
-
-- 907dfa3: Hide redundant Agent-Native SSO controls inside embedded workspace app views while preserving the app's normal login and signup controls.
-- 907dfa3: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
-- 907dfa3: Preserve organization Google-only policies during shared sign-in by marking only Dispatch identities with a verified Google account link, while keeping existing local accounts and sessions additive.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

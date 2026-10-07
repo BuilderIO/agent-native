@@ -1,3 +1,14 @@
+import { parseBase64DataUrl } from "@agent-native/core/shared";
+
+const SAFE_INLINE_IMAGE_DATA_URL_TYPES = new Set([
+  "image/gif",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/avif",
+]);
+
 export const ALLOWED_TAGS: ReadonlySet<string> = new Set([
   "a",
   "article",
@@ -148,8 +159,10 @@ export function sanitizeSlideUrl(
   }
 
   if (lower.startsWith("data:")) {
+    const dataUrl = parseBase64DataUrl(decoded);
     return kind === "image" &&
-      /^data:image\/(?:gif|png|jpe?g|webp|avif);base64,/i.test(decoded)
+      dataUrl &&
+      SAFE_INLINE_IMAGE_DATA_URL_TYPES.has(dataUrl.mediaType)
       ? value
       : null;
   }

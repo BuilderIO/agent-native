@@ -32,7 +32,7 @@ export default defineAction({
       });
     }
     const orgId = getRequestOrgId() || null;
-    await assertSessionsTriageLabEnabled(userEmail, orgId, "friction");
+    await assertSessionsTriageLabEnabled(userEmail, orgId, ["friction"]);
     return {
       friction: await listRecordingFriction({ userEmail, orgId }, recordingIds),
     };

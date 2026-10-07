@@ -1,3 +1,15 @@
+## 0.10.3
+
+### Patch Changes
+
+- 180b41d: Preserve native pointer, keyboard, accessibility, and ref props when legacy Toolkit buttons are composed as menu triggers.
+
+## 0.10.2
+
+### Patch Changes
+
+- 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
+
 ## 0.10.1
 
 ### Patch Changes

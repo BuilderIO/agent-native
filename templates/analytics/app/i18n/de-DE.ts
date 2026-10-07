@@ -89,8 +89,7 @@ export default {
     visibilityPrivateOnly: "Meine",
     visibilitySharedOnly: "Geteilt",
     visibilityAllDescription: "Alle Elemente anzeigen",
-    visibilityPrivateOnlyDescription:
-      "Nur für dich sichtbare Elemente anzeigen",
+    visibilityPrivateOnlyDescription: "Von dir erstellte Elemente anzeigen",
     visibilitySharedOnlyDescription:
       "Mit Organisation geteilte und öffentliche Elemente anzeigen",
     hiddenAnalyses: "Ausgeblendete Analysen",
@@ -996,6 +995,7 @@ export default {
     dataSources: "Datenquellen – Analytics",
     sessions: "Sitzungen - Analytics",
     eventCatalog: "Ereigniskatalog - Analytics",
+    routePerformance: "Routen-Performance - Analytics",
     monitoring: "Überwachung – Analytics",
     agents: "Agenten – Analytics",
     session: "Sitzungswiedergabe - Analytics",
@@ -1324,7 +1324,7 @@ export default {
     showingSingular: "{{count}} Sitzung",
     labName: "Sitzungen prüfen",
     labDescription:
-      "Sitzungen nach erfassten Ereignissen und Reibungssignalen filtern, App-Ereignisse in Replay-Zeitleisten sehen und den Ereigniskatalog durchsuchen.",
+      "Sitzungen nach erfassten Ereignissen, Reibungssignalen und Geschwindigkeit filtern, App-Ereignisse und Seiten-Vitals in Replay-Zeitleisten sehen und den Ereigniskatalog sowie die Routen-Performance durchsuchen.",
     friction: "Reibung",
     frictionFiltersActive: "Reibung ({{count}})",
     sortFriction: "Meiste Reibung",
@@ -1437,6 +1437,37 @@ export default {
     catalogMoreKeys: "+{{count}} weitere",
     catalogTruncated:
       "Nur die {{count}} zuletzt gesehenen Ereignisse werden angezeigt.",
+    routePerformance: "Routen-Performance",
+    speed: "Geschwindigkeit",
+    anySpeed: "Jede Geschwindigkeit",
+    speedSlowAny: "Langsam",
+    speedPoorVitals: "Schlechte Web Vitals",
+    speedSlowRequests: "Langsame Anfragen",
+    speedCoverageSince: "Geschwindigkeit wird seit {{date}} gemessen.",
+    speedCoverageStarting:
+      "Geschwindigkeit wird ab jetzt für Seitenaufrufe gemessen.",
+    speedFilterNeedsLab:
+      "Dieser Link enthält einen Geschwindigkeitsfilter. Aktivieren Sie das Lab „Sitzungen prüfen“ in den Einstellungen, um ihn anzuwenden.",
+    slowRequestCount: "{{count}} langsame Anfragen",
+    slowRequestCountSingular: "{{count}} langsame Anfrage",
+    speedIncomplete: "Geschwindigkeitsdaten unvollständig",
+    speedNotMeasured: "Geschwindigkeit nicht gemessen",
+    speedUnavailable: "Geschwindigkeitsdaten konnten nicht geladen werden.",
+    markerPageVitals: "Seiten-Vitals",
+    markerSlowRequest: "Langsame Anfrage",
+    perfRoute: "Seitenroute",
+    perfRequests: "Anfragen",
+    perfNoData: "Keine Daten",
+    perfAccuracy:
+      "Jede Zelle zeigt p50 / p95, auf etwa 28 % genau. Anfragen unter 1 s werden stichprobenartig erfasst; langsame Anfragen werden exakt gezählt.",
+    perfEmpty: "Keine gemessenen Seitenaufrufe in diesem Zeitraum.",
+    perfIncomplete:
+      "An diesen Tagen wurden einige Ereignisse nicht gezählt, daher können sie unvollständig sein: {{dates}}",
+    perfLoadFailed:
+      "Die Routen-Performance konnte nicht geladen werden: {{message}}",
+    perfNeedsLab: "Die Routen-Performance gehört zum Lab „Sitzungen prüfen“.",
+    perfTruncated: "Nur die {{count}} meistbesuchten Routen werden angezeigt.",
+    perfAtLeast: "≥ {{value}}",
     anyActivity: "Beliebige Aktivität",
     filtersDescription:
       "Filter werden in der URL gespeichert, damit Agent und geteilte Links dieselbe Sitzungsliste sehen.",
@@ -1502,6 +1533,12 @@ export default {
       "Zugriffsgeschützte Chunks zum Rekonstruieren dieser Wiedergabe. Anbieter-URLs bleiben privat.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Screenshot herunterladen",
+    savingScreenshot: "Screenshot wird gespeichert…",
+    screenshotDownloaded: "Screenshot heruntergeladen",
+    screenshotSaveFailed: "Screenshot konnte nicht gespeichert werden",
+    screenshotUnsupportedAssets:
+      "Screenshot nicht gespeichert: Eingebettete Medien oder Bilder können teilweise nicht sicher erfasst werden.",
     timeline: "Ereignis-Timeline",
     replayTimeline: "Wiedergabe-Zeitachse",
     timelineDescription:

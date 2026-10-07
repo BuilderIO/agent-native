@@ -97,6 +97,17 @@ describe("sanitizeSlideUrl", () => {
     expect(sanitizeSlideUrl("javascript:alert(1)", "image")).toBeNull();
   });
 
+  it("allows parameterized raster data URLs while keeping the MIME allowlist", () => {
+    const dataUrl = "data:IMAGE/PNG;charset=binary;base64,AQID";
+    expect(sanitizeSlideUrl(dataUrl, "image")).toBe(dataUrl);
+    expect(
+      sanitizeSlideUrl(
+        "data:image/svg+xml;charset=utf-8;base64,PHN2Zy8+",
+        "image",
+      ),
+    ).toBeNull();
+  });
+
   it("allows blob urls only for explicitly enabled client previews", () => {
     expect(
       sanitizeSlideUrl("blob:https://example.com/preview", "image"),

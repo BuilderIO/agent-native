@@ -89,7 +89,7 @@ export default {
     visibilityPrivateOnly: "Míos",
     visibilitySharedOnly: "Compartido",
     visibilityAllDescription: "Mostrar todos los elementos",
-    visibilityPrivateOnlyDescription: "Mostrar solo elementos visibles para ti",
+    visibilityPrivateOnlyDescription: "Mostrar elementos que has creado",
     visibilitySharedOnlyDescription:
       "Mostrar elementos compartidos con la organización y públicos",
     hiddenAnalyses: "Análisis ocultos",
@@ -987,6 +987,7 @@ export default {
     dataSources: "Fuentes de datos - Analytics",
     sessions: "Sesiones - Analytics",
     eventCatalog: "Catálogo de eventos - Analytics",
+    routePerformance: "Rendimiento por ruta - Analytics",
     monitoring: "Monitorización - Analytics",
     agents: "Agentes - Analytics",
     session: "Reproducción de sesión - Analytics",
@@ -1311,7 +1312,7 @@ export default {
     showingSingular: "{{count}} sesión",
     labName: "Clasificación de sesiones",
     labDescription:
-      "Filtra sesiones por eventos registrados y señales de fricción, ve los eventos de la app en la línea de tiempo de la reproducción y explora el catálogo de eventos.",
+      "Filtra sesiones por eventos registrados, señales de fricción y velocidad, ve los eventos de la app y las métricas web de la página en la línea de tiempo de la reproducción, y explora el catálogo de eventos y el rendimiento por ruta.",
     friction: "Fricción",
     frictionFiltersActive: "Fricción ({{count}})",
     sortFriction: "Más fricción",
@@ -1425,6 +1426,37 @@ export default {
     catalogMoreKeys: "+{{count}} más",
     catalogTruncated:
       "Solo se muestran los {{count}} eventos vistos más recientemente.",
+    routePerformance: "Rendimiento por ruta",
+    speed: "Velocidad",
+    anySpeed: "Cualquier velocidad",
+    speedSlowAny: "Lentas",
+    speedPoorVitals: "Web Vitals deficientes",
+    speedSlowRequests: "Solicitudes lentas",
+    speedCoverageSince: "Velocidad medida desde el {{date}}.",
+    speedCoverageStarting:
+      "La velocidad se mide en las páginas vistas a partir de ahora.",
+    speedFilterNeedsLab:
+      "Este enlace tiene un filtro de velocidad. Activa el Lab Clasificación de sesiones en Ajustes para aplicarlo.",
+    slowRequestCount: "{{count}} solicitudes lentas",
+    slowRequestCountSingular: "{{count}} solicitud lenta",
+    speedIncomplete: "Datos de velocidad incompletos",
+    speedNotMeasured: "Velocidad no medida",
+    speedUnavailable: "No se pudieron cargar los datos de velocidad.",
+    markerPageVitals: "Métricas de la página",
+    markerSlowRequest: "Solicitud lenta",
+    perfRoute: "Ruta de página",
+    perfRequests: "Solicitudes",
+    perfNoData: "Sin datos",
+    perfAccuracy:
+      "Cada celda muestra p50 / p95, con un margen aproximado del 28 %. Las solicitudes de menos de 1 s se muestrean; las lentas se cuentan con exactitud.",
+    perfEmpty: "No hay páginas vistas medidas en este intervalo.",
+    perfIncomplete:
+      "Algunos eventos no se contaron en estos días, así que pueden estar incompletos: {{dates}}",
+    perfLoadFailed: "No se pudo cargar el rendimiento por ruta: {{message}}",
+    perfNeedsLab:
+      "El rendimiento por ruta forma parte del Lab Clasificación de sesiones.",
+    perfTruncated: "Solo se muestran las {{count}} rutas con más tráfico.",
+    perfAtLeast: "≥ {{value}}",
     anyActivity: "Cualquier actividad",
     filtersDescription:
       "Los filtros se guardan en la URL para que el agente y los enlaces compartidos vean la misma lista de sesiones.",
@@ -1491,6 +1523,12 @@ export default {
       "Fragmentos con acceso controlado usados para reconstruir esta reproducción. Las URL del proveedor permanecen privadas.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Descargar captura",
+    savingScreenshot: "Guardando captura…",
+    screenshotDownloaded: "Captura descargada",
+    screenshotSaveFailed: "No se pudo guardar la captura",
+    screenshotUnsupportedAssets:
+      "No se guardó la captura: algunos medios o imágenes incrustados no se pudieron capturar de forma segura.",
     timeline: "Línea de tiempo de eventos",
     replayTimeline: "Línea de tiempo de reproducción",
     timelineDescription: "Mostrando {{count}} de {{total}} eventos útiles.",
