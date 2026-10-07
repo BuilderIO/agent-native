@@ -1274,19 +1274,24 @@ export function useBuilderConnectFlow(
             : { ok: false, code: "provision_token_invalid", message: null };
         // Provisioning and connect tokens expire; refresh both from one status read.
         const freshProvisioningCredentials = async () => {
-          // coercion-ok: no fresh token is sent as none and refused as provision_token_invalid
           const status = await fetchStatus();
-          if (!status?.agentNativeProvisioningEnabled) return null;
-          const freshUrl = status?.connectUrl ?? null;
+          if (!status) return { kind: "status-read-failed" as const };
+          if (!status.agentNativeProvisioningEnabled) {
+            return { kind: "unavailable" as const };
+          }
+          const freshUrl = status.connectUrl ?? null;
           const freshConnectToken = freshUrl
             ? new URL(freshUrl, origin).searchParams.get(BUILDER_CONNECT_PARAM)
             : null;
           return status.agentNativeProvisioningToken && freshConnectToken
             ? {
-                provisioningToken: status.agentNativeProvisioningToken,
-                connectToken: freshConnectToken,
+                kind: "ready" as const,
+                credentials: {
+                  provisioningToken: status.agentNativeProvisioningToken,
+                  connectToken: freshConnectToken,
+                },
               }
-            : null;
+            : { kind: "unavailable" as const };
         };
         void (async () => {
           // The provisioning token outlives the signed connect URL by a
@@ -1300,15 +1305,26 @@ export function useBuilderConnectFlow(
                   connectToken,
                 }
               : null;
-          const credentials =
-            cachedCredentials ?? (await freshProvisioningCredentials());
-          if (!credentials) {
+          const credentialResult = cachedCredentials
+            ? { kind: "ready" as const, credentials: cachedCredentials }
+            : await freshProvisioningCredentials();
+          if (credentialResult.kind === "status-read-failed") {
+            connectStartedAtRef.current = null;
+            setConnecting(false);
+            setError(
+              t("agentChat.settingsShell.builder.grantsFailed"),
+              "status-read",
+            );
+            return;
+          }
+          if (credentialResult.kind === "unavailable") {
             connectStartedAtRef.current = null;
             setConnecting(false);
             setError(t("agentChat.settingsShell.builder.setupStartFailed"));
             return;
           }
-          let result = await activate(credentials);
+          let result = await activate(credentialResult.credentials);
+          let statusReadFailed = false;
           if (
             !result.ok &&
             cachedCredentials &&
@@ -1317,13 +1333,23 @@ export function useBuilderConnectFlow(
             isCurrentAttempt()
           ) {
             const freshCredentials = await freshProvisioningCredentials();
-            result = freshCredentials
-              ? await activate(freshCredentials)
-              : {
-                  ok: false,
-                  code: "provisioning_unavailable",
-                  message: null,
-                };
+            if (freshCredentials.kind === "status-read-failed") {
+              statusReadFailed = true;
+              result = {
+                ok: false,
+                code: "provisioning_unavailable",
+                message: null,
+              };
+            } else {
+              result =
+                freshCredentials.kind === "ready"
+                  ? await activate(freshCredentials.credentials)
+                  : {
+                      ok: false,
+                      code: "provisioning_unavailable",
+                      message: null,
+                    };
+            }
           }
           if (!isCurrentAttempt()) {
             notifyAgentEngineConfiguredChanged("builder-connect");
@@ -1361,6 +1387,13 @@ export function useBuilderConnectFlow(
               source: clickTrackingSource,
               flow: trackedFlow,
             });
+          }
+          if (statusReadFailed) {
+            setError(
+              t("agentChat.settingsShell.builder.grantsFailed"),
+              "status-read",
+            );
+            return;
           }
           setError(
             result.message && result.code !== "provision_token_invalid"

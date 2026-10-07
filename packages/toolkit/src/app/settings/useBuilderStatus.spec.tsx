@@ -923,6 +923,83 @@ describe("useBuilderConnectFlow", () => {
       );
     });
 
+    it("keeps status-read guidance when refreshing missing provisioning credentials fails", async () => {
+      let statusReads = 0;
+      const activationPosts: URL[] = [];
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          activationPosts.push(url);
+          return activationResponse(403, {
+            ok: false,
+            code: "provision_token_invalid",
+          });
+        }
+        statusReads += 1;
+        if (statusReads === 1) {
+          return jsonResponse({
+            ...activationStatus,
+            agentNativeProvisioningToken: null,
+            connectUrl: null,
+          });
+        }
+        throw new Error("status unavailable");
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(activationPosts).toHaveLength(0);
+      expect(container.textContent).toContain(
+        "Couldn't read the Builder.io connections.",
+      );
+      expect(container.textContent).not.toContain(
+        "Couldn't start Builder.io setup.",
+      );
+      expect(
+        container.querySelector("[data-testid='error-kind']")?.textContent,
+      ).toBe("status-read");
+    });
+
+    it("keeps status-read guidance when refreshing expired provisioning credentials fails", async () => {
+      let statusReads = 0;
+      const activationPosts: URL[] = [];
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          activationPosts.push(url);
+          return activationResponse(403, {
+            ok: false,
+            code: "provision_token_invalid",
+            message: "This activation link is expired.",
+          });
+        }
+        statusReads += 1;
+        if (statusReads === 1) return jsonResponse(activationStatus);
+        throw new Error("status unavailable");
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(activationPosts).toHaveLength(1);
+      expect(container.textContent).toContain(
+        "Couldn't read the Builder.io connections.",
+      );
+      expect(container.textContent).not.toContain(
+        "Couldn't start Builder.io setup.",
+      );
+      expect(
+        container.querySelector("[data-testid='error-kind']")?.textContent,
+      ).toBe("status-read");
+    });
+
     it("reconciles status when the activation response is lost", async () => {
       let activationAttempts = 0;
       vi.mocked(fetch).mockImplementation(async (input) => {
