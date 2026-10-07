@@ -2662,6 +2662,38 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         allowedArgumentNames: ["documentId", "limit", "tableQuery"],
       }),
     ).toBe(false);
+
+    const ticketCountBeforeWriteOnlyCall =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.length;
+    const writeOnlyHeaders = await mcpAppsAuthHeaders({
+      ownerEmail: "write-only@example.com",
+      scope: "mcp:write",
+      resource: `https://content.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      issuer: "https://content.agent-native.com",
+    });
+    const writeOnlyCall = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 151,
+        method: "tools/call",
+        params: {
+          name: "create-content-database",
+          arguments: {},
+        },
+      },
+      {
+        headers: { ...writeOnlyHeaders, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(writeOnlyCall.result.isError).not.toBe(true);
+    expect(
+      writeOnlyCall.result._meta?.["agent-native/embedStart"],
+    ).toBeUndefined();
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(
+      ticketCountBeforeWriteOnlyCall,
+    );
   });
 
   it("does not turn a completed action into an error when a widget target is missing", async () => {

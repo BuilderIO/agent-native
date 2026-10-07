@@ -52,6 +52,7 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   allowsMcpDirectoryWidgetReadAction,
   isMcpDirectoryWidgetReadCapabilityScope,
+  normalizeMcpDirectoryWidgetReadActionArguments,
 } from "../shared/embed-auth.js";
 import {
   isMcpEmbedCorsOrigin,
@@ -1027,22 +1028,27 @@ function mountActionRoutesInternal(
                   statusCode: 400,
                 });
               }
-              if (
-                directoryWidgetReadAllowed &&
-                !allowsMcpDirectoryWidgetReadAction(authCapability, {
-                  actionName: name,
-                  appId: options.mcpDirectoryWidgetAppId ?? options.appId,
-                  resourceUri: options.mcpDirectoryWidgetResourceUri,
-                  args: params,
-                  allowedArgumentNames:
-                    options.mcpDirectoryWidgetReadActionArguments?.[name],
-                })
-              ) {
-                throw createError({
-                  statusCode: 403,
-                  statusMessage:
-                    "This widget capability is scoped to a different app resource.",
-                });
+              if (directoryWidgetReadAllowed) {
+                const normalizedArgs =
+                  normalizeMcpDirectoryWidgetReadActionArguments(
+                    authCapability,
+                    {
+                      actionName: name,
+                      appId: options.mcpDirectoryWidgetAppId ?? options.appId,
+                      resourceUri: options.mcpDirectoryWidgetResourceUri,
+                      args: params,
+                      allowedArgumentNames:
+                        options.mcpDirectoryWidgetReadActionArguments?.[name],
+                    },
+                  );
+                if (!normalizedArgs) {
+                  throw createError({
+                    statusCode: 403,
+                    statusMessage:
+                      "This widget capability is scoped to a different app resource.",
+                  });
+                }
+                params = normalizedArgs;
               }
               if (
                 capabilityAllowed &&

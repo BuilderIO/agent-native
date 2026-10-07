@@ -1275,6 +1275,7 @@ function mcpDirectoryWidgetCapabilityForTool(
   args: Record<string, unknown>,
   result: unknown,
   actions: Record<string, ActionEntry>,
+  oauthScopes: string[] | undefined,
 ) {
   const profile = config.directoryProfile;
   const resolveTarget = profile?.widgetTargets?.[toolName];
@@ -1303,6 +1304,7 @@ function mcpDirectoryWidgetCapabilityForTool(
         !scopedPrivateRead) ||
       (entry.readOnly !== true &&
         !profile.widgetReadOnlyActions?.includes(actionName)) ||
+      !isActionVisibleForOAuthScope(entry, oauthScopes) ||
       entry.http === false ||
       entry.http?.method !== "GET" ||
       (entry.requiresAuth === false && !scopedPublicRead)
@@ -1426,6 +1428,7 @@ async function renewMcpDirectoryWidgetEmbedSession(
       toolInput,
       toolOutput,
       actions,
+      identity.oauthScopes,
     );
     if (!widgetCapability) continue;
     const targetPath = normalizeEmbedTargetPath(
@@ -2944,6 +2947,7 @@ export async function createMCPServerForRequest(
                   (args as Record<string, unknown>) ?? {},
                   projectedRawResult,
                   visibleActions,
+                  effectiveIdentity?.oauthScopes,
                 )
               : undefined;
           const missingDirectoryWidgetCapability =

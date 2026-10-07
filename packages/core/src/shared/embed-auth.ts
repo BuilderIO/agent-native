@@ -270,6 +270,84 @@ export function isMcpDirectoryWidgetReadCapabilityScope(
   );
 }
 
+export function normalizeMcpDirectoryWidgetReadActionArguments(
+  scope: string | undefined,
+  input: {
+    actionName: string;
+    appId: string | undefined;
+    resourceUri: string | undefined;
+    args?: Record<string, unknown>;
+    allowedArgumentNames?: readonly string[];
+    requireArgumentMatch?: boolean;
+  },
+): Record<string, unknown> | undefined {
+  if (!scope || !input.appId || !input.resourceUri) return undefined;
+  const decoded = decodeMcpDirectoryWidgetReadCapability(scope);
+  if (!decoded.ok) return undefined;
+  const capability = decoded.capability;
+  if (
+    !capability ||
+    capability.appId !== input.appId ||
+    capability.resourceUri !== input.resourceUri
+  ) {
+    return undefined;
+  }
+  const expectedArgs = capability.actionArguments[input.actionName];
+  if (!expectedArgs) return undefined;
+
+  const allowedNames = [...(input.allowedArgumentNames ?? [])].sort();
+  const expectedNames = Object.keys(expectedArgs).sort();
+  if (
+    allowedNames.length !== expectedNames.length ||
+    allowedNames.some((name, index) => name !== expectedNames[index])
+  ) {
+    return undefined;
+  }
+  if (input.requireArgumentMatch === false) return input.args ?? {};
+
+  const suppliedArgs = Object.entries(input.args ?? {});
+  const hasSchemaArgument = Object.values(expectedArgs).some(
+    (expected) =>
+      typeof expected !== "string" && expected.type === "actionSchema",
+  );
+  const includesResourceBinding = suppliedArgs.some(
+    ([name, value]) =>
+      typeof expectedArgs[name] === "string" && expectedArgs[name] === value,
+  );
+  if (hasSchemaArgument && !includesResourceBinding) return undefined;
+  if (suppliedArgs.length === 0) return undefined;
+
+  const normalizedArgs: Array<[string, unknown]> = [];
+  for (const [name, value] of suppliedArgs) {
+    if (!Object.hasOwn(expectedArgs, name)) return undefined;
+    const expected = expectedArgs[name];
+    if (typeof expected === "string") {
+      if (expected !== value) return undefined;
+      normalizedArgs.push([name, value]);
+      continue;
+    }
+    if (expected.type === "actionSchema") {
+      normalizedArgs.push([name, value]);
+      continue;
+    }
+    const number =
+      typeof value === "number"
+        ? value
+        : typeof value === "string" && /^(0|[1-9]\d*)$/.test(value)
+          ? Number(value)
+          : Number.NaN;
+    if (
+      !Number.isSafeInteger(number) ||
+      number < expected.min ||
+      number > expected.max
+    ) {
+      return undefined;
+    }
+    normalizedArgs.push([name, number]);
+  }
+  return Object.fromEntries(normalizedArgs);
+}
+
 export function allowsMcpDirectoryWidgetReadAction(
   scope: string | undefined,
   input: {
@@ -281,58 +359,7 @@ export function allowsMcpDirectoryWidgetReadAction(
     requireArgumentMatch?: boolean;
   },
 ): boolean {
-  if (!scope || !input.appId || !input.resourceUri) return false;
-  const decoded = decodeMcpDirectoryWidgetReadCapability(scope);
-  if (!decoded.ok) return false;
-  const capability = decoded.capability;
-  if (
-    !capability ||
-    capability.appId !== input.appId ||
-    capability.resourceUri !== input.resourceUri
-  ) {
-    return false;
-  }
-  const expectedArgs = capability.actionArguments[input.actionName];
-  if (!expectedArgs) return false;
-
-  const allowedNames = [...(input.allowedArgumentNames ?? [])].sort();
-  const expectedNames = Object.keys(expectedArgs).sort();
-  if (
-    allowedNames.length !== expectedNames.length ||
-    allowedNames.some((name, index) => name !== expectedNames[index])
-  ) {
-    return false;
-  }
-  if (input.requireArgumentMatch === false) return true;
-
-  const suppliedArgs = Object.entries(input.args ?? {});
-  const hasSchemaArgument = Object.values(expectedArgs).some(
-    (expected) =>
-      typeof expected !== "string" && expected.type === "actionSchema",
-  );
-  const includesResourceBinding = suppliedArgs.some(
-    ([name, value]) =>
-      typeof expectedArgs[name] === "string" && expectedArgs[name] === value,
-  );
-  if (hasSchemaArgument && !includesResourceBinding) return false;
   return (
-    suppliedArgs.length > 0 &&
-    suppliedArgs.every(([name, value]) => {
-      if (!Object.hasOwn(expectedArgs, name)) return false;
-      const expected = expectedArgs[name];
-      if (typeof expected === "string") return expected === value;
-      if (expected.type === "actionSchema") return true;
-      const number =
-        typeof value === "number"
-          ? value
-          : typeof value === "string" && /^(0|[1-9]\d*)$/.test(value)
-            ? Number(value)
-            : Number.NaN;
-      return (
-        Number.isSafeInteger(number) &&
-        number >= expected.min &&
-        number <= expected.max
-      );
-    })
+    normalizeMcpDirectoryWidgetReadActionArguments(scope, input) !== undefined
   );
 }

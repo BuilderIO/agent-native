@@ -1526,6 +1526,7 @@ describe("mountActionRoutes", () => {
     const {
       allowsMcpDirectoryWidgetReadAction,
       createMcpDirectoryWidgetReadCapability,
+      normalizeMcpDirectoryWidgetReadActionArguments,
     } = await import("../shared/embed-auth.js");
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestAuthCapability, getRequestUserEmail } =
@@ -1675,6 +1676,23 @@ describe("mountActionRoutes", () => {
         allowedArgumentNames: ["id"],
       }),
     ).toBe(false);
+    expect(
+      normalizeMcpDirectoryWidgetReadActionArguments(capability, {
+        actionName: "get-content-database",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: {
+          databaseId: "database-1",
+          documentId: "doc-1",
+          limit: "50",
+        },
+        allowedArgumentNames: ["databaseId", "documentId", "limit"],
+      }),
+    ).toEqual({
+      databaseId: "database-1",
+      documentId: "doc-1",
+      limit: 50,
+    });
     expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
       ["/_agent-native/actions/get-document"],
       nitroApp,
@@ -1772,7 +1790,7 @@ describe("mountActionRoutes", () => {
       args: {
         databaseId: "database-1",
         documentId: "doc-1",
-        limit: "100",
+        limit: 100,
       },
       caller: "mcp-widget",
     });
