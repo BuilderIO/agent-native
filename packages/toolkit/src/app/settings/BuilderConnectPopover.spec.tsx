@@ -196,6 +196,7 @@ describe("BuilderConnectPopover", () => {
       statusResolved: false,
       statusReadSettledCount: 1,
       agentNativeProvisioningEnabled: false,
+      error: "Couldn't reach Builder to check your account. Retrying.",
     };
 
     render(
@@ -216,6 +217,7 @@ describe("BuilderConnectPopover", () => {
     expect(consent?.textContent).toContain(
       "Couldn't read the Builder.io connections.",
     );
+    expect(consent?.textContent).not.toContain("Retrying.");
     expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
     click(
       [...(consent?.querySelectorAll("button") ?? [])].find(

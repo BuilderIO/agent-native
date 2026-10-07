@@ -3,6 +3,12 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-07
+
+### Fixed
+
+- Clarify Builder storage setup choices and retry guidance
+
 ## 2026-10-06
 
 ### Fixed

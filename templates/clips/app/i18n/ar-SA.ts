@@ -1460,7 +1460,8 @@ const messages = {
     builderConnectPopupError:
       "تعذّر فتح Builder.io. إذا كان التطبيق مضمّنًا في محادثة، فافتحه في علامة تبويب بالمتصفح؛ وإلا فحاول مرة أخرى.",
     builderConnectError:
-      "تعذّر إعداد Builder.io. حاول مرة أخرى أو تواصل مع الدعم.",
+      "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو استخدم خيار التخزين أدناه.",
+    builderStatusReadError: "تعذّر التحقق من اتصال Builder.io.",
     checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
     builderTimeout: "لم يصل رد من Builder خلال 5 دقائق. حاول مرة أخرى.",
     builderConnected: "Builder.io متصل",

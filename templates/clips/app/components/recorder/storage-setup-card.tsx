@@ -194,7 +194,10 @@ export function StorageSetupCard({
   const builderConnectErrorMessage = builderConnect.error
     ? /popup|chat host/i.test(builderConnect.error)
       ? t("storageSetup.builderConnectPopupError")
-      : t("storageSetup.builderConnectError")
+      : builderConnect.statusReadSettledCount > 0 &&
+          !builderConnect.statusResolved
+        ? t("storageSetup.builderStatusReadError")
+        : t("storageSetup.builderConnectError")
     : null;
   const builderConnecting = builderConnect.connecting;
   const actionConnecting = connecting || builderConnecting;

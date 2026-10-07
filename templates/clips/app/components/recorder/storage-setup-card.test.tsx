@@ -419,7 +419,7 @@ describe("StorageSetupCard", () => {
       statusResolved: false,
       statusReadSettledCount: 1,
       hasFetchedStatus: true,
-      error: "Couldn't read Builder connection status.",
+      error: "Couldn't read the Builder.io connections.",
     };
     mocks.useBuilderConnectFlow.mockReturnValue(flow);
 
@@ -427,7 +427,12 @@ describe("StorageSetupCard", () => {
       root.render(<StorageSetupCard onConfigured={vi.fn()} />);
     });
 
-    expect(container.textContent).toContain("storageSetup.builderConnectError");
+    expect(container.textContent).toContain(
+      "storageSetup.builderStatusReadError",
+    );
+    expect(container.textContent).not.toContain(
+      "storageSetup.builderConnectError",
+    );
     const retryButton = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "meetingDetail.retry",
     );
@@ -484,6 +489,20 @@ describe("StorageSetupCard", () => {
       "storageSetup.builderConnectError",
     );
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
+  it("offers the storage option when Builder setup fails", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ error: "Builder setup failed" }),
+    );
+    await renderCard();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "storageSetup.builderConnectError",
+    );
+    expect(
+      container.querySelector('a[href="/settings/general#video-storage"]'),
+    ).not.toBeNull();
   });
 
   it("surfaces the timeout after repeated failed status responses", async () => {

@@ -1496,7 +1496,9 @@ const messages = {
     builderConnectPopupError:
       "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab; versuche es andernfalls erneut.",
     builderConnectError:
-      "Builder.io konnte nicht eingerichtet werden. Bitte erneut versuchen oder den Support kontaktieren.",
+      "Die Einrichtung von Builder.io wurde nicht abgeschlossen. Versuche es erneut oder nutze die Speicheroption unten.",
+    builderStatusReadError:
+      "Die Verbindung zu Builder.io konnte nicht geprüft werden.",
     checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
       "Nach 5 Minuten kam keine Antwort von Builder. Versuche es erneut.",

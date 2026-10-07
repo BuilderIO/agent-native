@@ -120,7 +120,7 @@ export function BuilderConnectChoicePanel({
           </p>
         </div>
       ) : null}
-      {flow.error ? (
+      {flow.error && !statusReadFailed ? (
         <p role="alert" className="text-xs leading-5 text-destructive">
           {flow.error}
         </p>

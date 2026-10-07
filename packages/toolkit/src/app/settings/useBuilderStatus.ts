@@ -281,8 +281,6 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 export const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 20_000;
 const POPUP_LOAD_TIMEOUT_MS = 20_000;
 const STATUS_FETCH_ABORT_MS = 10_000;
-const BUILDER_STATUS_UNAVAILABLE_MESSAGE =
-  "Couldn't reach Builder to check your account. Retrying.";
 const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
 const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
@@ -1040,7 +1038,7 @@ export function useBuilderConnectFlow(
       setStatusReadSettledCount((count) => count + 1);
       if (!s) {
         statusUnavailableRef.current = true;
-        setError(BUILDER_STATUS_UNAVAILABLE_MESSAGE);
+        setError(t("agentChat.settingsShell.builder.grantsFailed"));
         return;
       }
       if (statusUnavailableRef.current) {
@@ -1123,7 +1121,7 @@ export function useBuilderConnectFlow(
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
-  }, [enabled, fetchStatus, notifyProvisionedAccount]);
+  }, [enabled, fetchStatus, notifyProvisionedAccount, t]);
 
   const retry = useCallback(() => retryStatusRef.current(), []);
   const cancel = useCallback(() => {
@@ -1395,7 +1393,7 @@ export function useBuilderConnectFlow(
           if (!status) {
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError(BUILDER_STATUS_UNAVAILABLE_MESSAGE);
+            setError(t("agentChat.settingsShell.builder.grantsFailed"));
             return;
           }
           setHasFetchedStatus(true);
@@ -1432,7 +1430,7 @@ export function useBuilderConnectFlow(
           ) {
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError(BUILDER_STATUS_UNAVAILABLE_MESSAGE);
+            setError(t("agentChat.settingsShell.builder.grantsFailed"));
             return;
           }
           const result = await openDesktopConnectUrl({
@@ -1445,7 +1443,10 @@ export function useBuilderConnectFlow(
           if (!result?.ok) {
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError(result?.error ?? BUILDER_STATUS_UNAVAILABLE_MESSAGE);
+            setError(
+              result?.error ??
+                t("agentChat.settingsShell.builder.grantsFailed"),
+            );
           }
         })();
       } else {
@@ -1646,7 +1647,7 @@ export function useBuilderConnectFlow(
       } else {
         statusPollFailuresRef.current += 1;
         statusUnavailableRef.current = true;
-        setError(BUILDER_STATUS_UNAVAILABLE_MESSAGE);
+        setError(t("agentChat.settingsShell.builder.grantsFailed"));
       }
       const orgName = s?.orgName ?? null;
       if (s) {

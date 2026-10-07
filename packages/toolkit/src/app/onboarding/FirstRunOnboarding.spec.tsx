@@ -1534,20 +1534,22 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toMatch(/\bProduct\b/);
   });
 
-  it("keeps the create-account CTA actionable after a failed status read", () => {
+  it("offers status retry and keeps the create action actionable after a failed read", () => {
     const start = vi.fn();
-    const retry = vi.fn();
-    mocks.useBuilderConnectFlow.mockReturnValue({
+    const retry = vi.fn(() => true);
+    const flow = {
       hasFetchedStatus: true,
       statusResolved: false,
+      statusReadSettledCount: 1,
       configured: false,
       agentNativeProvisioningEnabled: true,
       accountExists: false,
       connecting: false,
-      error: "Couldn't reach Builder to check your account. Retrying.",
+      error: "Couldn't read the Builder.io connections.",
       retry,
       start,
-    });
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
 
     act(() => {
       root.render(
@@ -1562,22 +1564,35 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(
-      document.body.querySelector(
-        '[data-testid="first-run-builder-status-error"]',
-      )?.textContent,
-    ).toContain("Couldn't reach Builder");
+    const statusError = document.body.querySelector(
+      '[data-testid="first-run-builder-status-error"]',
+    );
+    expect(statusError?.textContent).toContain(
+      "Couldn't read the Builder.io connections.",
+    );
+    expect(statusError?.textContent).not.toContain("Retrying.");
+    const retryButton = document.body.querySelector<HTMLButtonElement>(
+      '[data-testid="first-run-builder-retry-status"]',
+    );
+    expect(retryButton?.textContent).toContain("Retry");
+    act(() => {
+      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(retry).toHaveBeenCalledOnce();
+    expect(retryButton?.disabled).toBe(true);
+    expect(retryButton?.getAttribute("aria-busy")).toBe("true");
 
     const cta = document.body.querySelector(
       '[data-testid="first-run-builder-create-account"]',
     );
     expect(cta?.hasAttribute("disabled")).toBe(false);
+    expect(cta?.textContent).toContain("Create and activate");
+    expect(cta?.textContent).not.toContain("Create Builder.io account");
 
     act(() => {
       cta?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(retry).not.toHaveBeenCalled();
     expect(start).toHaveBeenCalledWith(
       expect.objectContaining({ provisionAccount: true }),
     );

@@ -1645,7 +1645,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle unresolved");
     expect(container.textContent).toContain(
-      "Couldn't reach Builder to check your account.",
+      "Couldn't read the Builder.io connections.",
     );
 
     await act(async () => {
@@ -1655,7 +1655,9 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(container.textContent).toContain("not-configured idle resolved");
-    expect(container.textContent).not.toContain("Couldn't reach Builder");
+    expect(container.textContent).not.toContain(
+      "Couldn't read the Builder.io connections.",
+    );
   });
 
   it("shows the chooser without navigating when status cannot be resolved", async () => {

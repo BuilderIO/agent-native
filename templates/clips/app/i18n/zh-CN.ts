@@ -1391,7 +1391,9 @@ const messages = {
   storageSetup: {
     builderConnectPopupError:
       "无法打开 Builder.io。如果此应用嵌入在聊天中，请在浏览器标签页中打开；否则请重试。",
-    builderConnectError: "无法设置 Builder.io。请重试或联系支持团队。",
+    builderConnectError:
+      "Builder.io 设置未完成。请重试，或使用下方的存储选项。",
+    builderStatusReadError: "无法检查 Builder.io 连接。",
     checkingBuilderConnection: "正在检查 Builder 连接…",
     builderTimeout: "5 分钟内未收到 Builder 响应，请重试。",
     builderConnected: "Builder.io 已连接",
