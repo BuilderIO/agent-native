@@ -2007,7 +2007,7 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
 const FEEDBACK_RELEASE_CONTEXT_RE =
   /\bfeedback\s+(?:sweeps?|reviews?|skills?|workflows?|triage)\b/gi;
 const FEEDBACK_RELEASE_ACTION_RE =
-  /\b(?:add(?:s|ed|ing)?|includ(?:e|es|ed|ing)|check(?:s|ed|ing)?|scan(?:s|ned|ning)?|review(?:s|ed|ing)?|inspect(?:s|ed|ing)?|cover(?:s|ed|ing)?|monitor(?:s|ed|ing)?|track(?:s|ed|ing)?|surfac(?:e|es|ed|ing)|look\s+at|make\s+sure|miss(?:ed|ing)?|skip(?:ped|ping)?|ignor(?:e|es|ed|ing)|overlook(?:s|ed|ing)?|forget(?:s|ting)?|forgot|forgotten|did(?:n['’]?t| not)\s+(?:include|check|scan|review|cover)|not\s+(?:included|checked|scanned|reviewed|covered))\b/gi;
+  /\b(?:add|include|check|scan|inspect|cover|monitor|track|surface|look\s+at|make\s+sure|miss(?:ed|ing)?|skip(?:ped|ping)?|ignor(?:e|ed|ing)|overlook(?:ed|ing)|forget|forgot|forgotten|aren['’]?t\s+scanning|are not\s+scanning|isn['’]?t\s+scanning|is not\s+scanning|doesn['’]?t\s+(?:scan|check|include)|does not\s+(?:scan|check|include)|didn['’]?t\s+(?:scan|check|include)|did not\s+(?:scan|check|include))\b/gi;
 const FEEDBACK_RELEASE_TARGET_RE =
   /\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ed|ing)?|packages?|desktop\s+(?:apps?|builds?))\b/gi;
 const FEEDBACK_RELEASE_FAILURE_RE =
@@ -2015,7 +2015,7 @@ const FEEDBACK_RELEASE_FAILURE_RE =
 
 function matchesFeedbackReleaseCoverage(message) {
   const clauses = String(message).split(
-    /[.!?;:\n]+|,\s*(?=(?:and|but|or|so|then|while|although|however|you|we|the|this|please|i|it|they|our|my|add|include|check|scan|inspect|review|make\s+sure|look)\b)/i,
+    /[.!?;\n]+|,\s*(?=(?:and|but|or|so|then|while|although|however|you|we|the|this|please|i|it|they|our|my|add|include|check|scan|inspect|make\s+sure|look)\b)/i,
   );
   return clauses.some((clause) => {
     const spans = (pattern) =>
@@ -2028,33 +2028,66 @@ function matchesFeedbackReleaseCoverage(message) {
     const targets = spans(FEEDBACK_RELEASE_TARGET_RE);
     const failures = spans(FEEDBACK_RELEASE_FAILURE_RE);
 
-    return targets.some((target) =>
-      failures.some((failure) => {
-        const distance =
-          failure.end < target.start
-            ? target.start - failure.end
-            : target.end < failure.start
-              ? failure.start - target.end
-              : 0;
-        if (distance > 60) return false;
+    if (
+      !actions.length ||
+      !contexts.length ||
+      !targets.length ||
+      !failures.length
+    )
+      return false;
 
-        const start = Math.min(target.start, failure.start);
-        const end = Math.max(target.end, failure.end);
-        const nearby = (span) =>
-          span.end < start
-            ? start - span.end <= 120
-            : end < span.start
-              ? span.start - end <= 120
-              : true;
-        return actions.some(
-          (action) =>
-            nearby(action) &&
-            contexts.some(
-              (context) => Math.abs(context.start - action.start) <= 60,
-            ),
-        );
-      }),
-    );
+    const lowerBound = (matches, position) => {
+      let low = 0;
+      let high = matches.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (matches[middle].start < position) low = middle + 1;
+        else high = middle;
+      }
+      return low;
+    };
+    const distance = (left, right) =>
+      left.end < right.start
+        ? right.start - left.end
+        : right.end < left.start
+          ? left.start - right.end
+          : 0;
+
+    return actions.some((action) => {
+      const contextIndex = lowerBound(contexts, action.start - 60);
+      if (
+        contextIndex === contexts.length ||
+        contexts[contextIndex].start > action.start + 60
+      ) {
+        return false;
+      }
+
+      const targetStart = lowerBound(targets, action.start - 180);
+      for (
+        let targetIndex = targetStart;
+        targetIndex < targets.length &&
+        targets[targetIndex].start <= action.end + 180;
+        targetIndex += 1
+      ) {
+        const target = targets[targetIndex];
+        const failureStart = lowerBound(failures, target.start - 80);
+        for (
+          let failureIndex = failureStart;
+          failureIndex < failures.length &&
+          failures[failureIndex].start <= target.end + 60;
+          failureIndex += 1
+        ) {
+          const failure = failures[failureIndex];
+          if (distance(target, failure) > 60) continue;
+          const coverage = {
+            start: Math.min(target.start, failure.start),
+            end: Math.max(target.end, failure.end),
+          };
+          if (distance(action, coverage) <= 120) return true;
+        }
+      }
+      return false;
+    });
   });
 }
 
@@ -2071,11 +2104,13 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [true, "The feedback sweep missed desktop build failures."],
   [true, "We are not scanning deployment failures in the feedback review."],
   [true, "The feedback sweep, going forward, should include failed deploys."],
+  [true, "Feedback review: please include failed desktop releases."],
   [false, "Add package publishing support to the app."],
   [false, "Include desktop release management in the product."],
   [false, "Add desktop release controls to the feedback app."],
   [false, "Check package publishing settings in the feedback app."],
   [false, "The desktop release missed its target date."],
+  [false, "The feedback review was useful but a desktop release had failures."],
   [
     false,
     "The feedback sweep is done; add desktop release controls to the app.",
@@ -2093,6 +2128,7 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [false, "Add failed app builds to the feedback app."],
   [false, "The app deploy and package publish both succeeded."],
   [false, "The review found an unrelated desktop bug."],
+  [false, `${"deployment ".repeat(4000)}${"failure ".repeat(4000)}`],
 ];
 
 if (process.argv.includes("--self-test")) {
