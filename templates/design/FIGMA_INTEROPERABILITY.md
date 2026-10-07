@@ -671,7 +671,8 @@ document previously claimed — and that wrong belief is the only reason the
 frames the REST corpus already imports, `File → Save local copy…`, drop the
 result in `.tmp/figma-fidelity/fig-files/` and add it to `fig-corpus.json`.
 Frames line up for free, because a `.fig` GUID is `sessionID:localID` — exactly
-the shape of a REST node id. Keep each file under the 50MB decoder cap; a whole
+the shape of a REST node id. Keep each file under the 50MB server decoder cap
+`run-fig` uses (browser imports allow 2GB via `BROWSER_FIG_LIMITS`); a whole
 multi-design file came to 93MB, while one design each came to 0.9MB, 3.8MB and
 46MB.
 
