@@ -201,7 +201,7 @@ for (const [w, h, tag] of [
       viewport: `${w}x${h}`,
       scheme,
       errors,
-      ...(await page.evaluate(metrics, expect ?? null)),
+      ...(await page.evaluate(metrics, expect ? expect : null)),
     });
     if (tag === "desktop" && scheme === "light") {
       await page.addStyleTag({
