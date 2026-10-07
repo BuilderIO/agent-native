@@ -9604,7 +9604,7 @@ export default function SlideEditor({
         >
           {t("styleInspector.order")}
         </ContextMenuSubTrigger>
-        <ContextMenuSubContent>
+        <ContextMenuSubContent className="z-[2147483647]">
           <ContextMenuItem
             disabled={!selectedElementSelector && !objectOperationSelection}
             onSelect={() => handleArrangeSelected("front")}

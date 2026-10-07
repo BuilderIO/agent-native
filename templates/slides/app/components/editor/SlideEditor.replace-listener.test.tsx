@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -286,7 +292,7 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     ).toHaveLength(0);
   });
 
-  it("keeps the arrange context menu above positioned slide images", () => {
+  it("keeps the arrange context menu above positioned slide images", async () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const noop = () => {};
     const slide = {
@@ -318,6 +324,15 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     });
     expect(menu.className).toContain("z-[2147483647]");
     expect(arrangeItem.getAttribute("aria-disabled")).not.toBe("true");
+
+    fireEvent.pointerMove(arrangeItem, { pointerType: "mouse" });
+
+    await waitFor(() => {
+      const submenu = getByRole("menuitem", {
+        name: "styleInspector.bringToFront",
+      }).closest('[role="menu"]');
+      expect(submenu?.className).toContain("z-[2147483647]");
+    });
   });
 
   it("keeps a comment-highlight click in the active text editor", () => {
