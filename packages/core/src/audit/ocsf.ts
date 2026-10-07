@@ -106,7 +106,7 @@ function actorFor(event: AuditEvent): OcsfApiActivity["actor"] {
   // A human can register a `@service.<orgId>` address, so the email alone is
   // not proof of a service principal: it must name this event's org.
   const session = event.threadId ? { session: { uid: event.threadId } } : {};
-  if (service && email && (!event.orgId || service.orgId === event.orgId)) {
+  if (service && email && event.orgId && service.orgId === event.orgId) {
     return {
       user: {
         uid: email,

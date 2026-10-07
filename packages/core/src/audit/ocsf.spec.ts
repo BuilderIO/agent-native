@@ -158,6 +158,17 @@ describe("auditEventToOcsf", () => {
     expect(out.actor.user.type_id).toBe(1);
   });
 
+  it("does not attribute an org-less service-shaped email to a service", () => {
+    const out = auditEventToOcsf(
+      event({
+        actorEmail: "svc-ci-bot@service.org-1",
+        actorKind: "human",
+        orgId: null,
+      }),
+    );
+    expect(out.actor.user.type_id).toBe(1);
+  });
+
   it("maps an actorless event to the System user", () => {
     const out = auditEventToOcsf(
       event({ actorEmail: null, actorKind: "system" }),
