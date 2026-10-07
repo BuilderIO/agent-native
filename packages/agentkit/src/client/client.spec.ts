@@ -457,6 +457,30 @@ describe("AgentKitClient", () => {
     });
   });
 
+  it("lets the host persist a filtered message snapshot", async () => {
+    const persistThreadSnapshot = vi.fn(async () => undefined);
+    const transport = createTransport([]);
+    transport.persistThreadSnapshot = persistThreadSnapshot;
+    const client = new AgentKitClient({ transport });
+    const transcript: AgentMessage = {
+      id: "voice-transcript-1",
+      role: "user",
+      parts: [{ type: "text", text: "Voice transcript" }],
+      status: "complete",
+    };
+
+    await client.persistThreadSnapshot("thread-1", [transcript]);
+
+    expect(persistThreadSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "thread-1",
+        snapshot: expect.objectContaining({ messages: [transcript] }),
+      }),
+      expect.anything(),
+    );
+    await client.shutdown();
+  });
+
   it("reloads the durable annotation after a concurrent snapshot update", async () => {
     const original = {
       id: "annotation-1",

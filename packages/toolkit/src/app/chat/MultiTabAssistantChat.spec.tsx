@@ -516,7 +516,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps built-in thread saves metadata-only and preserves custom snapshots", async () => {
+  it("keeps thread saves metadata-only for built-in, runtime, and custom transports", async () => {
     const snapshot = {
       threadData: JSON.stringify({ messages: [{ id: "message-1" }] }),
       title: "Saved chat",
@@ -556,10 +556,30 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
 
-    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith(
-      "thread-1",
-      snapshot,
-    );
+    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
+      ...snapshot,
+      threadData: "",
+    });
+    expect(window.location.search).toBe("?thread=thread-1");
+
+    const runtime = {} as NonNullable<MultiTabAssistantChatProps["runtime"]>;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync
+          runtime={runtime}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+
+    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
+      ...snapshot,
+      threadData: "",
+    });
     expect(window.location.search).toBe("?thread=thread-1");
   });
 

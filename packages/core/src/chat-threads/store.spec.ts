@@ -518,6 +518,84 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
+  it("counts a root user mirror once when its AgentKit ID differs", async () => {
+    const rootMessage = buildUserMessage({
+      text: "Make this change",
+      runId: "run-user-mirror",
+      agentKitMessageId: "client-user-mirror",
+    });
+    const repository = {
+      messages: [{ message: rootMessage, parentId: null }],
+      agentKit: {
+        messages: [{ id: "client-user-mirror", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Make this change",
+      2,
+    );
+
+    expect(row!.message_count).toBe(1);
+
+    const identicalMessage = buildUserMessage({
+      text: "Same client ID",
+      runId: "run-user-identical",
+      agentKitMessageId: "shared-user-id",
+    });
+    identicalMessage.id = "shared-user-id";
+    const identicalRepository = {
+      messages: [{ message: identicalMessage, parentId: null }],
+      agentKit: {
+        messages: [{ id: "shared-user-id", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(identicalRepository),
+      "Thread",
+      "Same client ID",
+      1,
+    );
+
+    expect(row!.message_count).toBe(1);
+
+    const unmatchedRepository = {
+      messages: [
+        {
+          message: buildUserMessage({
+            text: "Another request",
+            runId: "run-user-unmatched",
+          }),
+          parentId: null,
+        },
+      ],
+      agentKit: {
+        messages: [{ id: "unmatched-client-user", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(unmatchedRepository),
+      "Thread",
+      "Another request",
+      2,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
   it("counts unique messages across merged legacy and AgentKit history", async () => {
     const legacyMessage = {
       id: "legacy-user",
@@ -950,6 +1028,48 @@ describe("chat thread store", () => {
     );
 
     expect(row!.message_count).toBe(2);
+  });
+
+  it("counts many root assistant mirrors once each", async () => {
+    const messageCount = 256;
+    const rootMessages = Array.from({ length: messageCount }, (_, index) => {
+      const runId = `run-${index}`;
+      const text = `Answer ${index}`;
+      return {
+        message: {
+          id: `server-${index}`,
+          role: "assistant",
+          content: [{ type: "text", text }],
+          metadata: { runId },
+        },
+        parentId: index > 0 ? `server-${index - 1}` : null,
+      };
+    });
+    const agentKitMessages = Array.from(
+      { length: messageCount },
+      (_, index) => ({
+        id: `client-${index}`,
+        role: "assistant",
+        parts: [{ type: "text", text: `Answer ${index}` }],
+        metadata: { runId: `run-${index}` },
+      }),
+    );
+    const repository = {
+      messages: rootMessages,
+      agentKit: { _mergeRootMessages: true, messages: agentKitMessages },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Answer 255",
+      0,
+    );
+
+    expect(row!.message_count).toBe(messageCount);
   });
 
   it("counts disjoint mixed legacy history without the merge marker", async () => {

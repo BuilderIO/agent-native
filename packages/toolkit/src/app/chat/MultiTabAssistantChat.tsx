@@ -2751,7 +2751,7 @@ export function MultiTabAssistantChat({
     ) => {
       void saveThreadData(threadId, {
         ...data,
-        threadData: props.createTransport ? data.threadData : "",
+        threadData: "",
       });
       if (
         data.messageCount > 0 &&
@@ -2761,7 +2761,7 @@ export function MultiTabAssistantChat({
         writeThreadUrl(threadId);
       }
     },
-    [props.createTransport, saveThreadData, writeThreadUrl],
+    [saveThreadData, writeThreadUrl],
   );
 
   // ─── Slash command handler ──────────────────────────────────────────

@@ -12,6 +12,7 @@ import type {
   AgentEvent,
   AgentMessage,
   AgentStreamIntegrityReport,
+  AgentTransport,
   AgentThreadSnapshot,
   AgentToolCall,
   AgentUploadTarget,
@@ -210,6 +211,65 @@ const deferredProviderSubmissionOperations = new Map<
 // i18n-ignore: Internal recovery instruction sent to the agent, never shown as product copy.
 const RECOVERY_CONTINUE_PROMPT =
   "Continue from where you left off and finish my last request. Do not repeat completed work.";
+
+function withCoreSnapshotPersistence(
+  customTransport: AgentTransport,
+  coreTransport: AgentTransport,
+): AgentTransport {
+  if (customTransport === coreTransport) return customTransport;
+  const corePersist = coreTransport.persistThreadSnapshot;
+  if (!corePersist) {
+    throw new TypeError("Core transport must persist thread snapshots.");
+  }
+  const boundMethods = new Map<PropertyKey, Function>();
+  let disposed = false;
+  const persistThreadSnapshot: NonNullable<
+    AgentTransport["persistThreadSnapshot"]
+  > = async (...args) => {
+    const writes = [
+      ...(customTransport.persistThreadSnapshot
+        ? [customTransport.persistThreadSnapshot.call(customTransport, ...args)]
+        : []),
+      corePersist.call(coreTransport, ...args),
+    ];
+    const results = await Promise.allSettled(writes);
+    const errors = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
+      throw new AggregateError(errors, "Thread snapshot persistence failed.");
+    }
+  };
+  const dispose = async () => {
+    if (disposed) return;
+    disposed = true;
+    const results = await Promise.allSettled([
+      Promise.resolve(customTransport.dispose?.()),
+      Promise.resolve(coreTransport.dispose?.()),
+    ]);
+    const errors = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
+      throw new AggregateError(errors, "Chat transport disposal failed.");
+    }
+  };
+  return new Proxy(customTransport, {
+    get(target, property) {
+      if (property === "persistThreadSnapshot") return persistThreadSnapshot;
+      if (property === "dispose") return dispose;
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      const cached = boundMethods.get(property);
+      if (cached) return cached;
+      const bound = value.bind(target);
+      boundMethods.set(property, bound);
+      return bound;
+    },
+  });
+}
 
 type ThreadRestoreState =
   | { status: "ready" | "loading" }
@@ -957,8 +1017,9 @@ export const AgentKitAssistantChat = forwardRef<
         : props.agentChatSurface === "desktop"
           ? "desktop"
           : "app";
+    const apiUrl = props.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
     const adapterContext: AssistantChatAdapterContext = {
-      apiUrl: props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+      apiUrl,
       streamingUrl: props.streamingUrl,
       tabId: props.tabId,
       threadId,
@@ -973,7 +1034,27 @@ export const AgentKitAssistantChat = forwardRef<
       surface,
     };
     const customTransport = createTransportRef.current;
-    if (customTransport) return customTransport(adapterContext);
+    if (customTransport) {
+      const persistenceTransport = createAgentNativeAgentKitTransport({
+        apiUrl,
+        browserTabId: props.browserTabId,
+        get threadId() {
+          return transportThreadIdRef.current;
+        },
+        surface,
+        get scope() {
+          return scopeRef.current;
+        },
+        get isolateHistoryByScope() {
+          return isolateHistoryByScopeRef.current;
+        },
+        adapter: { textFormat: "markdown" },
+      });
+      return withCoreSnapshotPersistence(
+        customTransport(adapterContext),
+        persistenceTransport,
+      );
+    }
     const runtimeOptions: CreateAgentNativeChatRuntimeOptions = {
       apiUrl: props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
       streamingUrl: props.streamingUrl,
@@ -1855,6 +1936,12 @@ const AgentKitAssistantChatBody = forwardRef<
     if (!props.onSaveThread) return;
     if (snapshot.threadData === lastSavedThreadDataRef.current) return;
     lastSavedThreadDataRef.current = snapshot.threadData;
+    if (props.createTransport) {
+      void controller.persistThreadSnapshot(
+        threadId,
+        agentKitMessagesFromThreadSnapshot(snapshot),
+      );
+    }
     props.onSaveThread(threadId, snapshot);
   };
 
@@ -1895,11 +1982,17 @@ const AgentKitAssistantChatBody = forwardRef<
       );
       if (props.onSaveThread) {
         lastSavedThreadDataRef.current = snapshot.threadData;
+        if (props.createTransport) {
+          void controller.persistThreadSnapshot(
+            threadId,
+            agentKitMessagesFromThreadSnapshot(snapshot),
+          );
+        }
         props.onSaveThread(threadId, snapshot);
       }
       return true;
     },
-    [isRestoring, isRunning, props, thread, threadId],
+    [controller, isRestoring, isRunning, props, thread, threadId],
   );
 
   useEffect(() => {
@@ -5228,6 +5321,17 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
     preview: (latestUserText ?? "").slice(0, 280),
     messageCount: messages.length,
   };
+}
+
+function agentKitMessagesFromThreadSnapshot(
+  snapshot: ReturnType<typeof createAgentKitThreadSnapshot>,
+): AgentMessage[] {
+  const repository = asRecord(JSON.parse(snapshot.threadData));
+  const agentKit = asRecord(repository?.agentKit);
+  if (!Array.isArray(agentKit?.messages)) {
+    throw new TypeError("AgentKit thread snapshot is missing its messages.");
+  }
+  return agentKit.messages as AgentMessage[];
 }
 
 function createAgentKitThreadHandoffKey(

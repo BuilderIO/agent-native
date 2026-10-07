@@ -434,16 +434,67 @@ function countThreadMessages(value: unknown, fallback: number): number {
     runs: repo.agentKit?.runs,
     toolCalls: repo.agentKit?.toolCalls,
   });
+  const agentKitUserMessageId = (entry: unknown): string | undefined => {
+    const message = threadMessageRecord(entry);
+    if (message?.role !== "user") return undefined;
+    const metadata = message.metadata;
+    const custom =
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>).custom
+        : undefined;
+    const agentKitMessageId =
+      custom && typeof custom === "object" && !Array.isArray(custom)
+        ? (custom as Record<string, unknown>).agentKitMessageId
+        : undefined;
+    return typeof agentKitMessageId === "string"
+      ? agentKitMessageId
+      : undefined;
+  };
+  const snapshotUserMessageCounts = new Map<string, number>();
+  for (const entry of agentKitMessages) {
+    const message = threadMessageRecord(entry);
+    if (message?.role !== "user" || typeof message.id !== "string") continue;
+    snapshotUserMessageCounts.set(
+      message.id,
+      (snapshotUserMessageCounts.get(message.id) ?? 0) + 1,
+    );
+  }
+  const rootUserMirrorIdsByAgentKitId = new Map<string, string[]>();
+  for (const entry of rootMessages) {
+    const message = threadMessageRecord(entry);
+    const agentKitId = agentKitUserMessageId(entry);
+    if (typeof message?.id !== "string" || !agentKitId) continue;
+    const rootIds = rootUserMirrorIdsByAgentKitId.get(agentKitId);
+    if (rootIds) rootIds.push(message.id);
+    else rootUserMirrorIdsByAgentKitId.set(agentKitId, [message.id]);
+  }
+  const mirroredRootUserIds = new Set<string>();
+  for (const [agentKitId, rootIds] of rootUserMirrorIdsByAgentKitId) {
+    if (
+      rootIds.length === 1 &&
+      snapshotUserMessageCounts.get(agentKitId) === 1
+    ) {
+      mirroredRootUserIds.add(rootIds[0]!);
+    }
+  }
   const messageIds = new Set<string>();
   let unkeyedMessages = 0;
-  for (const entry of [...rootMessages, ...agentKitMessages]) {
+  const countMessage = (entry: unknown) => {
     const message = threadMessageRecord(entry);
-    if (typeof message?.id === "string" && mirroredRootIds.has(message.id)) {
-      continue;
-    }
     if (typeof message?.id === "string") messageIds.add(message.id);
     else unkeyedMessages += 1;
+  };
+  for (const entry of rootMessages) {
+    const message = threadMessageRecord(entry);
+    if (
+      typeof message?.id === "string" &&
+      (mirroredRootIds.has(message.id) || mirroredRootUserIds.has(message.id))
+    ) {
+      continue;
+    }
+    countMessage(entry);
   }
+  for (const entry of agentKitMessages) countMessage(entry);
   return messageIds.size + unkeyedMessages;
 }
 

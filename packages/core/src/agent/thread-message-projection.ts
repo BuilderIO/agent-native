@@ -248,17 +248,14 @@ function contentMatches(
 
 function foldedProjectionMatches(
   root: Record<string, unknown>,
-  snapshotMessages: Record<string, unknown>[],
+  snapshotMessagesByRunId: Map<string, Record<string, unknown>[]>,
   foldedIds: string[],
-  runIdsByMessageId: Map<string, Set<string>>,
   messageIdsByRun: Map<string, Set<string>>,
 ): boolean {
   if (foldedIds.length < 2) return false;
   const groups = foldedIds.map((runId) =>
-    snapshotMessages.filter(
-      (candidate) =>
-        candidate.id !== root.id &&
-        assistantRunId(candidate, runIdsByMessageId) === runId,
+    (snapshotMessagesByRunId.get(runId) ?? []).filter(
+      (candidate) => candidate.id !== root.id,
     ),
   );
   const presentIndices = groups.flatMap((group, index) =>
@@ -319,6 +316,14 @@ export function projectRootAssistantMessages(input: {
     : [];
   const runIdsByMessageId = eventRunIds(input.events, input.runs);
   const messageIdsByRun = eventMessageIdsByRun(runIdsByMessageId);
+  const snapshotMessagesByRunId = new Map<string, Record<string, unknown>[]>();
+  for (const candidate of snapshotMessages) {
+    const runId = assistantRunId(candidate, runIdsByMessageId);
+    if (!runId) continue;
+    const candidates = snapshotMessagesByRunId.get(runId);
+    if (candidates) candidates.push(candidate);
+    else snapshotMessagesByRunId.set(runId, [candidate]);
+  }
   const represented = new Set<string>();
   const directMatches = new Map<string, string>();
   for (const root of rootMessages) {
@@ -326,10 +331,8 @@ export function projectRootAssistantMessages(input: {
     const runId = explicitRunId(root);
     if (!runId) continue;
     const toolMessageIds = representedToolCallMessageIds(root, input.toolCalls);
-    const sameRunCandidates = snapshotMessages.filter(
-      (candidate) =>
-        candidate.id !== root.id &&
-        assistantRunId(candidate, runIdsByMessageId) === runId,
+    const sameRunCandidates = (snapshotMessagesByRunId.get(runId) ?? []).filter(
+      (candidate) => candidate.id !== root.id,
     );
     const sameRunMatches = sameRunCandidates.filter((candidate) =>
       contentMatches(root, candidate, toolMessageIds),
@@ -361,9 +364,8 @@ export function projectRootAssistantMessages(input: {
       toolMessageIds !== undefined &&
       foldedProjectionMatches(
         root,
-        snapshotMessages,
+        snapshotMessagesByRunId,
         foldedRunIds(root),
-        runIdsByMessageId,
         messageIdsByRun,
       )
     ) {
