@@ -6129,7 +6129,12 @@ describe("createAgentNativeAgentKitTransport", () => {
     ];
     const durableMessages = turns.flatMap((turn, index) => {
       const toolCallId = `call-${turn.runId}`;
-      const result = { answer: `Answer ${index + 1}` };
+      const result = {
+        answer:
+          index === 2
+            ? "Answer 3 with completed suffix"
+            : `Answer ${index + 1}`,
+      };
       return [
         {
           message: {
@@ -6171,13 +6176,18 @@ describe("createAgentNativeAgentKitTransport", () => {
         id: turn.userId,
         role: "user",
         parts: [{ type: "text", text: `Question ${index + 1}` }],
-        createdAt: turn.promptAt,
+        ...(index === 1 ? {} : { createdAt: turn.promptAt }),
       },
       {
         id: turn.answerId,
         role: "assistant",
         status: "complete",
-        parts: [{ type: "text", text: `Answer ${index + 1}` }],
+        parts: [
+          {
+            type: "text",
+            text: index === 2 ? "Answer 3" : `Answer ${index + 1}`,
+          },
+        ],
       },
     ]);
     const events = turns.slice(0, 2).map((turn) => ({
@@ -6197,7 +6207,12 @@ describe("createAgentNativeAgentKitTransport", () => {
       id: `call-${turn.runId}`,
       name: "lookup",
       input: { runId: turn.runId },
-      output: { answer: `Answer ${index + 1}` },
+      output: {
+        answer:
+          index === 2
+            ? "Answer 3 with completed suffix"
+            : `Answer ${index + 1}`,
+      },
       status: "completed",
       runId: turn.runId,
       messageId: turn.answerId,
@@ -6235,6 +6250,21 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(snapshot?.messages.map((message) => message.createdAt)).toEqual(
       turns.flatMap((turn) => [turn.promptAt, turn.answerAt]),
     );
+    expect(
+      snapshot?.messages
+        .filter((message) => message.role === "assistant")
+        .map((message) =>
+          message.parts
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join(""),
+        ),
+    ).toEqual([
+      "Answer 1",
+      "Answer 2",
+      "Answer 3 with completed suffix",
+      "Answer 4",
+    ]);
     await transport.dispose();
   });
 

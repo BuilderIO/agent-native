@@ -404,8 +404,9 @@ export function projectRootAssistantMessages(input: {
       matchingCandidate !== undefined &&
       (explicitRunId(matchingCandidate) === runId ||
         (typeof matchingCandidate.id === "string" &&
-          runIdsByMessageId.get(matchingCandidate.id)?.size === 1 &&
-          messageIdsByRun.get(runId)?.size === 1));
+          (snapshotRunIdsByMessageId.get(matchingCandidate.id) === runId ||
+            (runIdsByMessageId.get(matchingCandidate.id)?.size === 1 &&
+              messageIdsByRun.get(runId)?.size === 1))));
     if (
       sameRunMatches.length === 1 &&
       (exactTextMatch ||

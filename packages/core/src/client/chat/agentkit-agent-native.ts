@@ -962,7 +962,13 @@ function reconcileDurableMessages(
   const reconciledMessages = projectedMessages.map((message) => {
     if (message.role === "user") {
       const stored = storedUserBySnapshotId.get(message.id);
-      return stored ? withRefusedTurnMetadata(message, stored) : message;
+      if (!stored) return message;
+      const createdAt = message.createdAt ?? stored.createdAt;
+      const reconciled =
+        createdAt === message.createdAt
+          ? message
+          : { ...message, ...(createdAt ? { createdAt } : {}) };
+      return withRefusedTurnMetadata(reconciled, stored);
     }
     if (message.role !== "assistant") return message;
     const representedRootId = rootMessageIdsBySnapshotMessageId.get(message.id);
