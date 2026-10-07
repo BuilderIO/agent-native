@@ -67,11 +67,12 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 `👀` is claim history; `✅` requires **Fixed** after Phase 2 bars. Check each
 reported symptom separately. For partial fixes, pair `✅` for verified scope
-with `🎫` for distinct unfinished human work only when an existing ticket names
-the owner and exact action; link it in the ledger and reply. Without a ticket,
-keep the item `👀`-only and open; report fixed and pending scopes, the exact
-untracked handoff, and the missing ticket. No `🎫` for fixed scope, routine
-rollout, optional checks, subjective/out-of-scope, or unapproved work.
+with `🎫` for any distinct unfinished scope that needs a human to take
+ownership or act, whether or not a ticket exists. Link a verified ticket and
+name its owner/action; without one, keep the handoff explicit in the reply and
+ledger and say that an owner or ticket still needs to be assigned. Do not
+create or promise a ticket without authorization. No `🎫` for fixed scope,
+routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
 **Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
 Follow the reply reference before marking an item replied.
 
@@ -571,7 +572,7 @@ Upvoted items in scope: N (built: N)
 
 | Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply proof | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 ticketed only |
+| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 human handoff needed |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete

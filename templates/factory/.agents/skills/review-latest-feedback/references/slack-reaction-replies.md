@@ -15,16 +15,16 @@ run added `👀`, keep it and post a concise **Clustered** reply with the owner
 permalink; never remove the reaction.
 
 Compare each reported symptom with the evidence. State what is fixed and what
-is not. Use `✅` only for verified fixed scope. Use `🎫` for a distinct
-unfinished scope needing human follow-through only when an existing ticket
-names the owner and exact action; link it in both the ledger and reply. If no
-such ticket exists, keep the item `👀`-only and open; state the fixed and
-pending scopes, exact untracked handoff, and missing ticket in the reply and
-ledger. Never imply a partial fix resolved the whole report.
+is not. Use `✅` only for verified fixed scope. Use `🎫` for each distinct
+unfinished scope that needs a human to take ownership or act, whether or not a
+ticket exists. Link a verified ticket and name its owner/action; if no ticket
+or owner is assigned, state the exact handoff and that gap in the reply and
+ledger. Do not create or promise a ticket without authorization. Never imply a
+partial fix resolved the whole report.
 
 For beta app fixes, check the matching merge-triggered publisher. While it is
-queued or running, say what changed and that it should be on beta in about 24
-hours. If it succeeds, report beta publication as complete; that does not
+queued or running, say what changed and that it should be on beta within about
+24 hours. If it succeeds, report beta publication as complete; that does not
 prove independent runtime behavior. If the run is missing or fails, omit the
 ETA and state the next action and owner. Keep verification and rollout details
 in the recap. For packages, state availability without verification details.

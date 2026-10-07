@@ -345,9 +345,10 @@ A useful reply shape is:
 ty for the feedback - [short plain-language status].
 
   [if a merged app fix uses the beta publisher: the fix merged and should be
-  live on beta in the next few hours.]
-  [if the report is mixed: name each unfixed item and why; ask one targeted
-  question if needed, or say clear deferred work will be ticketed.]
+  live on beta within about 24 hours.]
+  [if the report is mixed: name each unfixed item and why; state the human
+  action or owner still needed, link an existing ticket if available, and ask
+  one targeted question only if its answer would unblock the work.]
   [if in progress: we're already looking into this and will follow up once the
   fix is verified.]
   [if clarification is needed: if you can share the one missing detail, that
