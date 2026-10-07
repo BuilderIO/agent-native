@@ -3463,9 +3463,12 @@ export function createAgentChatPlugin(
                   )
                     .filter(
                       ([name]) =>
-                        mcpOptions.directoryProfile?.connectorCatalog.includes(
+                        (mcpOptions.directoryProfile?.connectorCatalog.includes(
                           name,
-                        ) &&
+                        ) ||
+                          mcpOptions.directoryProfile?.widgetReadPublicActions?.includes(
+                            name,
+                          )) &&
                         httpActions[name] &&
                         (httpActions[name]?.readOnly === true ||
                           mcpOptions.directoryProfile?.widgetReadOnlyActions?.includes(
@@ -3478,6 +3481,10 @@ export function createAgentChatPlugin(
           mcpDirectoryWidgetReadOnlyActions:
             mcpOptions.enabled && mcpOptions.directoryProfile
               ? mcpOptions.directoryProfile.widgetReadOnlyActions
+              : undefined,
+          mcpDirectoryWidgetReadPublicActions:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? mcpOptions.directoryProfile.widgetReadPublicActions
               : undefined,
           mcpDirectoryWidgetAppId:
             mcpOptions.enabled && mcpOptions.directoryProfile

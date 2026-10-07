@@ -1,5 +1,6 @@
 import type { McpDirectoryWidgetTarget } from "../../mcp/build-server.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
+import type { McpDirectoryWidgetReadArgument } from "../../shared/embed-auth.js";
 
 export interface AgentChatMcpIcon {
   src: string;
@@ -23,9 +24,14 @@ export interface AgentChatMcpOptions {
         result: unknown,
       ) => McpDirectoryWidgetTarget | null
     >;
-    widgetReadActionArguments?: Record<string, Record<string, string>>;
+    widgetReadActionArguments?: Record<
+      string,
+      Record<string, McpDirectoryWidgetReadArgument>
+    >;
     /** Actions whose capability-backed `mcp-widget` execution is strictly read-only. */
     widgetReadOnlyActions?: readonly string[];
+    /** Unlisted public reads that are available only through a scoped widget ticket. */
+    widgetReadPublicActions?: readonly string[];
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;

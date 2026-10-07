@@ -338,6 +338,7 @@ export interface MountActionRoutesOptions {
   clientCompatibilityVersion?: string;
   mcpDirectoryWidgetReadActionArguments?: Record<string, readonly string[]>;
   mcpDirectoryWidgetReadOnlyActions?: readonly string[];
+  mcpDirectoryWidgetReadPublicActions?: readonly string[];
   mcpDirectoryWidgetAppId?: string;
   mcpDirectoryWidgetResourceUri?: string;
   getOwnerContextFromEvent?: (
@@ -668,7 +669,9 @@ function mountActionRoutesInternal(
           (entry.readOnly === true ||
             options?.mcpDirectoryWidgetReadOnlyActions?.includes(name) ===
               true) &&
-          entry.requiresAuth !== false &&
+          (entry.requiresAuth !== false ||
+            options?.mcpDirectoryWidgetReadPublicActions?.includes(name) ===
+              true) &&
           options?.mcpDirectoryWidgetReadActionArguments?.[name] !==
             undefined &&
           allowsMcpDirectoryWidgetReadAction(authCapability, {
@@ -680,7 +683,9 @@ function mountActionRoutesInternal(
             requireArgumentMatch: false,
           });
         const directoryWidgetReadRoute =
-          options?.mcpDirectoryWidgetReadActionArguments?.[name] !== undefined;
+          options?.mcpDirectoryWidgetReadActionArguments?.[name] !==
+            undefined &&
+          options?.mcpDirectoryWidgetReadPublicActions?.includes(name) !== true;
         if (directoryWidgetReadCapability && !directoryWidgetReadAllowed) {
           setResponseStatus(event, 403);
           return {

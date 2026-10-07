@@ -9,6 +9,7 @@ export const EMBED_TARGET_HEADER = "x-agent-native-embed-target";
 export const MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX =
   "capability:mcp-directory-widget-read:";
 export const MCP_DIRECTORY_WIDGET_READ_CAPABILITY_MAX_LENGTH = 2048;
+const MCP_DIRECTORY_WIDGET_INTEGER_ARGUMENT_MAX = 5_000;
 
 const MCP_DIRECTORY_ACTION_NAME = /^[A-Za-z0-9_.-]{1,128}$/;
 const MCP_DIRECTORY_SCOPE_KEY = /^[A-Za-z0-9_.-]{1,128}$/;
@@ -18,8 +19,15 @@ export interface McpDirectoryWidgetReadCapabilityInput {
   appId: string;
   resourceUri: string;
   resourceIds: Record<string, string>;
-  actionArguments: Record<string, Record<string, string>>;
+  actionArguments: Record<
+    string,
+    Record<string, McpDirectoryWidgetReadArgument>
+  >;
 }
+
+export type McpDirectoryWidgetReadArgument =
+  | string
+  | { type: "integerRange"; min: number; max: number };
 
 interface McpDirectoryWidgetReadCapability extends McpDirectoryWidgetReadCapabilityInput {
   version: 1;
@@ -43,6 +51,47 @@ function isStringRecord(
         item.length > 0 &&
         item.length <= 256 &&
         !CONTROL_CHARS.test(item),
+    )
+  );
+}
+
+function isWidgetReadArgument(
+  value: unknown,
+): value is McpDirectoryWidgetReadArgument {
+  if (typeof value === "string") {
+    return (
+      value.length > 0 && value.length <= 256 && !CONTROL_CHARS.test(value)
+    );
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const range = value as Record<string, unknown>;
+  return (
+    range.type === "integerRange" &&
+    Object.keys(range).length === 3 &&
+    Number.isSafeInteger(range.min) &&
+    Number.isSafeInteger(range.max) &&
+    (range.min as number) >= 0 &&
+    (range.max as number) >= (range.min as number) &&
+    (range.max as number) <= MCP_DIRECTORY_WIDGET_INTEGER_ARGUMENT_MAX
+  );
+}
+
+function isWidgetReadArgumentRecord(
+  value: unknown,
+  { minEntries = 1, maxEntries = 16 } = {},
+): value is Record<string, McpDirectoryWidgetReadArgument> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const entries = Object.entries(value);
+  return (
+    entries.length >= minEntries &&
+    entries.length <= maxEntries &&
+    entries.every(
+      ([key, item]) =>
+        MCP_DIRECTORY_SCOPE_KEY.test(key) && isWidgetReadArgument(item),
     )
   );
 }
@@ -81,7 +130,8 @@ function isWidgetReadCapability(
     actions.length <= 32 &&
     actions.every(
       ([actionName, args]) =>
-        MCP_DIRECTORY_ACTION_NAME.test(actionName) && isStringRecord(args),
+        MCP_DIRECTORY_ACTION_NAME.test(actionName) &&
+        isWidgetReadArgumentRecord(args),
     )
   );
 }
@@ -143,6 +193,19 @@ function sortStringRecord(value: Record<string, string>) {
   );
 }
 
+function sortWidgetReadArgumentRecord(
+  value: Record<string, McpDirectoryWidgetReadArgument>,
+) {
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, argument]) => [
+        key,
+        typeof argument === "string" ? argument : { ...argument },
+      ]),
+  );
+}
+
 export function createMcpDirectoryWidgetReadCapability(
   input: McpDirectoryWidgetReadCapabilityInput,
 ): string | undefined {
@@ -165,7 +228,8 @@ export function createMcpDirectoryWidgetReadCapability(
     actionEntries.length > 32 ||
     actionEntries.some(
       ([actionName, args]) =>
-        !MCP_DIRECTORY_ACTION_NAME.test(actionName) || !isStringRecord(args),
+        !MCP_DIRECTORY_ACTION_NAME.test(actionName) ||
+        !isWidgetReadArgumentRecord(args),
     )
   ) {
     return undefined;
@@ -179,7 +243,10 @@ export function createMcpDirectoryWidgetReadCapability(
     actionArguments: Object.fromEntries(
       actionEntries
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([actionName, args]) => [actionName, sortStringRecord(args)]),
+        .map(([actionName, args]) => [
+          actionName,
+          sortWidgetReadArgumentRecord(args),
+        ]),
     ),
   };
   const scope =
@@ -236,9 +303,21 @@ export function allowsMcpDirectoryWidgetReadAction(
   const suppliedArgs = Object.entries(input.args ?? {});
   return (
     suppliedArgs.length > 0 &&
-    suppliedArgs.every(
-      ([name, value]) =>
-        Object.hasOwn(expectedArgs, name) && expectedArgs[name] === value,
-    )
+    suppliedArgs.every(([name, value]) => {
+      if (!Object.hasOwn(expectedArgs, name)) return false;
+      const expected = expectedArgs[name];
+      if (typeof expected === "string") return expected === value;
+      const number =
+        typeof value === "number"
+          ? value
+          : typeof value === "string" && /^(0|[1-9]\d*)$/.test(value)
+            ? Number(value)
+            : Number.NaN;
+      return (
+        Number.isSafeInteger(number) &&
+        number >= expected.min &&
+        number <= expected.max
+      );
+    })
   );
 }

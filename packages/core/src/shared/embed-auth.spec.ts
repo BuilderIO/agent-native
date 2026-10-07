@@ -47,6 +47,7 @@ describe("MCP directory widget read capabilities", () => {
         "get-content-database": {
           databaseId: "database-123",
           documentId: "document-123",
+          limit: { type: "integerRange", min: 0, max: 5_000 },
         },
       },
     });
@@ -55,8 +56,8 @@ describe("MCP directory widget read capabilities", () => {
         actionName: "get-content-database",
         appId: "content",
         resourceUri: "ui://content/shell-v67",
-        args: { databaseId: "database-123" },
-        allowedArgumentNames: ["databaseId", "documentId"],
+        args: { databaseId: "database-123", limit: "100" },
+        allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
     ).toBe(true);
     expect(
@@ -64,8 +65,8 @@ describe("MCP directory widget read capabilities", () => {
         actionName: "get-content-database",
         appId: "content",
         resourceUri: "ui://content/shell-v67",
-        args: { documentId: "document-123" },
-        allowedArgumentNames: ["databaseId", "documentId"],
+        args: { documentId: "document-123", limit: 5_000 },
+        allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
     ).toBe(true);
     expect(
@@ -74,7 +75,7 @@ describe("MCP directory widget read capabilities", () => {
         appId: "content",
         resourceUri: "ui://content/shell-v67",
         args: { databaseId: "database-123", documentId: "another-document" },
-        allowedArgumentNames: ["databaseId", "documentId"],
+        allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
     ).toBe(false);
     expect(
@@ -82,8 +83,26 @@ describe("MCP directory widget read capabilities", () => {
         actionName: "get-content-database",
         appId: "content",
         resourceUri: "ui://content/shell-v67",
-        args: { databaseId: "database-123", includeRows: "all" },
-        allowedArgumentNames: ["databaseId", "documentId"],
+        args: { databaseId: "database-123", limit: "5001" },
+        allowedArgumentNames: ["databaseId", "documentId", "limit"],
+      }),
+    ).toBe(false);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(contentScope, {
+        actionName: "get-content-database",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { databaseId: "database-123", limit: "100.5" },
+        allowedArgumentNames: ["databaseId", "documentId", "limit"],
+      }),
+    ).toBe(false);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(contentScope, {
+        actionName: "get-content-database",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { databaseId: "database-123", limit: "-1" },
+        allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
     ).toBe(false);
     expect(
@@ -123,6 +142,17 @@ describe("MCP directory widget read capabilities", () => {
       createMcpDirectoryWidgetReadCapability({
         ...capability,
         resourceIds: { designId: "" },
+      }),
+    ).toBeUndefined();
+    expect(
+      createMcpDirectoryWidgetReadCapability({
+        ...capability,
+        actionArguments: {
+          "get-design-snapshot": {
+            designId: "design-123",
+            limit: { type: "integerRange", min: 0, max: 5_001 },
+          },
+        },
       }),
     ).toBeUndefined();
     expect(

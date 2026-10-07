@@ -89,7 +89,9 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   },
   widgetReadActionArguments: {
     "get-design-snapshot": { designId: "designId" },
+    "get-design": { id: "designId" },
   },
+  widgetReadPublicActions: ["get-design"],
   keyToolNames: [
     "list-designs",
     "list-design-templates",

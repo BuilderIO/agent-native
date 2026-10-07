@@ -855,9 +855,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       for (const { appId, profile } of profiles) {
         const logStart = requestLogs.length;
         const projectRoot = path.join(repoRoot, "templates", appId);
+        const actionNames = [
+          ...new Set([
+            ...profile.connectorCatalog,
+            ...Object.keys(profile.widgetReadActionArguments ?? {}),
+          ]),
+        ];
         const modules = Object.fromEntries(
           await Promise.all(
-            profile.connectorCatalog.map(async (name) => {
+            actionNames.map(async (name) => {
               const actionUrl =
                 pathToFileURL(path.join(projectRoot, "actions", `${name}.ts`))
                   .href + `?scannerReplay=${Date.now()}`;
@@ -2129,6 +2135,18 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("renews a read-only directory widget ticket after reload", async () => {
+    const getDesign = defineAction({
+      description: "Read the design editor bootstrap record.",
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: false,
+      run: async (args: Record<string, unknown>) => ({ id: args.id }),
+    });
     const getDesignSnapshot = defineAction({
       description: "Read one saved design.",
       parameters: {
@@ -2162,7 +2180,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       appId: "design",
       directoryProfile: {
         connectorCatalog: ["get-design-snapshot"],
-        widgetDomain: "https://design.agent-native.com",
         widgetTargets: {
           "get-design-snapshot": (
             args: Record<string, unknown>,
@@ -2183,16 +2200,33 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         },
         widgetReadActionArguments: {
           "get-design-snapshot": { designId: "designId" },
+          "get-design": { id: "designId" },
         },
+        widgetReadPublicActions: ["get-design"],
       },
       widgetDomain: "https://design.agent-native.com",
-      actions: { "get-design-snapshot": getDesignSnapshot },
+      actions: {
+        "get-design-snapshot": getDesignSnapshot,
+        "get-design": getDesign,
+      },
     };
     const headers = await mcpAppsAuthHeaders({
       resource: `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
       issuer: "https://design.agent-native.com",
     });
     const requestHeaders = { ...headers, host: "design.agent-native.com" };
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 145, method: "tools/list", params: {} },
+      {
+        headers: requestHeaders,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    const listedToolNames = listed.result.tools.map((tool: any) => tool.name);
+    expect(listedToolNames).toContain("get-design-snapshot");
+    expect(listedToolNames).toContain("create_embed_session");
+    expect(listedToolNames).not.toContain("get-design");
     const originalCall = await callWeb(
       {
         jsonrpc: "2.0",
@@ -2256,6 +2290,22 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         targetPath: "/design/design-42?__an_mcp_chat_bridge=1",
         scope: expect.stringContaining("capability:mcp-directory-widget-read:"),
       },
+    );
+    const { allowsMcpDirectoryWidgetReadAction } =
+      await import("../shared/embed-auth.js");
+    const renewalCapability =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewalCapability, {
+        actionName: "get-design",
+        appId: "design",
+        resourceUri: "ui://design/shell-v67",
+        args: { id: "design-42" },
+        allowedArgumentNames: ["id"],
+      }),
+    ).toBe(true);
+    expect(new URL(reopened.result.structuredContent.startUrl).origin).toBe(
+      "https://design.agent-native.com",
     );
   });
 

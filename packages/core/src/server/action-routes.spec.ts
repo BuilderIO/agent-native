@@ -1536,12 +1536,23 @@ describe("mountActionRoutes", () => {
       orgId: context?.orgId,
       authCapability: getRequestAuthCapability(),
     }));
+    const runDatabaseRead = vi.fn(async (args, context) => ({
+      args,
+      caller: context?.caller,
+    }));
     const runWrite = vi.fn(async () => ({ ok: true }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "content",
       resourceUri: "ui://content/shell-v67",
       resourceIds: { documentId: "doc-1" },
-      actionArguments: { "get-document": { id: "doc-1" } },
+      actionArguments: {
+        "get-document": { id: "doc-1" },
+        "get-content-database": {
+          databaseId: "database-1",
+          documentId: "doc-1",
+          limit: { type: "integerRange", min: 0, max: 5_000 },
+        },
+      },
     })!;
     mockResolveEmbedSessionFromRequest.mockResolvedValue({
       email: "ticket-owner@example.com",
@@ -1577,6 +1588,12 @@ describe("mountActionRoutes", () => {
           requiresAuth: true,
           run: vi.fn(async () => ({ ok: true })),
         } as any,
+        "get-content-database": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run: runDatabaseRead,
+        } as any,
       },
       {
         getOwnerFromEvent: async () => {
@@ -1588,6 +1605,7 @@ describe("mountActionRoutes", () => {
         mcpDirectoryWidgetResourceUri: "ui://content/shell-v67",
         mcpDirectoryWidgetReadActionArguments: {
           "get-document": ["id"],
+          "get-content-database": ["databaseId", "documentId", "limit"],
         },
       },
     );
@@ -1689,8 +1707,143 @@ describe("mountActionRoutes", () => {
     ).resolves.toEqual({
       error: "This widget capability is scoped to a different app resource.",
     });
+
+    await expect(
+      mounted[3]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        _query: {
+          databaseId: "database-1",
+          documentId: "doc-1",
+          limit: "100",
+        },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-content-database?databaseId=database-1&documentId=doc-1&limit=100",
+        },
+      }),
+    ).resolves.toEqual({
+      args: {
+        databaseId: "database-1",
+        documentId: "doc-1",
+        limit: "100",
+      },
+      caller: "mcp-widget",
+    });
+    await expect(
+      mounted[3]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        _query: {
+          databaseId: "database-1",
+          documentId: "doc-1",
+          limit: "5001",
+        },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-content-database?databaseId=database-1&documentId=doc-1&limit=5001",
+        },
+      }),
+    ).resolves.toEqual({
+      error: "This widget capability is scoped to a different app resource.",
+    });
     expect(runRead).toHaveBeenCalledOnce();
+    expect(runDatabaseRead).toHaveBeenCalledOnce();
     expect(runWrite).not.toHaveBeenCalled();
+  });
+
+  it("keeps public design reads public and scopes their widget-ticket path", async () => {
+    const { createMcpDirectoryWidgetReadCapability } =
+      await import("../shared/embed-auth.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (args, context) => ({
+      id: args.id,
+      caller: context?.caller,
+      userEmail: context?.userEmail,
+    }));
+    const capability = createMcpDirectoryWidgetReadCapability({
+      appId: "design",
+      resourceUri: "ui://design/shell-v67",
+      resourceIds: { designId: "design-1" },
+      actionArguments: { "get-design": { id: "design-1" } },
+    })!;
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      orgId: "org-design",
+      token: "signed-directory-capability",
+      targetPath: "/design/design-1",
+      scope: capability,
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mountActionRoutes(
+      nitroApp,
+      {
+        "get-design": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: false,
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw Object.assign(new Error("Unauthenticated"), {
+            statusCode: 401,
+          });
+        },
+        appId: "design",
+        mcpDirectoryWidgetResourceUri: "ui://design/shell-v67",
+        mcpDirectoryWidgetReadActionArguments: { "get-design": ["id"] },
+        mcpDirectoryWidgetReadPublicActions: ["get-design"],
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        _query: { id: "design-1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-design?id=design-1",
+        },
+      }),
+    ).resolves.toEqual({
+      id: "design-1",
+      caller: "mcp-widget",
+      userEmail: "ticket-owner@example.com",
+    });
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        _query: { id: "design-2" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-design?id=design-2",
+        },
+      }),
+    ).resolves.toEqual({
+      error: "This widget capability is scoped to a different app resource.",
+    });
+
+    mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        _query: { id: "public-share-design" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-design?id=public-share-design",
+        },
+      }),
+    ).resolves.toEqual({
+      id: "public-share-design",
+      caller: "frontend",
+      userEmail: undefined,
+    });
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it("does not let anonymous owners call directory read routes without a scoped ticket", async () => {

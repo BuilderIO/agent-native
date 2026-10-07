@@ -60,6 +60,7 @@ import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
 import {
   createMcpDirectoryWidgetReadCapability,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  type McpDirectoryWidgetReadArgument,
 } from "../shared/embed-auth.js";
 import {
   type McpAnalyticsContext,
@@ -153,9 +154,14 @@ export interface MCPConfig {
         result: unknown,
       ) => McpDirectoryWidgetTarget | null
     >;
-    widgetReadActionArguments?: Record<string, Record<string, string>>;
+    widgetReadActionArguments?: Record<
+      string,
+      Record<string, McpDirectoryWidgetReadArgument>
+    >;
     /** Actions whose capability-backed `mcp-widget` execution is strictly read-only. */
     widgetReadOnlyActions?: readonly string[];
+    /** Unlisted public reads that are available only through a scoped widget ticket. */
+    widgetReadPublicActions?: readonly string[];
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;
@@ -488,6 +494,9 @@ export function validateMcpDirectoryProfile(
     Boolean(actions[name]?.mcpApp?.resource),
   );
   const widgetReadOnlyActions = new Set(profile?.widgetReadOnlyActions ?? []);
+  const widgetReadPublicActions = new Set(
+    profile?.widgetReadPublicActions ?? [],
+  );
   const widgetTargetNames = Object.keys(profile?.widgetTargets ?? {});
   if (profile && profile.widgets !== false && profile.widgetTargets) {
     const missingTarget = widgetActionNames.find(
@@ -524,26 +533,53 @@ export function validateMcpDirectoryProfile(
     }
   }
 
+  for (const name of widgetReadPublicActions) {
+    const entry = actions[name];
+    if (
+      names.includes(name) ||
+      !profile?.widgetReadActionArguments?.[name] ||
+      !entry ||
+      entry.readOnly !== true ||
+      entry.http === false ||
+      entry.http?.method !== "GET" ||
+      entry.requiresAuth !== false
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory widget public read "${name}" must be an unlisted, explicitly scoped, public GET action marked read-only.`,
+      );
+    }
+  }
+
   for (const [name, argumentMap] of Object.entries(
     profile?.widgetReadActionArguments ?? {},
   )) {
     const entry = actions[name];
+    const scopedPublicRead = widgetReadPublicActions.has(name);
     if (
-      !names.includes(name) ||
+      (!names.includes(name) && !scopedPublicRead) ||
       !entry ||
       (entry.readOnly !== true && !widgetReadOnlyActions.has(name)) ||
       entry.http === false ||
       entry.http?.method !== "GET" ||
-      entry.requiresAuth === false ||
+      (entry.requiresAuth === false && !scopedPublicRead) ||
       Object.keys(argumentMap).length === 0 ||
       Object.entries(argumentMap).some(
-        ([argumentName, resourceIdKey]) =>
+        ([argumentName, argument]) =>
           !MCP_DIRECTORY_WIDGET_ARGUMENT.test(argumentName) ||
-          !MCP_DIRECTORY_WIDGET_ARGUMENT.test(resourceIdKey),
+          (typeof argument === "string"
+            ? !MCP_DIRECTORY_WIDGET_ARGUMENT.test(argument)
+            : !argument ||
+              argument.type !== "integerRange" ||
+              Object.keys(argument).length !== 3 ||
+              !Number.isSafeInteger(argument.min) ||
+              !Number.isSafeInteger(argument.max) ||
+              argument.min < 0 ||
+              argument.max < argument.min ||
+              argument.max > 5_000),
       )
     ) {
       throw new McpDirectoryProfileValidationError(
-        `[agent-native] MCP directory widget read route "${name}" must be a read-only authenticated GET action with a valid resource argument map in the connector allowlist.`,
+        `[agent-native] MCP directory widget read route "${name}" must be an explicitly scoped read-only GET action with valid resource arguments in the connector allowlist or widget public-read profile.`,
       );
     }
   }
@@ -1058,7 +1094,10 @@ async function withServerMintedMcpAppEmbedStart(
       appId: string;
       resourceUri: string;
       resourceIds: Record<string, string>;
-      actionArguments: Record<string, Record<string, string>>;
+      actionArguments: Record<
+        string,
+        Record<string, McpDirectoryWidgetReadArgument>
+      >;
     };
   },
 ): Promise<unknown> {
@@ -1203,29 +1242,38 @@ function mcpDirectoryWidgetCapabilityForTool(
   const target = resolveTarget(args, result);
   if (!target) return undefined;
 
-  const actionArguments: Record<string, Record<string, string>> = {};
+  const actionArguments: Record<
+    string,
+    Record<string, McpDirectoryWidgetReadArgument>
+  > = {};
   for (const [actionName, argumentMap] of Object.entries(
     profile.widgetReadActionArguments ?? {},
   )) {
     const entry = actions[actionName];
+    const scopedPublicRead =
+      profile.widgetReadPublicActions?.includes(actionName);
     if (
       !entry ||
-      !profile.connectorCatalog.includes(actionName) ||
+      (!profile.connectorCatalog.includes(actionName) && !scopedPublicRead) ||
       (entry.readOnly !== true &&
         !profile.widgetReadOnlyActions?.includes(actionName)) ||
       entry.http === false ||
       entry.http?.method !== "GET" ||
-      entry.requiresAuth === false
+      (entry.requiresAuth === false && !scopedPublicRead)
     ) {
       continue;
     }
-    const scopedArguments: Record<string, string> = {};
-    for (const [argumentName, resourceIdKey] of Object.entries(argumentMap)) {
-      const resourceId = target.resourceIds[resourceIdKey];
-      if (typeof resourceId !== "string" || !resourceId.trim()) {
-        break;
+    const scopedArguments: Record<string, McpDirectoryWidgetReadArgument> = {};
+    for (const [argumentName, rule] of Object.entries(argumentMap)) {
+      if (typeof rule === "string") {
+        const resourceId = target.resourceIds[rule];
+        if (typeof resourceId !== "string" || !resourceId.trim()) {
+          break;
+        }
+        scopedArguments[argumentName] = resourceId;
+      } else {
+        scopedArguments[argumentName] = rule;
       }
-      scopedArguments[argumentName] = resourceId;
     }
     if (
       Object.keys(scopedArguments).length === Object.keys(argumentMap).length
@@ -1369,7 +1417,7 @@ async function renewMcpDirectoryWidgetEmbedSession(
     scope,
   });
   const startPath = buildEmbedStartPath(ticket.ticket);
-  const appOrigin = profile.widgetDomain;
+  const appOrigin = profile.widgetDomain ?? config.widgetDomain;
   if (!appOrigin) {
     throw new Error("Widget session renewal has no configured app origin.");
   }
@@ -2713,7 +2761,7 @@ export async function createMCPServerForRequest(
           try {
             const renewed = await renewMcpDirectoryWidgetEmbedSession(
               config,
-              advertisedActions,
+              visibleActions,
               metadataObject(args),
               effectiveIdentity,
               requestMeta,
@@ -2828,7 +2876,7 @@ export async function createMCPServerForRequest(
                   name,
                   (args as Record<string, unknown>) ?? {},
                   projectedRawResult,
-                  advertisedActions,
+                  visibleActions,
                 )
               : undefined;
           const missingDirectoryWidgetCapability =
