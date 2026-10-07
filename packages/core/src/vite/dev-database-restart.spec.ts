@@ -149,8 +149,8 @@ async function waitForProbe(
   throw new Error(`Timed out waiting for the Nitro probe: ${lastResult}`);
 }
 
-async function waitForFile(file: string): Promise<void> {
-  const deadline = Date.now() + 5_000;
+async function waitForFile(file: string, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (fs.existsSync(file)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -234,6 +234,7 @@ describe("Nitro PGlite dev lifecycle", () => {
     const databaseDir = path.join(testRoot, ".data", "pglite");
     const envFile = path.join(testRoot, ".env");
     const pauseProbePath = path.join(testRoot, "pause-probe");
+    const resumeRequestHeldPath = path.join(testRoot, "resume-request-held");
     const probeEnteredPath = path.join(testRoot, "probe-entered");
     const probeRejectedPath = path.join(testRoot, "probe-rejected");
     const resumeProbePath = path.join(testRoot, "resume-probe");
@@ -245,8 +246,12 @@ describe("Nitro PGlite dev lifecycle", () => {
     let server: ViteDevServer | undefined;
     let serverRestarts = 0;
     let serverListens = 0;
+    let serverConfigurations = 0;
     let databaseCloseAcknowledgements = 0;
-    let suppressNextResumeAcknowledgement = false;
+    let databaseCloseRequests = 0;
+    let resumeRequestsToDrop = 0;
+    let deferNextResumeRequest = false;
+    let releaseDeferredResumeRequest: (() => void) | undefined;
     let restoreCloseAcknowledgements: (() => void) | undefined;
     let restoreNitroSend: (() => void) | undefined;
 
@@ -317,6 +322,7 @@ export default async () => {
     const lifecycleObserver: Plugin = {
       name: "pglite-restart-test-observer",
       configureServer(server) {
+        serverConfigurations++;
         server.httpServer?.once("close", () => {
           serverRestarts++;
         });
@@ -329,17 +335,30 @@ export default async () => {
             databaseCloseAcknowledgements++;
           }
         });
-        if (suppressNextResumeAcknowledgement) {
-          if (!hot) {
-            throw new Error("Nitro dev environment has no HMR channel");
-          }
-          suppressNextNitroAcknowledgement(
-            hot as NitroHot,
-            "agent-native:dev-database-resumed",
-            () => {
-              suppressNextResumeAcknowledgement = false;
-            },
-          );
+        const send = hot?.send;
+        if (hot && send) {
+          hot.send = (payload: any) => {
+            if (payload?.event === "agent-native:dev-database-close") {
+              databaseCloseRequests++;
+            }
+            if (
+              payload?.event === "agent-native:dev-database-resume" &&
+              resumeRequestsToDrop > 0
+            ) {
+              resumeRequestsToDrop--;
+              return;
+            }
+            if (
+              payload?.event === "agent-native:dev-database-resume" &&
+              deferNextResumeRequest
+            ) {
+              deferNextResumeRequest = false;
+              releaseDeferredResumeRequest = () => send.call(hot, payload);
+              fs.writeFileSync(resumeRequestHeldPath, "held");
+              return;
+            }
+            send.call(hot, payload);
+          };
         }
       },
     };
@@ -389,34 +408,58 @@ export default async () => {
       );
       fs.rmSync(pauseProbePath, { force: true });
       const acknowledgementsBeforeRestart = databaseCloseAcknowledgements;
-      const nitroHot = server.environments.nitro?.hot as NitroHot;
-      suppressNextNitroAcknowledgement(
-        nitroHot,
-        "agent-native:dev-database-closed",
-      );
-      suppressNextResumeAcknowledgement = true;
-      suppressNextNitroAcknowledgement(
-        nitroHot,
-        "agent-native:dev-database-resumed",
-        () => {
-          suppressNextResumeAcknowledgement = false;
-        },
-      );
+      resumeRequestsToDrop = 2;
+      deferNextResumeRequest = true;
 
       fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=after\n");
 
-      const restarted = await waitForProbe(
-        probeUrl,
-        () =>
-          serverRestarts > 0 &&
-          serverListens > 1 &&
-          databaseCloseAcknowledgements > acknowledgementsBeforeRestart,
-      );
+      await waitForFile(resumeRequestHeldPath, 20_000);
       expect(databaseCloseAcknowledgements).toBeGreaterThan(
         acknowledgementsBeforeRestart,
       );
       expect(serverRestarts).toBeGreaterThan(0);
       expect(serverListens).toBeGreaterThan(1);
+      expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
+        false,
+      );
+      const pausedDuringResume = await fetch(probeUrl);
+      const pausedDuringResumeBody = await pausedDuringResume.text();
+      expect(pausedDuringResume.status).toBe(503);
+      expect(pausedDuringResumeBody).toContain("PGlite access is paused");
+
+      const restartsBeforeOverlappingRestart = serverRestarts;
+      const listensBeforeOverlappingRestart = serverListens;
+      const configurationsBeforeOverlappingRestart = serverConfigurations;
+      const closeRequestsBeforeOverlappingRestart = databaseCloseRequests;
+      fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=after-pending-resume\n");
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(databaseCloseRequests).toBe(closeRequestsBeforeOverlappingRestart);
+      expect(serverRestarts).toBe(restartsBeforeOverlappingRestart);
+      expect(serverConfigurations).toBe(configurationsBeforeOverlappingRestart);
+      expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
+        false,
+      );
+
+      const releaseResumeRequest = releaseDeferredResumeRequest;
+      if (!releaseResumeRequest) {
+        throw new Error("The deferred Nitro database resume request was lost");
+      }
+      releaseDeferredResumeRequest = undefined;
+      fs.rmSync(resumeRequestHeldPath, { force: true });
+      releaseResumeRequest();
+
+      const restarted = await waitForProbe(
+        probeUrl,
+        () =>
+          serverRestarts > restartsBeforeOverlappingRestart &&
+          serverListens > listensBeforeOverlappingRestart &&
+          databaseCloseAcknowledgements > acknowledgementsBeforeRestart,
+      );
+      expect(databaseCloseAcknowledgements).toBeGreaterThan(
+        acknowledgementsBeforeRestart,
+      );
+      expect(serverRestarts).toBeGreaterThan(restartsBeforeOverlappingRestart);
+      expect(serverListens).toBeGreaterThan(listensBeforeOverlappingRestart);
       expect(restarted.rows).toEqual([{ id: 1, value: "persisted" }]);
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         true,
@@ -449,6 +492,7 @@ export default async () => {
 
       const restartsBeforeMissingAcknowledgement = serverRestarts;
       const listensBeforeMissingAcknowledgement = serverListens;
+      const configurationsBeforeMissingAcknowledgement = serverConfigurations;
       const closeNitroHot = server.environments.nitro?.hot as NitroHot;
       const closeRequests: string[] = [];
       const send = closeNitroHot.send;
@@ -471,11 +515,14 @@ export default async () => {
       while (closeRequests.length < 3 && Date.now() < closeRequestDeadline) {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      expect(closeRequests).toHaveLength(3);
-      expect(new Set(closeRequests).size).toBe(1);
+      expect(closeRequests.slice(0, 3)).toHaveLength(3);
+      expect(new Set(closeRequests.slice(0, 3)).size).toBe(1);
       await new Promise((resolve) => setTimeout(resolve, 5_500));
       expect(serverRestarts).toBe(restartsBeforeMissingAcknowledgement);
       expect(serverListens).toBe(listensBeforeMissingAcknowledgement);
+      expect(serverConfigurations).toBe(
+        configurationsBeforeMissingAcknowledgement,
+      );
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         false,
       );
@@ -489,7 +536,6 @@ export default async () => {
       restoreCloseAcknowledgements = undefined;
       restoreNitroSend();
       restoreNitroSend = undefined;
-      fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=after-missing-close-ack\n");
       const recovered = await waitForProbe(
         probeUrl,
         () =>
@@ -518,6 +564,9 @@ export default async () => {
       restoreCloseAcknowledgements = undefined;
       server = undefined;
     } finally {
+      const releaseResumeRequest = releaseDeferredResumeRequest;
+      releaseDeferredResumeRequest = undefined;
+      releaseResumeRequest?.();
       restoreCloseAcknowledgements?.();
       restoreNitroSend?.();
       try {
