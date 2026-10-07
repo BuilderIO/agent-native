@@ -1305,13 +1305,20 @@ export default function DeckEditor() {
     )
       return;
     if (!generationRunStartedRef.current) return;
+    const persistedGenerationStartedAt = generationContext?.generationStartedAt;
+    const generationStartedAt =
+      typeof persistedGenerationStartedAt === "number" &&
+      Number.isFinite(persistedGenerationStartedAt) &&
+      persistedGenerationStartedAt >= 0
+        ? persistedGenerationStartedAt
+        : Date.now();
     if (attemptObservedRun) {
       generationSawActiveRef.current = true;
-      generationStartedAtRef.current ??= Date.now();
+      generationStartedAtRef.current ??= generationStartedAt;
     }
     if (newDeckGenerationSignal) {
       generationSawActiveRef.current = true;
-      generationStartedAtRef.current ??= Date.now();
+      generationStartedAtRef.current ??= generationStartedAt;
       return;
     }
     if (
@@ -1337,9 +1344,12 @@ export default function DeckEditor() {
         generationTerminalAttemptRef.current = generationAttemptId;
         const refreshedDeck =
           refreshResult.status === "ready" ? refreshResult.deck : null;
-        const durationMs = generationStartedAtRef.current
-          ? Math.max(0, Date.now() - generationStartedAtRef.current)
-          : undefined;
+        const generationEndedAt = Date.now();
+        const startedAt = generationStartedAtRef.current;
+        const durationMs =
+          startedAt !== null
+            ? Math.max(0, generationEndedAt - startedAt)
+            : undefined;
         const properties = {
           app_name: "slides",
           template_name: "slides",
@@ -1352,6 +1362,8 @@ export default function DeckEditor() {
           ...(targetSlideCount !== null
             ? { target_slide_count: targetSlideCount }
             : {}),
+          ...(startedAt !== null ? { started_at_ms: startedAt } : {}),
+          ended_at_ms: generationEndedAt,
           ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
           source: "new_deck_prompt",
         };
@@ -1484,6 +1496,7 @@ export default function DeckEditor() {
     }
     retryEmptyGenerationInFlightRef.current = true;
     setRetryEmptyGenerationPending(true);
+    const retryStartedAt = Date.now();
     const originalSearchParams = new URLSearchParams(searchParams);
     const retryAttemptId = nanoid();
     const submitMessageId = nanoid();
@@ -1497,6 +1510,7 @@ export default function DeckEditor() {
     const retryContext = {
       ...generationContext,
       generationAttemptId: retryAttemptId,
+      generationStartedAt: retryStartedAt,
       generationFailureAttemptId:
         generationContext.generationFailureAttemptId ?? generationAttemptId,
     };
@@ -1672,6 +1686,7 @@ export default function DeckEditor() {
         generation_attempt_id: retryAttemptId,
         output_id: id,
         output_type: "deck",
+        started_at_ms: retryStartedAt,
         source: "empty_output_retry",
       });
       updateDeck(id, {

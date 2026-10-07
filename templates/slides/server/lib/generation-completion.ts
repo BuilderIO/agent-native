@@ -19,6 +19,7 @@ export interface GenerationFirstOutput {
   deckId: string;
   generationAttemptId: string;
   targetSlideCount: number | null;
+  generationStartedAt?: number;
 }
 
 const MAX_TRACKED_TURNS = 500;
@@ -73,7 +74,11 @@ function isFirstOutput(value: unknown): value is GenerationFirstOutput {
     typeof output?.deckId === "string" &&
     typeof output.generationAttemptId === "string" &&
     (output.targetSlideCount === null ||
-      typeof output.targetSlideCount === "number")
+      typeof output.targetSlideCount === "number") &&
+    (output.generationStartedAt === undefined ||
+      (typeof output.generationStartedAt === "number" &&
+        Number.isFinite(output.generationStartedAt) &&
+        output.generationStartedAt >= 0))
   );
 }
 
@@ -214,6 +219,7 @@ export async function trackGenerationCompletedForRun(
   for (const output of outputs) {
     const slideCount = counts.get(output.deckId) ?? null;
     if (slideCount === null || slideCount === 0) continue;
+    const generationEndedAt = Date.now();
     track(
       "generation_completed",
       {
@@ -226,6 +232,16 @@ export async function trackGenerationCompletedForRun(
         ...(output.targetSlideCount !== null
           ? { target_slide_count: output.targetSlideCount }
           : {}),
+        ...(output.generationStartedAt !== undefined
+          ? {
+              started_at_ms: output.generationStartedAt,
+              duration_ms: Math.max(
+                0,
+                generationEndedAt - output.generationStartedAt,
+              ),
+            }
+          : {}),
+        ended_at_ms: generationEndedAt,
         outcome:
           output.targetSlideCount === null ||
           slideCount >= output.targetSlideCount

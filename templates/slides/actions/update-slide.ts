@@ -326,6 +326,7 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args, ctx) => {
+    const startedAt = Date.now();
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
     const {
       deckId,
@@ -827,6 +828,7 @@ export default defineAction({
       ...(agentChangeId ? { agentChangeId } : {}),
     });
 
+    const endedAt = Date.now();
     track(
       "deck_edited",
       {
@@ -837,6 +839,9 @@ export default defineAction({
         slide_id: slideId,
         edit_mode: "update_slide",
         edits_count: applied,
+        started_at_ms: startedAt,
+        ended_at_ms: endedAt,
+        duration_ms: Math.max(0, endedAt - startedAt),
       },
       ctx,
     );

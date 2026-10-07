@@ -792,8 +792,13 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(completed?.properties).toMatchObject({
       output_type: "deck",
       slide_count: 1,
+      started_at_ms: expect.any(Number),
+      ended_at_ms: expect.any(Number),
       duration_ms: expect.any(Number),
     });
+    expect(completed?.properties.ended_at_ms).toBeGreaterThanOrEqual(
+      completed?.properties.started_at_ms as number,
+    );
   });
 
   it("clears prior incremental context when an action-owned bulk attempt replaces a deck", async () => {
@@ -978,6 +983,7 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(JSON.parse(insertedRow!.data as string).generationContext).toEqual({
       generationAttemptId: events[0]?.properties.generation_attempt_id,
       generationMode: "action",
+      generationStartedAt: events[0]?.properties.started_at_ms,
     });
     expect(result.slideCount).toBe(0);
   });

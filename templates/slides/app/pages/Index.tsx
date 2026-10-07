@@ -1274,6 +1274,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     }
     const deckId = deck.id;
     const generationAttemptId = nanoid();
+    const generationStartedAt = Date.now();
     let generationFailureTracked = false;
     const generationSubmitMessageId = nanoid();
     trackEvent("generation_started", {
@@ -1282,6 +1283,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       generation_attempt_id: generationAttemptId,
       output_id: deckId,
       output_type: "deck",
+      started_at_ms: generationStartedAt,
       source: "new_deck_prompt",
     });
     setNewDeckPromptOpen(false);
@@ -1300,12 +1302,16 @@ export default function Index({ active = true }: { active?: boolean }) {
     ) => {
       if (!generationFailureTracked) {
         generationFailureTracked = true;
+        const generationEndedAt = Date.now();
         trackEvent("generation_failed", {
           app_name: "slides",
           template_name: "slides",
           generation_attempt_id: generationAttemptId,
           output_id: deckId,
           output_type: "deck",
+          started_at_ms: generationStartedAt,
+          ended_at_ms: generationEndedAt,
+          duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
           failure_code: failureCode,
           failure_stage: "setup",
           source: "new_deck_prompt",
@@ -1572,6 +1578,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       targetSlideCount:
         importedSourceDeck?.slideCount ?? requestedSlideCount(trimmedPrompt),
       generationAttemptId,
+      generationStartedAt,
     };
 
     try {

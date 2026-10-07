@@ -331,6 +331,7 @@ export default defineAction({
           generation_attempt_id: generationAttemptId,
           source: "create_deck_action",
           generation_mode: incrementalGeneration ? "incremental" : "bulk",
+          started_at_ms: generationStartedAt,
           has_reference_deck: Boolean(contextPackId),
           slide_count: slides.length,
           ...(deckId ? { output_id: deckId } : {}),
@@ -455,6 +456,7 @@ export default defineAction({
                   ? {
                       generationAttemptId,
                       generationMode: "action",
+                      generationStartedAt,
                     }
                   : undefined,
               }
@@ -534,6 +536,7 @@ export default defineAction({
             ctx,
           );
         } else if (!postProcessErrorType && actionOwnsGenerationLifecycle) {
+          const generationEndedAt = Date.now();
           trackGenerationEvent(
             "generation_completed",
             {
@@ -545,7 +548,9 @@ export default defineAction({
               output_id: deckId,
               output_type: "deck",
               slide_count: slides.length,
-              duration_ms: Date.now() - generationStartedAt,
+              started_at_ms: generationStartedAt,
+              ended_at_ms: generationEndedAt,
+              duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
               ...(loadedDesignSystem
                 ? { design_system_status: loadedDesignSystem.status }
                 : {}),
@@ -606,6 +611,7 @@ export default defineAction({
               generationContext: {
                 generationAttemptId,
                 generationMode: "action",
+                generationStartedAt,
               },
             }
           : {}),
@@ -692,6 +698,7 @@ export default defineAction({
         postProcessStatus === "completed" &&
         actionOwnsGenerationLifecycle
       ) {
+        const generationEndedAt = Date.now();
         trackGenerationEvent(
           "generation_completed",
           {
@@ -703,7 +710,9 @@ export default defineAction({
             output_id: id,
             output_type: "deck",
             slide_count: slides.length,
-            duration_ms: Date.now() - generationStartedAt,
+            started_at_ms: generationStartedAt,
+            ended_at_ms: generationEndedAt,
+            duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
             ...(loadedDesignSystem
               ? { design_system_status: loadedDesignSystem.status }
               : {}),
@@ -740,6 +749,7 @@ export default defineAction({
     } catch (error) {
       if (actionOwnsGenerationLifecycle) {
         const terminal = generationTerminalEvent(ctx?.signal);
+        const generationEndedAt = Date.now();
         trackGenerationEvent(
           terminal.name,
           {
@@ -751,7 +761,9 @@ export default defineAction({
               ? { output_id: generationOutputId, output_type: "deck" }
               : {}),
             slide_count: slides.length,
-            duration_ms: Date.now() - generationStartedAt,
+            started_at_ms: generationStartedAt,
+            ended_at_ms: generationEndedAt,
+            duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
             outcome: terminal.outcome,
             failure_code: terminal.failure_code,
             error_type: error instanceof Error ? error.name : "unknown_error",

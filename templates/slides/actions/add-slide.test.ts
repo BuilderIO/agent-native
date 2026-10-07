@@ -287,7 +287,11 @@ describe("add-slide", () => {
       deckData = {
         title: "Untitled",
         slides: [],
-        generationContext: { targetSlideCount: 5, generationAttemptId: "a-1" },
+        generationContext: {
+          targetSlideCount: 5,
+          generationAttemptId: "a-1",
+          generationStartedAt: 100,
+        },
       };
       await action.run(
         { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
@@ -332,6 +336,9 @@ describe("add-slide", () => {
         slide_count: 5,
         outcome: "completed",
         run_id: "run-chunk-2",
+        started_at_ms: 100,
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
       });
     });
 

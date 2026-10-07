@@ -552,6 +552,12 @@ export default defineAction({
         typeof generationContext?.generationAttemptId === "string"
           ? generationContext.generationAttemptId
           : undefined;
+      const generationStartedAt =
+        typeof generationContext?.generationStartedAt === "number" &&
+        Number.isFinite(generationContext.generationStartedAt) &&
+        generationContext.generationStartedAt >= 0
+          ? generationContext.generationStartedAt
+          : undefined;
       if (
         shouldRepairTitle &&
         generationAttemptId &&
@@ -561,6 +567,7 @@ export default defineAction({
           deckId,
           generationAttemptId,
           targetSlideCount,
+          ...(generationStartedAt !== undefined ? { generationStartedAt } : {}),
         });
       }
 
@@ -603,6 +610,7 @@ export default defineAction({
         generationAttemptId &&
         generationContext?.generationMode === "action"
       ) {
+        const generationEndedAt = Date.now();
         track(
           "generation_completed",
           {
@@ -614,6 +622,16 @@ export default defineAction({
             slide_count: slides.length,
             generation_mode: "incremental",
             outcome: "completed",
+            ...(generationStartedAt !== undefined
+              ? {
+                  started_at_ms: generationStartedAt,
+                  ended_at_ms: generationEndedAt,
+                  duration_ms: Math.max(
+                    0,
+                    generationEndedAt - generationStartedAt,
+                  ),
+                }
+              : { ended_at_ms: generationEndedAt }),
             source: "add_slide_action",
           },
           ctx,
