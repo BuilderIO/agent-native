@@ -1,13 +1,15 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
   PageDraftJournalError,
+  persistTitleBeforeSyncingPageDraftJournal,
   readPageDraftJournal,
   sweepLegacyRetainedPageDraftMarkers,
+  updatePageDraftJournalTitle,
   writePageDraftJournal,
   type PageDraftJournalScope,
 } from "./page-draft-journal";
@@ -52,6 +54,69 @@ beforeEach(() => {
 });
 
 describe("Page draft journal", () => {
+  it("persists the retained title before changing a clean local journal title", async () => {
+    const clean = {
+      ...snapshot,
+      title: "Earlier title",
+      baseTitle: "Earlier title",
+    };
+    writePageDraftJournal({ scope, snapshot: clean });
+    const persist = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      persistTitleBeforeSyncingPageDraftJournal({
+        persist,
+        scope,
+        title: "Peer title",
+        editGeneration: clean.editGeneration,
+        content: clean.content,
+      }),
+    ).resolves.toBe(true);
+
+    expect(persist).toHaveBeenCalledOnce();
+    expect(readPageDraftJournal(scope)?.snapshot).toMatchObject({
+      title: "Peer title",
+      baseTitle: "Peer title",
+    });
+  });
+
+  it("leaves the local journal unchanged when retaining the SQL title fails", async () => {
+    const clean = {
+      ...snapshot,
+      title: "Earlier title",
+      baseTitle: "Earlier title",
+    };
+    writePageDraftJournal({ scope, snapshot: clean });
+
+    await expect(
+      persistTitleBeforeSyncingPageDraftJournal({
+        persist: () => Promise.reject(new Error("SQL unavailable")),
+        scope,
+        title: "Peer title",
+        editGeneration: clean.editGeneration,
+        content: clean.content,
+      }),
+    ).rejects.toThrow("SQL unavailable");
+
+    expect(readPageDraftJournal(scope)?.snapshot).toEqual(clean);
+  });
+
+  it("preserves a locally authored title when SQL retains a peer title", async () => {
+    writePageDraftJournal({ scope, snapshot });
+
+    await expect(
+      persistTitleBeforeSyncingPageDraftJournal({
+        persist: () => Promise.resolve(),
+        scope,
+        title: "Peer title",
+        editGeneration: snapshot.editGeneration,
+        content: snapshot.content,
+      }),
+    ).resolves.toBe(false);
+
+    expect(readPageDraftJournal(scope)?.snapshot.title).toBe("Local title");
+  });
+
   it("writes synchronously and isolates account, organization, Page, and writer", () => {
     writePageDraftJournal({ scope, snapshot });
     writePageDraftJournal({
@@ -130,6 +195,89 @@ describe("Page draft journal", () => {
     });
     expect(readPageDraftJournal(scope)?.snapshot.content).toBe("Newest");
     expect(readPageDraftJournal(scope)?.snapshot.saveAttemptId).toBeUndefined();
+  });
+
+  it("updates only the matching writer draft title and preserves snapshot metadata", () => {
+    const originalSnapshot = {
+      ...snapshot,
+      title: "Saved title",
+      baseRevision: "base-revision",
+      authoredBaseRevision: "authored-base-revision",
+      authoredBaseContent: "authored base",
+      authoredCandidateContent: "authored candidate",
+      saveAttemptId: "save-attempt",
+      priorSaveAttemptIds: ["prior-attempt"],
+      equivalentSaveAttemptIds: ["equivalent-attempt"],
+    };
+    writePageDraftJournal({
+      scope,
+      snapshot: originalSnapshot,
+    });
+    writePageDraftJournal({
+      scope: { ...scope, writerId: "other-tab" },
+      snapshot: { ...originalSnapshot, title: "Other tab title" },
+    });
+
+    expect(updatePageDraftJournalTitle(scope, "Peer title")).toBe(true);
+    expect(
+      listPageDraftJournal(scope).find(
+        (entry) => entry.scope.writerId === scope.writerId,
+      )?.snapshot,
+    ).toEqual({
+      ...originalSnapshot,
+      title: "Peer title",
+      baseTitle: "Peer title",
+    });
+    expect(
+      listPageDraftJournal(scope).find(
+        (entry) => entry.scope.writerId === "other-tab",
+      )?.snapshot.title,
+    ).toBe("Other tab title");
+  });
+
+  it("adopts consecutive peer titles and treats a repeated title as a no-op", () => {
+    const uneditedSnapshot = { ...snapshot, title: "Saved title" };
+    writePageDraftJournal({ scope, snapshot: uneditedSnapshot });
+
+    expect(updatePageDraftJournalTitle(scope, "Peer title")).toBe(true);
+    expect(updatePageDraftJournalTitle(scope, "New peer title")).toBe(true);
+    expect(updatePageDraftJournalTitle(scope, "New peer title")).toBe(true);
+    expect(readPageDraftJournal(scope)?.snapshot).toEqual({
+      ...uneditedSnapshot,
+      title: "New peer title",
+      baseTitle: "New peer title",
+    });
+  });
+
+  it("preserves a locally edited title when a peer title arrives", () => {
+    writePageDraftJournal({ scope, snapshot });
+    const before = readPageDraftJournal(scope);
+
+    expect(updatePageDraftJournalTitle(scope, "Peer title")).toBe(false);
+    expect(readPageDraftJournal(scope)).toEqual(before);
+  });
+
+  it("reports a failed peer-title update as a typed storage failure", () => {
+    const uneditedSnapshot = { ...snapshot, title: "Saved title" };
+    writePageDraftJournal({ scope, snapshot: uneditedSnapshot });
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        ...store,
+        setItem: () => {
+          throw new Error("quota");
+        },
+      },
+    });
+
+    expect(() => updatePageDraftJournalTitle(scope, "Peer title")).toThrowError(
+      PageDraftJournalError,
+    );
+    try {
+      updatePageDraftJournalTitle(scope, "Peer title");
+    } catch (error) {
+      expect((error as PageDraftJournalError).code).toBe("write_failed");
+    }
   });
 
   it("reports a failed synchronous write as a typed failure", () => {
