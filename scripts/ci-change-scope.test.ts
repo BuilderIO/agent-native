@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { parse } from "yaml";
-
 import {
   QUERY_BUDGET_APPS,
   SSR_BOOT_APPS,
@@ -493,44 +491,32 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
 });
 
 test("the Design interaction gate runs G7 and every changed Design E2E spec", () => {
-  const workflow = parse(readFileSync(".github/workflows/ci.yml", "utf8")) as {
-    jobs?: {
-      "change-scope"?: { outputs?: Record<string, unknown> };
-      "design-canvas-interaction-acceptance"?: {
-        steps?: Array<{
-          name?: string;
-          env?: Record<string, unknown>;
-          run?: unknown;
-        }>;
-      };
-    };
-  };
-  const outputs = workflow.jobs?.["change-scope"]?.outputs;
-  assert.equal(
-    outputs?.design_canvas_e2e_files,
-    "${{ steps.scope.outputs.design_canvas_e2e_files }}",
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  assert.match(
+    workflow,
+    /^      design_canvas_e2e_files: \$\{\{ steps\.scope\.outputs\.design_canvas_e2e_files \}\}$/m,
   );
-  const steps =
-    workflow.jobs?.["design-canvas-interaction-acceptance"]?.steps ?? [];
-  const fixedMatrix = steps.find(
-    (step) => step.name === "Run focused Design canvas interaction cases",
-  );
-  assert.equal(typeof fixedMatrix?.run, "string");
-  assert.ok(String(fixedMatrix?.run).includes("--grep"));
 
-  const changedSpecs = steps.find(
-    (step) => step.name === "Run changed Design E2E specs",
-  );
-  assert.equal(
-    changedSpecs?.env?.DESIGN_CANVAS_E2E_FILES,
-    "${{ needs.change-scope.outputs.design_canvas_e2e_files }}",
-  );
-  assert.equal(typeof changedSpecs?.run, "string");
+  const step = (name: string) => {
+    const marker = `      - name: ${name}\n`;
+    const start = workflow.indexOf(marker);
+    assert.notEqual(start, -1, `missing workflow step: ${name}`);
+    const next = workflow.indexOf("\n      - name: ", start + marker.length);
+    return workflow.slice(start, next === -1 ? undefined : next);
+  };
   assert.ok(
-    String(changedSpecs?.run).includes('"${changed_design_e2e_specs[@]}"'),
+    step("Run focused Design canvas interaction cases").includes("--grep"),
   );
-  assert.ok(String(changedSpecs?.run).includes("unexpected Design E2E path"));
-  assert.ok(String(changedSpecs?.run).includes("--workers=1"));
+
+  const changedSpecs = step("Run changed Design E2E specs");
+  assert.ok(
+    changedSpecs.includes(
+      "DESIGN_CANVAS_E2E_FILES: ${{ needs.change-scope.outputs.design_canvas_e2e_files }}",
+    ),
+  );
+  assert.ok(changedSpecs.includes('"${changed_design_e2e_specs[@]}"'));
+  assert.ok(changedSpecs.includes("unexpected Design E2E path"));
+  assert.ok(changedSpecs.includes("--workers=1"));
 });
 
 test("selects the Content two-tab convergence lane for its runtime dependencies", () => {
