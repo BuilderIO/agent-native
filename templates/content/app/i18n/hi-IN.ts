@@ -1046,6 +1046,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "अब भी {{stage}} का इंतज़ार हो रहा है। अनुरोध: {{action}}।",
+    widgetDocumentLoadStage: "सहेजे गए पेज का मुख्य भाग",
+    widgetDraftCheckStage: "पेज ड्राफ़्ट की बहाली",
+    widgetEditorInitStage: "रिच-टेक्स्ट एडिटर के शुरू होने",
     iconPickerIcons: "आइकन",
     iconPickerEmoji: "इमोजी",
     iconPickerRecent: "हाल के",
