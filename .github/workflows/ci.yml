@@ -427,7 +427,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [inspector, drag, position, changed-1, changed-2, changed-3]
+        shard:
+          [inspector, drag-1, drag-2, position, changed-1, changed-2, changed-3]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -490,11 +491,15 @@ jobs:
                 e2e/inspector-styles.spec.ts \
               )
               ;;
-            drag)
+            drag-1)
               fixed_specs=( \
                 e2e/corner-radius-handle-drag.spec.ts:202 \
                 e2e/drag-and-drop.drag-feedback.spec.ts:24 \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
+              )
+              ;;
+            drag-2)
+              fixed_specs=( \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
                 e2e/parity-selection.spec.ts:313 \
                 e2e/parity-selection.spec.ts:451 \

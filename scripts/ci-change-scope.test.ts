@@ -576,7 +576,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.ok(regressionCases.includes("--workers=2"));
   assert.ok(
     workflow.includes(
-      "shard: [inspector, drag, position, changed-1, changed-2, changed-3]",
+      "shard: [inspector, drag-1, drag-2, position, changed-1, changed-2, changed-3]",
     ),
   );
   assert.ok(
