@@ -698,6 +698,9 @@ describe("create-deck — generation lifecycle tracking", () => {
       outcome: "unresolved",
       reason: "postprocess_failed",
       persisted_output: true,
+      started_at_ms: expect.any(Number),
+      ended_at_ms: expect.any(Number),
+      duration_ms: expect.any(Number),
     });
   });
 
@@ -761,6 +764,9 @@ describe("create-deck — generation lifecycle tracking", () => {
         outcome: "unresolved",
         reason: "postprocess_failed",
         persisted_output: true,
+        started_at_ms: expect.any(Number),
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
       });
     },
   );

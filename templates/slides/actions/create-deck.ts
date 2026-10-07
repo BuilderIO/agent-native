@@ -517,6 +517,7 @@ export default defineAction({
         }
         const postProcessStatus = postProcessErrorType ? "failed" : "completed";
         if (postProcessErrorType && actionOwnsGenerationLifecycle) {
+          const generationEndedAt = Date.now();
           trackGenerationEvent(
             "generation_outcome_unresolved",
             {
@@ -532,6 +533,9 @@ export default defineAction({
               reason: "postprocess_failed",
               persisted_output: true,
               error_type: postProcessErrorType,
+              started_at_ms: generationStartedAt,
+              ended_at_ms: generationEndedAt,
+              duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
             },
             ctx,
           );
@@ -659,6 +663,7 @@ export default defineAction({
       }
       const postProcessStatus = postProcessErrorType ? "failed" : "completed";
       if (postProcessErrorType && actionOwnsGenerationLifecycle) {
+        const generationEndedAt = Date.now();
         trackGenerationEvent(
           "generation_outcome_unresolved",
           {
@@ -674,6 +679,9 @@ export default defineAction({
             reason: "postprocess_failed",
             persisted_output: true,
             error_type: postProcessErrorType,
+            started_at_ms: generationStartedAt,
+            ended_at_ms: generationEndedAt,
+            duration_ms: Math.max(0, generationEndedAt - generationStartedAt),
           },
           ctx,
         );

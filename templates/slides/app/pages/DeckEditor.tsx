@@ -1744,6 +1744,15 @@ export default function DeckEditor() {
     ) => {
       if (generationTerminalAttemptRef.current === generationAttemptId) return;
       generationTerminalAttemptRef.current = generationAttemptId;
+      const persistedStartedAt = generationContext?.generationStartedAt;
+      const startedAt =
+        generationStartedAtRef.current ??
+        (typeof persistedStartedAt === "number" &&
+        Number.isFinite(persistedStartedAt) &&
+        persistedStartedAt >= 0
+          ? persistedStartedAt
+          : null);
+      const endedAt = Date.now();
       const properties = {
         app_name: "slides",
         template_name: "slides",
@@ -1752,6 +1761,11 @@ export default function DeckEditor() {
         output_type: "deck",
         slide_count: slideCount,
         source: "new_deck_prompt",
+        ...(startedAt !== null ? { started_at_ms: startedAt } : {}),
+        ended_at_ms: endedAt,
+        ...(startedAt !== null
+          ? { duration_ms: Math.max(0, endedAt - startedAt) }
+          : {}),
       };
       try {
         if (!state.submitStarted || !state.sawActive || state.settling) {
@@ -1803,7 +1817,13 @@ export default function DeckEditor() {
         recordExit("route_exit", state);
       });
     };
-  }, [generationAttemptId, generationLifecycleOwnedByEditor, id, slideCount]);
+  }, [
+    generationAttemptId,
+    generationContext,
+    generationLifecycleOwnedByEditor,
+    id,
+    slideCount,
+  ]);
   const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
   const openCommentComposer = useCallback(
     (
