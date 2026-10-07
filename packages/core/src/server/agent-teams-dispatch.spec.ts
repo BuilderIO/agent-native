@@ -52,7 +52,7 @@ describe("dispatchAgentTeamRun", () => {
     });
   });
 
-  it("falls back to the portable processor if the background handoff fails", async () => {
+  it("falls back without waiting for the portable processor to finish", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     fireInternalDispatchMock
       .mockRejectedValueOnce(new Error("background unavailable"))
@@ -60,16 +60,14 @@ describe("dispatchAgentTeamRun", () => {
 
     await dispatchAgentTeamRun({ taskId: "task-2", body: { mode: "start" } });
 
-    expect(fireInternalDispatchMock).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        taskId: "task-2",
-        path: "/_agent-native/agent-teams/_process-run",
-        body: { mode: "start" },
-        awaitResponse: true,
-        responseTimeoutMs: 1_000,
-      }),
-    );
+    const fallbackCall = fireInternalDispatchMock.mock.calls[1]?.[0];
+    expect(fallbackCall).toMatchObject({
+      taskId: "task-2",
+      path: "/_agent-native/agent-teams/_process-run",
+      body: { mode: "start" },
+    });
+    expect(fallbackCall).not.toHaveProperty("awaitResponse");
+    expect(fallbackCall).not.toHaveProperty("responseTimeoutMs");
     log.mockRestore();
   });
 

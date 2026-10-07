@@ -117,7 +117,7 @@ describe("agent discovery", () => {
     resourceListMock.mockRejectedValueOnce(new Error("resource store offline"));
 
     await expect(
-      discoverAgents("dispatch", { requireReadableResources: true }),
+      discoverAgents("dispatch", { requireReadableAgentSources: true }),
     ).rejects.toThrow("Unable to read connected agent resources");
     await expect(discoverAgents("dispatch")).resolves.toEqual(
       getBuiltinAgents("dispatch"),
@@ -131,8 +131,101 @@ describe("agent discovery", () => {
     resourceGetMock.mockRejectedValueOnce(new Error("resource unavailable"));
 
     await expect(
-      discoverAgents("dispatch", { requireReadableResources: true }),
+      discoverAgents("dispatch", { requireReadableAgentSources: true }),
     ).rejects.toThrow("Unable to read connected agent resources");
+  });
+
+  it("rejects malformed remote manifests for callers that need complete discovery", async () => {
+    resourceListMock.mockResolvedValueOnce([
+      { id: "remote-1", path: "remote-agents/custom.json" },
+    ]);
+    resourceGetMock.mockResolvedValueOnce({ content: "{not-json" });
+
+    await expect(
+      discoverAgents("dispatch", { requireReadableAgentSources: true }),
+    ).rejects.toMatchObject({
+      message: "Unable to read connected agent resources",
+      cause: expect.objectContaining({
+        message: "Invalid remote agent manifest: remote-agents/custom.json",
+      }),
+    });
+    await expect(discoverAgents("dispatch")).resolves.toEqual(
+      getBuiltinAgents("dispatch"),
+    );
+  });
+
+  it("resolves a built-in agent when connected-agent resources are unavailable", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    resourceListMock.mockRejectedValue(new Error("resource store offline"));
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "briefs", name: "Briefs", path: "/briefs" }],
+    });
+
+    try {
+      await expect(
+        findAgent("design", "dispatch", { requireReadableAgentSources: true }),
+      ).resolves.toMatchObject({ id: "design" });
+      await expect(
+        findAgent("briefs", "dispatch", { requireReadableAgentSources: true }),
+      ).resolves.toMatchObject({ id: "briefs" });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps unreadable workspace manifests distinct from missing agents", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = "{not-json";
+
+    try {
+      await expect(
+        findAgent("briefs", "dispatch", { requireReadableAgentSources: true }),
+      ).rejects.toThrow("Invalid workspace apps environment manifest");
+      await expect(discoverAgents("dispatch")).resolves.toEqual(
+        getBuiltinAgents("dispatch"),
+      );
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps unreadable workspace app metadata distinct from missing agents", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "briefs", name: "Briefs", path: "/briefs" }],
+    });
+    getSettingMock.mockRejectedValue(new Error("settings unavailable"));
+
+    try {
+      await runWithRequestContext({ orgId: "org-123" }, async () => {
+        await expect(
+          findAgent("briefs", "dispatch", {
+            requireReadableAgentSources: true,
+          }),
+        ).rejects.toThrow("settings unavailable");
+
+        getSettingMock.mockResolvedValue(null);
+        await expect(findAgent("briefs", "dispatch")).resolves.toMatchObject({
+          id: "briefs",
+        });
+      });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("exposes the remote-agent visibility predicate used by list views", () => {

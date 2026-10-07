@@ -50,7 +50,7 @@ export interface DiscoveredAgent {
 
 export interface DiscoverAgentsOptions {
   preferLocalUrls?: boolean;
-  requireReadableResources?: boolean;
+  requireReadableAgentSources?: boolean;
 }
 
 export type OrgDirectoryDiscoveryResult =
@@ -405,14 +405,24 @@ export async function discoverAgents(
       try {
         full = await resourceGet(r.id);
       } catch (error) {
-        if (options?.requireReadableResources) throw error;
+        if (options?.requireReadableAgentSources) throw error;
         continue;
       }
-      if (!full) continue;
+      if (!full) {
+        if (options?.requireReadableAgentSources) {
+          throw new Error(`Connected agent resource disappeared: ${r.path}`);
+        }
+        continue;
+      }
       try {
         const manifest = parseRemoteAgentManifest(full.content, r.path);
-        if (!manifest || !shouldIncludeRemoteAgentManifest(manifest, selfAppId))
+        if (!manifest) {
+          if (options?.requireReadableAgentSources) {
+            throw new Error(`Invalid remote agent manifest: ${r.path}`);
+          }
           continue;
+        }
+        if (!shouldIncludeRemoteAgentManifest(manifest, selfAppId)) continue;
         const manifestId = normalizeAgentId(manifest.id);
         if (isUnofferedBuiltinManifest(manifestId, offeredBuiltinIds)) continue;
 
@@ -456,12 +466,13 @@ export async function discoverAgents(
           ...(manifest.auth ? { auth: manifest.auth } : {}),
           ...(manifest.kind ? { kind: manifest.kind } : {}),
         });
-      } catch {
+      } catch (error) {
+        if (options?.requireReadableAgentSources) throw error;
         // Skip unreadable resources
       }
     }
   } catch (error) {
-    if (options?.requireReadableResources) {
+    if (options?.requireReadableAgentSources) {
       throw new Error("Unable to read connected agent resources", {
         cause: error,
       });
@@ -469,7 +480,11 @@ export async function discoverAgents(
     // Resources not available — use built-ins only
   }
 
-  for (const agent of await discoverWorkspaceAgents(selfAppId, options)) {
+  for (const agent of await discoverWorkspaceAgents(
+    selfAppId,
+    options,
+    options?.requireReadableAgentSources === true,
+  )) {
     agentsById.set(agent.id, agent);
   }
 
@@ -647,8 +662,36 @@ export async function findAgent(
   selfAppId?: string,
   options?: DiscoverAgentsOptions,
 ): Promise<DiscoveredAgent | undefined> {
+  let agents: DiscoveredAgent[];
+  try {
+    agents = await discoverAgents(selfAppId, options);
+  } catch (error) {
+    if (!options?.requireReadableAgentSources) throw error;
+
+    const workspaceAgents = await discoverWorkspaceAgents(
+      selfAppId,
+      options,
+      true,
+    );
+    const workspaceAgent = findAgentInList(idOrName, workspaceAgents);
+    if (workspaceAgent) return workspaceAgent;
+
+    const builtin = findAgentInList(
+      idOrName,
+      getBuiltinAgents(selfAppId, options),
+    );
+    if (!builtin) throw error;
+    return builtin;
+  }
+
+  return findAgentInList(idOrName, agents);
+}
+
+function findAgentInList(
+  idOrName: string,
+  agents: DiscoveredAgent[],
+): DiscoveredAgent | undefined {
   const lower = normalizeAgentId(idOrName);
-  const agents = await discoverAgents(selfAppId, options);
   const exact = agents.find(
     (a) => a.id === lower || a.name.toLowerCase() === lower,
   );
@@ -877,7 +920,19 @@ function readWorkspaceAppsFromManifestFile(
 ): WorkspaceAppManifestEntry[] | null {
   for (const file of workspaceAppsManifestCandidates()) {
     if (!fs.existsSync(file)) continue;
-    const apps = parseWorkspaceAppsManifest(readJson(file), strict);
+    let parsed: unknown;
+    if (strict) {
+      try {
+        parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+      } catch (error) {
+        throw new Error(`Invalid workspace apps manifest file: ${file}`, {
+          cause: error,
+        });
+      }
+    } else {
+      parsed = readJson(file);
+    }
+    const apps = parseWorkspaceAppsManifest(parsed, strict);
     if (apps) return apps;
   }
   return null;
@@ -966,13 +1021,13 @@ function workspaceAppUrl(
 async function discoverWorkspaceAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
-  strictMetadata = false,
+  strict = false,
 ): Promise<DiscoveredAgent[]> {
-  const workspaceApps = await loadWorkspaceAppsManifest(strictMetadata);
+  const workspaceApps = await loadWorkspaceAppsManifest(strict);
   if (!workspaceApps) return [];
 
   const metadataSettings =
-    await readWorkspaceAppMetadataSettingsInternal(strictMetadata);
+    await readWorkspaceAppMetadataSettingsInternal(strict);
 
   const normalizedSelfAppId = selfAppId ? normalizeAgentId(selfAppId) : "";
 
@@ -990,7 +1045,7 @@ async function discoverWorkspaceAgents(
         options?.preferLocalUrls && builtin
           ? resolveAgentUrl(builtin, true)
           : workspaceAppUrl(withOverride, builtin?.url);
-      if (strictMetadata && (!url || !isAbsoluteHttpUrl(url))) {
+      if (strict && (!url || !isAbsoluteHttpUrl(url))) {
         throw new Error(`Invalid workspace app URL: ${withOverride.id}`);
       }
       if (!url) return null;

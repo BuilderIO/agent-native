@@ -8,8 +8,6 @@ import {
 } from "../agent/durable-background.js";
 import { fireInternalDispatch } from "./self-dispatch.js";
 
-const PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS = 1_000;
-
 export async function dispatchAgentTeamRun(options: {
   event?: any;
   taskId: string;
@@ -49,8 +47,6 @@ export async function dispatchAgentTeamRun(options: {
     await fireInternalDispatch({
       ...options,
       path: AGENT_TEAM_PROCESS_RUN_PATH,
-      awaitResponse: true,
-      responseTimeoutMs: PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS,
     });
   }
 }

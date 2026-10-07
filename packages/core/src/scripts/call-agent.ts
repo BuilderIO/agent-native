@@ -702,7 +702,7 @@ export async function run(
   let agent: DiscoveredAgent | undefined;
   try {
     agent = await findAgent(agentIdOrName, selfAppId, {
-      requireReadableResources: true,
+      requireReadableAgentSources: true,
     });
   } catch (error) {
     const terminalCode = "agent_discovery_failed";

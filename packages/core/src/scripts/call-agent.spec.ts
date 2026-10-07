@@ -935,7 +935,7 @@ describe("call-agent action", () => {
       });
 
       expect(discovery.findAgent).toHaveBeenCalledWith("analytics", "mail", {
-        requireReadableResources: true,
+        requireReadableAgentSources: true,
       });
       expect(callAgentMock).not.toHaveBeenCalled();
       expect(
