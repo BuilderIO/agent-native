@@ -2058,6 +2058,14 @@ export default {
       "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
   },
   designSystems: {
+    comingSoonTitle: "Designsysteme kommen bald",
+    waitlist: {
+      join: "Zur Warteliste",
+      joining: "Wird hinzugefügt...",
+      joined: "Du stehst auf der Warteliste",
+      error:
+        "Du konntest nicht zur Warteliste hinzugefügt werden. Bitte versuche es erneut.",
+    },
     deleteError: "Das Designsystem konnte nicht gelöscht werden",
     updateSuccess: "Designsystem aktualisiert",
     updateError: "Das Designsystem konnte nicht aktualisiert werden",
