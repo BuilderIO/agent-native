@@ -751,7 +751,7 @@ export function FirstRunOnboarding({
                       onClick={() => handleBuilder(true)}
                       disabled={connectFlow.connecting}
                     >
-                      {t("agentChat.onboarding.builderCreateAndActivate")}
+                      {t("agentChat.setup.connectBuilder")}
                     </button>
                   )}
                   <button
@@ -765,8 +765,7 @@ export function FirstRunOnboarding({
                   </button>
                 </div>
                 {connectFlow.error &&
-                  !connectFlow.statusResolved &&
-                  builderStatusReadCount > 0 && (
+                  connectFlow.errorKind === "status-read" && (
                     <div
                       role="status"
                       data-testid="first-run-builder-status-error"

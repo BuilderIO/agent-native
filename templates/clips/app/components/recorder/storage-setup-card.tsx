@@ -194,8 +194,7 @@ export function StorageSetupCard({
   const builderConnectErrorMessage = builderConnect.error
     ? /popup|chat host/i.test(builderConnect.error)
       ? t("storageSetup.builderConnectPopupError")
-      : builderConnect.statusReadSettledCount > 0 &&
-          !builderConnect.statusResolved
+      : builderConnect.errorKind === "status-read"
         ? t("storageSetup.builderStatusReadError")
         : t("storageSetup.builderConnectError")
     : null;
@@ -279,26 +278,24 @@ export function StorageSetupCard({
           {builderConnectErrorMessage}
         </p>
       )}
-      {!builderConnect.statusResolved &&
-        builderConnect.hasFetchedStatus &&
-        builderConnect.error && (
-          <button
-            type="button"
-            aria-busy={retryingBuilderStatus}
-            disabled={retryingBuilderStatus}
-            className="text-xs text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={retryBuilderStatus}
-          >
-            {retryingBuilderStatus ? (
-              <span className="inline-flex items-center gap-1.5">
-                <IconLoader2 className="h-3 w-3 animate-spin" aria-hidden />
-                {t("storageSetup.checkingBuilderConnection")}
-              </span>
-            ) : (
-              t("meetingDetail.retry")
-            )}
-          </button>
-        )}
+      {builderConnect.errorKind === "status-read" && builderConnect.error && (
+        <button
+          type="button"
+          aria-busy={retryingBuilderStatus}
+          disabled={retryingBuilderStatus}
+          className="text-xs text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={retryBuilderStatus}
+        >
+          {retryingBuilderStatus ? (
+            <span className="inline-flex items-center gap-1.5">
+              <IconLoader2 className="h-3 w-3 animate-spin" aria-hidden />
+              {t("storageSetup.checkingBuilderConnection")}
+            </span>
+          ) : (
+            t("meetingDetail.retry")
+          )}
+        </button>
+      )}
       {builderConnecting && (
         <Button
           type="button"

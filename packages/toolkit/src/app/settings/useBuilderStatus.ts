@@ -243,6 +243,8 @@ export interface BuilderConnectStartOptions {
   scope?: BuilderConnectionScope;
 }
 
+export type BuilderConnectErrorKind = "status-read" | "connection";
+
 export interface BuilderConnectFlow {
   configured: boolean;
   provisionAccount?: boolean;
@@ -268,6 +270,7 @@ export interface BuilderConnectFlow {
   orgName: string | null;
   connecting: boolean;
   error: string | null;
+  errorKind: BuilderConnectErrorKind | null;
   accountExists: boolean;
   hasFetchedStatus: boolean;
   start: (options?: BuilderConnectStartOptions) => void;
@@ -838,7 +841,23 @@ export function useBuilderConnectFlow(
   const [builderEnabled, setBuilderEnabled] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<{
+    kind: BuilderConnectErrorKind;
+    message: string;
+  } | null>(null);
+  const error = errorState?.message ?? null;
+  const errorKind = errorState?.kind ?? null;
+  const setError = useCallback(
+    (message: string | null, kind: BuilderConnectErrorKind = "connection") => {
+      setErrorState(message ? { message, kind } : null);
+    },
+    [],
+  );
+  const clearStatusReadError = useCallback(() => {
+    setErrorState((current) =>
+      current?.kind === "status-read" ? null : current,
+    );
+  }, []);
   const [accountExists, setAccountExists] = useState(false);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const [statusResolved, setStatusResolved] = useState(false);
@@ -865,7 +884,6 @@ export function useBuilderConnectFlow(
     controller: AbortController;
   } | null>(null);
   const retryStatusRef = useRef<() => boolean>(() => false);
-  const statusUnavailableRef = useRef(false);
   const statusPollFailuresRef = useRef(0);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -1037,14 +1055,13 @@ export function useBuilderConnectFlow(
       setHasFetchedStatus(true);
       setStatusReadSettledCount((count) => count + 1);
       if (!s) {
-        statusUnavailableRef.current = true;
-        setError(t("agentChat.settingsShell.builder.grantsFailed"));
+        setError(
+          t("agentChat.settingsShell.builder.grantsFailed"),
+          "status-read",
+        );
         return;
       }
-      if (statusUnavailableRef.current) {
-        statusUnavailableRef.current = false;
-        setError(null);
-      }
+      clearStatusReadError();
       setStatusResolved(true);
       setConfigured(!!s.configured);
       setCodeChangeConfigured(isCodeChangeConfigured(s));
@@ -1121,7 +1138,14 @@ export function useBuilderConnectFlow(
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
-  }, [enabled, fetchStatus, notifyProvisionedAccount, t]);
+  }, [
+    clearStatusReadError,
+    enabled,
+    fetchStatus,
+    notifyProvisionedAccount,
+    setError,
+    t,
+  ]);
 
   const retry = useCallback(() => retryStatusRef.current(), []);
   const cancel = useCallback(() => {
@@ -1393,7 +1417,10 @@ export function useBuilderConnectFlow(
           if (!status) {
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError(t("agentChat.settingsShell.builder.grantsFailed"));
+            setError(
+              t("agentChat.settingsShell.builder.grantsFailed"),
+              "status-read",
+            );
             return;
           }
           setHasFetchedStatus(true);
@@ -1646,15 +1673,14 @@ export function useBuilderConnectFlow(
         statusPollFailuresRef.current = 0;
       } else {
         statusPollFailuresRef.current += 1;
-        statusUnavailableRef.current = true;
-        setError(t("agentChat.settingsShell.builder.grantsFailed"));
+        setError(
+          t("agentChat.settingsShell.builder.grantsFailed"),
+          "status-read",
+        );
       }
       const orgName = s?.orgName ?? null;
       if (s) {
-        if (statusUnavailableRef.current) {
-          statusUnavailableRef.current = false;
-          setError(null);
-        }
+        clearStatusReadError();
         setHasFetchedStatus(true);
         setStatusResolved(true);
         setConfigured(!!s.configured);
@@ -2001,6 +2027,7 @@ export function useBuilderConnectFlow(
     orgName,
     connecting,
     error,
+    errorKind,
     accountExists,
     hasFetchedStatus,
     start,

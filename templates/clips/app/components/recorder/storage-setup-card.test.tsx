@@ -83,6 +83,7 @@ function flowState(overrides: Record<string, unknown> = {}) {
     agentNativeProvisioningEnabled: true,
     statusResolved: true,
     statusReadSettledCount: 0,
+    errorKind: null,
     hasFetchedStatus: true,
     canConnect: { org: false, personal: false },
     error: null,
@@ -416,8 +417,9 @@ describe("StorageSetupCard", () => {
       accountExists: false,
       connecting: false,
       agentNativeProvisioningEnabled: false,
-      statusResolved: false,
-      statusReadSettledCount: 1,
+      statusResolved: true,
+      statusReadSettledCount: 2,
+      errorKind: "status-read",
       hasFetchedStatus: true,
       error: "Couldn't read the Builder.io connections.",
     };
@@ -449,7 +451,7 @@ describe("StorageSetupCard", () => {
 
     mocks.useBuilderConnectFlow.mockReturnValue({
       ...flow,
-      statusReadSettledCount: 2,
+      statusReadSettledCount: 3,
     });
     await act(async () => {
       root.render(<StorageSetupCard onConfigured={vi.fn()} />);
@@ -473,6 +475,7 @@ describe("StorageSetupCard", () => {
       agentNativeProvisioningEnabled: true,
       statusResolved: true,
       statusReadSettledCount: 1,
+      errorKind: "connection",
       hasFetchedStatus: true,
       error:
         "Couldn't open Builder from this chat host. Open this app in a browser tab and try Use Builder.io again.",

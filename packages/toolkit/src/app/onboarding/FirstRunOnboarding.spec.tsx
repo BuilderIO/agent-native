@@ -1539,8 +1539,9 @@ describe("FirstRunOnboarding", () => {
     const retry = vi.fn(() => true);
     const flow = {
       hasFetchedStatus: true,
-      statusResolved: false,
-      statusReadSettledCount: 1,
+      statusResolved: true,
+      statusReadSettledCount: 2,
+      errorKind: "status-read",
       configured: false,
       agentNativeProvisioningEnabled: true,
       accountExists: false,
@@ -1586,7 +1587,7 @@ describe("FirstRunOnboarding", () => {
       '[data-testid="first-run-builder-create-account"]',
     );
     expect(cta?.hasAttribute("disabled")).toBe(false);
-    expect(cta?.textContent).toContain("Create and activate");
+    expect(cta?.textContent?.trim()).toBe("Use Builder.io");
     expect(cta?.textContent).not.toContain("Create Builder.io account");
 
     act(() => {

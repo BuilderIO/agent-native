@@ -193,8 +193,9 @@ describe("BuilderConnectPopover", () => {
       connecting: false,
       start: vi.fn(),
       retry,
-      statusResolved: false,
-      statusReadSettledCount: 1,
+      statusResolved: true,
+      statusReadSettledCount: 2,
+      errorKind: "status-read",
       agentNativeProvisioningEnabled: false,
       error: "Couldn't reach Builder to check your account. Retrying.",
     };
@@ -229,6 +230,46 @@ describe("BuilderConnectPopover", () => {
       consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
         ?.disabled,
     ).toBe(true);
+  });
+
+  it("shows a connection error after an earlier status read failure", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry: vi.fn(() => true),
+      statusResolved: false,
+      statusReadSettledCount: 1,
+      errorKind: "connection" as const,
+      agentNativeProvisioningEnabled: true,
+      error: "Couldn't create your Builder account. Try again.",
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
+        trigger(),
+      ),
+    );
+    click(connectButton());
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.textContent).toContain(
+      "Couldn't create your Builder account. Try again.",
+    );
+    expect(consent?.textContent).not.toContain(
+      "Couldn't read the Builder.io connections.",
+    );
+    expect(
+      [...(consent?.querySelectorAll("button") ?? [])].some(
+        (button) => button.textContent === "Retry",
+      ),
+    ).toBe(false);
   });
 
   it("allows an explicit one-click handler for a custom flow", () => {

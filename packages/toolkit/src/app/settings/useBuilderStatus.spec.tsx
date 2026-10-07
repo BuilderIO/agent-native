@@ -103,6 +103,7 @@ function BuilderConnectProbeContent({
       <output data-testid="credential-source">
         {flow.credentialSource ?? "none"}
       </output>
+      <output data-testid="error-kind">{flow.errorKind ?? ""}</output>
       <output>{flow.error ?? ""}</output>
     </div>
   );
@@ -840,6 +841,45 @@ describe("useBuilderConnectFlow", () => {
         "Couldn't create your Builder account. Try again or connect an existing account.",
       );
       expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it("shows a later provisioning error instead of an earlier status-read error", async () => {
+      const setupError = "Couldn't create your Builder account. Try again.";
+      let statusReads = 0;
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          return activationResponse(503, {
+            ok: false,
+            code: "provision_failed",
+            message: setupError,
+          });
+        }
+        statusReads += 1;
+        return statusReads === 1
+          ? activationResponse(503, { ok: false })
+          : jsonResponse(activationStatus);
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      expect(
+        container.querySelector("[data-testid='error-kind']")?.textContent,
+      ).toBe("status-read");
+
+      await clickConnect();
+
+      expect(statusReads).toBe(2);
+      expect(container.textContent).toContain("unresolved");
+      expect(
+        container.querySelector("[data-testid='error-kind']")?.textContent,
+      ).toBe("connection");
+      expect(container.textContent).toContain(setupError);
+      expect(container.textContent).not.toContain(
+        "Couldn't read the Builder.io connections.",
+      );
     });
 
     it("reconciles status when the activation response is lost", async () => {
@@ -1644,6 +1684,9 @@ describe("useBuilderConnectFlow", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toContain("not-configured idle unresolved");
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("status-read");
     expect(container.textContent).toContain(
       "Couldn't read the Builder.io connections.",
     );
@@ -1655,7 +1698,49 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(container.textContent).toContain("not-configured idle resolved");
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("");
     expect(container.textContent).not.toContain(
+      "Couldn't read the Builder.io connections.",
+    );
+  });
+
+  it("keeps last-good status while marking a failed refresh as a status read", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...connectedBuilderStatus,
+          configured: false,
+          agentNativeProvisioningEnabled: true,
+          agentNativeProvisioningToken: provisioningToken,
+        }),
+      )
+      .mockRejectedValueOnce(new Error("status unavailable"));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(container.textContent).toContain("not-configured idle resolved");
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured idle resolved");
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("status-read");
+    expect(container.textContent).toContain(
       "Couldn't read the Builder.io connections.",
     );
   });
