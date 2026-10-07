@@ -548,6 +548,410 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
+  it("counts a folded AgentKit reply once when the root stores its continuation", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Write forty lines" }],
+          },
+          {
+            id: "message-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "First half." }],
+          },
+        ],
+        events: [
+          {
+            id: "event-run-1",
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "message-1", role: "assistant" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a fully projected folded reply once across its runs", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "message-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "First half." }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "message-2",
+            role: "assistant",
+            parts: [{ type: "text", text: " Second half." }],
+            metadata: { runId: "run-2" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("keeps a folded root reply when event mapping cannot identify its run messages", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "partial-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "First half." }],
+          },
+          {
+            id: "partial-2",
+            role: "assistant",
+            parts: [{ type: "text", text: "Additional tool response." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "partial-1", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "partial-2", role: "assistant" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("keeps a distinct final assistant reply when a run has multiple messages", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Here is the complete result." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Here is the complete" }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "unrelated-final",
+            role: "assistant",
+            parts: [{ type: "text", text: "The tool returned a value." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+        _mergeRootMessages: true,
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Make the report",
+      3,
+    );
+
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("counts a raw tool-call mirror once when its result is in AgentKit", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-hello",
+                toolName: "hello",
+                args: {
+                  details: { name: "AgentKit Browser", browser: true },
+                },
+                result: {
+                  message: "Hello, AgentKit Browser!",
+                  ok: true,
+                },
+              },
+              { type: "text", text: "The task is complete." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Calling the tool." }],
+          },
+          {
+            id: "assistant-final-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The task is complete." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-tool-step", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-final-answer", role: "assistant" },
+          },
+        ],
+        toolCalls: [
+          {
+            id: "call-hello",
+            name: "hello",
+            input: {
+              details: { browser: true, name: "AgentKit Browser" },
+            },
+            output: { ok: true, message: "Hello, AgentKit Browser!" },
+            messageId: "assistant-final-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("counts a mirrored reply once when only the durable copy has reasoning", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              { type: "reasoning", text: "The stored reasoning." },
+              { type: "text", text: "Done." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts an identical root and AgentKit assistant mirror once", async () => {
+    const repository = {
+      messages: [
+        {
+          message: { ...userMessage },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "reply-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
   it("counts disjoint mixed legacy history without the merge marker", async () => {
     const sharedMessage = {
       id: "shared-message",

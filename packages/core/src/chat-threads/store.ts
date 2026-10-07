@@ -8,6 +8,10 @@ import {
   normalizeThreadTitle,
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
+import {
+  representedRootAssistantMessageIds,
+  threadMessageRecord,
+} from "../agent/thread-message-projection.js";
 import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
@@ -419,23 +423,24 @@ function countThreadMessages(value: unknown, fallback: number): number {
     return fallback;
   }
 
-  // Legacy records can contain both projections without the merge marker.
+  const rootMessages = Array.isArray(repo.messages) ? repo.messages : [];
+  const agentKitMessages = Array.isArray(repo.agentKit?.messages)
+    ? repo.agentKit.messages
+    : [];
+  const mirroredRootIds = representedRootAssistantMessageIds({
+    rootMessages,
+    snapshotMessages: agentKitMessages,
+    events: repo.agentKit?.events,
+    runs: repo.agentKit?.runs,
+    toolCalls: repo.agentKit?.toolCalls,
+  });
   const messageIds = new Set<string>();
   let unkeyedMessages = 0;
-  for (const entry of [
-    ...(Array.isArray(repo.messages) ? repo.messages : []),
-    ...(Array.isArray(repo.agentKit?.messages) ? repo.agentKit.messages : []),
-  ]) {
-    const outer =
-      entry && typeof entry === "object" && !Array.isArray(entry)
-        ? (entry as Record<string, unknown>)
-        : undefined;
-    const message =
-      outer?.message &&
-      typeof outer.message === "object" &&
-      !Array.isArray(outer.message)
-        ? (outer.message as Record<string, unknown>)
-        : outer;
+  for (const entry of [...rootMessages, ...agentKitMessages]) {
+    const message = threadMessageRecord(entry);
+    if (typeof message?.id === "string" && mirroredRootIds.has(message.id)) {
+      continue;
+    }
     if (typeof message?.id === "string") messageIds.add(message.id);
     else unkeyedMessages += 1;
   }

@@ -2301,15 +2301,60 @@ function mergeAgentKitHistory(
   if (runs.size > 0) {
     merged.runs = [...runs.values()];
     const latest = latestSnapshotRun(merged.runs);
+    const incomingLatest = latestSnapshotRun(next.runs);
     const previousLatest = latestSnapshotRun(previous.runs);
-    merged.suggestions =
-      latest?.status !== "completed"
-        ? []
-        : latest.id === previousLatest?.id &&
-            previousLatest.status === "completed" &&
-            Array.isArray(previous.suggestions)
-          ? previous.suggestions
-          : next.suggestions;
+    const incomingLatestCompleted = incomingLatest?.status === "completed";
+    const incomingLatestIsMergedLatest =
+      incomingLatest?.id === latest?.id && incomingLatestCompleted;
+    const newLatestRunCompletion =
+      incomingLatestIsMergedLatest && latest?.id !== previousLatest?.id;
+    const latestRunJustCompleted =
+      incomingLatestIsMergedLatest &&
+      incomingLatest !== undefined &&
+      latest !== undefined &&
+      previousLatest !== undefined &&
+      previousLatest.id === latest.id &&
+      previousLatest.status !== "completed" &&
+      Number.isSafeInteger(incomingLatest.lastSequence) &&
+      incomingLatest.lastSequence >= 0 &&
+      Number.isSafeInteger(previousLatest.lastSequence) &&
+      previousLatest.lastSequence >= 0 &&
+      incomingLatest.lastSequence >= previousLatest.lastSequence;
+    const sameCompletedRunAdvanced =
+      incomingLatestIsMergedLatest &&
+      incomingLatest !== undefined &&
+      latest !== undefined &&
+      previousLatest !== undefined &&
+      incomingLatest.id === latest.id &&
+      previousLatest.id === latest.id &&
+      previousLatest.status === "completed" &&
+      Number.isSafeInteger(incomingLatest.lastSequence) &&
+      incomingLatest.lastSequence >= 0 &&
+      Number.isSafeInteger(previousLatest.lastSequence) &&
+      previousLatest.lastSequence >= 0 &&
+      incomingLatest.lastSequence > previousLatest.lastSequence;
+    const incomingSuggestionsAreCurrent =
+      Object.prototype.hasOwnProperty.call(next, "suggestions") &&
+      (newLatestRunCompletion ||
+        latestRunJustCompleted ||
+        sameCompletedRunAdvanced);
+    if (latest?.status !== "completed") {
+      merged.suggestions = [];
+    } else if (incomingSuggestionsAreCurrent) {
+      merged.suggestions = next.suggestions;
+    } else if (
+      previousLatest !== undefined &&
+      latest.id === previousLatest.id &&
+      previousLatest.status === "completed"
+    ) {
+      if (Object.prototype.hasOwnProperty.call(previous, "suggestions")) {
+        merged.suggestions = previous.suggestions;
+      } else {
+        delete merged.suggestions;
+      }
+    } else {
+      merged.suggestions = [];
+    }
     if (Array.isArray(merged.suggestions)) {
       merged.suggestions = merged.suggestions.filter(
         (suggestion: any) => suggestion?.runId === latest?.id,

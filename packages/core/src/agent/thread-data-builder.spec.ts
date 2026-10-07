@@ -1689,6 +1689,60 @@ describe("mergeThreadDataForClientSave", () => {
     });
   });
 
+  it("accepts suggestions only from a newer completed-run snapshot", () => {
+    const run = (lastSequence: number) => ({
+      id: "run-1",
+      threadId: "thread-1",
+      status: "completed",
+      startedAt: "2026-10-01T00:00:00.000Z",
+      lastSequence,
+    });
+    const previousSuggestions = [
+      { id: "suggestion-old", runId: "run-1", label: "Old" },
+    ];
+    const existing = {
+      messages: [],
+      agentKit: {
+        runs: [run(6)],
+        suggestions: previousSuggestions,
+      },
+    };
+    const save = (lastSequence: number, suggestions: unknown[]) =>
+      mergeThreadDataForClientSave(existing, {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [run(lastSequence)],
+          suggestions,
+        },
+      }).agentKit.suggestions;
+
+    expect(
+      save(7, [{ id: "suggestion-new", runId: "run-1", label: "New" }]),
+    ).toEqual([{ id: "suggestion-new", runId: "run-1", label: "New" }]);
+    expect(
+      save(5, [{ id: "suggestion-stale", runId: "run-1", label: "Stale" }]),
+    ).toEqual(previousSuggestions);
+    expect(
+      save(6, [{ id: "suggestion-retry", runId: "run-1", label: "Retry" }]),
+    ).toEqual(previousSuggestions);
+
+    const absentSuggestions = mergeThreadDataForClientSave(
+      { messages: [], agentKit: { runs: [run(6)] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [run(5)],
+          suggestions: [
+            { id: "suggestion-stale", runId: "run-1", label: "Stale" },
+          ],
+        },
+      },
+    ).agentKit;
+    expect(absentSuggestions).not.toHaveProperty("suggestions");
+  });
+
   it("upserts event deltas, restores contiguous run sequences, and keeps annotations", () => {
     const existing = {
       messages: [],
