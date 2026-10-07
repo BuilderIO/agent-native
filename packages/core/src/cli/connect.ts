@@ -2292,7 +2292,7 @@ export async function runServiceTokenMint(
   if (!parsed.url) {
     logErr("  --service-token requires the app URL.");
     logErr(
-      "  Usage: npx @agent-native/core@latest connect <url> --service-token <name> [--ttl-days <1-365>]",
+      "  Usage: npx @agent-native/core@latest connect <url> --service-token <name> [--ttl-days <1-3650>]",
     );
     return false;
   }
@@ -2407,7 +2407,7 @@ Usage:
       No-browser fallback. Skip the device flow and write the entry with
       the supplied token (get it from the app's Connect page).
 
-  npx @agent-native/core@latest connect <url> --service-token <name> [--ttl-days <1-365>]
+  npx @agent-native/core@latest connect <url> --service-token <name> [--ttl-days <1-3650>]
       Mint an ORG service token for CI (e.g. the PLAN_RECAP_TOKEN secret for
       PR Visual Recap). Authenticates you via the browser device flow, then
       mints a token owned by your ORGANIZATION — it keeps working if you
@@ -2453,6 +2453,14 @@ export async function runConnect(
     }
 
     const parsed = parseConnectArgs(args);
+
+    if (parsed.ttlDays !== undefined && parsed.serviceToken === undefined) {
+      logErr(
+        "  --ttl-days is only supported with --service-token. Set a personal token lifetime on the app's Connect page.",
+      );
+      process.exitCode = 1;
+      return;
+    }
 
     if (parsed.mode) {
       let ok: boolean;

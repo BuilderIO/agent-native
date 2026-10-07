@@ -1442,6 +1442,17 @@ interface LoopbackRequestRecord {
   prompt: string;
   toolNames: string[];
   toolResultIds: string[];
+  promptDiagnostics?: {
+    requestKeys: string[];
+    userMessages: Array<{
+      contentType: string;
+      textLength: number;
+      fieldNames: string[];
+      containsApprovalPrompt: boolean;
+      containsApprovedContinuationPrompt: boolean;
+    }>;
+    assistantToolCallNames: string[];
+  };
 }
 
 interface LoopbackProviderState {
@@ -1607,7 +1618,49 @@ async function handleLoopbackCompletion(
   const toolResultIds = toolResults.flatMap((item) =>
     typeof item.tool_call_id === "string" ? [item.tool_call_id] : [],
   );
-  state.requests.push({ prompt, toolNames, toolResultIds });
+  const assistantToolCallNames = messages
+    .filter((item) => item.role === "assistant")
+    .flatMap((item) =>
+      Array.isArray(item.tool_calls)
+        ? item.tool_calls.flatMap((value) => {
+            const call = jsonRecord(value);
+            const fn = call.function;
+            if (!fn || typeof fn !== "object") return [];
+            const name = (fn as Record<string, unknown>).name;
+            return typeof name === "string" ? [name] : [];
+          })
+        : [],
+    )
+    .slice(-8);
+  const promptDiagnostics =
+    prompt === ""
+      ? {
+          requestKeys: Object.keys(body).sort(),
+          userMessages: userMessages.slice(-8).map((message) => {
+            const content = message.content;
+            const text = contentText(content);
+            return {
+              contentType: Array.isArray(content) ? "array" : typeof content,
+              textLength: text.length,
+              fieldNames:
+                content && typeof content === "object"
+                  ? Object.keys(content).slice(0, 8)
+                  : [],
+              containsApprovalPrompt: text.includes(approvalPrompt),
+              containsApprovedContinuationPrompt: text.includes(
+                approvedContinuationPrompt,
+              ),
+            };
+          }),
+          assistantToolCallNames,
+        }
+      : undefined;
+  state.requests.push({
+    prompt,
+    toolNames,
+    toolResultIds,
+    ...(promptDiagnostics ? { promptDiagnostics } : {}),
+  });
   const requestNumber = state.requests.length;
   log(
     `loopback request ${requestNumber}: prompt=${JSON.stringify(prompt)} tools=${toolNames.length} toolResults=${toolResultIds.length}`,
@@ -2965,6 +3018,18 @@ async function assertAgentKitChatAcceptance(
     ),
   });
 
+  // The composer queues only while it counts a run as active, and the stop
+  // button renders from that same check; submitting earlier sends immediately.
+  try {
+    await page
+      .locator('[data-agent-composer-slot="stop-button"]')
+      .waitFor({ state: "visible" });
+  } catch (error) {
+    throw new Error(
+      "The composer no longer counts the run as active while its approval card is pending, so a follow-up would bypass the queue.",
+      { cause: error },
+    );
+  }
   await fillAndSubmitComposer(page, queuedPrompt);
   const queue = page.getByRole("region", { name: "Queued messages" });
   await queue.waitFor({ state: "visible" });

@@ -126,7 +126,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
-  "onboarding.builderCreateAccount": "Builder.io アカウントを作成",
+  "onboarding.builderCreateAccount": "Builder.io を使う",
   "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
   "onboarding.builderActivateDescription":
     "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",

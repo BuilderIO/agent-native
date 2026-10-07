@@ -790,14 +790,38 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Check chat typing while slide text editing remains active
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
-
       - name: Check platform-aware line-edge caret navigation in slide text
         working-directory: templates/slides
         timeout-minutes: 10
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform linux
+
+  slides-chat-typing-e2e:
+    name: Slides chat typing during slide editing
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Check chat typing while slide text editing remains active
+        working-directory: templates/slides
+        timeout-minutes: 20
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 
   slides-macos-caret-qa:
     name: Slides caret navigation in macOS
@@ -905,7 +929,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       DATABASE_URL: postgresql://postgres@127.0.0.1:5432/agent_native_build
     services:

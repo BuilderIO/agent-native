@@ -122,7 +122,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "अपनी भूमिका बताएं",
   "onboarding.skipForNow": "अभी छोड़ें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
-  "onboarding.builderCreateAccount": "Builder.io खाता बनाएँ",
+  "onboarding.builderCreateAccount": "Builder.io इस्तेमाल करें",
   "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",
   "onboarding.builderActivateDescription":
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
