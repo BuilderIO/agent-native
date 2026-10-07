@@ -28,6 +28,7 @@ const routeHarness = vi.hoisted(() => ({
 const threadStoreMocks = vi.hoisted(() => ({
   mutateThreadQueuedMessages: vi.fn(),
   resolveThreadAccess: vi.fn(),
+  updateThreadData: vi.fn(),
 }));
 
 function runtimeSkillsFromBundle(bundle: { skills?: Record<string, any> }) {
@@ -102,6 +103,8 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
       threadStoreMocks.mutateThreadQueuedMessages(...args),
     resolveThreadAccess: (...args: any[]) =>
       threadStoreMocks.resolveThreadAccess(...args),
+    updateThreadData: (...args: any[]) =>
+      threadStoreMocks.updateThreadData(...args),
   };
 });
 
@@ -241,6 +244,8 @@ beforeEach(() => {
   routeHarness.initPromises.length = 0;
   threadStoreMocks.mutateThreadQueuedMessages.mockReset();
   threadStoreMocks.resolveThreadAccess.mockReset();
+  threadStoreMocks.updateThreadData.mockReset();
+  threadStoreMocks.updateThreadData.mockResolvedValue(true);
   mocks.getSession.mockResolvedValue(null);
   mocks.loadAgentsBundle.mockResolvedValue({
     workspaceAgentsMd: "",
@@ -411,6 +416,185 @@ describe("agent chat queued-message route", () => {
       threadId,
       mutation,
     );
+  });
+});
+
+describe("agent chat thread save route", () => {
+  const thread = {
+    id: "thread-save",
+    scope: null,
+    threadData: JSON.stringify({ messages: [] }),
+    messageCount: 0,
+    title: "Thread",
+    preview: "",
+  };
+
+  it("rejects invalid inner threadData JSON before saving", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData: "{invalid" }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid threadData JSON",
+    });
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["JSON null", "null"],
+    ["a JSON array", "[]"],
+    ["a JSON string", '"invalid"'],
+    ["an empty body", ""],
+  ])("rejects %s before reading thread fields", async (_label, body) => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid request body" });
+    expect(threadStoreMocks.resolveThreadAccess).not.toHaveBeenCalled();
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["nonnumeric", "2"],
+    ["null", null],
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["unsafe", Number.MAX_SAFE_INTEGER + 1],
+  ])(
+    "rejects a %s message count before saving",
+    async (_label, messageCount) => {
+      const h3App = await mountResourceRoutes();
+      threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+      mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+      const response = await fetchWithRequestContext(
+        h3App,
+        `/_agent-native/agent-chat/threads/${thread.id}`,
+        { userEmail: "user@example.test" },
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageCount }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "Invalid request body" });
+      expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves threadData for the metadata-only empty-string save sentinel", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          threadData: "",
+          title: "New title",
+          preview: "New preview",
+          messageCount: 2,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.updateThreadData).toHaveBeenCalledWith(
+      thread.id,
+      thread.threadData,
+      "New title",
+      "New preview",
+      2,
+      expect.objectContaining({
+        preserveCurrentTitleAndPreview: false,
+      }),
+    );
+  });
+
+  it("preserves server metadata when saving a snapshot delta", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadData = JSON.stringify({
+      messages: [],
+      agentKit: { _snapshotDelta: true, messages: [] },
+    });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData, messageCount: 0 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.updateThreadData).toHaveBeenCalledWith(
+      thread.id,
+      threadData,
+      thread.title,
+      thread.preview,
+      0,
+      expect.objectContaining({ preserveCurrentTitleAndPreview: true }),
+    );
+  });
+
+  it("returns 404 when the thread disappears before the save reaches storage", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    threadStoreMocks.updateThreadData.mockResolvedValue(false);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData: JSON.stringify({ messages: [] }) }),
+      },
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Thread not found" });
+    expect(threadStoreMocks.updateThreadData).toHaveBeenCalledOnce();
+    expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalledOnce();
   });
 });
 
