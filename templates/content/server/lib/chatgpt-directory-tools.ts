@@ -30,13 +30,19 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://content.agent-native.com",
+  widgetResourceTitle: false as const,
   widgetTargets: {
     "create-document": (_args: Record<string, unknown>, result: unknown) => {
       const documentId = id(record(result).id, record(result).documentId);
+      const spaceId = id(record(result).spaceId);
       return documentId
         ? {
             targetPath: `/page/${encodeURIComponent(documentId)}`,
-            resourceIds: { documentId },
+            resourceIds: {
+              documentId,
+              resourceType: "document",
+              ...(spaceId ? { spaceId } : {}),
+            },
           }
         : null;
     },
@@ -47,28 +53,55 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       const database = record(record(result).database);
       const databaseId = id(database.id);
       const documentId = id(database.documentId);
+      const spaceId = id(database.spaceId, record(result).spaceId);
       return databaseId && documentId
         ? {
             targetPath: `/page/${encodeURIComponent(documentId)}`,
-            resourceIds: { databaseId, documentId },
+            resourceIds: {
+              databaseId,
+              documentId,
+              resourceType: "document",
+              ...(spaceId ? { spaceId } : {}),
+            },
           }
         : null;
     },
   },
   widgetReadActionArguments: {
     "get-document": { id: "documentId" },
+    "get-content-navigation-context": { id: "documentId" },
+    "get-preview-document-draft": { documentId: "documentId" },
+    "list-comments": { documentId: "documentId" },
+    "list-resource-suggestions": {
+      resourceType: "resourceType",
+      resourceId: "documentId",
+    },
     "get-content-database": {
       databaseId: "databaseId",
       documentId: "documentId",
       limit: { type: "integerRange" as const, min: 0, max: 5_000 },
     },
+    "get-content-database-personal-view": { databaseId: "databaseId" },
     "query-content-database-items": {
       documentId: "documentId",
       limit: { type: "integerRange" as const, min: 1, max: 5_000 },
       tableQuery: { type: "actionSchema" as const },
     },
   },
-  widgetReadPrivateActions: ["query-content-database-items"],
+  widgetReadOnlyActions: [
+    "get-content-database-personal-view",
+    "list-comments",
+  ],
+  widgetReadAuthenticatedActions: [
+    "get-content-database-personal-view",
+    "list-comments",
+    "list-resource-suggestions",
+  ],
+  widgetReadPrivateActions: [
+    "get-content-navigation-context",
+    "get-preview-document-draft",
+    "query-content-database-items",
+  ],
   keyToolNames: [
     "search-documents",
     "get-document",
