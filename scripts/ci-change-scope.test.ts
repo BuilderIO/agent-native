@@ -571,8 +571,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
-  assert.ok(regressionCases.includes("timeout-minutes: 9"));
-  assert.ok(workflow.includes("timeout-minutes: 15"));
+  assert.ok(regressionCases.includes("timeout-minutes: 18"));
+  assert.ok(workflow.includes("timeout-minutes: 25"));
   assert.ok(regressionCases.includes("--workers=2"));
   assert.ok(workflow.includes("shard: [inspector, drag, position, changed]"));
   assert.ok(
@@ -649,7 +649,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/corner-radius-handle-drag.spec.ts",
-      189,
+      202,
       "canvas corner-radius handle follows the drag and persists the radius",
     ],
     [
