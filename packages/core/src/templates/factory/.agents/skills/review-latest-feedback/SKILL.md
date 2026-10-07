@@ -1,12 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep recent Slack, GitHub issue, Sentry, first-party Agent-Native Analytics
-  error issues, and explicitly linked tracker
-  feedback: first answer reporters, then fix verified bugs and actionable
-  objective UI defects at the owning boundary, require human signoff for
-  subjective UI changes, build features the invoking user endorsed with an
-  :upvote:, and recap every disposition. Use for scheduled or manual sweeps.
+  Review Slack, GitHub, CI, Sentry, first-party Agent-Native Analytics,
+  diagnostics, and linked trackers. Answer reporters first, fix verified bugs
+  and objective UI defects, require signoff for subjective changes, build
+  upvoted features, and recap dispositions. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -92,7 +90,8 @@ For clusters, post one owner status with each source permalink and
   **Clustered**, or **Abandoned - no answer in 4 days**. Apply the reaction
   gate above.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
-  **Deployed - live unverified**, **Not reproducible - attempted**, or
+  **Deployed - live unverified**, **Not reproducible - attempted**,
+  **Quarantined** (owner, expiry, issue; revisit until fixed or restored), or
   **In progress**.
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
@@ -216,7 +215,14 @@ and include it in every reply.
 Phase 0 applies these from parent-level evidence to decide what to claim.
 Phase 2 reapplies these rules after full-thread review.
 
-Use `## Slack channels` unless the invocation narrows scope.
+**Automated diagnostics count as feedback regardless of author.** Claim
+actionable CI/Beta E2E and monitoring alerts with `👀` after the ownership gate,
+then inspect linked runs, builds/commits, job logs, test results, artifacts, and
+issue state. Treat labels/counts as leads. Fix verified repo-owned causes; for
+other causes, record evidence and the next owner/action. Don't ask bots; ask a
+person only when a fact blocks a fix. If our report lacks evidence, improve its
+checks/report with concise context and links; avoid duplicate details and
+secrets.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
@@ -224,8 +230,8 @@ result is wrong, or a working flow regressed. A credible "nothing happens" is
 valid evidence — inspect the owning path before doubting the reporter.
 
 Do not change code for an unrelated product idea, praise, status update, merge
-or review request, bot forward, duplicate, or work outside the invocation's
-ownership.
+or review request, irrelevant bot forward, duplicate, or work outside the
+invocation's ownership.
 
 **Keep subjective UI changes human-in-the-loop.** Automatically fix only
 objective UI defects: broken interactions, misalignment, overlap or clipping,
@@ -276,6 +282,11 @@ the cursor: recent open or unresolved items with no maintainer disposition,
 deduplicated against Slack. If a source cannot be read, record it as
 **unavailable**. Never report "nothing matched" for a source you could not
 query.
+
+### CI failures are a first-class source
+
+Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
+Failed queries mean **CI unavailable**, never an empty source.
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
@@ -443,12 +454,6 @@ Never hard-code a rule for the wording of one report. One data point justifies
 a local regression test or a contained fix; it never justifies a global agent
 instruction or prompt exception.
 
-### The bar for saying "Fixed"
-
-Phase 2 defines the proof bars for **Fixed**, **Shipped**, and
-**Live verified**. Upvoted improvements state requested versus actual behavior
-and use **Shipped**.
-
 ## Phase 3: reply
 
 Thank issue reporters for opening it and Slack reporters for sharing. Give the
@@ -571,6 +576,7 @@ Upvoted items in scope: N (built: N)
 | Tracker/source | Reporter | Status | Repro (expected/actual) | Pre/post | Runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 18 / [thread](...) | ... | <disposition> | steps; expected/actual | before/after | source/tests/build/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
+| CI [run](...) · fingerprint | N/A | class · disposition | failed job/step | pre/post | fix/quarantine proof | N/A | owner/[issue](...) | N/A | N/A |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete

@@ -1,13 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep recent Slack, GitHub issues, CI failures, Sentry, first-party
-  Agent-Native Analytics errors, actionable automated diagnostics, and
-  linked-tracker feedback: answer reporters first, then fix verified bugs and
-  actionable
-  objective UI defects at the owning boundary, require human signoff for
-  subjective UI changes, build features the invoking user endorsed with an
-  :upvote:, and recap every disposition. Use for scheduled or manual sweeps.
+  Review Slack, GitHub, CI, Sentry, first-party Agent-Native Analytics,
+  diagnostics, and linked trackers. Answer reporters first, fix verified bugs
+  and objective UI defects, require signoff for subjective changes, build
+  upvoted features, and recap dispositions. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -94,7 +91,7 @@ For clusters, post one owner status with each source permalink and
   gate above.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
   **Deployed - live unverified**, **Not reproducible - attempted**,
-  **Quarantined** (owner, expiry, issue; track to fix or restore), or
+  **Quarantined** (owner, expiry, issue; revisit until fixed or restored), or
   **In progress**.
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
@@ -218,8 +215,6 @@ and include it in every reply.
 Phase 0 applies these from parent-level evidence to decide what to claim.
 Phase 2 reapplies these rules after full-thread review.
 
-Use `## Slack channels` unless the invocation narrows scope.
-
 **Automated diagnostics count as feedback regardless of author.** Claim
 actionable CI/Beta E2E and monitoring alerts with `👀` after the ownership gate,
 then inspect linked runs, builds/commits, job logs, test results, artifacts, and
@@ -290,9 +285,8 @@ query.
 
 ### CI failures are a first-class source
 
-Run `pnpm ci:red-report`; follow the [CI triage procedure](references/ci-red-report.md).
-The five-day report covers failed push/scheduled main workflows. Query failure
-is **CI unavailable**, never empty; record every row.
+Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
+Failed queries mean **CI unavailable**, never an empty source.
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
@@ -460,12 +454,6 @@ Never hard-code a rule for the wording of one report. One data point justifies
 a local regression test or a contained fix; it never justifies a global agent
 instruction or prompt exception.
 
-### The bar for saying "Fixed"
-
-Phase 2 defines the proof bars for **Fixed**, **Shipped**, and
-**Live verified**. Upvoted improvements state requested versus actual behavior
-and use **Shipped**.
-
 ## Phase 3: reply
 
 Thank issue reporters for opening it and Slack reporters for sharing. Give the
@@ -584,12 +572,11 @@ Reaction-gated skips: N · claimed N · answered N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
-CI: N runs · N fingerprints · <queried / unavailable>
 
 | Tracker/source | Reporter | Status | Repro (expected/actual) | Pre/post | Runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 18 / [thread](...) | ... | <disposition> | steps; expected/actual | before/after | source/tests/build/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
-| CI [run](...) · workflow · fingerprint | N/A | <class> · <disposition> | job/step; expected/actual | before/after | local fix/quarantine | N/A | owner/[issue](...) | N/A | N/A |
+| CI [run](...) · fingerprint | N/A | class · disposition | failed job/step | pre/post | fix/quarantine proof | N/A | owner/[issue](...) | N/A | N/A |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete
