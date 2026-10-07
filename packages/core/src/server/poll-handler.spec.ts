@@ -122,6 +122,41 @@ describe("poll handler", () => {
     }
   });
 
+  it("builds an in-memory baseline cursor with the event version", async () => {
+    const { AppSyncState } = await import("./poll.js");
+    const state = new AppSyncState({
+      getDb: () => ({ execute: mockExecute }) as any,
+    });
+    state.recordChange({
+      source: "action",
+      type: "change",
+      key: "update-file",
+    });
+    const latest = state.getChangesSince(0).events[0]!;
+
+    await expect(state.getPollBaseline(false)).resolves.toEqual({
+      version: latest.version,
+      cursor: `${latest.version}.${latest.cursorId}`,
+    });
+  });
+
+  it("uses the newest durable event id when creating a baseline cursor", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockExecute.mockResolvedValue({
+      rows: [{ version: "8001", id: "last-event" }],
+    });
+    const { AppSyncState } = await import("./poll.js");
+    const state = new AppSyncState({
+      getDb: () => ({ execute: mockExecute }) as any,
+    });
+
+    await expect(state.getPollBaseline(true)).resolves.toEqual({
+      version: 8_001,
+      cursor: "8001.last-event",
+    });
+  });
+
   it("returns durable sync events after the throttled legacy watermark scan", async () => {
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
     process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";

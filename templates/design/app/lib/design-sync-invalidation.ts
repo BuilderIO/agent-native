@@ -2,6 +2,7 @@ interface SyncEventLike {
   source?: string;
   key?: string;
   resourceType?: string;
+  resourceId?: string;
   requestSource?: string;
 }
 
@@ -37,21 +38,28 @@ export function isContentIndependentDesignQuery(name: unknown): boolean {
 }
 
 function isContentEvent(event: SyncEventLike): boolean {
+  if (
+    event.resourceType !== "design" ||
+    typeof event.resourceId !== "string" ||
+    event.resourceId.trim() === ""
+  ) {
+    return false;
+  }
   if (event.source === "collab") return true;
   return (
     event.source === "action" &&
-    event.resourceType === "design" &&
     typeof event.key === "string" &&
     DESIGN_CONTENT_ACTIONS.has(event.key)
   );
 }
 
-// A human tab's edit never snapshots a version; an agent's (no tab source, or
-// "agent") checkpoints the design first.
+// Browser saves can checkpoint while an agent edit is active, so requestSource
+// alone cannot determine whether the version list changed.
 function mayCreateVersion(event: SyncEventLike): boolean {
   return (
     event.source === "action" &&
-    (!event.requestSource || event.requestSource === "agent")
+    typeof event.key === "string" &&
+    DESIGN_CONTENT_ACTIONS.has(event.key)
   );
 }
 

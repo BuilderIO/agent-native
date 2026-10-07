@@ -464,6 +464,48 @@ export class AppSyncState {
     return this.version;
   }
 
+  async getPollBaseline(
+    useDurableEvents: boolean,
+  ): Promise<{ version: number; cursor: string }> {
+    let cursor: SyncCursor = { version: this.version, id: "" };
+    if (compareSyncCursors(this.latestCursor, cursor) > 0) {
+      cursor = this.latestCursor;
+    }
+
+    if (useDurableEvents && !syncEventsDisabled()) {
+      try {
+        const result = await this.getDb().execute(
+          "SELECT version, id FROM sync_events WHERE version = (SELECT MAX(version) FROM sync_events) ORDER BY id DESC LIMIT 1",
+        );
+        const row = result.rows[0];
+        if (row) {
+          const version = Number(row.version);
+          if (
+            !Number.isSafeInteger(version) ||
+            version < 0 ||
+            typeof row.id !== "string"
+          ) {
+            throw new Error("Durable sync event cursor is invalid");
+          }
+          const durableCursor = { version, id: row.id };
+          if (compareSyncCursors(durableCursor, cursor) > 0) {
+            cursor = durableCursor;
+          }
+        }
+      } catch (error) {
+        if (isMissingRelationError(error)) {
+          throw new SyncEventsTableUnavailableError();
+        }
+        throw error;
+      }
+    }
+
+    return {
+      version: Math.max(this.version, cursor.version),
+      cursor: encodeSyncCursor(cursor),
+    };
+  }
+
   getPollEmitter(): EventEmitter {
     return this.pollEmitter;
   }
@@ -1200,7 +1242,7 @@ export class AppSyncState {
     }
 
     const readCursor = cursor ?? { version: since, id: "" };
-    if (readCursor.version <= 0 && readCursor.id === "") {
+    if (!cursor && readCursor.version <= 0 && readCursor.id === "") {
       try {
         const result = await this.getDb().execute(
           "SELECT MAX(version) as max_version FROM sync_events",
@@ -1775,6 +1817,32 @@ export function getDefaultAppSyncState(): AppSyncState {
 
 export function getVersion(): number {
   return getDefaultAppSyncState().getVersion();
+}
+
+export async function getCurrentPollBaseline(
+  state: AppSyncState = getDefaultAppSyncState(),
+): Promise<{ version: number; cursor: string }> {
+  if (syncEventsDisabled()) {
+    await state.seedVersionFromDb();
+    await state.checkExternalDbChanges({ durableEvents: false });
+    return state.getPollBaseline(false);
+  }
+
+  const releaseOwnedServerlessPoll =
+    isProductionServerlessFunctionRuntime() && appMigratesAtRelease();
+  try {
+    if (!releaseOwnedServerlessPoll) {
+      await state.seedVersionFromDb();
+      await state.checkExternalDbChanges({ durableEvents: true });
+    }
+    return await state.getPollBaseline(true);
+  } catch (error) {
+    if (!(error instanceof SyncEventsTableUnavailableError)) throw error;
+    if (releaseOwnedServerlessPoll) throw error;
+    await state.seedVersionFromDb();
+    await state.checkExternalDbChanges({ durableEvents: false });
+    return state.getPollBaseline(false);
+  }
 }
 
 export function getPollEmitter(): EventEmitter {

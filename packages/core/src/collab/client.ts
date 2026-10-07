@@ -280,7 +280,8 @@ class CollabDocConnection {
   private pollCycleCount = 0;
   private pollVersion = 0;
   private lastPolledVersion = 0;
-  private readonly pollActivitySince = Date.now();
+  private pollCursor: string | null = null;
+  private pollActivityBaselineReady = false;
   private stateVectorFetch: Promise<CollaborativeDocSyncResult> | null = null;
   private stateVectorAbortControllers = new Set<AbortController>();
   private sseActive = false;
@@ -570,7 +571,9 @@ class CollabDocConnection {
   }
 
   private fetchInitialState(): void {
-    fetch(`${this.baseUrl}/${this.docId}/state`).then(
+    fetch(`${this.baseUrl}/${this.docId}/state`, {
+      headers: { "X-Agent-Native-Poll-Baseline": "1" },
+    }).then(
       async (res) => {
         if (this.disposed) return;
         if (res.status === 404 || res.status === 403) {
@@ -583,11 +586,29 @@ class CollabDocConnection {
         }
         const data = (await res.json().catch(() => null)) as {
           state?: string;
+          activityBaseline?: {
+            status?: unknown;
+            version?: unknown;
+            cursor?: unknown;
+          };
         } | null;
         if (this.disposed) return;
         if (typeof data?.state !== "string" || data.state.length === 0) {
           this.markInitializationFailed("invalid-payload");
           return;
+        }
+        const baseline = data.activityBaseline;
+        if (
+          baseline?.status === "ready" &&
+          Number.isSafeInteger(baseline.version) &&
+          (baseline.version as number) >= 0 &&
+          typeof baseline.cursor === "string" &&
+          baseline.cursor.length > 0
+        ) {
+          this.pollVersion = baseline.version as number;
+          this.lastPolledVersion = baseline.version as number;
+          this.pollCursor = baseline.cursor;
+          this.pollActivityBaselineReady = true;
         }
         if (data.state) {
           try {
@@ -1000,15 +1021,17 @@ class CollabDocConnection {
     this.flushPendingUpdates();
 
     try {
-      const res = await fetch(
-        agentNativePath(`/_agent-native/poll?since=${this.pollVersion}`),
-      );
+      const pollUrl = this.pollCursor
+        ? `/_agent-native/poll?cursor=${encodeURIComponent(this.pollCursor)}`
+        : `/_agent-native/poll?since=${this.pollVersion}`;
+      const res = await fetch(agentNativePath(pollUrl));
       if (!res.ok) throw new Error("HTTP " + res.status);
 
       const data = await res.json();
       if (!this.syncActive || this.disposed) return;
       const { version, events } = data as {
         version: number;
+        cursor?: string;
         events: Array<{
           version: number;
           source: string;
@@ -1040,13 +1063,9 @@ class CollabDocConnection {
         }
       }
 
-      // Keep replayed updates for document sync, but only count activity newer
-      // than this connection when the initial poll also includes its history.
-      const activityEvents =
-        this.pollCycleCount === 0
-          ? events.filter((evt) => evt.version >= this.pollActivitySince)
-          : events;
-      noteCollabPollActivity(activityEvents);
+      if (this.pollActivityBaselineReady) noteCollabPollActivity(events);
+      this.pollActivityBaselineReady = true;
+      if (typeof data.cursor === "string") this.pollCursor = data.cursor;
       this.pollVersion = version;
       this.lastPolledVersion = version;
       this.pollCycleCount++;

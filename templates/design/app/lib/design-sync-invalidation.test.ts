@@ -10,9 +10,15 @@ const fileSave = {
   source: "action",
   key: "update-file",
   resourceType: "design",
+  resourceId: "d1",
   requestSource: "tab-b",
 };
-const yjsUpdate = { source: "collab", requestSource: "tab-b" };
+const yjsUpdate = {
+  source: "collab",
+  requestSource: "tab-b",
+  resourceType: "design",
+  resourceId: "d1",
+};
 
 const DEPENDS_ON_CONTENT = [
   "get-design",
@@ -84,11 +90,33 @@ describe("design sync invalidation", () => {
     }
   });
 
-  it("refetches the version list only when an agent may have checkpointed", () => {
+  it("keeps collab events without a valid design scope on the broad fallback", () => {
+    for (const event of [
+      { source: "collab", requestSource: "tab-b" },
+      {
+        source: "collab",
+        requestSource: "tab-b",
+        resourceType: "design",
+        resourceId: "",
+      },
+      {
+        source: "collab",
+        requestSource: "tab-b",
+        resourceType: "document",
+        resourceId: "d1",
+      },
+    ]) {
+      for (const name of UNRELATED) {
+        expect(shouldInvalidateDesignQueryForSync(query(name), [event])).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  it("refetches version history when a design save may have checkpointed", () => {
     const versions = query("list-design-versions");
-    expect(shouldInvalidateDesignQueryForSync(versions, [fileSave])).toBe(
-      false,
-    );
+    expect(shouldInvalidateDesignQueryForSync(versions, [fileSave])).toBe(true);
     expect(
       shouldInvalidateDesignQueryForSync(versions, [
         { ...fileSave, requestSource: "agent" },
@@ -99,6 +127,9 @@ describe("design sync invalidation", () => {
         { ...fileSave, requestSource: undefined },
       ]),
     ).toBe(true);
+    expect(shouldInvalidateDesignQueryForSync(versions, [yjsUpdate])).toBe(
+      false,
+    );
   });
 
   it("never matches queries outside the action namespace", () => {

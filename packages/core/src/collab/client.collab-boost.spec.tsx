@@ -50,7 +50,10 @@ describe("collab poll boost from presence", () => {
   let others: Array<{ clientId: number; state: string }> = [];
   let sharedPolls = 0;
   let ownPollEvents: Array<Record<string, unknown>> = [];
-  let initialPollResponses = 0;
+  let baselineVersion = 50_000;
+  let baselineCursorId = "baseline";
+  let ownPollCursors = new Set<string>();
+  let ownPollRequests: string[] = [];
 
   function human(email: string, visible = true, clientId = 4242) {
     return {
@@ -90,7 +93,10 @@ describe("collab poll boost from presence", () => {
     others = [];
     sharedPolls = 0;
     ownPollEvents = [];
-    initialPollResponses = 0;
+    baselineVersion = 50_000;
+    baselineCursorId = "baseline";
+    ownPollCursors = new Set();
+    ownPollRequests = [];
     _resetCollabDocRegistryForTests();
     _resetSyncTransportRegistryForTests();
     vi.stubGlobal(
@@ -98,34 +104,71 @@ describe("collab poll boost from presence", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (/\/collab\/[^/]+\/state/.test(url)) {
+          const cursor = `${baselineVersion}.${baselineCursorId}`;
+          ownPollCursors.add(cursor);
           return new Response(
-            JSON.stringify({ state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA" }),
+            JSON.stringify({
+              state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA",
+              activityBaseline: {
+                status: "ready",
+                version: baselineVersion,
+                cursor,
+              },
+            }),
           );
         }
         if (url.includes("/awareness")) {
           return new Response(JSON.stringify({ states: others }));
         }
         if (url.includes("/_agent-native/poll")) {
-          // Collab's own poll sends only ?since=; the shared transport adds a
-          // composite cursor= once it has seen a version.
-          if (url.includes("cursor=")) {
-            sharedPolls += 1;
-            return new Response(JSON.stringify({ version: 1, events: [] }));
-          }
-          const events = ownPollEvents;
-          const version = events.reduce(
-            (latest, event) =>
-              typeof event.version === "number"
-                ? Math.max(latest, event.version)
-                : latest,
-            Date.now(),
-          );
-          // The shared transport and the doc poll both start with since=0.
-          const isInitialPoll = url.includes("since=0");
-          if (!isInitialPoll || ++initialPollResponses >= 2) {
+          const requestUrl = new URL(url, "http://localhost");
+          const requestedCursor = requestUrl.searchParams.get("cursor");
+          if (requestedCursor && ownPollCursors.has(requestedCursor)) {
+            ownPollRequests.push(url);
+            const [versionText, ...idParts] = requestedCursor.split(".");
+            const requestedVersion = Number(versionText);
+            const requestedId = idParts.join(".");
+            const events = ownPollEvents.filter((event) => {
+              if (typeof event.version !== "number") return false;
+              const id =
+                typeof event.cursorId === "string" ? event.cursorId : "";
+              return (
+                event.version > requestedVersion ||
+                (event.version === requestedVersion && id > requestedId)
+              );
+            });
+            const latest = events.reduce(
+              (cursor, event) => {
+                const version = event.version as number;
+                const id =
+                  typeof event.cursorId === "string" ? event.cursorId : "";
+                return version > cursor.version ||
+                  (version === cursor.version && id > cursor.id)
+                  ? { version, id }
+                  : cursor;
+              },
+              { version: baselineVersion, id: baselineCursorId },
+            );
+            const cursor = `${latest.version}.${latest.id}`;
+            if (cursor !== requestedCursor) ownPollCursors.add(cursor);
             ownPollEvents = [];
+            return new Response(
+              JSON.stringify({
+                version: latest.version,
+                events,
+                ...(cursor !== requestedCursor ? { cursor } : {}),
+              }),
+            );
           }
-          return new Response(JSON.stringify({ version, events }));
+          if (requestedCursor) {
+            sharedPolls += 1;
+            return new Response(
+              JSON.stringify({ version: baselineVersion, events: [] }),
+            );
+          }
+          return new Response(
+            JSON.stringify({ version: baselineVersion, events: [] }),
+          );
         }
         return new Response(JSON.stringify({}));
       }),
@@ -183,7 +226,8 @@ describe("collab poll boost from presence", () => {
       {
         source: "collab",
         type: "yjs-update",
-        version: Date.now() + 1,
+        version: baselineVersion + 1,
+        cursorId: "other-screen-event",
         docId: "other-screen",
         requestSource: "other-tab",
         resourceType: "design",
@@ -197,12 +241,12 @@ describe("collab poll boost from presence", () => {
   });
 
   it("does not boost for the history its first poll replays, this tab's own events, or another resource", async () => {
-    const connectionStartedAt = Date.now();
     ownPollEvents = [
       {
         source: "action",
         key: "update-file",
-        version: connectionStartedAt - 1,
+        version: baselineVersion - 1,
+        cursorId: "old-history",
         requestSource: "other-tab",
         resourceType: "design",
         resourceId: "d1",
@@ -217,7 +261,8 @@ describe("collab poll boost from presence", () => {
     ownPollEvents = [
       {
         source: "collab",
-        version: connectionStartedAt - 1,
+        version: baselineVersion + 1,
+        cursorId: "own-event",
         docId: "other-screen",
         requestSource: getBrowserTabId(),
         resourceType: "design",
@@ -226,7 +271,8 @@ describe("collab poll boost from presence", () => {
       // The server mirrors this tab's own file saves into Yjs as "agent".
       {
         source: "collab",
-        version: connectionStartedAt - 1,
+        version: baselineVersion + 2,
+        cursorId: "agent-event",
         docId: "this-screen",
         requestSource: "agent",
         resourceType: "design",
@@ -235,7 +281,8 @@ describe("collab poll boost from presence", () => {
       {
         source: "action",
         key: "update-file",
-        version: connectionStartedAt - 1,
+        version: baselineVersion + 3,
+        cursorId: "other-resource-event",
         requestSource: "other-tab",
         resourceType: "design",
         resourceId: "d2",
@@ -247,13 +294,15 @@ describe("collab poll boost from presence", () => {
     expect(sharedPolls - at).toBeLessThanOrEqual(1);
   });
 
-  it("boosts for fresh collaborator activity included in the initial history replay", async () => {
-    const connectionStartedAt = Date.now();
+  it("uses the server baseline cursor to detect fresh activity despite browser clock skew", async () => {
+    vi.setSystemTime(9_000_000);
+    baselineVersion = 100;
     ownPollEvents = [
       {
         source: "action",
         key: "update-file",
-        version: connectionStartedAt - 1,
+        version: baselineVersion - 1,
+        cursorId: "old-history",
         requestSource: "other-tab",
         resourceType: "design",
         resourceId: "d1",
@@ -261,7 +310,8 @@ describe("collab poll boost from presence", () => {
       {
         source: "collab",
         type: "yjs-update",
-        version: connectionStartedAt + 1,
+        version: baselineVersion + 1,
+        cursorId: "fresh-event",
         docId: "other-screen",
         requestSource: "other-tab",
         resourceType: "design",
@@ -269,6 +319,9 @@ describe("collab poll boost from presence", () => {
       },
     ];
     await mountRefused();
+    expect(ownPollRequests[0]).toContain(
+      `cursor=${baselineVersion}.${baselineCursorId}`,
+    );
 
     const at = sharedPolls;
     await advance(30_000);
