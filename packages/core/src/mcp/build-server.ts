@@ -418,6 +418,20 @@ export function selectMcpActionSurface(
     : config.actions;
 }
 
+export function selectMcpDirectoryWidgetReadActions(
+  profile: MCPConfig["directoryProfile"] | undefined,
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> | undefined {
+  if (!profile) return undefined;
+  return Object.fromEntries(
+    (profile.widgetReadPrivateActions ?? [])
+      .map((name) => [name, actions[name]] as const)
+      .filter((entry): entry is readonly [string, ActionEntry] =>
+        Boolean(entry[1]),
+      ),
+  );
+}
+
 export function getConfiguredMcpOwnerEmail(): string | undefined {
   return getAppConfig().auth.mcpOwnerEmail;
 }

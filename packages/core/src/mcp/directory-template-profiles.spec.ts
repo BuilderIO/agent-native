@@ -17,8 +17,12 @@ import {
   filterAgentTools,
   filterMcpOnlyActions,
 } from "../server/agent-chat/action-filters-a2a.js";
+import { resolveAgentChatMcpOptions } from "../server/agent-chat/mcp-options.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
-import { validateMcpDirectoryProfile } from "./build-server.js";
+import {
+  selectMcpDirectoryWidgetReadActions,
+  validateMcpDirectoryProfile,
+} from "./build-server.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 const repoRoot = path.resolve(
@@ -133,7 +137,11 @@ describe("ChatGPT directory template profiles", () => {
     async ({ appId, profile }) => {
       const { actions, productionActions, actionNames } =
         await loadTemplateActions(appId);
+      const mcpOptions = resolveAgentChatMcpOptions({
+        mcp: { directoryProfile: profile },
+      });
 
+      expect(mcpOptions.catalog).toBeUndefined();
       expect(() =>
         validateMcpDirectoryProfile({
           name: `agent-native-${appId}`,
@@ -142,13 +150,11 @@ describe("ChatGPT directory template profiles", () => {
           catalogMode: "directory",
           actions,
           productionActions,
-          widgetReadActions: Object.fromEntries(
-            (profile.widgetReadPrivateActions ?? []).map((name) => [
-              name,
-              actions[name],
-            ]),
+          widgetReadActions: selectMcpDirectoryWidgetReadActions(
+            mcpOptions.directoryProfile,
+            actions,
           ),
-          directoryProfile: profile,
+          directoryProfile: mcpOptions.directoryProfile,
         }),
       ).not.toThrow();
 
