@@ -316,6 +316,9 @@ const messages = {
     conflictStatus: "텍스트 충돌",
     conflictStatusDescription:
       "다른 변경 사항을 저장하기 전에 충돌한 텍스트를 확인하세요.",
+    accessLost: "액세스 권한 상실",
+    accessLostDescription:
+      "이 덱에 대한 액세스 권한이 변경되었습니다. 편집 내용은 화면에 그대로 남아 있습니다. 액세스가 복구되면 다시 시도하거나 백업을 다운로드하세요.",
     reviewConflict: "충돌 검토",
     conflictTitle: "슬라이드 {{number}}의 텍스트 충돌",
     conflictDescription:

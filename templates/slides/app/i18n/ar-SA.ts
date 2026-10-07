@@ -316,6 +316,9 @@ const messages = {
     downloadBackup: "تنزيل نسخة احتياطية",
     conflictStatus: "تعارض في النص",
     conflictStatusDescription: "راجع النص المتعارض قبل حفظ تغييرات أخرى.",
+    accessLost: "فُقد الوصول",
+    accessLostDescription:
+      "تغيّر وصولك إلى هذا العرض. تبقى تعديلاتك على الشاشة؛ أعد المحاولة عند استعادة الوصول أو نزّل نسخة احتياطية.",
     reviewConflict: "مراجعة التعارض",
     conflictTitle: "تعارض نصي في الشريحة {{number}}",
     conflictDescription: "غيّر إصدار آخر هذه الشريحة أثناء تحرير النص.",
