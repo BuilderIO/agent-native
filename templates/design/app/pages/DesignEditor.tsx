@@ -11938,8 +11938,8 @@ function DesignEditor() {
         breakpointWidthPx?: number;
       } = {},
     ) => {
-      explicitOverviewScreenSelectionRef.current = [];
       const run = () => {
+        explicitOverviewScreenSelectionRef.current = [];
         runScreenElementSelect(
           {
             activeBreakpointWidthStateRef,
@@ -24311,9 +24311,13 @@ function DesignEditor() {
     (
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
+      options: { clearExplicitScreenSelection?: boolean } = {},
     ) => {
       recordMarqueeSelectionHistoryAroundChange(() => {
-        if (!intent.cancelled && intent.source !== "marquee") {
+        if (
+          !intent.cancelled &&
+          (intent.source !== "marquee" || options.clearExplicitScreenSelection)
+        ) {
           explicitOverviewScreenSelectionRef.current = [];
         }
         runLayerMarqueeSelectionChange(
@@ -24355,9 +24359,6 @@ function DesignEditor() {
       infos: ElementInfo[],
       intent?: ElementSelectionIntent,
     ) => {
-      if (!intent?.cancelled) {
-        explicitOverviewScreenSelectionRef.current = [];
-      }
       handleLayerMarqueeSelectionChange(
         infos.map((info) => ({ screenId, info })),
         {
@@ -24369,6 +24370,7 @@ function DesignEditor() {
           metaKey: Boolean(intent?.metaKey),
           ctrlKey: Boolean(intent?.ctrlKey),
         },
+        { clearExplicitScreenSelection: true },
       );
     },
     [handleLayerMarqueeSelectionChange],

@@ -332,6 +332,59 @@ test("marquee-selecting child elements after a Screen pick deletes only the elem
   }
 });
 
+// oracle: none — this checks app selection history and deletion behavior, not a Figma observation.
+test("undoing a canvas element click restores its explicit Screen target for Delete", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).__DESIGN_TRACE = true;
+  });
+
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    await layerRow(page, "Home").click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([homeId]);
+
+    const target = page
+      .locator(`iframe[data-screen-iframe-id="${homeId}"]`)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="home-target"]');
+    const targetBox = await target.boundingBox();
+    expect(targetBox).not.toBeNull();
+    await page.mouse.click(
+      targetBox!.x + targetBox!.width / 2,
+      targetBox!.y + targetBox!.height / 2,
+    );
+
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    await expect(blueBoxButton).toHaveCount(1);
+    await expect(
+      blueBoxButton.locator("xpath=ancestor::*[@role='treeitem'][1]"),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => lastSelectedLayers(page)).toHaveLength(1);
+
+    await page.keyboard.press(UNDO);
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([homeId]);
+    await expect(layerRow(page, "Home")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Home")).toHaveCount(0, { timeout: 10_000 });
+    await expect(layerRow(page, "Blue Box")).toHaveCount(0);
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 // oracle: none — this checks retry behavior after an action failure, not Figma behavior.
 test("failed Screen deletion keeps the explicit Screen target for retry", async ({
   page,
