@@ -574,10 +574,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.ok(regressionCases.includes("timeout-minutes: 7"));
   assert.ok(workflow.includes("timeout-minutes: 9"));
   assert.ok(regressionCases.includes("--workers=2"));
-  assert.ok(
-    workflow.includes(
-      "shard: [inspector, drag-1, drag-2, position, changed-1, changed-2, changed-3]",
-    ),
+  assert.match(
+    workflow,
+    /shard:\s*\[inspector,\s*drag-1,\s*drag-2,\s*position,\s*changed-1,\s*changed-2,\s*changed-3\]/,
   );
   assert.ok(
     regressionCases.includes(
