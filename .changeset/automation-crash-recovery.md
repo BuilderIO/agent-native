@@ -13,3 +13,5 @@ Keep interrupted firings retryable when the scheduler loses its lease during set
 Synchronize packaged Factory feedback guidance with its canonical skill.
 
 Atomically link and claim automation workers after saving their original instructions, settle lease loss before a firing starts, recover manual firings without schedules, and report uncertain response delivery without resending it.
+
+Clear an earlier scheduler firing's recovery identity when admitting an event or webhook run, so its history cannot settle the new firing.

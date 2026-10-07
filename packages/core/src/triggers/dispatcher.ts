@@ -1247,6 +1247,10 @@ async function dispatchAgentic(
     lastRun: now.toISOString(),
     lastStatus: "running",
     lastError: undefined,
+    // Event firings must not inherit a scheduler firing's recovery identity.
+    lastHistoryId: undefined,
+    lastRunManual: undefined,
+    lastRunAdvanceSchedule: undefined,
   };
   const claimed = await resourcePutIfCurrent({
     owner: resource.owner,
@@ -1255,6 +1259,9 @@ async function dispatchAgentic(
       lastRun: runningMeta.lastRun,
       lastStatus: "running",
       lastError: undefined,
+      lastHistoryId: runningMeta.lastHistoryId,
+      lastRunManual: runningMeta.lastRunManual,
+      lastRunAdvanceSchedule: runningMeta.lastRunAdvanceSchedule,
     }),
     expectedId: latest.id,
     expectedUpdatedAt: latest.updatedAt,
