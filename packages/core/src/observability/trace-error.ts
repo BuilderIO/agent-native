@@ -2,9 +2,10 @@ const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
 
 const STANDALONE_API_KEY_PATTERN =
   /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
-const COMPOUND_CREDENTIAL_FIELD =
-  "(?:api[_ -]?key|access[_ -]?(?:token|key(?:[_ -]?id)?)|refresh[_ -]?token|client[_ -]?secret|private[_ -]?key|secret[_ -]?key|signing[_ -]?key|encryption[_ -]?key)";
-const CREDENTIAL_FIELD = `(?:(?:(?:[a-z0-9]+)[_ -]+)*(?:authorization|cookie|jwt|api[_ -]?key|access[_ -]?(?:token|key(?:[_ -]?id)?)|password|secret|token|refresh[_ -]?token|client[_ -]?secret|private[_ -]?key|secret[_ -]?key|signing[_ -]?key|encryption[_ -]?key)|[a-z0-9]+${COMPOUND_CREDENTIAL_FIELD}|[a-z0-9]+(?:jwt|secret|password|token))`;
+const CONNECTION_FIELD =
+  "(?:database[_ -]?(?:url|uri|dsn)|db[_ -]?(?:url|uri|dsn)|connection[_ -]?(?:string|url|uri)|dsn|(?:postgres(?:ql)?|mysql|mariadb|mongodb|mongo|redis|rediss|amqp|mssql|cockroachdb)[_ -]?(?:url|uri|dsn|connection[_ -]?string))";
+const COMPOUND_CREDENTIAL_FIELD = `(?:api[_ -]?key|access[_ -]?(?:token|key(?:[_ -]?id)?)|refresh[_ -]?token|client[_ -]?secret|private[_ -]?key|secret[_ -]?key|signing[_ -]?key|encryption[_ -]?key|${CONNECTION_FIELD})`;
+const CREDENTIAL_FIELD = `(?:(?:(?:[a-z0-9]+)[_ -]+)*(?:authorization|cookie|jwt|api[_ -]?key|access[_ -]?(?:token|key(?:[_ -]?id)?)|password|secret|token|refresh[_ -]?token|client[_ -]?secret|private[_ -]?key|secret[_ -]?key|signing[_ -]?key|encryption[_ -]?key|${CONNECTION_FIELD})|[a-z0-9]+${COMPOUND_CREDENTIAL_FIELD}|[a-z0-9]+(?:jwt|secret|password|token))`;
 const LABELED_CREDENTIAL =
   "([\"']?\\b" + CREDENTIAL_FIELD + "\\b[\"']?\\s*[:=]\\s*[\"']?)";
 const QUOTED_CREDENTIAL_PATTERN = new RegExp(
@@ -13,6 +14,7 @@ const QUOTED_CREDENTIAL_PATTERN = new RegExp(
 );
 const PRIVATE_KEY_BLOCK_PATTERN =
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/gi;
+const URI_USERINFO_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)([^/?#@\s]*@)/gi;
 const CREDENTIAL_HEADER_PATTERN =
   /(["']?\b(?:authorization|cookie)\b["']?\s*[:=]\s*)(?:(\[(?:\\.|[^\]])*\])|(["'])(?:\\.|(?!\3)[\s\S])*?\3|[^\r\n"'{}\]]+)/gim;
 
@@ -47,6 +49,7 @@ export function redactToolErrorMessage(value: string): string {
       "$1[REDACTED]",
     )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
+    .replace(URI_USERINFO_PATTERN, "$1[REDACTED]@")
     .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
 }
 

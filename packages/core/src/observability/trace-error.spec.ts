@@ -21,6 +21,14 @@ describe("redactToolErrorMessage", () => {
       '{"secretKey":"[REDACTED]","workspaceSecretKey":"[REDACTED]","signingKey":"[REDACTED]","encryptionKey":"[REDACTED]","publicKey":"visible"}',
     );
   });
+
+  it("redacts connection-string fields and URI userinfo", () => {
+    expect(
+      redactToolErrorMessage(
+        "DATABASE_URL=postgresql://alice:db-secret@db.example/app\npostgresql://bob:uri-secret@db.example/app",
+      ),
+    ).toBe("DATABASE_URL=[REDACTED]\npostgresql://[REDACTED]@db.example/app");
+  });
 });
 
 describe("toolErrorSignature", () => {

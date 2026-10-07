@@ -202,6 +202,21 @@ describe("redactSensitiveFields", () => {
     });
   });
 
+  it("redacts common connection-string fields and URI credentials", () => {
+    const out = redactSensitiveFields({
+      databaseUrl: "postgresql://alice:db-password@db.example/app",
+      connectionString: "mysql://root:mysql-password@db.example/app",
+      prompt: "DATABASE_URL=postgresql://alice:prompt-password@db.example/app",
+      endpoint: "redis://:redis-password@cache.example",
+    });
+    expect(out).toEqual({
+      databaseUrl: "[REDACTED]",
+      connectionString: "[REDACTED]",
+      prompt: "DATABASE_URL=[REDACTED]",
+      endpoint: "redis://[REDACTED]@cache.example",
+    });
+  });
+
   it("tolerates circular references by emitting [Circular]", () => {
     const a: any = { token: "t1", name: "alice" };
     a.self = a;
