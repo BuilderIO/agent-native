@@ -1617,8 +1617,9 @@ export async function createDashboardRevisionSnapshot(
  * in between, the fenced UPDATE affects zero rows and this throws
  * `DashboardConflictError` instead of silently clobbering their write. Omit
  * it (the default) to keep the prior unconditional last-write-wins behavior,
- * which existing callers (legacy migration, revision restore, and any
- * one-shot write that isn't a read-modify-write) still rely on.
+ * which existing callers (legacy migration, revision restore, and one-shot
+ * writes) still rely on. Those saves retry the same requested body against the
+ * latest revision so every successful write advances its version token.
  */
 export interface DashboardUpsertOutcome {
   dashboard: DashboardRecord;
@@ -1633,6 +1634,7 @@ async function upsertDashboardWithOutcome(
   expectedUpdatedAt?: string,
 ): Promise<DashboardUpsertOutcome> {
   const existing = await getDashboard(id, ctx);
+  const observedUpdatedAt = expectedUpdatedAt ?? existing?.updatedAt;
   if (!existing && expectedUpdatedAt !== undefined) {
     throw new DashboardConflictError(id);
   }
@@ -1647,8 +1649,8 @@ async function upsertDashboardWithOutcome(
   }
   if (
     existing &&
-    expectedUpdatedAt !== undefined &&
-    existing.updatedAt !== expectedUpdatedAt
+    observedUpdatedAt !== undefined &&
+    existing.updatedAt !== observedUpdatedAt
   ) {
     throw new DashboardConflictError(id);
   }
@@ -1674,7 +1676,7 @@ async function upsertDashboardWithOutcome(
         updatedAt: nextDashboardVersion(existing.updatedAt),
         updatedBy: ctx.email,
       };
-      if (expectedUpdatedAt !== undefined) {
+      if (observedUpdatedAt !== undefined) {
         // Fenced write. Snapshot the revision only after we know this exact
         // write actually landed — otherwise a lost race would record a
         // revision for a save that never happened.
@@ -1684,7 +1686,7 @@ async function upsertDashboardWithOutcome(
           .where(
             and(
               eq(schema.dashboards.id, id),
-              eq(schema.dashboards.updatedAt, expectedUpdatedAt),
+              eq(schema.dashboards.updatedAt, observedUpdatedAt),
             ),
           )
           .returning();
@@ -1774,17 +1776,54 @@ export async function upsertDashboard(
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
 ): Promise<DashboardRecord> {
-  const outcome = await upsertDashboardWithOutcome(
-    id,
-    kind,
-    body,
-    ctx,
-    expectedUpdatedAt,
-  );
+  const outcome =
+    expectedUpdatedAt === undefined
+      ? await upsertDashboardLastWriteWins(id, kind, body, ctx)
+      : await upsertDashboardWithOutcome(
+          id,
+          kind,
+          body,
+          ctx,
+          expectedUpdatedAt,
+        );
   return outcome.dashboard;
 }
 
 export const DASHBOARD_SAVE_MAX_ATTEMPTS = 3;
+
+async function upsertDashboardLastWriteWins(
+  id: string,
+  kind: DashboardKind,
+  body: Record<string, unknown>,
+  ctx: AccessCtx,
+): Promise<DashboardUpsertOutcome> {
+  let lastConflict: unknown;
+  for (let attempt = 0; attempt < DASHBOARD_SAVE_MAX_ATTEMPTS; attempt++) {
+    const existing = await getDashboard(id, ctx);
+    try {
+      return await upsertDashboardWithOutcome(
+        id,
+        kind,
+        body,
+        ctx,
+        existing?.updatedAt,
+      );
+    } catch (err) {
+      if (err instanceof DashboardConflictError) {
+        lastConflict = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  const finalError = new Error(
+    `Could not save dashboard "${id}" after ${DASHBOARD_SAVE_MAX_ATTEMPTS} attempt(s); it kept changing concurrently. Re-read the dashboard and try again.`,
+  );
+  if (lastConflict !== undefined) {
+    (finalError as Error & { cause?: unknown }).cause = lastConflict;
+  }
+  throw finalError;
+}
 
 /**
  * Read-modify-write helper for the four action call sites that fetch a

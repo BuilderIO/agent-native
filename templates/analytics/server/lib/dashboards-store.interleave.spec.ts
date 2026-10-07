@@ -672,7 +672,7 @@ describe("dashboards-store concurrency", () => {
     expect(readPanelIds()).toEqual(["a", "b"]);
   });
 
-  it("omits fencing (legacy last-write-wins) when expectedUpdatedAt is not passed", async () => {
+  it("preserves legacy last-write-wins when expectedUpdatedAt is omitted", async () => {
     const existing = await getDashboard("traffic", ctx);
     state.dashboard = {
       ...state.dashboard,
@@ -690,6 +690,28 @@ describe("dashboards-store concurrency", () => {
     expect(saved.updatedAt).toBe("2099-01-01T00:00:00.001Z");
     expect(existing).not.toBeNull();
     expect(readPanelIds()).toEqual(["a", "legacy"]);
+  });
+
+  it("retries an unfenced last-write-wins save against the latest version", async () => {
+    state.loseNextCas = true;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T00:00:00.000Z"));
+
+    try {
+      const saved = await upsertDashboard(
+        "traffic",
+        "sql",
+        { name: "Traffic", panels: [panel("a"), panel("legacy")] },
+        ctx,
+      );
+
+      expect(saved.updatedAt).toBe("2026-07-09T00:00:00.002Z");
+      expect(state.dashboard.updatedAt).toBe(saved.updatedAt);
+      expect(readPanelIds()).toEqual(["a", "legacy"]);
+      expect(state.updateAttempts).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the original creator unchanged when another user edits the dashboard", async () => {
