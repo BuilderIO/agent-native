@@ -1620,13 +1620,18 @@ export async function createDashboardRevisionSnapshot(
  * which existing callers (legacy migration, revision restore, and any
  * one-shot write that isn't a read-modify-write) still rely on.
  */
-export async function upsertDashboard(
+export interface DashboardUpsertOutcome {
+  dashboard: DashboardRecord;
+  didWrite: boolean;
+}
+
+async function upsertDashboardWithOutcome(
   id: string,
   kind: DashboardKind,
   body: Record<string, unknown>,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
-): Promise<DashboardRecord> {
+): Promise<DashboardUpsertOutcome> {
   const existing = await getDashboard(id, ctx);
   if (!existing && expectedUpdatedAt !== undefined) {
     throw new DashboardConflictError(id);
@@ -1640,12 +1645,19 @@ export async function upsertDashboard(
       orgId: ctx.orgId ?? undefined,
     });
   }
+  if (
+    existing &&
+    expectedUpdatedAt !== undefined &&
+    existing.updatedAt !== expectedUpdatedAt
+  ) {
+    throw new DashboardConflictError(id);
+  }
   const changed =
     !existing ||
     existing.kind !== kind ||
     existing.title !== title ||
     stableStringify(existing.config) !== configJson;
-  if (existing && !changed) return existing;
+  if (existing && !changed) return { dashboard: existing, didWrite: false };
   const nameChanged =
     !existing ||
     normalizeDashboardName(existing.title) !== normalizeDashboardName(title);
@@ -1742,7 +1754,24 @@ export async function upsertDashboard(
     dashboard.orgId,
     dashboard.visibility,
   );
-  return dashboard;
+  return { dashboard, didWrite: true };
+}
+
+export async function upsertDashboard(
+  id: string,
+  kind: DashboardKind,
+  body: Record<string, unknown>,
+  ctx: AccessCtx,
+  expectedUpdatedAt?: string,
+): Promise<DashboardRecord> {
+  const outcome = await upsertDashboardWithOutcome(
+    id,
+    kind,
+    body,
+    ctx,
+    expectedUpdatedAt,
+  );
+  return outcome.dashboard;
 }
 
 export const DASHBOARD_SAVE_MAX_ATTEMPTS = 3;
@@ -1766,7 +1795,7 @@ export const DASHBOARD_SAVE_MAX_ATTEMPTS = 3;
  * times before failing loud with a clear error so callers never silently
  * drop a write or loop forever.
  */
-export async function upsertDashboardWithRetry(
+export async function upsertDashboardWithRetryOutcome(
   id: string,
   ctx: AccessCtx,
   mutate: (existing: DashboardRecord) =>
@@ -1779,7 +1808,7 @@ export async function upsertDashboardWithRetry(
         body: Record<string, unknown>;
       }>,
   maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
-): Promise<DashboardRecord> {
+): Promise<DashboardUpsertOutcome> {
   let lastConflict: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const existing = await getDashboard(id, ctx);
@@ -1791,7 +1820,13 @@ export async function upsertDashboardWithRetry(
     const result = await mutate(existing);
     const { kind, body } = result;
     try {
-      return await upsertDashboard(id, kind, body, ctx, existing.updatedAt);
+      return await upsertDashboardWithOutcome(
+        id,
+        kind,
+        body,
+        ctx,
+        existing.updatedAt,
+      );
     } catch (err) {
       if (err instanceof DashboardConflictError) {
         lastConflict = err;
@@ -1807,6 +1842,29 @@ export async function upsertDashboardWithRetry(
     (finalError as Error & { cause?: unknown }).cause = lastConflict;
   }
   throw finalError;
+}
+
+export async function upsertDashboardWithRetry(
+  id: string,
+  ctx: AccessCtx,
+  mutate: (existing: DashboardRecord) =>
+    | {
+        kind: DashboardKind;
+        body: Record<string, unknown>;
+      }
+    | Promise<{
+        kind: DashboardKind;
+        body: Record<string, unknown>;
+      }>,
+  maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
+): Promise<DashboardRecord> {
+  const outcome = await upsertDashboardWithRetryOutcome(
+    id,
+    ctx,
+    mutate,
+    maxAttempts,
+  );
+  return outcome.dashboard;
 }
 
 function nextDashboardVersion(updatedAt: string): string {

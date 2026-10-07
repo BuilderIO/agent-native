@@ -5,11 +5,12 @@ import {
   clampDashboardColumns,
   type SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import { sameJsonValue } from "./dashboard-mutation-api";
 
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboardWithRetryOutcome: vi.fn(),
   queueDashboardCollabSync: vi.fn(),
   track: vi.fn(),
   dryRunQuery: vi.fn(),
@@ -18,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   seedFromText: vi.fn(async () => undefined),
 }));
 
-function defaultUpsertDashboardWithRetry(
+function defaultUpsertDashboardWithRetryOutcome(
   id: string,
   ctx: unknown,
   mutate: (existing: any) =>
@@ -36,8 +37,12 @@ function defaultUpsertDashboardWithRetry(
       );
     }
     const { kind, body } = await mutate(existing);
+    const didWrite = !sameJsonValue(existing.config, body);
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body };
+    return {
+      dashboard: { ...existing, kind, config: body },
+      didWrite,
+    };
   })();
 }
 
@@ -77,7 +82,7 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
-  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
+  upsertDashboardWithRetryOutcome: mocks.upsertDashboardWithRetryOutcome,
 }));
 
 vi.mock("../server/lib/dashboard-collab-sync", async (importOriginal) => {
@@ -137,9 +142,9 @@ describe("mutate-dashboard", () => {
   beforeEach(() => {
     mocks.getDashboard.mockReset();
     mocks.upsertDashboard.mockClear();
-    mocks.upsertDashboardWithRetry.mockReset();
-    mocks.upsertDashboardWithRetry.mockImplementation(
-      defaultUpsertDashboardWithRetry,
+    mocks.upsertDashboardWithRetryOutcome.mockReset();
+    mocks.upsertDashboardWithRetryOutcome.mockImplementation(
+      defaultUpsertDashboardWithRetryOutcome,
     );
     mocks.queueDashboardCollabSync.mockClear();
     mocks.track.mockClear();
@@ -277,6 +282,127 @@ describe("mutate-dashboard", () => {
     expect(mocks.track).not.toHaveBeenCalled();
     const saved = mocks.upsertDashboard.mock.calls[0][2];
     expect(saved).toEqual(existingConfig);
+  });
+
+  it("drops restored panel metadata when another dashboard field is saved", async () => {
+    const existingConfig = dashboardConfig();
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: { title: "Temporary title" },
+        },
+        { op: "setDashboard", patch: { columns: 3 } },
+        { op: "updatePanel", panelId: "a", patch: { title: "a" } },
+      ],
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.changed).toBe(true);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.movedPanelIds).toEqual([]);
+    expect(result.insertedPanelIds).toEqual([]);
+    expect(result.removedPanelIds).toEqual([]);
+    expect(result.dashboardFieldsChanged).toEqual(["columns"]);
+    expect(mocks.queueDashboardCollabSync).toHaveBeenCalledOnce();
+    expect(mocks.track).toHaveBeenCalledOnce();
+  });
+
+  it("omits panels inserted and removed in a batch that also saves a field", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        { op: "insertPanel", panel: panel("temporary") },
+        { op: "removePanels", panelIds: ["temporary"] },
+        { op: "setDashboard", patch: { columns: 3 } },
+      ],
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.insertedPanelIds).toEqual([]);
+    expect(result.removedPanelIds).toEqual([]);
+    expect(result.dashboardFieldsChanged).toEqual(["columns"]);
+  });
+
+  it("reports panel reorders made through a dashboard panels replacement", async () => {
+    const existingConfig = dashboardConfig();
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "setDashboard",
+          patch: {
+            panels: [
+              existingConfig.panels[1],
+              existingConfig.panels[2],
+              existingConfig.panels[0],
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.changedPanelIds).toEqual(["b", "c", "a"]);
+    expect(result.movedPanelIds).toEqual(["b", "c", "a"]);
+    expect(result.dashboardFieldsChanged).toEqual(["panels"]);
+  });
+
+  it("does not report a concurrent convergent write as this action saving", async () => {
+    const existingConfig = dashboardConfig();
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+    mocks.upsertDashboardWithRetryOutcome.mockImplementationOnce(
+      async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
+        const first = await mutate({ kind: "sql", config: existingConfig });
+        const concurrent = {
+          kind: first.kind,
+          config: first.body,
+          updatedAt: "2026-10-07T00:00:00.001Z",
+        };
+        await mutate(concurrent);
+        return { dashboard: concurrent, didWrite: false };
+      },
+    );
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: { title: "Concurrent title" },
+        },
+      ],
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.changed).toBe(false);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.dashboardFieldsChanged).toEqual([]);
+    expect(result.collabSync).toEqual({ status: "skipped" });
+    expect(mocks.queueDashboardCollabSync).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 
   it("applies a typed mutation script in one atomic save", async () => {
@@ -739,14 +865,17 @@ describe("mutate-dashboard", () => {
     };
 
     let mutateCallCount = 0;
-    mocks.upsertDashboardWithRetry.mockImplementationOnce(
+    mocks.upsertDashboardWithRetryOutcome.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
         mutateCallCount += 1;
         await mutate(beforeConcurrentWrite);
         mutateCallCount += 1;
         const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
-        return { ...afterConcurrentWrite, kind, config: body };
+        return {
+          dashboard: { ...afterConcurrentWrite, kind, config: body },
+          didWrite: true,
+        };
       },
     );
 

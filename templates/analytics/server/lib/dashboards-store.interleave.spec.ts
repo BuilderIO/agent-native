@@ -361,6 +361,7 @@ const {
   getDashboard,
   upsertDashboard,
   upsertDashboardWithRetry,
+  upsertDashboardWithRetryOutcome,
   upsertAnalysis,
   createDashboardRevisionSnapshot,
   createAnalysisRevisionSnapshot,
@@ -648,6 +649,47 @@ describe("dashboards-store concurrency", () => {
 
     expect(saved.createdBy).toBe("bob@example.com");
     expect(state.otherDashboards[0]?.createdBy).toBe("bob@example.com");
+  });
+
+  it("reports a peer's convergent write as a conflict retry with no local write", async () => {
+    let mutateCalls = 0;
+    const outcome = await upsertDashboardWithRetryOutcome(
+      "traffic",
+      ctx,
+      (existing) => {
+        mutateCalls += 1;
+        const config = existing.config as {
+          name: string;
+          panels: Array<Record<string, unknown>>;
+        };
+        const body = {
+          ...config,
+          panels: config.panels.map((item) =>
+            item.id === "a" ? { ...item, title: "writer-a" } : item,
+          ),
+        };
+        if (mutateCalls === 1) {
+          state.dashboard = {
+            ...state.dashboard,
+            config: JSON.stringify(body),
+            updatedAt: "2026-07-09T00:00:00.001Z",
+            updatedBy: "bob@example.com",
+          };
+        }
+        return { kind: "sql" as const, body };
+      },
+    );
+
+    expect(mutateCalls).toBe(2);
+    expect(outcome.didWrite).toBe(false);
+    expect(outcome.dashboard.updatedBy).toBe("bob@example.com");
+    expect(
+      (outcome.dashboard.config as { panels: Array<{ title: string }> })
+        .panels[0].title,
+    ).toBe("writer-a");
+    expect(readPanelIds()).toEqual(["a"]);
+    expect(state.updateAttempts).toBe(0);
+    expect(state.revisions).toEqual([]);
   });
 
   it("upsertDashboardWithRetry re-reads and re-applies the mutation after losing the race, landing both writers' panels", async () => {

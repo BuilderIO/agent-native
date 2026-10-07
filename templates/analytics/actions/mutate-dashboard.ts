@@ -13,7 +13,7 @@ import {
 } from "../server/lib/dashboard-collab-sync";
 import {
   getDashboard,
-  upsertDashboardWithRetry,
+  upsertDashboardWithRetryOutcome,
   type DashboardRecord,
 } from "../server/lib/dashboards-store";
 import {
@@ -252,6 +252,128 @@ function cloneConfig(config: Record<string, unknown>): Record<string, unknown> {
   return JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
 }
 
+function panelEntries(root: Record<string, unknown>) {
+  const panels = Array.isArray(root.panels) ? root.panels : [];
+  return panels.flatMap((panel) => {
+    if (!panel || typeof panel !== "object" || Array.isArray(panel)) {
+      return [];
+    }
+    const value = panel as Record<string, unknown>;
+    return typeof value.id === "string" && value.id
+      ? [{ id: value.id, value }]
+      : [];
+  });
+}
+
+function hasPropertyValueChanged(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  key: string,
+): boolean {
+  const beforeHas = Object.prototype.hasOwnProperty.call(before, key);
+  const afterHas = Object.prototype.hasOwnProperty.call(after, key);
+  return beforeHas !== afterHas || !sameJsonValue(before[key], after[key]);
+}
+
+function filterDefaultChanged(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  field: string,
+): boolean {
+  const prefix = "filters.";
+  const suffix = ".default";
+  if (!field.startsWith(prefix) || !field.endsWith(suffix)) return false;
+  const filterId = field.slice(prefix.length, -suffix.length);
+  const findFilter = (root: Record<string, unknown>) =>
+    Array.isArray(root.filters)
+      ? (root.filters as Array<Record<string, unknown>>).find(
+          (filter) => filter?.id === filterId,
+        )
+      : undefined;
+  const beforeFilter = findFilter(before);
+  const afterFilter = findFilter(after);
+  if (!beforeFilter || !afterFilter)
+    return Boolean(beforeFilter || afterFilter);
+  return hasPropertyValueChanged(beforeFilter, afterFilter, "default");
+}
+
+function reconcileMutationMetadata(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  mutation: DashboardMutationResult,
+): DashboardMutationResult {
+  const beforePanels = panelEntries(before);
+  const afterPanels = panelEntries(after);
+  const beforeById = new Map(beforePanels.map((entry) => [entry.id, entry]));
+  const afterById = new Map(afterPanels.map((entry) => [entry.id, entry]));
+  const beforeOrder = beforePanels
+    .map((entry) => entry.id)
+    .filter((id) => afterById.has(id));
+  const afterOrder = afterPanels
+    .map((entry) => entry.id)
+    .filter((id) => beforeById.has(id));
+  const beforeRank = new Map(beforeOrder.map((id, index) => [id, index]));
+  const afterRank = new Map(afterOrder.map((id, index) => [id, index]));
+  const reordered = (id: string) => beforeRank.get(id) !== afterRank.get(id);
+  const movedPanelIds = mutation.movedPanelIds.filter(reordered);
+  if (mutation.dashboardFieldsChanged.includes("panels")) {
+    for (const id of afterOrder) {
+      if (reordered(id) && !movedPanelIds.includes(id)) movedPanelIds.push(id);
+    }
+  }
+  const insertedPanelIds = afterPanels
+    .filter((entry) => !beforeById.has(entry.id))
+    .map((entry) => entry.id);
+  const removedPanelIds = beforePanels
+    .filter((entry) => !afterById.has(entry.id))
+    .map((entry) => entry.id);
+  const changedPanelIds = new Set<string>();
+  const changedPanel = (id: string) => {
+    const beforePanel = beforeById.get(id);
+    const afterPanel = afterById.get(id);
+    if (!beforePanel && !afterPanel) return false;
+    return (
+      !beforePanel ||
+      !afterPanel ||
+      !sameJsonValue(beforePanel.value, afterPanel.value) ||
+      movedPanelIds.includes(id)
+    );
+  };
+  for (const id of mutation.changedPanelIds) {
+    if (changedPanel(id)) changedPanelIds.add(id);
+  }
+  for (const entry of afterPanels) {
+    if (changedPanel(entry.id)) changedPanelIds.add(entry.id);
+  }
+  for (const entry of beforePanels) {
+    if (changedPanel(entry.id)) changedPanelIds.add(entry.id);
+  }
+
+  const dashboardFieldsChanged = new Set<string>();
+  for (const field of mutation.dashboardFieldsChanged) {
+    const changed = field.startsWith("filters.")
+      ? filterDefaultChanged(before, after, field)
+      : hasPropertyValueChanged(before, after, field);
+    if (changed) dashboardFieldsChanged.add(field);
+  }
+  const rootKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const key of rootKeys) {
+    if (key === "panels" || key === "filters") continue;
+    if (hasPropertyValueChanged(before, after, key)) {
+      dashboardFieldsChanged.add(key);
+    }
+  }
+
+  return {
+    ...mutation,
+    changedPanelIds: Array.from(changedPanelIds),
+    movedPanelIds,
+    removedPanelIds,
+    insertedPanelIds,
+    dashboardFieldsChanged: Array.from(dashboardFieldsChanged),
+  };
+}
+
 function sqlValidationScope(
   operations: DashboardMutationOperation[],
 ): ReadonlySet<string> | "all" | null {
@@ -418,6 +540,7 @@ export default defineAction({
     let originalRoot: Record<string, unknown> | undefined;
     let operations!: DashboardMutationOperation[];
     let mutation!: DashboardMutationResult;
+    let didWrite = false;
 
     if (args.dryRun === true) {
       const existing = await getDashboard(dashboardId, ctx);
@@ -438,7 +561,7 @@ export default defineAction({
       );
       if (sqlError) throw new Error(sqlError);
     } else {
-      const persisted = await upsertDashboardWithRetry(
+      const persisted = await upsertDashboardWithRetryOutcome(
         dashboardId,
         ctx,
         async (existing) => {
@@ -458,16 +581,18 @@ export default defineAction({
           return { kind: "sql" as const, body: computed.nextRoot };
         },
       );
-      root = persisted.config as Record<string, unknown>;
+      root = persisted.dashboard.config as Record<string, unknown>;
+      didWrite = persisted.didWrite;
     }
 
     if (!originalRoot) {
       // guard:allow-bare-error — invariant: every successful mutation path captures its source config.
       throw new Error("Could not compare the dashboard mutation result.");
     }
-    const changed = !sameJsonValue(originalRoot, root);
+    const changed =
+      args.dryRun === true ? !sameJsonValue(originalRoot, root) : didWrite;
     const finalMutation = changed
-      ? mutation
+      ? reconcileMutationMetadata(originalRoot, root, mutation)
       : {
           ...mutation,
           changedPanelIds: [],
