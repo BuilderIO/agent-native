@@ -36,6 +36,7 @@ import {
 } from "../packages/core/src/cli/create.ts";
 import {
   LAYER_PATCH_SUFFIX,
+  PACKAGED_TEMPLATE_EXCLUDE,
   TEMPLATE_LAYER_FILE,
   createLayerPatch,
   applyTemplateLayer,
@@ -243,15 +244,41 @@ function check(): number {
   let failed = 0;
   for (const name of layers) {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), "template-layer-check-"));
+    const layerDir = path.join(templatesDir, name);
     try {
-      copyTemplateTree(path.join(templatesDir, name), out);
-      console.log(`template-layer check: ${name} applies cleanly.`);
+      copyTemplateTree(layerDir, out);
     } catch (error) {
       failed += 1;
       console.error(
         `template-layer check: ${name} no longer applies to its base.\n  ${
           error instanceof Error ? error.message : String(error)
         }\n  Fix: pnpm template-layer rebase ${name} --out .tmp/${name}, resolve any conflict markers it reports, then pnpm template-layer diff ${name} --from .tmp/${name}.`,
+      );
+      fs.rmSync(out, { recursive: true, force: true });
+      continue;
+    }
+    // The published core ships its bases without spec/test files, and npm
+    // drops symlinks, so a layer must also apply to that copy or
+    // materializing from npm fails.
+    const packaged = path.join(out, ".packaged");
+    try {
+      const layer = readTemplateLayer(layerDir)!;
+      const baseDir = _findLocalTemplate(layer.base);
+      if (!baseDir) throw new Error(`No local copy of base "${layer.base}".`);
+      copyTemplateTree(baseDir, packaged);
+      for (const [rel, kind] of listTree(packaged)) {
+        if (kind === "symlink" || PACKAGED_TEMPLATE_EXCLUDE.test(rel)) {
+          fs.rmSync(path.join(packaged, rel));
+        }
+      }
+      applyTemplateLayer(layerDir, layer, packaged);
+      console.log(`template-layer check: ${name} applies cleanly.`);
+    } catch (error) {
+      failed += 1;
+      console.error(
+        `template-layer check: ${name} fails against the published copy of its base, which has no spec/test files or symlinks.\n  ${
+          error instanceof Error ? error.message : String(error)
+        }\n  Fix: list a base spec/test file under "delete" in ${TEMPLATE_LAYER_FILE} instead of patching it.`,
       );
     } finally {
       fs.rmSync(out, { recursive: true, force: true });

@@ -3,6 +3,7 @@
   "delete": [
     ".agents/skills/build-an-app/references/edit-points-chat.md",
     "CHANGELOG.md",
+    "actions/navigate.spec.ts",
     "app/components/chat",
     "app/components/layout/AgentInspector.test.tsx",
     "app/components/layout/AgentInspector.tsx",

@@ -5,6 +5,8 @@ import { applyPatch, createTwoFilesPatch } from "diff";
 
 export const TEMPLATE_LAYER_FILE = "template-layer.json";
 export const LAYER_PATCH_SUFFIX = ".patch";
+/** Files the published core strips from its bundled template copies. */
+export const PACKAGED_TEMPLATE_EXCLUDE = /\.(?:spec|test)\.(?:ts|tsx)$/;
 
 export interface TemplateLayer {
   base: string;
