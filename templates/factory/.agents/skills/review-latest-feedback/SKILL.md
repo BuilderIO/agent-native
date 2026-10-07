@@ -21,9 +21,10 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply**, under a hard question budget, then recap.
 
-Output is fixes. Every Slack item this run marks with a workflow reaction also
-gets one concise, same-thread status reply before the run ends. A factual
-status is always useful; keep it short and skip unrelated chatter.
+Output is fixes; every Slack reaction added this run needs one final,
+same-thread status reply. Follow
+[`slack-reaction-replies.md`](references/slack-reaction-replies.md) for its
+content.
 
 ## Slack channels
 
@@ -63,25 +64,13 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 ### Reaction gate
 
-`👀` is claim history; `✅` requires **Fixed** after all Phase 2 bars. Check
-each reported symptom or requested behavior against the post-change evidence
-before marking it: `✅` covers only the scope actually fixed. `🎫` marks any
-accepted, unfinished scope that needs human follow-through. Name the exact
-remaining action and owner (or responsible role) in the reply, and link a
-tracked ticket when one exists. Pair `✅` + `🎫` only for distinct scopes; say
-what is fixed and what still needs a person. Do not use `🎫` for fixed scope,
-routine rollout, optional live checks, subjective/out-of-scope, or unapproved
+`👀` is claim history; `✅` requires **Fixed** after Phase 2 bars. Check each
+reported symptom separately. For partial fixes, pair `✅` for verified scope
+with `🎫` for distinct unfinished scope needing a human. Name the exact action
+and owner/role in the reply; link a ticket when available. No `🎫` for fixed
+scope, routine rollout, optional checks, subjective/out-of-scope, or unapproved
 work. **Shipped**/**Live verified** alone don't earn `✅`. Never remove
-reactions.
-
-For every Slack item where this run adds `👀`, `✅`, or `🎫`, send one final
-status reply in that item's thread before ending. The reply must say what was
-done, what was not done, and the next owner/action when anything remains. A
-same-run fix gets one final reply after its disposition is known; work that
-continues beyond this run gets a concrete progress reply with its remaining
-scope. A reaction or an earlier generic “taking a look” is not that reply.
-Read back the reaction and reply as the invoking identity before recording the
-item as replied.
+reactions. Follow the reply reference above before marking an item replied.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -478,20 +467,8 @@ Share only new or useful information.
 
 ### After a PR merges
 
-After a Slack-fix PR merges, finish the final status reply in each affected
-Slack thread claimed this run, including fixes completed in the same run. Do
-not leave a new reaction as the only update or defer the reply to a later
-sweep.
-
-For beta app fixes, check the matching merge-triggered publisher run before
-giving an ETA. This checks release-job status, not beta behavior. If it
-succeeds, say what changed and that it should be on beta in about 24 hours.
-Keep test environment, verification, publisher results, and rollout details
-out of the reply; record evidence in the recap or PR. If the run is missing or
-failed, omit the ETA and state what's done, the exact remaining action and
-owner, and a tracked ticket when available. Apply the Reaction gate before
-`🎫`.
-For packages, state availability without verification details.
+Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for
+post-merge beta ETAs and package replies.
 
 For a fixed behavior with a ticketed handoff, state the done behavior and
 remaining action/owner/ticket separately; don't imply the fixed scope is open.
@@ -588,9 +565,9 @@ Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply permalink/read-back | Reactions |
+| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply proof | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or exact send/read-back blocker | 👀 claim; ✅ Fixed; 🎫 human action |
+| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 ticketed only |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete
