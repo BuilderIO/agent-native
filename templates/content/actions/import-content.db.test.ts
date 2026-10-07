@@ -398,6 +398,27 @@ describe("import-content", () => {
     );
   });
 
+  it("binds a key to one set of files when two applies with different files race", async () => {
+    const apply = (name: string) =>
+      asOwner(() =>
+        importContent.run({
+          files: [{ name, text: `# ${name}\n\nBody.` }],
+          parentId: PARENT_ID,
+          dryRun: false,
+          idempotencyKey: "race-2",
+        }),
+      );
+    const results = await Promise.allSettled([apply("a.md"), apply("b.md")]);
+    expect(results.map((result) => result.status).sort()).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    expect(
+      results.find((result) => result.status === "rejected"),
+    ).toMatchObject({ reason: { errorCode: "IDEMPOTENCY_KEY_REUSED" } });
+    expect(await importedChildren()).toHaveLength(1);
+  });
+
   it("names the pages it created when an import stops partway, and finishes on retry", async () => {
     const files = [
       { name: "a.md", text: "# A\n\nFirst." },
@@ -442,6 +463,38 @@ describe("import-content", () => {
     expect(await importedChildren()).toHaveLength(2);
   });
 
+  it("reports an unexpected stop without its raw message, even when the page lookup fails", async () => {
+    const files = [
+      { name: "a.md", text: "# A\n\nFirst." },
+      { name: "b.md", text: "# B\n\nSecond." },
+    ];
+    blobs.put.mockImplementationOnce(storedBlob);
+    blobs.put.mockImplementationOnce(async () => {
+      vi.spyOn(getDb(), "select").mockImplementationOnce(() => {
+        throw new Error("connection reset");
+      });
+      throw new Error("insert failed with params: PRIVATE-BODY-TEXT");
+    });
+    const stopped = await asOwner(() =>
+      importContent.run({
+        files,
+        parentId: PARENT_ID,
+        dryRun: false,
+        idempotencyKey: "partial-2",
+      }),
+    ).catch((error: unknown) => error);
+    expect(stopped).toMatchObject({
+      errorCode: "IMPORT_INCOMPLETE",
+      details: {
+        documentIds: [expect.any(String)],
+        documentIdsComplete: false,
+        cause: "unexpected",
+      },
+    });
+    expect((stopped as Error).message).not.toContain("PRIVATE-BODY-TEXT");
+    expect(await importedChildren()).toHaveLength(1);
+  });
+
   it("keeps raw frontmatter values out of the import record", async () => {
     const applied = await asOwner(() =>
       importContent.run({
@@ -450,16 +503,22 @@ describe("import-content", () => {
             name: "embedded.md",
             text: "---\nattachment: data:image/png;base64,UklTS1lQQVlMT0FE\n---\n# Embedded\n\nBody.",
           },
+          {
+            name: "scalar.md",
+            text: "---\ndata:image/png;base64,U0NBTEFSUEFZTE9BRA\n---\n# Scalar\n\nBody.",
+          },
         ],
         parentId: PARENT_ID,
         dryRun: false,
       }),
     );
-    const [record] = await getDb()
+    const records = await getDb()
       .select()
       .from(schema.documentImports)
-      .where(eq(schema.documentImports.documentId, applied.pages[0].id!));
-    expect(JSON.stringify(record)).not.toContain("UklTS1lQQVlMT0FE");
+      .where(eq(schema.documentImports.importId, applied.importId));
+    expect(records).toHaveLength(2);
+    expect(JSON.stringify(records)).not.toContain("UklTS1lQQVlMT0FE");
+    expect(JSON.stringify(records)).not.toContain("U0NBTEFSUEFZTE9BRA");
   });
 });
 

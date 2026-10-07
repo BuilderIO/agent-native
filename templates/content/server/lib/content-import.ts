@@ -15,8 +15,9 @@ import {
   isPrivateBlobConfiguredForRequest,
   putPrivateBlob,
 } from "@agent-native/core/private-blob";
+import { captureError } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 
 import { resolveContentSpaceTarget } from "../../actions/_content-space-target.js";
 import { isUniqueConstraintError } from "../../actions/_database-row-mutation.js";
@@ -217,6 +218,7 @@ export async function runContentImport(
       importId,
       requestSha256,
       plannedPages: planned.length,
+      confirmedIds: pages.flatMap((page) => (page.id ? [page.id] : [])),
     });
   }
 
@@ -234,7 +236,9 @@ export async function runContentImport(
 /**
  * Pages are written one at a time, so a failure can stop an import partway.
  * The caller gets the import id and the pages already recorded, so it can
- * retry with the same key to finish or undo what landed.
+ * retry with the same key to finish or undo what landed. Only a contract
+ * error's own message is passed on: any other error can carry driver text,
+ * including page bodies, which must not reach the caller or app state.
  */
 async function incompleteImportError(
   error: unknown,
@@ -243,28 +247,55 @@ async function incompleteImportError(
     importId: string;
     requestSha256: string;
     plannedPages: number;
+    /** Pages this attempt created or found, for when the lookup fails too. */
+    confirmedIds: string[];
   },
 ): Promise<unknown> {
-  const recorded = await input.db
-    .select({ documentId: schema.documentImports.documentId })
-    .from(schema.documentImports)
-    .where(
-      and(
-        eq(schema.documentImports.importId, input.importId),
-        eq(schema.documentImports.requestSha256, input.requestSha256),
-      ),
-    );
-  if (recorded.length === 0) return error;
-  const reason = error instanceof Error ? error.message : String(error);
+  let documentIds = input.confirmedIds;
+  let documentIdsComplete = false;
+  try {
+    const recorded = await input.db
+      .select({ documentId: schema.documentImports.documentId })
+      .from(schema.documentImports)
+      .where(
+        and(
+          eq(schema.documentImports.importId, input.importId),
+          eq(schema.documentImports.requestSha256, input.requestSha256),
+        ),
+      );
+    documentIds = recorded.map((row) => row.documentId);
+    documentIdsComplete = true;
+  } catch (lookupError) {
+    captureError(lookupError, {
+      tags: { source: "content-import" },
+      extra: { importId: input.importId },
+    });
+  }
+  if (documentIdsComplete && documentIds.length === 0) return error;
+
+  const contract = isActionContractError(error);
+  if (!contract) {
+    captureError(error, {
+      tags: { source: "content-import" },
+      extra: { importId: input.importId },
+    });
+  }
+  const landed = documentIdsComplete
+    ? `Imported ${documentIds.length} of ${input.plannedPages} pages, then stopped`
+    : `Confirmed ${documentIds.length} of ${input.plannedPages} pages, then stopped before the rest could be checked`;
+  const reason = contract
+    ? error.message
+    : "The server hit an unexpected error.";
   return new ActionContractError(
-    `Imported ${recorded.length} of ${input.plannedPages} pages, then stopped: ${reason} Import again with the same idempotencyKey to finish, or undo-content-import to move the imported pages to Trash.`,
+    `${landed}: ${reason} Import again with the same idempotencyKey to finish, or undo-content-import to move the imported pages to Trash.`,
     {
       errorCode: "IMPORT_INCOMPLETE",
-      statusCode: isActionContractError(error) ? error.statusCode : 500,
+      statusCode: contract ? error.statusCode : 500,
       details: {
         importId: input.importId,
-        documentIds: recorded.map((row) => row.documentId),
-        ...(isActionContractError(error) ? { cause: error.errorCode } : {}),
+        documentIds,
+        documentIdsComplete,
+        cause: contract ? error.errorCode : "unexpected",
       },
     },
   );
@@ -437,6 +468,22 @@ async function createImportedPage(input: {
     await withinDocumentCreation(
       id,
       async (tx) => {
+        // A key binds to one request. Attempts with the same key serialize
+        // here, so one with different files finds the first one's fingerprint.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${input.importId}, 0::bigint))`,
+        );
+        const [otherRequest] = await tx
+          .select({ documentId: schema.documentImports.documentId })
+          .from(schema.documentImports)
+          .where(
+            and(
+              eq(schema.documentImports.importId, input.importId),
+              ne(schema.documentImports.requestSha256, input.requestSha256),
+            ),
+          )
+          .limit(1);
+        if (otherRequest) idempotencyKeyReused();
         const [created] = await tx
           .select({
             ownerEmail: schema.documents.ownerEmail,
@@ -517,7 +564,16 @@ async function createImportedPage(input: {
       })
       .from(schema.documentImports)
       .where(eq(schema.documentImports.documentId, id))
-      .limit(1);
+      .limit(1)
+      .catch((lookupError: unknown) => {
+        // Without the record there's no telling whether another attempt kept
+        // this original, so it stays, and the first failure is reported.
+        captureError(lookupError, {
+          tags: { source: "content-import" },
+          extra: { importId: input.importId, documentId: id },
+        });
+        throw error;
+      });
     if (recorded?.originalBlob !== originalBlob) {
       await deletePrivateBlob(original).catch((cleanupError: unknown) => {
         console.error(

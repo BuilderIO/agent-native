@@ -540,6 +540,7 @@ describe("Markdown import", () => {
     expect(unreadable.title).toBe("Broken");
     expect(unreadable.frontmatter.unreadable).toBe("title: [unclosed");
     expect(noteKinds(unreadable)).toEqual(["frontmatter-unreadable"]);
+    expect(unreadable.report.notes[0].samples).toEqual([]);
     expect(unreadable.content).toBe("Body");
   });
 
@@ -575,6 +576,16 @@ describe("Markdown import", () => {
         "4. Unused.",
       ].join("\n"),
     );
+  });
+
+  it("names an embedded file in a sample by its type instead of its bytes", () => {
+    const page = importMarkdown(
+      'Text.\n\n<div hidden><img src="data:image/png;base64,SElEREVOUEFZTE9BRA=="></div>',
+    );
+
+    const samples = page.report.notes.flatMap((note) => note.samples);
+    expect(samples.join(" ")).not.toContain("SElEREVOUEFZTE9BRA");
+    expect(samples.join(" ")).toContain("image/png (1 KB, embedded)");
   });
 
   it("keeps a footnote reference with no definition as written", () => {

@@ -32,7 +32,7 @@ import {
   tokenizeHtml,
   type HtmlToken,
 } from "./html-fragment";
-import { ImportNoteBag } from "./notes";
+import { describeDataUrl, ImportNoteBag } from "./notes";
 import { classifyImportReference, type ImportReference } from "./paths";
 import type { ImportFrontmatter, ImportedPage, MarkdownDialect } from "./types";
 
@@ -419,7 +419,7 @@ function readFrontmatter(
   const record = frontmatterRecord(raw);
   if (record === "unreadable") {
     fields.unreadable = raw;
-    notes.add("frontmatter-unreadable", raw.split("\n")[0]);
+    notes.add("frontmatter-unreadable");
     return fields;
   }
   if (record === null) return fields;
@@ -1934,12 +1934,6 @@ function isDollarAmountPair(
   if (!raw.startsWith("$") || raw.startsWith("$$")) return false;
   if (/^\s|\s$/.test(value)) return true;
   return typeof end === "number" && /\d/.test(source[end] ?? "");
-}
-
-function describeDataUrl(url: string): string {
-  const mediaType = /^data:([^;,]+)/i.exec(url)?.[1] ?? "data";
-  const kilobytes = Math.max(1, Math.round((url.length * 3) / 4 / 1024));
-  return `${mediaType} (${kilobytes} KB, embedded)`;
 }
 
 function findLastIndex<T>(items: readonly T[], match: (item: T) => boolean) {
