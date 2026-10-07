@@ -142,7 +142,7 @@ function getDesignSystemsPageMode({
   isError: boolean;
 }): "loading" | "error" | "comingSoon" | "empty" | "systems" {
   if (designSystems.length > 0) return "systems";
-  if (isError) return "error";
+  if (isError || systemsFlagStatus === "unavailable") return "error";
   if (systemsFlagStatus === "loading") return "loading";
   if (!systemsEnabled) return "comingSoon";
   if (isLoading) return "loading";
@@ -585,8 +585,16 @@ export default function DesignSystems() {
         <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
           {pageMode === "error" ? (
             <QueryErrorState
-              onRetry={() => void refetch()}
-              retrying={isFetching}
+              onRetry={() => {
+                if (systemsFlag.status === "unavailable") {
+                  window.location.reload();
+                  return;
+                }
+                void refetch();
+              }}
+              retrying={
+                systemsFlag.status === "unavailable" ? false : isFetching
+              }
             />
           ) : pageMode === "comingSoon" ? (
             <ComingSoonState

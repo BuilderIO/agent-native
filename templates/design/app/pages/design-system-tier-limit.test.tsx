@@ -208,6 +208,19 @@ describe("DesignSystems list page tier-limit gating", () => {
     );
     expect(container.textContent).not.toContain("designSystems.empty.title");
   });
+
+  it("shows an error when the feature-flag read is unavailable", async () => {
+    mocks.systemsEnabled = false;
+    mocks.systemsFlagStatus = "unavailable";
+    await act(async () => root.render(<DesignSystems />));
+
+    expect(container.textContent).toContain("common.genericError");
+    expect(container.textContent).not.toContain(
+      "designSystems.comingSoonTitle",
+    );
+    expect(container.textContent).not.toContain("designSystems.empty.title");
+  });
+
   it("blocks the create link and shows upgrade messaging at the tier cap", async () => {
     mocks.tierLimit = {
       status: "ok",
