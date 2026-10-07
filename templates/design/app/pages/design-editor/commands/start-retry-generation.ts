@@ -3,12 +3,14 @@ import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import {
   formatComposerContext,
   hasComposerSystemContext,
 } from "@/lib/composer-context";
-import { patchPendingGeneration } from "@/lib/pending-generation";
+import {
+  failPendingGenerationForMissingImagePayload,
+  patchPendingGeneration,
+} from "@/lib/pending-generation";
 import type { RetryablePrompt } from "@/pages/design-editor/command-types";
 import { MAX_GENERATION_ATTEMPTS } from "@/pages/design-editor/editor-constants";
 import {
@@ -83,9 +85,17 @@ export async function runStartRetryGeneration(
   try {
     images = imageAttachmentsFromUploadedFiles(promptState.files);
   } catch (error) {
-    if (!(error instanceof MissingVisualImagePayloadError)) throw error;
-    setGenerationIssue(imageAttachmentUnavailableMessage);
-    setHasPendingGeneration(false);
+    if (
+      !failPendingGenerationForMissingImagePayload(
+        id,
+        error,
+        imageAttachmentUnavailableMessage,
+        setGenerationIssue,
+        setHasPendingGeneration,
+      )
+    ) {
+      throw error;
+    }
     setRetryablePrompt(null);
     return;
   }

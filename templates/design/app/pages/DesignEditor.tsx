@@ -523,7 +523,6 @@ import {
   isBuilderHostEmbed,
   rememberBuilderHostOrigin,
 } from "@/lib/builder-host-origin";
-import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import {
   acknowledgeClipboardContentMutation,
   publishClipboardContentMutation,
@@ -568,6 +567,7 @@ import {
 import type { UploadedFont } from "@/lib/font-upload";
 import {
   clearPendingGeneration,
+  failPendingGenerationForMissingImagePayload,
   hasPendingGenerationOutput,
   hasFreshPendingGeneration,
   isPendingGenerationStale,
@@ -3851,9 +3851,17 @@ function DesignEditor() {
     try {
       images = imageAttachmentsFromUploadedFiles(files);
     } catch (error) {
-      if (!(error instanceof MissingVisualImagePayloadError)) throw error;
-      setGenerationIssue(t("promptDialog.imageAttachmentUnavailable"));
-      setHasPendingGeneration(false);
+      if (
+        !failPendingGenerationForMissingImagePayload(
+          id,
+          error,
+          t("promptDialog.imageAttachmentUnavailable"),
+          setGenerationIssue,
+          setHasPendingGeneration,
+        )
+      ) {
+        throw error;
+      }
       return null;
     }
     return {

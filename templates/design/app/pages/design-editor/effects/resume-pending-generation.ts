@@ -3,12 +3,12 @@ import { readCreativeContextState } from "@agent-native/creative-context/client"
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
-import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import {
   formatComposerContext,
   hasComposerSystemContext,
 } from "@/lib/composer-context";
 import {
+  failPendingGenerationForMissingImagePayload,
   isPendingGenerationStale,
   patchPendingGeneration,
   readPendingGeneration,
@@ -118,9 +118,17 @@ export function runResumePendingGeneration({
   try {
     images = imageAttachmentsFromUploadedFiles(uploadedFiles);
   } catch (error) {
-    if (!(error instanceof MissingVisualImagePayloadError)) throw error;
-    setGenerationIssue(imageAttachmentUnavailableMessage);
-    setHasPendingGeneration(true);
+    if (
+      !failPendingGenerationForMissingImagePayload(
+        id,
+        error,
+        imageAttachmentUnavailableMessage,
+        setGenerationIssue,
+        setHasPendingGeneration,
+      )
+    ) {
+      throw error;
+    }
     return;
   }
   const sourceContext = pending.source
