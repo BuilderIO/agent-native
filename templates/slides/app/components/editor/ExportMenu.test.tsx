@@ -60,6 +60,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.googleSlidesCreated": "Exported to Google Slides",
         "editorExport.googleSlidesCreatedHint":
           "A copy of this deck was created in your Google Drive.",
+        "editorExport.googleSlidesGoTo": "Go to Google Slides",
         "editorExport.downloadHtml": "Download as HTML",
         "editorExport.duplicateDeck": "Duplicate deck",
         "editorExport.export": "Export",
@@ -78,6 +79,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.exportGoogleSlidesError":
           "Could not export Google Slides.",
         "editorExport.exportHtmlError": "Could not export HTML.",
+        "comments.close": "Close",
       }) as Record<string, string>
     )[key] ?? key,
 }));
@@ -387,8 +389,9 @@ describe("<ExportMenu>", () => {
       "A copy of this deck was created in your Google Drive.",
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Export to Google Slides" }),
+      screen.getByRole("button", { name: "Go to Google Slides" }),
     );
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
     expect(window.open).toHaveBeenCalledWith(
       "https://docs.google.com/presentation/d/new-deck/edit",
       "_blank",
