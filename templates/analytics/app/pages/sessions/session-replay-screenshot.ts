@@ -1147,7 +1147,9 @@ export async function downloadReplayScreenshot(
 
     const canvas = await html2canvas(stageRoot, {
       allowTaint: false,
-      backgroundColor: null,
+      backgroundColor:
+        stage.ownerDocument.defaultView?.getComputedStyle(stage)
+          .backgroundColor ?? null,
       height,
       logging: false,
       scale: 1,

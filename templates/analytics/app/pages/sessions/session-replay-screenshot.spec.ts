@@ -868,6 +868,7 @@ describe("session replay screenshot asset checks", () => {
 
   it("captures the replay viewport, nested frames, and visible cursor overlay", async () => {
     const stage = document.createElement("div");
+    stage.style.backgroundColor = "rgb(17, 34, 51)";
     const stageRoot = document.createElement("div");
     const iframe = document.createElement("iframe");
     const replayDocument = document.implementation.createHTMLDocument("replay");
@@ -1004,6 +1005,7 @@ describe("session replay screenshot asset checks", () => {
     expect(captures[2]).toMatchObject({
       element: stageRoot,
       options: expect.objectContaining({
+        backgroundColor: "rgb(17, 34, 51)",
         height: 480,
         scrollX: 0,
         scrollY: 0,
