@@ -160,9 +160,7 @@ test("designs list shared sidebar stays contained at normal and narrow widths", 
   await page.getByRole("button", { name: "Toggle agent", exact: true }).click();
   const sidebar = page.locator('[data-agent-sidebar-state="open"]');
   await expect(sidebar).toBeVisible();
-  await expect(
-    sidebar.getByRole("button", { name: "New chat", exact: true }),
-  ).toBeVisible();
+  await expect(sidebar.locator('button[aria-label="New chat"]')).toBeVisible();
   await expect(
     sidebar.getByRole("button", {
       name: "Agent panel options",
