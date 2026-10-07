@@ -1,9 +1,9 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep recent Slack, GitHub issue, Sentry, first-party Agent-Native Analytics
-  error issues, and explicitly linked tracker
-  feedback: first answer reporters, then fix verified bugs and actionable
+  Sweep recent Slack, GitHub issues, Sentry, Agent-Native Analytics errors,
+  actionable automated diagnostics, and linked-tracker feedback: answer
+  reporters first, then fix verified bugs and actionable
   objective UI defects at the owning boundary, require human signoff for
   subjective UI changes, build features the invoking user endorsed with an
   :upvote:, and recap every disposition. Use for scheduled or manual sweeps.
@@ -218,14 +218,23 @@ Phase 2 reapplies these rules after full-thread review.
 
 Use `## Slack channels` unless the invocation narrows scope.
 
+**Automated diagnostics count as feedback regardless of author.** Claim
+actionable CI/Beta E2E and monitoring alerts with `👀` after the ownership gate,
+then inspect linked runs, builds/commits, job logs, test results, artifacts, and
+issue state. Treat labels/counts as leads. Fix verified repo-owned causes; for
+other causes, record evidence and the next owner/action. Don't ask bots; ask a
+person only when a fact blocks a fix. If our report lacks evidence, improve its
+checks/report with concise context and links; avoid duplicate details and
+secrets.
+
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
 result is wrong, or a working flow regressed. A credible "nothing happens" is
 valid evidence — inspect the owning path before doubting the reporter.
 
 Do not change code for an unrelated product idea, praise, status update, merge
-or review request, bot forward, duplicate, or work outside the invocation's
-ownership.
+or review request, irrelevant bot forward, duplicate, or work outside the
+invocation's ownership.
 
 **Keep subjective UI changes human-in-the-loop.** Automatically fix only
 objective UI defects: broken interactions, misalignment, overlap or clipping,
