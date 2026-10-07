@@ -320,10 +320,15 @@ type PgliteProcessLock = {
   contents: string;
 };
 type PgliteProcessLockRegistry = Map<string, PgliteProcessLock>;
+type PgliteClientOperationDrain = {
+  active: number;
+  waiters: Set<() => void>;
+};
 
 const pgliteProcess = process as NodeJS.Process & {
   __agentNativePgliteClients?: PgliteClientRegistry;
   __agentNativePgliteProcessLocks?: PgliteProcessLockRegistry;
+  __agentNativePgliteClientOperationDrain?: PgliteClientOperationDrain;
   __agentNativePgliteProcessExitCleanupRegistered?: boolean;
   __agentNativePgliteClientShutdownRequested?: boolean;
   __agentNativeDbClientsClosingHooks?: DbClientsClosingHooks;
@@ -334,6 +339,11 @@ const _pgliteClients = (pgliteProcess.__agentNativePgliteClients ??= new Map<
 >());
 const _pgliteProcessLocks = (pgliteProcess.__agentNativePgliteProcessLocks ??=
   new Map<string, PgliteProcessLock>());
+const _pgliteClientOperationDrain =
+  (pgliteProcess.__agentNativePgliteClientOperationDrain ??= {
+    active: 0,
+    waiters: new Set(),
+  });
 const _dbClientsClosingHooks =
   (pgliteProcess.__agentNativeDbClientsClosingHooks ??= new Set<() => void>());
 
@@ -357,6 +367,49 @@ function assertPgliteClientAccessOpen(): void {
   error.statusCode = 503;
   error.statusMessage = "Service Unavailable";
   throw error;
+}
+
+export function waitForPgliteClientOperations(): Promise<void> {
+  if (_pgliteClientOperationDrain.active === 0) return Promise.resolve();
+  return new Promise((resolve) =>
+    _pgliteClientOperationDrain.waiters.add(resolve),
+  );
+}
+
+function finishPgliteClientOperation(): void {
+  _pgliteClientOperationDrain.active--;
+  if (_pgliteClientOperationDrain.active !== 0) return;
+  for (const resolve of _pgliteClientOperationDrain.waiters) resolve();
+  _pgliteClientOperationDrain.waiters.clear();
+}
+
+function guardPgliteClientAccess(client: any): any {
+  return new Proxy(client, {
+    get(target, property) {
+      const method = Reflect.get(target, property, target);
+      if (typeof method !== "function") return method;
+      if (property === "close") return method.bind(target);
+      return (...args: unknown[]) => {
+        assertPgliteClientAccessOpen();
+        _pgliteClientOperationDrain.active++;
+        try {
+          const result: unknown = Reflect.apply(method, target, args);
+          if (
+            result !== null &&
+            (typeof result === "object" || typeof result === "function") &&
+            typeof (result as { then?: unknown }).then === "function"
+          ) {
+            return Promise.resolve(result).finally(finishPgliteClientOperation);
+          }
+          finishPgliteClientOperation();
+          return result;
+        } catch (error) {
+          finishPgliteClientOperation();
+          throw error;
+        }
+      };
+    },
+  });
 }
 
 function notifyDbClientsClosing(): void {
@@ -543,7 +596,7 @@ export async function getPgliteClient(url: string): Promise<any> {
       const lock = await acquirePgliteProcessLock(dataDir);
       try {
         const { PGlite } = await loadPglitePackage();
-        return await PGlite.create(clientKey);
+        return guardPgliteClientAccess(await PGlite.create(clientKey));
       } catch (error) {
         if (lock) {
           _pgliteProcessLocks.delete(clientKey);

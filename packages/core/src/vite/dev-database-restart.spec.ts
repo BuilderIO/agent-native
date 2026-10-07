@@ -13,6 +13,61 @@ type ProbeResult = {
   rows: Array<{ id: number; value: string }>;
 };
 
+type NitroHot = {
+  off?: (event: string, listener: (payload: any) => void) => void;
+  on?: (event: string, listener: (payload: any) => void) => void;
+  send?: (payload: any) => void;
+};
+
+const suppressedNitroEvents = new WeakMap<object, Set<string>>();
+
+function suppressNextNitroAcknowledgement(
+  hot: NitroHot,
+  event: string,
+  onSuppressed: () => void = () => {},
+): void {
+  if (!hot.on || !hot.off) {
+    throw new Error("Nitro dev environment cannot observe lifecycle events");
+  }
+
+  let suppressedEvents = suppressedNitroEvents.get(hot);
+  if (!suppressedEvents) {
+    suppressedEvents = new Set();
+    suppressedNitroEvents.set(hot, suppressedEvents);
+  }
+  if (suppressedEvents.has(event)) return;
+  suppressedEvents.add(event);
+
+  const hotOn = hot.on.bind(hot);
+  const hotOff = hot.off.bind(hot);
+  const wrappedListeners = new Map<
+    (payload: any) => void,
+    (payload: any) => void
+  >();
+  let suppress = true;
+  hot.on = (registeredEvent, listener) => {
+    if (registeredEvent !== event || !suppress) {
+      hotOn(registeredEvent, listener);
+      return;
+    }
+    const wrapped = (payload: any) => {
+      if (suppress && typeof payload?.requestId === "string") {
+        suppress = false;
+        onSuppressed();
+        return;
+      }
+      listener(payload);
+    };
+    wrappedListeners.set(listener, wrapped);
+    hotOn(registeredEvent, wrapped);
+  };
+  hot.off = (registeredEvent, listener) => {
+    const wrapped = wrappedListeners.get(listener) ?? listener;
+    wrappedListeners.delete(listener);
+    hotOff(registeredEvent, wrapped);
+  };
+}
+
 async function waitForProbe(
   url: string,
   condition: (result: ProbeResult) => boolean,
@@ -144,11 +199,16 @@ describe("Nitro PGlite dev lifecycle", () => {
     const probeEnteredPath = path.join(testRoot, "probe-entered");
     const probeRejectedPath = path.join(testRoot, "probe-rejected");
     const resumeProbePath = path.join(testRoot, "resume-probe");
+    const slowQueryPath = path.join(testRoot, "slow-query");
+    const slowQueryStartedPath = path.join(testRoot, "slow-query-started");
+    const slowQueryCompletedPath = path.join(testRoot, "slow-query-completed");
     const previousCwd = process.cwd();
+    const previousDatabaseUrl = process.env.DATABASE_URL;
     let server: ViteDevServer | undefined;
     let serverRestarts = 0;
     let serverListens = 0;
     let databaseCloseAcknowledgements = 0;
+    let suppressNextResumeAcknowledgement = false;
 
     fs.mkdirSync(path.join(testRoot, "server", "plugins"), {
       recursive: true,
@@ -176,7 +236,7 @@ export default (nitroApp: any) => installDevDatabaseCloseHook(nitroApp);
     fs.writeFileSync(
       path.join(testRoot, "server", "routes", "probe.get.ts"),
       `import { existsSync, writeFileSync } from "node:fs";
-import { getPgliteClient } from ${JSON.stringify(
+import { getDbExec } from ${JSON.stringify(
         pathToFileURL(path.join(coreRoot, "src/db/client.ts")).href,
       )};
 
@@ -187,9 +247,22 @@ export default async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
-  let db;
+  const db = getDbExec();
+  if (existsSync(${JSON.stringify(slowQueryPath)})) {
+    writeFileSync(${JSON.stringify(slowQueryStartedPath)}, "started");
+    try {
+      await db.execute("SELECT pg_sleep(8)");
+    } finally {
+      writeFileSync(${JSON.stringify(slowQueryCompletedPath)}, "completed");
+    }
+  }
   try {
-    db = await getPgliteClient(${JSON.stringify(`pglite:${databaseDir}`)});
+    await db.execute("CREATE TABLE IF NOT EXISTS restart_probe (id integer PRIMARY KEY, value text NOT NULL)");
+    await db.execute("INSERT INTO restart_probe (id, value) VALUES (1, 'persisted') ON CONFLICT (id) DO NOTHING");
+    const result = await db.execute("SELECT id, value FROM restart_probe ORDER BY id");
+    return {
+      rows: result.rows,
+    };
   } catch (error) {
     if (error instanceof Error && error.message.includes("PGlite access is paused")) {
       writeFileSync(${JSON.stringify(probeRejectedPath)}, "rejected");
@@ -197,12 +270,6 @@ export default async () => {
     }
     throw error;
   }
-  await db.exec("CREATE TABLE IF NOT EXISTS restart_probe (id integer PRIMARY KEY, value text NOT NULL)");
-  await db.exec("INSERT INTO restart_probe (id, value) VALUES (1, 'persisted') ON CONFLICT (id) DO NOTHING");
-  const result = await db.query("SELECT id, value FROM restart_probe ORDER BY id");
-  return {
-    rows: result.rows,
-  };
 };
 `,
     );
@@ -222,10 +289,23 @@ export default async () => {
             databaseCloseAcknowledgements++;
           }
         });
+        if (suppressNextResumeAcknowledgement) {
+          if (!hot) {
+            throw new Error("Nitro dev environment has no HMR channel");
+          }
+          suppressNextNitroAcknowledgement(
+            hot as NitroHot,
+            "agent-native:dev-database-resumed",
+            () => {
+              suppressNextResumeAcknowledgement = false;
+            },
+          );
+        }
       },
     };
 
     try {
+      process.env.DATABASE_URL = `pglite:${databaseDir}`;
       process.chdir(testRoot);
       server = await createServer({
         logLevel: "silent",
@@ -255,6 +335,7 @@ export default async () => {
       await closeNitroDatabase(server, () => {
         fs.writeFileSync(resumeProbePath, "resume");
       });
+      await waitForFile(probeRejectedPath);
       expect(fs.existsSync(probeRejectedPath)).toBe(true);
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         false,
@@ -268,44 +349,19 @@ export default async () => {
       );
       fs.rmSync(pauseProbePath, { force: true });
       const acknowledgementsBeforeRestart = databaseCloseAcknowledgements;
-      const nitroHot = server.environments.nitro?.hot as {
-        off?: (event: string, listener: (payload: any) => void) => void;
-        on?: (event: string, listener: (payload: any) => void) => void;
-      };
-      const hotOn = nitroHot.on?.bind(nitroHot);
-      const hotOff = nitroHot.off?.bind(nitroHot);
-      if (!hotOn || !hotOff) {
-        throw new Error("Nitro dev environment cannot observe cleanup events");
-      }
-      const wrappedListeners = new Map<
-        (payload: any) => void,
-        (payload: any) => void
-      >();
-      let suppressNextCloseAcknowledgement = true;
-      nitroHot.on = (event, listener) => {
-        if (
-          event !== "agent-native:dev-database-closed" ||
-          !suppressNextCloseAcknowledgement
-        ) {
-          hotOn(event, listener);
-          return;
-        }
-        const wrapped = (payload: any) => {
-          if (
-            suppressNextCloseAcknowledgement &&
-            typeof payload?.requestId === "string"
-          ) {
-            suppressNextCloseAcknowledgement = false;
-            return;
-          }
-          listener(payload);
-        };
-        wrappedListeners.set(listener, wrapped);
-        hotOn(event, wrapped);
-      };
-      nitroHot.off = (event, listener) => {
-        hotOff(event, wrappedListeners.get(listener) ?? listener);
-      };
+      const nitroHot = server.environments.nitro?.hot as NitroHot;
+      suppressNextNitroAcknowledgement(
+        nitroHot,
+        "agent-native:dev-database-closed",
+      );
+      suppressNextResumeAcknowledgement = true;
+      suppressNextNitroAcknowledgement(
+        nitroHot,
+        "agent-native:dev-database-resumed",
+        () => {
+          suppressNextResumeAcknowledgement = false;
+        },
+      );
 
       fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=after\n");
 
@@ -325,11 +381,41 @@ export default async () => {
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         true,
       );
+
+      const restartsBeforeSlowQuery = serverRestarts;
+      fs.writeFileSync(slowQueryPath, "run");
+      const slowProbe = fetch(probeUrl).catch(() => undefined);
+      await waitForFile(slowQueryStartedPath);
+      fs.rmSync(slowQueryPath, { force: true });
+      fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=slow-query-restart\n");
+      await new Promise((resolve) => setTimeout(resolve, 5_500));
+      expect(fs.existsSync(slowQueryCompletedPath)).toBe(false);
+      expect(serverRestarts).toBe(restartsBeforeSlowQuery);
+      expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
+        true,
+      );
+      await waitForFile(slowQueryCompletedPath);
+      await slowProbe;
+      const restartedAfterSlowQuery = await waitForProbe(
+        probeUrl,
+        () => serverRestarts > restartsBeforeSlowQuery && serverListens > 2,
+      );
+      expect(restartedAfterSlowQuery.rows).toEqual([
+        { id: 1, value: "persisted" },
+      ]);
+      expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
+        true,
+      );
     } finally {
       try {
         if (server) await closeServer(server);
       } finally {
         process.chdir(previousCwd);
+        if (previousDatabaseUrl === undefined) {
+          delete process.env.DATABASE_URL;
+        } else {
+          process.env.DATABASE_URL = previousDatabaseUrl;
+        }
         fs.rmSync(testRoot, { recursive: true, force: true });
       }
     }
