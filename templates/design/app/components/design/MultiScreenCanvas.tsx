@@ -5815,14 +5815,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           .join("|");
         if (!final && signature === lastLayerSelectionSignature) return;
         lastLayerSelectionSignature = signature;
-        onLayerMarqueeSelectionChange?.(selection, {
+        const intent: ElementSelectionIntent = {
           source: "marquee",
           additive: state.additive,
           shiftKey: state.additive,
           metaKey,
           ctrlKey,
           final: final === true,
-        });
+        };
+        if (final) {
+          const hitScreenIds = [...latestFullyEnclosedScreenIds];
+          intent.selectedScreenIds = state.additive
+            ? xorMarqueeSelection(state.baseSelectedIds, hitScreenIds)
+            : hitScreenIds;
+        }
+        onLayerMarqueeSelectionChange?.(selection, intent);
       };
       const collectForIntersectedScreens = (hitIds: string[]) => {
         const newIds = hitIds.filter(

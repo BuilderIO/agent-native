@@ -434,6 +434,72 @@ test("Shift-marquee child selection after a Screen pick deletes only the child",
   }
 });
 
+// oracle: none — this checks ordinary canvas marquee Delete provenance, not a Figma observation.
+test("ordinary marquee child selection after a Screen pick deletes only the child", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).__DESIGN_TRACE = true;
+  });
+
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    await page
+      .locator(`[data-frame-id="${homeId}"] [data-frame-title]`)
+      .click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([homeId]);
+
+    const frame = page.locator(`[data-frame-id="${homeId}"]`);
+    const frameBox = await frame.boundingBox();
+    const screenIframe = page.locator(
+      `iframe[data-screen-iframe-id="${homeId}"]`,
+    );
+    const iframeBox = await screenIframe.boundingBox();
+    const target = screenIframe
+      .contentFrame()
+      .locator('[data-agent-native-node-id="home-target"]');
+    const targetBox = await target.boundingBox();
+    expect(frameBox).not.toBeNull();
+    expect(iframeBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+
+    const from = { x: frameBox!.x - 32, y: targetBox!.y - 4 };
+    const to = {
+      x: targetBox!.x + targetBox!.width + 4,
+      y: targetBox!.y + targetBox!.height + 4,
+    };
+    expect(from.x).toBeLessThan(frameBox!.x);
+    expect(from.y).toBeGreaterThanOrEqual(iframeBox!.y);
+    expect(to.x).toBeLessThan(iframeBox!.x + iframeBox!.width);
+
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 12 });
+    await page.mouse.up();
+
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    const blueBoxId = await blueBoxButton.getAttribute("data-layer-node-id");
+    expect(blueBoxId).toBeTruthy();
+    await expect(
+      blueBoxButton.locator("xpath=ancestor::*[@role='treeitem'][1]"),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+
+    await page.keyboard.press("Delete");
+    await expect(blueBoxButton).toHaveCount(0);
+    await expect(layerRow(page, "Home")).toHaveCount(1);
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 // oracle: none — this checks deep-select Delete provenance, not a Figma observation.
 test("deep-select marquee over a Screen deletes only the child", async ({
   page,

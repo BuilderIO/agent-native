@@ -24446,7 +24446,8 @@ function DesignEditor() {
           (intent.additive === true ||
             intent.shiftKey === true ||
             intent.metaKey === true ||
-            intent.ctrlKey === true),
+            intent.ctrlKey === true ||
+            intent.selectedScreenIds?.length === 0),
       }),
     [handleLayerMarqueeSelectionChange],
   );
