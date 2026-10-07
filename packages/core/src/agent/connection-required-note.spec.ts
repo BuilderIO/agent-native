@@ -43,12 +43,18 @@ const registered = (provider: string, label: string) =>
     source: { id: provider, kind: "workspace_connection", label },
   });
 
+const ORG = "org-a";
+const OTHER_ORG = "org-b";
+
 async function recordRun(
   threadId: string,
   events: Array<Record<string, unknown>>,
+  orgId: string | null = ORG,
 ) {
   const runId = `run-${randomUUID()}`;
-  await insertRun(runId, threadId);
+  await insertRun(runId, threadId, undefined, {
+    turnInitiator: { email: "owner@example.com", orgId, anonymous: false },
+  });
   for (const [seq, event] of events.entries()) {
     await insertRunEvent(runId, seq, JSON.stringify(event));
   }
@@ -57,12 +63,16 @@ async function recordRun(
   return runId;
 }
 
-/** The marker rows `markTurnAborted` writes: two per abort, same thread. */
-async function recordAbortMarkers(threadId: string, count: number) {
+/** The marker rows `markTurnAborted` writes: two per abort, on the aborted turn. */
+async function recordAbortMarkers(
+  threadId: string,
+  turnId: string,
+  count: number,
+) {
   for (let i = 0; i < count; i += 1) {
     await getDbExec().execute({
-      sql: "INSERT INTO agent_runs (id, thread_id, status, started_at, dispatch_mode) VALUES (?, ?, 'aborted', ?, 'turn-abort')",
-      args: [`marker-${randomUUID()}`, threadId, Date.now()],
+      sql: "INSERT INTO agent_runs (id, thread_id, status, started_at, turn_id, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, 'turn-abort')",
+      args: [`marker-${randomUUID()}`, threadId, Date.now(), turnId],
     });
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
@@ -85,7 +95,7 @@ describe("readThreadConnectionRequests", () => {
     await recordRun(threadId, [request("google"), { type: "done" }]);
     await recordRun(threadId, [{ type: "text", text: "hi" }, { type: "done" }]);
 
-    const found = await readThreadConnectionRequests(threadId);
+    const found = await readThreadConnectionRequests(threadId, { orgId: ORG });
 
     expect(found.map(({ request: r }) => r.provider)).toEqual([
       "google",
@@ -98,7 +108,9 @@ describe("readThreadConnectionRequests", () => {
     const threadId = `thread-${randomUUID()}`;
     await recordRun(threadId, [{ type: "text", text: "hi" }, { type: "done" }]);
 
-    expect(await readThreadConnectionRequests(threadId)).toEqual([]);
+    expect(
+      await readThreadConnectionRequests(threadId, { orgId: ORG }),
+    ).toEqual([]);
   });
 
   it("forgets a request that has aged out of the run window", async () => {
@@ -106,15 +118,20 @@ describe("readThreadConnectionRequests", () => {
     await recordRun(threadId, [request("google"), { type: "done" }]);
     await idleRuns(threadId, 8);
 
-    expect(await readThreadConnectionRequests(threadId)).toEqual([]);
+    expect(
+      await readThreadConnectionRequests(threadId, { orgId: ORG }),
+    ).toEqual([]);
   });
 
   it("does not let turn-abort marker rows push a request out of the window", async () => {
     const threadId = `thread-${randomUUID()}`;
-    await recordRun(threadId, [request("google"), { type: "done" }]);
-    await recordAbortMarkers(threadId, 10);
+    const runId = await recordRun(threadId, [
+      request("google"),
+      { type: "done" },
+    ]);
+    await recordAbortMarkers(threadId, runId, 10);
 
-    const found = await readThreadConnectionRequests(threadId);
+    const found = await readThreadConnectionRequests(threadId, { orgId: ORG });
 
     expect(found).toHaveLength(1);
     expect(found[0]).toMatchObject({ runsAgo: 0 });
@@ -128,7 +145,9 @@ describe("readThreadConnectionRequests", () => {
       args: [Date.now() - 7 * 60 * 60 * 1000, threadId],
     });
 
-    expect(await readThreadConnectionRequests(threadId)).toEqual([]);
+    expect(
+      await readThreadConnectionRequests(threadId, { orgId: ORG }),
+    ).toEqual([]);
   });
 
   it("skips the run it was asked to exclude", async () => {
@@ -136,7 +155,61 @@ describe("readThreadConnectionRequests", () => {
     const runId = await recordRun(threadId, [request("google")]);
 
     expect(
-      await readThreadConnectionRequests(threadId, { excludeRunId: runId }),
+      await readThreadConnectionRequests(threadId, {
+        orgId: ORG,
+        excludeRunId: runId,
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("readThreadConnectionRequests across organizations", () => {
+  it("never returns a request another organization's run made", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    await recordRun(threadId, [request("google")], OTHER_ORG);
+
+    expect(
+      await readThreadConnectionRequests(threadId, { orgId: ORG }),
+    ).toEqual([]);
+    expect(
+      await readThreadConnectionRequests(threadId, { orgId: OTHER_ORG }),
+    ).toHaveLength(1);
+  });
+
+  it("does not let another organization's runs use up the window or age a request", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    await recordRun(threadId, [request("google")]);
+    for (let i = 0; i < 8; i += 1) {
+      await recordRun(threadId, [{ type: "done" }], OTHER_ORG);
+    }
+
+    const found = await readThreadConnectionRequests(threadId, { orgId: ORG });
+
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ runsAgo: 0 });
+  });
+
+  it("only sees runs that had no organization when the current run has none", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    await recordRun(threadId, [request("slack")], null);
+    await recordRun(threadId, [request("google")], ORG);
+
+    const found = await readThreadConnectionRequests(threadId, { orgId: null });
+
+    expect(found.map(({ request: r }) => r.provider)).toEqual(["slack"]);
+  });
+
+  it("leaves out a run with no recorded initiator, since its organization can't be proven", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const runId = `run-${randomUUID()}`;
+    await insertRun(runId, threadId);
+    await insertRunEvent(runId, 0, JSON.stringify(request("google")));
+
+    expect(
+      await readThreadConnectionRequests(threadId, { orgId: ORG }),
+    ).toEqual([]);
+    expect(
+      await readThreadConnectionRequests(threadId, { orgId: null }),
     ).toEqual([]);
   });
 });
@@ -146,7 +219,7 @@ describe("resolvePriorConnectionNote", () => {
     const threadId = `thread-${randomUUID()}`;
     await recordRun(threadId, [{ type: "done" }]);
 
-    expect(await resolvePriorConnectionNote({ threadId })).toEqual({
+    expect(await resolvePriorConnectionNote({ orgId: ORG, threadId })).toEqual({
       status: "none",
     });
   });
@@ -158,7 +231,7 @@ describe("resolvePriorConnectionNote", () => {
       { type: "done" },
     ]);
 
-    const result = await resolvePriorConnectionNote({ threadId });
+    const result = await resolvePriorConnectionNote({ orgId: ORG, threadId });
 
     expect(result.status).toBe("blocked");
     if (result.status !== "blocked") return;
@@ -172,7 +245,7 @@ describe("resolvePriorConnectionNote", () => {
     await recordRun(threadId, [request("slack"), { type: "done" }]);
     await recordRun(threadId, [request("google"), { type: "done" }]);
 
-    const result = await resolvePriorConnectionNote({ threadId });
+    const result = await resolvePriorConnectionNote({ orgId: ORG, threadId });
 
     expect(result.status).toBe("blocked");
     if (result.status !== "blocked") return;
@@ -193,6 +266,7 @@ describe("resolvePriorConnectionNote", () => {
     }
 
     const result = await resolvePriorConnectionNote({
+      orgId: ORG,
       threadId,
       appId: "analytics",
     });
@@ -212,7 +286,7 @@ describe("resolvePriorConnectionNote", () => {
       }),
     ]);
 
-    const result = await resolvePriorConnectionNote({ threadId });
+    const result = await resolvePriorConnectionNote({ orgId: ORG, threadId });
 
     expect(result.status).toBe("blocked");
     if (result.status !== "blocked") return;
@@ -229,7 +303,7 @@ describe("resolvePriorConnectionNote", () => {
       }),
     ]);
 
-    const result = await resolvePriorConnectionNote({ threadId });
+    const result = await resolvePriorConnectionNote({ orgId: ORG, threadId });
 
     expect(result.status).toBe("blocked");
     if (result.status !== "blocked") return;
@@ -252,7 +326,7 @@ describe("resolvePriorConnectionNote", () => {
       }),
     ]);
 
-    const result = await resolvePriorConnectionNote({ threadId });
+    const result = await resolvePriorConnectionNote({ orgId: ORG, threadId });
 
     expect(result.status).toBe("blocked");
     if (result.status !== "blocked") return;
@@ -267,12 +341,12 @@ describe("resolvePriorConnectionNote", () => {
       }),
     ]);
     await idleRuns(threadId, 1);
-    expect((await resolvePriorConnectionNote({ threadId })).status).toBe(
-      "blocked",
-    );
+    expect(
+      (await resolvePriorConnectionNote({ orgId: ORG, threadId })).status,
+    ).toBe("blocked");
 
     await idleRuns(threadId, 1);
-    expect(await resolvePriorConnectionNote({ threadId })).toEqual({
+    expect(await resolvePriorConnectionNote({ orgId: ORG, threadId })).toEqual({
       status: "none",
     });
   });
@@ -283,6 +357,7 @@ describe("resolvePriorConnectionNote", () => {
     await idleRuns(threadId, 5);
 
     const result = await resolvePriorConnectionNote({
+      orgId: ORG,
       threadId,
       appId: "analytics",
     });
@@ -299,6 +374,7 @@ describe("resolvePriorConnectionNote", () => {
     mockResolveConnection.mockResolvedValue({ available: true });
 
     const result = await resolvePriorConnectionNote({
+      orgId: ORG,
       threadId,
       appId: "analytics",
     });
@@ -318,8 +394,65 @@ describe("resolvePriorConnectionNote", () => {
     mockResolveConnection.mockResolvedValue({ available: true });
 
     expect(
-      await resolvePriorConnectionNote({ threadId, appId: "analytics" }),
+      await resolvePriorConnectionNote({
+        orgId: ORG,
+        threadId,
+        appId: "analytics",
+      }),
     ).toEqual({ status: "connected" });
+  });
+
+  it("gives an organization no note for a request another organization made on the same thread", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    await recordRun(
+      threadId,
+      [
+        request("google", "Org B has not connected Google.", {
+          source: {
+            id: "google",
+            kind: "workspace_connection",
+            label: "Google",
+          },
+        }),
+      ],
+      OTHER_ORG,
+    );
+
+    expect(
+      await resolvePriorConnectionNote({
+        orgId: ORG,
+        threadId,
+        appId: "analytics",
+      }),
+    ).toEqual({ status: "none" });
+    expect(mockResolveConnection).not.toHaveBeenCalled();
+  });
+
+  it("still gives the organization that asked its own note, without the other organization's detail", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    await recordRun(threadId, [request("slack", "Org B detail.")], OTHER_ORG);
+    await recordRun(threadId, [request("google", "Org A detail.")]);
+
+    const result = await resolvePriorConnectionNote({
+      orgId: ORG,
+      threadId,
+    });
+
+    expect(result.status).toBe("blocked");
+    if (result.status !== "blocked") return;
+    expect(result.note).toContain("google was not connected");
+    expect(result.note).toContain("Org A detail.");
+    expect(result.note).not.toContain("slack");
+    expect(result.note).not.toContain("Org B");
+  });
+
+  it("gives a run with no organization no note for an organization's request", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    await recordRun(threadId, [request("google")], ORG);
+
+    expect(await resolvePriorConnectionNote({ orgId: null, threadId })).toEqual(
+      { status: "none" },
+    );
   });
 
   it("reports an unreadable ledger instead of reading it as no request", async () => {
@@ -332,7 +465,7 @@ describe("resolvePriorConnectionNote", () => {
     } as unknown as ReturnType<typeof getDbExec>);
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    expect(await resolvePriorConnectionNote({ threadId })).toEqual({
+    expect(await resolvePriorConnectionNote({ orgId: ORG, threadId })).toEqual({
       status: "unreadable",
       error: "database is down",
     });
@@ -347,6 +480,7 @@ describe("resolvePriorConnectionNote", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const result = await resolvePriorConnectionNote({
+      orgId: ORG,
       threadId,
       timeoutMs: 20,
     });

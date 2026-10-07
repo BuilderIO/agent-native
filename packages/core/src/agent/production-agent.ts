@@ -9722,6 +9722,16 @@ export function createProductionAgentHandler(
       "screen" | "url" | "selection",
       ContextStatus
     > = { screen: "empty", url: "empty", selection: "empty" };
+    // Once a cap fires the model has the fallback note, so a read that
+    // resolves late must not change what the trace says it saw.
+    const noteScreenStatus = (
+      source: keyof typeof screenStatuses,
+      status: ContextStatus,
+    ) => {
+      if (screenStatuses[source] !== "timed_out") {
+        screenStatuses[source] = status;
+      }
+    };
     const screenUnavailableNote = screenContextUnavailableNote(
       Boolean(surfacedRequestActions["view-screen"]),
     );
@@ -9744,7 +9754,7 @@ export function createProductionAgentHandler(
                 typeof result === "string"
                   ? result
                   : JSON.stringify(result, null, 2);
-              screenStatuses.screen = "ok";
+              noteScreenStatus("screen", "ok");
               return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
             }
           } else {
@@ -9753,13 +9763,13 @@ export function createProductionAgentHandler(
               requestBrowserTabId,
             );
             if (navigation) {
-              screenStatuses.screen = "ok";
+              noteScreenStatus("screen", "ok");
               return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
             }
           }
         } catch (error) {
           if (!hasAppStateIdentity()) return "";
-          screenStatuses.screen = "failed";
+          noteScreenStatus("screen", "failed");
           console.warn(
             "[agent-chat] current-screen context unavailable:",
             error instanceof Error ? error.message : String(error),
@@ -9809,12 +9819,12 @@ export function createProductionAgentHandler(
               );
               if (settingsPage) lines.push(settingsPage);
             }
-            screenStatuses.url = "ok";
+            noteScreenStatus("url", "ok");
             return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
           }
         } catch (error) {
           if (!hasAppStateIdentity()) return "";
-          screenStatuses.url = "failed";
+          noteScreenStatus("url", "failed");
           console.warn(
             "[agent-chat] current-url context unavailable:",
             error instanceof Error ? error.message : String(error),
@@ -9837,7 +9847,7 @@ export function createProductionAgentHandler(
           const capturedAt =
             typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
           if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
-          screenStatuses.selection = "ok";
+          noteScreenStatus("selection", "ok");
           return (
             `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
             `Treat this as the immediate context to act on:\n` +
@@ -9845,7 +9855,7 @@ export function createProductionAgentHandler(
           );
         } catch (error) {
           if (!hasAppStateIdentity()) return "";
-          screenStatuses.selection = "failed";
+          noteScreenStatus("selection", "failed");
           console.warn(
             "[agent-chat] selection context unavailable:",
             error instanceof Error ? error.message : String(error),
@@ -10061,6 +10071,7 @@ export function createProductionAgentHandler(
           threadId && !dispatchToBackground
             ? resolvePriorConnectionNote({
                 threadId,
+                orgId: getRequestOrgId() ?? null,
                 appId: options.appId,
                 excludeRunId: backgroundRunMarker?.runId,
               })

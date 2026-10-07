@@ -555,21 +555,43 @@ describe("observability routes", () => {
     });
   });
 
-  it("bounds the unverified run id it stores for a trace that was never persisted", async () => {
+  it("treats a run id past the bound as unverifiable instead of looking up its prefix", async () => {
     mockReadBody.mockResolvedValue({
       threadId: "thread-1",
       runId: "r".repeat(5_000),
       feedbackType: "thumbs_down",
       value: { reason: "said done" },
     });
-    mockGetTraceSummary.mockResolvedValue(null);
+    // The default summary answers any lookup, so a prefix lookup would link it.
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/feedback", "POST");
+
+    await expect(handler(event)).resolves.toEqual({
+      id: expect.any(String),
+      traceMissing: true,
+    });
+
+    expect(event._status).toBe(200);
+    expect(mockGetTraceSummary).not.toHaveBeenCalled();
+    const [entry] = mockInsertFeedback.mock.calls[0];
+    expect(entry).toMatchObject({ runId: null, threadId: "thread-1" });
+    expect(JSON.parse(entry.value).unverifiedRunId).toBe("r".repeat(200));
+    expect(mockTrack.mock.calls[0][1].unverified_run_id).toBe("r".repeat(200));
+    expect(mockTrack.mock.calls[0][1].run_id).toBeNull();
+  });
+
+  it("still looks up a run id exactly at the bound", async () => {
+    mockReadBody.mockResolvedValue({
+      runId: "r".repeat(200),
+      feedbackType: "thumbs_up",
+    });
     const handler = createObservabilityHandler() as any;
 
     await handler(createEvent("/feedback", "POST"));
 
-    const [entry] = mockInsertFeedback.mock.calls[0];
-    expect(JSON.parse(entry.value).unverifiedRunId).toBe("r".repeat(200));
-    expect(mockTrack.mock.calls[0][1].unverified_run_id).toBe("r".repeat(200));
+    expect(mockGetTraceSummary).toHaveBeenCalledWith("r".repeat(200), {
+      userId: "alice@example.com",
+    });
   });
 
   describe("trusting the thread a vote names", () => {
@@ -722,9 +744,9 @@ describe("observability routes", () => {
       );
     });
 
-    it("bounds the unverified thread id it carries for a thread it cannot link", async () => {
+    it("carries the unverified id of a thread it cannot link", async () => {
       mockReadBody.mockResolvedValue({
-        threadId: "t".repeat(5_000),
+        threadId: "t".repeat(200),
         feedbackType: "thumbs_down",
         value: { reason: "wrong" },
       });
@@ -772,9 +794,9 @@ describe("observability routes", () => {
       );
     });
 
-    it("bounds the thread id it looks up", async () => {
+    it("looks up a thread id exactly at the bound", async () => {
       mockReadBody.mockResolvedValue({
-        threadId: "t".repeat(5_000),
+        threadId: "t".repeat(200),
         feedbackType: "thumbs_up",
       });
       const handler = createObservabilityHandler() as any;
@@ -790,6 +812,55 @@ describe("observability routes", () => {
       expect(mockInsertFeedback.mock.calls[0][0].threadId).toBe(
         "t".repeat(200),
       );
+    });
+
+    it("treats a thread id past the bound as unverifiable instead of looking up its prefix", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "t".repeat(5_000),
+        feedbackType: "thumbs_down",
+        value: { reason: "wrong" },
+      });
+      // The default access check grants any id, so a prefix lookup would link it.
+      const handler = createObservabilityHandler() as any;
+      const event = createEvent("/feedback", "POST");
+
+      await expect(handler(event)).resolves.toEqual({
+        id: expect.any(String),
+        traceMissing: true,
+      });
+
+      expect(event._status).toBe(200);
+      expect(mockResolveThreadAccess).not.toHaveBeenCalled();
+      const [entry] = mockInsertFeedback.mock.calls[0];
+      expect(entry.threadId).toBeNull();
+      expect(JSON.parse(entry.value).unverifiedThreadId).toBe("t".repeat(200));
+      expect(mockTrack.mock.calls[0][1].unverified_thread_id).toBe(
+        "t".repeat(200),
+      );
+    });
+
+    it("does not let a thread id past the bound match its prefix on the caller's own run", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "t".repeat(300),
+        runId: "run-1",
+        feedbackType: "thumbs_up",
+      });
+      mockGetTraceSummary.mockResolvedValue({
+        runId: "run-1",
+        threadId: "t".repeat(200),
+        userId: "alice@example.com",
+        orgId: "org-a",
+        model: "gpt-5.6-terra",
+      });
+      const handler = createObservabilityHandler() as any;
+      const event = createEvent("/feedback", "POST");
+
+      await expect(handler(event)).resolves.toEqual({
+        error: "Trace not found",
+      });
+
+      expect(event._status).toBe(404);
+      expect(mockInsertFeedback).not.toHaveBeenCalled();
     });
   });
 

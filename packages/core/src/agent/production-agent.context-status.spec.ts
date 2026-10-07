@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import { mockEvent } from "h3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   getRequestRunContext,
   runWithRequestContext,
   type RequestRunContext,
 } from "../server/request-context.js";
+import { AGENT_CHAT_BACKGROUND_RUN_FIELD } from "./durable-background.js";
 import type {
   AgentEngine,
   EngineEvent,
@@ -18,6 +19,7 @@ import {
   type ActionEntry,
   type ProductionAgentOptions,
 } from "./production-agent.js";
+import { insertRun } from "./run-store.js";
 
 const mockReadAppState = vi.hoisted(() =>
   vi.fn(async (_key: string): Promise<unknown> => null),
@@ -76,8 +78,23 @@ async function firstPrompt(
   options: Partial<ProductionAgentOptions> & {
     actions?: Record<string, ActionEntry>;
   } = {},
-  request: { model?: string; effort?: string; references?: unknown[] } = {},
-  { user = true }: { user?: boolean } = {},
+  request: {
+    model?: string;
+    effort?: string;
+    references?: unknown[];
+    threadId?: string;
+  } = {},
+  {
+    user = true,
+    background,
+    during,
+  }: {
+    user?: boolean;
+    /** Run as the background worker of an already-inserted run. */
+    background?: { runId: string; turnId: string };
+    /** Steps to take while the handler is still preparing the prompt. */
+    during?: () => Promise<void>;
+  } = {},
 ): Promise<{ text: string; runContext: RequestRunContext | undefined }> {
   let text = "";
   let runContext: RequestRunContext | undefined;
@@ -114,21 +131,30 @@ async function firstPrompt(
     actions: {},
     ...options,
   });
+  const body = {
+    message: "How many sessions last week?",
+    threadId: `thread-${randomUUID()}`,
+    ...request,
+  };
   const event = mockEvent(
     new Request("http://app.example.com/_agent-native/agent-chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        message: "How many sessions last week?",
-        threadId: `thread-${randomUUID()}`,
-        ...request,
-      }),
+      body: JSON.stringify(body),
     }),
   );
-  const response = await runWithRequestContext(
+  if (background) {
+    event.context.__agentChatBackgroundBody = {
+      ...body,
+      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: background,
+    };
+  }
+  const pending = runWithRequestContext(
     { ...(user ? { userEmail: "owner@example.com" } : {}), run: {} },
     () => handler(event),
   );
+  await during?.();
+  const response = await pending;
   if (response instanceof ReadableStream) {
     const reader = response.getReader();
     while (!(await reader.read()).done) {}
@@ -337,6 +363,112 @@ describe("screen context status", () => {
     expect(text).toContain("<current-screen>\nDashboard: Growth");
     expect(text).not.toContain("<context-note>");
     expect(runContext?.contextStatus?.screen).toBe("ok");
+  });
+});
+
+describe("a screen read that outlives its cap", () => {
+  const deferred = <T>() => {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  };
+
+  /**
+   * Holds the pre-send caps instead of arming them, so a test decides when
+   * each one fires. A cap whose read finished has been cleared and is gone.
+   */
+  function holdPresendCaps() {
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    const held = new Map<unknown, { ms: number; fire: () => void }>();
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+      ...args: unknown[]
+    ) => {
+      if (ms !== 9000 && ms !== 13000) return realSetTimeout(fn, ms, ...args);
+      const handle = realSetTimeout(() => {}, 0);
+      held.set(handle, { ms, fire: fn });
+      return handle;
+    }) as typeof setTimeout);
+    vi.spyOn(globalThis, "clearTimeout").mockImplementation(((
+      handle: Parameters<typeof clearTimeout>[0],
+    ) => {
+      held.delete(handle);
+      realClearTimeout(handle);
+    }) as typeof clearTimeout);
+    return {
+      pending: (ms: number) =>
+        [...held.values()].filter((cap) => cap.ms === ms).length,
+      fire: (ms: number) => {
+        for (const cap of [...held.values()]) if (cap.ms === ms) cap.fire();
+      },
+    };
+  }
+
+  beforeEach(() => {
+    mockReadAppState.mockReset();
+    mockReadAppState.mockResolvedValue(null);
+    instrumented.length = 0;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The worker would otherwise hand its run to a self-dispatched successor.
+    vi.stubEnv("AGENT_CHAT_FORCE_BACKGROUND_RUNTIME", "1");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("stays timed_out in the trace and the run context when the read resolves before the prompt is assembled", async () => {
+    const caps = holdPresendCaps();
+    const screen = deferred<string>();
+    const systemPrompt = deferred<string>();
+    let screenRequested = false;
+    const threadId = `thread-${randomUUID()}`;
+    const runId = `run-${randomUUID()}`;
+    await insertRun(runId, threadId, runId, {
+      dispatchMode: "background",
+      turnInitiator: { email: "owner@example.com", anonymous: false },
+    });
+
+    const { text, runContext } = await firstPrompt(
+      {
+        systemPrompt: () => systemPrompt.promise,
+        actions: {
+          "view-screen": viewScreen(() => {
+            screenRequested = true;
+            return screen.promise;
+          }),
+        },
+      },
+      { threadId },
+      {
+        background: { runId, turnId: runId },
+        during: async () => {
+          // Every other read has finished; only the screen cap is still armed.
+          await vi.waitFor(() => {
+            expect(screenRequested).toBe(true);
+            expect(caps.pending(9000)).toBe(1);
+          });
+          caps.fire(9000);
+          // The slow system prompt keeps the prompt from being assembled
+          // until after the screen read has come back.
+          screen.resolve("Dashboard: Growth");
+          await new Promise((resolve) => setImmediate(resolve));
+          systemPrompt.resolve("Test");
+        },
+      },
+    );
+
+    expect(text).toContain(SCREEN_NOTE);
+    expect(text).not.toContain("Dashboard: Growth");
+    expect(runContext?.contextStatus?.screen).toBe("timed_out");
+    expect(instrumented.at(-1)?.metadata).toMatchObject({
+      screenContextStatus: "timed_out",
+    });
   });
 });
 

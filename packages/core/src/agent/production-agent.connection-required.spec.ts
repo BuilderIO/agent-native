@@ -130,6 +130,7 @@ async function runTurn(
   handler: ReturnType<typeof createProductionAgentHandler>,
   threadId: string,
   message: string,
+  orgId?: string,
 ): Promise<AgentChatEvent[]> {
   const event = mockEvent(
     new Request("http://app.example.com/_agent-native/agent-chat", {
@@ -139,7 +140,7 @@ async function runTurn(
     }),
   );
   const response = await runWithRequestContext(
-    { userEmail: "owner@example.com", run: {} },
+    { userEmail: "owner@example.com", ...(orgId ? { orgId } : {}), run: {} },
     () => handler(event),
   );
   const events: AgentChatEvent[] = [];
@@ -163,7 +164,10 @@ describe("a thread whose run ended in a connection request", () => {
     mockResolveConnection.mockResolvedValue({ available: false });
   });
 
-  async function twoRuns() {
+  async function twoRuns({
+    firstOrgId,
+    secondOrgId,
+  }: { firstOrgId?: string; secondOrgId?: string } = {}) {
     const threadId = `thread-${randomUUID()}`;
     const provider = vi.fn(async () => {
       throw googleRequired();
@@ -188,6 +192,7 @@ describe("a thread whose run ended in a connection request", () => {
       }),
       threadId,
       "How many sessions came from Google last week?",
+      firstOrgId,
     );
     expect(first).toContainEqual(
       expect.objectContaining({
@@ -199,7 +204,11 @@ describe("a thread whose run ended in a connection request", () => {
     const { readThreadConnectionRequests } =
       await import("./connection-required-note.js");
     await vi.waitFor(async () =>
-      expect(await readThreadConnectionRequests(threadId)).not.toEqual([]),
+      expect(
+        await readThreadConnectionRequests(threadId, {
+          orgId: firstOrgId ?? null,
+        }),
+      ).not.toEqual([]),
     );
 
     const second = await runTurn(
@@ -217,6 +226,7 @@ describe("a thread whose run ended in a connection request", () => {
       }),
       threadId,
       "Try again.",
+      secondOrgId,
     );
     return { provider, warehouse, seenSecond, second };
   }
@@ -234,6 +244,30 @@ describe("a thread whose run ended in a connection request", () => {
       expect.objectContaining({ type: "connection_required" }),
     );
   });
+
+  it("tells the next run in the same organization", async () => {
+    const { seenSecond } = await twoRuns({
+      firstOrgId: "org-a",
+      secondOrgId: "org-a",
+    });
+
+    expect(lastUserText(seenSecond[0])).toContain(
+      "<context-note>Google was not connected",
+    );
+  });
+
+  it.each([
+    ["another organization", "org-a", "org-b"],
+    ["no organization", "org-a", undefined],
+    ["an organization after a run with none", undefined, "org-b"],
+  ] as const)(
+    "does not carry the request into a run in %s",
+    async (_name, firstOrgId, secondOrgId) => {
+      const { seenSecond } = await twoRuns({ firstOrgId, secondOrgId });
+
+      expect(lastUserText(seenSecond[0])).not.toContain("<context-note>");
+    },
+  );
 
   it("drops the note once the workspace connection is available again", async () => {
     mockResolveConnection.mockResolvedValue({ available: true });

@@ -450,6 +450,9 @@ describe("observability store: per-user isolation", () => {
           CREATE TABLE chat_threads (
             id TEXT, org_id TEXT, owner_email TEXT, title TEXT, thread_data TEXT
           );
+          CREATE TABLE agent_trace_summaries (
+            run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT
+          );
           INSERT INTO chat_threads (id, org_id, owner_email, title, thread_data)
             VALUES ('thread-null', NULL, 'Alice@example.com', 't', '{"a":1}'),
                    ('thread-bobs', NULL, 'bob@example.com', 't', '{"b":1}'),
@@ -502,6 +505,84 @@ describe("observability store: per-user isolation", () => {
           { id: "thread-bobs", org_id: null },
           { id: "thread-null", org_id: "org-a" },
         ]);
+      } finally {
+        vi.mocked(mockDb.execute).mockImplementation(capturingExecute);
+        await pg.close();
+      }
+    });
+
+    it("adopts a NULL-org thread only when the owner's runs on it name a single org", async () => {
+      const pg = await createTestPglite();
+      const capturingExecute = vi
+        .mocked(mockDb.execute)
+        .getMockImplementation()!;
+      try {
+        await pg.exec(`
+          CREATE TABLE chat_threads (
+            id TEXT, org_id TEXT, owner_email TEXT, title TEXT, thread_data TEXT
+          );
+          CREATE TABLE agent_trace_summaries (
+            run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT
+          );
+          INSERT INTO chat_threads (id, org_id, owner_email, title, thread_data)
+            VALUES ('thread-first', NULL, 'alice@example.com', 't', '{"first":1}'),
+                   ('thread-split', NULL, 'Alice@example.com', 't', '{"split":1}'),
+                   ('thread-same-org', NULL, 'alice@example.com', 't', '{"same":1}'),
+                   ('thread-unscoped-run', NULL, 'alice@example.com', 't', '{"unscoped":1}'),
+                   ('thread-viewer-run', NULL, 'alice@example.com', 't', '{"viewer":1}');
+          INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id)
+            VALUES ('run-first', 'thread-first', 'alice@example.com', 'org-a'),
+                   ('run-split-b', 'thread-split', 'alice@example.com', 'org-b'),
+                   ('run-split-a', 'thread-split', 'alice@example.com', 'org-a'),
+                   ('run-same-1', 'thread-same-org', 'alice@example.com', 'org-a'),
+                   ('run-same-2', 'thread-same-org', 'ALICE@example.com', 'org-a'),
+                   ('run-unscoped', 'thread-unscoped-run', 'alice@example.com', NULL),
+                   ('run-unscoped-a', 'thread-unscoped-run', 'alice@example.com', 'org-a'),
+                   ('run-viewer-b', 'thread-viewer-run', 'bob@example.com', 'org-b'),
+                   ('run-viewer-a', 'thread-viewer-run', 'alice@example.com', 'org-a');
+        `);
+        vi.mocked(mockDb.execute).mockImplementation(async (input) => {
+          const { sql, args } =
+            typeof input === "string" ? { sql: input, args: [] } : input;
+          const result = await pg.query(sql, args ?? []);
+          return { rows: result.rows, rowsAffected: 0 };
+        });
+        const adoptAs = (threadId: string, orgId: string) =>
+          adoptTraceOrgForThread({
+            threadId,
+            userId: "alice@example.com",
+            orgId,
+          });
+
+        await adoptAs("thread-first", "org-a");
+        // The thread already ran under org-b, so neither org can claim it.
+        await adoptAs("thread-split", "org-a");
+        await adoptAs("thread-split", "org-b");
+        await adoptAs("thread-same-org", "org-a");
+        await adoptAs("thread-unscoped-run", "org-a");
+        // Only the owner's own runs count toward ambiguity.
+        await adoptAs("thread-viewer-run", "org-a");
+
+        const rows = await pg.query(
+          "SELECT id, org_id FROM chat_threads ORDER BY id",
+        );
+        expect(rows.rows).toEqual([
+          { id: "thread-first", org_id: "org-a" },
+          { id: "thread-same-org", org_id: "org-a" },
+          { id: "thread-split", org_id: null },
+          { id: "thread-unscoped-run", org_id: "org-a" },
+          { id: "thread-viewer-run", org_id: "org-a" },
+        ]);
+        // A thread left unassigned is review-visible to no org at all.
+        for (const orgId of ["org-a", "org-b"]) {
+          expect(
+            (
+              await getOrgScopedThreadData(orgId, "alice@example.com", [
+                "thread-split",
+              ])
+            ).size,
+          ).toBe(0);
+        }
       } finally {
         vi.mocked(mockDb.execute).mockImplementation(capturingExecute);
         await pg.close();

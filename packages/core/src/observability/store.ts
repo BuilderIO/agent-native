@@ -888,16 +888,31 @@ export async function getTraceSummary(
  * review read requires `thread.org_id` to equal the trace's org, so its runs
  * never reach Human Review. The run that executed under an org is the proof of
  * which org the thread belongs to: adopt it, for the thread's own owner only
- * and never over an org that was already recorded.
+ * and never over an org that was already recorded. Like migration v3, adopt
+ * only when none of the owner's runs already on the thread names a different
+ * org, so a thread whose earlier runs span orgs stays NULL-org (which no review
+ * read matches) instead of being bound to one of them. Runs write their trace
+ * one at a time, so the first org to finish on a NULL-org thread still wins and
+ * a later org's runs are not reviewable from the thread; the thread's creation
+ * org is the intended owner of its history.
  */
 export async function adoptTraceOrgForThread(
   summary: Pick<TraceSummary, "threadId" | "userId" | "orgId">,
 ): Promise<void> {
   if (!summary.orgId || !summary.threadId || !summary.userId) return;
+  // The NOT EXISTS only runs for a NULL-org thread owned by the caller (the
+  // other predicates short-circuit first) and probes
+  // idx_trace_summaries_thread_user_created by thread_id.
   await getDbExec().execute({
     sql: `UPDATE chat_threads SET org_id = ?
-      WHERE id = ? AND org_id IS NULL AND LOWER(owner_email) = LOWER(?)`,
-    args: [summary.orgId, summary.threadId, summary.userId],
+      WHERE id = ? AND org_id IS NULL AND LOWER(owner_email) = LOWER(?)
+        AND NOT EXISTS (
+          SELECT 1 FROM agent_trace_summaries other
+          WHERE other.thread_id = chat_threads.id
+            AND LOWER(other.user_id) = LOWER(chat_threads.owner_email)
+            AND other.org_id IS NOT NULL AND other.org_id <> ?
+        )`,
+    args: [summary.orgId, summary.threadId, summary.userId, summary.orgId],
   });
 }
 

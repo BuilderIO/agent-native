@@ -48,8 +48,12 @@ const FEEDBACK_TYPES = [
 const MAX_FEEDBACK_VALUE_CHARS = 20_000;
 const MAX_ID_CHARS = 200;
 
-function boundedId(value: unknown): string | null {
-  return value ? String(value).slice(0, MAX_ID_CHARS) : null;
+// An id past the bound is recorded truncated but never looked up: no real id is
+// that long, and its prefix can name a different row.
+function idClaim(value: unknown): { id: string; overlong: boolean } | null {
+  if (!value) return null;
+  const id = String(value);
+  return { id: id.slice(0, MAX_ID_CHARS), overlong: id.length > MAX_ID_CHARS };
 }
 
 function isFeedbackType(value: unknown): value is FeedbackType {
@@ -256,8 +260,10 @@ export function createObservabilityHandler() {
           ? getHeader(event, "idempotency-key")?.trim() || null
           : null;
       const org = await getOrgContext(event);
-      let runId = boundedId(body.runId);
-      let threadId = boundedId(body.threadId);
+      const runClaim = idClaim(body.runId);
+      const threadClaim = idClaim(body.threadId);
+      let runId = runClaim?.id ?? null;
+      let threadId = threadClaim?.id ?? null;
       let model: string | undefined;
       let orgId = org.orgId;
       let unverifiedRunId: string | undefined;
@@ -265,7 +271,10 @@ export function createObservabilityHandler() {
       // A thread id is the caller's claim until one of their own runs vouches
       // for it or they are shown to have access to the thread.
       let threadVouched = false;
-      if (runId) {
+      if (runId && runClaim?.overlong) {
+        unverifiedRunId = runId;
+        runId = null;
+      } else if (runId) {
         // Ownership is the user, not the org: a run recorded with no org, or
         // under another of the caller's orgs, is still the caller's own.
         const summary = await getTraceSummary(runId, { userId: owner });
@@ -276,7 +285,10 @@ export function createObservabilityHandler() {
         if (traceMissing) {
           unverifiedRunId = runId;
           runId = null;
-        } else if (!summary || (threadId && threadId !== summary.threadId)) {
+        } else if (
+          !summary ||
+          (threadId && (threadClaim?.overlong || threadId !== summary.threadId))
+        ) {
           setResponseStatus(event, 404);
           return { error: "Trace not found" };
         } else {
@@ -295,9 +307,10 @@ export function createObservabilityHandler() {
       if (
         threadId &&
         !threadVouched &&
-        !(await resolveThreadAccess(owner, threadId, "viewer", {
-          orgId: org.orgId ?? undefined,
-        }))
+        (threadClaim?.overlong ||
+          !(await resolveThreadAccess(owner, threadId, "viewer", {
+            orgId: org.orgId ?? undefined,
+          })))
       ) {
         // The thread may live in another app (a workspace chat rail posts
         // votes to the host for a remote app's thread), so an unverifiable id

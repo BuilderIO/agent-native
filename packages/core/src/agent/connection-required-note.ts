@@ -67,27 +67,36 @@ export interface ThreadConnectionRequest {
 }
 
 /**
- * The connection requests among a thread's recent runs, newest first. Throws
- * when the ledger can't be read.
+ * The connection requests among a thread's recent runs for one organization
+ * (`null` for none), newest first. Provider connections are per organization
+ * and a thread can be reused across them, so another org's request is neither
+ * a note nor a slot in the window. The turn's initiator row is the only record
+ * of a run's org, so a run without one has no provable org and is left out.
+ * Throws when the ledger can't be read.
  */
 export async function readThreadConnectionRequests(
   threadId: string,
-  options: { excludeRunId?: string } = {},
+  options: { orgId: string | null; excludeRunId?: string },
 ): Promise<ThreadConnectionRequest[]> {
   await ensureRunTables();
   const db = getDbExec();
   const { rows: runRows } = await db.execute({
-    sql: `SELECT id FROM agent_runs
-          WHERE thread_id = ?
-            AND started_at >= ?
-            AND dispatch_mode IS DISTINCT FROM 'turn-abort'
-            AND id <> ?
-          ORDER BY started_at DESC
+    sql: `SELECT r.id FROM agent_runs r
+          JOIN agent_turn_initiators i
+            ON i.thread_id = r.thread_id
+           AND i.turn_id = COALESCE(r.turn_id, r.id)
+          WHERE r.thread_id = ?
+            AND r.started_at >= ?
+            AND r.dispatch_mode IS DISTINCT FROM 'turn-abort'
+            AND r.id <> ?
+            AND ${options.orgId ? "i.org_id = ?" : "i.org_id IS NULL"}
+          ORDER BY r.started_at DESC
           LIMIT ?`,
     args: [
       threadId,
       Date.now() - CONNECTION_REQUEST_MAX_AGE_MS,
       options.excludeRunId ?? "",
+      ...(options.orgId ? [options.orgId] : []),
       CONNECTION_REQUEST_RUN_WINDOW,
     ],
   });
@@ -167,6 +176,7 @@ function priorConnectionNote(requests: ConnectionRequired[]): string {
 
 async function resolveNote(input: {
   threadId: string;
+  orgId: string | null;
   appId?: string;
   excludeRunId?: string;
 }): Promise<PriorConnectionNote> {
@@ -181,6 +191,7 @@ async function resolveNote(input: {
   const seen = new Set<string>();
   const candidates = (
     await readThreadConnectionRequests(input.threadId, {
+      orgId: input.orgId,
       excludeRunId: input.excludeRunId,
     })
   )
@@ -229,13 +240,15 @@ async function resolveNote(input: {
 
 /**
  * The note that keeps a thread's next run from retrying a provider whose
- * connection request ended an earlier run. A request drops out once a
- * workspace connection for that provider is available again, or, when nothing
- * can re-check it, after a couple of runs. A ledger that can't be read in time
- * is reported rather than read as "no request".
+ * connection request ended an earlier run in the same organization. A request
+ * drops out once a workspace connection for that provider is available again,
+ * or, when nothing can re-check it, after a couple of runs. A ledger that can't
+ * be read in time is reported rather than read as "no request".
  */
 export async function resolvePriorConnectionNote(input: {
   threadId: string;
+  /** The current run's organization; `null` when it has none. */
+  orgId: string | null;
   appId?: string;
   excludeRunId?: string;
   timeoutMs?: number;
