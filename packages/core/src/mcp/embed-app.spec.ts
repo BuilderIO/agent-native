@@ -36,6 +36,8 @@ describe("embedApp", () => {
     expect(html).toContain("bridge.toolInput");
     expect(html).toContain("bridge.toolOutput");
     expect(html).toContain("bridge.toolResponseMetadata");
+    expect(html).toContain('toolResponseMetadata["agent-native/openLink"]');
+    expect(html).toMatch(/record\.label \|\| openLink\.label \|\| record\.app/);
     expect(html).toContain("openAiBridge.callTool(startTool, args)");
     expect(html).toContain("openAiBridge.openExternal");
     expect(html).toContain("openAiBridge.setOpenInAppUrl");

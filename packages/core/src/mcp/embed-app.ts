@@ -1866,7 +1866,8 @@ export function embedApp(
 
     function updateTitle(data) {
       const record = objectValue(data);
-      const label = record.label || record.app || record.view || body.dataset.appTitle || "App";
+      const openLink = objectValue(toolResponseMetadata["agent-native/openLink"]);
+      const label = record.label || openLink.label || record.app || record.view || body.dataset.appTitle || "App";
       titleEl.textContent = String(label);
     }
 
