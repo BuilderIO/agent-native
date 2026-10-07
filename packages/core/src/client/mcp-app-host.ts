@@ -227,6 +227,22 @@ function syncHostFillAttribute(context: McpAppHostContext | null): void {
   }
 }
 
+function mergeHostContext(
+  previous: McpAppHostContext | null,
+  update: Record<string, unknown>,
+): McpAppHostContext {
+  const merged = { ...(previous ?? {}), ...update };
+  if (isRecord(update.containerDimensions)) {
+    merged.containerDimensions = {
+      ...(isRecord(previous?.containerDimensions)
+        ? previous.containerDimensions
+        : {}),
+      ...update.containerDimensions,
+    };
+  }
+  return merged;
+}
+
 function updateSnapshot(data: HostContextMessage["data"]): void {
   if (!isRecord(data)) return;
   const nextSnapshot: McpAppHostContextSnapshot = {
@@ -313,8 +329,9 @@ function resolveJsonRpc(data: Record<string, unknown>): void {
 
 function handleJsonRpcNotification(message: Record<string, unknown>): void {
   if (message.method !== "ui/notifications/host-context-changed") return;
+  const update = isRecord(message.params) ? message.params : null;
   updateSnapshot({
-    context: isRecord(message.params) ? message.params : undefined,
+    context: update ? mergeHostContext(snapshot.context, update) : undefined,
   });
 }
 

@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   },
   broadGenerating: true,
   showInlineEditTrigger: false,
+  readOnlyWidget: false,
   guidedQuestionFlowOptions: [] as unknown[],
   guidedQuestionQuestions: [] as Array<{ id: string; question: string }>,
   guidedQuestionPayload: null as { threadId?: string } | null,
@@ -245,6 +246,10 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
 vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: null, isLoading: false, isError: false }),
 }));
+vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+  useIsMcpAppWidgetEmbed: () => false,
+  useIsMcpDirectoryWidgetReadOnlyEmbed: () => mocks.readOnlyWidget,
+}));
 
 const resetDeckAccessRequest = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-deck-access", () => ({
@@ -301,7 +306,21 @@ vi.mock("@/lib/pending-deck-changes", () => ({
   usePendingDeckUnloadGuard: mocks.pendingUnloadGuard,
 }));
 
-vi.mock("@/components/editor/EditorToolbar", () => ({ default: () => null }));
+vi.mock("@/components/editor/EditorToolbar", () => ({
+  default: ({
+    canEdit,
+    canComment,
+  }: {
+    canEdit?: boolean;
+    canComment?: boolean;
+  }) => (
+    <div
+      data-testid="editor-toolbar"
+      data-can-edit={String(canEdit)}
+      data-can-comment={String(canComment)}
+    />
+  ),
+}));
 vi.mock("@/components/editor/QuestionFlow", () => ({
   QuestionFlow: () => <div data-testid="question-flow" />,
 }));
@@ -312,15 +331,27 @@ vi.mock("@/components/editor/EditorSidebar", () => ({
 vi.mock("@/components/editor/SlideEditor", () => ({
   default: ({
     onInlineEditStart,
+    readOnly,
+    canComment,
   }: {
     onInlineEditStart?: (slideId: string) => void;
-  }) =>
-    mocks.showInlineEditTrigger ? (
-      <button
-        data-testid="inline-edit-trigger"
-        onClick={() => onInlineEditStart?.("slide-1")}
+    readOnly?: boolean;
+    canComment?: boolean;
+  }) => (
+    <>
+      <div
+        data-testid="slide-editor"
+        data-read-only={String(readOnly)}
+        data-can-comment={String(canComment)}
       />
-    ) : null,
+      {mocks.showInlineEditTrigger ? (
+        <button
+          data-testid="inline-edit-trigger"
+          onClick={() => onInlineEditStart?.("slide-1")}
+        />
+      ) : null}
+    </>
+  ),
 }));
 vi.mock("@/components/editor/GeneratingSlidePreview", () => ({
   default: ({ busy = true }: { busy?: boolean }) => (
@@ -400,6 +431,7 @@ describe("DeckEditor generation signal wiring", () => {
     Object.assign(mocks, {
       broadGenerating: true,
       showInlineEditTrigger: false,
+      readOnlyWidget: false,
       guidedQuestionFlowOptions: [],
       guidedQuestionQuestions: [],
       guidedQuestionPayload: null,
@@ -465,6 +497,33 @@ describe("DeckEditor generation signal wiring", () => {
     await act(async () => screen.getByTestId("inline-edit-trigger").click());
 
     expect(mocks.pendingUnloadGuard).toHaveBeenLastCalledWith(true);
+  });
+
+  it("disables editing and comments in a read-only directory widget", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
+    mocks.readOnlyWidget = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-toolbar")).toBeTruthy(),
+    );
+    expect(
+      screen.getByTestId("editor-toolbar").getAttribute("data-can-edit"),
+    ).toBe("false");
+    expect(
+      screen.getByTestId("editor-toolbar").getAttribute("data-can-comment"),
+    ).toBe("false");
+    expect(
+      screen.getByTestId("slide-editor").getAttribute("data-read-only"),
+    ).toBe("true");
+    expect(
+      screen.getByTestId("slide-editor").getAttribute("data-can-comment"),
+    ).toBe("false");
   });
 
   it("saves before leaving an empty generation deck and restores its prompt", async () => {

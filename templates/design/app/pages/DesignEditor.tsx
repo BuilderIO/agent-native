@@ -41,11 +41,13 @@ import {
   getEmbedAuthToken,
   getBuilderParentOrigin,
   isEmbedAuthActive,
-  isMcpDirectoryWidgetReadOnlyEmbed,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
-import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
+import {
+  useIsMcpAppWidgetEmbed,
+  useIsMcpDirectoryWidgetReadOnlyEmbed,
+} from "@agent-native/core/client/mcp-app-host";
 import {
   useReviewComments,
   useSendReviewThreadToAgent,
@@ -1048,6 +1050,7 @@ import {
   localhostConsentRequestDisposition,
   localhostConsentRequestRefetchInterval,
 } from "./design-editor/localhost-consent-request";
+import { applyMcpDirectoryWidgetReadOnlyPolicy } from "./design-editor/mcp-widget-write-capabilities";
 import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
   hasMinimalInspectorSelection,
@@ -1444,6 +1447,7 @@ function DesignEditor() {
   // An MCP App host owns navigation and chat, not the editor: the widget keeps
   // the canvas, tools, and inspector as floating controls instead of going bare.
   const widgetEmbed = useIsMcpAppWidgetEmbed();
+  const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
   const hostOwnsChrome =
     embedded && !shellMode && !embedChromeRequested && !widgetEmbed;
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
@@ -4107,9 +4111,42 @@ function DesignEditor() {
     isVisualEditSurface &&
     designQueryFailed &&
     (designResult === undefined || designQueryAuthFailed);
-  const canEditDesign = !visualEditAccessLost
-    ? canShareDesign || designAccessRole === "editor"
-    : false;
+  const roleCanEditDesign =
+    !visualEditAccessLost && (canShareDesign || designAccessRole === "editor");
+  const roleCanEditLiveScreens =
+    isVisualEditSurface &&
+    !visualEditAccessLost &&
+    (roleCanEditDesign ||
+      design?.visibility === "public" ||
+      designAccessRole === "viewer" ||
+      designAccessRole === "commenter");
+  const rolePublicVisualEdit =
+    isVisualEditSurface &&
+    !visualEditAccessLost &&
+    !roleCanEditDesign &&
+    design?.visibility === "public";
+  const roleCanCommentDesign =
+    isSignedIn &&
+    (designAccessRole === "owner" ||
+      designAccessRole === "admin" ||
+      designAccessRole === "editor" ||
+      designAccessRole === "commenter");
+  const {
+    canEditDesign,
+    canEditLiveScreens,
+    publicVisualEdit,
+    canCommentDesign,
+    canRenderAuthenticatedShare,
+  } = applyMcpDirectoryWidgetReadOnlyPolicy(
+    {
+      canEditDesign: roleCanEditDesign,
+      canEditLiveScreens: roleCanEditLiveScreens,
+      publicVisualEdit: rolePublicVisualEdit,
+      canCommentDesign: roleCanCommentDesign,
+      canRenderAuthenticatedShare: isSignedIn || roleCanEditDesign,
+    },
+    readOnlyWidget,
+  );
   const [failedLocalhostConsentClear, setFailedLocalhostConsentClear] =
     useState<string | null>(null);
   const localhostConsentRequestQuery = useActionQuery(
@@ -4211,18 +4248,6 @@ function DesignEditor() {
       visualEditSnapshotPublicationState,
     ],
   );
-  const canEditLiveScreens =
-    isVisualEditSurface &&
-    !visualEditAccessLost &&
-    (canEditDesign ||
-      design?.visibility === "public" ||
-      designAccessRole === "viewer" ||
-      designAccessRole === "commenter");
-  const publicVisualEdit =
-    isVisualEditSurface &&
-    !visualEditAccessLost &&
-    !canEditDesign &&
-    design?.visibility === "public";
   const canEditPublicLiveScreenUrl =
     publicVisualEdit && Boolean(getEmbedAuthToken());
   const canApplyPendingVisualEditsWithAgent =
@@ -4234,13 +4259,6 @@ function DesignEditor() {
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
   const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
-  const canCommentDesign =
-    isSignedIn &&
-    (designAccessRole === "owner" ||
-      designAccessRole === "admin" ||
-      designAccessRole === "editor" ||
-      designAccessRole === "commenter");
-  const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -4541,18 +4559,18 @@ function DesignEditor() {
   // A directory widget's session is read-only, so a refused save is expected
   // there and not a lost connection or a lost edit to warn about.
   const warnChangesWillRetry = useCallback(() => {
-    if (isMcpDirectoryWidgetReadOnlyEmbed()) return;
+    if (readOnlyWidget) return;
     toast.warning(t("visualEditor.changesSaveWhenReconnected"), {
       id: "design-save-outbox-warning",
     });
-  }, [t]);
+  }, [readOnlyWidget, t]);
 
   const warnChangesDiscarded = useCallback(() => {
-    if (isMcpDirectoryWidgetReadOnlyEmbed()) return;
+    if (readOnlyWidget) return;
     toast.error(t("visualEditor.changesDiscarded"), {
       id: "design-save-outbox-discarded",
     });
-  }, [t]);
+  }, [readOnlyWidget, t]);
 
   const journalOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {

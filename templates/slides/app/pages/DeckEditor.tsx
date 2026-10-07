@@ -20,7 +20,10 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
+import {
+  useIsMcpAppWidgetEmbed,
+  useIsMcpDirectoryWidgetReadOnlyEmbed,
+} from "@agent-native/core/client/mcp-app-host";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
@@ -688,6 +691,7 @@ export default function DeckEditor() {
     wasNewDeckCreation.current = true;
   }
   const widgetEmbed = useIsMcpAppWidgetEmbed();
+  const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -957,7 +961,9 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
-  const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
+  const deckRole = useDeckRole(id, deck?.createdByMe === true);
+  const canEdit = deckRole.canEdit && !readOnlyWidget;
+  const canComment = deckRole.canComment && !readOnlyWidget;
   const generationContext =
     deck?.generationContext &&
     typeof deck.generationContext === "object" &&

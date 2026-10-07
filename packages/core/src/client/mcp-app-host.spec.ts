@@ -203,6 +203,46 @@ describe("MCP app host client helpers", () => {
     expect(document.documentElement.hasAttribute(fillAttribute)).toBe(true);
   });
 
+  it("preserves host fill state across partial host-context notifications", () => {
+    setParent(parentWindow());
+    const fillAttribute = "data-agent-native-host-fill";
+
+    act(() => {
+      dispatchHostMessage({
+        jsonrpc: "2.0",
+        method: "ui/notifications/host-context-changed",
+        params: {
+          displayMode: "fullscreen",
+          containerDimensions: { width: 540, height: 860 },
+        },
+      });
+    });
+    expect(document.documentElement.hasAttribute(fillAttribute)).toBe(true);
+
+    act(() => {
+      dispatchHostMessage({
+        jsonrpc: "2.0",
+        method: "ui/notifications/host-context-changed",
+        params: { theme: "dark" },
+      });
+    });
+    expect(document.documentElement.hasAttribute(fillAttribute)).toBe(true);
+
+    act(() => {
+      dispatchHostMessage({
+        jsonrpc: "2.0",
+        method: "ui/notifications/host-context-changed",
+        params: { containerDimensions: { width: 420 } },
+      });
+    });
+    expect(document.documentElement.hasAttribute(fillAttribute)).toBe(true);
+    expect(getMcpAppHostContext()?.context).toMatchObject({
+      displayMode: "fullscreen",
+      theme: "dark",
+      containerDimensions: { width: 420, height: 860 },
+    });
+  });
+
   it("caches host context and exposes it through the React hook", async () => {
     setParent(parentWindow());
     const snapshots: unknown[] = [];
