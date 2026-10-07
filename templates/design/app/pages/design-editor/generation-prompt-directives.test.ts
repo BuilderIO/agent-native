@@ -10,6 +10,7 @@ import {
 
 import { designFinalResponseGuard } from "../../../server/lib/design-response-guard";
 import {
+  builderDesignEmbedSubmitData,
   designGenerationDirectives,
   designIntakeQuestionDirectives,
   designTemplateRefinementDirectives,
@@ -57,6 +58,32 @@ describe("agentChatContentFromImages", () => {
         "data:image/bmp;base64,AQID",
       ]),
     ).toThrow(MissingVisualImagePayloadError);
+  });
+});
+
+describe("builderDesignEmbedSubmitData", () => {
+  it("includes reference pixels in the host submit envelope", () => {
+    const image = "data:IMAGE/JPG;charset=binary;base64,AQID";
+
+    expect(
+      builderDesignEmbedSubmitData("Match this screenshot", [image]),
+    ).toEqual({
+      message: "Match this screenshot",
+      submit: true,
+      images: [image],
+      content: [
+        { type: "text", text: "Match this screenshot" },
+        { type: "image", data: "AQID", mimeType: "image/jpeg" },
+      ],
+      context: expect.stringContaining("1 visual reference image(s)"),
+    });
+  });
+
+  it("keeps text-only host submissions free of image fields", () => {
+    expect(builderDesignEmbedSubmitData("Build a calendar", [])).toEqual({
+      message: "Build a calendar",
+      submit: true,
+    });
   });
 });
 

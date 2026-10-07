@@ -979,12 +979,11 @@ import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
   designVariantGenerationDirectives,
+  builderDesignEmbedSubmitData,
   formatUploadedFileContext,
-  agentChatContentFromImages,
   imageAttachmentsFromUploadedFiles,
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
-  referenceImageContextDirectives,
 } from "./design-editor/generation-prompt-directives";
 import {
   quantizeCanvasFrameGeometryForPersist,
@@ -28841,24 +28840,11 @@ function DesignEditor() {
         ) => {
           const images = imageAttachmentsFromUploadedFiles(files);
           if (isBuilderDesignEmbed) {
-            const content = agentChatContentFromImages(prompt, images);
-            const referenceContext = referenceImageContextDirectives(
-              images.length,
-            ).join("\n");
+            const data = builderDesignEmbedSubmitData(prompt, images);
             window.parent.postMessage(
               {
                 type: "agentNative.submitChat",
-                data: {
-                  message: prompt,
-                  submit: true,
-                  ...(images.length
-                    ? {
-                        images,
-                        content,
-                      }
-                    : {}),
-                  ...(referenceContext ? { context: referenceContext } : {}),
-                },
+                data,
               },
               parentOriginRef.current ?? window.location.origin,
             );

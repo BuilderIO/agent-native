@@ -3,6 +3,7 @@ import type { TweakDefinition } from "@shared/api";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { agentChatContentFromImages } from "@/lib/chat-image-attachments";
 
 import {
   coveredIntakeTopics,
@@ -220,6 +221,24 @@ export function referenceImageContextDirectives(
     `The user attached ${referenceImageCount} visual reference image(s) to this message. Inspect the image pixels before acting; a filename, path, or text description is not a substitute. If an image is unavailable in this turn, stop and ask the user to attach it again instead of guessing.`,
     "For a UI screenshot, use its visible regions, navigation, hierarchy, density, component grammar, spacing, and proportions as the reference. Apply the user's requested changes while preserving other visible structure.",
   ];
+}
+
+export function builderDesignEmbedSubmitData(
+  message: string,
+  images: readonly string[],
+) {
+  const context = referenceImageContextDirectives(images.length).join("\n");
+  return {
+    message,
+    submit: true as const,
+    ...(images.length
+      ? {
+          images: [...images],
+          content: agentChatContentFromImages(message, images),
+        }
+      : {}),
+    ...(context ? { context } : {}),
+  };
 }
 
 export function structuralReferenceDirectives(label: string): string[] {
