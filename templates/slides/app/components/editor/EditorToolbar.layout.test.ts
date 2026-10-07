@@ -40,7 +40,7 @@ describe("EditorToolbar layout contract", () => {
       "const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();",
     );
     expect(editorToolbarSource).toMatch(
-      /\{canEdit && !readOnlyWidget && \(\s*<SaveStatusIndicator/,
+      /\{!readOnlyWidget && \(canEdit \|\| saveFailed\) && \(\s*<SaveStatusIndicator/,
     );
   });
 
