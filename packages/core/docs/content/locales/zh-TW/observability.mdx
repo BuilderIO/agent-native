@@ -361,6 +361,142 @@ export default defineAppConfig({
 
 在指標中，`gen_ai.tool.name` 是框架動作的名稱或 `other`；只有當引擎將某個模型 ID 列為支援時，`gen_ai.request.model` 才會是該模型 ID，否則為 `_OTHER`。因此，應用程式自訂的工具與呼叫端傳入的模型 ID 不會產生無限增長的序列；span 中會保留確切的值。
 
+## 連接 OpenTelemetry 後端 {#otel-provider}
+
+Core 不附帶任何 OpenTelemetry SDK 或匯出器。應用程式自行建立 SDK 提供者，並透過 `@agent-native/core/server` 中的 `registerObservabilityProvider()` 交給 Core。Core 接著透過它們發出上文的[跨度](#otel)與[指標](#otel-metrics)，再由應用程式的匯出器傳送到任意 OTLP 後端。
+
+### `registerObservabilityProvider()` {#register-observability-provider}
+
+`registerObservabilityProvider()` 接受一個物件，包含兩個選用欄位：
+
+- **tracerProvider**：具有 `getTracer(name, version?)` 的物件。Core 從這裡取得追蹤器。未提供時，跨度會使用全域的 `@opentelemetry/api` 追蹤器。
+- **meterProvider**：具有 `getMeter(name, version?)` 的物件。只有註冊了指標提供者，指標才會被記錄。指標沒有全域備援，因此未註冊時每個指標都是空操作。
+
+兩種提供者都可以另外實作 `forceFlush()`，Core 會在每次回應後呼叫它（請參閱[在無伺服器環境中排清](#otel-flush)）。SDK 的 `BasicTracerProvider` 與 `MeterProvider` 已經符合這些形狀。
+
+```ts
+function registerObservabilityProvider(
+  provider: ObservabilityProvider,
+): () => void;
+
+interface ObservabilityProvider {
+  tracerProvider?: ObservabilityTracerProvider;
+  meterProvider?: ObservabilityMeterProvider;
+}
+
+interface ObservabilityTracerProvider {
+  getTracer(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+
+interface ObservabilityMeterProvider {
+  getMeter(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+```
+
+之後的呼叫會取代先前的提供者。回傳的函式會在該提供者仍為已註冊者時取消註冊。跨度還需要在應用程式中安裝 `@opentelemetry/api`。未安裝時，Core 會關閉追蹤並記錄一次警告。
+
+### 在無伺服器環境中排清 {#otel-flush}
+
+無伺服器函式在兩次呼叫之間會被凍結，因此 SDK 的匯出計時器可能永遠不會觸發。當已註冊的提供者實作了 `forceFlush()` 時，Core 會在每個請求之後從回應掛鉤中呼叫它並等待完成。每次排清都與同一個共用的 2 秒逾時競速，因此遙測占用回應的時間絕不會超過這個上限。
+
+排清失敗或逾時後，Core 會停止等待它，並將 `agent_native.telemetry.flush_failures` 加 1，下一次排清會匯出這個計數。逾時的匯出會繼續執行，只要執行環境沒有先凍結程序，它仍可能送達。該失敗的 `error.type` 為 `timeout`，執行環境在排清途中凍結程序時為 `suspended`，否則為錯誤名稱。
+
+在長時間執行的伺服器上，每次回應後都排清意味著每個請求匯出一次。在這類環境中，請註冊不帶 `forceFlush()` 的提供者，讓 SDK 自己的計時器負責匯出。`@agent-native/core/server` 中的 `isServerlessRuntime()` 可以區分這兩種情況。它在 Netlify、Vercel、AWS Lambda 與 Cloudflare 上為 true。
+
+### 範例：透過 HTTP 傳送 OTLP {#otel-example}
+
+這個伺服器外掛程式把 OpenTelemetry JS SDK 接到 Core。請先安裝 SDK 套件：
+
+```bash
+pnpm add @opentelemetry/api @opentelemetry/context-async-hooks @opentelemetry/exporter-metrics-otlp-proto @opentelemetry/exporter-trace-otlp-proto @opentelemetry/resources @opentelemetry/sdk-metrics @opentelemetry/sdk-trace-base
+```
+
+```ts filename="server/plugins/otel.ts"
+import { randomUUID } from "node:crypto";
+
+import {
+  defineNitroPlugin,
+  isServerlessRuntime,
+  registerObservabilityProvider,
+} from "@agent-native/core/server";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import {
+  defaultResource,
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
+import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+
+export default defineNitroPlugin(() => {
+  if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
+
+  // Metric counters are cumulative and restart with each process, so each
+  // process needs its own series.
+  const resource = defaultResource()
+    .merge(resourceFromAttributes({ "service.instance.id": randomUUID() }))
+    .merge(detectResources({ detectors: [envDetector] }));
+
+  const meterProvider = new MeterProvider({
+    resource,
+    readers: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+        exportIntervalMillis: 60_000,
+      }),
+    ],
+  });
+
+  context.setGlobalContextManager(
+    new AsyncLocalStorageContextManager().enable(),
+  );
+  const tracerProvider = new BasicTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+  });
+
+  if (isServerlessRuntime()) {
+    registerObservabilityProvider({ meterProvider, tracerProvider });
+    return;
+  }
+  // Without forceFlush(), core leaves exporting to the SDK's own timers.
+  registerObservabilityProvider({
+    meterProvider: {
+      getMeter: (name, version) => meterProvider.getMeter(name, version),
+    },
+    tracerProvider: {
+      getTracer: (name, version) => tracerProvider.getTracer(name, version),
+    },
+  });
+});
+```
+
+在設定 `OTEL_EXPORTER_OTLP_ENDPOINT` 之前，這個外掛程式不會做任何事。其餘設定由 SDK 從標準 OpenTelemetry 環境變數讀取：
+
+| 變數                                              | 作用                                                                |
+| ------------------------------------------------- | ------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                     | OTLP 接收端的基礎 URL。匯出器會附加 `/v1/traces` 與 `/v1/metrics`。 |
+| `OTEL_EXPORTER_OTLP_HEADERS`                      | 每次匯出時傳送的標頭，例如 `Authorization=Bearer%20<token>`         |
+| `OTEL_SERVICE_NAME`                               | 每個跨度與指標上的 `service.name`                                   |
+| `OTEL_RESOURCE_ATTRIBUTES`                        | 額外的資源屬性，例如 `deployment.environment.name=production`       |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | 追蹤取樣，例如 `parentbased_traceidratio` 與 `0.1`。指標從不取樣。  |
+
+`-proto` 匯出器透過 HTTP 以 protobuf 傳送 OTLP，因此請將端點指向接收端的 HTTP 連接埠（預設 4318），而不是 gRPC 連接埠。跨度不包含提示詞或回覆文字。[設定](#config)中的 `capture*` 設定作用於 SQL 追蹤與 PostHog，而不是 OTLP。
+
+儲存庫中的 [`packages/otel`](https://github.com/BuilderIO/agent-native/tree/main/packages/otel) 提供這個外掛程式更完整的版本，支援依訊號設定端點並驗證匯出器。它沒有發布到 npm，因此請從上面的外掛程式開始，而不是安裝它。
+
 ## 錯誤報告（Sentry） {#sentry}
 
 設定 DSN 時，轉義 Nitro 路由處理常式的伺服器端錯誤將報告給 Sentry。如果沒有它，SDK 會默默地無操作，因此可以安全地在開發中保留環境變數未設定。瀏覽器和伺服器事件可以去同一個Sentry專案；僅當您希望所有權、數量、配額或警報路由的操作分離時，才將它們拆分為單獨的專案。

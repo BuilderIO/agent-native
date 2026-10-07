@@ -195,6 +195,7 @@ import {
   usePendingCommentDraft,
 } from "./CommentsSidebar";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
+import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
 import {
   DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
   DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME,
@@ -2441,10 +2442,12 @@ function PageEditorSessionBody({
   const processBuilderBodies = useProcessBuilderBodyHydration(
     document.bodyHydration?.databaseDocumentId ?? documentId,
   );
-  const canEdit = document.canEdit === true;
-  const canEditRef = useRef(canEdit);
   const navigate = useNavigate();
   const location = useLocation();
+  const mcpDirectoryWidgetReadOnly =
+    document.mcpDirectoryWidgetReadOnly === true;
+  const canEdit = document.canEdit === true && !mcpDirectoryWidgetReadOnly;
+  const canEditRef = useRef(canEdit);
   const contentSpacesQuery = useContentSpaces();
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
   const localWorkspaceMode =
@@ -2472,6 +2475,7 @@ function PageEditorSessionBody({
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
   const canComment =
+    !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
     (document.canComment ??
       (document.accessRole === "owner" ||
@@ -2656,6 +2660,7 @@ function PageEditorSessionBody({
   const canStartSuggestionRef = useRef(canSuggest);
   canStartSuggestionRef.current = canSuggest;
   const canDelete =
+    !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
     !document.database?.systemRole &&
     (document.canManage === true ||
@@ -3198,7 +3203,10 @@ function PageEditorSessionBody({
       }
     : undefined;
 
-  const collabEnabled = !isLocalFileDocument;
+  const collabEnabled = shouldUseLiveDocumentCollaboration({
+    isLocalFileDocument,
+    mcpDirectoryWidgetReadOnly,
+  });
   const collabDocumentId =
     collabEnabled && !isDocumentCreationPending(document) ? documentId : null;
   const {
@@ -8281,6 +8289,7 @@ function PageEditorSessionBody({
             agentActive={agentActive}
             currentUserEmail={session?.email}
             canEdit={editorCanEdit}
+            readOnly={mcpDirectoryWidgetReadOnly}
             hideFromSearch={document.hideFromSearch}
             source={document.source}
             canDelete={canDelete}
@@ -8987,7 +8996,7 @@ function PageEditorSessionBody({
                       return primaryEditorWithStarter;
                     })()}
                     {!bodyHydrationPending &&
-                    !isLocalFileDocument &&
+                    collabEnabled &&
                     canEdit &&
                     !collabSynced ? (
                       <div

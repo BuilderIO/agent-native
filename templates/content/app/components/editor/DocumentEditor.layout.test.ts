@@ -2863,8 +2863,12 @@ describe("document editor layout", () => {
     ).replace(/\r\n/g, "\n");
 
     expect(documentEditorSource).toContain(
-      "const collabEnabled = !isLocalFileDocument;",
+      "const mcpDirectoryWidgetReadOnly =\n    document.mcpDirectoryWidgetReadOnly === true;",
     );
+    expect(documentEditorSource).toContain(
+      "const collabEnabled = shouldUseLiveDocumentCollaboration({",
+    );
+    expect(documentEditorSource).toContain("mcpDirectoryWidgetReadOnly,");
     expect(documentEditorSource).toContain(
       "const collabDocumentId =\n    collabEnabled && !isDocumentCreationPending(document)",
     );

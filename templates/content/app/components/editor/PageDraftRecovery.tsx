@@ -1,3 +1,4 @@
+import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -60,6 +61,7 @@ export function PageDraftRecovery({
 }) {
   const t = useT();
   const navigate = useNavigate();
+  const openAiWidget = isOpenAiMcpAppHost();
   const { session } = useSession();
   const scopeKey = session?.email
     ? JSON.stringify([
@@ -71,7 +73,7 @@ export function PageDraftRecovery({
   const queryClient = useQueryClient();
   const creationPending = isDocumentCreationPending(document);
   const drafts = usePreviewDocumentDraft(document.id, {
-    enabled: !creationPending,
+    enabled: !creationPending && !openAiWidget,
     createdAt: document.createdAt,
   });
   const update = useUpdateDocument();
@@ -112,7 +114,7 @@ export function PageDraftRecovery({
   useEffect(() => {
     setVerifiedScopeKey(null);
     setReleasedScopeKey(null);
-    if (!scopeKey || creationPending) return;
+    if (!scopeKey || creationPending || openAiWidget) return;
     let cancelled = false;
     void ensurePreviewDocumentDraftRead(
       queryClient,
@@ -128,7 +130,13 @@ export function PageDraftRecovery({
     return () => {
       cancelled = true;
     };
-  }, [creationPending, document.id, scopeKey, verificationRevision]);
+  }, [
+    creationPending,
+    document.id,
+    openAiWidget,
+    scopeKey,
+    verificationRevision,
+  ]);
 
   useEffect(() => {
     setJournalState("checking");
@@ -714,6 +722,9 @@ export function PageDraftRecovery({
       {children}
     </LiveEditorSessionContext.Provider>
   );
+  // Scoped widget tickets identify the document, not a cookie session whose
+  // private draft journal can be verified.
+  if (openAiWidget) return withNotice(null);
   if (editorReleased) return withNotice(null);
   if (drafts.isError)
     return (

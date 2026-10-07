@@ -107,6 +107,31 @@ An action that hands control back to the user (question form, intake dialog) set
 
 Reach for `outputSchema` (validate the return), `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
 
+### Write receipts
+
+A write action that can check its own effect returns a plain-object result with a reserved `_receipt`, so the final answer is reconciled with what the write did, not with the model's reading of a JSON string that may be truncated:
+
+```ts
+import type { WriteReceipt } from "@agent-native/core/action";
+
+const _receipt: WriteReceipt = {
+  changed: true,
+  verified: false,
+  summary: "Saved; panel 3 returned no rows.",
+  checks: [{ id: "panel-3", ok: false, detail: "0 rows" }],
+};
+return { id, _receipt };
+```
+
+`verified` is `true` (the effect was observed), `false` (checked and did not hold), or `"unverified"` (could not be checked); `checks` and `warnings` are optional. The agent loop reads the receipt before the result is stringified and truncated (summary 200 chars, 8 checks, 5 warnings):
+
+- `verified: false` or `changed: false` forces one honest-reconciliation retry per turn: the model must say what the receipt shows and may not call the change visible or working. If the retry is spent, the answer is prefixed with the receipt block.
+- `verified: "unverified"` only prefixes that note; no retry.
+- A receipt that is present but malformed counts as `unverified`, never clean. `changed: false` also records the call as `completedSideEffect: false`.
+- Set `subject` (the stable target, such as a dashboard id) so a later `changed: true, verified: true` receipt for the same subject can supersede an earlier flagged one in the same turn. When the earlier receipt had failing or unverified `checks`, the later receipts (from this action or another that writes the same subject) must carry an `ok: true` check with the same `id` for each; a receipt without checks never clears one that had them. A flagged receipt with no failing checks is superseded only by the same action. Receipts without a `subject` are never superseded.
+
+A receipt is not an error channel. A write that did not achieve the requested state throws (`fail()`); return `changed: false` only for a benign no-op, such as the record already being in the requested state.
+
 ## Frontend Hooks
 
 Import from focused `@agent-native/core/client/*` entry points; the broad

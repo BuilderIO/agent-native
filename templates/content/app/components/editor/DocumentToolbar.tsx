@@ -870,6 +870,7 @@ interface DocumentToolbarProps {
   agentActive?: boolean;
   currentUserEmail?: string;
   canEdit?: boolean;
+  readOnly?: boolean;
   hideFromSearch?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
@@ -940,6 +941,7 @@ export function DocumentToolbar({
   agentActive,
   currentUserEmail,
   canEdit = true,
+  readOnly = false,
   hideFromSearch = false,
   source,
   canDelete = false,
@@ -1017,6 +1019,7 @@ export function DocumentToolbar({
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =
+    !readOnly &&
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
@@ -1565,154 +1568,162 @@ export function DocumentToolbar({
               className="mr-1"
             />
           )}
-          {isLocalFileDocument ? (
-            shareInMenu ? null : (
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <ShareTrigger
-                    className="h-9 rounded-lg px-3"
-                    pending={shareLocalFile.isPending}
-                    disabled={shareLocalFile.isPending}
-                    aria-label={t("editor.toolbar.share")}
-                    label={
-                      <span className="flex items-center gap-2">
-                        <IconUserPlus aria-hidden="true" />
-                        {shareLabel}
-                      </span>
+          {!readOnly ? (
+            isLocalFileDocument ? (
+              shareInMenu ? null : (
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <ShareTrigger
+                      className="h-9 rounded-lg px-3"
+                      pending={shareLocalFile.isPending}
+                      disabled={shareLocalFile.isPending}
+                      aria-label={t("editor.toolbar.share")}
+                      label={
+                        <span className="flex items-center gap-2">
+                          <IconUserPlus aria-hidden="true" />
+                          {shareLabel}
+                        </span>
+                      }
+                    />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    data-database-preview-portal={compact ? "" : undefined}
+                  >
+                    <DropdownMenuItem
+                      onSelect={() => void handleCopyPageLink()}
+                    >
+                      {t("editor.toolbar.copyPageLink")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => void handleShareLocalFile()}
+                    >
+                      {t("editor.toolbar.createShareableCopy")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )
+            ) : (
+              <Suspense fallback={shareInMenu ? null : unopenedShareControl}>
+                {shareRequested || openShareOnLoad ? (
+                  <ShareButton
+                    resourceType="document"
+                    resourceId={documentId}
+                    resourceTitle={documentTitle}
+                    hideTrigger={shareInMenu}
+                    shareUrl={shareUrl}
+                    mobileSheet
+                    triggerContent={shareLabel}
+                    // ShareButton wraps the label in a span gapped from its
+                    // icon; the gap goes with the label.
+                    triggerClassName="[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
+                    agentShareLabel={t("editor.toolbar.temporaryAgentLink")}
+                    showShareLinks={false}
+                    quickCopy={{
+                      label: t("editor.toolbar.copyPageLink"),
+                      copiedLabel: t("editor.toolbar.copiedPageLink"),
+                      onCopy: handleCopyPageLink,
+                    }}
+                    peopleTabLabel={t("editor.toolbar.sharePeople")}
+                    agentsTabLabel={t("editor.toolbar.shareAgents")}
+                    peopleAccessLabel={t("editor.toolbar.whoHasAccess")}
+                    agentTabContent={
+                      <div className="space-y-3">
+                        <AgentDestinationActions
+                          labels={{
+                            copy: t("editor.toolbar.copyAgentPrompt"),
+                            claude: t("editor.toolbar.openInClaude"),
+                            claudeCode: t("editor.toolbar.openInClaudeCode"),
+                            codex: t("editor.toolbar.openInCodex"),
+                          }}
+                          icons={{
+                            claude: <ClaudeLogo className="size-4" />, // i18n-ignore: destination identifiers in this icon map
+                            "claude-code": (
+                              <ClaudeCodeLogo className="size-4" />
+                            ), // i18n-ignore: destination identifier
+                            codex: <CodexLogo className="size-4" />,
+                          }}
+                          onCopy={handleCopyAgentPrompt}
+                          onOpen={handleOpenAgentDestination}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {t("editor.toolbar.agentCopyAccessNote")}
+                        </p>
+                      </div>
+                    }
+                    defaultOpen={shareRequested || openShareOnLoad}
+                    onOpenChange={handleDbShareOpenChange}
+                    visibilityCopy={{
+                      private: {
+                        description: t("editor.toolbar.privateLinkCanView"),
+                      },
+                      org: {
+                        description: effectiveHideFromSearch
+                          ? t("editor.toolbar.orgLinkCanView")
+                          : t("editor.toolbar.orgCanFindAndView"),
+                      },
+                      public: {
+                        description: t("editor.toolbar.publicLinkCanView"),
+                      },
+                    }}
+                    hideInSearchControl={{
+                      checked: effectiveHideFromSearch,
+                      pending: setDocumentDiscoverability.isPending,
+                      label: t("editor.toolbar.hideInSearch"),
+                      description: t("editor.toolbar.hideInSearchDescription"),
+                      onCheckedChange: handleHideFromSearchChange,
+                    }}
+                    variant="compact"
+                    shareTabs={
+                      creativeContextEnabled
+                        ? {
+                            tabs: [
+                              {
+                                value: "context",
+                                label: t("creativeContext.share.tabLabel"),
+                                content: (
+                                  <CreativeContextShareTab
+                                    resource={{
+                                      appId: "content",
+                                      resourceType: "document",
+                                      resourceId: documentId,
+                                      title: documentTitle || "Untitled",
+                                      updatedAt: documentUpdatedAt ?? undefined,
+                                      preview: {
+                                        kind: "document",
+                                        label: t(
+                                          "root.commandDocumentsHeading",
+                                        ),
+                                      },
+                                    }}
+                                  />
+                                ),
+                              },
+                            ],
+                          }
+                        : undefined
                     }
                   />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  data-database-preview-portal={compact ? "" : undefined}
-                >
-                  <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
-                    {t("editor.toolbar.copyPageLink")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => void handleShareLocalFile()}
-                  >
-                    {t("editor.toolbar.createShareableCopy")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )
-          ) : (
-            <Suspense fallback={shareInMenu ? null : unopenedShareControl}>
-              {shareRequested || openShareOnLoad ? (
-                <ShareButton
-                  resourceType="document"
-                  resourceId={documentId}
-                  resourceTitle={documentTitle}
-                  hideTrigger={shareInMenu}
-                  shareUrl={shareUrl}
-                  mobileSheet
-                  triggerContent={shareLabel}
-                  // ShareButton wraps the label in a span gapped from its
-                  // icon; the gap goes with the label.
-                  triggerClassName="[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
-                  agentShareLabel={t("editor.toolbar.temporaryAgentLink")}
-                  showShareLinks={false}
-                  quickCopy={{
-                    label: t("editor.toolbar.copyPageLink"),
-                    copiedLabel: t("editor.toolbar.copiedPageLink"),
-                    onCopy: handleCopyPageLink,
-                  }}
-                  peopleTabLabel={t("editor.toolbar.sharePeople")}
-                  agentsTabLabel={t("editor.toolbar.shareAgents")}
-                  peopleAccessLabel={t("editor.toolbar.whoHasAccess")}
-                  agentTabContent={
-                    <div className="space-y-3">
-                      <AgentDestinationActions
-                        labels={{
-                          copy: t("editor.toolbar.copyAgentPrompt"),
-                          claude: t("editor.toolbar.openInClaude"),
-                          claudeCode: t("editor.toolbar.openInClaudeCode"),
-                          codex: t("editor.toolbar.openInCodex"),
-                        }}
-                        icons={{
-                          claude: <ClaudeLogo className="size-4" />, // i18n-ignore: destination identifiers in this icon map
-                          "claude-code": <ClaudeCodeLogo className="size-4" />, // i18n-ignore: destination identifier
-                          codex: <CodexLogo className="size-4" />,
-                        }}
-                        onCopy={handleCopyAgentPrompt}
-                        onOpen={handleOpenAgentDestination}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {t("editor.toolbar.agentCopyAccessNote")}
-                      </p>
-                    </div>
-                  }
-                  defaultOpen={shareRequested || openShareOnLoad}
-                  onOpenChange={handleDbShareOpenChange}
-                  visibilityCopy={{
-                    private: {
-                      description: t("editor.toolbar.privateLinkCanView"),
-                    },
-                    org: {
-                      description: effectiveHideFromSearch
-                        ? t("editor.toolbar.orgLinkCanView")
-                        : t("editor.toolbar.orgCanFindAndView"),
-                    },
-                    public: {
-                      description: t("editor.toolbar.publicLinkCanView"),
-                    },
-                  }}
-                  hideInSearchControl={{
-                    checked: effectiveHideFromSearch,
-                    pending: setDocumentDiscoverability.isPending,
-                    label: t("editor.toolbar.hideInSearch"),
-                    description: t("editor.toolbar.hideInSearchDescription"),
-                    onCheckedChange: handleHideFromSearchChange,
-                  }}
-                  variant="compact"
-                  shareTabs={
-                    creativeContextEnabled
-                      ? {
-                          tabs: [
-                            {
-                              value: "context",
-                              label: t("creativeContext.share.tabLabel"),
-                              content: (
-                                <CreativeContextShareTab
-                                  resource={{
-                                    appId: "content",
-                                    resourceType: "document",
-                                    resourceId: documentId,
-                                    title: documentTitle || "Untitled",
-                                    updatedAt: documentUpdatedAt ?? undefined,
-                                    preview: {
-                                      kind: "document",
-                                      label: t("root.commandDocumentsHeading"),
-                                    },
-                                  }}
-                                />
-                              ),
-                            },
-                          ],
-                        }
-                      : undefined
-                  }
+                ) : shareInMenu ? null : (
+                  unopenedShareControl
+                )}
+
+                <VersionHistoryPanel
+                  documentId={documentId}
+                  open={historyOpen}
+                  onOpenChange={setHistoryOpen}
+                  canRestore={canEdit}
+                  restoreReady={historyRestoreReady}
+                  activeUsers={activeUsers}
+                  prepareRestore={prepareHistoryRestore}
+                  onRestored={onHistoryRestored}
+                  restoreUnavailableReason={restoreUnavailableReason}
                 />
-              ) : shareInMenu ? null : (
-                unopenedShareControl
-              )}
+              </Suspense>
+            )
+          ) : null}
 
-              <VersionHistoryPanel
-                documentId={documentId}
-                open={historyOpen}
-                onOpenChange={setHistoryOpen}
-                canRestore={canEdit}
-                restoreReady={historyRestoreReady}
-                activeUsers={activeUsers}
-                prepareRestore={prepareHistoryRestore}
-                onRestored={onHistoryRestored}
-                restoreUnavailableReason={restoreUnavailableReason}
-              />
-            </Suspense>
-          )}
-
-          {suggesting && !suggestingInMenu ? (
+          {!readOnly && suggesting && !suggestingInMenu ? (
             <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
               <IconPencil aria-hidden="true" className="size-3.5" />
               <span className="sr-only @min-[40rem]/toolbar:not-sr-only">
@@ -1842,7 +1853,7 @@ export function DocumentToolbar({
               data-database-preview-portal={compact ? "" : undefined}
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              {canSuggest || suggesting ? (
+              {!readOnly && (canSuggest || suggesting) ? (
                 <>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -1887,7 +1898,7 @@ export function DocumentToolbar({
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                {onToggleFavorite ? (
+                {!readOnly && onToggleFavorite ? (
                   <DropdownMenuItem
                     onSelect={() => onToggleFavorite(!isFavorite)}
                   >

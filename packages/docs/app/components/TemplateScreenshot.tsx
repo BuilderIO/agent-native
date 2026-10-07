@@ -6,7 +6,6 @@ type TemplateScreenshotProps = {
   className?: string;
   sizes: string;
   variants: (typeof TEMPLATE_SCREENSHOTS)[keyof typeof TEMPLATE_SCREENSHOTS];
-  zoom?: number;
 };
 
 export function TemplateScreenshot({
@@ -14,10 +13,7 @@ export function TemplateScreenshot({
   className = "",
   sizes,
   variants,
-  zoom = 1,
 }: TemplateScreenshotProps) {
-  const imageStyle = zoom === 1 ? undefined : { transform: `scale(${zoom})` };
-
   return (
     <>
       <BuilderImage
@@ -27,8 +23,7 @@ export function TemplateScreenshot({
         crossOrigin="anonymous"
         loading="lazy"
         decoding="async"
-        style={imageStyle}
-        className={`theme-img-dark relative h-full w-full object-cover object-center transition-[opacity,transform] group-hover:opacity-90 ${className}`}
+        className={`theme-img-dark absolute inset-0 block h-full w-full object-cover object-center transition-opacity group-hover:opacity-90 ${className}`}
       />
       <BuilderImage
         src={variants.light}
@@ -38,8 +33,7 @@ export function TemplateScreenshot({
         crossOrigin="anonymous"
         loading="lazy"
         decoding="async"
-        style={imageStyle}
-        className={`theme-img-light absolute inset-0 h-full w-full object-cover object-center transition-[opacity,transform] group-hover:opacity-90 ${className}`}
+        className={`theme-img-light absolute inset-0 block h-full w-full object-cover object-center transition-opacity group-hover:opacity-90 ${className}`}
       />
     </>
   );

@@ -1,3 +1,4 @@
+import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
   useActionQuery,
@@ -961,6 +962,7 @@ export function startPreviewDocumentDraftRead(
   documentId: string,
   known?: Document,
 ) {
+  if (isOpenAiMcpAppHost()) return;
   if (
     known &&
     (isDocumentCreationPending(known) ||

@@ -2037,6 +2037,7 @@ describe("mountActionRoutes", () => {
     const run = vi.fn(async (_args, context) => ({
       caller: context?.caller,
       userEmail: context?.userEmail,
+      mcpDirectoryWidgetReadOnly: context?.mcpDirectoryWidgetReadOnly,
     }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "agent",
@@ -2092,6 +2093,7 @@ describe("mountActionRoutes", () => {
     ).resolves.toEqual({
       caller: "mcp-widget",
       userEmail: "ticket-owner@example.com",
+      mcpDirectoryWidgetReadOnly: true,
     });
     expect(run).toHaveBeenCalledOnce();
     expect(mockNotifyActionChange).not.toHaveBeenCalled();

@@ -167,10 +167,72 @@ describe("redactToolErrorMessage", () => {
 });
 
 describe("toolErrorSignature", () => {
-  it("keeps the first line of a plain failure so the tool stays diagnosable", () => {
+  it("keeps the first line of a plain failure and groups by cause, not tool prefix", () => {
+    expect(toolErrorSignature("upstream said no\nstack line")).toBe(
+      "upstream said no",
+    );
     expect(
       toolErrorSignature("Error running fetch: upstream said no\nstack line"),
-    ).toBe("Error running fetch: upstream said no");
+    ).toBe("upstream said no");
+    expect(
+      toolErrorSignature("Error running other-tool: upstream said no"),
+    ).toBe(toolErrorSignature("Error running fetch: upstream said no"));
+    expect(toolErrorSignature("Error running fetch:   ")).toBe(
+      "Tool failed with no error text",
+    );
+  });
+
+  it("summarizes a JSON error result instead of returning its opening brace", () => {
+    const bigquery = JSON.stringify(
+      {
+        error: "bigquery_not_configured",
+        message: "BigQuery isn't connected",
+        recoverable: false,
+      },
+      null,
+      2,
+    );
+    expect(toolErrorSignature(bigquery)).toBe(
+      "bigquery_not_configured: BigQuery isn't connected",
+    );
+    expect(toolErrorSignature(`Error running bigquery: ${bigquery}`)).toBe(
+      "bigquery_not_configured: BigQuery isn't connected",
+    );
+    expect(
+      toolErrorSignature(JSON.stringify({ error: "quota_exceeded" })),
+    ).toBe("quota_exceeded");
+  });
+
+  it("falls back to the first line when JSON has no error code or does not parse", () => {
+    expect(toolErrorSignature('{"message":"no code"}')).toBe(
+      '{"message":"no code"}',
+    );
+    expect(toolErrorSignature('{\n  "error": "cut off')).toBe("{");
+    expect(toolErrorSignature('{"error": {"code": 1}}')).toBe(
+      '{"error": {"code": 1}}',
+    );
+  });
+
+  it("still redacts and scrubs a JSON error message", () => {
+    // Assembled at runtime so no credential-shaped literal sits in the source.
+    const fakeKey = ["sk", "not", "a", "real", "key", "000000000"].join("-");
+    expect(
+      toolErrorSignature(
+        JSON.stringify({
+          error: "auth_failed",
+          message: `bad key=${fakeKey} for a@b.co`,
+        }),
+      ),
+    ).toBe("auth_failed: bad key=[REDACTED] for [email]");
+    expect(
+      toolErrorSignature(
+        JSON.stringify({
+          error: "failed",
+          message: "x".repeat(2000),
+          apiKey: fakeKey,
+        }),
+      ).length,
+    ).toBe(501);
   });
 
   it("replaces emails in the first line", () => {
