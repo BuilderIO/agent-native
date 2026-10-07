@@ -123,6 +123,8 @@ export default function ObservabilityPage() {
 
 默认不捕获工具参数、结果和完整的错误正文。若要存储这些内容，请在 `observability` 配置中启用 `captureToolArgs`（存储参数）和 `captureToolResults`（存储结果和完整错误正文）。敏感字段会在存储前脱敏。失败的工具始终会保留其错误的首行（长度有限），其中的凭据、电子邮件地址和较长的不透明 ID 会被脱敏，因此即使关闭 `captureToolResults`，失败仍可诊断。
 
+默认不捕获提示词。在 `observability` 配置中设置 `capturePrompts: true`，或设置 `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true`，即可在此详情视图中保存每个 `llm_call` 跨度的输入和输出。系统提示词不会被包含，结构化敏感字段会脱敏，输入和输出各限制为 128 KiB。现有跨度不会追溯补录。
+
 ### 人工审核 {#review}
 
 “人工审核”选项卡会显示每次运行的请求和答复，允许记录反馈并起草指令更新，供人工审核。保存草稿不会自动更改指令。

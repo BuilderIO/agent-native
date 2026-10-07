@@ -17,8 +17,13 @@ import {
   filterAgentTools,
   filterMcpOnlyActions,
 } from "../server/agent-chat/action-filters-a2a.js";
+import { resolveAgentChatMcpOptions } from "../server/agent-chat/mcp-options.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
-import { validateMcpDirectoryProfile } from "./build-server.js";
+import {
+  createMCPServerForRequest,
+  selectMcpDirectoryWidgetReadActions,
+  validateMcpDirectoryProfile,
+} from "./build-server.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 const repoRoot = path.resolve(
@@ -133,24 +138,33 @@ describe("ChatGPT directory template profiles", () => {
     async ({ appId, profile }) => {
       const { actions, productionActions, actionNames } =
         await loadTemplateActions(appId);
+      const mcpOptions = resolveAgentChatMcpOptions({
+        mcp: { directoryProfile: profile },
+      });
+      const widgetReadActions = selectMcpDirectoryWidgetReadActions(
+        mcpOptions.directoryProfile,
+        actions,
+      );
+      const serverConfig = {
+        name: `agent-native-${appId}`,
+        appId,
+        description: "ChatGPT directory profile validation",
+        catalogMode: "directory" as const,
+        connectorCatalog: profile.connectorCatalog,
+        widgetDomain: profile.widgetDomain,
+        actions: productionActions,
+        productionActions,
+        widgetReadActions,
+        directoryProfile: mcpOptions.directoryProfile,
+      };
 
-      expect(() =>
-        validateMcpDirectoryProfile({
-          name: `agent-native-${appId}`,
-          appId,
-          description: "ChatGPT directory profile validation",
-          catalogMode: "directory",
-          actions,
-          productionActions,
-          widgetReadActions: Object.fromEntries(
-            (profile.widgetReadPrivateActions ?? []).map((name) => [
-              name,
-              actions[name],
-            ]),
-          ),
-          directoryProfile: profile,
+      expect(mcpOptions.catalog).toBeUndefined();
+      await expect(
+        createMCPServerForRequest(serverConfig, {
+          userEmail: "reviewer@example.test",
+          orgId: null,
         }),
-      ).not.toThrow();
+      ).resolves.toBeDefined();
 
       if (appId === "content") {
         const privateRead = "query-content-database-items";

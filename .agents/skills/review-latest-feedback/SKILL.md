@@ -216,14 +216,12 @@ and include it in every reply.
 Phase 0 applies these from parent-level evidence to decide what to claim.
 Phase 2 reapplies these rules after full-thread review.
 
-**Automated diagnostics count as feedback regardless of author.** Claim
-actionable CI/Beta E2E and monitoring alerts with `👀` after the ownership gate,
-then inspect linked runs, builds/commits, job logs, test results, artifacts, and
-issue state. Treat labels/counts as leads. Fix verified repo-owned causes; for
-other causes, record evidence and the next owner/action. Don't ask bots; ask a
-person only when a fact blocks a fix. If our report lacks evidence, improve its
-checks/report with concise context and links; avoid duplicate details and
-secrets.
+Use `## Slack channels` unless the invocation narrows scope.
+
+**Automated diagnostics are feedback.** For Slack, gate before reading.
+Before claiming, use only alert/link metadata. Follow
+[`automated-diagnostics.md`](references/automated-diagnostics.md) for ownership,
+claim, and stop/continue; inspect logs, tests, and artifacts only afterward.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
@@ -284,7 +282,7 @@ deduplicated against Slack. If a source cannot be read, record it as
 query.
 
 <!-- framework-repo-only:start -->
-### CI failures are a first-class source
+### CI failures
 
 Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
 Failed queries mean **CI unavailable**, never an empty source.
@@ -356,8 +354,7 @@ slack_search: <2-4 distinctive symptom words> in:<#CHANNEL>
 ```
 
 Search in the reporter's words — `zoom invalid_client`, `logout twice` — not
-your diagnosis. People describe one bug differently, so read the hits rather
-than trusting the count.
+your diagnosis. Read hits; one bug may have different descriptions.
 
 **A repeat report after a Fixed claim is evidence that fix failed.** It is the
 only falsification signal this workflow gets, and it outranks your belief that
