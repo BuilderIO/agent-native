@@ -2965,6 +2965,18 @@ async function assertAgentKitChatAcceptance(
     ),
   });
 
+  // The composer queues only while it counts a run as active, and the stop
+  // button renders from that same check; submitting earlier sends immediately.
+  try {
+    await page
+      .locator('[data-agent-composer-slot="stop-button"]')
+      .waitFor({ state: "visible" });
+  } catch (error) {
+    throw new Error(
+      "The composer no longer counts the run as active while its approval card is pending, so a follow-up would bypass the queue.",
+      { cause: error },
+    );
+  }
   await fillAndSubmitComposer(page, queuedPrompt);
   const queue = page.getByRole("region", { name: "Queued messages" });
   await queue.waitFor({ state: "visible" });
@@ -3954,6 +3966,12 @@ async function main(): Promise<void> {
           })
           .catch(() => [] as string[])
       : [];
+    await page
+      ?.screenshot({
+        path: path.join(repoRoot, ".tmp/action-cards-gallery/failure.png"),
+        fullPage: true,
+      })
+      .catch(() => undefined);
     const historyBlock =
       historyDiagnostics.length > 0
         ? `\n\nBrowser history mutations:\n${historyDiagnostics.join("\n")}`
