@@ -2013,11 +2013,11 @@ const FEEDBACK_RELEASE_TARGET_RE =
 const FEEDBACK_RELEASE_FAILURE_RE =
   /\b(?:fail(?:ed|ing|ure|ures)?|broken|stale|missing|unavailable|incomplete|errors?|errored?|red)\b/gi;
 const FEEDBACK_RELEASE_PRODUCT_REQUEST_RE =
-  /\b(?:controls?|features?|management|support|settings?|tooling|tools?|buttons?|options?|integrations?|pages?|widgets?|chrome)\b|\b(?:to|in|for)\s+(?:the\s+)?(?:app|product|site|website|analytics)\b/i;
+  /\b(?:controls?|features?|management|support|settings?|tooling|tools?|buttons?|options?|integrations?|pages?|widgets?|chrome)\b/i;
 
 function matchesFeedbackReleaseCoverage(message) {
   const clauses = String(message).split(
-    /[.!?;\n]+|,\s*(?=(?:and|but|or|so|then|while|although|however|you|we|the|this|please|i|it|they|our|my|add|include|check|scan|inspect|make\s+sure|look)\b)/i,
+    /[.!?;\n]+|,\s*(?=(?:and|but|or|so|then|while|although|however|you|we|the|this|please|i|it|they|our|my)\b)/i,
   );
   return clauses.some((clause) => {
     const spans = (pattern) =>
@@ -2114,6 +2114,8 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [true, "We are not scanning deployment failures in the feedback review."],
   [true, "The feedback sweep, going forward, should include failed deploys."],
   [true, "Feedback review: please include failed desktop releases."],
+  [true, "Feedback review: please scan failed deploys for the app."],
+  [true, "In the feedback review, scan deployment failures."],
   [false, "Feedback review: add failed desktop release controls to the app."],
   [false, "Add package publishing support to the app."],
   [false, "Include desktop release management in the product."],
