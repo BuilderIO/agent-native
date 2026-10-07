@@ -88,6 +88,7 @@ beforeEach(() => {
   insertAutomationVersionValuesMock.mockResolvedValue(undefined);
   getDbMock.mockReturnValue({
     insert: () => ({ values: insertAutomationVersionValuesMock }),
+    select: () => ({ from: () => ({ where: async () => [{ latest: null }] }) }),
   });
 });
 

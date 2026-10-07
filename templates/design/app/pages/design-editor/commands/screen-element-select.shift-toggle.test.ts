@@ -131,6 +131,32 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
     }
   });
 
+  it("refreshes position context even when selection geometry is already present", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    document.body.appendChild(iframe);
+    const target = iframe.contentDocument!.createElement("div");
+    target.id = "node-a";
+    target.style.position = "absolute";
+    target.style.left = "100px";
+    iframe.contentDocument!.body.appendChild(target);
+    target.getBoundingClientRect = () =>
+      ({ x: 100, y: 80, width: 100, height: 40 }) as DOMRect;
+
+    try {
+      const measured = withMeasuredGeometry({
+        ...makeInfo("node-a"),
+        boundingRect: { x: 100, y: 80, width: 100, height: 40 },
+        positionReferenceRect: { x: 40, y: 30, width: 800, height: 600 },
+      } as ElementInfo);
+
+      expect(measured.positionReferenceRect).toMatchObject({ x: 0, y: 0 });
+      expect(measured.positionContainingBlockOrigin).toEqual({ x: 0, y: 0 });
+    } finally {
+      document.body.removeChild(iframe);
+    }
+  });
+
   it("removes an already-selected element from a multi-selection (A+B selected, Shift+click A -> only B), and moves the primary selection to B", () => {
     const nodes = [makeNode("node-a"), makeNode("node-b")];
     let result: string[] = [];

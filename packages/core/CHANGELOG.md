@@ -51,6 +51,24 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.203.1
+
+### Patch Changes
+
+- 005805a: Label a model swapped in because the engine default was unchecked as `provider-selection-fallback` instead of `default`, so logs and traces can tell it from the engine's own default.
+- 005805a: Give lean hosted agent runs the `docs-search` tool their compact prompt tells the model to read skills with, and drop the skills summary from any prompt whose registry has no skill-read tool.
+- 005805a: Make the agent's end-of-turn follow-up call cheap, keep the tools array stable and let tool-search load several tools in one step, and report honest tool error signatures.
+- 005805a: Let a write action return a `_receipt` saying whether it changed anything and whether the change was verified, so the agent loop retries once or annotates the answer when the reply would claim more than the write proved.
+- df89804: Style the email authentication link confirmation page to match the shared auth flow.
+- ecfbb00: Preserve all app overrides when changing organization or personal model defaults, report the requested scope and effective app model separately, and keep reset-to-inherit explicit. App default changes preserve explicit chat and automation selections.
+- 044bbd7: Stop `manage-jobs` create from replacing an existing job file, and record a `job-fields-dropped` audit event when a write to a `jobs/` file removes its frontmatter fields.
+- Release all public npm packages with a patch version bump.
+- dc2b350: Expose verified directory widget read scope to frontend actions for safe read-only embeds.
+- d0fab3d: Add Design parity evidence and CI failure triage guidance to shipped feedback skills.
+- Updated dependencies
+  - @agent-native/agentkit@0.203.1
+  - @agent-native/recap-cli@0.5.65
+
 ## 0.203.0
 
 ### Minor Changes
@@ -3844,13 +3862,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 841f072: Expand changelog history windows to 100 releases while preserving folder-backed history.
-
-## 0.165.3
-
-### Patch Changes
-
-- b6ca1a7: Warn when `GOOGLE_SIGN_IN_CLIENT_ID` and `GOOGLE_CLIENT_ID` name different Google clients. Sign-in silently preferred the sign-in pair, so repairing `GOOGLE_CLIENT_SECRET` on a deploy that also set `GOOGLE_SIGN_IN_CLIENT_SECRET` changed nothing while appearing correct.
-- b6ca1a7: Harden MCP OAuth reconnects for mounted apps, legacy settings, and concurrent updates.
-- b6ca1a7: Ensure prebuilt Netlify workspace deployments include the hosted feedback URL.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
