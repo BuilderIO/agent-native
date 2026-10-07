@@ -326,7 +326,8 @@ inventing a fix.
 ### Deployment, release, and publish failures
 
 Scan app/template, desktop build/release, and package-publish lanes on every
-sweep, even without a linked report. Include queued/running runs, run-only
+sweep, even without a linked report. On the first sweep, include all
+nonterminal runs regardless of age. Include queued/running runs, run-only
 failures, and missing/stale artifacts; carry active run IDs and rows across
 cursors. Fix verified repo-owned causes; record external/manual causes with the
 next owner/action. Use [`deployment-recovery.md`](references/deployment-recovery.md)

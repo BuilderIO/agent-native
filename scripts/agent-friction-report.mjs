@@ -2007,7 +2007,7 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
 const FEEDBACK_RELEASE_CONTEXT_RE =
   /\bfeedback\s+(?:sweeps?|reviews?|skills?|workflows?|triage)\b/gi;
 const FEEDBACK_RELEASE_ACTION_RE =
-  /\b(?:add|include|check|scan|inspect|cover|monitor|track|surface|look\s+at|make\s+sure|miss(?:ed|ing)?|skip(?:ped|ping)?|ignor(?:e|ed|ing)|overlook(?:ed|ing)|forget|forgot|forgotten|aren['’]?t\s+scanning|are not\s+scanning|isn['’]?t\s+scanning|is not\s+scanning|doesn['’]?t\s+(?:scan|check|include)|does not\s+(?:scan|check|include)|didn['’]?t\s+(?:scan|check|include)|did not\s+(?:scan|check|include))\b/gi;
+  /\b(?:add|include|check|scan|inspect|cover|monitor|track|surface|look\s+at|make\s+sure|miss(?:ed|es|ing)?|skip(?:ped|ping)?|ignor(?:e|ed|ing)|overlook(?:ed|ing)|forget|forgot|forgotten|aren['’]?t\s+scanning|are not\s+scanning|isn['’]?t\s+scanning|is not\s+scanning|doesn['’]?t\s+(?:scan|check|include)|does not\s+(?:scan|check|include)|didn['’]?t\s+(?:scan|check|include)|did not\s+(?:scan|check|include))\b/gi;
 const FEEDBACK_RELEASE_TARGET_RE =
   /\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ed|ing)?|packages?|desktop\s+(?:apps?|builds?))\b/gi;
 const FEEDBACK_RELEASE_FAILURE_RE =
@@ -2085,11 +2085,13 @@ function matchesFeedbackReleaseCoverage(message) {
             start: Math.min(target.start, failure.start),
             end: Math.max(target.end, failure.end),
           };
+          const requestWindow = clause.slice(
+            Math.max(0, Math.min(action.start, coverage.start) - 60),
+            Math.min(clause.length, Math.max(action.end, coverage.end) + 60),
+          );
           if (
             distance(action, coverage) <= 120 &&
-            !FEEDBACK_RELEASE_PRODUCT_REQUEST_RE.test(
-              clause.slice(coverage.end),
-            )
+            !FEEDBACK_RELEASE_PRODUCT_REQUEST_RE.test(requestWindow)
           ) {
             return true;
           }
@@ -2103,6 +2105,7 @@ function matchesFeedbackReleaseCoverage(message) {
 const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [true, "We are not scanning deployment failures in the feedback review."],
   [true, "The feedback sweep missed desktop release failures."],
+  [true, "The feedback sweep misses failed deployment alerts."],
   [true, "Add failed app deploys to the feedback sweep."],
   [true, "Please also scan package publish failures during feedback reviews."],
   [true, "Make sure the feedback review includes desktop release failures."],
@@ -2136,6 +2139,7 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
     false,
     "The feedback comment was helpful, add failed desktop release controls.",
   ],
+  [false, "Feedback review: add controls for desktop release failures."],
   [false, "The feedback sweep missed arbitrary app build failures."],
   [false, "Add failed app builds to the feedback app."],
   [false, "The app deploy and package publish both succeeded."],

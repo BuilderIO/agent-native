@@ -7,11 +7,13 @@ links a failed run.
 
 - Inspect recent deploy, release, desktop build/sign/notarize/update, and
   package-publish runs since the previous deployment cursor; on the first run,
-  use the last 7 days. Include queued and running jobs. Carry their nonterminal
-  run IDs and every active operational row into the next sweep, and recheck them
-  regardless of age. Finish all result pages before advancing the cursor. Cover
-  app/template beta, docs, and production lanes where configured. Use current
-  workflow/target maps and provider or registry state.
+  use the last 7 days for completed-run history and independently include every
+  nonterminal run regardless of age. Seed the carried-run list with all active
+  runs before advancing the cursor. Include queued, approval-waiting, and
+  running jobs, and recheck them regardless of age. Finish all result pages
+  before advancing the cursor. Cover app/template beta, docs, and production
+  lanes where configured. Use current workflow/target maps and provider or
+  registry state.
 - Check deployed app revisions, desktop release assets, and package versions
   for missing or stale artifacts, including when a workflow reports success.
 - For each failure or target mismatch, inspect authoritative logs. Record the
