@@ -12,7 +12,16 @@
   "nativeObservation": "The menu offers Inner shadow, Drop shadow, Layer blur, Background blur, Noise, Texture, Glass, and Shader (Beta). No effect is added until a type is chosen.",
   "trials": "One raw pointer click.",
   "values": {
-    "menuItems": ["Inner shadow", "Drop shadow", "Layer blur", "Background blur", "Noise", "Texture", "Glass", "Shader (Beta)"],
+    "menuItems": [
+      "Inner shadow",
+      "Drop shadow",
+      "Layer blur",
+      "Background blur",
+      "Noise",
+      "Texture",
+      "Glass",
+      "Shader (Beta)"
+    ],
     "effectAddedBeforeChoice": false
   },
   "figma": {

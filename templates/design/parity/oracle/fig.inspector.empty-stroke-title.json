@@ -12,7 +12,12 @@
   "nativeObservation": "The selection receives a black 100% stroke, Inside, 1px, and the picker opens. The source packet notes a separate extra 20% row after a plus press with unknown cause; that is not attributed to this gesture.",
   "trials": "One isolated AXPress, followed by one raw pointer click.",
   "values": {
-    "stroke": { "hex": "000000", "opacity": 100, "position": "Inside", "weightPx": 1 },
+    "stroke": {
+      "hex": "000000",
+      "opacity": 100,
+      "position": "Inside",
+      "weightPx": 1
+    },
     "pickerOpened": true
   },
   "figma": {
