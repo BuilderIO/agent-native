@@ -106,7 +106,7 @@ O relatório final rotula as evidências separadamente: em execução local, ver
 
 - **Editar o `.env` com o servidor de desenvolvimento em execução.** Um reload no lugar após uma mudança no `.env` entra em loop no bloqueio do banco de dados local e serve erros 500. Pare o servidor, edite o `.env` e inicie-o novamente.
 - **Planilhas ambíguas.** Se os fluxos candidatos ou o mapeamento de entradas e saídas continuarem substancialmente ambíguos após uma revisão limitada, a skill faz uma única pergunta compacta com a interpretação recomendada. Em uma execução headless, ela imprime a pergunta, registra a premissa no briefing e continua construindo.
-- **Planilhas em um host de navegador.** Não é possível anexar uma pasta de trabalho; o host passa uma renderização CSV delimitada como texto, ou uma URL pública, e a entrega informa o que ficou de fora.
+- **Planilhas em um host de navegador.** Não é possível anexar uma pasta de trabalho; o host passa uma renderização CSV delimitada como texto, ou uma URL intencionalmente pública, e a entrega informa o que ficou de fora. Um link para uma planilha privada não é uma fonte; o skill pede uma conexão autenticada do Sheets ou Drive, ou uma exportação, e nunca usa uma URL de exportação pública para contornar controles de acesso.
 - **Cores de células.** Uma prévia em texto não consegue comprovar cores, então, em um host local, a skill lê tanto as fórmulas quanto os valores em cache e trata a cor como uma dica fraca.
 - **Apps em Local File Mode.** Um app cuja fonte da verdade são os arquivos do host é somente local e não é implantado.
 - **Entregas em host de navegador.** O resultado fica não verificado até que o Dispatch devolva um branch compilado. A skill não consegue executar nem capturar telas do app ali.

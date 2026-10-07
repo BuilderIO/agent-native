@@ -106,7 +106,7 @@ The final report labels evidence separately: locally running, locally verified, 
 
 - **Editing `.env` while the dev server runs.** An in-place reload after an `.env` change loops on the local database lock and serves 500s. Stop the server, edit `.env`, and start it again.
 - **Ambiguous spreadsheets.** If the candidate workflows or the input and output mapping stay materially ambiguous after a bounded review, the skill asks one compact question with its recommended interpretation. In a headless run it prints the question, records the assumption in the brief, and keeps building.
-- **Spreadsheets on a browser host.** A workbook cannot be attached; the host passes a bounded CSV rendering as text, or a public URL, and the handoff says what was left out.
+- **Spreadsheets on a browser host.** A workbook cannot be attached; the host passes a bounded CSV rendering as text, or a URL that is intentionally public, and the handoff says what was left out. A link to a private sheet is not a source; the skill asks for an authenticated Sheets or Drive connection or an export, and never uses a public export URL to get around access controls.
 - **Cell colors.** A text preview cannot prove colors, so on a local host the skill reads both formulas and cached values, and treats color as a weak hint.
 - **Local File Mode apps.** An app whose source of truth is the host's files is local-only and is not deployed.
 - **Browser-host handoffs.** The result is unverified until Dispatch returns a built branch. The skill cannot run or screenshot the app there.
