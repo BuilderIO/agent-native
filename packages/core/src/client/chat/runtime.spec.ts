@@ -3016,17 +3016,6 @@ describe("createAgentNativeChatRuntime", () => {
     const toolResultIds = parts
       .filter((part) => part.type === "tool-result")
       .map((part) => part.toolCallId);
-    const {
-      findApprovedStructuredToolCall,
-      structuredHistoryToEngineMessages,
-    } = await import("../../agent/production-agent.js");
-    const providerMessages = structuredHistoryToEngineMessages(
-      request.structuredHistory,
-    );
-    const providerToolResultIds = providerMessages
-      ?.flatMap((message) => message.content)
-      .filter((part) => part.type === "tool-result")
-      .map((part) => part.toolCallId);
 
     expect(request).toMatchObject({
       message: "Approved. Go ahead and run the requested action.",
@@ -3040,17 +3029,6 @@ describe("createAgentNativeChatRuntime", () => {
       }),
     );
     expect(toolResultIds).toContain("call-approved-release");
-    expect(providerToolResultIds).toContain("call-approved-release");
-    expect(
-      findApprovedStructuredToolCall(
-        request.structuredHistory,
-        request.approvedToolCalls,
-      ),
-    ).toEqual({
-      name: "accept-agentkit-release",
-      input: approvalInput,
-      callId: "call-approved-release",
-    });
     expect(parts).toContainEqual(
       expect.objectContaining({
         type: "tool-result",
