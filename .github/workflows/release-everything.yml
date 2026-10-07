@@ -31,6 +31,8 @@ concurrency:
 jobs:
   release-everything:
     name: Release packages, desktop apps, and production sites
+    # Keeps the job alive on a manual cancel so the Slack alert steps still run.
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
