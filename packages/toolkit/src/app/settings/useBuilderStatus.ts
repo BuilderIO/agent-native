@@ -1631,6 +1631,7 @@ export function useBuilderConnectFlow(
               setConnecting(false);
               setError(
                 "Couldn't navigate the Builder popup. Allow popups and try again.",
+                "launch",
               );
               return;
             }
@@ -1643,6 +1644,7 @@ export function useBuilderConnectFlow(
               setConnecting(false);
               setError(
                 "Couldn't navigate the Builder popup. Allow popups and try again.",
+                "launch",
               );
             }
           })();
@@ -1765,6 +1767,7 @@ export function useBuilderConnectFlow(
         });
         setError(
           "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
+          "launch",
         );
       }
     },

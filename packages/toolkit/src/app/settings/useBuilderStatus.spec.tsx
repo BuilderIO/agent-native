@@ -575,10 +575,47 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain(
       "Couldn't navigate the Builder popup",
     );
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("launch");
     expect(popup.removeEventListener).toHaveBeenCalledWith(
       "load",
       expect.any(Function),
     );
+  });
+
+  it("marks a blocked popup navigation as a launch error", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    Object.defineProperty(popup.location, "href", {
+      configurable: true,
+      get: () => "",
+      set: () => {
+        throw new Error("popup navigation blocked");
+      },
+    });
+    openSpy.mockReturnValue(popup);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.close).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(
+      "Couldn't navigate the Builder popup. Allow popups and try again.",
+    );
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("launch");
   });
 
   it("cancels an embedded popup wait when the flow unmounts", async () => {
