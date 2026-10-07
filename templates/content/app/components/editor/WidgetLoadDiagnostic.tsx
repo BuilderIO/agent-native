@@ -1,33 +1,117 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect, useState } from "react";
+import { Component } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+
+function exceptionName(error: unknown): string {
+  if (
+    error &&
+    typeof error === "object" &&
+    "name" in error &&
+    typeof error.name === "string" &&
+    /^[A-Za-z][A-Za-z0-9]*$/.test(error.name)
+  ) {
+    return error.name;
+  }
+  return "Error";
+}
 
 export function WidgetLoadDiagnostic({
   active,
   stage,
   action,
+  fallback,
+  errorName: externalErrorName,
 }: {
   active: boolean;
   stage: string;
   action: string;
+  fallback?: ReactNode;
+  errorName?: string | null;
 }) {
   const t = useT();
-  const [visible, setVisible] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
+  const [failureName, setFailureName] = useState<string | null>(null);
 
   useEffect(() => {
-    setVisible(false);
+    setTimedOut(false);
+    setFailureName(null);
     if (!active) return;
-    const timeout = window.setTimeout(() => setVisible(true), 8_000);
-    return () => window.clearTimeout(timeout);
+    const timeout = window.setTimeout(() => setTimedOut(true), 8_000);
+    const onError = (event: ErrorEvent) => {
+      setFailureName(exceptionName(event.error));
+    };
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      setFailureName(exceptionName(event.reason));
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
   }, [active, action, stage]);
 
-  if (!visible) return null;
+  const observedErrorName = externalErrorName ?? failureName;
+  if (!active || (!timedOut && !observedErrorName)) return fallback ?? null;
+  const diagnosticStage = observedErrorName
+    ? `${stage} (${observedErrorName})`
+    : stage;
   return (
-    <p
-      aria-live="polite"
-      className="rounded-md border border-border bg-background/95 p-3 text-sm text-muted-foreground shadow-md"
-      role="status"
+    <div
+      aria-live="assertive"
+      className="rounded-md border border-border bg-background p-4 text-sm text-muted-foreground"
+      data-widget-load-diagnostic
+      role="alert"
     >
-      {t("editor.widgetLoadStalled", { stage, action })}
-    </p>
+      {t("editor.widgetLoadStalled", {
+        stage: diagnosticStage,
+        action,
+      })}
+    </div>
+  );
+}
+
+class WidgetEditorErrorBoundary extends Component<
+  { action: string; children: ReactNode; stage: string },
+  { errorName: string | null }
+> {
+  state = { errorName: null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { errorName: exceptionName(error) };
+  }
+
+  render() {
+    return this.state.errorName ? (
+      <WidgetLoadDiagnostic
+        active
+        stage={this.props.stage}
+        action={this.props.action}
+        errorName={this.state.errorName}
+      />
+    ) : (
+      this.props.children
+    );
+  }
+}
+
+export function WidgetVisualEditorBoundary({
+  active,
+  action,
+  children,
+  stage,
+}: {
+  active: boolean;
+  action: string;
+  children: ReactNode;
+  stage: string;
+}) {
+  return active ? (
+    <WidgetEditorErrorBoundary action={action} stage={stage}>
+      {children}
+    </WidgetEditorErrorBoundary>
+  ) : (
+    children
   );
 }

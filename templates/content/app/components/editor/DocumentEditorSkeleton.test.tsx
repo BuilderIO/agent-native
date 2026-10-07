@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,6 +26,7 @@ import {
   documentEditorTitleRegionClassName,
 } from "./document-editor-layout";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
+import { WidgetVisualEditorBoundary } from "./WidgetLoadDiagnostic";
 
 describe("DocumentEditorSkeleton optimistic title", () => {
   let container: HTMLDivElement;
@@ -41,6 +42,7 @@ describe("DocumentEditorSkeleton optimistic title", () => {
     act(() => root.unmount());
     container.remove();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("keeps the layout-matching title bar when no title is known", () => {
@@ -183,7 +185,7 @@ describe("DocumentEditorSkeleton optimistic title", () => {
     );
   });
 
-  it("names the stalled stage and request after eight seconds", async () => {
+  it("replaces the stalled skeleton with its stage and request after eight seconds", async () => {
     vi.useFakeTimers();
     act(() => {
       root.render(
@@ -197,13 +199,66 @@ describe("DocumentEditorSkeleton optimistic title", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(7_999);
     });
-    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.querySelector("[data-widget-load-diagnostic]")).toBeNull();
+    expect(container.querySelector(".skeleton-shimmer")).not.toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+    expect(container.querySelector(".skeleton-shimmer")).toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "Still waiting for the saved page body. Request: get-document.",
     );
+  });
+
+  it("reports only the exception name when widget boot throws", async () => {
+    vi.useFakeTimers();
+    act(() => {
+      root.render(
+        <DocumentEditorSkeleton
+          title="Body check"
+          stalledLoad={{ stage: "the saved page body", action: "get-document" }}
+        />,
+      );
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new ErrorEvent("error", {
+          error: new DOMException(
+            "private token must not appear",
+            "SecurityError",
+          ),
+        }),
+      );
+    });
+
+    const diagnostic = container.querySelector('[role="alert"]');
+    expect(diagnostic?.textContent).toContain("SecurityError");
+    expect(diagnostic?.textContent).not.toContain("private token");
+  });
+
+  it("catches editor initialization errors only inside the widget boundary", () => {
+    function ThrowingEditor(): ReactElement {
+      throw new DOMException("private token must not appear", "SecurityError");
+    }
+
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    act(() => {
+      root.render(
+        <WidgetVisualEditorBoundary
+          active
+          stage="the rich-text editor to initialize"
+          action="VisualEditor"
+        >
+          <ThrowingEditor />
+        </WidgetVisualEditorBoundary>,
+      );
+    });
+
+    const diagnostic = container.querySelector('[role="alert"]');
+    expect(diagnostic?.textContent).toContain("SecurityError");
+    expect(diagnostic?.textContent).toContain("VisualEditor");
+    expect(diagnostic?.textContent).not.toContain("private token");
   });
 });

@@ -1,5 +1,3 @@
-import { useT } from "@agent-native/core/client/i18n";
-
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import { Skeleton } from "@/components/ui/skeleton";
 import { startupAnchor } from "@/lib/startup-timing";
@@ -159,9 +157,8 @@ export function DocumentEditorSkeleton({
   shape?: DocumentEditorShape | "startup";
   stalledLoad?: { stage: string; action: string };
 }) {
-  const t = useT();
   const sidebarTrigger = useSidebarTrigger();
-  return (
+  const skeleton = (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
         {sidebarTrigger}
@@ -202,16 +199,17 @@ export function DocumentEditorSkeleton({
             review={shape === "review"}
           />
         )}
-        {stalledLoad ? (
-          <div className="absolute inset-x-4 bottom-4 z-10">
-            <WidgetLoadDiagnostic
-              active
-              stage={stalledLoad.stage}
-              action={stalledLoad.action}
-            />
-          </div>
-        ) : null}
       </div>
     </div>
+  );
+  return stalledLoad ? (
+    <WidgetLoadDiagnostic
+      active
+      stage={stalledLoad.stage}
+      action={stalledLoad.action}
+      fallback={skeleton}
+    />
+  ) : (
+    skeleton
   );
 }
