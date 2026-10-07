@@ -1031,6 +1031,39 @@ describe("useBuilderConnectFlow", () => {
       expect(openSpy).not.toHaveBeenCalled();
     });
 
+    it("keeps status-read guidance when activation reconciliation cannot read status", async () => {
+      let activationAttempts = 0;
+      let statusReads = 0;
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          activationAttempts += 1;
+          throw new TypeError("Failed to fetch");
+        }
+        statusReads += 1;
+        if (statusReads === 1) return jsonResponse(activationStatus);
+        throw new Error("status unavailable");
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(activationAttempts).toBe(1);
+      expect(statusReads).toBe(2);
+      expect(container.textContent).toContain(
+        "Couldn't read the Builder.io connections.",
+      );
+      expect(container.textContent).not.toContain(
+        "Couldn't start Builder.io setup.",
+      );
+      expect(
+        container.querySelector("[data-testid='error-kind']")?.textContent,
+      ).toBe("status-read");
+    });
+
     it("does not treat another scope's connection as activation success", async () => {
       const personalConnectionStatus = {
         ...activationStatus,

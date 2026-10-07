@@ -1365,8 +1365,9 @@ export function useBuilderConnectFlow(
             // attempt with a retryable error.
             const status = await fetchStatus();
             if (!isCurrentAttempt()) return;
-            if (
-              status &&
+            if (!status) {
+              statusReadFailed = true;
+            } else if (
               isBuilderConnectComplete(status, connectTargetRef.current)
             ) {
               await confirmConnectSuccessRef.current(connectAttemptId);
