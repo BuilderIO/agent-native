@@ -24,14 +24,18 @@ export interface ContainmentResult {
   containmentErrors: string[];
 }
 
+export async function prepareServicePrincipalContainment(): Promise<void> {
+  await ensureRunTables();
+  await ensureChatThreadTables();
+}
+
 export async function containServicePrincipal(
   orgId: string,
   serviceName: string,
   reason: string = PRINCIPAL_SUSPENDED_ABORT_REASON,
 ): Promise<ContainmentResult> {
   const email = serviceIdentityEmail(serviceName, orgId).toLowerCase();
-  await ensureRunTables();
-  await ensureChatThreadTables();
+  await prepareServicePrincipalContainment();
   const { rows } = await getDbExec().execute({
     sql: `SELECT r.id FROM agent_runs r
           JOIN chat_threads t ON t.id = r.thread_id

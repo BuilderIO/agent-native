@@ -364,7 +364,7 @@ export async function processA2ATaskFromQueue(
     if (error.statusCode !== 403) throw error;
     await recordServicePrincipalDenial({
       email: verifiedEmail,
-      orgId: verifiedOrgId ?? parseServiceIdentityEmail(verifiedEmail)?.orgId,
+      orgId: verifiedOrgId,
       actionName: "a2a:process-task",
       caller: "a2a",
       error,
@@ -472,7 +472,7 @@ const defaultHandler: A2AHandler = async (
       orgId:
         typeof eventContext?.__a2aVerifiedOrgId === "string"
           ? eventContext.__a2aVerifiedOrgId
-          : serviceIdentity.orgId,
+          : undefined,
       actionName: "a2a:agent-chat-handoff",
       caller: "a2a",
       error,

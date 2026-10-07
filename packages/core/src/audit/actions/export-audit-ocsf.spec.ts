@@ -252,6 +252,24 @@ describe("export-audit-ocsf", () => {
     }
   });
 
+  it("rejects a cursor with a forged future watermark", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const first = await exportAuditOcsf.run({}, admin);
+    const payload = JSON.parse(
+      Buffer.from(first.nextCursor!, "base64url").toString("utf8"),
+    );
+    payload.watermarkMs = now + 24 * 60 * 60 * 1000;
+
+    await expect(
+      exportAuditOcsf.run(
+        { cursor: Buffer.from(JSON.stringify(payload)).toString("base64url") },
+        admin,
+      ),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    now += 1;
+  });
+
   it("filters by since and until as ISO strings or epoch ms", async () => {
     await insertAuditEvent(makeEvent({ id: "old", createdAt: 1000 }));
     await insertAuditEvent(

@@ -784,7 +784,45 @@ describe("handleJsonRpc", () => {
       expect.objectContaining({
         actionName: "a2a:process-task",
         caller: "a2a",
+        orgId: "org-acme",
         error: expect.objectContaining({ statusCode: 403 }),
+      }),
+    );
+  });
+
+  it("does not audit a queued denial under the service email's unverified org", async () => {
+    const config = { ...customHandler, handler: vi.fn(customHandler.handler!) };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "svc-ci@service.org-acme",
+      __a2aAudienceVerified: true,
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 33,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "run with no verified org" }],
+          },
+        },
+      },
+      event,
+      config,
+    );
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "org-mismatch" });
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(created.result.id, config);
+
+    expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "svc-ci@service.org-acme",
+        orgId: undefined,
+        actionName: "a2a:process-task",
       }),
     );
   });
@@ -3126,6 +3164,40 @@ describe("default handler (no custom handler)", () => {
           statusCode: 403,
           errorCode: "service_principal_handoff_unsupported",
         }),
+      }),
+    );
+  });
+
+  it("does not audit a default handoff under an unverified service org", async () => {
+    const { agentChat } = await import("../shared/agent-chat.js");
+    vi.mocked(agentChat.call).mockClear();
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "svc-ci@service.org-acme",
+      __a2aServicePrincipalAllowedActions: ["read-*"],
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 34,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "read records" }],
+          },
+        },
+      },
+      event,
+      defaultConfig,
+    );
+
+    expect(agentChat.call).not.toHaveBeenCalled();
+    expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: "a2a:agent-chat-handoff",
+        orgId: undefined,
       }),
     );
   });

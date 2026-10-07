@@ -1,6 +1,10 @@
+import type { DbExec } from "../db/client.js";
+import { parseServiceIdentityEmail } from "./service-identity.js";
 import {
+  ensureTable,
   evaluateServicePrincipal,
   isActionGranted,
+  lockServicePrincipalLifecycle,
   SERVICE_PRINCIPAL_SUSPENDED_MESSAGE,
 } from "./service-principal-policy.js";
 
@@ -51,8 +55,11 @@ export function servicePrincipalActionDeniedError(
 export async function assertServicePrincipalMayRun(
   email: string | null | undefined,
   orgId?: string | null,
+  db?: Pick<DbExec, "execute">,
 ): Promise<{ allowedActions: string[] | null }> {
-  const state = await evaluateServicePrincipal(email, orgId);
+  const state = db
+    ? await evaluateServicePrincipal(email, orgId, db)
+    : await evaluateServicePrincipal(email, orgId);
   switch (state.status) {
     case "not-service":
     case "ungoverned":
@@ -71,6 +78,45 @@ export async function assertServicePrincipalMayRun(
         "service_principal_unavailable",
         SERVICE_PRINCIPAL_UNAVAILABLE_MESSAGE,
       );
+  }
+}
+
+/**
+ * Serialize a persisted run start with lifecycle changes, then recheck the
+ * verified principal state before the run row is inserted.
+ */
+export async function lockAndAssertServicePrincipalMayStartRun(
+  db: DbExec,
+  input: {
+    email: string;
+    orgId?: string | null;
+  },
+): Promise<ServicePrincipalRefusedError | undefined> {
+  const identity = parseServiceIdentityEmail(input.email);
+  if (!identity) return;
+  if (input.orgId?.trim() === identity.orgId) {
+    await lockServicePrincipalLifecycle(
+      db,
+      identity.orgId,
+      identity.serviceName,
+    );
+  }
+  try {
+    await assertServicePrincipalMayRun(input.email, input.orgId, db);
+    return;
+  } catch (error) {
+    if (error instanceof ServicePrincipalRefusedError) return error;
+    throw error;
+  }
+}
+
+export async function prepareServicePrincipalRunStart(input: {
+  email: string;
+  orgId?: string | null;
+}): Promise<void> {
+  const identity = parseServiceIdentityEmail(input.email);
+  if (identity && input.orgId?.trim() === identity.orgId) {
+    await ensureTable();
   }
 }
 
@@ -98,6 +144,8 @@ export async function recordServicePrincipalDenial(input: {
   if (input.error.statusCode !== 403) return;
   const orgId = input.orgId?.trim();
   if (!orgId) return;
+  const identity = parseServiceIdentityEmail(input.email);
+  if (!identity || identity.orgId !== orgId) return;
   const { recordActionAudit } = await import("../audit/record.js");
   await recordActionAudit({
     config: {

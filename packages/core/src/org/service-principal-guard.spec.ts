@@ -197,6 +197,24 @@ describe("recordServicePrincipalDenial", () => {
     expect(recordActionAuditMock).not.toHaveBeenCalled();
   });
 
+  it("does not write a denial into a verified org that conflicts with the identity", async () => {
+    let error: any;
+    try {
+      assertServicePrincipalMayCall([], "delete-doc");
+    } catch (e) {
+      error = e;
+    }
+    await recordServicePrincipalDenial({
+      email: SVC,
+      orgId: "org_2",
+      actionName: "delete-doc",
+      caller: "mcp",
+      error,
+    });
+
+    expect(recordActionAuditMock).not.toHaveBeenCalled();
+  });
+
   it("does not record a retryable unavailable refusal as a denial", async () => {
     executeMock.mockRejectedValue(new Error("db down"));
     vi.spyOn(console, "error").mockImplementation(() => {});

@@ -61,6 +61,7 @@ function sanitizeLineageUrl(
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return undefined;
     }
+    if (/%(?:2f|5c)/i.test(url.pathname)) return undefined;
     url.username = "";
     url.password = "";
     url.search = "";

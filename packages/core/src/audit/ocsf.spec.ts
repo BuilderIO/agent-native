@@ -151,6 +151,17 @@ describe("auditEventToOcsf", () => {
     );
   });
 
+  it("omits lineage URLs with encoded path separators", () => {
+    const out = auditEventToOcsf(
+      event({
+        sourceUrl: "https://source.example.test/api/token%2Ftopsecret",
+      }),
+    );
+
+    expect(out.unmapped.source_url).toBeUndefined();
+    expect(JSON.stringify(out)).not.toContain("topsecret");
+  });
+
   it("redacts known webhook URLs from exported lineage", () => {
     const out = auditEventToOcsf(
       event({ sourceUrl: "https://hooks.slack.com/services/example-only" }),

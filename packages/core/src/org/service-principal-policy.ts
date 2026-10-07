@@ -18,7 +18,7 @@
  * 3. A grant is deny-by-default once `allowedActions` is a list: an empty list
  *    grants nothing, and `null` is the only unrestricted value.
  */
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec, withDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import { parseServiceIdentityEmail } from "./service-identity.js";
 
@@ -175,13 +175,50 @@ function mapRow(r: any): ServicePrincipalPolicy {
 
 const COLUMNS = `org_id, service_name, owner_email, team, risk_tier, purpose, lifecycle, allowed_actions, lifecycle_reason, lifecycle_changed_by, lifecycle_changed_at, created_at, updated_at`;
 
+export function servicePrincipalLifecycleLockKey(
+  orgId: string,
+  serviceName: string,
+): string {
+  return `agent-native:service-principal-lifecycle:${orgId}:${serviceName}`;
+}
+
+export async function lockServicePrincipalLifecycle(
+  db: Pick<DbExec, "execute">,
+  orgId: string,
+  serviceName: string,
+): Promise<void> {
+  await db.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [servicePrincipalLifecycleLockKey(orgId, serviceName)],
+  });
+}
+
+export async function withServicePrincipalLifecycleLock<T>(
+  orgId: string,
+  serviceName: string,
+  work: (db: DbExec) => Promise<T>,
+): Promise<T> {
+  await ensureTable();
+  const db = getDbExec();
+  if (!db.transaction) {
+    throw new Error("Service principal lifecycle requires transaction support");
+  }
+  return db.transaction(async (tx) => {
+    return withDbExec(tx, async () => {
+      await lockServicePrincipalLifecycle(tx, orgId, serviceName);
+      return work(tx);
+    });
+  });
+}
+
 /** Throws when the store cannot be read; `null` means there is no record. */
 export async function getServicePrincipalPolicy(
   orgId: string,
   serviceName: string,
+  db: Pick<DbExec, "execute"> = getDbExec(),
 ): Promise<ServicePrincipalPolicy | null> {
   await ensureTable();
-  const { rows } = await getDbExec().execute({
+  const { rows } = await db.execute({
     sql: `SELECT ${COLUMNS} FROM service_principal_policies WHERE org_id = ? AND service_name = ? LIMIT 1`,
     args: [orgId, serviceName],
   });
@@ -271,11 +308,12 @@ export async function setServicePrincipalLifecycle(
   serviceName: string,
   lifecycle: ServicePrincipalLifecycle,
   change: { actorEmail: string; reason?: string | null },
+  db: Pick<DbExec, "execute"> = getDbExec(),
 ): Promise<ServicePrincipalPolicy> {
   await ensureTable();
   const now = Date.now();
   // Upsert so a legacy principal with no record can be suspended in one step.
-  await getDbExec().execute({
+  await db.execute({
     sql: `INSERT INTO service_principal_policies (org_id, service_name, risk_tier, lifecycle, lifecycle_reason, lifecycle_changed_by, lifecycle_changed_at, created_at, updated_at) VALUES (?, ?, 'medium', ?, ?, ?, ?, ?, ?)
           ON CONFLICT (org_id, service_name) DO UPDATE SET lifecycle = EXCLUDED.lifecycle, lifecycle_reason = EXCLUDED.lifecycle_reason, lifecycle_changed_by = EXCLUDED.lifecycle_changed_by, lifecycle_changed_at = EXCLUDED.lifecycle_changed_at, updated_at = EXCLUDED.updated_at
           WHERE service_principal_policies.lifecycle != 'retired' OR EXCLUDED.lifecycle = 'retired'`,
@@ -290,7 +328,7 @@ export async function setServicePrincipalLifecycle(
       now,
     ],
   });
-  const saved = await getServicePrincipalPolicy(orgId, serviceName);
+  const saved = await getServicePrincipalPolicy(orgId, serviceName, db);
   if (!saved) {
     throw new Error("Service principal policy was not readable after write.");
   }
@@ -308,6 +346,7 @@ export async function setServicePrincipalLifecycle(
 export async function evaluateServicePrincipal(
   email: string | null | undefined,
   orgId?: string | null,
+  db: Pick<DbExec, "execute"> = getDbExec(),
 ): Promise<ServicePrincipalState> {
   const parsed = parseServiceIdentityEmail(email);
   if (!parsed) return { status: "not-service" };
@@ -318,6 +357,7 @@ export async function evaluateServicePrincipal(
     const policy = await getServicePrincipalPolicy(
       parsed.orgId,
       parsed.serviceName,
+      db,
     );
     if (!policy) {
       return {

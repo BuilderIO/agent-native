@@ -14,7 +14,10 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { containServicePrincipal } from "../../agent/contain-principal.js";
+import {
+  containServicePrincipal,
+  prepareServicePrincipalContainment,
+} from "../../agent/contain-principal.js";
 import {
   orgAdminAudit,
   recordOrgAdminAuditEvent,
@@ -23,8 +26,12 @@ import {
   SERVICE_PRINCIPAL_LIFECYCLES,
   ServicePrincipalRetiredError,
   setServicePrincipalLifecycle,
+  withServicePrincipalLifecycleLock,
 } from "../../org/service-principal-policy.js";
-import { revokeServiceTokensByName } from "../connect-store.js";
+import {
+  ensureConnectTables,
+  revokeServiceTokensByName,
+} from "../connect-store.js";
 import {
   describeServicePrincipal,
   parseServiceName,
@@ -75,12 +82,51 @@ export default defineAction({
     await requireKnownServicePrincipal(caller.orgId, serviceName);
 
     let policy;
+    let abortedRuns = 0;
+    let revokedTokens = 0;
+    const containmentErrors: string[] = [];
     try {
-      policy = await setServicePrincipalLifecycle(
+      if (args.lifecycle !== "active") {
+        await prepareServicePrincipalContainment();
+      }
+      if (args.lifecycle === "retired") {
+        await ensureConnectTables();
+      }
+      policy = await withServicePrincipalLifecycleLock(
         caller.orgId,
         serviceName,
-        args.lifecycle,
-        { actorEmail: caller.email, reason: args.reason || null },
+        async (db) => {
+          const saved = await setServicePrincipalLifecycle(
+            caller.orgId,
+            serviceName,
+            args.lifecycle,
+            { actorEmail: caller.email, reason: args.reason || null },
+            db,
+          );
+          if (args.lifecycle !== "active") {
+            try {
+              const contained = await containServicePrincipal(
+                caller.orgId,
+                serviceName,
+              );
+              abortedRuns = contained.abortedRuns;
+              containmentErrors.push(...contained.containmentErrors);
+            } catch (error) {
+              containmentErrors.push(`abort runs: ${errorMessage(error)}`);
+            }
+          }
+          if (args.lifecycle === "retired") {
+            try {
+              revokedTokens = await revokeServiceTokensByName(
+                caller.orgId,
+                serviceName,
+              );
+            } catch (error) {
+              containmentErrors.push(`revoke tokens: ${errorMessage(error)}`);
+            }
+          }
+          return saved;
+        },
       );
     } catch (error) {
       if (error instanceof ServicePrincipalRetiredError) {
@@ -91,32 +137,6 @@ export default defineAction({
         "Could not change the service principal lifecycle. Nothing was changed; try again.",
         503,
       );
-    }
-
-    let abortedRuns = 0;
-    let revokedTokens = 0;
-    const containmentErrors: string[] = [];
-    if (args.lifecycle !== "active") {
-      try {
-        const contained = await containServicePrincipal(
-          caller.orgId,
-          serviceName,
-        );
-        abortedRuns = contained.abortedRuns;
-        containmentErrors.push(...contained.containmentErrors);
-      } catch (error) {
-        containmentErrors.push(`abort runs: ${errorMessage(error)}`);
-      }
-    }
-    if (args.lifecycle === "retired") {
-      try {
-        revokedTokens = await revokeServiceTokensByName(
-          caller.orgId,
-          serviceName,
-        );
-      } catch (error) {
-        containmentErrors.push(`revoke tokens: ${errorMessage(error)}`);
-      }
     }
 
     const principal = describeServicePrincipal(

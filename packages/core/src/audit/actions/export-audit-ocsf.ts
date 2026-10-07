@@ -59,12 +59,14 @@ function decodeCursor(cursor: string): ExportCursor {
     );
     if (parsed && typeof parsed === "object") {
       const value = parsed as Record<string, unknown>;
+      const latestSettledMs = Date.now() - SETTLE_MS;
       if (
         value.version === 3 &&
         (value.mode === "ready" || value.mode === "paging") &&
         typeof value.orgId === "string" &&
         value.orgId.length > 0 &&
         Number.isFinite(value.watermarkMs) &&
+        Number(value.watermarkMs) <= latestSettledMs &&
         (value.sinceMs === undefined || Number.isFinite(value.sinceMs)) &&
         (value.untilMs === undefined || Number.isFinite(value.untilMs))
       ) {
@@ -88,6 +90,7 @@ function decodeCursor(cursor: string): ExportCursor {
         const after = value.after as Record<string, unknown> | null;
         if (
           Number.isFinite(value.beforeMs) &&
+          Number(value.beforeMs) <= latestSettledMs &&
           after !== null &&
           typeof after === "object" &&
           Number.isFinite(after.createdAt) &&

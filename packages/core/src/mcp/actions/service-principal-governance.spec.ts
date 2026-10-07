@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const listOrgServiceTokensMock = vi.fn();
 const revokeByNameMock = vi.fn();
+const ensureConnectTablesMock = vi.fn();
 vi.mock("../connect-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../connect-store.js")>()),
+  ensureConnectTables: (...a: any[]) => ensureConnectTablesMock(...a),
   listOrgServiceTokens: (...a: any[]) => listOrgServiceTokensMock(...a),
   revokeServiceTokensByName: (...a: any[]) => revokeByNameMock(...a),
 }));
@@ -33,7 +35,10 @@ vi.mock("../../org/membership.js", async (importOriginal) => ({
 }));
 
 const containMock = vi.fn();
+const prepareContainmentMock = vi.fn();
 vi.mock("../../agent/contain-principal.js", () => ({
+  prepareServicePrincipalContainment: (...a: any[]) =>
+    prepareContainmentMock(...a),
   containServicePrincipal: (...a: any[]) => containMock(...a),
 }));
 
@@ -44,10 +49,30 @@ vi.mock("../../audit/org-admin.js", async (importOriginal) => ({
 }));
 
 const roleRows: Array<{ role: string }> = [];
-vi.mock("../../db/client.js", () => ({
-  getDbExec: () => ({
-    execute: vi.fn(async () => ({ rows: roleRows, rowsAffected: 0 })),
-  }),
+const dbCalls: Array<{ sql: string; args?: unknown[] }> = [];
+const executeMock = vi.fn(
+  async (input: string | { sql: string; args?: unknown[] }) => {
+    const sql = typeof input === "string" ? input : input.sql;
+    const args = typeof input === "string" ? [] : input.args;
+    dbCalls.push({ sql, args });
+    return {
+      rows: /FROM org_members/i.test(sql) ? roleRows : [],
+      rowsAffected: 0,
+    };
+  },
+);
+let transactionActive = false;
+const transactionMock = vi.fn(async (run: (tx: any) => Promise<unknown>) => {
+  transactionActive = true;
+  try {
+    return await run({ execute: executeMock });
+  } finally {
+    transactionActive = false;
+  }
+});
+vi.mock("../../db/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../db/client.js")>()),
+  getDbExec: () => ({ execute: executeMock, transaction: transactionMock }),
 }));
 
 const policyAction = (await import("./set-service-principal-policy.js"))
@@ -96,10 +121,13 @@ const token = (id: string, revokedAt: number | null = null, name = "ci") => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  transactionActive = false;
+  dbCalls.length = 0;
   setRole("admin");
   isOrgMemberMock.mockResolvedValue(true);
   getPolicyMock.mockResolvedValue(policy());
   listOrgServiceTokensMock.mockResolvedValue([token("t1")]);
+  ensureConnectTablesMock.mockResolvedValue(undefined);
   revokeByNameMock.mockResolvedValue(0);
   upsertPolicyMock.mockImplementation(async (_o, _n, input) =>
     policy(input as any),
@@ -113,6 +141,7 @@ beforeEach(() => {
     }),
   );
   containMock.mockResolvedValue({ abortedRuns: 2, containmentErrors: [] });
+  prepareContainmentMock.mockResolvedValue(undefined);
 });
 
 describe("governance actions are admin-only and out of the agent tool loop", () => {
@@ -151,6 +180,33 @@ describe("governance actions are admin-only and out of the agent tool loop", () 
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(setLifecycleMock).not.toHaveBeenCalled();
+  });
+
+  it("holds the principal lifecycle lock through suspension containment", async () => {
+    containMock.mockImplementationOnce(async () => {
+      expect(transactionActive).toBe(true);
+      return { abortedRuns: 2, containmentErrors: [] };
+    });
+    await lifecycleAction.run(
+      { serviceName: "ci", lifecycle: "suspended" },
+      CTX(),
+    );
+
+    const lockCall = dbCalls.find((call) =>
+      call.sql.includes("pg_advisory_xact_lock"),
+    );
+    expect(lockCall?.args).toEqual([
+      "agent-native:service-principal-lifecycle:org-1:ci",
+    ]);
+    expect(transactionMock).toHaveBeenCalled();
+    expect(setLifecycleMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      executeMock.mock.invocationCallOrder.find((_, index) =>
+        dbCalls[index]?.sql.includes("pg_advisory_xact_lock"),
+      ) ?? 0,
+    );
+    expect(containMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      setLifecycleMock.mock.invocationCallOrder[0],
+    );
   });
 
   it("answers 404 for a name with neither a token nor a policy", async () => {
@@ -331,10 +387,16 @@ describe("set-service-principal-lifecycle", () => {
       CTX(),
     );
     expect(order).toEqual(["lifecycle", "contain"]);
-    expect(setLifecycleMock).toHaveBeenCalledWith("org-1", "ci", "suspended", {
-      actorEmail: "admin@example.com",
-      reason: "incident",
-    });
+    expect(setLifecycleMock).toHaveBeenCalledWith(
+      "org-1",
+      "ci",
+      "suspended",
+      {
+        actorEmail: "admin@example.com",
+        reason: "incident",
+      },
+      expect.objectContaining({ execute: expect.any(Function) }),
+    );
     expect(containMock).toHaveBeenCalledWith("org-1", "ci");
     expect(res).toMatchObject({
       lifecycle: "suspended",
