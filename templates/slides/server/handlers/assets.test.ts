@@ -73,6 +73,17 @@ describe("uploaded asset validation", () => {
     ).toBe(true);
   });
 
+  it("allows parameterized safe raster data URLs inside SVG assets", () => {
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "logo.svg",
+        data: Buffer.from(
+          '<svg><image href="data:image/png;charset=binary;base64,AQID" /></svg>',
+        ),
+      }),
+    ).toBe(true);
+  });
+
   it("rejects SVGs with active content or external references", () => {
     expect(
       canSaveAsUploadedAsset({

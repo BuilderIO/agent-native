@@ -40,6 +40,11 @@ describe("usageAmount", () => {
     ).toBe(2);
     expect(usageAmount({ costCents: 900 }, { unit: "mixed" })).toBe(0);
   });
+
+  it("does not assign a currency or credit unit to unclassified history", () => {
+    expect(displayUnit({ unit: "unknown" })).toBe("unknown");
+    expect(usageAmount({ costCents: 900 }, { unit: "unknown" })).toBe(0);
+  });
 });
 
 describe("buildDailySeries", () => {

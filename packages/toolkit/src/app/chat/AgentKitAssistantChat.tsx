@@ -758,6 +758,31 @@ export const AgentKitAssistantChat = forwardRef<
       copied: t("agentChat.common.copied"),
       messageActions: t("agentChat.message.actions"),
       copyRequestId: t("agentChat.message.copyRequestId"),
+      usage: t("agentChat.message.usage"),
+      usageLoading: t("agentChat.message.usageLoading"),
+      usageUnavailable: t("agentChat.message.usageUnavailable"),
+      usageNotRecorded: t("agentChat.message.usageNotRecorded"),
+      usageIncomplete: t("agentChat.message.usageIncomplete"),
+      usageReportedCost: t("agentChat.message.usageReportedCost", {
+        amount: "{{amount}}",
+      }),
+      usageEstimatedCost: t("agentChat.message.usageEstimatedCost", {
+        amount: "{{amount}}",
+      }),
+      usageMixedCost: t("agentChat.message.usageMixedCost", {
+        amount: "{{amount}}",
+      }),
+      usageBuilderCredits: t("agentChat.message.usageBuilderCredits", {
+        amount: "{{amount}}",
+      }),
+      usageEstimatedBuilderCredits: t(
+        "agentChat.message.usageEstimatedBuilderCredits",
+        { amount: "{{amount}}" },
+      ),
+      usageMixedBuilderCredits: t(
+        "agentChat.message.usageMixedBuilderCredits",
+        { amount: "{{amount}}" },
+      ),
       requestIdUnavailable: t("agentChat.message.requestIdUnavailable"),
       messageUnavailable: t("agentChat.message.unavailable"),
       navigationUnavailable: t("agentChat.message.navigationUnavailable"),
@@ -1063,6 +1088,15 @@ export const AgentKitAssistantChat = forwardRef<
       null,
     [transport],
   );
+  const loadRunUsage = useCallback(
+    ({ runId, signal }: { runId: string; signal: AbortSignal }) =>
+      callAction<undefined, "get-usage-run">(
+        "get-usage-run",
+        { runId, scope: "me" },
+        { method: "GET", signal },
+      ),
+    [],
+  );
   const history = props.chatHistory as
     | AgentKitHistoryConfig<unknown, any, any>
     | undefined;
@@ -1085,6 +1119,7 @@ export const AgentKitAssistantChat = forwardRef<
           registry={agentKitRegistry}
           labels={labels}
           branchNavigation={props.branchNavigation}
+          loadRunUsage={loadRunUsage}
           onThreadForked={(thread) => props.onForkedThread?.(thread.id)}
           onCopyMessage={({ text }) => {
             const html = renderMarkdownToClipboardHtml(text);

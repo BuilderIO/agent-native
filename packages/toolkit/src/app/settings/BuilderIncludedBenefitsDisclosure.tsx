@@ -97,7 +97,12 @@ function BuilderBenefitRows({
     <TooltipProvider>
       {capabilities.map((capability) => {
         const label = capability.labelKey
-          ? t(capability.labelKey, { defaultValue: capability.label })
+          ? t(
+              capability.id === "llm"
+                ? "agentChat.onboarding.builderLlmCredits"
+                : capability.labelKey,
+              { defaultValue: capability.label },
+            )
           : capability.label;
         const whyKey =
           capability.whyKey ?? BUILDER_SERVICE_WHY_KEYS[capability.id];
@@ -141,9 +146,14 @@ export function BuilderIncludedBenefitsDisclosure({
 }) {
   const t = useT();
   const additionalServices = capabilities.filter(
-    (capability) => capability.id !== "llm" && capability.service !== "model",
+    (capability) => capability.id === "llm" || capability.service !== "model",
   );
   const canExpand = loading || !!error || additionalServices.length > 0;
+  const includesLlmCredits = additionalServices.some(
+    (capability) => capability.id === "llm",
+  );
+  const otherServiceCount =
+    additionalServices.length - Number(includesLlmCredits);
   const serviceList = loading ? (
     <div className="grid gap-2 py-1" aria-label={loadingLabel}>
       <Skeleton className="h-5 w-4/5" />
@@ -157,10 +167,19 @@ export function BuilderIncludedBenefitsDisclosure({
   ) : (
     <BuilderBenefitRows capabilities={additionalServices} />
   );
-  const moreServicesLabel = t("agentChat.onboarding.builderMoreServices", {
-    defaultValue: "+ {{count}} more services",
-    count: additionalServices.length,
-  });
+  const moreServicesLabel = includesLlmCredits
+    ? otherServiceCount > 0
+      ? t("agentChat.onboarding.builderLlmCreditsAndMoreServices", {
+          defaultValue: "LLM credits + {{count}} more services",
+          count: otherServiceCount,
+        })
+      : t("agentChat.onboarding.builderLlmCredits", {
+          defaultValue: "LLM credits",
+        })
+    : t("agentChat.onboarding.builderMoreServices", {
+        defaultValue: "+ {{count}} more services",
+        count: additionalServices.length,
+      });
 
   const summary = (
     <span className="flex min-w-0 flex-1 flex-col gap-1">

@@ -6,7 +6,10 @@ import {
 import { z } from "zod";
 
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
-import { restoreDashboardRevision } from "../server/lib/dashboards-store";
+import {
+  getDashboard,
+  restoreDashboardRevision,
+} from "../server/lib/dashboards-store";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -28,10 +31,11 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async (args, actionContext) => {
+    const ctx = resolveScope();
     const restored = await restoreDashboardRevision(
       args.dashboardId,
       args.revisionId,
-      resolveScope(),
+      ctx,
       args.expectedUpdatedAt,
     );
     if (!restored) {
@@ -43,9 +47,10 @@ export default defineAction({
       );
     }
     const { dashboard, snapshotRevisionId } = restored;
-    queueDashboardCollabSync(
+    void queueDashboardCollabSync(
       dashboard.id,
-      dashboard.config,
+      dashboard.updatedAt,
+      () => getDashboard(dashboard.id, ctx),
       actionContext?.caller === "frontend" ? undefined : "agent",
     );
     return {

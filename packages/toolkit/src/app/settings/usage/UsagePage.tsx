@@ -280,6 +280,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
   );
   const formatMoney = useCallback(
     (value: number) => {
+      if (unit === "unknown") return "—";
       if (unit === "usd") return formatUsd(value);
       const amount = format.formatNumber(value, {
         maximumFractionDigits: value >= 10 ? 0 : value >= 1 ? 1 : 2,
@@ -533,13 +534,15 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
     body = <UsageSkeleton />;
   } else if (tab === "overview") {
     const spendKey =
-      unit === "usd"
-        ? organizationView
-          ? "agentChat.settings.usage.estimatedSpend"
-          : "agentChat.settings.usage.yourEstimatedSpend"
-        : organizationView
-          ? "agentChat.settings.usage.creditSpend"
-          : "agentChat.settings.usage.yourCreditSpend";
+      unit === "unknown"
+        ? "agentChat.settings.usage.unclassifiedUsage"
+        : unit === "usd"
+          ? organizationView
+            ? "agentChat.settings.usage.estimatedSpend"
+            : "agentChat.settings.usage.yourEstimatedSpend"
+          : organizationView
+            ? "agentChat.settings.usage.creditSpend"
+            : "agentChat.settings.usage.yourCreditSpend";
     const tiles: Array<[string, string]> = [
       [t(spendKey), amountText(data.totals)],
       ...(billing.unit === "mixed"

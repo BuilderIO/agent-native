@@ -1,12 +1,14 @@
 .mail-product-art {
-  --mm-bg: hsl(0 0% 13%);
-  --mm-card: hsl(0 0% 15%);
-  --mm-fg: hsl(0 0% 90%);
-  --mm-muted: hsl(0 0% 60%);
-  --mm-border: hsl(0 0% 24%);
-  --mm-soft: hsl(0 0% 16%);
-  --mm-hover: hsl(0 0% 18%);
-  --mm-primary: hsl(0 0% 75%);
+  --mm-bg: var(--b-product-mock-bg);
+  --mm-card: var(--b-product-mock-surface);
+  --mm-fg: var(--b-product-mock-text);
+  --mm-muted: var(--b-product-mock-muted);
+  --mm-border: var(--b-product-mock-border);
+  --mm-divider: var(--b-product-mock-divider);
+  --mm-soft: var(--b-product-mock-raised);
+  --mm-hover: var(--b-product-mock-raised);
+  --mm-primary: var(--b-product-mock-text);
+  --mm-primary-foreground: var(--b-product-mock-bg);
   container-type: inline-size;
   min-height: 0;
   overflow: hidden;
@@ -318,7 +320,7 @@
 
 .mm-draft-actions span:first-child {
   border-color: var(--mm-primary);
-  color: hsl(var(--primary-foreground, 0 0% 100%));
+  color: var(--mm-primary-foreground);
   background: var(--mm-primary);
 }
 
@@ -385,7 +387,7 @@
   width: 27px;
   height: 27px;
   border-radius: 50%;
-  color: hsl(0 0% 10%);
+  color: var(--mm-primary-foreground);
   background: var(--mm-primary);
 }
 
@@ -479,8 +481,8 @@
   place-items: center;
   border: 1px solid var(--mm-card);
   border-radius: 50%;
-  color: hsl(0 0% 91%);
-  background: hsl(0 0% 27%);
+  color: var(--mm-fg);
+  background: var(--mm-soft);
   font-size: 9px;
   font-weight: 650;
 }
@@ -531,18 +533,18 @@
   height: 32px;
   flex: none;
   align-items: center;
-  border-bottom: 1px solid hsl(0 0% 22%);
+  border-bottom: 1px solid var(--mm-divider);
   padding: 0 6px;
   color: var(--mm-muted);
   font-size: 14px;
 }
 
 .mm-thread-row.is-focused {
-  background: hsl(0 0% 17%);
+  background: var(--mm-hover);
 }
 
 .mm-thread-row.is-hovered {
-  background: hsl(0 0% 18%);
+  background: var(--mm-hover);
 }
 
 .mm-row-unread {
@@ -557,7 +559,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: hsl(0 0% 72%);
+  background: var(--mm-primary);
 }
 
 .mm-sender {
@@ -565,7 +567,7 @@
   flex: 0 0 clamp(85px, 18%, 148px);
   overflow: hidden;
   margin-right: 6px;
-  color: hsl(0 0% 81%);
+  color: var(--mm-fg);
   font-size: 14px;
   font-weight: 450;
   text-overflow: ellipsis;
@@ -574,7 +576,7 @@
 
 .mm-sender.is-unread,
 .mm-subject-line .is-unread {
-  color: hsl(0 0% 91%);
+  color: var(--mm-fg);
   font-weight: 620;
 }
 
@@ -585,9 +587,9 @@
   overflow: hidden;
   border-radius: 3px;
   margin-right: 4px;
-  background: hsl(0 0% 23%);
+  background: var(--mm-soft);
   padding: 1px 6px;
-  color: hsl(0 0% 77%);
+  color: var(--mm-muted);
   font-size: 9px;
   line-height: 14px;
   text-overflow: ellipsis;
@@ -648,7 +650,7 @@
   max-width: 72%;
   flex: 0 1 auto;
   overflow: hidden;
-  color: hsl(0 0% 85%);
+  color: var(--mm-fg);
   font-size: 14px;
   font-weight: 500;
   text-overflow: ellipsis;
@@ -702,7 +704,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
-  background: hsl(0 0% 18%);
+  background: var(--mm-hover);
   color: var(--mm-muted);
 }
 

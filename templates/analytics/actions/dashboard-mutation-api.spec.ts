@@ -113,6 +113,80 @@ describe("dashboard mutation api", () => {
     ]);
   });
 
+  it("does not report same-value panel patches as changed", () => {
+    const root = clone(config());
+    const firstPanel = root.panels[0] as Record<string, unknown>;
+    firstPanel.config = {
+      xKey: "date",
+      yKeys: ["signups"],
+      yAxis: { format: "percent", minimum: 0 },
+    };
+    const original = clone(root);
+
+    const result = applyDashboardMutationOperations(root, [
+      {
+        op: "updatePanel",
+        panelId: "a",
+        patch: {
+          title: "Alpha",
+          config: {
+            yAxis: { minimum: 0, format: "percent" },
+            yKeys: ["signups"],
+            xKey: "date",
+          },
+        },
+      },
+    ]);
+
+    expect(root).toEqual(original);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.commandLog).toEqual(["updatePanel(a: no fields)"]);
+  });
+
+  it("does not report same-position moves or config-path patches as changed", () => {
+    const root = clone(config());
+    const firstPanel = root.panels[0] as Record<string, unknown>;
+    firstPanel.config = { yAxis: { format: "percent" } };
+    const original = clone(root);
+
+    const result = applyDashboardMutationOperations(root, [
+      { op: "movePanels", panelIds: ["a"], position: "top" },
+      {
+        op: "updatePanelPath",
+        panelId: "a",
+        path: "yAxis.format",
+        value: "percent",
+      },
+    ]);
+
+    expect(root).toEqual(original);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.movedPanelIds).toEqual([]);
+    expect(result.commandLog).toEqual([
+      "movePanels(no order change) -> index 0",
+      "updatePanelPath(a: config.yAxis.format unchanged)",
+    ]);
+  });
+
+  it("does not report same-value dashboard fields or filter defaults as changed", () => {
+    const root = clone(config());
+    root.name = "Traffic";
+    root.filters = [{ id: "period", default: "30d" }];
+    const original = clone(root);
+
+    const result = applyDashboardMutationOperations(root, [
+      { op: "setDashboard", patch: { name: "Traffic" } },
+      { op: "setFilterDefault", filterId: "period", value: "30d" },
+    ]);
+
+    expect(root).toEqual(original);
+    expect(result.dashboardFieldsChanged).toEqual([]);
+    expect(result.commandLog).toEqual([
+      "setDashboard(no changes)",
+      'setFilterDefault(period: "30d" unchanged)',
+    ]);
+  });
+
   it("supports matching panels by metadata and appending to a section", () => {
     const root = clone(config());
     const operations = parseDashboardMutationScript(

@@ -3150,7 +3150,8 @@ export function createAgentChatPlugin(
 
       if (mcpOptions.enabled) {
         // Mount MCP remote server — same action registry as A2A + agent chat
-        const { mountMCP } = await import("../mcp/server.js");
+        const { mountMCP, selectMcpDirectoryWidgetReadActions } =
+          await import("../mcp/server.js");
         mountMCP(nitroApp, {
           name: mcpServerName,
           title: mcpOptions.title,
@@ -3165,16 +3166,10 @@ export function createAgentChatPlugin(
           icons: mcpOptions.icons,
           actions: externalActions,
           productionActions: externalFullActions,
-          widgetReadActions:
-            mcpOptions.catalog === "directory" && mcpOptions.directoryProfile
-              ? Object.fromEntries(
-                  (mcpOptions.directoryProfile.widgetReadPrivateActions ?? [])
-                    .map((name) => [name, httpActions[name]] as const)
-                    .filter((entry): entry is readonly [string, ActionEntry] =>
-                      Boolean(entry[1]),
-                    ),
-                )
-              : undefined,
+          widgetReadActions: selectMcpDirectoryWidgetReadActions(
+            mcpOptions.directoryProfile,
+            templateScriptsAll,
+          ),
           ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
