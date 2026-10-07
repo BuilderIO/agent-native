@@ -2,7 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const orgStore = new Map<string, Record<string, unknown>>();
 const userStore = new Map<string, Record<string, unknown>>();
+const scopedSecrets = new Map<string, string>();
+const deploymentEnv = new Map<string, string>();
 let settingsReadThrows = false;
+const endpointState = vi.hoisted(() => ({ preserveCustomModels: false }));
+const deploymentFallbackState = vi.hoisted(() => ({ allowed: true }));
+
+vi.mock("./engine/registry.js", () => ({
+  resolveEnginePreservesCustomModels: vi.fn(
+    async () => endpointState.preserveCustomModels,
+  ),
+}));
 
 vi.mock("../settings/index.js", () => ({
   getOrgSetting: vi.fn(async (orgId: string, key: string) => {
@@ -39,22 +49,56 @@ vi.mock("../mcp/actions/service-token-access.js", () => ({
   ),
 }));
 
-type KeySource = "user" | "org" | "env" | undefined;
+type KeySource =
+  | "user"
+  | "org"
+  | "workspace"
+  | "env"
+  | { source: "user" | "org" | "workspace" | "env"; scopeId?: string }
+  | undefined;
 const keySources = new Map<string, KeySource>();
 let keyLookupFails = false;
 let builderSource: KeySource = undefined;
 vi.mock("../server/credential-provider.js", () => ({
+  canUseDeployCredentialFallbackForRequest: vi.fn(
+    () => deploymentFallbackState.allowed,
+  ),
+  readDeployCredentialEnv: vi.fn((key: string) => deploymentEnv.get(key)),
   resolveSecretDetailed: vi.fn(async (key: string) => {
     if (keyLookupFails) return { value: null, lookupFailed: true };
-    const source = keySources.get(key);
-    return source
-      ? { value: "fake-placeholder", lookupFailed: false, source }
-      : { value: null, lookupFailed: false };
+    const configured = keySources.get(key);
+    if (!configured) {
+      const envValue = deploymentEnv.get(key);
+      return envValue
+        ? { value: envValue, lookupFailed: false, source: "env" }
+        : { value: null, lookupFailed: false };
+    }
+    const source =
+      typeof configured === "string" ? configured : configured.source;
+    const scopeId =
+      typeof configured === "string" ? undefined : configured.scopeId;
+    return {
+      value: "fake-placeholder",
+      lookupFailed: false,
+      source,
+      ...(scopeId ? { scopeId } : {}),
+    };
   }),
   resolveBuilderCredentialsDetailed: vi.fn(async () => ({
     source: builderSource ?? null,
     lookupFailed: false,
   })),
+}));
+
+vi.mock("../secrets/storage.js", () => ({
+  readAppSecret: vi.fn(
+    async (ref: { key: string; scope: string; scopeId: string }) => {
+      const value = scopedSecrets.get(
+        `${ref.scope}::${ref.scopeId}::${ref.key}`,
+      );
+      return value ? { value, last4: "", updatedAt: 0 } : null;
+    },
+  ),
 }));
 
 let requestUserEmail: string | undefined;
@@ -72,6 +116,7 @@ const {
   readProviderModelSelection,
   resetProviderModelSelection,
   resolveEffectiveProviderModelSelection,
+  resolveProviderModelSelectionScope,
   resolveProviderModelSelectionAtScope,
   resolveUncheckedDefaultModelReplacement,
   writeProviderModelSelection,
@@ -84,9 +129,13 @@ const MEMBER = "member@example.com";
 beforeEach(() => {
   orgStore.clear();
   userStore.clear();
+  scopedSecrets.clear();
+  deploymentEnv.clear();
   roles.clear();
   keySources.clear();
   settingsReadThrows = false;
+  endpointState.preserveCustomModels = false;
+  deploymentFallbackState.allowed = true;
   keyLookupFails = false;
   builderSource = undefined;
   requestUserEmail = undefined;
@@ -110,10 +159,10 @@ describe("normalizeSelectedModels", () => {
   it("trims and de-duplicates in order", () => {
     expect(
       normalizeSelectedModels("openai", [" gpt-6-sol", "gpt-5.6-luna", ""]),
-    ).toEqual(["gpt-6-sol", "gpt-5.6-luna"]);
+    ).toEqual(["gpt-6.1-sol", "gpt-6-luna"]);
     expect(
       normalizeSelectedModels("openai", ["gpt-6-sol", "gpt-6-sol"]),
-    ).toEqual(["gpt-6-sol"]);
+    ).toEqual(["gpt-6.1-sol"]);
   });
 
   it("accepts ids outside the catalog for key providers", () => {
@@ -136,6 +185,214 @@ describe("normalizeSelectedModels", () => {
 });
 
 describe("selection scopes", () => {
+  it("upgrades saved model selections when newer provider models are available", async () => {
+    orgStore.set(`${ORG}::agent-provider-models:openai`, {
+      models: ["gpt-5.6-luna", "gpt-5.6-sol"],
+    });
+
+    const row = await readProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+    );
+
+    expect(row.models).toEqual(["gpt-6-luna", "gpt-6.1-sol"]);
+  });
+
+  it("preserves saved OpenAI models for a custom gateway", async () => {
+    scopedSecrets.set(`org::${ORG}::OPENAI_API_KEY`, "org-key-placeholder");
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://gateway.example/v1",
+    );
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+    expect(row.models).toEqual(["gpt-5.6-luna"]);
+  });
+
+  it("does not preserve custom models when a custom endpoint has no key", async () => {
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://gateway.example/v1",
+    );
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-6-luna"]);
+  });
+
+  it("does not preserve organization models for a personal key and org endpoint", async () => {
+    scopedSecrets.set(`user::${OWNER}::OPENAI_API_KEY`, "user-key-placeholder");
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://gateway.example/v1",
+    );
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-6-luna"]);
+  });
+
+  it("preserves user models when deployment credentials use a custom endpoint", async () => {
+    deploymentEnv.set("OPENAI_API_KEY", "deployment-key-placeholder");
+    deploymentEnv.set("OPENAI_BASE_URL", "https://gateway.example/v1");
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER },
+      "openai",
+      "user",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-5.6-luna"]);
+  });
+
+  it("does not preserve user models from a deployment gateway when fallback is blocked", async () => {
+    deploymentEnv.set("OPENAI_API_KEY", "deployment-key-placeholder");
+    deploymentEnv.set("OPENAI_BASE_URL", "https://gateway.example/v1");
+    deploymentFallbackState.allowed = false;
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER },
+      "openai",
+      "user",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-6-luna"]);
+    expect(row.preserveCustomModels).not.toBe(true);
+  });
+
+  it("does not pair a deployment endpoint with a scoped organization key", async () => {
+    scopedSecrets.set(`org::${ORG}::OPENAI_API_KEY`, "org-key-placeholder");
+    deploymentEnv.set("OPENAI_BASE_URL", "https://gateway.example/v1");
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-6-luna"]);
+  });
+
+  it("preserves organization models when a designated vault owns the custom endpoint", async () => {
+    keySources.set("OPENAI_API_KEY", {
+      source: "org",
+      scopeId: "vault-org",
+    });
+    keySources.set("OPENAI_BASE_URL", {
+      source: "org",
+      scopeId: "vault-org",
+    });
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-5.6-luna"]);
+  });
+
+  it("preserves organization models when deployment credentials own the custom endpoint", async () => {
+    deploymentEnv.set("OPENAI_API_KEY", "deployment-key-placeholder");
+    deploymentEnv.set("OPENAI_BASE_URL", "https://gateway.example/v1");
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-5.6-luna"]);
+  });
+
+  it("preserves custom models backed by a personal legacy workspace key", async () => {
+    scopedSecrets.set(
+      `workspace::solo:${OWNER}::OPENAI_API_KEY`,
+      "legacy-key-placeholder",
+    );
+    scopedSecrets.set(
+      `workspace::solo:${OWNER}::OPENAI_BASE_URL`,
+      "https://legacy-gateway.example/v1",
+    );
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER },
+      "openai",
+      "user",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-5.6-luna"]);
+    expect(row.preserveCustomModels).toBe(true);
+  });
+
+  it("does not use the request actor's custom endpoint for organization models", async () => {
+    endpointState.preserveCustomModels = true;
+    scopedSecrets.set(`user::${OWNER}::OPENAI_API_KEY`, "user-key-placeholder");
+    scopedSecrets.set(
+      `user::${OWNER}::OPENAI_BASE_URL`,
+      "https://personal-gateway.example/v1",
+    );
+    scopedSecrets.set(`org::${ORG}::OPENAI_API_KEY`, "org-key-placeholder");
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://api.openai.com/v1",
+    );
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-6-luna"]);
+  });
+
+  it("uses the organization's custom endpoint when an actor has no custom endpoint", async () => {
+    endpointState.preserveCustomModels = false;
+    scopedSecrets.set(`user::${OWNER}::OPENAI_API_KEY`, "user-key-placeholder");
+    scopedSecrets.set(
+      `user::${OWNER}::OPENAI_BASE_URL`,
+      "https://api.openai.com/v1",
+    );
+    scopedSecrets.set(`org::${ORG}::OPENAI_API_KEY`, "org-key-placeholder");
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://org-gateway.example/v1",
+    );
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-5.6-luna"]);
+  });
+
   it("lets an owner set the organization's models", async () => {
     await writeProviderModelSelection(
       { userEmail: OWNER, orgId: ORG },
@@ -148,7 +405,7 @@ describe("selection scopes", () => {
       "openai",
       "org",
     );
-    expect(row.models).toEqual(["gpt-6-sol"]);
+    expect(row.models).toEqual(["gpt-6.1-sol"]);
     expect(row.updatedBy).toBe(OWNER);
   });
 
@@ -188,7 +445,7 @@ describe("selection scopes", () => {
       "openai",
       "user",
     );
-    expect(org.models).toEqual(["gpt-6-sol", "gpt-5.6-luna"]);
+    expect(org.models).toEqual(["gpt-6.1-sol", "gpt-6-luna"]);
     expect(ownerPersonal.models).toBeNull();
   });
 
@@ -241,7 +498,7 @@ describe("resolveEffectiveProviderModelSelection", () => {
       state: "selected",
       provider: "openai",
       scope: "org",
-      models: ["gpt-6-sol"],
+      models: ["gpt-6.1-sol"],
     });
   });
 
@@ -255,8 +512,22 @@ describe("resolveEffectiveProviderModelSelection", () => {
     ).toMatchObject({
       state: "selected",
       scope: "user",
-      models: ["gpt-5.6-luna"],
+      models: ["gpt-6-luna"],
     });
+  });
+
+  it("uses personal model selections for legacy solo workspace credentials", async () => {
+    keySources.set("OPENAI_API_KEY", {
+      source: "workspace",
+      scopeId: `solo:${MEMBER}`,
+    });
+
+    await expect(
+      resolveProviderModelSelectionScope("openai", {
+        userEmail: MEMBER,
+        orgId: ORG,
+      }),
+    ).resolves.toBe("user");
   });
 
   it("follows a personal Builder.io connection", async () => {
@@ -299,7 +570,11 @@ describe("resolveEffectiveProviderModelSelection", () => {
         userEmail: MEMBER,
         orgId: ORG,
       }),
-    ).toMatchObject({ state: "selected", scope: "org", models: ["gpt-6-sol"] });
+    ).toMatchObject({
+      state: "selected",
+      scope: "org",
+      models: ["gpt-6.1-sol"],
+    });
   });
 });
 
@@ -338,7 +613,49 @@ describe("resolveUncheckedDefaultModelReplacement", () => {
         name: "ai-sdk:openai",
         defaultModel: "gpt-5.6-luna",
       }),
-    ).toBe("gpt-6-sol");
+    ).toBe("gpt-6.1-sol");
+  });
+
+  it("does not upgrade a checked default against the public catalog for a custom endpoint", async () => {
+    scopedSecrets.set(`org::${ORG}::OPENAI_API_KEY`, "org-key-placeholder");
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://gateway.example/v1",
+    );
+    await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-6-sol", "gpt-5.6-luna"],
+    );
+
+    expect(
+      await resolveUncheckedDefaultModelReplacement({
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-luna",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("retains custom endpoint preservation when no selection row exists", async () => {
+    scopedSecrets.set(`org::${ORG}::OPENAI_API_KEY`, "org-key-placeholder");
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://gateway.example/v1",
+    );
+
+    await expect(
+      resolveEffectiveProviderModelSelection("openai"),
+    ).resolves.toMatchObject({
+      state: "default",
+      preserveCustomModels: true,
+    });
+    await expect(
+      resolveUncheckedDefaultModelReplacement({
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-luna",
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("keeps the engine default when the selection can't be read", async () => {

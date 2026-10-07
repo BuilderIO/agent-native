@@ -497,7 +497,12 @@ const messages = {
       signedInAs: "Iniciado sesión como",
       switchAccount: "Cambiar de cuenta",
       verifyEmail:
-        "Revise su correo electrónico para verificar la cuenta y luego vuelva a abrir este enlace.",
+        "Revise su correo y abra el enlace de verificación. Volverá a este plan; si se le pide iniciar sesión, hágalo abajo con el mismo correo.",
+      resendVerification: "Reenviar correo de verificación",
+      resendingVerification: "Enviando correo de verificación…",
+      verificationEmailResent: "Correo de verificación enviado.",
+      verificationEmailFailed:
+        "No se pudo reenviar el correo de verificación. Inténtelo de nuevo.",
     },
     localMode: {
       badge: "modo local",

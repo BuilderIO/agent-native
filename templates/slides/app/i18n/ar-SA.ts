@@ -352,6 +352,7 @@ const messages = {
     googleSlidesCreated: "تم الفتح في Google Slides",
     googleSlidesCreatedHint:
       "تم إنشاء نسخة من هذا العرض في Google Drive الخاص بك.",
+    googleSlidesGoTo: "الانتقال إلى Google Slides",
     duplicateDeck: "تكرار العرض",
   },
   share: {

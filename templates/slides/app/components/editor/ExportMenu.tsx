@@ -130,7 +130,9 @@ export function ExportStatusDialog({
         }
       }}
     >
-      <DialogContent hideClose={status.state === "exporting"}>
+      <DialogContent
+        hideClose={status.state === "exporting" || status.state === "ready"}
+      >
         {status.state === "exporting" ? (
           <>
             <DialogHeader>
@@ -382,6 +384,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
             title: t("editorExport.googleSlidesCreated"),
             description: t("editorExport.googleSlidesCreatedHint"),
             openUrl: result.url,
+            openLabel: t("editorExport.googleSlidesGoTo"),
           });
           return;
         }

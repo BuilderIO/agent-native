@@ -1983,6 +1983,13 @@ export default {
       "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "أنظمة التصميم قريبًا",
+    waitlist: {
+      join: "انضم إلى قائمة الانتظار",
+      joining: "جارٍ الانضمام...",
+      joined: "أنت على قائمة الانتظار",
+      error: "تعذّر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
+    },
     deleteError: "لا يمكن حذف نظام التصميم",
     updateSuccess: "تم تحديث نظام التصميم",
     updateError: "لا يمكن تحديث نظام التصميم",

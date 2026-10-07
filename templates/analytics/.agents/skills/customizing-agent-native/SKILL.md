@@ -88,9 +88,6 @@ await assertDesignSystemConformance({
 });
 ```
 
-New components and optional props are minor contract changes. Required props,
-removed APIs, or behavioral changes require a new contract major.
-
 ## Customize A Shared Feature
 
 Prefer feature-level headless controllers over rebuilding individual widgets.
@@ -117,11 +114,10 @@ rewrites, protected package contracts, and verification commands before
 writing. `--apply` copies the package-version-matched source into the app and
 rewrites only imports covered by the unit manifest.
 
-Every first-party public ejection unit must have a complete manifest. If one is
-missing, treat that as a framework coverage bug instead of inventing a copy
+If a framework feature has no ejection unit, follow its documented
+configuration, adapter, or extension seam; do not invent a manual package-copy
 recipe. For an unknown third-party package, use the emitted add-style blueprint
-as a starting point. Protected runtime behavior is never copied; follow the
-reported configuration, adapter, or extension seam instead.
+as a starting point. Protected runtime behavior is never copied.
 
 Applied ejections are recorded in the committed
 `agent-native.ejections.json`, including package version, manifest digest,
@@ -192,8 +188,8 @@ UI ownership may change; product contracts should not:
 - **Headless app:** stay action-first while no UI is needed. When adding a UI,
   use the Chat template as the on-ramp or add Toolkit components without
   replacing the existing actions.
-- **Workspace:** put one-app overrides in that app. Promote a local component
-  to `packages/shared` only when multiple workspace apps use it.
+- **Workspace:** keep one-app overrides in that app. Promote a local component
+  to a shared workspace package when multiple workspace apps use it.
 
 ## After Ejecting
 
@@ -211,14 +207,13 @@ UI ownership may change; product contracts should not:
 - Don't edit or import from `node_modules/@agent-native/*/src` at runtime.
 - Don't add `pnpm.overrides`, patches, or resolutions for Agent-Native packages.
 - Don't copy Core auth, DB, action, agent-loop, or transport internals.
-- Don't manually copy a first-party unit with a missing recipe; fix its manifest.
+- Don't manually copy a package feature when no supported ejection is published;
+  use its documented configuration, adapter, or extension seam.
 - Don't eject a full package when a prop, slot, wrapper, or smaller unit works.
 - Don't fork feature state into a custom view; consume the feature's controller.
 
 ## Related Skills
 
-- `agent-native-docs` — version-matched docs and source lookup
+- `agent-native-docs` — version-matched docs, source lookup, and package upgrades
 - `agent-native-toolkit` — shared-vs-app-owned architecture boundary
-- `self-modifying-code` — safe app source edits
-- `upgrade-agent-native` — supported package upgrade path
 - `adding-a-feature` — UI/action/instructions/application-state parity
