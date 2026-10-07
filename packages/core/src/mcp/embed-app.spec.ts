@@ -38,6 +38,10 @@ describe("embedApp", () => {
     expect(html).toContain("bridge.toolResponseMetadata");
     expect(html).toContain('toolResponseMetadata["agent-native/openLink"]');
     expect(html).toMatch(/record\.label \|\| openLink\.label \|\| record\.app/);
+    const syncSignature = html.match(
+      /signature = JSON\.stringify\(\[\s*toolInput,[\s\S]*?\]\);/,
+    );
+    expect(syncSignature?.[0]).toContain("openLinkLabel");
     expect(html).toContain("openAiBridge.callTool(startTool, args)");
     expect(html).toContain("openAiBridge.openExternal");
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
