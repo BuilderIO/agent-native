@@ -822,6 +822,7 @@ test.describe("groups", () => {
     }
   });
 
+  // oracle: none — verifies paint persistence and undo behavior, not visual fidelity.
   test("Selection colors records a repeated preview as one undo step", async ({
     page,
   }) => {

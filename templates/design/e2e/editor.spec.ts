@@ -151,6 +151,7 @@ test("agent rail stays contained at a narrow viewport", async ({
   await cdpScreenshot(page, testInfo.outputPath("design-agent-narrow.png"));
 });
 
+// oracle: none — verifies viewport bounds, not parity with a design reference.
 test("designs list shared sidebar stays contained at normal and narrow widths", async ({
   page,
 }, testInfo) => {
