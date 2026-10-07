@@ -6,13 +6,13 @@ import {
   QUERY_BUDGET_APPS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
-  designCanvasE2eSpecsForPaths,
   shardQueryBudgetApps,
   isDocsPath,
   isGuardScopedScriptPath,
   isInstructionPath,
   isWorkspacePath,
   normalizeChangedPath,
+  runtimeSourceChangesInTestTitledPr,
   scriptTestsForPaths,
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
@@ -51,6 +51,63 @@ test("normalizes paths from git output", () => {
   assert.equal(
     normalizeChangedPath("packages\\docs\\README.md"),
     "packages/docs/README.md",
+  );
+});
+
+test("rejects runtime changes hidden under a test-only PR title", () => {
+  assert.deepEqual(
+    runtimeSourceChangesInTestTitledPr("test: prove parity", [
+      "templates/design/actions/generate-design.ts",
+      "templates/design/app/pages/design-editor/editor-state.ts",
+      "templates/design/server/plugins/core-routes.ts",
+      "templates/design/shared/canvas-math.ts",
+      "templates/design/.generated/bridge/editor-chrome.generated.ts",
+      "packages/core/src/index.ts",
+      "templates/design/ssr-entry.ts",
+      "templates/design/agent-native.config.ts",
+      "templates/design/agent-native.json",
+      "templates/design/react-router.config.ts",
+      "templates/design/vite.config.ts",
+      "templates/design/public/logo.svg",
+      "templates/design/app/pages/design-editor/editor-state.spec.ts",
+      "templates/design/app/hooks/use-navigation-state.test.ts",
+      "templates/design/scripts/visual-edit-runtime-proof.ts",
+      "templates/slides/public/visual-edit-structure-proof.html",
+    ]),
+    [
+      "templates/design/actions/generate-design.ts",
+      "templates/design/app/pages/design-editor/editor-state.ts",
+      "templates/design/server/plugins/core-routes.ts",
+      "templates/design/shared/canvas-math.ts",
+      "templates/design/.generated/bridge/editor-chrome.generated.ts",
+      "packages/core/src/index.ts",
+      "templates/design/ssr-entry.ts",
+      "templates/design/agent-native.config.ts",
+      "templates/design/agent-native.json",
+      "templates/design/react-router.config.ts",
+      "templates/design/vite.config.ts",
+      "templates/design/public/logo.svg",
+    ],
+  );
+  assert.deepEqual(
+    runtimeSourceChangesInTestTitledPr("test(design)!: prove parity", [
+      "templates/design/app/pages/design-editor/editor-state.ts",
+    ]),
+    ["templates/design/app/pages/design-editor/editor-state.ts"],
+  );
+  assert.deepEqual(
+    runtimeSourceChangesInTestTitledPr("fix: correct editor state", [
+      "templates/design/app/pages/design-editor/editor-state.ts",
+    ]),
+    [],
+  );
+});
+
+test("passes the pull request title to the change-scope guard", () => {
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  assert.match(
+    workflow,
+    /CI_PR_TITLE:\s*\$\{\{\s*github\.event\.pull_request\.title\s*\}\}/u,
   );
 });
 
@@ -475,7 +532,6 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
   ]) {
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.checks.design_canvas_interaction_e2e, true, path);
-    assert.deepEqual(scope.designCanvasE2eSpecs, [path], path);
   }
 
   assert.equal(
@@ -490,12 +546,8 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
   );
 });
 
-test("the Design interaction gate runs G7 and every changed Design E2E spec", () => {
+test("the Design interaction gate runs the bounded regression acceptance cases", () => {
   const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
-  assert.match(
-    workflow,
-    /^      design_canvas_e2e_files: \$\{\{ steps\.scope\.outputs\.design_canvas_e2e_files \}\}$/m,
-  );
 
   const step = (name: string) => {
     const marker = `      - name: ${name}\n`;
@@ -504,19 +556,89 @@ test("the Design interaction gate runs G7 and every changed Design E2E spec", ()
     const next = workflow.indexOf("\n      - name: ", start + marker.length);
     return workflow.slice(start, next === -1 ? undefined : next);
   };
-  assert.ok(
-    step("Run focused Design canvas interaction cases").includes("--grep"),
-  );
+  const regressionCases = step("Run focused Design regression cases");
+  assert.ok(regressionCases.includes("timeout-minutes: 10"));
+  assert.ok(regressionCases.includes("--workers=1"));
+  const selectedTests = [
+    [
+      "e2e/canvas-invariants.spec.ts",
+      1286,
+      "deleting a layer removes it from the document",
+    ],
+    [
+      "e2e/drag-and-drop.drag-feedback.spec.ts",
+      24,
+      "snap guides appear when an edge aligns with a sibling",
+    ],
+    [
+      "e2e/drag-and-drop.moving-by-drag.spec.ts",
+      42,
+      "dropping over a sibling keeps the moved position after reload",
+    ],
+    [
+      "e2e/drag-and-drop.moving-by-drag.spec.ts",
+      105,
+      "Alt+drag leaves the original and creates a copy",
+    ],
+    [
+      "e2e/parity-selection.spec.ts",
+      313,
+      "board regression: an overlapping Frame drop into another board Frame persists after reload",
+    ],
+    [
+      "e2e/parity-selection.spec.ts",
+      451,
+      "board regression: overlapping board Frames keep the pointer drop without cancel or revert",
+    ],
+    [
+      "e2e/pasted-svg-image-inspector.spec.ts",
+      656,
+      "clipboard SVG File paste in the parent editor stays editable after reload",
+    ],
+    [
+      "e2e/pasted-svg-image-inspector.spec.ts",
+      693,
+      "rejected SVG HTML is consumed instead of inserted as native markup",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      484,
+      "Position stays Frame-relative through Groups and resets at nested Frames",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      529,
+      "Position edits use the CSS containing block through static wrappers and borders",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      606,
+      "Position edits invert own and static-containing-block transforms and persist",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      646,
+      "Align uses a Group's bounds while Position stays Frame-relative",
+    ],
+  ] as const;
+  for (const [file, line, title] of selectedTests) {
+    const location = `${file}:${line}`;
+    assert.ok(regressionCases.includes(location), location);
+    const sourceLine = readFileSync(`templates/design/${file}`, "utf8").split(
+      "\n",
+    )[line - 1];
+    assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
+  }
+  assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts"));
+  assert.ok(!workflow.includes("Run changed Design E2E specs"));
+});
 
-  const changedSpecs = step("Run changed Design E2E specs");
-  assert.ok(
-    changedSpecs.includes(
-      "DESIGN_CANVAS_E2E_FILES: ${{ needs.change-scope.outputs.design_canvas_e2e_files }}",
-    ),
-  );
-  assert.ok(changedSpecs.includes('"${changed_design_e2e_specs[@]}"'));
-  assert.ok(changedSpecs.includes("unexpected Design E2E path"));
-  assert.ok(changedSpecs.includes("--workers=1"));
+test("a deleted Design E2E path runs the focused interaction suite", () => {
+  const scope = classifyChangedPaths([
+    "templates/design/e2e/removed-by-this-change.spec.ts",
+  ]);
+
+  assert.equal(scope.checks.design_canvas_interaction_e2e, true);
 });
 
 test("selects the Content two-tab convergence lane for its runtime dependencies", () => {

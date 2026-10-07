@@ -4202,15 +4202,178 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el.parentElement;
   }
 
-  function positionReferenceForElement(el: Element): Element | null {
+  function positionReferenceRectForElement(el: Element) {
     var ancestor = el.parentElement;
     while (ancestor) {
       if (ancestor.getAttribute("data-an-primitive") === "frame") {
-        return ancestor;
+        return rectInfoForElement(ancestor);
       }
       ancestor = ancestor.parentElement;
     }
-    return el.ownerDocument.body || el.ownerDocument.documentElement;
+    var root = el.ownerDocument.documentElement;
+    return {
+      x: 0,
+      y: 0,
+      width: root.clientWidth,
+      height: root.clientHeight,
+    };
+  }
+
+  function multiplyPositionTransforms(
+    left: { a: number; b: number; c: number; d: number },
+    right: { a: number; b: number; c: number; d: number },
+  ) {
+    return {
+      a: left.a * right.a + left.c * right.b,
+      b: left.b * right.a + left.d * right.b,
+      c: left.a * right.c + left.c * right.d,
+      d: left.b * right.c + left.d * right.d,
+    };
+  }
+
+  function positionElementTransform(styles: CSSStyleDeclaration) {
+    var transform =
+      styles.transform === "none"
+        ? { a: 1, b: 0, c: 0, d: 1 }
+        : new DOMMatrixReadOnly(styles.transform);
+    var result = {
+      a: transform.a,
+      b: transform.b,
+      c: transform.c,
+      d: transform.d,
+    };
+    var scaleValue = styles.getPropertyValue("scale");
+    if (scaleValue && scaleValue !== "none") {
+      var scaleParts = scaleValue.trim().split(/\s+/);
+      var scaleX = Number.parseFloat(scaleParts[0] || "1");
+      var scaleY = Number.parseFloat(scaleParts[1] || scaleParts[0] || "1");
+      result = multiplyPositionTransforms(
+        { a: scaleX, b: 0, c: 0, d: scaleY },
+        result,
+      );
+    }
+    var rotateValue = styles.getPropertyValue("rotate");
+    if (rotateValue && rotateValue !== "none") {
+      var rotateParts = rotateValue.trim().split(/\s+/);
+      var angle = rotateParts[rotateParts.length - 1] || "0deg";
+      var axis = rotateParts.length > 1 ? rotateParts[0] : "z";
+      var rotateFunction =
+        axis === "x" || axis === "y" ? "rotate" + axis.toUpperCase() : "rotate";
+      var rotation = new DOMMatrixReadOnly(rotateFunction + "(" + angle + ")");
+      result = multiplyPositionTransforms(
+        { a: rotation.a, b: rotation.b, c: rotation.c, d: rotation.d },
+        result,
+      );
+    }
+    var zoom = Number.parseFloat(styles.getPropertyValue("zoom"));
+    if (Number.isFinite(zoom) && zoom !== 1) {
+      result = multiplyPositionTransforms(
+        { a: zoom, b: 0, c: 0, d: zoom },
+        result,
+      );
+    }
+    return result;
+  }
+
+  function establishesPositioningContext(styles: CSSStyleDeclaration) {
+    var translate = styles.getPropertyValue("translate");
+    var rotate = styles.getPropertyValue("rotate");
+    var scale = styles.getPropertyValue("scale");
+    var backdropFilter = styles.getPropertyValue("backdrop-filter");
+    return (
+      (translate !== "" && translate !== "none") ||
+      (rotate !== "" && rotate !== "none") ||
+      (scale !== "" && scale !== "none") ||
+      styles.transform !== "none" ||
+      styles.perspective !== "none" ||
+      styles.filter !== "none" ||
+      (backdropFilter !== "" && backdropFilter !== "none") ||
+      /(?:^|\s)(?:layout|paint|strict|content)(?:\s|$)/.test(styles.contain) ||
+      /transform|perspective|filter|contain/.test(styles.willChange) ||
+      styles.contentVisibility === "auto"
+    );
+  }
+
+  function positionContainingBlockForElement(el: Element) {
+    var fixed = window.getComputedStyle(el).position === "fixed";
+    var containingBlock: Element | null = null;
+    var ancestor = el.parentElement;
+    while (ancestor) {
+      var styles = window.getComputedStyle(ancestor);
+      if (
+        (fixed && establishesPositioningContext(styles)) ||
+        (!fixed &&
+          (styles.position !== "static" ||
+            establishesPositioningContext(styles)))
+      ) {
+        containingBlock = ancestor;
+        break;
+      }
+      ancestor = ancestor.parentElement;
+    }
+
+    var transform = { a: 1, b: 0, c: 0, d: 1 };
+    for (
+      ancestor = containingBlock;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      transform = multiplyPositionTransforms(
+        positionElementTransform(window.getComputedStyle(ancestor)),
+        transform,
+      );
+    }
+
+    if (!containingBlock) {
+      return {
+        origin: { x: 0, y: 0 },
+        transform: transform,
+      };
+    }
+
+    var htmlContainingBlock = containingBlock as HTMLElement;
+    var quaddedContainingBlock = containingBlock as Element & {
+      getBoxQuads?: (options?: { box?: string }) => Array<{
+        p1: { x: number; y: number };
+      }>;
+    };
+    var paddingQuad = quaddedContainingBlock.getBoxQuads?.({
+      box: "padding",
+    })?.[0];
+    var scrollX = htmlContainingBlock.scrollLeft || 0;
+    var scrollY = htmlContainingBlock.scrollTop || 0;
+    if (paddingQuad) {
+      return {
+        origin: {
+          x:
+            paddingQuad.p1.x +
+            window.scrollX -
+            transform.a * scrollX -
+            transform.c * scrollY,
+          y:
+            paddingQuad.p1.y +
+            window.scrollY -
+            transform.b * scrollX -
+            transform.d * scrollY,
+        },
+        transform: transform,
+      };
+    }
+
+    var rect = rectInfoForElement(containingBlock);
+    return {
+      origin: {
+        x:
+          rect.x +
+          transform.a * (htmlContainingBlock.clientLeft - scrollX) +
+          transform.c * (htmlContainingBlock.clientTop - scrollY),
+        y:
+          rect.y +
+          transform.b * (htmlContainingBlock.clientLeft - scrollX) +
+          transform.d * (htmlContainingBlock.clientTop - scrollY),
+      },
+      transform: transform,
+    };
   }
 
   function autoLayoutParentInfo(el: Element) {
@@ -6242,7 +6405,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var componentName = componentNameForElement(el);
     var parentAutoLayout = autoLayoutParentInfo(el);
     var designParent = designParentForElement(el);
-    var positionReference = positionReferenceForElement(el);
+    var positionReferenceRect = positionReferenceRectForElement(el);
+    var positionCoordinateContext = positionContainingBlockForElement(el);
     var parentStyles = designParent
       ? window.getComputedStyle(designParent)
       : null;
@@ -6359,9 +6523,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       parentBoundingRect: designParent
         ? rectInfoForElement(designParent)
         : undefined,
-      positionReferenceRect: positionReference
-        ? rectInfoForElement(positionReference)
-        : undefined,
+      positionReferenceRect: positionReferenceRect,
+      positionContainingBlockOrigin: positionCoordinateContext.origin,
+      positionContainingBlockTransform: positionCoordinateContext.transform,
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       textContentTruncated: el.textContent
         ? el.textContent.length > 200

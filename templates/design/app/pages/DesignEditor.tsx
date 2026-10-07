@@ -1141,6 +1141,7 @@ import {
   PngCaptureError,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
+import { measurePositionCoordinateContext } from "./design-editor/position-coordinate-context";
 import { mergePresenceUsers } from "./design-editor/presence-users";
 import { openPreviewUrl } from "./design-editor/preview-navigation";
 import type { ReactGridPlacement } from "./design-editor/react-semantic-handoff";
@@ -1315,20 +1316,15 @@ function readRenderedLayerInfo(
       if (!element) continue;
       const computed = preview.getComputedStyle(element);
       const parent = element.parentElement;
-      let positionReference = parent;
-      while (
-        positionReference &&
-        positionReference.getAttribute("data-an-primitive") !== "frame"
-      ) {
-        positionReference = positionReference.parentElement;
-      }
-      positionReference ??= preview.document.body;
+      const positionCoordinateContext = measurePositionCoordinateContext(
+        element,
+        preview,
+      );
       const parentComputed = parent
         ? preview.getComputedStyle(parent)
         : undefined;
       const rect = element.getBoundingClientRect();
       const parentRect = parent?.getBoundingClientRect();
-      const positionReferenceRect = positionReference?.getBoundingClientRect();
       const scrollX = preview.scrollX || preview.pageXOffset || 0;
       const scrollY = preview.scrollY || preview.pageYOffset || 0;
       if (rect.width <= 0 || rect.height <= 0) continue;
@@ -1354,14 +1350,7 @@ function readRenderedLayerInfo(
               height: parentRect.height,
             }
           : undefined,
-        positionReferenceRect: positionReferenceRect
-          ? {
-              x: positionReferenceRect.x + scrollX,
-              y: positionReferenceRect.y + scrollY,
-              width: positionReferenceRect.width,
-              height: positionReferenceRect.height,
-            }
-          : undefined,
+        ...positionCoordinateContext,
         ...(parentComputed
           ? {
               parentDisplay: parentComputed.display,
@@ -13168,6 +13157,10 @@ function DesignEditor() {
                   boundingRect: elementInfo.boundingRect,
                   parentBoundingRect: elementInfo.parentBoundingRect,
                   positionReferenceRect: elementInfo.positionReferenceRect,
+                  positionContainingBlockOrigin:
+                    elementInfo.positionContainingBlockOrigin,
+                  positionContainingBlockTransform:
+                    elementInfo.positionContainingBlockTransform,
                 }
               : current,
           );
@@ -24163,6 +24156,12 @@ function DesignEditor() {
               measured.parentBoundingRect ?? current.parentBoundingRect,
             positionReferenceRect:
               measured.positionReferenceRect ?? current.positionReferenceRect,
+            positionContainingBlockOrigin:
+              measured.positionContainingBlockOrigin ??
+              current.positionContainingBlockOrigin,
+            positionContainingBlockTransform:
+              measured.positionContainingBlockTransform ??
+              current.positionContainingBlockTransform,
             computedStyles: {
               ...measured.computedStyles,
               ...current.computedStyles,

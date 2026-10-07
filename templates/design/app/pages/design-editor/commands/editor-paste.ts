@@ -57,14 +57,8 @@ export function runEditorPaste(
   const matchesInMemoryClipboard =
     lastWrittenClipboardPlainTextRef.current !== null &&
     clipboardPlainText === lastWrittenClipboardPlainTextRef.current;
-  if (
-    canEditDesign &&
-    (clipboardResult || (hasCanvasClipboard && matchesInMemoryClipboard))
-  ) {
-    if (
-      clipboardResult &&
-      clipboardResult.markerText !== lastWrittenClipboardMarkerRef.current
-    ) {
+  if (canEditDesign && clipboardResult) {
+    if (clipboardResult.markerText !== lastWrittenClipboardMarkerRef.current) {
       adoptDesignClipboardPayload(
         clipboardResult.payload,
         clipboardResult.markerText,
@@ -119,6 +113,11 @@ export function runEditorPaste(
   }
   if (rejectedSvgMarkup) {
     toast.error(t("common.genericError"));
+    return;
+  }
+  if (canEditDesign && hasCanvasClipboard && matchesInMemoryClipboard) {
+    event.preventDefault();
+    void handlePasteSelection();
     return;
   }
   if (isAttemptedFigmaPaste(event.clipboardData)) {

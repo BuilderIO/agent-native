@@ -8,6 +8,7 @@ import type {
   PostAuthDesignIntent,
   RuntimeLayerSnapshot,
 } from "@/pages/design-editor/command-types";
+import { measurePositionCoordinateContext } from "@/pages/design-editor/position-coordinate-context";
 
 export function designSelectionStateKeys(): string[] {
   return designSelectionStateKeysForTab(getBrowserTabId());
@@ -171,8 +172,9 @@ export function withMeasuredGeometry(
   info: ElementInfo,
   screenId?: string,
 ): ElementInfo {
-  const rect = info.boundingRect;
-  if (rect && (rect.width > 0 || rect.height > 0)) return info;
+  const hasGeometry =
+    !!info.boundingRect &&
+    (info.boundingRect.width > 0 || info.boundingRect.height > 0);
   if (typeof document === "undefined") return info;
   const selector = info.runtimeSelector ?? info.selector;
   if (!selector) return info;
@@ -201,17 +203,17 @@ export function withMeasuredGeometry(
     if (box.width <= 0 && box.height <= 0) continue;
     const parent = node.parentElement;
     const parentBox = parent?.getBoundingClientRect();
-    let positionReference = parent;
-    while (
-      positionReference &&
-      positionReference.getAttribute("data-an-primitive") !== "frame"
-    ) {
-      positionReference = positionReference.parentElement;
+    const view = frame.contentWindow;
+    const positionCoordinateContext = view
+      ? measurePositionCoordinateContext(node, view)
+      : undefined;
+    if (hasGeometry) {
+      return positionCoordinateContext
+        ? { ...info, ...positionCoordinateContext }
+        : info;
     }
-    positionReference ??= node.ownerDocument.body;
-    const positionReferenceBox = positionReference?.getBoundingClientRect();
-    const scrollX = frame.contentWindow?.scrollX ?? 0;
-    const scrollY = frame.contentWindow?.scrollY ?? 0;
+    const scrollX = view?.scrollX ?? 0;
+    const scrollY = view?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);
     return {
       ...info,
@@ -229,14 +231,7 @@ export function withMeasuredGeometry(
             height: parentBox.height,
           }
         : info.parentBoundingRect,
-      positionReferenceRect: positionReferenceBox
-        ? {
-            x: positionReferenceBox.x + scrollX,
-            y: positionReferenceBox.y + scrollY,
-            width: positionReferenceBox.width,
-            height: positionReferenceBox.height,
-          }
-        : info.positionReferenceRect,
+      ...(positionCoordinateContext ?? {}),
       computedStyles: computed
         ? {
             color: computed.color,

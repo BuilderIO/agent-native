@@ -95,6 +95,7 @@ export function measuredPositionOffset(
     | "parentBoundingRect"
     | "parentAutoLayout"
     | "positionReferenceRect"
+    | "positionContainingBlockOrigin"
   >,
   axis: "x" | "y",
 ): number {
@@ -106,35 +107,120 @@ export function measuredPositionOffset(
   return referenceBounds ? childOffset - referenceBounds[axis] : childOffset;
 }
 
-export function authoredPositionOffset(
+function numericPositionOffset(raw: string | undefined): number | undefined {
+  if (
+    !raw ||
+    raw === "auto" ||
+    isMixedValue(raw) ||
+    !/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:px)?$/u.test(raw.trim())
+  ) {
+    return undefined;
+  }
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+export function authoredPositionPatch(
   element: Pick<
     ElementInfo,
-    "parentBoundingRect" | "parentAutoLayout" | "positionReferenceRect"
+    | "boundingRect"
+    | "computedStyles"
+    | "inlineStyles"
+    | "parentBoundingRect"
+    | "parentAutoLayout"
+    | "positionReferenceRect"
+    | "positionContainingBlockOrigin"
+    | "positionContainingBlockTransform"
   >,
   axis: "x" | "y",
   referenceOffset: number,
-): number {
+): Partial<Record<"left" | "top", string>> {
   const parentBounds =
     element.parentBoundingRect ?? element.parentAutoLayout?.boundingRect;
   const referenceBounds = element.positionReferenceRect ?? parentBounds;
-  if (!parentBounds || !referenceBounds) return referenceOffset;
-  return referenceOffset - (parentBounds[axis] - referenceBounds[axis]);
+  const matrix =
+    element.positionContainingBlockTransform ??
+    ({ a: 1, b: 0, c: 0, d: 1 } as const);
+  const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
+    return {};
+  }
+
+  const deltaX =
+    axis === "x" ? referenceOffset - measuredPositionOffset(element, "x") : 0;
+  const deltaY =
+    axis === "y" ? referenceOffset - measuredPositionOffset(element, "y") : 0;
+  const leftDelta = (matrix.d * deltaX - matrix.c * deltaY) / determinant;
+  const topDelta = (-matrix.b * deltaX + matrix.a * deltaY) / determinant;
+  const containingBlockOffset = (coordinate: "x" | "y") =>
+    element.positionContainingBlockOrigin && referenceBounds
+      ? element.positionContainingBlockOrigin[coordinate] -
+        referenceBounds[coordinate]
+      : parentBounds && referenceBounds
+        ? parentBounds[coordinate] - referenceBounds[coordinate]
+        : 0;
+  const authoredOffset = (coordinate: "x" | "y") => {
+    const property = coordinate === "x" ? "left" : "top";
+    return (
+      numericPositionOffset(element.computedStyles[property]) ??
+      numericPositionOffset(element.inlineStyles?.[property])
+    );
+  };
+  const currentOffset = (coordinate: "x" | "y") =>
+    authoredOffset(coordinate) ??
+    measuredPositionOffset(element, coordinate) -
+      containingBlockOffset(coordinate);
+  const patch: Partial<Record<"left" | "top", string>> = {};
+  const writeLeft =
+    axis === "x" || Math.abs(leftDelta) > 1e-8 || Math.abs(matrix.c) > 1e-8;
+  const writeTop =
+    axis === "y" || Math.abs(topDelta) > 1e-8 || Math.abs(matrix.b) > 1e-8;
+  if (writeLeft || authoredOffset("x") === undefined) {
+    patch.left = `${Number((currentOffset("x") + leftDelta).toFixed(2))}px`;
+  }
+  if (writeTop || authoredOffset("y") === undefined) {
+    patch.top = `${Number((currentOffset("y") + topDelta).toFixed(2))}px`;
+  }
+  return patch;
 }
 
-function measuredPositionValue(
+export function measuredPositionValue(
   element: ElementInfo,
   axis: "x" | "y",
-  livePosition?: string,
+  livePosition?: { left: string; top: string },
 ): string {
-  const parentBounds =
-    element.parentBoundingRect ?? element.parentAutoLayout?.boundingRect;
-  const referenceBounds = element.positionReferenceRect ?? parentBounds;
-  const referenceOffset = livePosition
-    ? Number.parseFloat(livePosition) +
-      (parentBounds?.[axis] ?? 0) -
-      (referenceBounds?.[axis] ?? parentBounds?.[axis] ?? 0)
-    : measuredPositionOffset(element, axis);
-  return String(Number(referenceOffset.toFixed(2))) + "px";
+  let referenceOffset = measuredPositionOffset(element, axis);
+  const liveLeft = livePosition
+    ? numericPositionOffset(livePosition.left)
+    : undefined;
+  const liveTop = livePosition
+    ? numericPositionOffset(livePosition.top)
+    : undefined;
+  const authoredLeft =
+    numericPositionOffset(element.computedStyles.left) ??
+    numericPositionOffset(element.inlineStyles?.left);
+  const authoredTop =
+    numericPositionOffset(element.computedStyles.top) ??
+    numericPositionOffset(element.inlineStyles?.top);
+
+  if (
+    liveLeft !== undefined &&
+    liveTop !== undefined &&
+    authoredLeft !== undefined &&
+    authoredTop !== undefined
+  ) {
+    const transform =
+      element.positionContainingBlockTransform ??
+      ({ a: 1, b: 0, c: 0, d: 1 } as const);
+    const deltaLeft = liveLeft - authoredLeft;
+    const deltaTop = liveTop - authoredTop;
+    referenceOffset +=
+      axis === "x"
+        ? transform.a * deltaLeft + transform.c * deltaTop
+        : transform.b * deltaLeft + transform.d * deltaTop;
+  }
+
+  return `${Number(referenceOffset.toFixed(2))}px`;
 }
 
 function percentageLength(raw: string | undefined): boolean {
@@ -510,7 +596,11 @@ export function PositionLayoutProperties({
               value={
                 isMixedValue(authoredLeft) || isMixedValue(styles.left)
                   ? MIXED_VALUE
-                  : measuredPositionValue(element, "x", liveDragPosition?.left)
+                  : measuredPositionValue(
+                      element,
+                      "x",
+                      liveDragPosition ?? undefined,
+                    )
               }
               inputClassName="h-6"
               onChange={(v, meta) => {
@@ -519,8 +609,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    left:
-                      String(authoredPositionOffset(element, "x", v)) + "px",
+                    ...authoredPositionPatch(element, "x", v),
                   },
                   onStyleChange,
                   onStylesChange,
@@ -554,7 +643,11 @@ export function PositionLayoutProperties({
               value={
                 isMixedValue(authoredTop) || isMixedValue(styles.top)
                   ? MIXED_VALUE
-                  : measuredPositionValue(element, "y", liveDragPosition?.top)
+                  : measuredPositionValue(
+                      element,
+                      "y",
+                      liveDragPosition ?? undefined,
+                    )
               }
               inputClassName="h-6"
               onChange={(v, meta) => {
@@ -563,7 +656,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    top: String(authoredPositionOffset(element, "y", v)) + "px",
+                    ...authoredPositionPatch(element, "y", v),
                   },
                   onStyleChange,
                   onStylesChange,

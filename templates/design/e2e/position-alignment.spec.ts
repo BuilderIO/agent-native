@@ -81,6 +81,46 @@ const GROUP_POSITION_HTML = `<!doctype html>
         <div data-agent-native-node-id="nested-child" data-agent-native-layer-name="Nested child" data-an-primitive="rectangle"
              style="position:absolute;left:10px;top:10px;width:80px;height:80px;background:#93c5fd"></div>
       </div>
+</div>
+  </body>
+</html>`;
+
+const CONTAINING_BLOCK_POSITION_HTML = `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Containing block position fixture</title></head>
+  <body style="margin:0;width:800px;height:600px">
+    <div data-agent-native-node-id="position-frame" data-agent-native-layer-name="Position frame" data-an-primitive="frame"
+         style="position:absolute;left:200px;top:100px;box-sizing:border-box;width:400px;height:300px;border:8px solid #999;padding:20px;background:#eeeeee">
+      <div data-agent-native-node-id="static-wrapper" data-agent-native-layer-name="Static wrapper" style="margin:30px 0 0 40px">
+        <div data-agent-native-node-id="position-child" data-agent-native-layer-name="Position child" data-an-primitive="rectangle"
+             style="position:absolute;left:100px;top:80px;width:80px;height:40px;background:#fca5a5"></div>
+      </div>
+    </div>
+  </body>
+</html>`;
+
+const UNFRAMED_POSITION_HTML = `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Unframed position fixture</title></head>
+  <body style="margin:30px 40px;width:800px;height:600px">
+    <div data-agent-native-node-id="static-wrapper" data-agent-native-layer-name="Static wrapper" style="margin:30px 0 0 40px">
+      <div data-agent-native-node-id="position-child" data-agent-native-layer-name="Position child" data-an-primitive="rectangle"
+           style="position:absolute;left:100px;top:80px;width:80px;height:40px;background:#fca5a5"></div>
+    </div>
+  </body>
+</html>`;
+
+const TRANSFORMED_POSITION_HTML = `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Transformed position fixture</title></head>
+  <body style="margin:0;width:800px;height:600px">
+    <div data-agent-native-node-id="position-frame" data-agent-native-layer-name="Position frame" data-an-primitive="frame"
+         style="position:absolute;left:100px;top:100px;width:400px;height:300px;background:#eeeeee">
+      <div data-agent-native-node-id="static-transformed-wrapper" data-agent-native-layer-name="Static transformed wrapper"
+           style="width:200px;height:200px;margin:20px 0 0 30px;transform:scale(2,.5);transform-origin:top left;background:#dddddd">
+        <div data-agent-native-node-id="transformed-child" data-agent-native-layer-name="Transformed child" data-an-primitive="rectangle"
+             style="position:absolute;left:50px;top:40px;width:80px;height:40px;transform:translateX(10px);background:#fca5a5"></div>
+      </div>
     </div>
   </body>
 </html>`;
@@ -172,6 +212,22 @@ async function layerOffset(page: Page, layerName: string) {
       return {
         left: Math.round(child.left - parentRect.left - parent.clientLeft),
         top: Math.round(child.top - parentRect.top - parent.clientTop),
+      };
+    });
+}
+
+async function positionReferenceOffset(page: Page, layerName: string) {
+  return designFrame(page)
+    .locator(`[data-agent-native-layer-name="${layerName}"]`)
+    .evaluate((element) => {
+      const reference =
+        element.parentElement?.closest('[data-an-primitive="frame"]') ??
+        element.ownerDocument.documentElement;
+      const childRect = element.getBoundingClientRect();
+      const referenceRect = reference.getBoundingClientRect();
+      return {
+        x: Math.round(childRect.x - referenceRect.x),
+        y: Math.round(childRect.y - referenceRect.y),
       };
     });
 }
@@ -468,6 +524,121 @@ test("Position stays Frame-relative through Groups and resets at nested Frames",
   await selectLayer(page, "Nested child");
   await expect(x).toHaveValue("10px");
   await expect(y).toHaveValue("10px");
+});
+
+test("Position edits use the CSS containing block through static wrappers and borders", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const designId = await seedDesign(
+    request,
+    requireBaseURL(baseURL),
+    CONTAINING_BLOCK_POSITION_HTML,
+  );
+  await openEditPanel(page, designId);
+
+  const frame = designFrame(page);
+  const child = frame.locator('[data-agent-native-node-id="position-child"]');
+  const childBox = (await child.boundingBox())!;
+  await page.mouse.click(
+    childBox.x + childBox.width / 2,
+    childBox.y + childBox.height / 2,
+  );
+  const x = page.getByRole("textbox", { name: "X-position" });
+  const y = page.getByRole("textbox", { name: "Y-position" });
+  await expect(x).toHaveValue("108px");
+  await expect(y).toHaveValue("88px");
+
+  await selectLayer(page, "Position child");
+  await expect(x).toHaveValue("108px");
+  await expect(y).toHaveValue("88px");
+  await x.fill("120");
+  await x.press("Enter");
+  await y.fill("140");
+  await y.press("Enter");
+  await expect
+    .poll(() => positionReferenceOffset(page, "Position child"))
+    .toEqual({ x: 120, y: 140 });
+
+  await page.reload();
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Position child");
+  await expect(x).toHaveValue("120px");
+  await expect(y).toHaveValue("140px");
+  await expect
+    .poll(() => positionReferenceOffset(page, "Position child"))
+    .toEqual({ x: 120, y: 140 });
+});
+
+test("unframed absolute positions use the initial containing block through static wrappers", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const designId = await seedDesign(
+    request,
+    requireBaseURL(baseURL),
+    UNFRAMED_POSITION_HTML,
+  );
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Position child");
+
+  const x = page.getByRole("textbox", { name: "X-position" });
+  const y = page.getByRole("textbox", { name: "Y-position" });
+  await expect(x).toHaveValue("100px");
+  await expect(y).toHaveValue("80px");
+  await x.fill("120");
+  await x.press("Enter");
+  await y.fill("140");
+  await y.press("Enter");
+  await expect
+    .poll(() => positionReferenceOffset(page, "Position child"))
+    .toEqual({ x: 120, y: 140 });
+
+  await page.reload();
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Position child");
+  await expect(x).toHaveValue("120px");
+  await expect(y).toHaveValue("140px");
+});
+
+test("Position edits invert own and static-containing-block transforms and persist", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const designId = await seedDesign(
+    request,
+    requireBaseURL(baseURL),
+    TRANSFORMED_POSITION_HTML,
+  );
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Transformed child");
+
+  const x = page.getByRole("textbox", { name: "X-position" });
+  const y = page.getByRole("textbox", { name: "Y-position" });
+  await expect(x).toHaveValue("150px");
+  await expect(y).toHaveValue("40px");
+  await x.fill("170");
+  await x.press("Enter");
+  await y.fill("50");
+  await y.press("Enter");
+  await expect
+    .poll(() => authoredOffset(page, "Transformed child"))
+    .toEqual({ left: "60px", top: "60px" });
+  await expect
+    .poll(() => positionReferenceOffset(page, "Transformed child"))
+    .toEqual({ x: 170, y: 50 });
+
+  await page.reload();
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Transformed child");
+  await expect(x).toHaveValue("170px");
+  await expect(y).toHaveValue("50px");
+  await expect
+    .poll(() => positionReferenceOffset(page, "Transformed child"))
+    .toEqual({ x: 170, y: 50 });
 });
 
 // Native oracle O-09/O-10 (desktop Figma, 2026-10-06): alignment uses Group

@@ -212,6 +212,22 @@ describe("runEditorPaste", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("prefers external SVG HTML over an empty in-memory Design clipboard value", () => {
+    const h = harness();
+    h.args.hasCanvasClipboard = true;
+    h.args.lastWrittenClipboardPlainTextRef.current = "";
+    const handlePastedSvg = vi.fn(() => true);
+    h.args.handlePastedSvg = handlePastedSvg;
+    const svg = '<svg viewBox="0 0 24 24"><path d="M0 0H1"/></svg>';
+    const event = pasteEvent({ "text/html": svg, "text/plain": "" });
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedSvg).toHaveBeenCalledWith(svg);
+    expect(h.pasted).toBe(0);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it("consumes rejected SVG HTML instead of letting the browser insert it", () => {
     const h = harness();
     const malformedSvg = '<svg width="17" height="9"><path d="M0 0"></svg>';

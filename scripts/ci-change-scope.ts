@@ -66,6 +66,18 @@ const FULL_CHECK_FILES = new Set([
   "vitest.shared.ts",
 ]);
 
+const TEMPLATE_RUNTIME_ENTRYPOINTS = new Set([
+  "agent-native.config.ts",
+  "agent-native.json",
+  "react-router.config.ts",
+  "ssr-entry.ts",
+  "vite.config.ts",
+]);
+
+const TEST_ONLY_PUBLIC_ASSETS = new Set([
+  "templates/slides/public/visual-edit-structure-proof.html",
+]);
+
 const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/base-url.ts",
   "templates/design/e2e/chrome-geometry.reference.ts",
@@ -186,7 +198,6 @@ export type CheckSelection = Record<CheckName, boolean>;
 
 export type ChangeScope = {
   changedPaths: string[];
-  designCanvasE2eSpecs: string[];
   docsOnly: boolean;
   full: boolean;
   nonDocsPaths: string[];
@@ -203,6 +214,40 @@ export type QueryBudgetShard = { shard: string; apps: string[] };
 
 export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
+}
+
+export function runtimeSourceChangesInTestTitledPr(
+  title: string,
+  paths: readonly string[],
+): string[] {
+  if (!/^test(?:\([^)]+\))?!?:/iu.test(title.trim())) return [];
+
+  return paths
+    .map(normalizeChangedPath)
+    .filter(
+      (path) =>
+        /^templates\/[^/]+\/(?:actions|app|server|shared|\.generated\/bridge)\//u.test(
+          path,
+        ) ||
+        /^templates\/[^/]+\/public\//u.test(path) ||
+        (path.split("/").length === 3 &&
+          /^templates\/[^/]+\//u.test(path) &&
+          TEMPLATE_RUNTIME_ENTRYPOINTS.has(
+            path.slice(path.lastIndexOf("/") + 1),
+          )) ||
+        /^packages\/[^/]+\/src\//u.test(path),
+    )
+    .filter(
+      (path) =>
+        !/(?:^|\/)(?:__tests__|tests?|fixtures?|__fixtures__|__snapshots__|__mocks__)(?:\/|$)/u.test(
+          path,
+        ) &&
+        !/\.(?:spec|test)(?:\.[^.]+)*$/u.test(path) &&
+        !TEST_ONLY_PUBLIC_ASSETS.has(path) &&
+        /\.(?:[cm]?[jt]sx?|css|html|json|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)$/iu.test(
+          path,
+        ),
+    );
 }
 
 export function isDocsPath(path: string): boolean {
@@ -416,7 +461,7 @@ function isDesignDndRuntimePath(path: string): boolean {
   if (
     DESIGN_CANVAS_E2E_FILES.has(path) ||
     DESIGN_CANVAS_CONFIG_FILES.has(path) ||
-    designCanvasE2eSpecsForPaths([path]).length > 0
+    isDesignCanvasE2eSpecPath(path)
   ) {
     return true;
   }
@@ -437,20 +482,11 @@ function isDesignDndRuntimePath(path: string): boolean {
   return designAppSource || designSharedRuntimeSource;
 }
 
-export function designCanvasE2eSpecsForPaths(
-  paths: readonly string[],
-): string[] {
-  return [
-    ...new Set(
-      paths
-        .map(normalizeChangedPath)
-        .filter(
-          (path) =>
-            path.startsWith("templates/design/e2e/") &&
-            /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path),
-        ),
-    ),
-  ].sort();
+function isDesignCanvasE2eSpecPath(path: string): boolean {
+  return (
+    path.startsWith("templates/design/e2e/") &&
+    /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
+  );
 }
 
 function isContentConvergenceRuntimePath(path: string): boolean {
@@ -684,7 +720,6 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
 
   return {
     changedPaths,
-    designCanvasE2eSpecs: designCanvasE2eSpecsForPaths(changedPaths),
     docsOnly,
     full,
     nonDocsPaths,
@@ -714,7 +749,6 @@ function writeOutputs(scope: ChangeScope): void {
       `docs_only=${scope.docsOnly ? "true" : "false"}`,
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
-      `design_canvas_e2e_files=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
@@ -765,7 +799,21 @@ function main(): void {
     throw new Error("CI_BASE_SHA and CI_HEAD_SHA are required");
   }
 
-  const scope = classifyChangedPaths(readChangedPaths(baseSha, headSha));
+  const changedPaths = readChangedPaths(baseSha, headSha);
+  const runtimeSourceChanges = runtimeSourceChangesInTestTitledPr(
+    process.env.CI_PR_TITLE ?? "",
+    changedPaths,
+  );
+  if (runtimeSourceChanges.length > 0) {
+    throw new Error(
+      [
+        'A "test:" PR title cannot include runtime source changes. Use a "fix:" or "feat:" title:',
+        ...runtimeSourceChanges.map((path) => `- ${path}`),
+      ].join("\n"),
+    );
+  }
+
+  const scope = classifyChangedPaths(changedPaths);
   console.log(JSON.stringify(scope, null, 2));
   writeOutputs(scope);
 }
