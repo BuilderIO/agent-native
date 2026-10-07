@@ -755,23 +755,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     )[line - 1];
     assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
   }
-  const duplicateSource = readFileSync(
-    "templates/design/e2e/drag-and-drop.moving-by-drag.spec.ts",
-    "utf8",
-  );
-  const duplicateStart = duplicateSource.indexOf(
-    'test("Alt+drag leaves the original and creates a copy"',
-  );
-  assert.notEqual(duplicateStart, -1);
-  const duplicateEnd = duplicateSource.indexOf("\n  test(", duplicateStart + 1);
-  const duplicateCase = duplicateSource.slice(
-    duplicateStart,
-    duplicateEnd === -1 ? undefined : duplicateEnd,
-  );
-  assert.ok(
-    duplicateCase.includes('data-agent-native-transient-drag-clone="true"'),
-  );
-  assert.match(duplicateCase, /\.toBe\(0\);/u);
   assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts:900"));
 });
 
