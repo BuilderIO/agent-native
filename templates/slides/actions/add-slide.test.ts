@@ -1,4 +1,4 @@
-import { isAgentActionStopError } from "@agent-native/core";
+import { isActionContractError } from "@agent-native/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hashSlideContent } from "../shared/slide-fit";
@@ -610,7 +610,7 @@ describe("add-slide", () => {
   });
 
   it.each(["tool", "webmcp"] as const)(
-    "rejects agent additions after the requested slide count for %s callers",
+    "returns a recoverable error when %s callers add after the requested slide count",
     async (caller) => {
       deckData.generationContext = { targetSlideCount: 2 };
 
@@ -625,15 +625,19 @@ describe("add-slide", () => {
         )
         .catch((caught: unknown) => caught);
 
-      expect(isAgentActionStopError(error)).toBe(true);
+      expect(isActionContractError(error)).toBe(true);
       expect(error).toMatchObject({
-        name: "AgentActionStopError",
+        name: "ActionContractError",
         errorCode: "target_slide_count_reached",
+        statusCode: 409,
         details: {
           deckId: "deck-1",
           currentSlideCount: 2,
           targetSlideCount: 2,
         },
+      });
+      expect(error).toMatchObject({
+        message: expect.stringContaining("No slide was added"),
       });
       expect(updateFn).not.toHaveBeenCalled();
     },

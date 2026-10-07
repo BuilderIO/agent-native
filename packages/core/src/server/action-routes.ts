@@ -1063,6 +1063,7 @@ function mountActionRoutesInternal(
                 appId: options?.appId,
                 caller,
                 requestHeaders: event.headers,
+                ...(event.req?.signal ? { signal: event.req.signal } : {}),
                 actionName: name,
                 ...(resolvedCaller?.delegationJti
                   ? {
