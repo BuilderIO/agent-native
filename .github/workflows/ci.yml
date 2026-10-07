@@ -422,7 +422,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -444,7 +444,9 @@ jobs:
 
       - name: Run focused Design regression cases
         working-directory: templates/design
-        timeout-minutes: 10
+        # Passing runs take ~12 minutes end to end, so a 10 minute cap on this
+        # step turns ordinary runner variance into a red required gate.
+        timeout-minutes: 18
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
