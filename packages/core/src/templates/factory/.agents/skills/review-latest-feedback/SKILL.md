@@ -218,14 +218,24 @@ Phase 2 reapplies these rules after full-thread review.
 
 Use `## Slack channels` unless the invocation narrows scope.
 
-**Automated diagnostics count as feedback regardless of author.** Claim
-actionable CI/Beta E2E and monitoring alerts with `👀` after the ownership gate,
-then inspect linked runs, builds/commits, job logs, test results, artifacts, and
-issue state. Treat labels/counts as leads. Fix verified repo-owned causes; for
-other causes, record evidence and the next owner/action. Don't ask bots; ask a
-person only when a fact blocks a fix. If our report lacks evidence, improve its
-checks/report with concise context and links; avoid duplicate details and
-secrets.
+**Automated diagnostics count as feedback regardless of author.** For a Slack
+alert, apply the Slack reaction gate before reading it. For every eligible
+actionable CI/Beta E2E or monitoring alert, establish the exact repo, ref/SHA,
+workflow or service/environment, and failure fingerprint. Inspect linked
+issues, PRs, recent runs, and task records for an active owner handling that
+same failure. If this invocation already owns the active PR/task, continue
+there; if another owner is actively fixing it, record **Owned elsewhere** with
+the owner, link, and next action, and do not create or modify parallel work. A
+linked/open PR counts only when its current changes or recent activity address
+the same failure; a stale/unrelated PR, shared label, or later green rerun
+alone is not ownership evidence. If no active owner is confirmed and the target
+is within this invocation's scope, use the source's normal claim path; use `👀`
+only for Slack messages. Then inspect linked runs, builds/commits, job logs,
+test results, artifacts, and issue state. Treat labels/counts as leads. Fix
+verified repo-owned causes; for other causes, record evidence and the next
+owner/action. Don't ask bots; ask a person only when a fact blocks a fix. If our
+report lacks evidence, improve its checks/report with concise context and links;
+avoid duplicate details and secrets.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
