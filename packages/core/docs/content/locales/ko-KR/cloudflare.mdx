@@ -1,35 +1,168 @@
 ---
 title: "Cloudflare"
-description: "cloudflare_module Nitro 프리셋으로 agent-native 앱을 Cloudflare Workers에 배포하세요."
+description: "Wrangler로 독립 실행형 Agent-Native 앱을 Cloudflare Workers에 배포합니다."
 ---
 
 # Cloudflare
 
-## Cloudflare Workers {#cloudflare-workers}
+<a id="cloudflare-workers"></a>
 
-Cloudflare Worker에는 Nitro의 네이티브 모듈 출력을 사용하세요. 이는 SSR을
-계속 활성화한 상태로 유지하며 Worker 진입점과 정적 자산을
-`.output/server` 및 `.output/public`에 생성합니다:
+Cloudflare Workers는 Cloudflare 네트워크에서 앱을 실행하므로 서버를 설정하거나 계속 실행해 둘 필요가 없습니다. 빌드하면 앱이 앱의 페이지와 API를 처리하는 Worker와 Cloudflare가 직접 제공하는 정적 파일로 변환되며, Cloudflare는 앱에 HTTPS가 적용된 공개 주소를 제공합니다.
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
+이 가이드는 독립 실행형 앱 하나를 처음부터 배포하는 과정을 안내합니다. 앱을 만들고, 프로덕션 데이터베이스와 인증 시크릿을 지정하고, 데이터베이스를 준비하고, Worker를 빌드하고, 시크릿을 Cloudflare에 저장한 다음, 배포합니다.
 
-생성된 Worker를 Wrangler로 빌드하고 배포하세요:
+<Callout tone="info">
+
+Node.js `22.22+`가 필요합니다.
+
+</Callout>
+
+Cloudflare 계정도 필요합니다. 이 가이드의 명령은 자신의 컴퓨터에서 실행하세요. 완성된 Worker는 Cloudflare의 명령줄 도구인 Wrangler가 Cloudflare에 업로드합니다.
+
+## 1단계: 앱 만들기 {#step-1-create-the-app}
+
+새 독립 실행형 앱을 만듭니다. 아래 예시는 Chat 템플릿으로 앱을 만들지만, 어떤 템플릿으로든 시작할 수 있습니다. 앱 폴더로 이동한 뒤 의존성을 설치하세요. `corepack enable`은 앱이 기대하는 `pnpm` 버전을 활성화하므로 `pnpm`을 직접 설치할 필요가 없습니다.
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+원한다면 `my-app`을 원하는 앱 이름으로 바꾸세요. 이 가이드의 나머지 부분은 앱 폴더 안에 있다고 가정합니다.
+
+<Callout tone="info">
+
+이 명령이 피어 종속성 오류로 실패한다면 npx 캐시에 있는 오래된 패키지가 원인일 수 있습니다. `npx clear-npx-cache`를 실행해 캐시를 지운 다음 명령을 다시 실행하세요.
+
+</Callout>
+
+## 2단계: 환경 시크릿 구성하기 {#step-2-configure-environment-secrets}
+
+앱은 프로덕션 설정을 환경 변수에서 읽습니다.
+
+| 변수                 | 필수   | 용도                                          |
+| -------------------- | ------ | --------------------------------------------- |
+| `DATABASE_URL`       | 예     | 앱을 PostgreSQL 데이터베이스에 연결합니다     |
+| `BETTER_AUTH_SECRET` | 예     | 사용자 세션에 서명합니다                      |
+| `BETTER_AUTH_URL`    | 아니요 | 사용자가 앱에 접속하는 공개 주소를 설정합니다 |
+
+아래의 export 명령을 실행하면 이 셸에서 이후 명령이 동작합니다. 배포하기 전에 같은 변수를 호스트의 프로젝트 또는 서비스 환경 설정에도 저장하세요. Cloudflare에 저장하는 방법은 5단계에서 설명합니다.
+
+### 데이터베이스 URL {#database-url}
+
+로컬 개발 중에는 `DATABASE_URL`이 설정되지 않으면 앱이 로컬 데이터베이스에 데이터를 저장합니다. 배포된 앱에는 배포 후에도 데이터를 유지하는 실제 PostgreSQL 데이터베이스가 필요합니다. Worker는 요청 사이에 파일을 유지할 수 없으므로 데이터베이스는 Cloudflare Workers 밖에 있어야 합니다. 프로바이더에서 연결 문자열을 복사해 export하세요.
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[데이터베이스 프로바이더 가이드](/docs/neon)에서 프로바이더별로 연결 문자열을 찾는 위치를 확인할 수 있습니다.
+
+<Callout tone="warning">
+
+Neon, Supabase, Amazon RDS 등 영구적인 PostgreSQL 프로바이더를 선택하세요.
+
+</Callout>
+
+### 인증 시크릿 {#auth-secret}
+
+이 값은 한 번만 생성하고 배포할 때마다 바꾸지 마세요.
+
+앱은 `BETTER_AUTH_SECRET`을 사용해 사용자 세션에 서명합니다. 이 값이 바뀌면 로그인한 모든 사용자가 로그아웃됩니다. 아래 명령은 임의의 값을 생성합니다.
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+생성한 값은 비밀번호 관리자처럼 안전한 곳에 저장하세요. 배포할 때마다 같은 값을 사용합니다.
+
+### 공개 URL {#public-url}
+
+선택 사항입니다. 사용자 지정 도메인, 리버스 프록시, 또는 고정된 공개 origin이 필요한 인증이나 OAuth 흐름을 사용할 때 설정하세요.
+
+`BETTER_AUTH_URL`은 사용자가 앱에 접속하는 공개 주소입니다. 이 값이 없으면 앱은 들어오는 요청마다 자신의 주소를 판단합니다. Cloudflare가 제공하는 주소에서는 대개 문제가 없지만, 사용자 지정 도메인을 연결할 때는 로그인 링크와 OAuth 리디렉션이 그 도메인을 사용하도록 이 값을 설정하세요.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 3단계: 마이그레이션 {#step-3-migrate}
+
+마이그레이션은 앱에 필요한 테이블을 데이터베이스에 만들고 업데이트합니다. 첫 배포 전에 이 명령을 실행하세요.
+
+```bash
+pnpm migrate:production
+```
+
+이 명령은 자신의 컴퓨터에서 실행되며, 2단계에서 export한 `DATABASE_URL`로 프로덕션 데이터베이스에 연결합니다. 앱을 업그레이드한 뒤에는 새 버전을 배포하기 전에 다시 실행하세요.
+
+## 4단계: 빌드 {#step-4-build}
+
+앱을 Cloudflare Worker로 빌드합니다.
+
+```bash
+NITRO_PRESET=cloudflare_module pnpm build
+```
+
+`NITRO_PRESET=cloudflare_module`은 Cloudflare Workers가 기대하는 형식으로 앱을 빌드합니다. 빌드는 Worker를 `.output/server` 폴더에, 정적 파일을 `.output/public` 폴더에 씁니다.
+
+빌드는 Wrangler 구성 파일도 `.output/server/wrangler.json`에 씁니다. 이 파일은 Wrangler에 무엇을 배포할지 알려 주고 Worker에 이름을 붙입니다. 이름은 앱의 `package.json`에서 정해지므로 `my-app`으로 만든 앱은 `my-app`이라는 이름의 Worker가 됩니다. 폴더가 원격 저장소가 설정된 Git 저장소라면 대신 저장소에서 이름이 정해집니다. 빌드는 선택한 이름을 출력합니다.
+
+## 5단계: 로그인 및 시크릿 저장하기 {#step-5-log-in-and-save-the-secrets}
+
+명령줄에서 Cloudflare에 로그인합니다.
+
+```bash
+npx wrangler login
+```
+
+필수 변수 두 개를 Worker의 시크릿으로 저장합니다.
+
+```bash
+printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .output/server/wrangler.json
+```
+
+```bash
+printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
+```
+
+각 명령은 2단계에서 export한 값을 읽어 Cloudflare에 저장하므로 시크릿을 직접 붙여 넣을 필요가 없습니다. `--config`는 Wrangler가 4단계의 구성 파일을 사용하도록 지정하므로, 시크릿은 빌드가 선택한 이름의 Worker에 저장됩니다. 처음에는 Worker가 아직 없습니다. 값을 파이프로 전달하므로 Wrangler가 묻지 않고 Worker를 자동으로 만듭니다.
+
+`BETTER_AUTH_URL`을 설정했다면 같은 방법으로 저장하세요. 이 값들은 나중에 Cloudflare 대시보드의 Worker 설정에서 확인하고 변경할 수도 있습니다.
+
+## 6단계: 배포 {#step-6-deploy}
+
+Worker를 업로드하고 게시합니다.
+
+```bash
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-`NITRO_PRESET=cloudflare_module`로 프리셋을 명시적으로 선택할 수도 있습니다.
-배포 전에 내구성 있는 외부 PostgreSQL 데이터베이스를 구성하세요. Worker 파일 시스템은
-영구적인 애플리케이션 저장소가 아닙니다.
+`--config`는 Wrangler가 4단계의 구성 파일을 사용하도록 지정하며, 이 파일은 Worker와 정적 파일의 위치를 Wrangler에 알려 줍니다.
 
-## 다음 단계
+명령이 끝나면 `workers.dev`로 끝나는 앱 주소가 출력됩니다. 그 주소를 열고 첫 계정을 만듭니다.
 
-- [**Deployment**](/docs/deployment) — 첫 프로덕션 배포 전에 영구 데이터베이스와 프리셋을 선택하세요
-- [**Workspace Deployment**](/docs/workspace-deployment) — Netlify 또는 Vercel로 워크스페이스의 모든 앱을 하나의 오리진에 배포하세요
-- [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**AWS Lambda**](/docs/aws-lambda), [**Deno Deploy**](/docs/deno-deploy) — 그 외 Nitro 프리셋
+## 업데이트 배포하기 {#deploy-updates}
+
+새 버전을 배포하려면 앱 폴더에서 마이그레이션, 빌드, 배포 명령을 다시 실행하세요.
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=cloudflare_module pnpm build
+
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+시크릿은 배포 사이에도 Worker에 저장된 상태로 유지되므로 5단계를 반복할 필요가 없습니다.
+
+## 다음 단계 {#whats-next}
+
+- [**배포 환경 변수**](/docs/deployment-environment-variables) - 전체 프로덕션 설정 목록
+- [**SSR 캐싱**](/docs/ssr-caching) - 호스팅 대상에서 페이지 캐싱이 동작하는 방식
+- [**배포**](/docs/deployment) - 호스팅 대상과 사전 요구 사항을 비교합니다

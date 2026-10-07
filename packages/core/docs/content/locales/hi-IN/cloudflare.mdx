@@ -1,35 +1,211 @@
 ---
 title: "Cloudflare"
-description: "cloudflare_module Nitro preset के साथ agent-native ऐप को Cloudflare Workers पर deploy करें।"
+description: "Wrangler से किसी standalone Agent-Native ऐप को Cloudflare Workers पर deploy करें।"
 ---
 
 # Cloudflare
 
-## Cloudflare Workers {#cloudflare-workers}
+<a id="cloudflare-workers"></a>
 
-Cloudflare Worker के लिए Nitro का native module output उपयोग करें। यह SSR
-सक्षम रखता है और Worker entry point के साथ static assets `.output/server` और
-`.output/public` के अंतर्गत emit करता है:
+Cloudflare Workers आपके ऐप को Cloudflare के network पर चलाता है, इसलिए कोई server
+set up करने या चालू रखने की ज़रूरत नहीं होती। Build ऐप को एक Worker में बदलता है,
+जो ऐप के pages और API संभालता है, साथ ही ऐसी static files बनाता है जिन्हें
+Cloudflare सीधे serve करता है। Cloudflare ऐप को HTTPS के साथ एक public address भी
+देता है।
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
+यह guide शुरुआत से एक standalone ऐप deploy करने के चरण बताती है। आप ऐप बनाएंगे,
+उसे production database और auth secret देंगे, database तैयार करेंगे, Worker build
+करेंगे, secrets को Cloudflare में save करेंगे, और फिर उसे deploy करेंगे।
 
-Wrangler के साथ generated Worker को build और deploy करें:
+<Callout tone="info">
+
+Node.js `22.22+` आवश्यक है।
+
+</Callout>
+
+आपको एक Cloudflare account भी चाहिए। इस guide के commands अपने computer पर चलाएं।
+Wrangler, Cloudflare का command-line tool, तैयार Worker को आपके लिए Cloudflare पर
+upload करता है।
+
+## चरण 1: ऐप बनाएं {#step-1-create-the-app}
+
+अपना नया standalone ऐप बनाएं। नीचे दिया गया उदाहरण Chat template से ऐप बनाता है,
+लेकिन आप किसी भी template से शुरू कर सकते हैं। ऐप के folder में जाएं और उसकी
+dependencies install करें। `corepack enable` वह `pnpm` version चालू करता है
+जिसकी ऐप को ज़रूरत है, इसलिए आपको `pnpm` खुद install करने की ज़रूरत नहीं है।
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+चाहें तो `my-app` को अपने ऐप के नाम से बदल दें। इस guide का बाकी हिस्सा मानता है
+कि आप ऐप के folder के अंदर हैं।
+
+<Callout tone="info">
+
+अगर ये commands peer dependency errors के साथ fail होते हैं, तो इसकी वजह आपके npx cache में किसी package की पुरानी copy हो सकती है। Cache साफ़ करने के लिए `npx clear-npx-cache` चलाएं, फिर commands दोबारा चलाएं।
+
+</Callout>
+
+## चरण 2: Environment secrets configure करें {#step-2-configure-environment-secrets}
+
+ऐप अपनी production settings environment variables से पढ़ता है:
+
+| Variable             | आवश्यक | उद्देश्य                                                       |
+| -------------------- | ------ | -------------------------------------------------------------- |
+| `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है              |
+| `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                     |
+| `BETTER_AUTH_URL`    | नहीं   | वह public address सेट करता है जिससे लोग आपके ऐप तक पहुंचते हैं |
+
+नीचे दिए गए exports से आगे के commands इस shell में काम करते हैं। Deploy करने
+से पहले, यही variables अपने host की project या service environment settings में
+save करें। चरण 5 बताता है कि उन्हें Cloudflare में कैसे save करें।
+
+### Database URL {#database-url}
+
+Local development के दौरान, `DATABASE_URL` unset होने पर ऐप data को local
+database में store करता है। Deployed ऐप को एक असली PostgreSQL database चाहिए जो
+deploys के बीच अपना data बनाए रखे। Worker requests के बीच files नहीं रख सकता,
+इसलिए database को Cloudflare Workers के बाहर होना चाहिए। अपने provider से
+connection string copy करें और उसे export करें:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[Database provider guides](/docs/neon) बताती हैं कि हर provider के लिए connection
+string कहां मिलती है।
+
+<Callout tone="warning">
+
+एक persistent PostgreSQL provider चुनें: Neon, Supabase, Amazon RDS, आदि।
+
+</Callout>
+
+### Auth secret {#auth-secret}
+
+इसे एक बार generate करें और सभी deploys में इसे एक जैसा रखें।
+
+ऐप user sessions sign करने के लिए `BETTER_AUTH_SECRET` का उपयोग करता है। अगर यह
+बदलता है, तो हर signed-in user sign out हो जाता है। नीचे दिया गया command एक
+random value generate करता है:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Generate की गई value को किसी सुरक्षित जगह save करें, जैसे password manager में।
+हर बार deploy करते समय यही value इस्तेमाल करें।
+
+### Public URL {#public-url}
+
+वैकल्पिक। इसे तब सेट करें जब आप custom domain, reverse proxy, या ऐसा auth/OAuth
+flow इस्तेमाल करें जिसे fixed public origin चाहिए।
+
+`BETTER_AUTH_URL` वह public address है जिससे लोग आपके ऐप तक पहुंचते हैं। इसके
+बिना, ऐप हर incoming request से अपना address पता करता है। Cloudflare के दिए गए
+address पर आमतौर पर यह ठीक रहता है, लेकिन custom domain connect करते समय इसे सेट
+करें, ताकि sign-in links और OAuth redirects उसी domain का इस्तेमाल करें।
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## चरण 3: Migrate करें {#step-3-migrate}
+
+Migrations आपके database में वे tables बनाती और update करती हैं जिनकी ऐप को
+ज़रूरत है। पहले deploy से पहले इसे चलाएं:
+
+```bash
+pnpm migrate:production
+```
+
+यह command आपके computer पर चलता है और चरण 2 में export किए गए `DATABASE_URL` से
+production database से connect करता है। ऐप upgrade करने के बाद, नया version
+deploy करने से पहले इसे फिर से चलाएं।
+
+## चरण 4: Build करें {#step-4-build}
+
+ऐप को Cloudflare Worker के रूप में build करें:
+
+```bash
+NITRO_PRESET=cloudflare_module pnpm build
+```
+
+`NITRO_PRESET=cloudflare_module` ऐप को उस format में build करता है जिसकी
+Cloudflare Workers को ज़रूरत है। Build, Worker को `.output/server` folder में और
+static files को `.output/public` folder में लिखता है।
+
+Build एक Wrangler configuration file भी `.output/server/wrangler.json` में लिखता
+है। यह file Wrangler को बताती है कि क्या deploy करना है, और Worker को उसका नाम
+देती है। नाम ऐप की `package.json` से आता है, इसलिए `my-app` नाम से बनाया गया ऐप
+`my-app` नाम का Worker बन जाता है। अगर folder एक Git repository है जिसका remote
+है, तो नाम उसके बजाय repository से आता है। Build चुना गया नाम print करता है।
+
+## चरण 5: Log in करें और secrets save करें {#step-5-log-in-and-save-the-secrets}
+
+Command line से Cloudflare में sign in करें:
+
+```bash
+npx wrangler login
+```
+
+दोनों आवश्यक variables को Worker पर secrets के रूप में save करें:
+
+```bash
+printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .output/server/wrangler.json
+```
+
+```bash
+printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
+```
+
+हर command चरण 2 में export की गई value पढ़ता है और उसे Cloudflare में save करता
+है, इसलिए आपको secrets हाथ से paste नहीं करने पड़ते। `--config` Wrangler को चरण 4
+की configuration file की ओर point करता है, ताकि secrets उसी Worker में जाएं
+जिसका नाम build ने चुना है। पहली बार Worker अभी मौजूद नहीं होता। Value pipe के ज़रिए दी जाती है, इसलिए Wrangler बिना पूछे Worker अपने आप बना देता है।
+
+अगर आपने `BETTER_AUTH_URL` सेट किया है, तो उसे भी इसी तरह save करें। आप बाद में
+Cloudflare dashboard पर Worker की settings में भी ये values देख और बदल सकते हैं।
+
+## चरण 6: Deploy करें {#step-6-deploy}
+
+Worker upload करें और publish करें:
+
+```bash
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-आप `NITRO_PRESET=cloudflare_module` के साथ preset को स्पष्ट रूप से भी चुन सकते हैं।
-Deploy करने से पहले एक durable external PostgreSQL database configure करें। Worker
-filesystem persistent application store नहीं है।
+`--config` Wrangler को चरण 4 की configuration file की ओर point करता है, जो उसे
+बताती है कि Worker और static files कहां मिलेंगे।
 
-## आगे क्या है
+Command पूरा होने पर यह ऐप का address print करता है, जो `workers.dev` पर खत्म
+होता है। उसे खोलें और पहला account बनाएं।
 
-- [**Deployment**](/docs/deployment) — अपने पहले production deploy से पहले persistent database और preset चुनें
-- [**Workspace Deployment**](/docs/workspace-deployment) — Netlify या Vercel के साथ workspace के हर ऐप को एक origin पर deploy करें
-- [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**AWS Lambda**](/docs/aws-lambda), और [**Deno Deploy**](/docs/deno-deploy) — अन्य Nitro presets
+## Updates deploy करें {#deploy-updates}
+
+नया version ship करने के लिए, ऐप के folder से migrate, build, और deploy commands
+फिर से चलाएं:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=cloudflare_module pnpm build
+
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+Secrets deploys के बीच Worker पर save रहते हैं, इसलिए आपको चरण 5 दोहराने की
+ज़रूरत नहीं है।
+
+## आगे क्या है {#whats-next}
+
+- [**तैनाती: पर्यावरण चर**](/docs/deployment-environment-variables) - production settings की पूरी सूची
+- [**SSR कैशिंग**](/docs/ssr-caching) - hosted targets पर page caching कैसे काम करती है
+- [**तैनाती**](/docs/deployment) - hosting targets और prerequisites की तुलना करें
