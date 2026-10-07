@@ -1009,6 +1009,9 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageEstimatedCost": "अनुमानित लागत {{amount}}",
   "message.usageBuilderCredits": "इस्तेमाल किए गए Builder क्रेडिट {{amount}}",
   "message.usageEstimatedBuilderCredits": "अनुमानित Builder क्रेडिट {{amount}}",
+  "message.usageMixedCost": "रिपोर्ट की गई और अनुमानित लागत {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "रिपोर्ट किए गए और अनुमानित Builder क्रेडिट {{amount}}",
   "message.requestIdUnavailable": "अनुरोध ID उपलब्ध नहीं है",
   "message.unavailable": "यह संदेश अब इस बातचीत में उपलब्ध नहीं है।",
   "message.navigationUnavailable": "बातचीत में नेविगेशन उपलब्ध नहीं है।",

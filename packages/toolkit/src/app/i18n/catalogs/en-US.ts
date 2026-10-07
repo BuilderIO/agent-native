@@ -1026,6 +1026,9 @@ const messages = {
   "message.usageBuilderCredits": "Builder credits used {{amount}}",
   "message.usageEstimatedBuilderCredits":
     "Estimated Builder credits {{amount}}",
+  "message.usageMixedCost": "Reported and estimated cost {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "Reported and estimated Builder credits {{amount}}",
   "message.requestIdUnavailable": "Request ID unavailable",
   "message.unavailable":
     "The message is no longer available in this conversation.",

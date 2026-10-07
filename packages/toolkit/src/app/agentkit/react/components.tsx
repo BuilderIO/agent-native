@@ -3317,7 +3317,9 @@ export function AgentMessageActions({
             id: "usage-provider-cost",
             label: (usage.billing.providerCostSource === "reported"
               ? labels.usageReportedCost
-              : labels.usageEstimatedCost
+              : usage.billing.providerCostSource === "estimated"
+                ? labels.usageEstimatedCost
+                : labels.usageMixedCost
             ).replace("{{amount}}", amount),
             disabled: true,
           });
@@ -3331,7 +3333,9 @@ export function AgentMessageActions({
             id: "usage-builder-credits",
             label: (usage.billing.builderCreditsSource === "reported"
               ? labels.usageBuilderCredits
-              : labels.usageEstimatedBuilderCredits
+              : usage.billing.builderCreditsSource === "estimated"
+                ? labels.usageEstimatedBuilderCredits
+                : labels.usageMixedBuilderCredits
             ).replace("{{amount}}", amount),
             disabled: true,
           });

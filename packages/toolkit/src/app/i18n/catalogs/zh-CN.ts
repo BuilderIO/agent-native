@@ -962,6 +962,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageEstimatedCost": "预估费用 {{amount}}",
   "message.usageBuilderCredits": "已使用 Builder 积分 {{amount}}",
   "message.usageEstimatedBuilderCredits": "预估 Builder 积分 {{amount}}",
+  "message.usageMixedCost": "已报告和预估费用 {{amount}}",
+  "message.usageMixedBuilderCredits": "已报告和预估的 Builder 积分 {{amount}}",
   "message.requestIdUnavailable": "请求 ID 不可用",
   "message.unavailable": "此消息在此对话中已不可用。",
   "message.navigationUnavailable": "对话导航不可用。",

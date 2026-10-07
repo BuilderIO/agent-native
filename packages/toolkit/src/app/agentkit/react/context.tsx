@@ -244,8 +244,10 @@ export interface AgentKitLabels {
   usageNotRecorded: string;
   usageReportedCost: string;
   usageEstimatedCost: string;
+  usageMixedCost: string;
   usageBuilderCredits: string;
   usageEstimatedBuilderCredits: string;
+  usageMixedBuilderCredits: string;
   requestIdUnavailable: string;
   positiveFeedback: string;
   negativeFeedback: string;
@@ -350,8 +352,10 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   usageNotRecorded: "Usage not recorded",
   usageReportedCost: "Cost {{amount}}",
   usageEstimatedCost: "Estimated cost {{amount}}",
+  usageMixedCost: "Reported and estimated cost {{amount}}",
   usageBuilderCredits: "Builder credits used {{amount}}",
   usageEstimatedBuilderCredits: "Estimated Builder credits {{amount}}",
+  usageMixedBuilderCredits: "Reported and estimated Builder credits {{amount}}",
   requestIdUnavailable: "Request ID unavailable",
   positiveFeedback: "Helpful",
   negativeFeedback: "Not helpful",
@@ -413,9 +417,9 @@ export interface AgentKitRunUsage {
   durationMs: number | null;
   billing: {
     providerCostUsd: number | null;
-    providerCostSource: "reported" | "estimated" | null;
+    providerCostSource: "reported" | "estimated" | "mixed" | null;
     builderCredits: number | null;
-    builderCreditsSource: "reported" | "estimated" | null;
+    builderCreditsSource: "reported" | "estimated" | "mixed" | null;
   };
 }
 

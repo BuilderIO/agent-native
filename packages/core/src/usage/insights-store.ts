@@ -137,9 +137,9 @@ export interface UsageRunTurn {
 export interface UsageRunDetail extends UsageRunListItem {
   billing: {
     providerCostUsd: number | null;
-    providerCostSource: "reported" | "estimated" | null;
+    providerCostSource: "reported" | "estimated" | "mixed" | null;
     builderCredits: number | null;
-    builderCreditsSource: "reported" | "estimated" | null;
+    builderCreditsSource: "reported" | "estimated" | "mixed" | null;
   };
   reply: string | null;
   turns: UsageRunTurn[];
@@ -553,9 +553,11 @@ async function billingByRun(
     args: [runId, ...scope.args],
   });
   let providerCents = 0;
+  let providerReported = false;
   let providerEstimated = false;
   let hasProviderUsage = false;
   let builderCredits = 0;
+  let builderReported = false;
   let builderEstimated = false;
   let hasBuilderUsage = false;
 
@@ -571,6 +573,7 @@ async function billingByRun(
     if (builderUsage) {
       if (!missingBuilderCredits) {
         hasBuilderUsage = true;
+        builderReported = true;
         builderCredits += numberField(row, "builder_credits");
         continue;
       }
@@ -586,21 +589,26 @@ async function billingByRun(
     if (row.cost_source === "unavailable" && costCents <= 0) continue;
     hasProviderUsage = true;
     providerCents += costCents;
+    providerReported ||= row.cost_source === "reported";
     providerEstimated ||= row.cost_source !== "reported";
   }
 
   return {
     providerCostUsd: hasProviderUsage ? providerCents / 100 : null,
     providerCostSource: hasProviderUsage
-      ? providerEstimated
-        ? "estimated"
-        : "reported"
+      ? providerReported && providerEstimated
+        ? "mixed"
+        : providerEstimated
+          ? "estimated"
+          : "reported"
       : null,
     builderCredits: hasBuilderUsage ? builderCredits : null,
     builderCreditsSource: hasBuilderUsage
-      ? builderEstimated
-        ? "estimated"
-        : "reported"
+      ? builderReported && builderEstimated
+        ? "mixed"
+        : builderEstimated
+          ? "estimated"
+          : "reported"
       : null,
   };
 }

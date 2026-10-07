@@ -4709,9 +4709,9 @@ describe("AgentKit subscriptions and recovery", () => {
         durationMs: 1_000,
         billing: {
           providerCostUsd: 0.02,
-          providerCostSource: "reported",
-          builderCredits: null,
-          builderCreditsSource: null,
+          providerCostSource: "mixed",
+          builderCredits: 2,
+          builderCreditsSource: "mixed",
         },
       });
     const tree = mount();
@@ -4771,7 +4771,8 @@ describe("AgentKit subscriptions and recovery", () => {
         ".agentkit-message-menu",
       )?.textContent;
       expect(menuText).toContain("Worked for 1s");
-      expect(menuText).toContain("Cost $0.02");
+      expect(menuText).toContain("Reported and estimated cost $0.02");
+      expect(menuText).toContain("Reported and estimated Builder credits 2");
     } finally {
       await tree.unmount();
     }

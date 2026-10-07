@@ -768,11 +768,18 @@ export const AgentKitAssistantChat = forwardRef<
       usageEstimatedCost: t("agentChat.message.usageEstimatedCost", {
         amount: "{{amount}}",
       }),
+      usageMixedCost: t("agentChat.message.usageMixedCost", {
+        amount: "{{amount}}",
+      }),
       usageBuilderCredits: t("agentChat.message.usageBuilderCredits", {
         amount: "{{amount}}",
       }),
       usageEstimatedBuilderCredits: t(
         "agentChat.message.usageEstimatedBuilderCredits",
+        { amount: "{{amount}}" },
+      ),
+      usageMixedBuilderCredits: t(
+        "agentChat.message.usageMixedBuilderCredits",
         { amount: "{{amount}}" },
       ),
       requestIdUnavailable: t("agentChat.message.requestIdUnavailable"),

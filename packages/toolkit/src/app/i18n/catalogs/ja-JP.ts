@@ -1042,6 +1042,9 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageEstimatedCost": "推定費用 {{amount}}",
   "message.usageBuilderCredits": "使用した Builder クレジット {{amount}}",
   "message.usageEstimatedBuilderCredits": "推定 Builder クレジット {{amount}}",
+  "message.usageMixedCost": "報告済み・推定の費用 {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "報告済み・推定の Builder クレジット {{amount}}",
   "message.requestIdUnavailable": "リクエスト ID を利用できません",
   "message.unavailable": "この会話ではこのメッセージを利用できなくなりました。",
   "message.navigationUnavailable": "会話のナビゲーションは利用できません。",

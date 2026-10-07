@@ -1018,6 +1018,9 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageEstimatedCost": "예상 비용 {{amount}}",
   "message.usageBuilderCredits": "사용한 Builder 크레딧 {{amount}}",
   "message.usageEstimatedBuilderCredits": "예상 Builder 크레딧 {{amount}}",
+  "message.usageMixedCost": "보고된 비용과 예상 비용 {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "보고된 Builder 크레딧과 예상 Builder 크레딧 {{amount}}",
   "message.requestIdUnavailable": "요청 ID를 사용할 수 없음",
   "message.unavailable":
     "이 대화에서 해당 메시지를 더 이상 사용할 수 없습니다.",

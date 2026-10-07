@@ -763,6 +763,9 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageBuilderCredits": "Verbrauchte Builder-Credits {{amount}}",
   "message.usageEstimatedBuilderCredits":
     "Geschätzte Builder-Credits {{amount}}",
+  "message.usageMixedCost": "Gemeldete und geschätzte Kosten {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "Gemeldete und geschätzte Builder-Credits {{amount}}",
   "message.requestIdUnavailable": "Anfrage-ID nicht verfügbar",
   "message.unavailable":
     "Die Nachricht ist in dieser Unterhaltung nicht mehr verfügbar.",

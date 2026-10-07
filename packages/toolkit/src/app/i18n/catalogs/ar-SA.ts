@@ -1033,6 +1033,9 @@ const messages: ToolkitAgentChatTranslation = {
   "message.usageEstimatedCost": "التكلفة المقدّرة {{amount}}",
   "message.usageBuilderCredits": "أرصدة Builder المستخدمة {{amount}}",
   "message.usageEstimatedBuilderCredits": "أرصدة Builder المقدّرة {{amount}}",
+  "message.usageMixedCost": "التكلفة المبلّغ عنها والمقدّرة {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "أرصدة Builder المبلّغ عنها والمقدّرة {{amount}}",
   "message.requestIdUnavailable": "معرّف الطلب غير متاح",
   "message.unavailable": "لم تعد هذه الرسالة متاحة في هذه المحادثة.",
   "message.navigationUnavailable": "التنقل في المحادثة غير متاح.",
