@@ -302,15 +302,6 @@ async function validateMutationSql(
   });
 }
 
-function movedPanelIdsFrom(operations: DashboardMutationOperation[]): string[] {
-  const moved = new Set<string>();
-  for (const op of operations) {
-    if (op.op !== "movePanels") continue;
-    for (const id of op.panelIds) moved.add(id);
-  }
-  return Array.from(moved);
-}
-
 function helpResult() {
   return {
     mutationApiVersion: 1,
@@ -444,7 +435,7 @@ export default defineAction({
       );
       if (sqlError) throw new Error(sqlError);
     } else {
-      const saved = await upsertDashboardWithRetry(
+      const persisted = await upsertDashboardWithRetry(
         dashboardId,
         ctx,
         async (existing) => {
@@ -461,7 +452,13 @@ export default defineAction({
           return { kind: "sql" as const, body: computed.nextRoot };
         },
       );
-      root = saved.config as Record<string, unknown>;
+      root = persisted.config as Record<string, unknown>;
+    }
+
+    const changed =
+      mutation.changedPanelIds.length > 0 ||
+      mutation.dashboardFieldsChanged.length > 0;
+    if (args.dryRun !== true && changed) {
       queueDashboardCollabSync(dashboardId, root, "agent");
       track(
         "dashboard_saved",
@@ -477,17 +474,19 @@ export default defineAction({
       );
     }
 
-    const compact = compactDashboardResult(root, movedPanelIdsFrom(operations));
-    const summary =
-      `${args.dryRun === true ? "Dry-ran" : "Applied"} ${operations.length} dashboard mutation op(s) for "${dashboardId}". ` +
-      `First panels: ${compact.firstPanelIds.join(", ")}.`;
+    const compact = compactDashboardResult(root, mutation.movedPanelIds);
+    const summary = changed
+      ? `${args.dryRun === true ? "Dry-ran" : "Applied"} ${operations.length} dashboard mutation op(s) for "${dashboardId}". ` +
+        `First panels: ${compact.firstPanelIds.join(", ")}.`
+      : `${args.dryRun === true ? "Dry-run found no changes" : "No dashboard changes were needed"} for "${dashboardId}"; the requested state already matches.`;
 
     return {
       id: dashboardId,
       dashboardId,
       name: typeof root.name === "string" ? root.name : dashboardId,
       mutationApiVersion: 1,
-      saved: args.dryRun !== true,
+      saved: args.dryRun !== true && changed,
+      changed,
       dryRun: args.dryRun === true,
       appliedOps: operations.length,
       ...compact,
@@ -496,7 +495,7 @@ export default defineAction({
       insertedPanelIds: mutation.insertedPanelIds,
       removedPanelIds: mutation.removedPanelIds,
       dashboardFieldsChanged: mutation.dashboardFieldsChanged,
-      ...(args.dryRun === true
+      ...(args.dryRun === true || !changed
         ? { collabSync: { status: "skipped" as const } }
         : {
             collabSync: {

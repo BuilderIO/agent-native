@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
   upsertDashboardWithRetry: vi.fn(),
+  queueDashboardCollabSync: vi.fn(),
+  track: vi.fn(),
   dryRunQuery: vi.fn(),
   hasCollabState: vi.fn(async () => false),
   applyText: vi.fn(async () => undefined),
@@ -78,6 +80,22 @@ vi.mock("../server/lib/dashboards-store", () => ({
   upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
 }));
 
+vi.mock("../server/lib/dashboard-collab-sync", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../server/lib/dashboard-collab-sync")
+    >();
+  mocks.queueDashboardCollabSync.mockImplementation(
+    actual.queueDashboardCollabSync,
+  );
+  return {
+    ...actual,
+    queueDashboardCollabSync: mocks.queueDashboardCollabSync,
+  };
+});
+
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
+
 vi.mock("../server/lib/bigquery", () => ({
   dryRunQuery: mocks.dryRunQuery,
 }));
@@ -123,6 +141,8 @@ describe("mutate-dashboard", () => {
     mocks.upsertDashboardWithRetry.mockImplementation(
       defaultUpsertDashboardWithRetry,
     );
+    mocks.queueDashboardCollabSync.mockClear();
+    mocks.track.mockClear();
     mocks.dryRunQuery.mockReset();
     mocks.dryRunQuery.mockResolvedValue(null);
     mocks.hasCollabState.mockClear();
@@ -179,6 +199,51 @@ describe("mutate-dashboard", () => {
 
     expect(result.changedPanelIds).toEqual(["a"]);
     expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+  });
+
+  it("reports unchanged same-value patches without emitting save side effects", async () => {
+    const existingConfig = dashboardConfig();
+    (existingConfig.panels[0] as Record<string, unknown>).config = {
+      xKey: "date",
+      yKeys: ["signups"],
+      yAxis: { format: "percent", minimum: 0 },
+    };
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: {
+            title: "a",
+            config: {
+              yAxis: { minimum: 0, format: "percent" },
+              yKeys: ["signups"],
+              xKey: "date",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.changed).toBe(false);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.commandLog).toEqual(["updatePanel(a: no fields)"]);
+    expect(result.summary).toContain("No dashboard changes were needed");
+    expect(result.collabSync).toEqual({ status: "skipped" });
+    expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+    expect(mocks.queueDashboardCollabSync).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+    const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+      panels: Array<Record<string, unknown>>;
+    };
+    expect(saved.panels[0]).toEqual(existingConfig.panels[0]);
   });
 
   it("applies a typed mutation script in one atomic save", async () => {
