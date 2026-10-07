@@ -9,13 +9,13 @@ vi.mock("../db/client.js", () => ({
 }));
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
-let writes: string[] = [];
+let writes: Array<{ sql: string; args: unknown[] }> = [];
 
 const sharedClient = {
   async execute(arg: string | { sql: string; args?: unknown[] }) {
     const sql = typeof arg === "string" ? arg : arg.sql;
     const args = typeof arg === "string" ? [] : (arg.args ?? []);
-    if (!/^\s*(select|create)/i.test(sql)) writes.push(sql);
+    if (!/^\s*(select|create)/i.test(sql)) writes.push({ sql, args });
     if (/^\s*create/i.test(sql)) {
       await pglite.exec(sql);
       return { rows: [], rowsAffected: 0 };
@@ -30,15 +30,15 @@ const sharedClient = {
 };
 
 function seedInserts(): string[] {
-  return writes.filter((sql) =>
-    /INSERT (OR IGNORE )?INTO resources/i.test(sql),
-  );
+  return writes
+    .filter(({ sql }) => /INSERT (OR IGNORE )?INTO resources/i.test(sql))
+    .map(({ sql }) => sql);
 }
 
-function learnSharedContentMigrations(): string[] {
-  return writes.filter((sql) =>
-    /^UPDATE resources SET content = \?/i.test(sql.trim()),
-  );
+function learnSharedContentMigrationPaths(): unknown[] {
+  return writes
+    .filter(({ sql }) => /^UPDATE resources SET content = \?/i.test(sql.trim()))
+    .map(({ args }) => args[4]);
 }
 
 beforeEach(async () => {
@@ -57,7 +57,10 @@ describe("default resource seeding is once per database, not per process", () =>
     await first.resourceList("__shared__");
     const firstSeeds = seedInserts().length;
     expect(firstSeeds).toBeGreaterThan(0);
-    expect(learnSharedContentMigrations()).toHaveLength(1);
+    expect(learnSharedContentMigrationPaths()).toEqual([
+      "skills/learn-shared/SKILL.md",
+      "skills/learn-shared.md",
+    ]);
 
     writes = [];
     vi.resetModules();
@@ -65,7 +68,7 @@ describe("default resource seeding is once per database, not per process", () =>
     await second.resourceList("__shared__");
 
     expect(seedInserts()).toEqual([]);
-    expect(learnSharedContentMigrations()).toEqual([]);
+    expect(learnSharedContentMigrationPaths()).toEqual([]);
   });
 
   it("still seeds a database that has never been seeded", async () => {
@@ -100,7 +103,10 @@ describe("default resource seeding is once per database, not per process", () =>
       ),
     ).toBeNull();
     expect(seedInserts()).toEqual([]);
-    expect(learnSharedContentMigrations()).toHaveLength(1);
+    expect(learnSharedContentMigrationPaths()).toEqual([
+      "skills/learn-shared/SKILL.md",
+      "skills/learn-shared.md",
+    ]);
   });
 
   it("does not re-seed personal defaults for the same owner on a new process", async () => {
