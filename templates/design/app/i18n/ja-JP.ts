@@ -2032,6 +2032,7 @@ export default {
       "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
   },
   designSystems: {
+    comingSoonTitle: "デザインシステムは近日公開予定です",
     waitlist: {
       join: "ウェイトリストに登録",
       joining: "登録中…",

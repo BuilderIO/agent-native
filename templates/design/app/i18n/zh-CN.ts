@@ -1931,6 +1931,7 @@ export default {
     codeIndexingEnterpriseOnly: "代码和仓库索引需要 Builder 企业版套餐",
   },
   designSystems: {
+    comingSoonTitle: "设计系统即将推出",
     waitlist: {
       join: "加入候补名单",
       joining: "正在加入…",

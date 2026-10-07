@@ -2051,6 +2051,7 @@ export default {
       "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "Les systèmes de conception arrivent bientôt",
     waitlist: {
       join: "Rejoindre la liste d’attente",
       joining: "Inscription…",

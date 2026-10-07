@@ -1989,6 +1989,7 @@ export default {
       "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Builder Enterprise योजना आवश्यक है",
   },
   designSystems: {
+    comingSoonTitle: "डिज़ाइन सिस्टम जल्द आ रहे हैं",
     waitlist: {
       join: "प्रतीक्षा सूची में शामिल हों",
       joining: "शामिल हो रहे हैं…",

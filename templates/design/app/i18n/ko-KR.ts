@@ -2004,6 +2004,7 @@ export default {
       "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
   },
   designSystems: {
+    comingSoonTitle: "디자인 시스템이 곧 제공됩니다",
     waitlist: {
       join: "대기 목록 등록",
       joining: "등록 중…",

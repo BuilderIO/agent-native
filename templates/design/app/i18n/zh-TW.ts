@@ -2025,6 +2025,7 @@ export default {
     },
   },
   designSystems: {
+    comingSoonTitle: "設計系統即將推出",
     waitlist: {
       join: "加入候補名單",
       joining: "正在加入…",

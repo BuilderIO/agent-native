@@ -2032,6 +2032,7 @@ export default {
       "A indexação de código e repositórios requer o plano Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "Os sistemas de design chegarão em breve",
     waitlist: {
       join: "Entrar na lista de espera",
       joining: "Entrando…",

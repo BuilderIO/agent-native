@@ -1406,6 +1406,14 @@ const messages = {
       "Crea una cuenta gratuita de Clips para unirte a la conversación",
     genericTitle: "Crea una cuenta gratuita de Clips para continuar",
     description: "Volverás a este clip en cuanto termines.",
+    verificationPendingTitle: "Verifica tu correo electrónico",
+    verificationPendingCopy:
+      "Enviamos un correo de verificación a {{email}}. Ábrelo para terminar de crear tu cuenta y volver a este clip.",
+    resendVerification: "Reenviar correo de verificación",
+    resendingVerification: "Enviando correo de verificación...",
+    verificationEmailResent: "Enviamos otro correo de verificación.",
+    verificationEmailFailed:
+      "No pudimos reenviar el correo de verificación. Inténtalo de nuevo o inicia sesión con un enlace por correo.",
     passwordsMismatch: "Las contraseñas no coinciden.",
     commentIntent: "comentar",
     reactIntent: "añadir una reacción",

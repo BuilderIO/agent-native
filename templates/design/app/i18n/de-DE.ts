@@ -2058,6 +2058,7 @@ export default {
       "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
   },
   designSystems: {
+    comingSoonTitle: "Designsysteme kommen bald",
     waitlist: {
       join: "Warteliste beitreten",
       joining: "Wird eingetragen…",

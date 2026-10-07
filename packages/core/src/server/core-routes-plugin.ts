@@ -1372,6 +1372,7 @@ const BUILDER_WAITLIST_USE_CASES = new Set([
   "design_publish_app",
   "design_make_real_waitlist",
   "design_system_workflows_waitlist",
+  "design_system_waitlist",
   "docs_build_online_waitlist",
   "docs_edit_online_waitlist",
 ]);

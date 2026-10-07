@@ -1983,6 +1983,7 @@ export default {
       "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "أنظمة التصميم قريبًا",
     waitlist: {
       join: "انضم إلى قائمة الانتظار",
       joining: "جارٍ الانضمام…",

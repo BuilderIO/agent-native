@@ -2009,6 +2009,7 @@ export default {
       "Code and repository indexing requires the Builder Enterprise plan",
   },
   designSystems: {
+    comingSoonTitle: "Design systems are coming soon",
     waitlist: {
       join: "Join waitlist",
       joining: "Joining…",

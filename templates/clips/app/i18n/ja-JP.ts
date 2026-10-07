@@ -1387,6 +1387,14 @@ const messages = {
     agentTitle: "会話に参加するには無料の Clips アカウントを作成",
     genericTitle: "続行するには無料の Clips アカウントを作成",
     description: "完了すると、このクリップに戻ります。",
+    verificationPendingTitle: "メールアドレスを確認してください",
+    verificationPendingCopy:
+      "{{email}} に確認メールを送信しました。メールを開いてアカウント作成を完了し、このクリップに戻ってください。",
+    resendVerification: "確認メールを再送信",
+    resendingVerification: "確認メールを送信しています...",
+    verificationEmailResent: "新しい確認メールを送信しました。",
+    verificationEmailFailed:
+      "確認メールを再送信できませんでした。もう一度お試しいただくか、メールリンクでログインしてください。",
     passwordsMismatch: "パスワードが一致しません。",
     commentIntent: "コメント",
     reactIntent: "リアクションを追加",
