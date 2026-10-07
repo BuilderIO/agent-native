@@ -2954,6 +2954,47 @@ describe("useBuilderConnectFlow", () => {
     expect(openConnectUrl).not.toHaveBeenCalled();
   });
 
+  it("marks a failed desktop sign-in launch as a launch error", async () => {
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+    const openConnectUrl = vi.fn(async () => ({
+      ok: false as const,
+      error: "Could not open Builder in the system browser.",
+    }));
+    const transport: BuilderConnectTransport = {
+      readStatus: vi.fn(async () => ({
+        ...connectedBuilderStatus,
+        configured: false,
+        connectUrl: "https://builder.example/connect?_an_connect=signed",
+      })),
+      activateAccount: vi.fn(async () => ({
+        ok: false as const,
+        code: "network_error" as const,
+        message: null,
+      })),
+      openConnectUrl,
+    };
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe transport={transport} />);
+    });
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(openConnectUrl).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(
+      "Could not open Builder in the system browser.",
+    );
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("launch");
+  });
+
   it("asks the MCP host to open Builder when an embedded chat sandbox blocks popups", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     setEmbeddedWindow(true);

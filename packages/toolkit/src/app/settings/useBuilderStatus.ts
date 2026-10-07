@@ -1473,6 +1473,7 @@ export function useBuilderConnectFlow(
             setError(
               result?.error ??
                 t("agentChat.settingsShell.builder.grantsFailed"),
+              "launch",
             );
           }
         })();
