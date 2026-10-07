@@ -35,6 +35,12 @@ function seedInserts(): string[] {
   );
 }
 
+function learnSharedContentMigrations(): string[] {
+  return writes.filter((sql) =>
+    /^UPDATE resources SET content = \?/i.test(sql.trim()),
+  );
+}
+
 beforeEach(async () => {
   pglite = await createTestPglite();
   writes = [];
@@ -51,6 +57,7 @@ describe("default resource seeding is once per database, not per process", () =>
     await first.resourceList("__shared__");
     const firstSeeds = seedInserts().length;
     expect(firstSeeds).toBeGreaterThan(0);
+    expect(learnSharedContentMigrations()).toHaveLength(1);
 
     writes = [];
     vi.resetModules();
@@ -58,6 +65,7 @@ describe("default resource seeding is once per database, not per process", () =>
     await second.resourceList("__shared__");
 
     expect(seedInserts()).toEqual([]);
+    expect(learnSharedContentMigrations()).toEqual([]);
   });
 
   it("still seeds a database that has never been seeded", async () => {
@@ -66,6 +74,33 @@ describe("default resource seeding is once per database, not per process", () =>
     const paths = rows.map((r) => r.path);
     expect(paths).toContain("AGENTS.md");
     expect(paths).toContain("LEARNINGS.md");
+  });
+
+  it("does not recreate a deleted shared skill while its migration runs", async () => {
+    const first = await import("./store.js");
+    await first.resourceList("__shared__");
+    await sharedClient.execute({
+      sql: "DELETE FROM resources WHERE owner = ? AND path = ?",
+      args: ["__shared__", "skills/learn-shared/SKILL.md"],
+    });
+    await sharedClient.execute({
+      sql: "DELETE FROM public.settings WHERE key = ?",
+      args: ["resources-migrated:shared:learn-shared-approval:v1"],
+    });
+
+    writes = [];
+    vi.resetModules();
+    const second = await import("./store.js");
+    await second.resourceList("__shared__");
+
+    expect(
+      await second.resourceGetByPath(
+        "__shared__",
+        "skills/learn-shared/SKILL.md",
+      ),
+    ).toBeNull();
+    expect(seedInserts()).toEqual([]);
+    expect(learnSharedContentMigrations()).toHaveLength(1);
   });
 
   it("does not re-seed personal defaults for the same owner on a new process", async () => {

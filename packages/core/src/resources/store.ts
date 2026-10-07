@@ -503,6 +503,41 @@ Review the current conversation for findings that are useful across the organiza
 Keep entries concise — one line per learning, grouped by category (Conventions, Technical, Patterns).
 `;
 
+const PREVIOUS_DEFAULT_SKILL_LEARN_SHARED_MD = `---
+name: learn-shared
+description: >-
+  Update the shared LEARNINGS.md with team-wide preferences, corrections, and
+  patterns from this session.
+user-invocable: true
+---
+
+# Learn (Shared)
+
+Review the current conversation and update the shared \`LEARNINGS.md\` resource with anything the whole team should know.
+
+## What to capture
+
+- **Team conventions** — agreed-upon approaches, code style decisions
+- **Technical learnings** — API quirks, library gotchas, surprising behavior
+- **Architectural decisions** — why something is done a certain way
+- **Corrections** — mistakes that any team member's agent should avoid
+
+## What NOT to capture
+
+- Personal preferences (use \`/learn\` for those)
+- Things obvious from reading the code
+- Standard language/framework behavior
+
+## Steps
+
+1. Read shared learnings with the \`resources\` tool: \`action: "read"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`
+2. Review the conversation for team-relevant insights
+3. Merge new learnings with existing ones — don't duplicate, refine existing entries
+4. Write back with the \`resources\` tool: \`action: "write"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`, \`content: "..."\`
+
+Keep entries concise — one line per learning, grouped by category (Conventions, Technical, Patterns).
+`;
+
 const DEFAULT_AGENTS_SHARED_MD = `# Agent Instructions
 
 This file customizes how the AI agent behaves in this app. Edit it to add your own instructions, preferences, and context.
@@ -613,6 +648,32 @@ async function migrateDefaultResourcePath({
   } catch {
     // Best-effort compatibility migration; seeding below still works if it fails.
   }
+}
+
+async function migrateDefaultResourceContent({
+  client,
+  owner,
+  resourcePath,
+  previousContent,
+  content,
+}: {
+  client: DbExec;
+  owner: string;
+  resourcePath: string;
+  previousContent: string;
+  content: string;
+}): Promise<void> {
+  await client.execute({
+    sql: `UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND content = ?`,
+    args: [
+      content,
+      Buffer.byteLength(content, "utf8"),
+      Date.now(),
+      owner,
+      resourcePath,
+      previousContent,
+    ],
+  });
 }
 
 function normalizeCreatedBy(value: unknown): ResourceCreatedBy {
@@ -1137,6 +1198,20 @@ async function _doEnsureTable(): Promise<void> {
     );
   });
 
+  // Migrate the shipped learn-shared default without touching edited copies.
+  // This marker stays separate from the shared seed version so it cannot
+  // resurrect deleted defaults or rerun personal seeding.
+  if (!(await alreadySeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY))) {
+    await migrateDefaultResourceContent({
+      client,
+      owner: SHARED_OWNER,
+      resourcePath: "skills/learn-shared/SKILL.md",
+      previousContent: PREVIOUS_DEFAULT_SKILL_LEARN_SHARED_MD,
+      content: DEFAULT_SKILL_LEARN_SHARED_MD,
+    });
+    await markSeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY);
+  }
+
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid
   // race conditions).
   //
@@ -1274,6 +1349,8 @@ async function _doEnsureTable(): Promise<void> {
 }
 
 const RESOURCE_SEED_VERSION = 1;
+const SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY =
+  "resources-migrated:shared:learn-shared-approval:v1";
 
 const _personalSeeded = new Set<string>();
 

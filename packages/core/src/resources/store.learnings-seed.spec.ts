@@ -42,6 +42,26 @@ function bindClientTo(db: Awaited<ReturnType<typeof createTestPglite>>): void {
   };
 }
 
+function previousLearnSharedSeed(content: string): string {
+  return content
+    .replace(
+      "  Review and update shared LEARNINGS.md with explicitly approved organization-wide\n  preferences, corrections, and patterns from this session.",
+      "  Update the shared LEARNINGS.md with team-wide preferences, corrections, and\n  patterns from this session.",
+    )
+    .replace(
+      "Review the current conversation for findings that are useful across the organization. Keep setup-specific findings in personal memory or the current analysis. Before writing a finding to shared `LEARNINGS.md` or organization memory, confirm that the user intends it to be shared unless they directly requested that shared write. A generic request to remember something does not authorize sharing it.",
+      "Review the current conversation and update the shared `LEARNINGS.md` resource with anything the whole team should know.",
+    )
+    .replace(
+      "3. Merge approved shared learnings with existing ones — don't duplicate, refine existing entries",
+      "3. Merge new learnings with existing ones — don't duplicate, refine existing entries",
+    )
+    .replace(
+      '4. Write back with the `resources` tool only after the user has approved the shared write: `action: "write"`, `path: "LEARNINGS.md"`, `scope: "shared"`, `content: "..."`',
+      '4. Write back with the `resources` tool: `action: "write"`, `path: "LEARNINGS.md"`, `scope: "shared"`, `content: "..."`',
+    );
+}
+
 let tempDir: string;
 let cwdSpy: ReturnType<typeof vi.spyOn>;
 
@@ -109,6 +129,96 @@ describe("shared LEARNINGS.md boot seeding", () => {
       expect(learnShared?.content).toContain(
         "A generic request to remember something does not authorize sharing it",
       );
+    } finally {
+      bindClientTo(pglite);
+      freshDb.close();
+    }
+  });
+
+  it("migrates the untouched shared learn-shared default on an already-seeded database", async () => {
+    const freshDb = await createTestPglite();
+    bindClientTo(freshDb);
+    try {
+      vi.resetModules();
+      const first = await import("./store.js");
+      const seeded = await first.resourceGetByPath(
+        first.SHARED_OWNER,
+        "skills/learn-shared/SKILL.md",
+      );
+      expect(seeded).not.toBeNull();
+      if (!seeded)
+        throw new Error("The shared learn-shared skill was not seeded.");
+
+      const previousContent = previousLearnSharedSeed(seeded.content);
+      expect(previousContent).not.toBe(seeded.content);
+      await sharedClient.execute({
+        sql: "UPDATE resources SET content = ?, size = ? WHERE id = ?",
+        args: [
+          previousContent,
+          Buffer.byteLength(previousContent, "utf8"),
+          seeded.id,
+        ],
+      });
+      await sharedClient.execute({
+        sql: "DELETE FROM public.settings WHERE key = ?",
+        args: ["resources-migrated:shared:learn-shared-approval:v1"],
+      });
+
+      vi.resetModules();
+      const second = await import("./store.js");
+      const migrated = await second.resourceGetByPath(
+        second.SHARED_OWNER,
+        "skills/learn-shared/SKILL.md",
+      );
+
+      expect(migrated?.content).toBe(seeded.content);
+      expect(migrated?.id).toBe(seeded.id);
+      expect(migrated?.size).toBe(Buffer.byteLength(seeded.content, "utf8"));
+    } finally {
+      bindClientTo(pglite);
+      freshDb.close();
+    }
+  });
+
+  it("preserves edits when the shared learn-shared default migration runs", async () => {
+    const freshDb = await createTestPglite();
+    bindClientTo(freshDb);
+    try {
+      vi.resetModules();
+      const first = await import("./store.js");
+      const seeded = await first.resourceGetByPath(
+        first.SHARED_OWNER,
+        "skills/learn-shared/SKILL.md",
+      );
+      expect(seeded).not.toBeNull();
+      if (!seeded)
+        throw new Error("The shared learn-shared skill was not seeded.");
+
+      const previousContent = previousLearnSharedSeed(seeded.content);
+      const customizedContent =
+        previousContent + "\n\n## Team additions\n\nKeep this edit.\n";
+      await sharedClient.execute({
+        sql: "UPDATE resources SET content = ?, size = ? WHERE id = ?",
+        args: [
+          customizedContent,
+          Buffer.byteLength(customizedContent, "utf8"),
+          seeded.id,
+        ],
+      });
+      await sharedClient.execute({
+        sql: "DELETE FROM public.settings WHERE key = ?",
+        args: ["resources-migrated:shared:learn-shared-approval:v1"],
+      });
+
+      vi.resetModules();
+      const second = await import("./store.js");
+      const unchanged = await second.resourceGetByPath(
+        second.SHARED_OWNER,
+        "skills/learn-shared/SKILL.md",
+      );
+
+      expect(unchanged?.content).toBe(customizedContent);
+      expect(unchanged?.id).toBe(seeded.id);
     } finally {
       bindClientTo(pglite);
       freshDb.close();
