@@ -298,7 +298,7 @@ const messages = {
     conflictStatusDescription: "请先检查冲突的文本，再保存其他更改。",
     accessLost: "访问权限已失效",
     accessLostDescription:
-      "你已无法访问此演示文稿。你的修改仍保留在屏幕上；恢复访问后可重试，或下载备份。",
+      "你对此演示文稿的访问权限已变更。你的修改仍保留在屏幕上；恢复访问后可重试，或下载备份。",
     reviewConflict: "查看冲突",
     conflictTitle: "第 {{number}} 张幻灯片存在文本冲突",
     conflictDescription: "编辑文本期间，另一版本更改了此幻灯片。",

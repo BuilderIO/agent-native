@@ -308,7 +308,7 @@ const messages = {
       "Review the conflicting text before saving more changes.",
     accessLost: "Access lost",
     accessLostDescription:
-      "You no longer have access to this deck. Your edits stay on screen; retry once access is restored, or download a backup.",
+      "Your access to this deck changed. Your edits stay on screen; retry once access is restored, or download a backup.",
     reviewConflict: "Review conflict",
     conflictTitle: "Slide {{number}} has a text conflict",
     conflictDescription:

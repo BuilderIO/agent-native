@@ -318,7 +318,7 @@ const messages = {
       "Vérifiez le texte en conflit avant d’enregistrer d’autres modifications.",
     accessLost: "Accès perdu",
     accessLostDescription:
-      "Vous n'avez plus accès à cette présentation. Vos modifications restent à l'écran ; réessayez une fois l'accès rétabli ou téléchargez une sauvegarde.",
+      "Votre accès à cette présentation a changé. Vos modifications restent à l'écran ; réessayez une fois l'accès rétabli ou téléchargez une sauvegarde.",
     reviewConflict: "Examiner le conflit",
     conflictTitle: "Conflit de texte sur la diapositive {{number}}",
     conflictDescription:

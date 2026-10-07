@@ -314,7 +314,7 @@ const messages = {
       "Prüfe den Textkonflikt, bevor du weitere Änderungen speicherst.",
     accessLost: "Zugriff verloren",
     accessLostDescription:
-      "Du hast keinen Zugriff mehr auf diese Präsentation. Deine Änderungen bleiben auf dem Bildschirm; versuche es erneut, sobald der Zugriff wiederhergestellt ist, oder lade ein Backup herunter.",
+      "Dein Zugriff auf diese Präsentation hat sich geändert. Deine Änderungen bleiben auf dem Bildschirm; versuche es erneut, sobald der Zugriff wiederhergestellt ist, oder lade ein Backup herunter.",
     reviewConflict: "Konflikt prüfen",
     conflictTitle: "Textkonflikt auf Folie {{number}}",
     conflictDescription:
