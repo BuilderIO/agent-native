@@ -52,6 +52,7 @@
     "**/*.e2e-host.tsx",
     "packages/core/src/cli/**",
     "packages/core/src/templates/**",
+    "starters/**",
     "packages/core/src/provider-api/**",
     "templates/plan/**",
     "templates/analytics/actions/provider-api-request.ts",

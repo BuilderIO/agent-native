@@ -36,6 +36,7 @@ jobs:
       ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
+      starter_patch: ${{ steps.scope.outputs.starter_patch }}
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
@@ -1280,6 +1281,26 @@ jobs:
       - name: Template action audit (advisory)
         if: ${{ !cancelled() && needs.change-scope.outputs.qa_static == 'true' }}
         run: pnpm actions:audit
+
+      # The starter repo applies starters/fusion to every mirrored Chat
+      # template; a templates/chat or core rewrite that drops a snippet it
+      # replaces must fail here, in the PR that caused it.
+      - name: Fusion starter patch applies to the Chat template
+        if: ${{ !cancelled() && needs.change-scope.outputs.starter_patch == 'true' }}
+        run: |
+          set -euo pipefail
+          tree="$(mktemp -d)/template"
+          pnpm exec tsx packages/core/src/cli/index.ts template materialize --template chat --out "$tree"
+          if ! node starters/fusion/apply.ts --root "$tree"; then
+            echo "::error::The Fusion starter patch no longer applies to templates/chat. Update starters/fusion in this PR; see starters/fusion/README.md."
+            exit 1
+          fi
+          git -C "$tree" init -q
+          git -C "$tree" add -A
+          git -C "$tree" -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm patched
+          node starters/fusion/apply.ts --root "$tree"
+          git -C "$tree" diff --exit-code
+          test -z "$(git -C "$tree" status --porcelain)"
 
   standalone-chat:
     name: Generate + run standalone Chat

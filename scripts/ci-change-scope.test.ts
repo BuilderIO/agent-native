@@ -619,6 +619,58 @@ test("fails closed to AgentKit acceptance for unknown and empty scopes", () => {
   );
 });
 
+test("applies the Fusion starter patch for Chat, core, and patch changes", () => {
+  for (const path of [
+    "templates/chat/AGENTS.md",
+    "templates/chat/.agents/skills/storing-data/SKILL.md",
+    "templates/chat/package.json",
+    "packages/core/src/cli/template-sync.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(
+      scope.checks.starter_patch,
+      true,
+      `${path} must apply the Fusion starter patch`,
+    );
+    assert.equal(scope.checks.guards, true, `${path} must run Security guards`);
+  }
+
+  assert.equal(
+    classifyChangedPaths(["templates/calendar/app/routes/index.tsx"]).checks
+      .starter_patch,
+    false,
+  );
+  assert.equal(
+    classifyChangedPaths(["packages/dispatch/src/index.ts"]).checks
+      .starter_patch,
+    false,
+  );
+});
+
+test("keeps a Fusion starter patch change targeted to its guard step", () => {
+  const scope = classifyChangedPaths([
+    "starters/fusion/apply.ts",
+    "starters/fusion/overlay/app/routes/_index.tsx",
+  ]);
+
+  assert.equal(scope.full, false);
+  assert.deepEqual(
+    Object.entries(scope.checks)
+      .filter(([, enabled]) => enabled)
+      .map(([name]) => name),
+    ["lint", "guards", "starter_patch"],
+  );
+});
+
+test("applies the Fusion starter patch on full and tooling-only runs", () => {
+  assert.equal(classifyChangedPaths([]).checks.starter_patch, true);
+  assert.equal(
+    classifyChangedPaths([".github/workflows/push-starter-template.yml"]).checks
+      .starter_patch,
+    true,
+  );
+});
+
 test("keeps package metadata targeted but runs the guards that scan it", () => {
   const scope = classifyChangedPaths(["templates/calendar/package.json"]);
 

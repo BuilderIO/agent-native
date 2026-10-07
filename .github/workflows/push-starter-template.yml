@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "templates/chat/**"
+      - "starters/fusion/**"
       - ".github/workflows/push-starter-template.yml"
   repository_dispatch:
     types: [agent-native-packages-published]
@@ -141,6 +142,11 @@ jobs:
             --exclude '.git/' \
             --exclude '.github/' \
             ./dist/template/ /tmp/starter/
+          # The starter patch lives in starters/fusion so CI here catches
+          # template changes that break it; the starter's sync.yml applies it
+          # from .github/starter-patch on the template branch.
+          mkdir -p /tmp/starter/.github/starter-patch
+          rsync -a --delete ./starters/fusion/ /tmp/starter/.github/starter-patch/
           cd /tmp/starter
           git config user.name "builder-bot"
           git config user.email "noreply@builder.io"

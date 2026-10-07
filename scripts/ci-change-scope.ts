@@ -32,6 +32,9 @@ const DOCS_SUPPORT_PATHS = new Set([
 ]);
 
 const COMMUNITY_TEMPLATES_ROOT = "community-templates";
+// The Fusion starter patch is not a workspace package; it is applied to the
+// materialized Chat template, so only Chat, core, and the patch can break it.
+const STARTER_PATCH_ROOT = "starters/fusion/";
 
 // Agent instructions are inputs to core (bundled skills, prompt resources) and
 // to the skills package, and several guards read them, so they are not docs.
@@ -127,6 +130,7 @@ const CHECK_NAMES = [
   "ssr_boot",
   "guards",
   "qa_static",
+  "starter_patch",
   "agentkit_acceptance",
   "neon_query_budget",
   "neon_connection_budget",
@@ -403,6 +407,7 @@ function isFullPath(path: string): boolean {
   if (normalized.startsWith("scripts/") && !isDocsPath(normalized)) {
     return true;
   }
+  if (normalized.startsWith(STARTER_PATCH_ROOT)) return false;
 
   return !isWorkspacePath(normalized) && !isDocsPath(normalized);
 }
@@ -566,6 +571,7 @@ function buildChecks(
     "packages/shared-app-config/",
   );
   const chatChanged = hasPath(changedPaths, "templates/chat/");
+  const starterPatchChanged = hasPath(changedPaths, STARTER_PATCH_ROOT);
   const schedulingChanged = hasPath(changedPaths, "packages/scheduling/");
   const dispatchChanged = hasPath(changedPaths, "packages/dispatch/");
   const contentChanged = hasPath(changedPaths, "templates/content/");
@@ -594,7 +600,11 @@ function buildChecks(
     changedPaths.some(isContentConvergenceRuntimePath) || coreChanged;
 
   return {
-    lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
+    lint:
+      workspaceChanged ||
+      instructionsChanged ||
+      guardScriptsChanged ||
+      starterPatchChanged,
     typecheck: workspaceChanged,
     fast_tests: workspaceChanged || instructionsChanged,
     content: contentChanged || coreChanged || schedulingChanged,
@@ -622,8 +632,10 @@ function buildChecks(
       workspaceChanged ||
       instructionsChanged ||
       guardScriptsChanged ||
-      readmeChanged,
+      readmeChanged ||
+      starterPatchChanged,
     qa_static: templateChanged,
+    starter_patch: chatChanged || coreChanged || starterPatchChanged,
     agentkit_acceptance:
       coreChanged ||
       toolkitChanged ||
