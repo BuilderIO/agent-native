@@ -3481,7 +3481,6 @@ async function readDeckFromAPI(id: string): Promise<DeckRead> {
         error: new Error(`get-deck returned an invalid deck for ${id}`),
       };
     }
-    clearDeckAccessLost(id);
     return { status: "ok", deck };
   } catch (err) {
     console.error(`Failed to fetch deck ${id}:`, err);
@@ -4613,9 +4612,13 @@ export function DeckProvider({
     const addedIds = fresh
       .filter((d) => !currentIds.has(d.id))
       .map((d) => d.id);
+    // A list that omits the open deck cannot tell revoked from deleted; the
+    // deck's own read decides, and keeps the local copy while it does.
+    const openDeckId = currentOpenDeckIdFromWindow();
     const removed = currentDecks.filter(
       (d) =>
         !freshById.has(d.id) &&
+        d.id !== openDeckId &&
         !staleFullReplaceDrafts.has(d.id) &&
         !isNewerThanSnapshot(d.id, createSeqAtRequest),
     );
@@ -4744,7 +4747,8 @@ export function DeckProvider({
         return { read: "superseded", deck: null };
       }
       pollControlRef.current.onRead(currentOpenId, read.status);
-      if (
+      if (read.status === "ok") clearDeckAccessLost(currentOpenId);
+      else if (
         (read.status === "forbidden" || read.status === "not-found") &&
         decksRef.current.some((d) => d.id === currentOpenId)
       ) {
@@ -4847,6 +4851,7 @@ export function DeckProvider({
       snapshotGeneration = serverSnapshotGenerationRef.current,
     ) => {
       ++deckListRequestIdRef.current;
+      for (const deck of nextDecks) clearDeckAccessLost(deck.id);
       const reconciledDecks = nextDecks.map((deck) =>
         deck.previewSlide
           ? deck

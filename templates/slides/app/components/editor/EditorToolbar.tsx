@@ -272,17 +272,20 @@ export default function EditorToolbar({
   const saveError = getDeckSaveError(deckId);
   const queryClient = useQueryClient();
   const accessLost = saveFailed && isDeckAccessLostStatus(saveError?.status);
-  const wasAccessLostRef = useRef(false);
+  const roleRefreshPendingRef = useRef(false);
   // The role query is not refetched on its own: once access comes back,
-  // "View only" would otherwise outlive the failure that explained it.
+  // "View only" would otherwise outlive the failure that explained it. A retry
+  // clears the failure while it is still in flight, so wait for it to settle.
   useEffect(() => {
-    if (wasAccessLostRef.current && !accessLost) {
+    if (accessLost) {
+      roleRefreshPendingRef.current = true;
+    } else if (roleRefreshPendingRef.current && !saving) {
+      roleRefreshPendingRef.current = false;
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-resource-shares"],
       });
     }
-    wasAccessLostRef.current = accessLost;
-  }, [accessLost, queryClient]);
+  }, [accessLost, saving, queryClient]);
   const resolveConflict = useCallback(
     async (choice: DeckContentConflictChoice) => {
       if (!conflict) return;

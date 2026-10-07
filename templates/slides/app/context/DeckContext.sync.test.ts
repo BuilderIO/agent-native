@@ -830,6 +830,81 @@ describe("DeckContext fallback polling", () => {
     },
   );
 
+  it("keeps the local copy of the open deck when a list refresh omits it", async () => {
+    const { api, result } = await renderOpenDeck();
+    // Once this session has created a deck, a list that omits a deck removes it.
+    act(() => {
+      result.current.createDeck(undefined, { noDefaultSlides: true });
+    });
+    // The first tick that is due for a list read reads the list before the deck.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    api.setServerDecks([]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+
+    expect(result.current.getDeck("open-deck")).toBeDefined();
+    expect(getDeckSaveError("open-deck")).toMatchObject({ status: 404 });
+  });
+
+  it("clears the flag when a reload finds the deck again", async () => {
+    const { api, result } = await renderOpenDeck();
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+
+    api.failDeckReads(null);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    expect(hasFailedDeckSave("open-deck")).toBe(false);
+  });
+
+  it("does not let a superseded successful read clear a newer denial", async () => {
+    const { api, result } = await renderOpenDeck();
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+
+    const real = api.fetchMock.getMockImplementation()!;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let held = false;
+    api.fetchMock.mockImplementation((url) => {
+      const response = real(url);
+      if (held || !requestString(url).includes("actions/get-deck")) {
+        return response;
+      }
+      held = true;
+      return response.then((r) => gate.then(() => r));
+    });
+
+    api.failDeckReads(null);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    api.failDeckReads(403);
+    await act(async () => {
+      await result.current.retryDeckSave("open-deck");
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+  });
+
   it("re-reads a deck flagged as access lost when the save status retry runs", async () => {
     const { api, result } = await renderOpenDeck();
     api.failDeckReads(403);

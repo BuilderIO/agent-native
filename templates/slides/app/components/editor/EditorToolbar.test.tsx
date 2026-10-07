@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   deckContentConflicts: [] as Array<{ slideId: string; canResolve: boolean }>,
   resolveDeckContentConflict: vi.fn(),
+  saving: { value: false },
   saveError: {
     value: undefined as { status?: number; retryable: boolean } | undefined,
   },
@@ -82,7 +83,7 @@ vi.mock("@/context/DeckContext", () => ({
     resolveContentConflict: vi.fn(),
     resolveDeckContentConflict: mocks.resolveDeckContentConflict,
   }),
-  useSaveState: () => ({ saving: false }),
+  useSaveState: () => ({ saving: mocks.saving.value }),
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -203,6 +204,7 @@ beforeEach(() => {
   mocks.creativeContextLabEnabled.value = true;
   mocks.deckContentConflicts = [];
   mocks.saveError.value = undefined;
+  mocks.saving.value = false;
 });
 
 afterEach(() => {
@@ -241,6 +243,27 @@ describe("<EditorToolbar>", () => {
     render(viewerToolbar());
 
     expect(screen.queryByTestId("save-status")).toBeNull();
+  });
+
+  it("waits for a retry to settle before refetching the role", () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    mocks.saveError.value = { status: 403, retryable: true };
+    const { rerender } = render(viewerToolbar());
+
+    mocks.saveError.value = undefined;
+    mocks.saving.value = true;
+    rerender(viewerToolbar());
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["action", "list-resource-shares"],
+    });
+
+    mocks.saveError.value = { status: 403, retryable: true };
+    mocks.saving.value = false;
+    rerender(viewerToolbar());
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["action", "list-resource-shares"],
+    });
+    invalidate.mockRestore();
   });
 
   it("refetches the role once an access-lost failure clears", () => {
