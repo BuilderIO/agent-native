@@ -1,9 +1,7 @@
 ---
 name: bigquery
 description: >-
-  Query the configured BigQuery warehouse for analytics data. Use when the user
-  asks for warehouse SQL, BigQuery tables, Amplitude-in-BigQuery events, or a
-  metric/table that the data dictionary says lives in BigQuery.
+  Query the BigQuery warehouse. Use for warehouse SQL, BigQuery tables, Amplitude-in-BigQuery events, or a metric the data dictionary says lives in BigQuery.
 ---
 
 # BigQuery

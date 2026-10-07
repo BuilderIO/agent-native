@@ -68,6 +68,8 @@ import {
   Surface,
   TextField,
   agentSuggestionPrompt,
+  createChatAttachmentAdapter,
+  formatAttachmentError,
   type PromptComposerFile,
   type PromptComposerProps,
   type TiptapComposerHandle,
@@ -3344,7 +3346,7 @@ export function AgentMessageActions({
         if (usage.billing.builderCredits !== null) {
           const amount = usage.billing.builderCredits.toLocaleString(
             undefined,
-            { maximumFractionDigits: 3 },
+            { minimumFractionDigits: 1, maximumFractionDigits: 1 },
           );
           rows.push({
             id: "usage-builder-credits",
@@ -3394,11 +3396,11 @@ export function AgentMessageActions({
       : []),
   ];
   const messageMenuSections = [
-    ...(usageMenuItems.length > 0
-      ? [{ id: "usage", label: labels.usage, items: usageMenuItems }]
-      : []),
     ...(actionMenuItems.length > 0
       ? [{ id: "actions", items: actionMenuItems }]
+      : []),
+    ...(usageMenuItems.length > 0
+      ? [{ id: "usage", label: labels.usage, items: usageMenuItems }]
       : []),
   ];
   return (
@@ -3598,7 +3600,7 @@ export function AgentMessageActions({
                 }}
                 placement="bottom"
                 align="end"
-                className="agentkit-message-menu w-48"
+                className="agentkit-message-menu w-56"
                 trigger={
                   <IconButton
                     label={labels.messageActions}
@@ -4065,6 +4067,10 @@ export function AgentKitComposer({
   }, []);
   const [uncontrolledMode, setUncontrolledMode] = useState(defaultMode);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const composerAttachmentAdapter = useMemo(
+    () => attachmentAdapter ?? createChatAttachmentAdapter(),
+    [attachmentAdapter],
+  );
   const executionMode = mode ?? uncontrolledMode;
   const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
@@ -4095,12 +4101,13 @@ export function AgentKitComposer({
         await composer.addAttachment(file);
         setAttachmentError(null);
       } catch (error) {
-        const message = error instanceof Error ? error.message : labels.error;
-        reportAttachmentError(message);
+        reportAttachmentError(
+          `${file.name}: ${formatAttachmentError(error, labels.dropFileFailed)}`,
+        );
         throw error;
       }
     },
-    [labels.error, reportAttachmentError],
+    [labels.dropFileFailed, labels.error, reportAttachmentError],
   );
   useEffect(() => {
     const receiveAttachments = (event: Event) => {
@@ -4494,7 +4501,7 @@ export function AgentKitComposer({
         onInspectContextItem={onInspectContextItem}
         onRetryContextItem={onRetryContextItem}
         contextMenuItems={contextMenuItems}
-        attachmentAdapter={attachmentAdapter}
+        attachmentAdapter={composerAttachmentAdapter}
         inlineTextAttachments={inlineTextAttachments}
         rootClassName="agentkit-composer"
         className={

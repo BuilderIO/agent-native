@@ -1,12 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep recent Slack, GitHub issues, Sentry, Agent-Native Analytics errors,
-  actionable automated diagnostics, and linked-tracker feedback: answer
-  reporters first, then fix verified bugs and actionable
-  objective UI defects at the owning boundary, require human signoff for
-  subjective UI changes, build features the invoking user endorsed with an
-  :upvote:, and recap every disposition. Use for scheduled or manual sweeps.
+  Review Slack, GitHub, CI, Sentry, Analytics, diagnostics, linked trackers,
+  and app/template, desktop, and package deploy/release lanes. Answer reporters
+  first; fix verified defects, verify delivery, build upvoted features, and
+  recap. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -220,15 +218,9 @@ Phase 2 reapplies these rules after full-thread review.
 Use `## Slack channels` unless the invocation narrows scope.
 
 **Automated diagnostics are feedback.** For Slack, gate before reading.
-Before investigating, use only alert and linked issue/PR/run/task metadata to
-identify repo/ref/SHA, workflow/service/environment, failure fingerprint, and
-active same-failure owner; this is Phase 0's sole pre-claim exception. If
-unowned/in scope, claim: Slack `👀`; elsewhere, current-task status row with
-source permalink, fingerprint, owner task/worktree, next action. Continue if
-this task owns it; else record **Owned elsewhere** (owner/link/action) and
-stop. No logs/tests/artifacts before claim. The required Slack claim reaction
-is authorized here; other source mutations need exact authorization. Then read
-`references/automated-diagnostics.md`.
+Before claiming, use only alert/link metadata. Follow
+[`automated-diagnostics.md`](references/automated-diagnostics.md) for ownership,
+claim, and stop/continue; inspect logs, tests, and artifacts only afterward.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
@@ -273,13 +265,12 @@ the query also returns ordinary replies and old polls that happen to carry the
 reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
-An upvoted item is a **feature or UX change**: it skips only the clear-bug bar,
-not `👀`, fix-altitude, verification, or question-budget requirements. The
-upvote overrides the bug gate, not ownership; build the smallest endorsed
-version and name Sid or Alice in the recap. Add `👀` before investigation or
-delegation and read it back. Keep an evidence-limited disposition until Phase
-2's four bars hold; then use **Shipped**, adding `✅` only if it also meets
-**Fixed**.
+An upvote endorses a **feature or UX change** and skips only the clear-bug bar;
+it does not change ownership, reaction, verification, or question-budget rules.
+Build the smallest endorsed version, name Sid or Alice, and state requested
+versus actual behavior in the recap. Add `👀` before investigation or
+delegation and read it back. Keep it evidence-limited until Phase 2's four bars
+hold; then use **Shipped**, adding `✅` only if it meets **Fixed**.
 
 Don't search `has::eyes:`; use the owner or handoff path above.
 
@@ -288,6 +279,15 @@ the cursor: recent open or unresolved items with no maintainer disposition,
 deduplicated against Slack. If a source cannot be read, record it as
 **unavailable**. Never report "nothing matched" for a source you could not
 query.
+
+<!-- framework-repo-only:start -->
+### CI failures
+
+Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
+Query failures mean **CI unavailable**, not empty. Deploy/release/publish rows
+follow [`deployment-recovery.md`](references/deployment-recovery.md) and stay
+active through target proof; track source-fix disposition separately.
+<!-- framework-repo-only:end -->
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
@@ -326,6 +326,18 @@ correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
 at their boundary; record external, deployment, or unclear issues without
 inventing a fix.
 
+### Deployment, release, and publish failures
+
+Scan app/template, desktop, and package lanes every sweep, even without linked
+feedback. Carry active run IDs, queued/running runs, failures, and missing/stale
+artifacts across cursors. Fix repo causes; record external/manual causes with
+the next owner/action. CI-red deploy rows from [CI triage](references/ci-red-report.md)
+reuse this operational fingerprint. Follow
+[`deployment-recovery.md`](references/deployment-recovery.md) for recovery and
+target proof; keep delivery active until proof passes. A source issue may be
+**Fixed** separately; delivery gaps are never **Quarantined**. Green CI or
+merged source does not prove delivery.
+
 ## Phase 2: fix
 
 Before changing code, read `fix-at-the-boundary`, `verifying-changes`, and
@@ -355,8 +367,7 @@ slack_search: <2-4 distinctive symptom words> in:<#CHANNEL>
 ```
 
 Search in the reporter's words — `zoom invalid_client`, `logout twice` — not
-your diagnosis. People describe one bug differently, so read the hits rather
-than trusting the count.
+your diagnosis. Read hits; one bug may have different descriptions.
 
 **A repeat report after a Fixed claim is evidence that fix failed.** It is the
 only falsification signal this workflow gets, and it outranks your belief that
@@ -426,24 +437,15 @@ pre-existing.
 
 ### Npx and package reports have a release follow-up
 
-Npx scaffolds are versioned. Record pinned/filed versions, fresh npm cache/no
-local override, candidate result, release, and existing-app path (`pnpm add
-@agent-native/core@<version>` or hand edit).
-
-Local proof, beta promises, and scaffolds aren't **Shipped**/**Live verified**
-until published. A verified merge is **Fixed**; follow the issue-closure rule
-above. Record merge proof, release, verification, and bump/re-scaffold
-follow-up. Unknown package/endpoint context is a release follow-up. Ask only if
-scope or reporter input is unclear. Missing evidence alone doesn't keep a
-verified merge open.
-Merge/beta is not npx delivery.
+Use [`deployment-recovery.md`](references/deployment-recovery.md) for npx
+version, registry, publication, and existing-app upgrade proof. A verified merge
+may be **Fixed** while its delivery row stays open; a local scaffold or beta
+promise is not delivery.
 
 ### Documentation has a runnable proof obligation
 
-For each docs row, copy commands into a clean temporary scaffold; verify every
-referenced file, directory, script, env var, deploy target, link, and fence
-order. A docs diff/build is not enough. Update configured locales and run
-`guard:i18n-catalogs` plus `guard:i18n-changed-copy`.
+For each docs row, use [`documentation-proof.md`](references/documentation-proof.md).
+A docs diff/build alone isn't proof.
 
 Choose the narrowest seam the evidence supports:
 
@@ -456,12 +458,6 @@ Choose the narrowest seam the evidence supports:
 Never hard-code a rule for the wording of one report. One data point justifies
 a local regression test or a contained fix; it never justifies a global agent
 instruction or prompt exception.
-
-### The bar for saying "Fixed"
-
-Phase 2 defines the proof bars for **Fixed**, **Shipped**, and
-**Live verified**. Upvoted improvements state requested versus actual behavior
-and use **Shipped**.
 
 ## Phase 3: reply
 
@@ -577,14 +573,19 @@ message details.
 Start cursors: product [Slack message](...) · QA [Slack message](...) · dev [Slack message](...)
 Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <timestamp>
 Messages: product N · QA N · dev N (total N)
+Deployment cursor: <timestamp> · carried active run IDs/rows: <ids/count>
+Release lanes: N inspected · failed/stale N · target verified N
 Reaction-gated skips: N · claimed N · answered N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker/source | Reporter | Status | Repro (expected/actual) | Pre/post | Runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
+| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [thread](...) | ... | <disposition> | steps; expected/actual | before/after | source/tests/build/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
+| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
+<!-- framework-repo-only:start -->
+| CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | test fix/quarantine; deploy target proof | N/A | owner/[issue](...) | N/A | N/A |
+<!-- framework-repo-only:end -->
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete
@@ -601,4 +602,4 @@ cursor stated.
 ## Related skills
 
 `address-feedback`, `address-feedback-with-replies`, `fix-at-the-boundary`,
-`concurrent-agents`, `verifying-changes`, `ship`
+`concurrent-agents`, `verifying-changes`, `ship`, `ship-and-monitor`

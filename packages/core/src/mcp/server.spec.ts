@@ -15,6 +15,7 @@ import { CHATGPT_DIRECTORY_PROFILE as designDirectoryProfile } from "../../../..
 import { CHATGPT_DIRECTORY_PROFILE as slidesDirectoryProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { createMCPServerForRequest } from "./build-server.js";
 import * as mcpBuildServer from "./build-server.js";
@@ -862,9 +863,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             ...Object.keys(profile.widgetReadActionArguments ?? {}),
           ]),
         ];
+        const sharedActions =
+          appId === "content"
+            ? { "list-resource-suggestions": listResourceSuggestions }
+            : {};
         const modules = Object.fromEntries(
           await Promise.all(
             actionNames.map(async (name) => {
+              if (Object.hasOwn(sharedActions, name)) {
+                return [
+                  name,
+                  sharedActions[name as keyof typeof sharedActions],
+                ];
+              }
               const actionUrl =
                 pathToFileURL(path.join(projectRoot, "actions", `${name}.ts`))
                   .href + `?scannerReplay=${Date.now()}`;
@@ -2499,13 +2510,30 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       mcpApp: {
         resource: {
           uri: "ui://content/shell-v67",
-          title: "Content",
+          title: "Open database",
           html: "<!doctype html><html><body>Content</body></html>",
         },
       },
       run: async () => ({
         database: { id: "database-7", documentId: "document-7" },
       }),
+    });
+    const createDocument = defineAction({
+      description: "Create one Content document.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/shell-v67",
+          title: "Open document",
+          html: "<!doctype html><html><body>Content</body></html>",
+        },
+      },
+      run: async () => ({ id: "document-8", spaceId: "space-7" }),
     });
     const queryDatabaseItems = {
       tool: {
@@ -2534,18 +2562,50 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       agentTool: false,
       run: async () => ({ items: [] }),
     };
+    const listComments = defineAction({
+      description: "Read comments for one Content document.",
+      parameters: {
+        type: "object",
+        properties: { documentId: { type: "string" } },
+        required: ["documentId"],
+      },
+      http: { method: "GET" },
+      requiresAuth: true,
+      run: async (args: Record<string, unknown>) => ({
+        documentId: args.documentId,
+      }),
+    });
+    const getDatabasePersonalView = defineAction({
+      description: "Read the caller's personal Content database view.",
+      parameters: {
+        type: "object",
+        properties: { databaseId: { type: "string" } },
+        required: ["databaseId"],
+      },
+      http: { method: "GET" },
+      requiresAuth: true,
+      run: async (args: Record<string, unknown>) => ({
+        databaseId: args.databaseId,
+      }),
+    });
     const directoryConfig = {
       ...config,
       catalogMode: "directory" as const,
       appId: "content",
       widgetDomain: "https://content.agent-native.com",
-      actions: { "create-content-database": createDatabase },
+      actions: {
+        "create-content-database": createDatabase,
+        "create-document": createDocument,
+        "get-content-database-personal-view": getDatabasePersonalView,
+        "list-comments": listComments,
+      },
       widgetReadActions: {
         "query-content-database-items": queryDatabaseItems,
       },
       directoryProfile: {
-        connectorCatalog: ["create-content-database"],
+        connectorCatalog: ["create-content-database", "create-document"],
         widgetDomain: "https://content.agent-native.com",
+        widgetResourceTitle: false as const,
         widgetTargets: {
           "create-content-database": (_args: unknown, result: unknown) => {
             const database = (result as { database?: Record<string, unknown> })
@@ -2557,18 +2617,45 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
                   resourceIds: {
                     databaseId: "database-7",
                     documentId: "document-7",
+                    resourceType: "document",
+                    spaceId: "space-7",
+                  },
+                }
+              : null;
+          },
+          "create-document": (_args: unknown, result: unknown) => {
+            const document = result as { id?: unknown; spaceId?: unknown };
+            return document.id === "document-8"
+              ? {
+                  targetPath: "/page/document-8",
+                  resourceIds: {
+                    documentId: "document-8",
+                    resourceType: "document",
+                    spaceId: document.spaceId,
                   },
                 }
               : null;
           },
         },
         widgetReadActionArguments: {
+          "list-comments": { documentId: "documentId" },
+          "get-content-database-personal-view": {
+            databaseId: "databaseId",
+          },
           "query-content-database-items": {
             documentId: "documentId",
             limit: { type: "integerRange" as const, min: 1, max: 5_000 },
             tableQuery: { type: "actionSchema" as const },
           },
         },
+        widgetReadOnlyActions: [
+          "get-content-database-personal-view",
+          "list-comments",
+        ],
+        widgetReadAuthenticatedActions: [
+          "get-content-database-personal-view",
+          "list-comments",
+        ],
         widgetReadPrivateActions: ["query-content-database-items"],
       },
     };
@@ -2586,8 +2673,30 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     const listedToolNames = listed.result.tools.map((tool: any) => tool.name);
     expect(listedToolNames).toContain("create-content-database");
+    expect(listedToolNames).toContain("create-document");
     expect(listedToolNames).toContain("create_embed_session");
     expect(listedToolNames).not.toContain("query-content-database-items");
+    expect(
+      listed.result.tools.find((tool: any) => tool.name === "create-document")
+        ._meta["openai/toolInvocation/invoking"],
+    ).toBe("Opening Open document");
+    expect(
+      listed.result.tools.find(
+        (tool: any) => tool.name === "create-content-database",
+      )._meta["openai/toolInvocation/invoking"],
+    ).toBe("Opening Open database");
+
+    const resources = await callWeb(
+      { jsonrpc: "2.0", id: 152, method: "resources/list", params: {} },
+      {
+        headers: { ...headers, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(resources.result.resources).toHaveLength(1);
+    expect(resources.result.resources[0]).not.toHaveProperty("title");
+    expect(resources.result.resources[0].name).not.toBe("Open database");
 
     const originalCall = await callWeb(
       {
@@ -2644,6 +2753,42 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       limit: "50",
       tableQuery: { search: "launch" },
     };
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "list-comments",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { documentId: "document-7" },
+        allowedArgumentNames: ["documentId"],
+      }),
+    ).toBe(true);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "list-comments",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { documentId: "another-document" },
+        allowedArgumentNames: ["documentId"],
+      }),
+    ).toBe(false);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "get-content-database-personal-view",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { databaseId: "database-7" },
+        allowedArgumentNames: ["databaseId"],
+      }),
+    ).toBe(true);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedCapability, {
+        actionName: "get-content-database-personal-view",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { databaseId: "another-database" },
+        allowedArgumentNames: ["databaseId"],
+      }),
+    ).toBe(false);
     expect(
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "query-content-database-items",

@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-06
+
+### Fixed
+
+- Historical usage without billing metadata is shown as unclassified.
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
 ## 2026-10-05
 
 ### Fixed

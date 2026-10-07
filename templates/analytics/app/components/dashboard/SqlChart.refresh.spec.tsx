@@ -419,6 +419,36 @@ describe("SqlChart refresh feedback", () => {
     expect(onRefreshRequested).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the refresh banner on a funnel with cached rows that draws nothing", async () => {
+    const panel = {
+      id: "stages",
+      title: "Stages",
+      sql: "SELECT 1 AS stage, 100 AS users",
+      source: "first-party" as const,
+      chartType: "funnel" as const,
+      width: 1,
+      config: { xKey: "stage", yKey: "users" },
+    };
+    const onRefreshRequested = vi.fn();
+    mocks.query.data = { rows: [{ stage: 1, users: 100 }] };
+    mocks.query.error = new Error("forced refresh failed");
+
+    await act(async () => {
+      root.render(
+        <SqlChart panel={panel} onRefreshRequested={onRefreshRequested} />,
+      );
+    });
+
+    expect(container.textContent).toContain("common.noData");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "forced refresh failed",
+    );
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+    expect(onRefreshRequested).toHaveBeenCalledTimes(1);
+  });
+
   it("does not expose a retry for a disabled query with a cached error", async () => {
     const panel = {
       id: "signups",

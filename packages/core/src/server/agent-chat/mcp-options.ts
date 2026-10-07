@@ -34,6 +34,10 @@ export interface AgentChatMcpOptions {
     widgetReadPublicActions?: readonly string[];
     /** Unlisted authenticated reads available only through a scoped widget ticket. */
     widgetReadPrivateActions?: readonly string[];
+    /** Authenticated reads surfaced on other agent profiles, but only scoped here. */
+    widgetReadAuthenticatedActions?: readonly string[];
+    /** Omit the one shared resource title when tools have distinct invocation labels. */
+    widgetResourceTitle?: string | false;
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;

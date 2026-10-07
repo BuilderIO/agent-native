@@ -128,7 +128,7 @@ export interface MCPConfig {
    * no-op. See `external-agents` skill, "Dev vs production tool surface".
    */
   productionActions?: Record<string, ActionEntry>;
-  /** Hidden from tool discovery; used only when minting scoped widget tickets. */
+  /** Unlisted from this MCP surface; used only when minting scoped widget tickets. */
   widgetReadActions?: Record<string, ActionEntry>;
   askAgent?: (message: string) => Promise<string>;
   builtinCrossAppTools?: boolean;
@@ -167,6 +167,10 @@ export interface MCPConfig {
     widgetReadPublicActions?: readonly string[];
     /** Unlisted authenticated reads available only through a scoped widget ticket. */
     widgetReadPrivateActions?: readonly string[];
+    /** Authenticated reads surfaced on other agent profiles, but only scoped here. */
+    widgetReadAuthenticatedActions?: readonly string[];
+    /** Omit the one shared resource title when tools have distinct invocation labels. */
+    widgetResourceTitle?: string | false;
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;
@@ -348,10 +352,11 @@ type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number];
 function isActionVisibleForOAuthScope(
   entry: ActionEntry,
   scopes: string[] | undefined,
+  readOnlyOverride = false,
 ): boolean {
   if (!scopes) return true;
   const required: McpOAuthScope =
-    entry.readOnly === true ? "mcp:read" : "mcp:write";
+    entry.readOnly === true || readOnlyOverride ? "mcp:read" : "mcp:write";
   return hasMcpOAuthScope(scopes, required);
 }
 
@@ -423,8 +428,12 @@ export function selectMcpDirectoryWidgetReadActions(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> | undefined {
   if (!profile) return undefined;
+  const names = new Set([
+    ...(profile.widgetReadPrivateActions ?? []),
+    ...(profile.widgetReadAuthenticatedActions ?? []),
+  ]);
   return Object.fromEntries(
-    (profile.widgetReadPrivateActions ?? [])
+    [...names]
       .map((name) => [name, actions[name]] as const)
       .filter((entry): entry is readonly [string, ActionEntry] =>
         Boolean(entry[1]),
@@ -519,12 +528,19 @@ export function validateMcpDirectoryProfile(
   const widgetReadPrivateActions = new Set(
     profile?.widgetReadPrivateActions ?? [],
   );
+  const widgetReadAuthenticatedActions = new Set(
+    profile?.widgetReadAuthenticatedActions ?? [],
+  );
   const unprofiledWidgetReadAction = Object.keys(
     config.widgetReadActions ?? {},
-  ).find((name) => !widgetReadPrivateActions.has(name));
+  ).find(
+    (name) =>
+      !widgetReadPrivateActions.has(name) &&
+      !widgetReadAuthenticatedActions.has(name),
+  );
   if (unprofiledWidgetReadAction) {
     throw new McpDirectoryProfileValidationError(
-      `[agent-native] MCP directory hidden widget read "${unprofiledWidgetReadAction}" must be listed in widgetReadPrivateActions.`,
+      `[agent-native] MCP directory widget read "${unprofiledWidgetReadAction}" must be listed in its scoped read category.`,
     );
   }
   const widgetTargetNames = Object.keys(profile?.widgetTargets ?? {});
@@ -548,9 +564,11 @@ export function validateMcpDirectoryProfile(
   }
 
   for (const name of widgetReadOnlyActions) {
-    const entry = actions[name];
+    const entry = actions[name] ?? config.widgetReadActions?.[name];
     if (
-      !names.includes(name) ||
+      (!names.includes(name) &&
+        !widgetReadAuthenticatedActions.has(name) &&
+        !widgetReadPrivateActions.has(name)) ||
       !profile?.widgetReadActionArguments?.[name] ||
       !entry ||
       entry.http === false ||
@@ -598,20 +616,42 @@ export function validateMcpDirectoryProfile(
     }
   }
 
+  for (const name of widgetReadAuthenticatedActions) {
+    const entry = actions[name] ?? config.widgetReadActions?.[name];
+    if (
+      names.includes(name) ||
+      !profile?.widgetReadActionArguments?.[name] ||
+      !entry ||
+      (entry.readOnly !== true && !widgetReadOnlyActions.has(name)) ||
+      entry.http === false ||
+      entry.http?.method !== "GET" ||
+      entry.requiresAuth === false ||
+      isActionHiddenFromEveryAgentSurface(entry)
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory scoped authenticated widget read "${name}" must be unlisted, authenticated, read-only, and available on another agent surface.`,
+      );
+    }
+  }
+
   for (const [name, argumentMap] of Object.entries(
     profile?.widgetReadActionArguments ?? {},
   )) {
     const scopedPrivateRead = widgetReadPrivateActions.has(name);
+    const scopedAuthenticatedRead = widgetReadAuthenticatedActions.has(name);
     const entry = actions[name] ?? config.widgetReadActions?.[name];
     const scopedPublicRead = widgetReadPublicActions.has(name);
     if (
-      (!names.includes(name) && !scopedPublicRead && !scopedPrivateRead) ||
+      (!names.includes(name) &&
+        !scopedPublicRead &&
+        !scopedPrivateRead &&
+        !scopedAuthenticatedRead) ||
       !entry ||
       (entry.readOnly !== true && !widgetReadOnlyActions.has(name)) ||
       entry.http === false ||
       entry.http?.method !== "GET" ||
       (entry.requiresAuth === false && !scopedPublicRead) ||
-      Object.keys(argumentMap).length === 0 ||
+      (Object.keys(argumentMap).length === 0 && !scopedAuthenticatedRead) ||
       Object.entries(argumentMap).some(
         ([argumentName, argument]) =>
           !MCP_DIRECTORY_WIDGET_ARGUMENT.test(argumentName) ||
@@ -1308,17 +1348,26 @@ function mcpDirectoryWidgetCapabilityForTool(
       profile.widgetReadPublicActions?.includes(actionName);
     const scopedPrivateRead =
       profile.widgetReadPrivateActions?.includes(actionName);
+    const scopedAuthenticatedRead =
+      profile.widgetReadAuthenticatedActions?.includes(actionName);
     const entry =
       actions[actionName] ??
-      (scopedPrivateRead ? config.widgetReadActions?.[actionName] : undefined);
+      (scopedPrivateRead || scopedAuthenticatedRead
+        ? config.widgetReadActions?.[actionName]
+        : undefined);
     if (
       !entry ||
       (!profile.connectorCatalog.includes(actionName) &&
         !scopedPublicRead &&
-        !scopedPrivateRead) ||
+        !scopedPrivateRead &&
+        !scopedAuthenticatedRead) ||
       (entry.readOnly !== true &&
         !profile.widgetReadOnlyActions?.includes(actionName)) ||
-      !isActionVisibleForOAuthScope(entry, oauthScopes) ||
+      !isActionVisibleForOAuthScope(
+        entry,
+        oauthScopes,
+        profile.widgetReadOnlyActions?.includes(actionName) === true,
+      ) ||
       entry.http === false ||
       entry.http?.method !== "GET" ||
       (entry.requiresAuth === false && !scopedPublicRead)
@@ -2005,10 +2054,22 @@ async function getMcpAppResources(
   );
   if (config.catalogMode !== "directory") return resolved;
   const seenUris = new Set<string>();
-  return resolved.filter((resource) => {
+  const unique = resolved.filter((resource) => {
     if (seenUris.has(resource.uri)) return false;
     seenUris.add(resource.uri);
     return true;
+  });
+  const resourceTitle = config.directoryProfile?.widgetResourceTitle;
+  if (resourceTitle === undefined) return unique;
+  return unique.map((resource) => {
+    const titled = { ...resource };
+    if (resourceTitle === false) {
+      titled.name = config.title ?? config.appId ?? resource.name;
+      delete titled.title;
+    } else {
+      titled.title = resourceTitle;
+    }
+    return titled;
   });
 }
 

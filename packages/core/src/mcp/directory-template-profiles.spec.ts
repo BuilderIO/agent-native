@@ -12,6 +12,7 @@ import {
   filterFrameworkToolGroups,
   type FrameworkToolGroup,
 } from "../framework-tools.js";
+import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import {
   filterAgentTools,
@@ -60,6 +61,10 @@ async function loadTemplateActions(appId: string) {
   )?.profile;
   if (!profile) throw new Error(`Unknown ChatGPT directory template ${appId}.`);
   const toolNames = profile.connectorCatalog;
+  const sharedActions =
+    appId === "content"
+      ? { "list-resource-suggestions": listResourceSuggestions }
+      : {};
   const loadNames = [
     ...new Set([
       ...toolNames,
@@ -73,8 +78,14 @@ async function loadTemplateActions(appId: string) {
     await Promise.all(
       loadNames.map(async (name) => {
         const symbol = `a_${name.replace(/[^a-zA-Z0-9_]/g, "_")}`;
-        if (!registrySource.includes(`"${name}": ${symbol}`)) {
+        if (
+          !registrySource.includes(`"${name}": ${symbol}`) &&
+          !Object.hasOwn(sharedActions, name)
+        ) {
           throw new Error(`${appId} action registry is missing "${name}".`);
+        }
+        if (Object.hasOwn(sharedActions, name)) {
+          return [name, sharedActions[name as keyof typeof sharedActions]];
         }
         const actionUrl =
           pathToFileURL(path.join(projectRoot, "actions", `${name}.ts`)).href +
@@ -85,7 +96,11 @@ async function loadTemplateActions(appId: string) {
   );
   const actions = loadActionsFromStaticRegistry(modules);
   const productionActions = externalMcpActions(actions, new Set());
-  return { actions, productionActions, actionNames };
+  return {
+    actions,
+    productionActions,
+    actionNames: [...new Set([...actionNames, ...Object.keys(sharedActions)])],
+  };
 }
 
 function schemaDescriptions(
@@ -132,6 +147,151 @@ describe("ChatGPT directory template profiles", () => {
       id: "designId",
     });
   });
+
+  it(
+    "uses document-specific labels for Content's shared widget shell",
+    async () => {
+      const { actions } = await loadTemplateActions("content");
+      const documentResource = actions["create-document"]?.mcpApp?.resource;
+      const databaseResource =
+        actions["create-content-database"]?.mcpApp?.resource;
+
+      expect(documentResource?.title).toBe("Open document");
+      expect(databaseResource?.title).toBe("Open database");
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "scopes Content page and database boot reads to each created resource",
+    async () => {
+      const documentId = "page-review-1";
+      const spaceId = "space-review-1";
+      const {
+        createMcpDirectoryWidgetReadCapability,
+        normalizeMcpDirectoryWidgetReadActionArguments,
+      } = await import("../shared/embed-auth.js");
+      const resourceUri = "ui://content/shell-v67";
+      const pageBootReads = [
+        ["get-document", { id: documentId }],
+        ["get-content-navigation-context", { id: documentId }],
+        ["get-preview-document-draft", { documentId }],
+        ["list-comments", { documentId }],
+        [
+          "list-resource-suggestions",
+          { resourceType: "document", resourceId: documentId },
+        ],
+      ] as const;
+
+      const createScope = (toolName: string, result: unknown) => {
+        const target = contentProfile.widgetTargets?.[toolName]?.({}, result);
+        expect(target?.targetPath).toBe(`/page/${documentId}`);
+        if (!target) throw new Error(`${toolName} has no widget target.`);
+        const actionArguments = Object.fromEntries(
+          Object.entries(contentProfile.widgetReadActionArguments ?? {})
+            .map(([name, argumentMap]) => {
+              const args = Object.fromEntries(
+                Object.entries(argumentMap).flatMap(([key, rule]) => {
+                  if (typeof rule !== "string") return [[key, rule]];
+                  const value = target.resourceIds[rule];
+                  return typeof value === "string" ? [[key, value]] : [];
+                }),
+              );
+              return Object.keys(args).length ===
+                Object.keys(argumentMap).length
+                ? [name, args]
+                : null;
+            })
+            .filter((entry): entry is [string, Record<string, unknown>] =>
+              Boolean(entry),
+            ),
+        );
+        const scope = createMcpDirectoryWidgetReadCapability({
+          appId: "content",
+          resourceUri,
+          resourceIds: target.resourceIds,
+          actionArguments,
+        });
+        expect(scope).toBeDefined();
+        return { scope: scope!, target };
+      };
+
+      const assertReadsAllowed = (
+        scope: string,
+        reads: ReadonlyArray<readonly [string, Record<string, unknown>]>,
+      ) => {
+        for (const [actionName, args] of reads) {
+          const argumentMap =
+            contentProfile.widgetReadActionArguments?.[actionName] ?? {};
+          expect(
+            normalizeMcpDirectoryWidgetReadActionArguments(scope, {
+              actionName,
+              appId: "content",
+              resourceUri,
+              args,
+              allowedArgumentNames: Object.keys(argumentMap),
+            }),
+          ).toEqual(args);
+        }
+      };
+
+      const document = createScope("create-document", {
+        id: documentId,
+        spaceId,
+      });
+      expect(document.target.resourceIds).toEqual({
+        documentId,
+        resourceType: "document",
+        spaceId,
+      });
+      assertReadsAllowed(document.scope, pageBootReads);
+      expect(contentProfile.widgetReadActionArguments).not.toHaveProperty(
+        "list-content-spaces",
+      );
+      expect(contentProfile.widgetReadActionArguments).not.toHaveProperty(
+        "get-content-sidebar-state",
+      );
+
+      const databaseId = "database-review-1";
+      const database = createScope("create-content-database", {
+        database: { id: databaseId, documentId, spaceId },
+      });
+      expect(database.target.resourceIds).toEqual({
+        databaseId,
+        documentId,
+        resourceType: "document",
+        spaceId,
+      });
+      assertReadsAllowed(database.scope, [
+        ...pageBootReads,
+        ["get-content-database", { databaseId, documentId, limit: 100 }],
+        ["get-content-database-personal-view", { databaseId }],
+        [
+          "query-content-database-items",
+          { documentId, limit: 50, tableQuery: { search: "launch" } },
+        ],
+      ]);
+
+      expect(
+        normalizeMcpDirectoryWidgetReadActionArguments(document.scope, {
+          actionName: "get-document",
+          appId: "content",
+          resourceUri,
+          args: { id: "another-page" },
+          allowedArgumentNames: ["id"],
+        }),
+      ).toBeUndefined();
+      expect(
+        createMcpDirectoryWidgetReadCapability({
+          appId: "content",
+          resourceUri,
+          resourceIds: {},
+          actionArguments: { "list-content-spaces": {} },
+        }),
+      ).toBeUndefined();
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
 
   it.each(templateProfiles)(
     "$appId allowlist is registered, exposed, annotated, and narrowly scoped",

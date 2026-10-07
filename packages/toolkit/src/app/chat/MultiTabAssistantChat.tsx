@@ -2749,7 +2749,10 @@ export function MultiTabAssistantChat({
         messageCount: number;
       },
     ) => {
-      void saveThreadData(threadId, data);
+      void saveThreadData(threadId, {
+        ...data,
+        threadData: "",
+      });
       if (
         data.messageCount > 0 &&
         threadId === activeThreadIdRef.current &&
