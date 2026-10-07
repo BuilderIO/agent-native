@@ -1444,7 +1444,7 @@ const messages = {
     waitingForBuilder: "Builder की प्रतीक्षा...",
     description:
       "रिकॉर्ड किए गए वीडियो को Builder.io या S3-संगत स्टोरेज में सहेजें। Builder.io में मुफ़्त होस्टिंग और AI क्रेडिट शामिल हैं।",
-    createBuilderAccount: "Builder.io खाता बनाएँ",
+    createBuilderAccount: "Builder.io इस्तेमाल करें",
     signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
     free: "मुफ्त",
     whyPrompt: "मैं यह क्यों देख रहा हूं?",

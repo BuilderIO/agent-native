@@ -2721,6 +2721,7 @@ const deDE = {
     planAutomations: "Ereignisse und Automatisierungen",
     planLocalAndDesktop: "Lokale Dateien und Desktop",
     planDevelopers: "Entwicklerhandbuch",
+    turnIntoApp: "In App umwandeln",
     prVisualRecap: "Visuelle PR-Zusammenfassung",
     planPluginMarketplace: "Plan-Plugin und Marketplace",
     slides: "Folien",

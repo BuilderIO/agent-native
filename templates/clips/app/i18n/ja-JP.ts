@@ -1484,7 +1484,7 @@ const messages = {
     waitingForBuilder: "Builder を待機中...",
     description:
       "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
-    createBuilderAccount: "Builder.io アカウントを作成",
+    createBuilderAccount: "Builder.io を使う",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",
     whyPrompt: "なぜこれが表示されていますか？",

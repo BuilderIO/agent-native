@@ -2693,6 +2693,7 @@ const jaJP = {
     planAutomations: "イベントと自動化",
     planLocalAndDesktop: "ローカルファイルとデスクトップ",
     planDevelopers: "開発者ガイド",
+    turnIntoApp: "アプリに変換",
     prVisualRecap: "PR ビジュアル回顧",
     planPluginMarketplace: "Plan プラグインとマーケットプレイス",
     slides: "スライド",

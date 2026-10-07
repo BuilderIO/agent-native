@@ -1463,7 +1463,7 @@ const messages = {
     waitingForBuilder: "Builder 대기 중...",
     description:
       "녹화한 동영상을 Builder.io 또는 S3 호환 스토리지에 저장하세요. Builder.io에는 무료 호스팅과 AI 크레딧이 포함되어 있습니다.",
-    createBuilderAccount: "Builder.io 계정 만들기",
+    createBuilderAccount: "Builder.io 사용",
     signInWithBuilderAccount: "Builder.io 계정으로 로그인",
     free: "무료",
     whyPrompt: "왜 이 화면이 보이나요?",

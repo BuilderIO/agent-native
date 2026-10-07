@@ -570,7 +570,6 @@ test.describe("two tabs editing one page at beta cadence", () => {
           if (original) window.setTimeout = original;
           delete (window as any).__recoveryOriginalSetTimeout;
         });
-        await a.unroute(collabUpdateMatcher);
 
         expect(
           retained && { title: retained.title, content: retained.content },
@@ -610,6 +609,9 @@ test.describe("two tabs editing one page at beta cadence", () => {
           exact: true,
         });
         await expect(keepMine).toBeVisible({ timeout: 30_000 });
+        // Once A's text can reach B through the live document, B saves it, so
+        // the page only lags A's text until this point.
+        await a.unroute(collabUpdateMatcher);
         await keepMine.click();
         await expect
           .poll(async () => getDocument(s.reader, s.id), {

@@ -6095,6 +6095,179 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("keeps mirrored answers in turn order and restores their durable timestamps", async () => {
+    const threadId = "thread-mirrored-turn-order";
+    const turns = [
+      {
+        runId: "run-one",
+        userId: "client-user-one",
+        answerId: "client-answer-one",
+        promptAt: "2026-10-07T16:00:00.000Z",
+        answerAt: "2026-10-07T16:00:12.000Z",
+      },
+      {
+        runId: "run-two",
+        userId: "client-user-two",
+        answerId: "client-answer-two",
+        promptAt: "2026-10-07T16:00:08.000Z",
+        answerAt: "2026-10-07T16:00:20.000Z",
+      },
+      {
+        runId: "run-three",
+        userId: "client-user-three",
+        answerId: "client-answer-three",
+        promptAt: "2026-10-07T16:00:21.000Z",
+        answerAt: "2026-10-07T16:00:30.000Z",
+      },
+      {
+        runId: "run-four",
+        userId: "client-user-four",
+        answerId: "client-answer-four",
+        promptAt: "2026-10-07T16:00:31.000Z",
+        answerAt: "2026-10-07T16:00:40.000Z",
+      },
+    ];
+    const durableMessages = turns.flatMap((turn, index) => {
+      const toolCallId = `call-${turn.runId}`;
+      const result = {
+        answer:
+          index === 2
+            ? "Answer 3 with completed suffix"
+            : `Answer ${index + 1}`,
+      };
+      return [
+        {
+          message: {
+            id: `server-user-${turn.runId}`,
+            role: "user",
+            content: [{ type: "text", text: `Question ${index + 1}` }],
+            createdAt: turn.promptAt,
+            metadata: {
+              custom: {
+                submittedRunId: turn.runId,
+                agentKitMessageId: turn.userId,
+              },
+            },
+          },
+        },
+        {
+          message: {
+            id: `server-answer-${turn.runId}`,
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId,
+                toolName: "lookup",
+                args: { runId: turn.runId },
+                result,
+              },
+              { type: "text", text: result.answer },
+            ],
+            createdAt: turn.answerAt,
+            status: { type: "complete" },
+            metadata: { runId: turn.runId },
+          },
+        },
+      ];
+    });
+    const agentKitMessages = turns.flatMap((turn, index) => [
+      {
+        id: turn.userId,
+        role: "user",
+        parts: [{ type: "text", text: `Question ${index + 1}` }],
+        ...(index === 1 ? {} : { createdAt: turn.promptAt }),
+      },
+      {
+        id: turn.answerId,
+        role: "assistant",
+        status: "complete",
+        parts: [
+          {
+            type: "text",
+            text: index === 2 ? "Answer 3" : `Answer ${index + 1}`,
+          },
+        ],
+      },
+    ]);
+    const events = turns.slice(0, 2).map((turn) => ({
+      id: `event-${turn.answerId}`,
+      threadId,
+      runId: turn.runId,
+      sequence: 1,
+      occurredAt: turn.answerAt,
+      type: "message.completed",
+      message: {
+        id: turn.answerId,
+        role: "assistant",
+        parts: [{ type: "text", text: `Answer ${turns.indexOf(turn) + 1}` }],
+      },
+    }));
+    const toolCalls = turns.map((turn, index) => ({
+      id: `call-${turn.runId}`,
+      name: "lookup",
+      input: { runId: turn.runId },
+      output: {
+        answer:
+          index === 2
+            ? "Answer 3 with completed suffix"
+            : `Answer ${index + 1}`,
+      },
+      status: "completed",
+      runId: turn.runId,
+      messageId: turn.answerId,
+    }));
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: durableMessages,
+            agentKit: {
+              messages: agentKitMessages,
+              events,
+              runs: turns.map((turn) => ({
+                id: turn.runId,
+                threadId,
+                lastSequence: 0,
+                status: "completed",
+              })),
+              toolCalls,
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual(
+      turns.flatMap((turn) => [turn.userId, turn.answerId]),
+    );
+    expect(snapshot?.messages.map((message) => message.createdAt)).toEqual(
+      turns.flatMap((turn) => [turn.promptAt, turn.answerAt]),
+    );
+    expect(
+      snapshot?.messages
+        .filter((message) => message.role === "assistant")
+        .map((message) =>
+          message.parts
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join(""),
+        ),
+    ).toEqual([
+      "Answer 1",
+      "Answer 2",
+      "Answer 3 with completed suffix",
+      "Answer 4",
+    ]);
+    await transport.dispose();
+  });
+
   it("keeps same-text durable prompts when snapshot matching is ambiguous", async () => {
     const threadId = "thread-ambiguous-prompt";
     const transport = createAgentNativeAgentKitTransport({

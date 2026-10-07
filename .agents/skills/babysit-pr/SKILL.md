@@ -30,6 +30,14 @@ include `author` in the live PR query, and compare `author.login` with that
 login. If they differ, require the current-request authorization for that exact
 PR.
 
+Review-reply authorization is separate from push authorization. On the active
+user's own PR, concise replies required to document fixes, declines, or terminal
+dispositions need no extra authorization. On another person's PR, post a reply
+only when the current request explicitly authorizes that communication on the
+exact PR; permission to review, monitor, fix, push, or merge does not authorize
+a comment. Without that authorization, draft the reply, leave the feedback
+unresolved, and do not claim the PR is ready or merge it.
+
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
 to the shared checkout or require that an agent publish from the root checkout.
@@ -351,9 +359,10 @@ record it as unavailable in the recap rather than treating it as no findings.
 
 ## Responding to feedback
 
-Every human or bot review comment must get a reply when it is fixed or skipped;
-a feedback item already closed by a disposition-specific terminal outcome does
-not need a manufactured reply.
+On the active user's own PR, every human or bot review comment must get a reply
+when it is fixed or skipped; a feedback item already closed by a
+disposition-specific terminal outcome does not need a manufactured reply. On
+another person's PR, post those replies only under the authorization rule above.
 
 ## Feedback precedence
 

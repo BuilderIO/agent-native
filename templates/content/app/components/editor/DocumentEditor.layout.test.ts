@@ -1540,7 +1540,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const handler = source.slice(
-      source.indexOf("const handleContentChange"),
+      source.indexOf("const queueEditorContentSave"),
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("localContentRef.current = newContent");
@@ -1555,7 +1555,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const handler = source.slice(
-      source.indexOf("const handleContentChange"),
+      source.indexOf("const queueEditorContentSave"),
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("if (updateReconcileDraft(newContent)) {");

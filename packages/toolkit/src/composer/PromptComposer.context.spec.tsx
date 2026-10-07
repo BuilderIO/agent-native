@@ -576,6 +576,7 @@ describe("controlled composer context", () => {
     expect(uploadFile).toBeDefined();
     expect(uploadFile?.textContent).toContain("Upload File");
     await act(async () => uploadFile!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(onAttachmentRequest).toHaveBeenCalledOnce();
   });
   async function mount(props: Partial<PromptComposerProps> = {}) {

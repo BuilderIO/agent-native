@@ -1404,7 +1404,7 @@ const messages = {
     waitingForBuilder: "正在等待 Builder...",
     description:
       "使用 Builder.io 或相容 S3 的儲存空間來保存錄製的影片。Builder.io 包含免費代管和 AI 額度。",
-    createBuilderAccount: "建立 Builder.io 帳戶",
+    createBuilderAccount: "使用 Builder.io",
     signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
     free: "免費",
     whyPrompt: "為什麼我會看到這個？",
