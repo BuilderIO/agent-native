@@ -52,11 +52,12 @@ export class ImportNoteBag {
 
 /**
  * Samples are stored with the import record, so an embedded file never goes
- * into one: a data URL is named by its type and size instead.
+ * into one: a data URL is named by its type and size instead. Its payload can
+ * hold spaces and parentheses, so it runs to the next quote or tag boundary.
  */
 function clip(sample: string): string {
   const text = sample
-    .replace(/\bdata:[^\s"'<>(),]*,[^\s"'<>()]*/gi, describeDataUrl)
+    .replace(/\bdata:[^\s"'<>(),]*,[^"'<>]*/gi, describeDataUrl)
     .replace(/\s+/g, " ")
     .trim();
   return text.length > MAX_SAMPLE_LENGTH

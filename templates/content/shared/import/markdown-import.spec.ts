@@ -578,15 +578,21 @@ describe("Markdown import", () => {
     );
   });
 
-  it("names an embedded file in a sample by its type instead of its bytes", () => {
-    const page = importMarkdown(
-      'Text.\n\n<div hidden><img src="data:image/png;base64,SElEREVOUEFZTE9BRA=="></div>',
-    );
-
-    const samples = page.report.notes.flatMap((note) => note.samples);
-    expect(samples.join(" ")).not.toContain("SElEREVOUEFZTE9BRA");
-    expect(samples.join(" ")).toContain("image/png (1 KB, embedded)");
-  });
+  it.each([
+    'Text.\n\n<div hidden><img src="data:image/png;base64,SElEREVOPAYLOAD=="></div>',
+    'Text.\n\n<div hidden><img src="data:text/plain,HIDDEN(PAREN)PAYLOAD"></div>',
+    'A <a href="data:text/plain;base64,QUJD SPACEDPAYLOAD">link</a>.',
+    "A [link](<data:text/plain,LINK(PAREN)PAYLOAD>).",
+  ])(
+    "names an embedded file in a sample by its type instead of its bytes: %s",
+    (source) => {
+      const samples = importMarkdown(source)
+        .report.notes.flatMap((note) => note.samples)
+        .join(" ");
+      expect(samples).toMatch(/\/\w+ \(1 KB, embedded\)/);
+      expect(samples).not.toMatch(/PAYLOAD|PAREN/);
+    },
+  );
 
   it("keeps a footnote reference with no definition as written", () => {
     const page = importMarkdown("A claim.[^missing]");
