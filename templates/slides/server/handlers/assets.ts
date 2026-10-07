@@ -80,6 +80,312 @@ function ascii(data: Uint8Array, start: number, end: number): string {
   return Buffer.from(data.subarray(start, end)).toString("ascii");
 }
 
+interface IsoBox {
+  type: string;
+  start: number;
+  payloadStart: number;
+  end: number;
+}
+
+interface EbmlElement {
+  id: number;
+  payloadStart: number;
+  end: number;
+}
+
+const MAX_MEDIA_CONTAINER_ELEMENTS = 100_000;
+
+function uint32(data: Uint8Array, offset: number): number {
+  return (
+    data[offset]! * 0x1000000 +
+    (data[offset + 1]! << 16) +
+    (data[offset + 2]! << 8) +
+    data[offset + 3]!
+  );
+}
+
+function readIsoBoxes(
+  data: Uint8Array,
+  start: number,
+  end: number,
+): IsoBox[] | null {
+  const boxes: IsoBox[] = [];
+  let offset = start;
+  while (offset < end) {
+    if (boxes.length >= MAX_MEDIA_CONTAINER_ELEMENTS || end - offset < 8)
+      return null;
+    const size32 = uint32(data, offset);
+    const type = ascii(data, offset + 4, offset + 8);
+    let headerSize = 8;
+    let size = size32;
+    if (size32 === 1) {
+      if (end - offset < 16 || uint32(data, offset + 8) !== 0) return null;
+      size = uint32(data, offset + 12);
+      headerSize = 16;
+    } else if (size32 === 0) {
+      size = end - offset;
+    }
+    if (size < headerSize || size > end - offset) return null;
+    boxes.push({
+      type,
+      start: offset,
+      payloadStart: offset + headerSize,
+      end: offset + size,
+    });
+    offset += size;
+  }
+  return offset === end ? boxes : null;
+}
+
+function hasMp4VideoTrack(data: Uint8Array, moov: IsoBox): boolean {
+  const movieBoxes = readIsoBoxes(data, moov.payloadStart, moov.end);
+  if (!movieBoxes) return false;
+  const movieHeader = movieBoxes.find((box) => box.type === "mvhd");
+  if (!movieHeader || movieHeader.end - movieHeader.payloadStart < 20)
+    return false;
+
+  return movieBoxes.some((track) => {
+    if (track.type !== "trak") return false;
+    const trackBoxes = readIsoBoxes(data, track.payloadStart, track.end);
+    if (!trackBoxes) return false;
+    const trackHeader = trackBoxes.find((box) => box.type === "tkhd");
+    const media = trackBoxes.find((box) => box.type === "mdia");
+    if (
+      !trackHeader ||
+      trackHeader.end - trackHeader.payloadStart < 24 ||
+      !media
+    )
+      return false;
+
+    const mediaBoxes = readIsoBoxes(data, media.payloadStart, media.end);
+    if (!mediaBoxes) return false;
+    const mediaHeader = mediaBoxes.find((box) => box.type === "mdhd");
+    const handler = mediaBoxes.find((box) => box.type === "hdlr");
+    const mediaInfo = mediaBoxes.find((box) => box.type === "minf");
+    if (
+      !mediaHeader ||
+      mediaHeader.end - mediaHeader.payloadStart < 20 ||
+      !handler ||
+      handler.end - handler.payloadStart < 12 ||
+      ascii(data, handler.payloadStart + 8, handler.payloadStart + 12) !==
+        "vide" ||
+      !mediaInfo
+    )
+      return false;
+
+    const mediaInfoBoxes = readIsoBoxes(
+      data,
+      mediaInfo.payloadStart,
+      mediaInfo.end,
+    );
+    const sampleTable = mediaInfoBoxes?.find((box) => box.type === "stbl");
+    if (!sampleTable) return false;
+    const sampleTableBoxes = readIsoBoxes(
+      data,
+      sampleTable.payloadStart,
+      sampleTable.end,
+    );
+    const sampleDescription = sampleTableBoxes?.find(
+      (box) => box.type === "stsd",
+    );
+    if (
+      !sampleDescription ||
+      sampleDescription.end - sampleDescription.payloadStart < 8
+    )
+      return false;
+    const entryCount = uint32(data, sampleDescription.payloadStart + 4);
+    if (entryCount === 0 || entryCount > MAX_MEDIA_CONTAINER_ELEMENTS)
+      return false;
+    const entries = readIsoBoxes(
+      data,
+      sampleDescription.payloadStart + 8,
+      sampleDescription.end,
+    );
+    return (
+      entries?.length === entryCount &&
+      entries.every((entry) => entry.end - entry.start >= 78)
+    );
+  });
+}
+
+function hasValidMp4Video(data: Uint8Array): boolean {
+  if (data.length < 16) return false;
+  const boxes = readIsoBoxes(data, 0, data.length);
+  if (!boxes) return false;
+  const fileType = boxes.find((box) => box.type === "ftyp");
+  const movie = boxes.find((box) => box.type === "moov");
+  const hasMediaData = boxes.some(
+    (box) => box.type === "mdat" && box.end > box.payloadStart,
+  );
+  if (
+    !fileType ||
+    fileType.end - fileType.start < 16 ||
+    (fileType.end - fileType.start - 16) % 4 !== 0 ||
+    !movie ||
+    !hasMediaData
+  )
+    return false;
+  return hasMp4VideoTrack(data, movie);
+}
+
+function readEbmlVint(
+  data: Uint8Array,
+  offset: number,
+  maxWidth: number,
+  keepMarker: boolean,
+): { value: number; width: number; unknown: boolean } | null {
+  const first = data[offset];
+  if (first === undefined || first === 0) return null;
+  let marker = 0x80;
+  let width = 1;
+  while ((first & marker) === 0 && width <= maxWidth) {
+    marker >>= 1;
+    width++;
+  }
+  if (width > maxWidth || offset + width > data.length) return null;
+  const firstValue = keepMarker ? first : first & (marker - 1);
+  const unknown =
+    !keepMarker &&
+    firstValue === marker - 1 &&
+    data.subarray(offset + 1, offset + width).every((byte) => byte === 0xff);
+  if (unknown) return { value: 0, width, unknown: true };
+  let value = firstValue;
+  for (let index = 1; index < width; index++) {
+    value = value * 256 + data[offset + index]!;
+    if (!Number.isSafeInteger(value)) return null;
+  }
+  return { value, width, unknown };
+}
+
+function readEbmlElements(
+  data: Uint8Array,
+  start: number,
+  end: number,
+  unknownSizeIds: ReadonlySet<number> = new Set(),
+): EbmlElement[] | null {
+  const elements: EbmlElement[] = [];
+  let offset = start;
+  while (offset < end) {
+    if (elements.length >= MAX_MEDIA_CONTAINER_ELEMENTS) return null;
+    const id = readEbmlVint(data, offset, 4, true);
+    if (!id) return null;
+    const size = readEbmlVint(data, offset + id.width, 8, false);
+    if (!size) return null;
+    const payloadStart = offset + id.width + size.width;
+    if (payloadStart > end) return null;
+    if (size.unknown && !unknownSizeIds.has(id.value)) return null;
+    const elementEnd = size.unknown ? end : payloadStart + size.value;
+    if (elementEnd > end || elementEnd < payloadStart) return null;
+    elements.push({ id: id.value, payloadStart, end: elementEnd });
+    offset = elementEnd;
+  }
+  return offset === end ? elements : null;
+}
+
+function ebmlUnsigned(data: Uint8Array, element: EbmlElement): number | null {
+  const size = element.end - element.payloadStart;
+  if (size < 1 || size > 8) return null;
+  let value = 0;
+  for (let offset = element.payloadStart; offset < element.end; offset++) {
+    value = value * 256 + data[offset]!;
+    if (!Number.isSafeInteger(value)) return null;
+  }
+  return value;
+}
+
+function hasWebmVideoTrack(
+  data: Uint8Array,
+  tracks: EbmlElement,
+): Set<number> | null {
+  const entries = readEbmlElements(data, tracks.payloadStart, tracks.end);
+  if (!entries) return null;
+  const videoTracks = new Set<number>();
+  for (const entry of entries) {
+    if (entry.id !== 0xae) continue;
+    const fields = readEbmlElements(data, entry.payloadStart, entry.end);
+    if (!fields) return null;
+    const numberField = fields.find((field) => field.id === 0xd7);
+    const typeField = fields.find((field) => field.id === 0x83);
+    const codecField = fields.find((field) => field.id === 0x86);
+    if (!numberField || !typeField || !codecField) continue;
+    const number = ebmlUnsigned(data, numberField);
+    const type = ebmlUnsigned(data, typeField);
+    const codec = Buffer.from(
+      data.subarray(codecField.payloadStart, codecField.end),
+    ).toString("utf8");
+    if (number && type === 1 && codec.startsWith("V_")) videoTracks.add(number);
+  }
+  return videoTracks.size > 0 ? videoTracks : null;
+}
+
+function ebmlBlockTrackNumber(
+  data: Uint8Array,
+  block: EbmlElement,
+  videoTracks: Set<number>,
+): boolean {
+  const track = readEbmlVint(data, block.payloadStart, 8, false);
+  return (
+    !!track &&
+    !track.unknown &&
+    videoTracks.has(track.value) &&
+    block.end - (block.payloadStart + track.width) >= 4
+  );
+}
+
+function hasWebmVideoData(
+  data: Uint8Array,
+  cluster: EbmlElement,
+  videoTracks: Set<number>,
+): boolean {
+  const children = readEbmlElements(data, cluster.payloadStart, cluster.end);
+  if (!children) return false;
+  const timecode = children.find((child) => child.id === 0xe7);
+  if (!timecode || ebmlUnsigned(data, timecode) === null) return false;
+  return children.some((child) => {
+    if (child.id === 0xa3)
+      return ebmlBlockTrackNumber(data, child, videoTracks);
+    if (child.id !== 0xa0) return false;
+    const group = readEbmlElements(data, child.payloadStart, child.end);
+    const block = group?.find((item) => item.id === 0xa1);
+    return !!block && ebmlBlockTrackNumber(data, block, videoTracks);
+  });
+}
+
+function hasValidWebmVideo(data: Uint8Array): boolean {
+  const root = readEbmlElements(data, 0, data.length, new Set([0x18538067]));
+  if (!root || root[0]?.id !== 0x1a45dfa3) return false;
+  const header = readEbmlElements(data, root[0].payloadStart, root[0].end);
+  const docType = header?.find((element) => element.id === 0x4282);
+  if (
+    !docType ||
+    Buffer.from(data.subarray(docType.payloadStart, docType.end)).toString(
+      "utf8",
+    ) !== "webm"
+  )
+    return false;
+  const segment = root.find((element) => element.id === 0x18538067);
+  if (!segment) return false;
+  const segmentChildren = readEbmlElements(
+    data,
+    segment.payloadStart,
+    segment.end,
+    new Set([0x1f43b675]),
+  );
+  if (!segmentChildren) return false;
+  const info = segmentChildren.find((element) => element.id === 0x1549a966);
+  const tracksElement = segmentChildren.find(
+    (element) => element.id === 0x1654ae6b,
+  );
+  if (!info || !tracksElement) return false;
+  if (!readEbmlElements(data, info.payloadStart, info.end)) return false;
+  const videoTracks = hasWebmVideoTrack(data, tracksElement);
+  if (!videoTracks) return false;
+  return segmentChildren.some(
+    (element) =>
+      element.id === 0x1f43b675 && hasWebmVideoData(data, element, videoTracks),
+  );
+}
+
 export function hasExpectedSvgSignature(data: Uint8Array): boolean {
   const head = Buffer.from(
     data.subarray(0, Math.min(data.length, 8192)),
@@ -323,16 +629,8 @@ export function canSaveAsUploadedVideoAsset(args: {
 }): boolean {
   const ext = path.extname(args.originalName).toLowerCase();
   if (args.data.length > MAX_VIDEO_ASSET_FILE_SIZE) return false;
-  if (ext === ".mp4") {
-    return args.data.length >= 12 && ascii(args.data, 4, 8) === "ftyp";
-  }
-  return (
-    ext === ".webm" &&
-    args.data[0] === 0x1a &&
-    args.data[1] === 0x45 &&
-    args.data[2] === 0xdf &&
-    args.data[3] === 0xa3
-  );
+  if (ext === ".mp4") return hasValidMp4Video(args.data);
+  return ext === ".webm" && hasValidWebmVideo(args.data);
 }
 
 export async function uploadVideoAsset(args: {

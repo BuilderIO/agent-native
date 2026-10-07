@@ -94,6 +94,19 @@ it("keeps video controls from navigating or continuing playback off-slide", asyn
     expect(counter?.textContent).toBe("1 / 2");
   }
 
+  video.focus();
+  expect(window.document.activeElement).toBe(video);
+  for (const key of [" ", "ArrowRight"]) {
+    const event = new window.KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.document.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(counter?.textContent).toBe("1 / 2");
+  }
+
   viewport.click();
   expect(counter?.textContent).toBe("2 / 2");
   expect(pause).toHaveBeenCalledTimes(1);

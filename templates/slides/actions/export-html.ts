@@ -510,8 +510,17 @@ export function buildStandaloneHtml(
       window.addEventListener('resize', fitSlide);
       fitSlide();
 
+      function isMediaKeyboardEvent(e) {
+        if (e.target instanceof Element && e.target.closest('video, audio')) return true;
+        if (typeof e.composedPath === 'function' && e.composedPath().some(function(node) {
+          return node instanceof Element && node.closest('video, audio');
+        })) return true;
+        var active = document.activeElement;
+        return active instanceof Element && !!active.closest('video, audio');
+      }
+
       document.addEventListener('keydown', function(e) {
-        if (e.target instanceof Element && e.target.closest('video, audio')) return;
+        if (isMediaKeyboardEvent(e)) return;
         switch (e.key) {
           case 'ArrowRight':
           case 'ArrowDown':

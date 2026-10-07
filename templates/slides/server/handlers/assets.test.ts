@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
@@ -228,15 +231,40 @@ describe("uploaded asset validation", () => {
 });
 
 describe("uploaded video validation", () => {
-  it("accepts MP4 and WebM signatures and rejects mismatched extensions", () => {
-    const mp4 = Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0, 0, 0, 0]);
-    const webm = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
+  const mp4 = readFileSync(
+    path.resolve(
+      __dirname,
+      "../../../../packages/docs/public/videos/mail-jev-story.mp4",
+    ),
+  );
+  const webm = readFileSync(
+    path.resolve(
+      __dirname,
+      "../../../design/e2e/fixtures/design-media-probe.webm",
+    ),
+  );
+
+  it("accepts complete MP4 and WebM videos and rejects mismatched extensions", () => {
+    const segmentId = Buffer.from([0x18, 0x53, 0x80, 0x67]);
+    const segmentOffset = webm.indexOf(segmentId);
+    if (segmentOffset < 0) throw new Error("Expected WebM Segment element");
+    const unknownSizeSegment = Buffer.concat([
+      webm.subarray(0, segmentOffset + segmentId.length),
+      Buffer.from([0xff]),
+      webm.subarray(segmentOffset + segmentId.length + 8),
+    ]);
 
     expect(
       canSaveAsUploadedVideoAsset({ originalName: "clip.mp4", data: mp4 }),
     ).toBe(true);
     expect(
       canSaveAsUploadedVideoAsset({ originalName: "clip.webm", data: webm }),
+    ).toBe(true);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.webm",
+        data: unknownSizeSegment,
+      }),
     ).toBe(true);
     expect(
       canSaveAsUploadedVideoAsset({ originalName: "clip.mp4", data: webm }),
@@ -246,8 +274,47 @@ describe("uploaded video validation", () => {
     ).toBe(false);
   });
 
+  it("rejects signature-only, truncated, and malformed containers", () => {
+    const signatureOnlyMp4 = Buffer.from([
+      0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0, 0, 0, 0,
+    ]);
+    const signatureOnlyWebm = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
+    const malformedMp4 = Buffer.from(mp4);
+    malformedMp4[3] = 0xff;
+
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: signatureOnlyMp4,
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.webm",
+        data: signatureOnlyWebm,
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: mp4.subarray(0, 100),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.webm",
+        data: webm.subarray(0, 100),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedVideoAsset({
+        originalName: "clip.mp4",
+        data: malformedMp4,
+      }),
+    ).toBe(false);
+  });
+
   it("stores video files in the configured object storage with the active org", async () => {
-    const mp4 = Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0, 0, 0, 0]);
     mockGetRequestOrgId.mockReturnValue("active-org");
 
     await expect(
