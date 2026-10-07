@@ -692,7 +692,7 @@ prints nothing), start the dev server detached with its log and PID in
 
 \`\`\`bash
 mkdir -p .tmp && (nohup pnpm exec agent-native dev --port <port> > .tmp/dev.log 2>&1 & echo $! > .tmp/dev.pid)
-wait200() { while [ $SECONDS -lt $end ]; do t=$((end-SECONDS)); [ "$(curl -sL --connect-timeout 2 --max-time $((t<10?t:10)) -o /dev/null -w '%{http_code}' "$1")" = 200 ] && return 0; sleep 1; done; echo "no 200 from $1 before the three-minute deadline; read .tmp/dev.log" >&2; return 1; }
+wait200() { while t=$((end-SECONDS)); [ $t -gt 0 ]; do [ "$(curl -sL --connect-timeout 2 --max-time $((t<10?t:10)) -o /dev/null -w '%{http_code}' "$1")" = 200 ] && return 0; sleep 1; done; echo "no 200 from $1 before the three-minute deadline; read .tmp/dev.log" >&2; return 1; }
 end=$((SECONDS+180)); wait200 http://localhost:<port>/ && wait200 http://localhost:<port>/<route>
 \`\`\`
 
