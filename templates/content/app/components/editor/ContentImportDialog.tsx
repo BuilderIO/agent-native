@@ -50,6 +50,8 @@ import { uploadImageFile } from "./image-upload";
 
 const IMPORT_APP_STATE_KEY = "content-import";
 const FILE_ACCEPT = ".md,.markdown,.mdx,image/*";
+// Long enough to reach Open or Undo after the dialog closes.
+const IMPORTED_TOAST_MS = 10_000;
 
 type Translate = ReturnType<typeof useT>;
 
@@ -110,10 +112,10 @@ function writeImportState(value: Record<string, unknown> | null) {
     appStateKeyForBrowserTab(IMPORT_APP_STATE_KEY, tabId),
     IMPORT_APP_STATE_KEY,
   ]) {
-    setClientAppState(key, value, {
+    void setClientAppState(key, value, {
       keepalive: true,
       requestSource: tabId,
-    }).catch(() => {});
+    });
   }
 }
 
@@ -167,6 +169,9 @@ export function ContentImportDialog({
   const fileUploadStatus = useFileUploadStatus();
   const inputRef = useRef<HTMLInputElement>(null);
   const planRequest = useRef(0);
+  // The import whose toast still owns the published state; a newer dialog
+  // session takes it over so a closing toast cannot erase that session.
+  const toastImportId = useRef<string | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [payload, setPayload] = useState<ImportContentFileInput[]>([]);
   const [localSkipped, setLocalSkipped] = useState<ImportSkippedFile[]>([]);
@@ -188,6 +193,7 @@ export function ContentImportDialog({
         error?: string | null;
       } = {},
     ) => {
+      toastImportId.current = null;
       writeImportState({
         status: next,
         destination: { parentId, title: destinationTitle || null },
@@ -218,7 +224,8 @@ export function ContentImportDialog({
       setFiles(picked);
       setPlan(null);
       setError(null);
-      setIdempotencyKey(crypto.randomUUID());
+      const key = crypto.randomUUID();
+      setIdempotencyKey(key);
       if (picked.length === 0) {
         setPhase("choosing");
         publishState("choosing");
@@ -246,6 +253,7 @@ export function ContentImportDialog({
                 files: read.payload,
                 parentId,
                 dryRun: true,
+                idempotencyKey: key,
               })
             : null;
         if (requestId !== planRequest.current) return;
@@ -338,16 +346,28 @@ export function ContentImportDialog({
       setPlan(null);
       setPhase("choosing");
       onClose();
-      const clearState = () => writeImportState(null);
+      toastImportId.current = result.importId;
+      const clearState = () => {
+        if (toastImportId.current !== result.importId) return;
+        toastImportId.current = null;
+        writeImportState(null);
+      };
       toast(t("contentImport.importedPages", { count: created.length }), {
         action: {
           label: t("contentImport.open"),
-          onClick: () => void navigate(created[0]!.urlPath!),
+          onClick: () => {
+            clearState();
+            void navigate(created[0]!.urlPath!);
+          },
         },
         cancel: {
           label: t("contentImport.undo"),
-          onClick: () => void undo(result.importId),
+          onClick: () => {
+            clearState();
+            void undo(result.importId);
+          },
         },
+        duration: IMPORTED_TOAST_MS,
         onDismiss: clearState,
         onAutoClose: clearState,
       });

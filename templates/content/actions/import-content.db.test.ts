@@ -214,6 +214,14 @@ describe("import-content", () => {
   });
 
   it("creates a child page with provenance and an import History entry, once per key", async () => {
+    const previewed = await asOwner(() =>
+      importContent.run({
+        files: guideFiles(),
+        parentId: PARENT_ID,
+        dryRun: true,
+        idempotencyKey: "guide-1",
+      }),
+    );
     const applied = await asOwner(() =>
       importContent.run({
         files: guideFiles("/uploads/diagram.png"),
@@ -222,6 +230,7 @@ describe("import-content", () => {
         idempotencyKey: "guide-1",
       }),
     );
+    expect(applied.importId).toBe(previewed.importId);
     const [page] = applied.pages;
     expect(page.id).toEqual(expect.any(String));
     expect(page.urlPath).toBe(`/page/${page.id}`);
