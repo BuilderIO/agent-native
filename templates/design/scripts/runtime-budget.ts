@@ -9,6 +9,11 @@ import { parseArgs } from "node:util";
 
 import { chromium, type CDPSession, type Page } from "@playwright/test";
 
+import {
+  readZoomUntilAvailable,
+  waitForAnimationFrame,
+} from "./runtime-budget-zoom.ts";
+
 type BudgetFile = {
   copies: number;
   iterations: number;
@@ -302,19 +307,18 @@ const zoomOf = () =>
     return match ? Number(match[1]) * 100 : null;
   });
 async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
-  const distance = async () => {
-    const zoom = await zoomOf();
-    return zoom === null || zoom <= 0 || !Number.isFinite(zoom)
-      ? null
-      : Math.log(zoom / target);
-  };
   // A CI runner reads the zoom back several times slower than a laptop.
   const startedAt = Date.now();
   const giveUpAt = startedAt + 60_000;
   let inputs = 0;
   while (Date.now() < giveUpAt) {
-    const off = await distance();
-    if (off === null) return false;
+    const zoom = await readZoomUntilAvailable(
+      zoomOf,
+      (ms) => page.waitForTimeout(ms),
+      giveUpAt,
+    );
+    if (zoom === null) break;
+    const off = Math.log(zoom / target);
     if (Math.abs(off) < 0.06) break;
     // Keep Ctrl+wheel deltas out of the pinch band and scale them to the
     // remaining distance so a long zoom does not time out on a loaded runner.
@@ -328,10 +332,17 @@ async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
     });
     inputs += 1;
     // Wait for the camera to apply each input before measuring again.
-    await page.evaluate(
+    const frameArrived = await waitForAnimationFrame(
       () =>
-        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+        page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => resolve()),
+            ),
+        ),
+      giveUpAt - Date.now(),
     );
+    if (!frameArrived) break;
   }
   await page.waitForTimeout(1500);
   const actual = await zoomOf();
