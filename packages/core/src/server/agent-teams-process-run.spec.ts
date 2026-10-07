@@ -24,8 +24,26 @@ const queueDb = {
         attempts: 0,
         created_at: args[6],
         updated_at: args[7],
+        reconciliation_attempted_at: null,
       });
       return affected(1);
+    }
+    if (s.includes("SET reconciliation_attempted_at = ?")) {
+      const [attemptedAt, taskId, updatedBefore, attemptedBefore] = args;
+      const row = queueRows.find((candidate) => candidate.task_id === taskId);
+      if (
+        row &&
+        row.owner_email &&
+        (row.status === "queued" || row.status === "running") &&
+        row.updated_at <= updatedBefore &&
+        (row.reconciliation_attempted_at === null ||
+          row.reconciliation_attempted_at === undefined ||
+          row.reconciliation_attempted_at <= attemptedBefore)
+      ) {
+        row.reconciliation_attempted_at = attemptedAt;
+        return affected(1);
+      }
+      return affected(0);
     }
     if (s.includes("SET status = 'running', attempts = attempts + 1")) {
       const [updatedAt, taskId, stuckCutoff] = args;
@@ -112,16 +130,27 @@ const queueDb = {
         "SELECT task_id, owner_email, org_id FROM agent_team_run_queue",
       )
     ) {
-      const [updatedBefore, limit] = args;
+      const [updatedBefore, attemptedBefore, limit] = args;
       return {
         rows: queueRows
           .filter(
             (x) =>
               x.owner_email !== null &&
               (x.status === "queued" || x.status === "running") &&
-              x.updated_at <= updatedBefore,
+              x.updated_at <= updatedBefore &&
+              (x.reconciliation_attempted_at === null ||
+                x.reconciliation_attempted_at === undefined ||
+                x.reconciliation_attempted_at <= attemptedBefore),
           )
-          .sort((a, b) => a.updated_at - b.updated_at)
+          .sort((a, b) => {
+            const aAttempt = a.reconciliation_attempted_at;
+            const bAttempt = b.reconciliation_attempted_at;
+            return (
+              (aAttempt ?? a.updated_at) - (bAttempt ?? b.updated_at) ||
+              a.updated_at - b.updated_at ||
+              String(a.task_id).localeCompare(String(b.task_id))
+            );
+          })
           .slice(0, limit)
           .map((x) => ({
             task_id: x.task_id,
@@ -150,6 +179,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
   ensureIndexExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
@@ -850,6 +880,42 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       body: { mode: "start" },
     });
     expect(appState.get("agent-task:t5-durable-sweep").status).toBe("running");
+    nowSpy.mockRestore();
+  });
+
+  it("caps a stale sweep and gives unattempted runs priority over repeat failures", async () => {
+    const now = Date.UTC(2026, 5, 2, 12, 0, 0);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    for (let index = 0; index < 6; index += 1) {
+      const taskId = `t5-fairness-${index}`;
+      await seedTask(taskId);
+      const row = queueRows.find((candidate) => candidate.task_id === taskId);
+      if (!row) throw new Error(`missing queued task row ${taskId}`);
+      row.updated_at = now - 60_000 - index;
+    }
+    fireInternalDispatchMock.mockRejectedValue(
+      new Error("temporary processor failure"),
+    );
+
+    await expect(reconcileStaleAgentTeamRuns()).resolves.toEqual({
+      examined: 0,
+      failed: 5,
+    });
+    expect(fireInternalDispatchMock).toHaveBeenCalledTimes(5);
+
+    fireInternalDispatchMock.mockImplementation(async (options: any) => {
+      dispatches.push({
+        taskId: options.taskId,
+        body: options.body,
+        event: options.event,
+      });
+    });
+    await expect(reconcileStaleAgentTeamRuns()).resolves.toEqual({
+      examined: 1,
+      failed: 0,
+    });
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]?.taskId).toBe("t5-fairness-0");
     nowSpy.mockRestore();
   });
 

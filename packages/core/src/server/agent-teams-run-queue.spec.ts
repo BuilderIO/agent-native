@@ -28,8 +28,26 @@ const mockDb = {
         attempts: 0,
         created_at: args[6],
         updated_at: args[7],
+        reconciliation_attempted_at: null,
       });
       return affected(1);
+    }
+    if (s.includes("SET reconciliation_attempted_at = ?")) {
+      const [attemptedAt, taskId, updatedBefore, attemptedBefore] = args;
+      const row = rows.find((candidate) => candidate.task_id === taskId);
+      if (
+        row &&
+        row.owner_email &&
+        (row.status === "queued" || row.status === "running") &&
+        row.updated_at <= updatedBefore &&
+        (row.reconciliation_attempted_at === null ||
+          row.reconciliation_attempted_at === undefined ||
+          row.reconciliation_attempted_at <= attemptedBefore)
+      ) {
+        row.reconciliation_attempted_at = attemptedAt;
+        return affected(1);
+      }
+      return affected(0);
     }
     if (s.includes("SET status = 'running', attempts = attempts + 1")) {
       const [updatedAt, taskId, stuckCutoff] = args;
@@ -117,16 +135,27 @@ const mockDb = {
         "SELECT task_id, owner_email, org_id FROM agent_team_run_queue",
       )
     ) {
-      const [updatedBefore, limit] = args;
+      const [updatedBefore, attemptedBefore, limit] = args;
       return {
         rows: rows
           .filter(
             (x) =>
               x.owner_email !== null &&
               (x.status === "queued" || x.status === "running") &&
-              x.updated_at <= updatedBefore,
+              x.updated_at <= updatedBefore &&
+              (x.reconciliation_attempted_at === null ||
+                x.reconciliation_attempted_at === undefined ||
+                x.reconciliation_attempted_at <= attemptedBefore),
           )
-          .sort((a, b) => a.updated_at - b.updated_at)
+          .sort((a, b) => {
+            const aAttempt = a.reconciliation_attempted_at;
+            const bAttempt = b.reconciliation_attempted_at;
+            return (
+              (aAttempt ?? a.updated_at) - (bAttempt ?? b.updated_at) ||
+              a.updated_at - b.updated_at ||
+              String(a.task_id).localeCompare(String(b.task_id))
+            );
+          })
           .slice(0, limit)
           .map((x) => ({
             task_id: x.task_id,
@@ -150,6 +179,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
   ensureIndexExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
@@ -256,6 +286,33 @@ describe("agent_team_run_queue", () => {
 
     await expect(queue.listStaleActiveAgentTeamRuns(25, 1)).resolves.toEqual([
       { taskId: "oldest", ownerEmail: "first@example.com", orgId: "org-first" },
+    ]);
+  });
+
+  it("claims stale reconciliation attempts and rotates recently attempted rows", async () => {
+    await enqueue("oldest");
+    await enqueue("newer");
+    const oldest = rows.find((row) => row.task_id === "oldest")!;
+    oldest.updated_at = 10;
+    const newer = rows.find((row) => row.task_id === "newer")!;
+    newer.updated_at = 20;
+
+    await expect(
+      queue.claimAgentTeamRunReconciliationAttempt("oldest", 50, 100, 200),
+    ).resolves.toBe(true);
+    await expect(
+      queue.claimAgentTeamRunReconciliationAttempt("oldest", 50, 100, 201),
+    ).resolves.toBe(false);
+    await expect(
+      queue.listStaleActiveAgentTeamRuns(50, 5, 100),
+    ).resolves.toEqual([
+      { taskId: "newer", ownerEmail: "owner@example.com", orgId: null },
+    ]);
+    await expect(
+      queue.listStaleActiveAgentTeamRuns(50, 5, 200),
+    ).resolves.toEqual([
+      { taskId: "newer", ownerEmail: "owner@example.com", orgId: null },
+      { taskId: "oldest", ownerEmail: "owner@example.com", orgId: null },
     ]);
   });
 });

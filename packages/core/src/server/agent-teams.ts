@@ -72,12 +72,14 @@ import {
   bumpAgentTeamContinuation,
   completeAgentTeamRun,
   getAgentTeamRunDispatchState,
+  claimAgentTeamRunReconciliationAttempt,
   listActiveAgentTeamTaskIdsForOwner,
   listStaleActiveAgentTeamRuns,
   MAX_AGENT_TEAM_CONTINUATIONS,
   MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS,
   RUN_DISPATCH_STUCK_AFTER_MS,
   RUN_PROCESSING_STUCK_AFTER_MS,
+  RUN_RECONCILIATION_RETRY_AFTER_MS,
   type AgentTeamRunPayload,
 } from "./agent-teams-run-queue.js";
 import {
@@ -138,6 +140,7 @@ export function evaluateSubagentDepth(
 
 const RUN_QUEUE_HEARTBEAT_MS = 5_000;
 const RUN_DISPATCH_RETRY_COOLDOWN_MS = 60_000;
+const MAX_STALE_AGENT_TEAM_RUNS_PER_SWEEP = 5;
 const recentRunDispatchAttempts = new Map<string, number>();
 
 export interface AgentTask {
@@ -727,37 +730,57 @@ export async function reconcileStaleAgentTeamRuns(
   event?: any,
   limit = 50,
 ): Promise<{ examined: number; failed: number }> {
+  const now = Date.now();
+  const updatedBefore = now - RUN_DISPATCH_STUCK_AFTER_MS;
+  const reconciliationAttemptedBefore = now - RUN_RECONCILIATION_RETRY_AFTER_MS;
   const candidates = await listStaleActiveAgentTeamRuns(
-    Date.now() - RUN_DISPATCH_STUCK_AFTER_MS,
-    limit,
+    updatedBefore,
+    Math.min(
+      Math.max(Math.floor(limit), 0),
+      MAX_STALE_AGENT_TEAM_RUNS_PER_SWEEP,
+    ),
+    reconciliationAttemptedBefore,
   );
-  let examined = 0;
-  let failed = 0;
-  for (const candidate of candidates) {
-    try {
-      await runWithRequestContext(
-        {
-          userEmail: candidate.ownerEmail,
-          orgId: candidate.orgId ?? undefined,
-        },
-        async () => {
-          const task = await loadTask(candidate.taskId);
-          if (task) {
-            await reconcileTaskWithRun(task, event);
-          } else {
-            await completeAgentTeamRun(candidate.taskId, "failed");
-          }
-        },
+  const outcomes = await Promise.allSettled(
+    candidates.map(async (candidate) => {
+      const claimed = await claimAgentTeamRunReconciliationAttempt(
+        candidate.taskId,
+        updatedBefore,
+        reconciliationAttemptedBefore,
       );
-      examined += 1;
-    } catch (error) {
-      failed += 1;
-      console.warn(
-        `[agent-teams] stale run reconciliation failed for task ${candidate.taskId}:`,
-        describeDbError(error),
-      );
-    }
-  }
+      if (!claimed) return false;
+
+      try {
+        await runWithRequestContext(
+          {
+            userEmail: candidate.ownerEmail,
+            orgId: candidate.orgId ?? undefined,
+          },
+          async () => {
+            const task = await loadTask(candidate.taskId);
+            if (task) {
+              await reconcileTaskWithRun(task, event);
+            } else {
+              await completeAgentTeamRun(candidate.taskId, "failed");
+            }
+          },
+        );
+        return true;
+      } catch (error) {
+        console.warn(
+          `[agent-teams] stale run reconciliation failed for task ${candidate.taskId}:`,
+          describeDbError(error),
+        );
+        throw error;
+      }
+    }),
+  );
+  const examined = outcomes.filter(
+    (outcome) => outcome.status === "fulfilled" && outcome.value,
+  ).length;
+  const failed = outcomes.filter(
+    (outcome) => outcome.status === "rejected",
+  ).length;
   return { examined, failed };
 }
 

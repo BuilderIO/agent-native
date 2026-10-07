@@ -1,5 +1,9 @@
 import { getDbExec } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 
 export const MAX_AGENT_TEAM_CONTINUATIONS = 60;
 
@@ -8,6 +12,8 @@ export const MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS = 3;
 export const RUN_DISPATCH_STUCK_AFTER_MS = 15_000;
 
 export const RUN_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
+
+export const RUN_RECONCILIATION_RETRY_AFTER_MS = 60_000;
 
 export type AgentTeamRunQueueStatus = "queued" | "running" | "done" | "failed";
 
@@ -54,13 +60,24 @@ export async function ensureTable(): Promise<void> {
             continuation_count BIGINT NOT NULL DEFAULT 0,
             attempts BIGINT NOT NULL DEFAULT 0,
             created_at BIGINT NOT NULL,
-            updated_at BIGINT NOT NULL
+            updated_at BIGINT NOT NULL,
+            reconciliation_attempted_at BIGINT
           )
         `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_status ON agent_team_run_queue (status, updated_at)`;
+      const reconciliationIndexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_reconciliation ON agent_team_run_queue (status, reconciliation_attempted_at, updated_at) WHERE status IN ('queued', 'running')`;
 
       await ensureTableExists("agent_team_run_queue", createSql);
+      await ensureColumnExists(
+        "agent_team_run_queue",
+        "reconciliation_attempted_at",
+        "ALTER TABLE agent_team_run_queue ADD COLUMN IF NOT EXISTS reconciliation_attempted_at BIGINT",
+      );
       await ensureIndexExists("idx_agent_team_run_queue_status", indexSql);
+      await ensureIndexExists(
+        "idx_agent_team_run_queue_reconciliation",
+        reconciliationIndexSql,
+      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -245,6 +262,8 @@ export async function listActiveAgentTeamTaskIdsForOwner(
 export async function listStaleActiveAgentTeamRuns(
   updatedBefore: number,
   limit = 50,
+  reconciliationAttemptedBefore = Date.now() -
+    RUN_RECONCILIATION_RETRY_AFTER_MS,
 ): Promise<
   Array<{ taskId: string; ownerEmail: string; orgId: string | null }>
 > {
@@ -256,15 +275,37 @@ export async function listStaleActiveAgentTeamRuns(
               AND BTRIM(owner_email) <> ''
               AND status IN ('queued', 'running')
               AND updated_at <= ?
-          ORDER BY updated_at ASC
+              AND (reconciliation_attempted_at IS NULL OR reconciliation_attempted_at <= ?)
+          ORDER BY COALESCE(reconciliation_attempted_at, updated_at) ASC, updated_at ASC, task_id ASC
           LIMIT ?`,
-    args: [updatedBefore, limit],
+    args: [updatedBefore, reconciliationAttemptedBefore, limit],
   });
   return rows.map((row: any) => ({
     taskId: String(row.task_id),
     ownerEmail: String(row.owner_email),
     orgId: (row.org_id as string | null) ?? null,
   }));
+}
+
+export async function claimAgentTeamRunReconciliationAttempt(
+  taskId: string,
+  updatedBefore: number,
+  reconciliationAttemptedBefore: number,
+  attemptedAt = Date.now(),
+): Promise<boolean> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `UPDATE agent_team_run_queue
+            SET reconciliation_attempted_at = ?
+          WHERE task_id = ?
+            AND owner_email IS NOT NULL
+            AND BTRIM(owner_email) <> ''
+            AND status IN ('queued', 'running')
+            AND updated_at <= ?
+            AND (reconciliation_attempted_at IS NULL OR reconciliation_attempted_at <= ?)`,
+    args: [attemptedAt, taskId, updatedBefore, reconciliationAttemptedBefore],
+  });
+  return getAffectedRowCount(result) > 0;
 }
 
 export async function getAgentTeamRunDispatchState(
