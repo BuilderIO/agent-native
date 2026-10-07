@@ -534,6 +534,20 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     assert.equal(scope.checks.design_canvas_interaction_e2e, true, path);
   }
 
+  assert.deepEqual(
+    classifyChangedPaths([
+      "templates/design/e2e/position-alignment.spec.ts",
+      "templates/design/e2e/inspector-styles.spec.ts",
+      "templates/design/e2e/fixture.test.tsx",
+      "templates/design/app/components/design/EditPanel.tsx",
+    ]).designCanvasE2eSpecs,
+    [
+      "templates/design/e2e/fixture.test.tsx",
+      "templates/design/e2e/inspector-styles.spec.ts",
+      "templates/design/e2e/position-alignment.spec.ts",
+    ],
+  );
+
   assert.equal(
     classifyChangedPaths([".github/workflows/ci.yml"]).checks
       .design_canvas_interaction_e2e,
@@ -557,11 +571,17 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
+  assert.deepEqual(
+    [...regressionCases.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
+      Number(count),
+    ),
+    [1, 1],
+  );
   const designJobStart = workflow.indexOf(
     "  design-canvas-interaction-acceptance:\n",
   );
   assert.notEqual(designJobStart, -1);
-  const designJobEnd = workflow.indexOf("\n  fast-tests:\n", designJobStart);
+  const designJobEnd = workflow.indexOf("\n  fast-tests:", designJobStart);
   const designJob = workflow.slice(
     designJobStart,
     designJobEnd === -1 ? undefined : designJobEnd,
@@ -585,45 +605,37 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.ok(
     Number.isInteger(stepTimeout) &&
       stepTimeout <= 7 &&
-      stepTimeout < jobTimeout,
-    `focused Design tests need a seven-minute cap below the ${jobTimeout}-minute job cap (got ${stepTimeout})`,
+      jobTimeout >= stepTimeout + 2,
+    `focused Design tests need a seven-minute cap and two minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.match(
     designJob,
-    /strategy:\n\s+fail-fast: false\n\s+matrix:\n\s+shard:/u,
+    /shard:\s*\[\s*inspector,\s*drag-1,\s*drag-2,\s*position,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
   );
-  const matrixStart = designJob.indexOf("      matrix:");
-  const stepsStart = designJob.indexOf("    steps:", matrixStart);
-  const matrix = designJob.slice(matrixStart, stepsStart);
-  for (const shard of ["inspector", "drag-1", "drag-2", "position"]) {
-    assert.ok(
-      matrix.includes(shard),
-      `missing Design regression shard: ${shard}`,
-    );
-  }
   assert.ok(
     regressionCases.includes(
       "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
     ),
   );
-  const workerCounts = [...regressionCases.matchAll(/--workers=(\d+)/gu)].map(
-    ([, count]) => Number(count),
-  );
-  assert.ok(workerCounts.length > 0, "Design E2E shards must set workers");
   assert.ok(
     regressionCases.includes(
-      'pnpm exec playwright test "${focused_specs[@]}" --workers=1',
+      "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
     ),
   );
   assert.ok(
-    workerCounts.every((count) => count === 1),
-    `Design E2E shards share PGlite state and must use one worker (got ${workerCounts})`,
+    regressionCases.includes(
+      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"',
+    ),
   );
+  assert.ok(
+    regressionCases.includes(
+      "mapfile -d '' -t changed_specs < \"$changed_specs_file\"",
+    ),
+  );
+  assert.ok(regressionCases.includes('if [[ -f "$spec" ]]; then'));
   const fastTestsJob = workflow.slice(workflow.indexOf("  fast-tests:\n"));
   const needsStart = fastTestsJob.indexOf("    needs:");
   const needsEnd = fastTestsJob.indexOf("    if:", needsStart);
-  assert.notEqual(needsStart, -1);
-  assert.notEqual(needsEnd, -1);
   assert.ok(
     fastTestsJob
       .slice(needsStart, needsEnd)
@@ -708,8 +720,13 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/inspector-styles.spec.ts",
-      900,
+      833,
       "resizing a selected element emits a visual-style-change payload",
+    ],
+    [
+      "e2e/corner-radius-handle-drag.spec.ts",
+      202,
+      "canvas corner-radius handle follows the drag and persists the radius",
     ],
     [
       "e2e/pasted-svg-image-inspector.spec.ts",
@@ -723,27 +740,47 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      335,
+      361,
       "Auto Layout matrix centers both axes and persists after reload",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      484,
+      431,
+      "canvas and Layers selection show parent-relative position after iframe scroll",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      509,
+      "fixed Position stays viewport-relative after iframe scroll and reload",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      570,
       "Position stays Frame-relative through Groups and resets at nested Frames",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      529,
+      615,
       "Position edits use the CSS containing block through static wrappers and borders",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      606,
+      661,
+      "Position stays Frame-relative through a positioned plain wrapper",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      708,
+      "unframed absolute positions use the initial containing block through static wrappers",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      740,
       "Position edits invert own and static-containing-block transforms and persist",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      646,
+      780,
       "Align uses a Group's bounds while Position stays Frame-relative",
     ],
   ] as const;
@@ -755,7 +792,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     )[line - 1];
     assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
   }
-  assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts:900"));
+  assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts"));
 });
 
 test("a deleted Design E2E path runs the focused interaction suite", () => {

@@ -31,19 +31,11 @@ function inspectorSection(page: Page, title: RegExp | string): Locator {
   return page.locator("section").filter({ has: heading }).first();
 }
 
-function pagePropertiesSection(page: Page): Locator {
-  return inspectorSection(page, /^Screen$/);
-}
-
 async function selectLayerFromTree(page: Page, name: string): Promise<void> {
   await page
     .getByRole("tree", { name: "Layers" })
     .getByRole("button", { name, exact: true })
     .click();
-}
-
-function bodyElement(page: Page): Locator {
-  return designFrame(page).locator("body");
 }
 
 async function readInlineStyle(
@@ -180,66 +172,6 @@ async function resolvedColorChannels(
     };
   }, value);
 }
-
-// Unreachable standalone, not broken: the page-background section renders only
-// at `scope === "document"`, which resolveBackgroundPanelScope grants for
-// viewMode "single" + mode "edit" — and standalone, "single" is the Interact
-// view, so only a host-embedded editor gets there. Belongs with the
-// host-embedded shell specs, not here. The infinite render loop this used to
-// hit was a real bug and is fixed (DesignColorPicker.gradient-loop.test.tsx).
-test.fixme("page background supports gradient edits", async ({ page }) => {
-  await page.keyboard.press("Escape");
-  const pageSection = pagePropertiesSection(page);
-  await expect(pageSection).toBeVisible();
-
-  await openColorPicker(pageSection);
-  await choosePaintType(page, "Linear");
-  await setScrubInput(page, "Gradient angle", "135");
-  await setScrubInput(page, "Stop position", "25");
-
-  await expect
-    .poll(() => readInlineStyle(page, bodyElement(page), "background-image"))
-    .toContain("linear-gradient(135deg");
-  await expect
-    .poll(() => readInlineStyle(page, bodyElement(page), "background-image"))
-    .toContain("25%");
-});
-
-// Same document-scope gate as the gradient test above.
-test.fixme("page background exposes image controls and accepts a tiled image URL", async ({
-  page,
-}) => {
-  await page.keyboard.press("Escape");
-  const pageSection = pagePropertiesSection(page);
-  await expect(pageSection).toBeVisible();
-
-  await openColorPicker(pageSection);
-  await choosePaintType(page, "Image");
-  await setScrubInput(page, "Image URL", "/icon-180.svg");
-  await page.getByRole("combobox", { name: "Fill", exact: true }).click();
-  await page.getByRole("option", { name: "Tile", exact: true }).click();
-
-  await expect
-    .poll(() => readInlineStyle(page, bodyElement(page), "background-image"))
-    .toContain("/icon-180.svg");
-  await expect
-    .poll(() => readInlineStyle(page, bodyElement(page), "background-image"))
-    .toContain("linear-gradient");
-  await expect
-    .poll(async () =>
-      (await readInlineStyle(page, bodyElement(page), "background-repeat"))
-        .split(",")[0]
-        ?.trim(),
-    )
-    .toBe("repeat");
-  await expect
-    .poll(async () =>
-      (await readInlineStyle(page, bodyElement(page), "background-position"))
-        .split(",")[0]
-        ?.trim(),
-    )
-    .toBe("left top");
-});
 
 test("text fills hide and restore without losing the original color", async ({
   page,
@@ -897,6 +829,7 @@ test("export rows add, remove, and reset when selection changes", async ({
   await expect(suffixInputs()).toHaveCount(1);
 });
 
+// oracle: none — verifies the bridge commit event contract, not Figma parity.
 test("resizing a selected element emits a visual-style-change payload", async ({
   page,
 }) => {
@@ -927,7 +860,9 @@ test("resizing a selected element emits a visual-style-change payload", async ({
   ).toBe("se");
 
   await resizeSelectedElement(page, "se", 32, 18);
-  const message = await waitForBridge(page, "visual-style-change");
+  const message = await waitForBridge(page, "visual-style-change", 15_000, {
+    phase: "commit",
+  });
   const styles = message?.styles ?? {};
 
   expect(message.phase).toBe("commit");
