@@ -1027,7 +1027,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.connectAbove":
     "Conecta arriba un proveedor de IA para continuar...",
   "composer.connectBuilder": "Usar Builder.io",
-  "composer.connectKeys": "Conectar agente",
+  "composer.connectKeys": "Conectar claves",
+  "composer.connectAgent": "Conectar agente",
   "composer.connectingBuilder": "Configurando Builder.io…",
   "composer.costHigher": "Mayor costo",
   "composer.costLower": "Menor costo",

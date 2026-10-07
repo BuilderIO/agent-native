@@ -871,6 +871,11 @@ export function useBuilderConnectFlow(
   const statusPollFailuresRef = useRef(0);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
+  const notifyProvisionedAccount = useCallback(() => {
+    if (!provisionAccountAttemptRef.current) return;
+    provisionAccountAttemptRef.current = false;
+    toast.success(t("agentChat.onboarding.builderAccountCreated"));
+  }, [t]);
   const onConnectedRef = useRef(onConnected);
   onConnectedRef.current = onConnected;
   const activeTrackingRef = useRef<{ source: string; flow?: string }>({
@@ -1068,6 +1073,7 @@ export function useBuilderConnectFlow(
       }
       if (connectComplete && !notifiedConnectedRef.current) {
         notifiedConnectedRef.current = true;
+        notifyProvisionedAccount();
         notifyAgentEngineConfiguredChanged("builder-status");
         try {
           await onConnectedRef.current?.({ orgName: org });
@@ -1117,7 +1123,7 @@ export function useBuilderConnectFlow(
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
-  }, [enabled, fetchStatus]);
+  }, [enabled, fetchStatus, notifyProvisionedAccount]);
 
   const retry = useCallback(() => retryStatusRef.current(), []);
   const cancel = useCallback(() => {
@@ -1670,6 +1676,7 @@ export function useBuilderConnectFlow(
         setConnecting(false);
         connectStartedAtRef.current = null;
         notifiedConnectedRef.current = true;
+        notifyProvisionedAccount();
         notifyAgentEngineConfiguredChanged("builder-connect");
         try {
           await onConnectedRef.current?.({ orgName });
@@ -1914,10 +1921,7 @@ export function useBuilderConnectFlow(
       setOrgName(org);
       setConnecting(false);
       connectStartedAtRef.current = null;
-      if (provisionAccountAttemptRef.current) {
-        provisionAccountAttemptRef.current = false;
-        toast.success(t("agentChat.onboarding.builderAccountCreated"));
-      }
+      notifyProvisionedAccount();
       notifiedConnectedRef.current = true;
       notifyAgentEngineConfiguredChanged("builder-connect-message");
       try {
@@ -1977,7 +1981,7 @@ export function useBuilderConnectFlow(
       channel?.close();
       window.removeEventListener("message", handler);
     };
-  }, [fetchStatus]);
+  }, [fetchStatus, notifyProvisionedAccount]);
 
   return {
     configured,

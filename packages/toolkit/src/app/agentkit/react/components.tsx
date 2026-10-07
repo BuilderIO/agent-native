@@ -114,7 +114,6 @@ import {
   type AgentWidget,
   type RunId,
 } from "@agent-native/agentkit/protocol";
-import { useActionQuery } from "@agent-native/core/client/use-action";
 
 import {
   defaultAgentKitLabels,
@@ -130,6 +129,7 @@ import {
   type AgentKitRegistry,
   type AgentKitRenderProps,
   type AgentKitRenderSurface,
+  type AgentKitRunUsage,
   type AgentKitSlots,
   type AgentKitSuggestionsRenderProps,
   type AgentRunFailureRenderProps,
@@ -3048,6 +3048,7 @@ export function AgentMessageActions({
     onThreadForked,
     onCopyMessage,
     branchNavigation,
+    loadRunUsage,
   } = useAgentKit();
   const thread = useAgentThread(threadId);
   const feedbackCapability = useAgentCapability("feedback");
@@ -3071,6 +3072,17 @@ export function AgentMessageActions({
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [requestIdCopied, setRequestIdCopied] = useState(false);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [usageDetails, setUsageDetails] = useState<
+    | { runId: string; status: "loading" }
+    | { runId: string; status: "error" }
+    | { runId: string; status: "loaded"; data: AgentKitRunUsage | null }
+    | null
+  >(null);
+  const usageCacheRef = useRef<{
+    runId: string;
+    fetchedAt: number;
+    data: AgentKitRunUsage | null;
+  } | null>(null);
   const requestIdCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -3082,18 +3094,36 @@ export function AgentMessageActions({
     () => resolveAgentMessageRunId(message, thread.events),
     [message, thread.events],
   );
-  const hasRunUsage = message.role === "assistant" && Boolean(runId);
+  const hasRunUsage =
+    message.role === "assistant" && Boolean(runId) && Boolean(loadRunUsage);
   const hasMessageMenuActions = Boolean(
     requestId || hasRunUsage || (forkingCapability.visible && onThreadForked),
   );
-  const usageQuery = useActionQuery(
-    "get-usage-run",
-    { runId: runId ?? "", scope: "me" },
-    {
-      enabled: actionsMenuOpen && hasRunUsage,
-      staleTime: 5 * 60_000,
-    },
-  );
+  useEffect(() => {
+    if (!actionsMenuOpen || !hasRunUsage || !runId || !loadRunUsage) return;
+    const cached = usageCacheRef.current;
+    if (cached?.runId === runId && Date.now() - cached.fetchedAt < 5 * 60_000) {
+      setUsageDetails({ runId, status: "loaded", data: cached.data });
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    setUsageDetails({ runId, status: "loading" });
+    void loadRunUsage({ runId, signal: controller.signal })
+      .then((data) => {
+        if (!active) return;
+        usageCacheRef.current = { runId, fetchedAt: Date.now(), data };
+        setUsageDetails({ runId, status: "loaded", data });
+      })
+      .catch(() => {
+        if (!active || controller.signal.aborted) return;
+        setUsageDetails({ runId, status: "error" });
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [actionsMenuOpen, hasRunUsage, loadRunUsage, runId]);
   const messageSeq = thread.messages.findIndex(
     (item) => item.id === message.id,
   );
@@ -3209,7 +3239,8 @@ export function AgentMessageActions({
     regenerateAction.error;
   const usageMenuItems = hasRunUsage
     ? (() => {
-        if (usageQuery.isPending) {
+        const result = usageDetails?.runId === runId ? usageDetails : null;
+        if (!result || result.status === "loading") {
           return [
             {
               id: "usage-loading",
@@ -3218,7 +3249,7 @@ export function AgentMessageActions({
             },
           ];
         }
-        if (usageQuery.isError) {
+        if (result.status === "error") {
           return [
             {
               id: "usage-unavailable",
@@ -3227,7 +3258,7 @@ export function AgentMessageActions({
             },
           ];
         }
-        const usage = usageQuery.data;
+        const usage = result.data;
         if (!usage) {
           return [
             {

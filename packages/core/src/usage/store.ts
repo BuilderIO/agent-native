@@ -272,6 +272,10 @@ export async function ensureUsageTable(): Promise<void> {
           "idx_token_usage_org_app_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`,
         );
+        await ensureIndexExists(
+          "idx_token_usage_run_id",
+          `CREATE INDEX IF NOT EXISTS idx_token_usage_run_id ON token_usage (run_id) WHERE run_id IS NOT NULL`,
+        );
         return;
       }
     })().catch((err) => {

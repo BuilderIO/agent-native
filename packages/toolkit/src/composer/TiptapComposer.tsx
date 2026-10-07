@@ -1991,7 +1991,9 @@ function ModelSelector({
     (selectedModelProviderGroups.length > 0 &&
       selectedModelProviderGroups.every((group) => !group.configured));
   const selectedModelName = selectedModelNeedsConnection
-    ? t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
+    ? showBuilderAction
+      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+      : t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
     : (selectedModelDisplayName ?? friendlyModelName(model, t));
   const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection

@@ -1080,6 +1080,15 @@ export const AgentKitAssistantChat = forwardRef<
       null,
     [transport],
   );
+  const loadRunUsage = useCallback(
+    ({ runId, signal }: { runId: string; signal: AbortSignal }) =>
+      callAction<undefined, "get-usage-run">(
+        "get-usage-run",
+        { runId, scope: "me" },
+        { method: "GET", signal },
+      ),
+    [],
+  );
   const history = props.chatHistory as
     | AgentKitHistoryConfig<unknown, any, any>
     | undefined;
@@ -1102,6 +1111,7 @@ export const AgentKitAssistantChat = forwardRef<
           registry={agentKitRegistry}
           labels={labels}
           branchNavigation={props.branchNavigation}
+          loadRunUsage={loadRunUsage}
           onThreadForked={(thread) => props.onForkedThread?.(thread.id)}
           onCopyMessage={({ text }) => {
             const html = renderMarkdownToClipboardHtml(text);

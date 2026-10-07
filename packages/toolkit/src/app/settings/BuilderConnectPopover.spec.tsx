@@ -322,29 +322,33 @@ describe("BuilderConnectPopover", () => {
     expect(open).not.toHaveBeenCalled();
   });
 
-  it("keeps both choices and one-click creation when an account already exists", () => {
+  it("keeps the chooser busy during activation and available after it finishes", () => {
     const onConnect = vi.fn();
     const flow = {
       connecting: false,
+      configured: false,
+      error: null,
       start: vi.fn(),
       statusResolved: true,
       agentNativeProvisioningEnabled: true,
       accountExists: true,
     };
+    const renderPopover = () =>
+      render(
+        React.createElement(
+          BuilderConnectPopover,
+          {
+            flow,
+            onConnect,
+            contentTestId: "consent",
+            primaryTestId: "create",
+            secondaryTestId: "sign-in",
+          },
+          trigger(),
+        ),
+      );
 
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        {
-          flow,
-          onConnect,
-          contentTestId: "consent",
-          primaryTestId: "create",
-          secondaryTestId: "sign-in",
-        },
-        trigger(),
-      ),
-    );
+    renderPopover();
     click(connectButton());
 
     const consent = document.querySelector("[data-testid='consent']");
@@ -366,7 +370,17 @@ describe("BuilderConnectPopover", () => {
 
     click(consent?.querySelector("[data-testid='create']") as HTMLElement);
     expect(onConnect).toHaveBeenLastCalledWith(true);
-    click(connectButton());
+    flow.connecting = true;
+    renderPopover();
+    expect(document.body.querySelector('[role="status"]')).not.toBeNull();
+    expect(
+      document.querySelector<HTMLButtonElement>("[data-testid='sign-in']")
+        ?.disabled,
+    ).toBe(true);
+
+    flow.connecting = false;
+    flow.configured = true;
+    renderPopover();
     click(
       document.querySelector(
         "[data-testid='consent'] [data-testid='sign-in']",
@@ -464,7 +478,7 @@ describe("BuilderConnectPopover", () => {
     ).toEqual([
       "Included free",
       "60 monthly Agent Credits",
-      "+ 2 more services",
+      "LLM credits + 2 more services",
     ]);
     click(servicesToggle!);
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");

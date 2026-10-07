@@ -409,6 +409,21 @@ export type AgentKitCopyMessageHandler = (input: {
   text: string;
 }) => boolean | Promise<boolean>;
 
+export interface AgentKitRunUsage {
+  durationMs: number | null;
+  billing: {
+    providerCostUsd: number | null;
+    providerCostSource: "reported" | "estimated" | null;
+    builderCredits: number | null;
+    builderCreditsSource: "reported" | "estimated" | null;
+  };
+}
+
+export type AgentKitRunUsageLoader = (input: {
+  runId: RunId;
+  signal: AbortSignal;
+}) => Promise<AgentKitRunUsage | null>;
+
 export interface AgentKitProviderProps {
   controller: AgentKitController;
   threadId: ThreadId;
@@ -419,6 +434,7 @@ export interface AgentKitProviderProps {
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  loadRunUsage?: AgentKitRunUsageLoader;
   /**
    * Resolves a provider identifier through host-owned connection setup. The
    * callback, never the agent-authored request, owns OAuth URLs and scopes.
@@ -453,6 +469,7 @@ export interface AgentKitContextValue {
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  loadRunUsage?: AgentKitRunUsageLoader;
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
@@ -471,6 +488,7 @@ export function AgentKitProvider({
   onThreadForked,
   branchNavigation,
   onCopyMessage,
+  loadRunUsage,
   onConnectionRequest,
   onRenderError,
   onClientEffect,
@@ -535,6 +553,7 @@ export function AgentKitProvider({
       onThreadForked,
       branchNavigation,
       onCopyMessage,
+      loadRunUsage,
       onConnectionRequest,
       onRenderError,
       registerComposerFocus,
@@ -550,6 +569,7 @@ export function AgentKitProvider({
       onThreadForked,
       branchNavigation,
       onCopyMessage,
+      loadRunUsage,
       onConnectionRequest,
       onRenderError,
       registerComposerFocus,
