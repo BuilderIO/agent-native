@@ -14,7 +14,6 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_QUERY_PARAM,
-  isMcpDirectoryWidgetReadCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
   isMcpEmbedTransplantOrigin,
@@ -44,7 +43,6 @@ function appendEmbedParams(
   target: string,
   token: string,
   chatBridgeActive = false,
-  directoryWidget = false,
 ): string {
   const url = new URL(target, "http://agent-native.invalid");
   url.searchParams.set(EMBED_MODE_QUERY_PARAM, "1");
@@ -52,11 +50,7 @@ function appendEmbedParams(
   if (chatBridgeActive) {
     url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
   }
-  if (directoryWidget) {
-    url.searchParams.set(MCP_DIRECTORY_WIDGET_QUERY_PARAM, "1");
-  } else {
-    url.searchParams.delete(MCP_DIRECTORY_WIDGET_QUERY_PARAM);
-  }
+  url.searchParams.delete(MCP_DIRECTORY_WIDGET_QUERY_PARAM);
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -388,12 +382,9 @@ export function createEmbedStartRouteHandler(
     const chatBridgeActive =
       firstQueryValue(query[MCP_APP_CHAT_BRIDGE_QUERY_PARAM]) === "1" ||
       firstQueryValue(query[MCP_APP_CHAT_BRIDGE_QUERY_PARAM]) === "true";
-    const directoryWidget = isMcpDirectoryWidgetReadCapabilityScope(
-      consumed.scope,
-    );
     const location = withConfiguredBasePath(
       withCollapsedAgentSidebarParam(
-        appendEmbedParams(target, token, chatBridgeActive, directoryWidget),
+        appendEmbedParams(target, token, chatBridgeActive),
       ),
     );
     const transplant = wantsTransplantLocationResponse(event);

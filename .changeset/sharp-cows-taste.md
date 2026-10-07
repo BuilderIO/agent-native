@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Preserve directory widget scope on embed routes so embedded clients can select directory-only behavior.
+Expose verified directory widget read scope to frontend actions for safe read-only embeds.

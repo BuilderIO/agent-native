@@ -10,7 +10,6 @@ import {
   _resetMcpAppHostForTests,
   getMcpAppHostContext,
   isOpenAiMcpAppHost,
-  isOpenAiMcpDirectoryWidgetHost,
   openMcpAppHostLink,
   requestMcpAppDisplayMode,
   sendMcpAppHostMessage,
@@ -137,29 +136,6 @@ describe("MCP app host client helpers", () => {
 
     vi.stubGlobal("openai", undefined);
     expect(isOpenAiMcpAppHost()).toBe(false);
-  });
-
-  it("detects only directory-scoped ChatGPT widget routes", () => {
-    setDirectParent(parentWindow());
-    vi.stubGlobal("openai", {});
-    setTestUrl(
-      "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&__an_mcp_directory_widget=1",
-    );
-    _resetMcpAppHostForTests();
-    expect(isOpenAiMcpDirectoryWidgetHost()).toBe(true);
-
-    setTestUrl(
-      "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1",
-    );
-    _resetMcpAppHostForTests();
-    expect(isOpenAiMcpDirectoryWidgetHost()).toBe(false);
-
-    vi.stubGlobal("openai", undefined);
-    setTestUrl(
-      "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&__an_mcp_directory_widget=1",
-    );
-    _resetMcpAppHostForTests();
-    expect(isOpenAiMcpDirectoryWidgetHost()).toBe(false);
   });
 
   it("caches host context and exposes it through the React hook", async () => {

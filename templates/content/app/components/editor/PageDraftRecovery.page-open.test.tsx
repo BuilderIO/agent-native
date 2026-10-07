@@ -15,12 +15,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const openAiHost = vi.hoisted(() => ({
   isOpenAiMcpAppHost: vi.fn(() => false),
-  isOpenAiMcpDirectoryWidgetHost: vi.fn(() => false),
 }));
 
 const server = vi.hoisted(() => ({
   calls: [] as Array<{ name: string; params: unknown }>,
   draftResponse: { editable: true, draft: null } as unknown,
+  documentResponse: {
+    id: "page",
+    title: "Saved",
+    content: "Saved body",
+    canEdit: true,
+  } as unknown,
   mutate: vi.fn(),
   session: { email: "writer@example.test", orgId: "org" } as {
     email: string;
@@ -48,7 +53,7 @@ vi.mock("@agent-native/core/client/hooks", () => {
     return Promise.resolve(
       name === "get-preview-document-draft"
         ? server.draftResponse
-        : { id: "page", title: "Saved", content: "Saved body", canEdit: true },
+        : server.documentResponse,
     );
   };
   return {
@@ -85,6 +90,7 @@ vi.mock("@/components/editor/DocumentEditor", async () => {
       const { query } = usePageOpenDocument(documentId, {});
       const document = query.data;
       if (!document) return null;
+      const readOnlyWidget = document.mcpDirectoryWidgetReadOnly === true;
       return React.createElement(PageDraftRecovery, {
         document,
         children: React.createElement(
@@ -92,7 +98,7 @@ vi.mock("@/components/editor/DocumentEditor", async () => {
           null,
           React.createElement(VisualEditor, {
             content: document.content,
-            editable: false,
+            editable: !readOnlyWidget,
             onChange: () => {},
           }),
         ),
@@ -181,11 +187,16 @@ describe("Page draft recovery on a page open", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     server.calls = [];
     server.draftResponse = { editable: true, draft: null };
+    server.documentResponse = {
+      id: "page",
+      title: "Saved",
+      content: "Saved body",
+      canEdit: true,
+    };
     server.mutate.mockReset();
     server.mutate.mockReturnValue(new Promise(() => {}));
     server.session = { email: "writer@example.test", orgId: "org" };
     openAiHost.isOpenAiMcpAppHost.mockReturnValue(false);
-    openAiHost.isOpenAiMcpDirectoryWidgetHost.mockReturnValue(false);
     originalWindowStorage = Object.getOwnPropertyDescriptor(
       window,
       "localStorage",
@@ -301,9 +312,15 @@ describe("Page draft recovery on a page open", () => {
   });
 
   it("paints the scoped document body on /page/:id without a cookie session", async () => {
-    openAiHost.isOpenAiMcpDirectoryWidgetHost.mockReturnValue(true);
     openAiHost.isOpenAiMcpAppHost.mockReturnValue(true);
     server.session = null;
+    server.documentResponse = {
+      id: "page",
+      title: "Saved",
+      content: "Saved body",
+      canEdit: true,
+      mcpDirectoryWidgetReadOnly: true,
+    };
     startPageOpenDocumentReads(queryClient, "page");
 
     await act(async () => {
@@ -315,7 +332,7 @@ describe("Page draft recovery on a page open", () => {
             MemoryRouter,
             {
               initialEntries: [
-                "/page/page?__an_mcp_chat_bridge=1&embedded=1&__an_embed_token=scoped-ticket&__an_mcp_directory_widget=1",
+                "/page/page?__an_mcp_chat_bridge=1&embedded=1&__an_embed_token=scoped-ticket",
               ],
             },
             createElement(
@@ -336,6 +353,9 @@ describe("Page draft recovery on a page open", () => {
         "Saved body",
       ),
     );
+    expect(
+      container.querySelector(".ProseMirror")?.getAttribute("contenteditable"),
+    ).toBe("false");
     expect(
       container.querySelector('[data-testid="editor-skeleton"]'),
     ).toBeNull();

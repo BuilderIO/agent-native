@@ -16,7 +16,6 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { isOpenAiMcpDirectoryWidgetHost } from "@agent-native/core/client/mcp-app-host";
 import {
   useCreateResourceSuggestionProposal,
   useDecideResourceSuggestion,
@@ -2440,8 +2439,9 @@ function PageEditorSessionBody({
   );
   const navigate = useNavigate();
   const location = useLocation();
-  const openAiWidget = isOpenAiMcpDirectoryWidgetHost();
-  const canEdit = document.canEdit === true && !openAiWidget;
+  const mcpDirectoryWidgetReadOnly =
+    document.mcpDirectoryWidgetReadOnly === true;
+  const canEdit = document.canEdit === true && !mcpDirectoryWidgetReadOnly;
   const canEditRef = useRef(canEdit);
   const contentSpacesQuery = useContentSpaces();
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
@@ -2470,7 +2470,7 @@ function PageEditorSessionBody({
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
   const canComment =
-    !openAiWidget &&
+    !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
     (document.canComment ??
       (document.accessRole === "owner" ||
@@ -2655,7 +2655,7 @@ function PageEditorSessionBody({
   const canStartSuggestionRef = useRef(canSuggest);
   canStartSuggestionRef.current = canSuggest;
   const canDelete =
-    !openAiWidget &&
+    !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
     !document.database?.systemRole &&
     (document.canManage === true ||
@@ -3200,7 +3200,7 @@ function PageEditorSessionBody({
 
   const collabEnabled = shouldUseLiveDocumentCollaboration({
     isLocalFileDocument,
-    openAiWidget,
+    mcpDirectoryWidgetReadOnly,
   });
   const collabDocumentId =
     collabEnabled && !isDocumentCreationPending(document) ? documentId : null;
@@ -8224,6 +8224,7 @@ function PageEditorSessionBody({
             agentActive={agentActive}
             currentUserEmail={session?.email}
             canEdit={editorCanEdit}
+            readOnly={mcpDirectoryWidgetReadOnly}
             hideFromSearch={document.hideFromSearch}
             source={document.source}
             canDelete={canDelete}

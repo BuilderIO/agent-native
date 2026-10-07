@@ -7,16 +7,16 @@ describe("document collaboration host policy", () => {
     expect(
       shouldUseLiveDocumentCollaboration({
         isLocalFileDocument: false,
-        openAiWidget: false,
+        mcpDirectoryWidgetReadOnly: false,
       }),
     ).toBe(true);
   });
 
-  it("uses the scoped body snapshot in an OpenAI widget", () => {
+  it("uses the saved snapshot for a verified directory widget read", () => {
     expect(
       shouldUseLiveDocumentCollaboration({
         isLocalFileDocument: false,
-        openAiWidget: true,
+        mcpDirectoryWidgetReadOnly: true,
       }),
     ).toBe(false);
   });
@@ -25,7 +25,7 @@ describe("document collaboration host policy", () => {
     expect(
       shouldUseLiveDocumentCollaboration({
         isLocalFileDocument: true,
-        openAiWidget: false,
+        mcpDirectoryWidgetReadOnly: false,
       }),
     ).toBe(false);
   });

@@ -585,7 +585,7 @@ describe("createEmbedStartRouteHandler", () => {
     );
   });
 
-  it("marks only directory-scoped widget embed tickets on the app route", async () => {
+  it("does not expose directory widget scope in the embed URL", async () => {
     const scope = createMcpDirectoryWidgetReadCapability({
       appId: "content",
       resourceUri: "ui://content/shell-v67",
@@ -609,11 +609,11 @@ describe("createEmbedStartRouteHandler", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
-      "/page/doc-1?embedded=1&__an_embed_token=signed-token&__an_mcp_directory_widget=1&agentSidebar=closed",
+      "/page/doc-1?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
     );
   });
 
-  it("does not preserve a directory widget marker from a normal embed target", async () => {
+  it("strips an untrusted directory widget marker from embed targets", async () => {
     consumeEmbedSessionTicket.mockResolvedValue({
       ownerEmail: "writer@example.test",
       targetPath: "/page/doc-1?__an_mcp_directory_widget=1",

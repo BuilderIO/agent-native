@@ -62,6 +62,8 @@ export interface ActionRunContext {
   attachments?: AgentChatAttachment[];
   signal?: AbortSignal;
   actionName?: string;
+  /** Present only on frontend GETs authorized by a scoped directory-widget read capability. */
+  mcpDirectoryWidgetReadOnly?: true;
   threadId?: string;
   runId?: string;
   turnId?: string;

@@ -4,7 +4,6 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
-  MCP_DIRECTORY_WIDGET_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
   getEmbedAuthToken,
@@ -478,15 +477,6 @@ function readOpenAiBridge(): OpenAiAppBridge | null {
 export function isOpenAiMcpAppHost(): boolean {
   return (
     isInChildFrame() && isMcpAppBridgeEnabled() && readOpenAiBridge() !== null
-  );
-}
-
-export function isOpenAiMcpDirectoryWidgetHost(): boolean {
-  return (
-    isOpenAiMcpAppHost() &&
-    new URLSearchParams(window.location.search || "").get(
-      MCP_DIRECTORY_WIDGET_QUERY_PARAM,
-    ) === "1"
   );
 }
 

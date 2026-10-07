@@ -1,9 +1,9 @@
 export function shouldUseLiveDocumentCollaboration({
   isLocalFileDocument,
-  openAiWidget,
+  mcpDirectoryWidgetReadOnly,
 }: {
   isLocalFileDocument: boolean;
-  openAiWidget: boolean;
+  mcpDirectoryWidgetReadOnly: boolean;
 }): boolean {
-  return !isLocalFileDocument && !openAiWidget;
+  return !isLocalFileDocument && !mcpDirectoryWidgetReadOnly;
 }
