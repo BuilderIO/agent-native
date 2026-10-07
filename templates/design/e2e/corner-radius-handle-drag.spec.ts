@@ -391,6 +391,7 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
   }
 });
 
+// oracle: none — checks local radius-handle persistence without claiming Figma parity.
 test("asymmetric normalized radius handle follows a normal drag without jumping", async ({
   page,
   request,
