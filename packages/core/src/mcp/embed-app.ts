@@ -2048,7 +2048,22 @@ export function embedApp(
       function setHostContext(payload, replace) {
         hostContext = objectValue(payload);
         const fields = objectValue(hostContext.hostContext || hostContext.context || hostContext);
-        hostContextFields = replace ? { ...fields } : { ...hostContextFields, ...fields };
+        if (replace) {
+          hostContextFields = { ...fields };
+        } else {
+          const merged = { ...hostContextFields, ...fields };
+          if (
+            fields.containerDimensions &&
+            typeof fields.containerDimensions === "object" &&
+            !Array.isArray(fields.containerDimensions)
+          ) {
+            merged.containerDimensions = {
+              ...objectValue(hostContextFields.containerDimensions),
+              ...fields.containerDimensions,
+            };
+          }
+          hostContextFields = merged;
+        }
       }
 
       function rpcNotify(method, params) {

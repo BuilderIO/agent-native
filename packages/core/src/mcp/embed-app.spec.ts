@@ -556,9 +556,47 @@ describe("embedApp", () => {
         "objectValue(hostContext.hostContext || hostContext.context || hostContext)",
       );
       expect(html).toContain(
-        "hostContextFields = replace ? { ...fields } : { ...hostContextFields, ...fields };",
+        "const merged = { ...hostContextFields, ...fields };",
+      );
+      expect(html).toContain(
+        "...objectValue(hostContextFields.containerDimensions)",
       );
       expect(html).toContain("setHostContext(params, false);");
+
+      const source = html.match(
+        /function setHostContext\(payload, replace\) \{[\s\S]*?\n      \}/,
+      )?.[0];
+      expect(source).toBeTruthy();
+      const objectValue = (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {};
+      const updateHostContext = new Function(
+        "objectValue",
+        `let hostContext = {}; let hostContextFields = {}; ${source}; return (payload, replace) => { setHostContext(payload, replace); return hostContextFields; };`,
+      )(objectValue) as (
+        payload: unknown,
+        replace: boolean,
+      ) => Record<string, unknown>;
+
+      updateHostContext(
+        {
+          hostContext: {
+            displayMode: "inline",
+            containerDimensions: { height: 860 },
+          },
+        },
+        true,
+      );
+      expect(
+        updateHostContext(
+          { hostContext: { containerDimensions: { width: 420 } } },
+          false,
+        ),
+      ).toMatchObject({
+        displayMode: "inline",
+        containerDimensions: { width: 420, height: 860 },
+      });
     });
   });
 

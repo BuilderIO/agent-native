@@ -109,15 +109,13 @@ describe("Design editor mobile layout", () => {
     );
 
     expect(warn).toContain(
-      'if (isMcpDirectoryWidgetReadOnlyEmbed()) return;\n    toast.warning(t("visualEditor.changesSaveWhenReconnected")',
+      'if (readOnlyWidget) return;\n    toast.warning(t("visualEditor.changesSaveWhenReconnected")',
     );
     expect(warn).toContain(
-      'if (isMcpDirectoryWidgetReadOnlyEmbed()) return;\n    toast.error(t("visualEditor.changesDiscarded")',
+      'if (readOnlyWidget) return;\n    toast.error(t("visualEditor.changesDiscarded")',
     );
     // Both toasts stay otherwise unconditional, so normal sessions still warn.
-    expect(warn.match(/isMcpDirectoryWidgetReadOnlyEmbed\(\)/g)).toHaveLength(
-      2,
-    );
+    expect(warn.match(/if \(readOnlyWidget\) return;/g)).toHaveLength(2);
   });
 
   it("lets the compact workspace rail scroll on short screens", () => {
