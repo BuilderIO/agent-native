@@ -50,11 +50,13 @@ describe("toolErrorSignature", () => {
   });
 
   it("still redacts and scrubs a JSON error message", () => {
+    // Assembled at runtime so no credential-shaped literal sits in the source.
+    const fakeKey = ["sk", "not", "a", "real", "key", "000000000"].join("-");
     expect(
       toolErrorSignature(
         JSON.stringify({
           error: "auth_failed",
-          message: "bad key=sk-not-a-real-key-000000000 for a@b.co",
+          message: `bad key=${fakeKey} for a@b.co`,
         }),
       ),
     ).toBe("auth_failed: bad key=[REDACTED] for [email]");
@@ -63,7 +65,7 @@ describe("toolErrorSignature", () => {
         JSON.stringify({
           error: "failed",
           message: "x".repeat(2000),
-          apiKey: "sk-not-a-real-key-000000000",
+          apiKey: fakeKey,
         }),
       ).length,
     ).toBe(501);

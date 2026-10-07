@@ -1154,15 +1154,17 @@ describe("what the store saves is what gets verified", () => {
 
 describe("error text from the warehouse", () => {
   it("redacts and clips a dry-run failure like an executed one", async () => {
+    // Assembled at runtime so no credential-shaped literal sits in the source.
+    const fakeKey = ["sk", "live", "abcdef0123456789"].join("_");
     mocks.dryRun.mockResolvedValue({
-      error: `Access Denied on project builder-3b0a2 token=sk_live_abcdef0123456789 ${"x".repeat(900)}`,
+      error: `Access Denied on project builder-3b0a2 token=${fakeKey} ${"x".repeat(900)}`,
     });
 
     const result = await verifyDashboardPanels(dashboard([panel()]), ["p1"]);
 
     const [verified] = result.panels;
     expect(verified.status).toBe("query-error");
-    expect(verified.error).not.toContain("sk_live_abcdef0123456789");
+    expect(verified.error).not.toContain(fakeKey);
     expect(verified.error).toContain("[redacted]");
     expect(verified.error!.length).toBeLessThanOrEqual(501);
   });
