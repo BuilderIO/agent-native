@@ -136,6 +136,7 @@ describe("Page draft journal", () => {
   it("updates only the matching writer draft title and preserves snapshot metadata", () => {
     const originalSnapshot = {
       ...snapshot,
+      title: "Saved title",
       baseRevision: "base-revision",
       authoredBaseRevision: "authored-base-revision",
       authoredBaseContent: "authored base",
@@ -153,14 +154,16 @@ describe("Page draft journal", () => {
       snapshot: { ...originalSnapshot, title: "Other tab title" },
     });
 
-    expect(
-      updatePageDraftJournalTitle(scope, "Local title", "Peer title"),
-    ).toBe(true);
+    expect(updatePageDraftJournalTitle(scope, "Peer title")).toBe(true);
     expect(
       listPageDraftJournal(scope).find(
         (entry) => entry.scope.writerId === scope.writerId,
       )?.snapshot,
-    ).toEqual({ ...originalSnapshot, title: "Peer title" });
+    ).toEqual({
+      ...originalSnapshot,
+      title: "Peer title",
+      baseTitle: "Peer title",
+    });
     expect(
       listPageDraftJournal(scope).find(
         (entry) => entry.scope.writerId === "other-tab",
@@ -168,14 +171,49 @@ describe("Page draft journal", () => {
     ).toBe("Other tab title");
   });
 
-  it("leaves a journal snapshot unchanged when the expected title no longer matches", () => {
+  it("adopts consecutive peer titles and treats a repeated title as a no-op", () => {
+    const uneditedSnapshot = { ...snapshot, title: "Saved title" };
+    writePageDraftJournal({ scope, snapshot: uneditedSnapshot });
+
+    expect(updatePageDraftJournalTitle(scope, "Peer title")).toBe(true);
+    expect(updatePageDraftJournalTitle(scope, "New peer title")).toBe(true);
+    expect(updatePageDraftJournalTitle(scope, "New peer title")).toBe(true);
+    expect(readPageDraftJournal(scope)?.snapshot).toEqual({
+      ...uneditedSnapshot,
+      title: "New peer title",
+      baseTitle: "New peer title",
+    });
+  });
+
+  it("preserves a locally edited title when a peer title arrives", () => {
     writePageDraftJournal({ scope, snapshot });
     const before = readPageDraftJournal(scope);
 
-    expect(
-      updatePageDraftJournalTitle(scope, "Stale title", "Peer title"),
-    ).toBe(false);
+    expect(updatePageDraftJournalTitle(scope, "Peer title")).toBe(false);
     expect(readPageDraftJournal(scope)).toEqual(before);
+  });
+
+  it("reports a failed peer-title update as a typed storage failure", () => {
+    const uneditedSnapshot = { ...snapshot, title: "Saved title" };
+    writePageDraftJournal({ scope, snapshot: uneditedSnapshot });
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        ...store,
+        setItem: () => {
+          throw new Error("quota");
+        },
+      },
+    });
+
+    expect(() => updatePageDraftJournalTitle(scope, "Peer title")).toThrowError(
+      PageDraftJournalError,
+    );
+    try {
+      updatePageDraftJournalTitle(scope, "Peer title");
+    } catch (error) {
+      expect((error as PageDraftJournalError).code).toBe("write_failed");
+    }
   });
 
   it("reports a failed synchronous write as a typed failure", () => {

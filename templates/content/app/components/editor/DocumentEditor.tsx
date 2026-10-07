@@ -231,6 +231,7 @@ import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
+  listPageDraftJournal,
   updatePageDraftJournalTitle,
   writePageDraftJournal,
 } from "./page-draft-journal";
@@ -1861,6 +1862,24 @@ export function enqueueDocumentSave<T>(
     () => undefined,
   );
   return queued;
+}
+
+export function enqueueRecoveryDraftTitleSync<
+  T extends {
+    title: string;
+    supersedable?: boolean;
+  },
+>(
+  queueRef: MutableRefObject<Promise<void>>,
+  title: string,
+  getCurrentDraft: () => T | null,
+  sync: (draft: T) => Promise<void>,
+): Promise<void> {
+  return enqueueDocumentSave(queueRef, async () => {
+    const draft = getCurrentDraft();
+    if (!draft?.supersedable || draft.title === title) return;
+    await sync(draft);
+  });
 }
 
 export function shouldSubmitDocumentContent(input: {
@@ -4212,11 +4231,10 @@ function PageEditorSessionBody({
           supersedable,
         );
       };
-      const queued = recoveryDraftRetentionQueueRef.current.then(
-        retain,
+      const queued = enqueueDocumentSave(
+        recoveryDraftRetentionQueueRef,
         retain,
       );
-      recoveryDraftRetentionQueueRef.current = queued.catch(() => undefined);
       if (supersedable) {
         void queued
           .then(() => {
@@ -4241,12 +4259,94 @@ function PageEditorSessionBody({
   );
   const syncRecoveryDraftTitle = useCallback(
     (title: string) => {
-      const current = recoveryDraftRef.current;
-      if (!current?.supersedable || current.title === title) return;
-      const scope = journalScope();
-      if (scope) {
+      const sync = async (
+        current: NonNullable<typeof recoveryDraftRef.current>,
+      ) => {
+        const scope = journalScope();
+        const editorSessionId =
+          current.editorSessionId ?? editorSessionIdRef.current!;
+        const editGeneration =
+          current.editGeneration ?? editorEditGenerationRef.current;
+        let localJournalUpdateFailed = false;
+        if (scope) {
+          try {
+            const entry = listPageDraftJournal({
+              accountId: scope.accountId,
+              orgId: scope.orgId,
+              documentId: scope.documentId,
+            }).find((candidate) => candidate.scope.writerId === scope.writerId);
+            if (
+              entry &&
+              entry.snapshot.editGeneration === editGeneration &&
+              entry.snapshot.content === current.content
+            ) {
+              updatePageDraftJournalTitle(scope, title);
+              recoveryWriteErrorShownRef.current = false;
+            }
+          } catch {
+            localJournalUpdateFailed = true;
+          }
+        }
+
+        // Read the latest draft only after earlier retained writes settle. A
+        // queued title-only update must never replay the content it captured
+        // before a newer, non-supersedable recovery draft was retained.
+        const latest = recoveryDraftRef.current;
+        if (!latest?.supersedable || latest.title === title) return;
+        const latestSessionId =
+          latest.editorSessionId ?? editorSessionIdRef.current!;
+        const latestEditGeneration =
+          latest.editGeneration ?? editorEditGenerationRef.current;
+        await retainRecoveryDraft(
+          title,
+          latest.content,
+          latest.deferredReason,
+          latestSessionId,
+          latestEditGeneration,
+          latest.contentBase,
+          true,
+        );
+
+        if (!localJournalUpdateFailed || !scope) return;
+        const retained = recoveryDraftRef.current;
+        if (
+          !retained ||
+          editorSessionId !== scope.writerId ||
+          retained.editorSessionId !== latestSessionId ||
+          retained.editGeneration !== latestEditGeneration ||
+          retained.content !== latest.content ||
+          retained.title !== title
+        ) {
+          if (!recoveryWriteErrorShownRef.current) {
+            toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+            recoveryWriteErrorShownRef.current = true;
+          }
+          return;
+        }
+
         try {
-          updatePageDraftJournalTitle(scope, current.title, title);
+          const entry = listPageDraftJournal({
+            accountId: scope.accountId,
+            orgId: scope.orgId,
+            documentId: scope.documentId,
+          }).find((candidate) => candidate.scope.writerId === scope.writerId);
+          if (!entry) {
+            recoveryWriteErrorShownRef.current = false;
+            return;
+          }
+          if (
+            entry.snapshot.editGeneration !== retained.editGeneration ||
+            entry.snapshot.content !== retained.content
+          ) {
+            throw new Error(
+              "A newer local recovery draft replaced the journal.",
+            );
+          }
+          if (!updatePageDraftJournalTitle(scope, retained.title)) {
+            throw new Error(
+              "The local recovery title could not be reconciled.",
+            );
+          }
           recoveryWriteErrorShownRef.current = false;
         } catch {
           if (!recoveryWriteErrorShownRef.current) {
@@ -4254,23 +4354,22 @@ function PageEditorSessionBody({
             recoveryWriteErrorShownRef.current = true;
           }
         }
-      }
-      void queueRecoveryDraftRetention(
+      };
+
+      const queued = enqueueRecoveryDraftTitleSync(
+        recoveryDraftRetentionQueueRef,
         title,
-        current.content,
-        current.deferredReason,
-        current.editorSessionId ?? editorSessionIdRef.current!,
-        current.editGeneration ?? editorEditGenerationRef.current,
-        current.contentBase,
-        true,
-      ).catch(() => {
+        () => recoveryDraftRef.current,
+        sync,
+      );
+      void queued.catch(() => {
         if (!recoveryWriteErrorShownRef.current) {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
           recoveryWriteErrorShownRef.current = true;
         }
       });
     },
-    [journalScope, queueRecoveryDraftRetention, t],
+    [journalScope, retainRecoveryDraft, t],
   );
   syncRecoveryDraftTitleRef.current = syncRecoveryDraftTitle;
   const clearRecoveryDraft = useCallback(

@@ -179,7 +179,6 @@ export function writePageDraftJournal(input: {
 
 export function updatePageDraftJournalTitle(
   scope: PageDraftJournalScope,
-  expectedTitle: string,
   title: string,
 ): boolean {
   const normalized = normalizedScope(scope);
@@ -189,12 +188,14 @@ export function updatePageDraftJournalTitle(
     const raw = store.getItem(itemKey);
     if (raw === null) return false;
     const entry = parseEntry(raw, itemKey);
-    if (entry.snapshot.title !== expectedTitle) return false;
+    if (entry.snapshot.title === title && entry.snapshot.baseTitle === title)
+      return true;
+    if (entry.snapshot.title !== entry.snapshot.baseTitle) return false;
     store.setItem(
       itemKey,
       JSON.stringify({
         ...entry,
-        snapshot: { ...entry.snapshot, title },
+        snapshot: { ...entry.snapshot, title, baseTitle: title },
         writtenAt: Date.now(),
       }),
     );

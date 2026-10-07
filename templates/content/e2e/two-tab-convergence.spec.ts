@@ -444,7 +444,8 @@ test.describe("two tabs editing one page at beta cadence", () => {
       async (s) => {
         const { first: a, second: b } = await openPair(s, 0);
         const aMarker = s.markers.next("A");
-        const peerTitle = `Peer title ${s.id.slice(0, 8)}`;
+        const firstPeerTitle = `Peer title first ${s.id.slice(0, 8)}`;
+        const peerTitle = `Peer title final ${s.id.slice(0, 8)}`;
         const collabUpdatePath = `/_agent-native/collab/${s.id}/update`;
         const collabUpdateMatcher = (url: URL) =>
           url.pathname === collabUpdatePath;
@@ -481,18 +482,56 @@ test.describe("two tabs editing one page at beta cadence", () => {
           .toMatchObject({ content: expect.stringContaining(aMarker) });
         await expect.poll(() => failedCollabUpdates).toBeGreaterThan(0);
 
+        const recoveryWrites = await RequestGate.action(
+          a,
+          "update-preview-document-draft",
+        );
+        recoveryWrites.hold();
         const titleInput = b.getByLabel("Document title");
-        await titleInput.fill(peerTitle);
+        await titleInput.fill(firstPeerTitle);
         await titleInput.press("Tab");
         await expect
           .poll(async () => (await getDocument(s.reader, s.id)).title, {
             message: "B's title should reach the canonical page",
             timeout: 30_000,
           })
+          .toBe(firstPeerTitle);
+        await expect(a.getByLabel("Document title")).toHaveValue(
+          firstPeerTitle,
+          {
+            timeout: 30_000,
+          },
+        );
+        await expect
+          .poll(() => recoveryWrites.queued, {
+            message:
+              "A's first adopted title should be held in its recovery queue",
+            timeout: 30_000,
+          })
+          .toBeGreaterThan(0);
+
+        await titleInput.fill(peerTitle);
+        await titleInput.press("Tab");
+        await expect
+          .poll(async () => (await getDocument(s.reader, s.id)).title, {
+            message: "B's consecutive title should reach the canonical page",
+            timeout: 30_000,
+          })
           .toBe(peerTitle);
         await expect(a.getByLabel("Document title")).toHaveValue(peerTitle, {
           timeout: 30_000,
         });
+        await recoveryWrites.release();
+        await expect
+          .poll(() => getPreviewDraft(s.reader, s.id), {
+            message:
+              "the retained draft should settle on the latest peer title",
+            timeout: 30_000,
+          })
+          .toMatchObject({
+            title: peerTitle,
+            content: expect.stringContaining(aMarker),
+          });
 
         const journal = await a.evaluate((documentId) => {
           for (let index = 0; index < localStorage.length; index++) {
@@ -507,6 +546,7 @@ test.describe("two tabs editing one page at beta cadence", () => {
         }, s.id);
         expect(journal?.entry.snapshot).toMatchObject({
           title: peerTitle,
+          baseTitle: peerTitle,
           content: expect.stringContaining(aMarker),
         });
 
@@ -579,6 +619,153 @@ test.describe("two tabs editing one page at beta cadence", () => {
           'A showed "Unsaved page draft"',
           'A showed "Choose which version to keep"',
         ];
+      },
+    );
+  });
+
+  test("a one-time journal write failure still reopens the retained draft", async ({
+    context,
+  }, testInfo) => {
+    await runScenario(
+      "peer-title-journal-storage-recovery",
+      testInfo,
+      context,
+      async (s) => {
+        const { first: a, second: b } = await openPair(s, 0);
+        const aMarker = s.markers.next("A");
+        const peerTitle = `Recovered peer title ${s.id.slice(0, 8)}`;
+        const collabUpdatePath = `/_agent-native/collab/${s.id}/update`;
+        const collabUpdateMatcher = (url: URL) =>
+          url.pathname === collabUpdatePath;
+        let failedCollabUpdates = 0;
+        await a.route(collabUpdateMatcher, (route) => {
+          failedCollabUpdates++;
+          return route.fulfill({
+            status: 503,
+            body: "Collaboration flush held for journal recovery regression",
+          });
+        });
+        await a.evaluate(() => {
+          const original = window.setTimeout.bind(window);
+          (window as any).__recoveryOriginalSetTimeout = original;
+          window.setTimeout = ((
+            handler: TimerHandler,
+            timeout?: number,
+            ...args: any[]
+          ) =>
+            original(
+              handler,
+              timeout === 800 ? 60_000 : timeout,
+              ...args,
+            )) as typeof window.setTimeout;
+        });
+
+        await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+        await expect
+          .poll(() => getPreviewDraft(s.reader, s.id), {
+            message:
+              "A's failed collaboration flush should retain its unsaved body",
+            timeout: 30_000,
+          })
+          .toMatchObject({ content: expect.stringContaining(aMarker) });
+        await expect.poll(() => failedCollabUpdates).toBeGreaterThan(0);
+
+        await a.evaluate(() => {
+          const prototype = Storage.prototype;
+          const original = prototype.setItem;
+          let failed = false;
+          (window as any).__recoveryJournalSetItemFailed = false;
+          (window as any).__recoveryOriginalJournalSetItem = original;
+          prototype.setItem = function (key: string, value: string) {
+            if (!failed && key.startsWith("content-page-draft-journal-v1:")) {
+              failed = true;
+              (window as any).__recoveryJournalSetItemFailed = true;
+              throw new DOMException(
+                "Simulated one-time journal write failure",
+                "QuotaExceededError",
+              );
+            }
+            return original.call(this, key, value);
+          };
+        });
+
+        const titleInput = b.getByLabel("Document title");
+        await titleInput.fill(peerTitle);
+        await titleInput.press("Tab");
+        await expect
+          .poll(async () => (await getDocument(s.reader, s.id)).title, {
+            message: "B's title should reach the canonical page",
+            timeout: 30_000,
+          })
+          .toBe(peerTitle);
+        await expect(a.getByLabel("Document title")).toHaveValue(peerTitle, {
+          timeout: 30_000,
+        });
+        await expect
+          .poll(() => getPreviewDraft(s.reader, s.id), {
+            message:
+              "SQL recovery should advance despite the local write failure",
+            timeout: 30_000,
+          })
+          .toMatchObject({
+            title: peerTitle,
+            content: expect.stringContaining(aMarker),
+          });
+        expect(
+          await a.evaluate(
+            () => (window as any).__recoveryJournalSetItemFailed,
+          ),
+        ).toBe(true);
+
+        const journal = await a.evaluate((documentId) => {
+          for (let index = 0; index < localStorage.length; index++) {
+            const key = localStorage.key(index);
+            if (!key?.startsWith("content-page-draft-journal-v1:")) continue;
+            const raw = localStorage.getItem(key);
+            if (!raw) continue;
+            const entry = JSON.parse(raw);
+            if (entry?.scope?.documentId === documentId) return { key, entry };
+          }
+          return null;
+        }, s.id);
+        expect(journal?.entry.snapshot).toMatchObject({
+          title: peerTitle,
+          baseTitle: peerTitle,
+          content: expect.stringContaining(aMarker),
+        });
+
+        await a.evaluate(() => {
+          const original = (window as any)
+            .__recoveryOriginalJournalSetItem as typeof Storage.prototype.setItem;
+          if (original) Storage.prototype.setItem = original;
+          delete (window as any).__recoveryOriginalJournalSetItem;
+          delete (window as any).__recoveryJournalSetItemFailed;
+          const originalTimeout = (window as any)
+            .__recoveryOriginalSetTimeout as typeof window.setTimeout;
+          if (originalTimeout) window.setTimeout = originalTimeout;
+          delete (window as any).__recoveryOriginalSetTimeout;
+        });
+        await a.unroute(collabUpdateMatcher);
+
+        await a.reload({ waitUntil: "domcontentloaded" });
+        await expectEditorReady(a);
+        await expect
+          .poll(async () => getDocument(s.reader, s.id), {
+            message:
+              "reloading should recover the matching journal without a stale-title chooser",
+            timeout: 30_000,
+          })
+          .toMatchObject({
+            title: peerTitle,
+            content: expect.stringContaining(aMarker),
+          });
+        await expect(
+          a.getByText("Choose which version to keep", { exact: true }),
+        ).toBeHidden();
+        await expect(a.locator(EDITOR)).toContainText(aMarker);
+        s.notes.failedCollabUpdates = failedCollabUpdates;
+        s.notes.recoveredTitle = peerTitle;
+        s.expectedNoise = ['A showed "Unsaved page draft"'];
       },
     );
   });
