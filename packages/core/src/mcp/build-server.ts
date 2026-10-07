@@ -1935,6 +1935,16 @@ function mcpAppWidgetsEnabled(config: MCPConfig): boolean {
   );
 }
 
+function mcpAppWidgetsEnabledForIdentity(
+  config: MCPConfig,
+  identity: MCPCallerIdentity | undefined,
+): boolean {
+  return (
+    mcpAppWidgetsEnabled(config) &&
+    (config.catalogMode !== "directory" || hasVerifiedMcpUserIdentity(identity))
+  );
+}
+
 function stripDirectoryWidgetMeta(
   config: MCPConfig,
   metadata: Record<string, unknown>,
@@ -1954,9 +1964,15 @@ function stripDirectoryWidgetMeta(
 async function getMcpAppResources(
   config: MCPConfig,
   actions: Record<string, ActionEntry>,
+  identity: MCPCallerIdentity | undefined,
   requestMeta?: MCPRequestMeta,
 ): Promise<ResolvedMcpAppResource[]> {
-  if (!requestMeta?.inlineMcpApps || !mcpAppWidgetsEnabled(config)) return [];
+  if (
+    !requestMeta?.inlineMcpApps ||
+    !mcpAppWidgetsEnabledForIdentity(config, identity)
+  ) {
+    return [];
+  }
   const actionEntries = Object.entries(actions);
   const orderedActionEntries =
     config.catalogMode === "directory"
@@ -2361,7 +2377,7 @@ export async function createMCPServerForRequest(
     }
   }
   const supportsMcpApps =
-    mcpAppWidgetsEnabled(config) &&
+    mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity) &&
     (compactMcpAppCatalog ||
       directoryCatalog ||
       Object.values(advertisedActions).some((entry) =>
@@ -2558,7 +2574,10 @@ export async function createMCPServerForRequest(
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
           .map(async ([name, entry]) => {
             const hasLink = typeof entry.link === "function";
-            const mcpAppResource = mcpAppWidgetsEnabled(config)
+            const mcpAppResource = mcpAppWidgetsEnabledForIdentity(
+              config,
+              effectiveIdentity,
+            )
               ? await resolveMcpAppResourceSafely(
                   config,
                   name,
@@ -2647,9 +2666,10 @@ export async function createMCPServerForRequest(
             }
             return {
               name,
-              description: hasLink
-                ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
-                : baseDescription,
+              description:
+                hasLink && !directoryCatalog
+                  ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
+                  : baseDescription,
               inputSchema,
               ...(directoryCatalog && mcpAppResource
                 ? {
@@ -2898,7 +2918,8 @@ export async function createMCPServerForRequest(
             typeof mcpResult.raw === "object" &&
             (mcpResult.raw as Record<string, unknown>).isError === true;
           const mcpAppResourceCandidate =
-            requestMeta?.inlineMcpApps && mcpAppWidgetsEnabled(config)
+            requestMeta?.inlineMcpApps &&
+            mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
               ? await resolveMcpAppResourceSafely(
                   config,
                   name,
@@ -2930,16 +2951,19 @@ export async function createMCPServerForRequest(
             config.directoryProfile !== undefined &&
             mcpAppResourceCandidate !== null &&
             directoryWidget === undefined;
-          const rawResultForClient = missingDirectoryWidgetCapability
-            ? withoutMcpAppEmbedTicket(projectedRawResult)
-            : mcpAppResourceCandidate
-              ? await withServerMintedMcpAppEmbedStart(
-                  projectedRawResult,
-                  requestMeta,
-                  directoryLinkUrl,
-                  directoryWidget,
-                )
-              : projectedRawResult;
+          const suppressDirectoryWidget =
+            directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
+          const rawResultForClient =
+            missingDirectoryWidgetCapability || suppressDirectoryWidget
+              ? withoutMcpAppEmbedTicket(projectedRawResult)
+              : mcpAppResourceCandidate
+                ? await withServerMintedMcpAppEmbedStart(
+                    projectedRawResult,
+                    requestMeta,
+                    directoryLinkUrl,
+                    directoryWidget,
+                  )
+                : projectedRawResult;
           const {
             value: actionResultForClient,
             images: resultImages,
@@ -3123,6 +3147,7 @@ export async function createMCPServerForRequest(
           const mcpAppResources = await getMcpAppResources(
             config,
             advertisedActions,
+            effectiveIdentity,
             requestMeta,
           );
           return {
@@ -3156,6 +3181,7 @@ export async function createMCPServerForRequest(
         const mcpAppResources = await getMcpAppResources(
           config,
           advertisedActions,
+          effectiveIdentity,
           requestMeta,
         );
         return {
@@ -3201,7 +3227,10 @@ export async function createMCPServerForRequest(
               actionName: string;
               resource: ResolvedMcpAppResource;
             } | null = null;
-            const resourceActions = mcpAppWidgetsEnabled(config)
+            const resourceActions = mcpAppWidgetsEnabledForIdentity(
+              config,
+              effectiveIdentity,
+            )
               ? Object.entries(advertisedActions)
               : [];
             const orderedResourceActions =

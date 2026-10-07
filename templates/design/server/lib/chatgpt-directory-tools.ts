@@ -101,16 +101,28 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "edit-design",
   ],
   instructions:
-    "Create and refine interactive prototypes in the Agent-Native Design workspace. Inspect available templates and design systems, save a renderable design, and preserve unrelated screens when editing. This plugin does not connect to local repositories, deploy websites, or publish production changes.",
+    "Agent-Native Design stores interactive prototypes in a design workspace. Projects can be created, populated from templates, generated, and edited. A project without a saved screen is empty. Local repository changes, website deployment, and production publishing are outside this plugin's capabilities.",
   toolDescriptions: {
+    "list-designs":
+      "Lists accessible design projects with bounded pagination and optional HTML previews.",
+    "list-design-templates":
+      "Lists reusable templates available to the current user, including built-in and publicly discoverable templates. Optional previews include template assets.",
+    "list-design-systems":
+      "Lists accessible design systems with their titles, IDs, and default status.",
+    "get-design-system":
+      "Reads a design system by ID and returns colors, typography, spacing, assets, linked Builder documentation, and agent context. Compact mode returns a bounded summary.",
     "get-design-snapshot":
-      "Read a saved design and its selected file. Use the returned design-system context and locked-layer details to preserve the existing prototype when editing.",
+      "Reads a saved design and selected file, including file content, revision, linked design-system context, and locked-layer details.",
     "create-design":
-      "Create an empty design project. Follow it with generate-design to author and save a renderable screen before reporting the project as complete.",
+      "Creates an empty design project. A newly created project has no screen until generated or copied content is saved.",
+    "create-design-from-template":
+      "Creates an editable design by copying a reusable template's files, dimensions, defaults, and locked layers. The result includes linked design-system context when it is readable.",
+    "generate-design":
+      "Saves generated design files to a design project. The result contains the saved files and design path; matching existing filenames can be updated.",
     "present-design-variants":
-      "Create two to five saved visual directions for a design request. Ask the user to choose one, then refine that screen with get-design-snapshot and edit-design. Keep the other directions saved unless the user asks to remove them.",
+      "Creates two to five saved visual directions as screens on the Design overview board. The result contains the variant identifiers and saved screens.",
     "edit-design":
-      "Edit one design file after reading its snapshot. Reuse the existing design-system tokens and preserve unrelated content.",
+      "Edits one design file using its snapshot revision and preserves unrelated files. Search-and-replace and full-file replacement are supported edit modes.",
   },
   toolParameterDescriptions: {
     "generate-design": {

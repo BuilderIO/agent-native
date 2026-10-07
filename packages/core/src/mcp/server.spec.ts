@@ -5,6 +5,7 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -1095,6 +1096,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         const expectedOrigin = profile.widgetDomain;
         expect(expectedOrigin).toBe(`https://${appId}.agent-native.com`);
         expect(init.body?.result?.protocolVersion).toBe(protocolVersion);
+        expect(init.body?.result?.instructions).toBe(profile.instructions);
         expect(init.body?.result?.capabilities?.prompts).toBeUndefined();
         expect(resourcesSupported).toBe(profile.widgets !== false);
         const modelVisibleTools = listedTools.filter((tool: any) => {
@@ -1108,6 +1110,26 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         expect(modelVisibleTools.map((tool: any) => tool.name).sort()).toEqual(
           [...profile.connectorCatalog].sort(),
         );
+        expect(Object.keys(profile.toolDescriptions).sort()).toEqual(
+          [...profile.connectorCatalog].sort(),
+        );
+        const directiveCopyPattern =
+          /\b(?:follow|then call|must|always|before reporting|ask (?:the )?user|surface|show (?:the )?user|tell (?:the )?user)\b/i;
+        const directiveCopy = [
+          {
+            surface: "instructions",
+            text: init.body?.result?.instructions,
+          },
+          ...modelVisibleTools.map((tool: any) => ({
+            surface: `tool:${tool.name}`,
+            text: tool.description,
+          })),
+        ].filter(
+          (entry) =>
+            typeof entry.text === "string" &&
+            directiveCopyPattern.test(entry.text),
+        );
+        expect(directiveCopy).toEqual([]);
         if (profile.widgets === false) {
           expect(linkedUris).toEqual([]);
           expect(JSON.stringify(listedTools)).not.toMatch(
@@ -2138,6 +2160,125 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         scope: expect.stringContaining("capability:mcp-directory-widget-read:"),
       },
     );
+  });
+
+  it("does not publish directory widgets or embed tickets to non-user principals", async () => {
+    const createDocument = defineAction({
+      description: "Create one editable document.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://mail/create-document/shell-v65",
+          title: "Document",
+          html: "<!doctype html><html><body>Document</body></html>",
+        },
+      },
+      run: async () => ({
+        id: "doc-1",
+        embedStartUrl: "/_agent-native/embed/start?ticket=example",
+        embedTargetPath: "/documents/doc-1",
+        embedExpiresAt: 1_735_689_600_000,
+      }),
+    });
+    const getDocument = defineAction({
+      description: "Read one workspace document.",
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async (args: Record<string, unknown>) => ({ id: args.id }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      connectorCatalog: ["create-document", "get-document"],
+      directoryProfile: {
+        connectorCatalog: ["create-document", "get-document"],
+        widgetDomain: "https://mail.agent-native.com",
+        widgetTargets: {
+          "create-document": () => ({
+            targetPath: "/documents/doc-1",
+            resourceIds: { documentId: "doc-1" },
+          }),
+        },
+        widgetReadActionArguments: {
+          "get-document": { id: "documentId" },
+        },
+      },
+      widgetDomain: "https://mail.agent-native.com",
+      actions: {
+        "create-document": createDocument,
+        "get-document": getDocument,
+      },
+    };
+
+    for (const identity of [
+      {
+        userEmail: "service@example.test",
+        identityAssurance: "service" as const,
+        orgId: "org-example",
+        orgDomain: "example.test",
+      },
+      {
+        userEmail: "organization@example.test",
+        identityAssurance: "organization" as const,
+        orgId: "org-example",
+        orgDomain: "example.test",
+      },
+    ]) {
+      const server = await createMCPServerForRequest(
+        directoryConfig as any,
+        identity,
+        { origin: "https://mail.agent-native.com", transport: "http" },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "test-client", version: "1.0.0" });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+
+      try {
+        expect(client.getServerCapabilities()?.resources).toBeUndefined();
+        const { tools } = await client.listTools();
+        const createTool = tools.find(
+          (tool) => tool.name === "create-document",
+        );
+        expect(createTool).toBeDefined();
+        expect(createTool?._meta).toBeUndefined();
+        expect(tools.map((tool) => tool.name)).not.toContain(
+          "create_embed_session",
+        );
+
+        const result = await client.callTool({
+          name: "create-document",
+          arguments: {},
+        });
+        expect(JSON.stringify(result)).not.toContain("embedStartUrl");
+        expect(JSON.stringify(result)).not.toContain("embedTargetPath");
+        expect(result._meta).toBeUndefined();
+        expect(
+          embedSessionMocks.createEmbedSessionTicket,
+        ).not.toHaveBeenCalled();
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+      }
+    }
   });
 
   it("renews a read-only directory widget ticket after reload", async () => {
