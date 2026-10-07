@@ -202,14 +202,22 @@ describe("createAgentNativeAgentKitTransport", () => {
       output: largeResult,
       status: "completed" as const,
     }));
+    const runId = "completed-run";
+    const suggestions = Array.from({ length: 3 }, (_, index) => ({
+      id: `suggestion-${index}`,
+      runId,
+      label: `Suggestion ${index}`,
+      prompt: "p".repeat(60_000),
+    }));
     let repository: Record<string, any> = {
       messages: [],
       agentKit: { toolCalls: previousToolCalls },
     };
     const attemptedSizes: number[] = [];
     const acceptedSizes: number[] = [];
+    const acceptedRequests: Array<Record<string, any>> = [];
     const sentToolCallIds = new Set<string>();
-    const responseLimit = 1_000_000;
+    const responseLimit = 250_000;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
@@ -233,6 +241,7 @@ describe("createAgentNativeAgentKitTransport", () => {
             return json({ error: "Request too large" }, 413);
           }
           acceptedSizes.push(byteLength);
+          acceptedRequests.push(incoming.agentKit);
           repository = mergeThreadDataForClientSave(repository, incoming);
           return json({ ok: true });
         }
@@ -259,6 +268,17 @@ describe("createAgentNativeAgentKitTransport", () => {
           },
         ],
         toolCalls: incomingToolCalls,
+        runs: [
+          {
+            id: runId,
+            threadId: "large-history",
+            status: "completed" as const,
+            startedAt: "2026-10-01T00:00:00.000Z",
+            completedAt: "2026-10-01T00:00:01.000Z",
+            lastSequence: 1,
+          },
+        ],
+        suggestions,
       },
     });
 
@@ -275,6 +295,73 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(repository.agentKit.messages).toMatchObject([
       { id: "new-answer", role: "assistant" },
     ]);
+    const suggestionRequests = acceptedRequests.filter((agentKit) =>
+      Object.hasOwn(agentKit, "suggestions"),
+    );
+    expect(suggestionRequests).toHaveLength(1);
+    expect(suggestionRequests[0].runs).toEqual([
+      expect.objectContaining({ id: runId }),
+    ]);
+    expect(suggestionRequests[0].suggestions).toEqual(suggestions);
+    expect(repository.agentKit.suggestions).toEqual(suggestions);
+  });
+
+  it("rejects an oversized suggestions snapshot before sending a write", async () => {
+    const threadId = "oversized-suggestions";
+    let putCount = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).endsWith(`/threads/${threadId}`)) {
+          if (init?.method === "PUT") {
+            putCount += 1;
+            return json({ ok: true });
+          }
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ messages: [], agentKit: {} }),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.persistThreadSnapshot?.({
+        threadId,
+        snapshot: {
+          id: threadId,
+          title: "Large suggestions",
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:01.000Z",
+          messages: [],
+          runs: [
+            {
+              id: "large-run",
+              threadId,
+              status: "completed",
+              startedAt: "2026-10-01T00:00:00.000Z",
+              completedAt: "2026-10-01T00:00:01.000Z",
+              lastSequence: 1,
+            },
+          ],
+          suggestions: [
+            {
+              id: "large-suggestion",
+              runId: "large-run",
+              label: "Large suggestion",
+              prompt: "x".repeat(4 * 1024 * 1024),
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow(RangeError);
+
+    expect(putCount).toBe(0);
+    await transport.dispose();
   });
 
   it("replaces same-run event history when 413 retries split snapshot upserts", async () => {
@@ -282,6 +369,29 @@ describe("createAgentNativeAgentKitTransport", () => {
     const threadId = "split-history";
     const messageId = "assistant-history";
     const runId = "run-history";
+    const snapshotEvents = Array.from({ length: 20 }, (_, index) => ({
+      id: `event-${index}`,
+      threadId,
+      runId,
+      sequence: index + 1,
+      occurredAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString(),
+      type: "activity.started" as const,
+      activity: {
+        id: `activity-${index}`,
+        kind: "tool" as const,
+        label: largeLabel,
+        status: "running" as const,
+      },
+    }));
+    const newerSnapshotEvents = snapshotEvents.map((event, index) =>
+      index === 19
+        ? {
+            ...event,
+            type: "activity.updated" as const,
+            activity: { ...event.activity, label: "newer snapshot" },
+          }
+        : event,
+    );
     let repository: Record<string, any> = {
       messages: [],
       agentKit: {
@@ -323,6 +433,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     };
     const requests: Array<Record<string, any>> = [];
     const acceptedRequests: Array<Record<string, any>> = [];
+    let interleavedNewerSnapshot = false;
     const responseLimit = 300_000;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -344,6 +455,29 @@ describe("createAgentNativeAgentKitTransport", () => {
           }
           acceptedRequests.push(incoming.agentKit);
           repository = mergeThreadDataForClientSave(repository, incoming);
+          if (
+            !interleavedNewerSnapshot &&
+            incoming.agentKit.events?.length > 0
+          ) {
+            interleavedNewerSnapshot = true;
+            repository = mergeThreadDataForClientSave(repository, {
+              messages: [],
+              agentKit: {
+                _snapshotDelta: true,
+                eventRunReplacements: [{ runId, lastSequence: 21 }],
+                eventRunSnapshotWatermarks: [{ runId, lastSequence: 21 }],
+                events: newerSnapshotEvents,
+                runs: [
+                  {
+                    id: runId,
+                    threadId,
+                    status: "completed",
+                    lastSequence: 21,
+                  },
+                ],
+              },
+            });
+          }
           return json({ ok: true });
         }
         return json({ error: "Not found" }, 404);
@@ -368,22 +502,7 @@ describe("createAgentNativeAgentKitTransport", () => {
             parts: [{ type: "text", text: "The answer." }],
           },
         ],
-        events: Array.from({ length: 20 }, (_, index) => ({
-          id: `event-${index}`,
-          threadId,
-          runId,
-          sequence: index + 1,
-          occurredAt: new Date(
-            Date.UTC(2026, 9, 1, 0, 0, index + 1),
-          ).toISOString(),
-          type: "activity.started" as const,
-          activity: {
-            id: `activity-${index}`,
-            kind: "tool",
-            label: largeLabel,
-            status: "running",
-          },
-        })),
+        events: snapshotEvents,
         runs: [
           {
             id: runId,
@@ -407,6 +526,18 @@ describe("createAgentNativeAgentKitTransport", () => {
       requests.some(
         (agentKit) =>
           agentKit.events?.length > 0 && agentKit.events.length < 20,
+      ),
+    ).toBe(true);
+    const eventRequests = requests.filter(
+      (agentKit) => agentKit.events?.length > 0,
+    );
+    expect(eventRequests.length).toBeGreaterThan(1);
+    expect(
+      eventRequests.every(
+        (agentKit) =>
+          agentKit.eventRunSnapshotWatermarks?.length === 1 &&
+          agentKit.eventRunSnapshotWatermarks[0].runId === runId &&
+          agentKit.eventRunSnapshotWatermarks[0].lastSequence === 20,
       ),
     ).toBe(true);
     expect(
@@ -441,9 +572,16 @@ describe("createAgentNativeAgentKitTransport", () => {
       true,
     );
     expect(repository.agentKit.events).toHaveLength(20);
+    expect(interleavedNewerSnapshot).toBe(true);
     expect(
       repository.agentKit.events.map((event: { id: string }) => event.id),
     ).toEqual(Array.from({ length: 20 }, (_, index) => `event-${index}`));
+    expect(
+      repository.agentKit.events.find(
+        (event: { id: string }) => event.id === "event-19",
+      )?.activity.label,
+    ).toBe("newer snapshot");
+    expect(repository.agentKit._eventRunWatermarks).toEqual({ [runId]: 21 });
     expect(repository.agentKit.annotations).toHaveLength(20);
     expect(
       repository.agentKit.annotations.every((entry: any) =>
@@ -451,6 +589,9 @@ describe("createAgentNativeAgentKitTransport", () => {
       ),
     ).toBe(true);
     expect(repository.agentKit).not.toHaveProperty("_snapshotDelta");
+    expect(repository.agentKit).not.toHaveProperty(
+      "eventRunSnapshotWatermarks",
+    );
     expect(repository.agentKit).not.toHaveProperty(
       "annotationMessageIdsToReplace",
     );

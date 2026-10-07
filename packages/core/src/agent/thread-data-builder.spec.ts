@@ -1878,6 +1878,7 @@ describe("mergeThreadDataForClientSave", () => {
       messages: [],
       agentKit: {
         _snapshotDelta: true,
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 2 }],
         events: [
           {
             id: "new-run-completed",
@@ -1893,6 +1894,10 @@ describe("mergeThreadDataForClientSave", () => {
       "new-run-start",
       "new-run-completed",
     ]);
+    expect(secondChunk.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+    expect(secondChunk.agentKit).not.toHaveProperty(
+      "eventRunSnapshotWatermarks",
+    );
   });
 
   it("keeps newer same-run events when a stale snapshot retries after a write", () => {
@@ -1953,6 +1958,67 @@ describe("mergeThreadDataForClientSave", () => {
     ]);
     expect(retried.agentKit._eventRunWatermarks).toEqual({ "run-1": 4 });
     expect(retried.agentKit).not.toHaveProperty("eventRunReplacements");
+  });
+
+  it("drops stale continuation events after a newer run snapshot is saved", () => {
+    const latest = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 4 },
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 4,
+          },
+        ],
+        events: [
+          {
+            id: "run-1-event-2",
+            runId: "run-1",
+            sequence: 1,
+            type: "activity.updated",
+            label: "newer payload",
+          },
+          {
+            id: "run-1-event-4",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(latest, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "run-1-event-2",
+            runId: "run-1",
+            sequence: 1,
+            type: "activity.updated",
+            label: "stale payload",
+          },
+          {
+            id: "stale-only-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.started",
+          },
+        ],
+      },
+    });
+
+    expect(merged.agentKit.events).toEqual(latest.agentKit.events);
+    expect(merged.agentKit._eventRunWatermarks).toEqual({ "run-1": 4 });
+    expect(merged.agentKit).not.toHaveProperty("_snapshotDelta");
+    expect(merged.agentKit).not.toHaveProperty("eventRunReplacements");
+    expect(merged.agentKit).not.toHaveProperty("eventRunSnapshotWatermarks");
   });
 
   it("does not remove annotations changed or added during a snapshot retry", () => {

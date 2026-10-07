@@ -94,6 +94,20 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function latestSnapshotRunRecord(
+  runs: unknown,
+): Record<string, unknown> | undefined {
+  if (!Array.isArray(runs)) return undefined;
+  return runs.reduce<Record<string, unknown> | undefined>((latest, run) => {
+    const record = asRecord(run);
+    if (typeof record?.id !== "string") return latest;
+    if (!latest) return record;
+    const latestTime = latest.startedAt ?? latest.completedAt;
+    const runTime = record.startedAt ?? record.completedAt;
+    return latestTime && runTime && runTime < latestTime ? latest : record;
+  }, undefined);
+}
+
 function protocolTurnId(metadata: unknown): string | undefined {
   const native = asRecord(
     asRecord(metadata)?.[AGENT_NATIVE_PROTOCOL_METADATA_KEY],
@@ -2434,6 +2448,9 @@ export function createAgentNativeAgentKitTransport(
       return {
         key: "events",
         entry: event,
+        ...(lastSequence !== undefined
+          ? { snapshotThroughSequence: lastSequence }
+          : {}),
         ...(isFirstForRun && lastSequence !== undefined
           ? { replaceRunThroughSequence: lastSequence }
           : {}),
@@ -2450,6 +2467,13 @@ export function createAgentNativeAgentKitTransport(
       previousAgentKit.runs,
       snapshotEntryId,
     );
+    const latestRun = latestSnapshotRunRecord(persistedRuns);
+    const latestRunId = latestRun?.id;
+    const previousLatestRun = latestSnapshotRunRecord(previousAgentKit.runs);
+    const shouldPersistLatestRunSuggestions =
+      latestRun?.status === "completed" &&
+      (latestRun.id !== previousLatestRun?.id ||
+        previousLatestRun?.status !== "completed");
     const annotations =
       input.snapshot.annotations ??
       (Array.isArray(previousAgentKit.annotations)
@@ -2573,6 +2597,8 @@ export function createAgentNativeAgentKitTransport(
       key: string;
       entry: unknown;
       replaceRunThroughSequence?: number;
+      snapshotThroughSequence?: number;
+      includeSuggestions?: boolean;
     };
     const updates: SnapshotUpdate[] = [
       ...changedMessages.map((entry) => ({ key: "messages", entry })),
@@ -2587,10 +2613,16 @@ export function createAgentNativeAgentKitTransport(
         key: "annotationMessageIdsToReplace",
         entry,
       })),
-      ...changedRuns.map((entry) => ({ key: "runs", entry })),
+      ...changedRuns.map((entry) => ({
+        key: "runs",
+        entry,
+        ...(shouldPersistLatestRunSuggestions &&
+        asRecord(entry)?.id === latestRunId
+          ? { includeSuggestions: true }
+          : {}),
+      })),
     ];
     const fixedAgentKit = {
-      suggestions: input.snapshot.suggestions ?? previousAgentKit.suggestions,
       _snapshotDelta: true,
       ...(mergeRootMessages ? { _mergeRootMessages: true } : {}),
       messages: [],
@@ -2598,6 +2630,7 @@ export function createAgentNativeAgentKitTransport(
       toolCalls: [],
       events: [],
       eventRunReplacements: [],
+      eventRunSnapshotWatermarks: [],
       annotationMessageIdsToReplace: [],
       annotations: [],
       annotationUpserts: [],
@@ -2613,6 +2646,7 @@ export function createAgentNativeAgentKitTransport(
         "toolCalls",
         "events",
         "eventRunReplacements",
+        "eventRunSnapshotWatermarks",
         "annotationMessageIdsToReplace",
         "annotations",
         "annotationUpserts",
@@ -2620,17 +2654,43 @@ export function createAgentNativeAgentKitTransport(
       ]) {
         agentKit[key] = [];
       }
-      for (const { key, entry, replaceRunThroughSequence } of entries) {
+      const eventWatermarkRunIds = new Set<string>();
+      for (const {
+        key,
+        entry,
+        replaceRunThroughSequence,
+        snapshotThroughSequence,
+        includeSuggestions,
+      } of entries) {
         if (key === "events") {
           (agentKit.events as unknown[]).push(entry);
+          const runId = asRecord(entry)?.runId;
+          if (
+            typeof runId === "string" &&
+            snapshotThroughSequence !== undefined &&
+            !eventWatermarkRunIds.has(runId)
+          ) {
+            eventWatermarkRunIds.add(runId);
+            (agentKit.eventRunSnapshotWatermarks as unknown[]).push({
+              runId,
+              lastSequence: snapshotThroughSequence,
+            });
+          }
           if (
             replaceRunThroughSequence !== undefined &&
-            typeof asRecord(entry)?.runId === "string"
+            typeof runId === "string"
           ) {
             (agentKit.eventRunReplacements as unknown[]).push({
-              runId: asRecord(entry)!.runId,
+              runId,
               lastSequence: replaceRunThroughSequence,
             });
+          }
+          continue;
+        }
+        if (key === "runs") {
+          (agentKit.runs as unknown[]).push(entry);
+          if (includeSuggestions && input.snapshot.suggestions !== undefined) {
+            agentKit.suggestions = input.snapshot.suggestions;
           }
         } else {
           (agentKit[key] as unknown[]).push(entry);

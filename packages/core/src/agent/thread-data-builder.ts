@@ -2113,6 +2113,11 @@ function mergeAgentKitHistory(
     typeof existing === "object" &&
     !Array.isArray(existing);
   const snapshotDelta = next._snapshotDelta === true;
+  const incomingEventRunIds = new Set(
+    (Array.isArray(next.events) ? next.events : []).flatMap((event) =>
+      typeof event?.runId === "string" ? [event.runId] : [],
+    ),
+  );
   const incomingRunStarts = new Set(
     (Array.isArray(next.events) ? next.events : []).flatMap((event) =>
       typeof event?.runId === "string" && event.sequence === 1
@@ -2120,6 +2125,26 @@ function mergeAgentKitHistory(
         : [],
     ),
   );
+  const eventRunSnapshotWatermarks = new Map<string, number>();
+  for (const watermark of Array.isArray(next.eventRunSnapshotWatermarks)
+    ? next.eventRunSnapshotWatermarks
+    : []) {
+    if (
+      typeof watermark?.runId === "string" &&
+      typeof watermark.lastSequence === "number" &&
+      Number.isSafeInteger(watermark.lastSequence) &&
+      watermark.lastSequence >= 0 &&
+      incomingEventRunIds.has(watermark.runId)
+    ) {
+      eventRunSnapshotWatermarks.set(
+        watermark.runId,
+        Math.max(
+          eventRunSnapshotWatermarks.get(watermark.runId) ?? 0,
+          watermark.lastSequence,
+        ),
+      );
+    }
+  }
   const eventRunReplacements = new Map<string, number>();
   for (const replacement of Array.isArray(next.eventRunReplacements)
     ? next.eventRunReplacements
@@ -2139,6 +2164,12 @@ function mergeAgentKitHistory(
         ),
       );
     }
+  }
+  for (const [runId, lastSequence] of eventRunReplacements) {
+    eventRunSnapshotWatermarks.set(
+      runId,
+      Math.max(eventRunSnapshotWatermarks.get(runId) ?? 0, lastSequence),
+    );
   }
   const annotationMessageIdsToReplace = new Set<string>();
   const annotationRemovalValuesByMessage = new Map<
@@ -2197,8 +2228,10 @@ function mergeAgentKitHistory(
         new Set(eventRunReplacements.keys()),
       );
       if (events) initial.events = events;
-      if (eventRunReplacements.size > 0) {
-        initial._eventRunWatermarks = Object.fromEntries(eventRunReplacements);
+      if (eventRunSnapshotWatermarks.size > 0) {
+        initial._eventRunWatermarks = Object.fromEntries(
+          eventRunSnapshotWatermarks,
+        );
       }
       const annotations = mergeAgentKitAnnotations(
         undefined,
@@ -2212,6 +2245,7 @@ function mergeAgentKitHistory(
     }
     delete initial._snapshotDelta;
     delete initial.eventRunReplacements;
+    delete initial.eventRunSnapshotWatermarks;
     delete initial.annotationMessageIdsToReplace;
     delete initial.annotationUpserts;
     return initial;
@@ -2326,7 +2360,7 @@ function mergeAgentKitHistory(
       : [];
     const replacedRunIds = new Set<string>();
     const staleRunIds = new Set<string>();
-    for (const [runId, lastSequence] of eventRunReplacements) {
+    for (const [runId, lastSequence] of eventRunSnapshotWatermarks) {
       const storedWatermark = previousWatermarks.get(runId);
       const storedRunSequence = previousRunSequences.get(runId);
       const knownSequence = Math.max(
@@ -2342,10 +2376,13 @@ function mergeAgentKitHistory(
         staleRunIds.add(runId);
         continue;
       }
-      if (hasKnownSequence || !hasStoredEvents) {
+      if (
+        eventRunReplacements.has(runId) &&
+        (hasKnownSequence || !hasStoredEvents)
+      ) {
         replacedRunIds.add(runId);
-        previousWatermarks.set(runId, Math.max(knownSequence, lastSequence));
       }
+      previousWatermarks.set(runId, Math.max(knownSequence, lastSequence));
     }
     const events = mergeAgentKitEvents(
       previous.events,
@@ -2368,6 +2405,7 @@ function mergeAgentKitHistory(
   }
   delete merged._snapshotDelta;
   delete merged.eventRunReplacements;
+  delete merged.eventRunSnapshotWatermarks;
   if (
     snapshotDelta ||
     annotationMessageIdsToReplace.size > 0 ||
