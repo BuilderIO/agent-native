@@ -1938,10 +1938,10 @@ async function resolveMcpAppResource(
   // Directory widgets open a host pane on every call, so only the profile's
   // widgetTargets (create/present tools) attach one; a read tool whose action
   // still carries mcpApp.resource for the non-directory surface must not.
+  const widgetTargets = config.directoryProfile?.widgetTargets;
   if (
     config.catalogMode === "directory" &&
-    config.directoryProfile?.widgetTargets &&
-    !Object.hasOwn(config.directoryProfile.widgetTargets, actionName)
+    (!widgetTargets || !Object.hasOwn(widgetTargets, actionName))
   ) {
     return null;
   }

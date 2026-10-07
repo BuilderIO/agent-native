@@ -778,7 +778,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
-  it("keeps a legacy directory catalog discoverable without unscoped widgets", async () => {
+  it("keeps a legacy directory catalog discoverable without widgets when widgetTargets is absent", async () => {
     const legacyWidget = defineAction({
       description: "Read one legacy directory record.",
       parameters: {},
@@ -801,15 +801,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       ...config,
       catalogMode: "directory" as const,
       widgetDomain: "https://mail.agent-native.com",
-      directoryProfile: { connectorCatalog: ["legacy-widget"] },
+      directoryProfile: {
+        connectorCatalog: ["legacy-widget"],
+        widgets: true,
+      },
       actions: { "legacy-widget": legacyWidget },
     };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
     const listed = await callWeb(
       { jsonrpc: "2.0", id: 135, method: "tools/list", params: {} },
       {
-        headers: await mcpAppsAuthHeaders({
-          resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
-        }),
+        headers,
         config: legacyConfig,
         routePath: MCP_DIRECTORY_ROUTE_PREFIX,
       },
