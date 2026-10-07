@@ -34,6 +34,14 @@ export const SERVICE_PRINCIPAL_RISK_TIERS = ["low", "medium", "high"] as const;
 export type ServicePrincipalRiskTier =
   (typeof SERVICE_PRINCIPAL_RISK_TIERS)[number];
 
+export const MAX_SERVICE_PRINCIPAL_ACTIONS = 200;
+
+const SERVICE_PRINCIPAL_ACTION_PATTERN = /^[A-Za-z0-9_.:-]+\*?$/;
+
+export function isServicePrincipalActionPattern(value: string): boolean {
+  return value.length <= 128 && SERVICE_PRINCIPAL_ACTION_PATTERN.test(value);
+}
+
 export interface ServicePrincipalPolicy {
   orgId: string;
   /** Normalized service name, the `<name>` in `svc-<name>@service.<orgId>`. */
@@ -106,7 +114,7 @@ function numOrNull(value: unknown): number | null {
 }
 
 function parseAllowedActions(raw: unknown): string[] | null {
-  if (raw == null || raw === "") return null;
+  if (raw == null) return null;
   let parsed: unknown;
   try {
     parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -115,8 +123,17 @@ function parseAllowedActions(raw: unknown): string[] | null {
     // A stored grant we cannot parse must not widen to "unrestricted".
     return [];
   }
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter((item): item is string => typeof item === "string");
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length > MAX_SERVICE_PRINCIPAL_ACTIONS ||
+    !parsed.every(
+      (item): item is string =>
+        typeof item === "string" && isServicePrincipalActionPattern(item),
+    )
+  ) {
+    return [];
+  }
+  return parsed;
 }
 
 function mapRow(r: any): ServicePrincipalPolicy {
@@ -200,59 +217,53 @@ export async function upsertServicePrincipalPolicy(
   serviceName: string,
   input: ServicePrincipalPolicyInput,
 ): Promise<ServicePrincipalPolicy> {
-  const existing = await getServicePrincipalPolicy(orgId, serviceName);
   const now = Date.now();
-  const next = {
-    ownerEmail:
-      input.ownerEmail !== undefined
-        ? input.ownerEmail
-        : (existing?.ownerEmail ?? null),
-    team: input.team !== undefined ? input.team : (existing?.team ?? null),
-    riskTier: input.riskTier ?? existing?.riskTier ?? "medium",
-    purpose:
-      input.purpose !== undefined ? input.purpose : (existing?.purpose ?? null),
-    allowedActions:
-      input.allowedActions !== undefined
-        ? input.allowedActions
-        : (existing?.allowedActions ?? null),
-  };
+  const updatedColumns = [
+    input.ownerEmail !== undefined
+      ? "owner_email = EXCLUDED.owner_email"
+      : null,
+    input.team !== undefined ? "team = EXCLUDED.team" : null,
+    input.riskTier !== undefined ? "risk_tier = EXCLUDED.risk_tier" : null,
+    input.purpose !== undefined ? "purpose = EXCLUDED.purpose" : null,
+    input.allowedActions !== undefined
+      ? "allowed_actions = EXCLUDED.allowed_actions"
+      : null,
+    "updated_at = EXCLUDED.updated_at",
+  ].filter((column): column is string => column !== null);
   const allowedJson =
-    next.allowedActions === null ? null : JSON.stringify(next.allowedActions);
-  if (existing) {
-    await getDbExec().execute({
-      sql: `UPDATE service_principal_policies SET owner_email = ?, team = ?, risk_tier = ?, purpose = ?, allowed_actions = ?, updated_at = ? WHERE org_id = ? AND service_name = ?`,
-      args: [
-        next.ownerEmail,
-        next.team,
-        next.riskTier,
-        next.purpose,
-        allowedJson,
-        now,
-        orgId,
-        serviceName,
-      ],
-    });
-  } else {
-    await getDbExec().execute({
-      sql: `INSERT INTO service_principal_policies (org_id, service_name, owner_email, team, risk_tier, purpose, lifecycle, allowed_actions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
-      args: [
-        orgId,
-        serviceName,
-        next.ownerEmail,
-        next.team,
-        next.riskTier,
-        next.purpose,
-        allowedJson,
-        now,
-        now,
-      ],
-    });
-  }
+    input.allowedActions == null ? null : JSON.stringify(input.allowedActions);
+
+  await getDbExec().execute({
+    sql: `INSERT INTO service_principal_policies (org_id, service_name, owner_email, team, risk_tier, purpose, lifecycle, allowed_actions, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+          ON CONFLICT (org_id, service_name) DO UPDATE SET ${updatedColumns.join(", ")}`,
+    args: [
+      orgId,
+      serviceName,
+      input.ownerEmail ?? null,
+      input.team ?? null,
+      input.riskTier ?? "medium",
+      input.purpose ?? null,
+      allowedJson,
+      now,
+      now,
+    ],
+  });
+
   const saved = await getServicePrincipalPolicy(orgId, serviceName);
   if (!saved) {
     throw new Error("Service principal policy was not readable after write.");
   }
   return saved;
+}
+
+export class ServicePrincipalRetiredError extends Error {
+  readonly statusCode = 409;
+
+  constructor() {
+    super("A retired service principal cannot be resumed.");
+    this.name = "ServicePrincipalRetiredError";
+  }
 }
 
 export async function setServicePrincipalLifecycle(
@@ -266,7 +277,8 @@ export async function setServicePrincipalLifecycle(
   // Upsert so a legacy principal with no record can be suspended in one step.
   await getDbExec().execute({
     sql: `INSERT INTO service_principal_policies (org_id, service_name, risk_tier, lifecycle, lifecycle_reason, lifecycle_changed_by, lifecycle_changed_at, created_at, updated_at) VALUES (?, ?, 'medium', ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (org_id, service_name) DO UPDATE SET lifecycle = EXCLUDED.lifecycle, lifecycle_reason = EXCLUDED.lifecycle_reason, lifecycle_changed_by = EXCLUDED.lifecycle_changed_by, lifecycle_changed_at = EXCLUDED.lifecycle_changed_at, updated_at = EXCLUDED.updated_at`,
+          ON CONFLICT (org_id, service_name) DO UPDATE SET lifecycle = EXCLUDED.lifecycle, lifecycle_reason = EXCLUDED.lifecycle_reason, lifecycle_changed_by = EXCLUDED.lifecycle_changed_by, lifecycle_changed_at = EXCLUDED.lifecycle_changed_at, updated_at = EXCLUDED.updated_at
+          WHERE service_principal_policies.lifecycle != 'retired' OR EXCLUDED.lifecycle = 'retired'`,
     args: [
       orgId,
       serviceName,
@@ -281,6 +293,9 @@ export async function setServicePrincipalLifecycle(
   const saved = await getServicePrincipalPolicy(orgId, serviceName);
   if (!saved) {
     throw new Error("Service principal policy was not readable after write.");
+  }
+  if (saved.lifecycle === "retired" && lifecycle !== "retired") {
+    throw new ServicePrincipalRetiredError();
   }
   return saved;
 }
@@ -326,6 +341,7 @@ export function isActionGranted(
   actionName: string,
 ): boolean {
   if (allowedActions === null) return true;
+  if (!allowedActions.every(isServicePrincipalActionPattern)) return false;
   return allowedActions.some((pattern) =>
     pattern.endsWith("*")
       ? actionName.startsWith(pattern.slice(0, -1))

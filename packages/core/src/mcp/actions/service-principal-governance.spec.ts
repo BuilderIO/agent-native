@@ -56,6 +56,8 @@ const lifecycleAction = (await import("./set-service-principal-lifecycle.js"))
   .default;
 const { allowedActionsSchema, riskTierSchema } =
   await import("./service-principal-input.js");
+const { ServicePrincipalRetiredError } =
+  await import("../../org/service-principal-policy.js");
 
 const CTX = (overrides: Partial<{ userEmail: string; orgId: string }> = {}) =>
   ({
@@ -284,6 +286,15 @@ describe("service-principal input validation", () => {
 });
 
 describe("set-service-principal-lifecycle", () => {
+  it("returns 409 when a retired principal cannot be resumed", async () => {
+    setLifecycleMock.mockRejectedValueOnce(new ServicePrincipalRetiredError());
+    await expect(
+      lifecycleAction.run({ serviceName: "ci", lifecycle: "active" }, CTX()),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(containMock).not.toHaveBeenCalled();
+    expect(revokeByNameMock).not.toHaveBeenCalled();
+  });
+
   it("suspends: writes the lifecycle first, then aborts in-flight runs", async () => {
     const order: string[] = [];
     setLifecycleMock.mockImplementationOnce(async (_o, _n, lifecycle) => {

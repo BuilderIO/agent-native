@@ -16,7 +16,8 @@ export const SERVICE_PRINCIPAL_UNAVAILABLE_MESSAGE =
 export type ServicePrincipalRefusalCode =
   | "service_principal_inactive"
   | "service_principal_unavailable"
-  | "service_principal_action_denied";
+  | "service_principal_action_denied"
+  | "service_principal_handoff_unsupported";
 
 /** 403 is a refusal (audited as `denied`); 503 is retryable and never a denial. */
 export class ServicePrincipalRefusedError extends Error {
@@ -109,7 +110,9 @@ export async function recordServicePrincipalDenial(input: {
       summary: () =>
         input.error.errorCode === "service_principal_inactive"
           ? `Refused ${input.actionName}: service principal is suspended or retired`
-          : `Refused ${input.actionName}: not in the service principal's allowed actions`,
+          : input.error.errorCode === "service_principal_action_denied"
+            ? `Refused ${input.actionName}: not in the service principal's allowed actions`
+            : `Refused ${input.actionName}: service principal authorization cannot be preserved across the handoff`,
     },
     args: {},
     ctx: {

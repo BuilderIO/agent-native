@@ -74,6 +74,20 @@ describe("assertServicePrincipalMayRun", () => {
     });
   });
 
+  it.each([
+    "",
+    JSON.stringify(["*"]),
+    JSON.stringify(["read-*", "*"]),
+    JSON.stringify(["read-*", 42]),
+  ])("fails closed for invalid stored grants: %s", async (allowedActions) => {
+    storeReturns(policyRow({ allowed_actions: allowedActions }));
+    const admission = await assertServicePrincipalMayRun(SVC, "org_1");
+    expect(admission).toEqual({ allowedActions: [] });
+    expect(() =>
+      assertServicePrincipalMayCall(admission.allowedActions, "read-thing"),
+    ).toThrow(ServicePrincipalRefusedError);
+  });
+
   it.each(["suspended", "retired"])(
     "refuses a %s principal with a 403",
     async (lifecycle) => {
@@ -114,6 +128,9 @@ describe("assertServicePrincipalMayCall", () => {
 
   it("is deny-by-default for an empty grant", () => {
     expect(() => assertServicePrincipalMayCall([], "list-docs")).toThrow(
+      ServicePrincipalRefusedError,
+    );
+    expect(() => assertServicePrincipalMayCall(["*"], "list-docs")).toThrow(
       ServicePrincipalRefusedError,
     );
   });

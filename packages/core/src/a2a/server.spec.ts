@@ -20,6 +20,7 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getApprovalMock = vi.hoisted(() => vi.fn());
 const claimApprovalMock = vi.hoisted(() => vi.fn());
 const settleApprovalMock = vi.hoisted(() => vi.fn());
+const recordServicePrincipalDenialMock = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -66,6 +67,10 @@ vi.mock("../org/service-principal-policy.js", async (importActual) => ({
   >()),
   evaluateServicePrincipal: evaluateServicePrincipalMock,
 }));
+vi.mock("../org/service-principal-guard.js", async (importActual) => ({
+  ...(await importActual<typeof import("../org/service-principal-guard.js")>()),
+  recordServicePrincipalDenial: recordServicePrincipalDenialMock,
+}));
 
 vi.mock("../server/auth.js", () => ({ getSession: getSessionMock }));
 
@@ -102,6 +107,7 @@ describe("mountA2A auth", () => {
     setResponseHeaderMock.mockClear();
     evaluateServicePrincipalMock.mockReset();
     evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    recordServicePrincipalDenialMock.mockReset();
     getSessionMock.mockReset();
     getApprovalMock.mockReset();
     claimApprovalMock.mockReset();
@@ -770,6 +776,13 @@ describe("mountA2A auth", () => {
         });
         expect(event.context.__a2aVerifiedEmail).toBeUndefined();
         expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+        expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            actionName: "a2a:admission",
+            caller: "a2a",
+            error: expect.objectContaining({ statusCode: 403 }),
+          }),
+        );
       },
     );
 
@@ -779,6 +792,7 @@ describe("mountA2A auth", () => {
       expect(event._status).toBe(503);
       expect(response.error.code).toBe(-32003);
       expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+      expect(recordServicePrincipalDenialMock).not.toHaveBeenCalled();
     });
 
     it("runs an active service principal", async () => {
@@ -791,6 +805,7 @@ describe("mountA2A auth", () => {
       expect(event.context.__a2aVerifiedEmail).toBe(
         "svc-ci@service.org-builder",
       );
+      expect(event.context.__a2aServicePrincipalAllowedActions).toBeNull();
     });
   });
 

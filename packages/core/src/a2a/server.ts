@@ -13,8 +13,10 @@ import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayRun,
+  recordServicePrincipalDenial,
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -695,6 +697,7 @@ export function mountA2A(
       let verifiedOrgDomain: string | null = null;
       let verifiedOrgId: string | undefined;
       let verifiedIdentityAssurance: "user" | "organization" | undefined;
+      let servicePrincipalAllowedActions: string[] | null | undefined;
       let verifiedAudienceBound = false;
       let legacyApiKeyAuthenticated = false;
       let bearerTokenVerified = false;
@@ -733,9 +736,24 @@ export function mountA2A(
           };
         }
         try {
-          await assertServicePrincipalMayRun(tokenPayload.email, verifiedOrgId);
+          const admission = await assertServicePrincipalMayRun(
+            tokenPayload.email,
+            verifiedOrgId,
+          );
+          if (parseServiceIdentityEmail(tokenPayload.email)) {
+            servicePrincipalAllowedActions = admission.allowedActions;
+          }
         } catch (error) {
           if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+          if (error.statusCode === 403) {
+            await recordServicePrincipalDenial({
+              email: tokenPayload.email,
+              orgId: verifiedOrgId,
+              actionName: "a2a:admission",
+              caller: "a2a",
+              error,
+            });
+          }
           setResponseStatus(event, error.statusCode);
           return {
             jsonrpc: "2.0",
@@ -839,6 +857,10 @@ export function mountA2A(
       }
       if (verifiedOrgId) {
         event.context.__a2aVerifiedOrgId = verifiedOrgId;
+      }
+      if (servicePrincipalAllowedActions !== undefined) {
+        event.context.__a2aServicePrincipalAllowedActions =
+          servicePrincipalAllowedActions;
       }
 
       const body = await readBody(event);

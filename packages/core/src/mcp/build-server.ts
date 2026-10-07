@@ -3810,6 +3810,18 @@ async function admitServicePrincipal(
     return result;
   } catch (error) {
     if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+    if (error.statusCode === 403) {
+      await recordServicePrincipalDenial({
+        email,
+        orgId:
+          typeof result.identity?.orgId === "string"
+            ? result.identity.orgId
+            : undefined,
+        actionName: "mcp:admission",
+        caller: "mcp",
+        error,
+      });
+    }
     return error.statusCode === 503
       ? { authed: false, unavailable: true }
       : { authed: false };

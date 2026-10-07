@@ -107,13 +107,13 @@ describe("defineAction service-principal grant", () => {
     });
   });
 
-  it("denies a call that carries no action name unless the grant is a bare wildcard", async () => {
+  it("denies a call that carries no action name unless the grant is unrestricted", async () => {
     storeReturns(policyRow());
     await refusal(
       deleteThing.run({}, { ...ctxFor("x"), actionName: undefined }),
     );
     expect(runs).toEqual([]);
-    storeReturns(policyRow({ allowed_actions: JSON.stringify(["*"]) }));
+    storeReturns(policyRow({ allowed_actions: null }));
     await deleteThing.run({}, { ...ctxFor("x"), actionName: undefined });
     expect(runs).toEqual(["delete-thing"]);
   });

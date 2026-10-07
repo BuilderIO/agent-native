@@ -862,7 +862,7 @@ function wrapRunWithServicePrincipalGrant(
         enforceServicePrincipalActionGrant({
           email: ctx!.userEmail,
           orgId: ctx!.orgId,
-          // No name can only be granted by a bare `*`.
+          // A missing name only passes an unrestricted grant.
           actionName: ctx!.actionName ?? "",
           caller: ctx!.caller,
         }),

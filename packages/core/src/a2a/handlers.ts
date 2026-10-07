@@ -10,8 +10,10 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayRun,
+  recordServicePrincipalDenial,
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
 import { findWorkspaceDispatchAgent } from "../server/agent-discovery.js";
@@ -343,10 +345,26 @@ export async function processA2ATaskFromQueue(
     typeof processorMeta.verifiedOrgId === "string"
       ? processorMeta.verifiedOrgId.trim()
       : undefined;
+  let servicePrincipalAllowedActions: string[] | null | undefined;
   try {
-    await assertServicePrincipalMayRun(verifiedEmail, verifiedOrgId);
+    const admission = await assertServicePrincipalMayRun(
+      verifiedEmail,
+      verifiedOrgId,
+    );
+    if (parseServiceIdentityEmail(verifiedEmail)) {
+      servicePrincipalAllowedActions = admission.allowedActions;
+    }
   } catch (error) {
     if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+    if (error.statusCode === 403) {
+      await recordServicePrincipalDenial({
+        email: verifiedEmail,
+        orgId: verifiedOrgId ?? parseServiceIdentityEmail(verifiedEmail)?.orgId,
+        actionName: "a2a:process-task",
+        caller: "a2a",
+        error,
+      });
+    }
     await settleProcessingA2ATask(taskId, {
       state: "failed",
       message: {
@@ -377,6 +395,10 @@ export async function processA2ATaskFromQueue(
     }
     if (orgDomainHint) event.context.__a2aOrgDomain = orgDomainHint;
     if (verifiedOrgId) event.context.__a2aVerifiedOrgId = verifiedOrgId;
+    if (servicePrincipalAllowedActions !== undefined) {
+      event.context.__a2aServicePrincipalAllowedActions =
+        servicePrincipalAllowedActions;
+    }
     if (verifiedEmail && !resolvedOrgId) markExplicitPersonalOrgScope(event);
   }
 
@@ -428,6 +450,32 @@ const defaultHandler: A2AHandler = async (
   message: Message,
   context: A2AHandlerContext,
 ): Promise<A2AHandlerResult> => {
+  const eventContext = (
+    context.event as { context?: Record<string, unknown> } | undefined
+  )?.context;
+  const verifiedEmail =
+    typeof eventContext?.__a2aVerifiedEmail === "string"
+      ? eventContext.__a2aVerifiedEmail
+      : undefined;
+  const serviceIdentity = parseServiceIdentityEmail(verifiedEmail);
+  if (serviceIdentity) {
+    const error = new ServicePrincipalRefusedError(
+      "service_principal_handoff_unsupported",
+      "The default A2A chat handoff cannot preserve service-principal authorization. Use a service-aware A2A handler.",
+    );
+    await recordServicePrincipalDenial({
+      email: verifiedEmail,
+      orgId:
+        typeof eventContext?.__a2aVerifiedOrgId === "string"
+          ? eventContext.__a2aVerifiedOrgId
+          : serviceIdentity.orgId,
+      actionName: "a2a:agent-chat-handoff",
+      caller: "a2a",
+      error,
+    });
+    throw error;
+  }
+
   const text = message.parts
     .filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)

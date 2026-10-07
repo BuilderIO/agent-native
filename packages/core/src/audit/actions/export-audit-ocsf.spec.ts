@@ -84,6 +84,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await pglite.close();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
@@ -149,22 +150,63 @@ describe("export-audit-ocsf", () => {
     expect(seen).toEqual(["a", "b", "c", "d", "e"]);
   });
 
-  it("keeps the cursor on an empty page and picks up later events", async () => {
-    await insertAuditEvent(makeEvent({ id: "first", createdAt: 100 }));
+  it("replays the overlap while idle and picks up later events", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    await insertAuditEvent(makeEvent({ id: "first", createdAt: 900_000 }));
     const first = await exportAuditOcsf.run({}, admin);
     const idle = await exportAuditOcsf.run(
       { cursor: first.nextCursor ?? undefined },
       admin,
     );
-    expect(idle.events).toEqual([]);
+    expect(idle.events.map((event) => event.metadata.uid)).toEqual(["first"]);
     expect(idle.nextCursor).toBe(first.nextCursor);
 
-    await insertAuditEvent(makeEvent({ id: "second", createdAt: 200 }));
+    now += 10_000;
+    await insertAuditEvent(makeEvent({ id: "second", createdAt: now - 6_000 }));
     const next = await exportAuditOcsf.run(
       { cursor: idle.nextCursor ?? undefined },
       admin,
     );
-    expect(next.events.map((e) => e.metadata.uid)).toEqual(["second"]);
+    expect(next.events.map((e) => e.metadata.uid)).toEqual(["first", "second"]);
+  });
+
+  it("catches a late committed row inside the overlap and uses stable UIDs for dedupe", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    await insertAuditEvent(makeEvent({ id: "existing", createdAt: 900_000 }));
+    const first = await exportAuditOcsf.run({}, admin);
+
+    now += 10_000;
+    await insertAuditEvent(makeEvent({ id: "late", createdAt: 900_001 }));
+    const next = await exportAuditOcsf.run(
+      { cursor: first.nextCursor ?? undefined },
+      admin,
+    );
+
+    expect(next.events.map((event) => event.metadata.uid)).toEqual([
+      "existing",
+      "late",
+    ]);
+    expect([
+      ...new Set(
+        [...first.events, ...next.events].map((event) => event.metadata.uid),
+      ),
+    ]).toEqual(["existing", "late"]);
+  });
+
+  it("continues a cursor issued before overlap-aware cursor pagination", async () => {
+    await insertAuditEvent(makeEvent({ id: "first", createdAt: 100 }));
+    await insertAuditEvent(makeEvent({ id: "second", createdAt: 200 }));
+    const legacyCursor = Buffer.from(JSON.stringify([100, "first"])).toString(
+      "base64url",
+    );
+
+    const result = await exportAuditOcsf.run({ cursor: legacyCursor }, admin);
+
+    expect(result.events.map((event) => event.metadata.uid)).toEqual([
+      "second",
+    ]);
   });
 
   it("filters by since and until as ISO strings or epoch ms", async () => {

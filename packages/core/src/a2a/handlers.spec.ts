@@ -272,6 +272,11 @@ vi.mock("../org/service-principal-policy.js", async (importActual) => ({
   >()),
   evaluateServicePrincipal: evaluateServicePrincipalMock,
 }));
+const recordServicePrincipalDenialMock = vi.hoisted(() => vi.fn());
+vi.mock("../org/service-principal-guard.js", async (importActual) => ({
+  ...(await importActual<typeof import("../org/service-principal-guard.js")>()),
+  recordServicePrincipalDenial: recordServicePrincipalDenialMock,
+}));
 
 function mockEvent(): any {
   return {
@@ -296,6 +301,7 @@ describe("handleJsonRpc", () => {
   beforeEach(() => {
     evaluateServicePrincipalMock.mockReset();
     evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    recordServicePrincipalDenialMock.mockReset();
     resolveOrgByDomainMock.mockReset();
     resolveA2AOrganizationCredentialsByDomainMock.mockReset();
     resolveOrgIdForEmailMock.mockReset();
@@ -766,6 +772,13 @@ describe("handleJsonRpc", () => {
       "suspended or retired",
     );
     expect(handler).not.toHaveBeenCalled();
+    expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: "a2a:process-task",
+        caller: "a2a",
+        error: expect.objectContaining({ statusCode: 403 }),
+      }),
+    );
   });
 
   it("persists a structured error code on a failed async task message", async () => {
@@ -3009,6 +3022,49 @@ describe("default handler (no custom handler)", () => {
     expect(task.artifacts).toHaveLength(1);
     expect(task.artifacts[0].name).toBe("files-changed");
     expect(task.artifacts[0].parts[0].data.files).toEqual(["events.json"]);
+  });
+
+  it("refuses the default chat handoff for a service principal", async () => {
+    const { agentChat } = await import("../shared/agent-chat.js");
+    vi.mocked(agentChat.call).mockClear();
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "svc-ci@service.org-acme",
+      __a2aVerifiedOrgId: "org-acme",
+      __a2aServicePrincipalAllowedActions: ["read-*"],
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "read records" }],
+          },
+        },
+      },
+      event,
+      defaultConfig,
+    );
+
+    expect(agentChat.call).not.toHaveBeenCalled();
+    expect(result.error.message).toContain(
+      "cannot preserve service-principal authorization",
+    );
+    expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: "a2a:agent-chat-handoff",
+        caller: "a2a",
+        orgId: "org-acme",
+        error: expect.objectContaining({
+          statusCode: 403,
+          errorCode: "service_principal_handoff_unsupported",
+        }),
+      }),
+    );
   });
 
   it("provides verified Slack source metadata as hidden agent context", async () => {

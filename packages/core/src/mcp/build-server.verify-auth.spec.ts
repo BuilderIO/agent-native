@@ -42,11 +42,17 @@ vi.mock("./credential-membership.js", () => ({
 }));
 
 const evaluateServicePrincipalMock = vi.fn();
+const recordServicePrincipalDenialMock = vi.fn();
 vi.mock("../org/service-principal-policy.js", async (importActual) => ({
   ...(await importActual<
     typeof import("../org/service-principal-policy.js")
   >()),
   evaluateServicePrincipal: (...a: any[]) => evaluateServicePrincipalMock(...a),
+}));
+vi.mock("../org/service-principal-guard.js", async (importActual) => ({
+  ...(await importActual<typeof import("../org/service-principal-guard.js")>()),
+  recordServicePrincipalDenial: (...a: any[]) =>
+    recordServicePrincipalDenialMock(...a),
 }));
 
 const { resolveMcpIdentityOrgId, verifyAuth } =
@@ -490,6 +496,13 @@ describe("verifyAuth — connect-token revoke check", () => {
           "org_123",
         );
         expect(touchTokenUsedMock).not.toHaveBeenCalled();
+        expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            actionName: "mcp:admission",
+            caller: "mcp",
+            error: expect.objectContaining({ statusCode: 403 }),
+          }),
+        );
       },
     );
 
@@ -499,6 +512,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       const res = await verifyAuth(`Bearer ${token}`);
       expect(res).toEqual({ authed: false, unavailable: true });
       expect(touchTokenUsedMock).not.toHaveBeenCalled();
+      expect(recordServicePrincipalDenialMock).not.toHaveBeenCalled();
     });
 
     it("admits an active governed principal", async () => {

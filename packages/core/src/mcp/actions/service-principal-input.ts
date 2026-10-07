@@ -9,6 +9,8 @@ import { isOrgMember } from "../../org/membership.js";
 import { parseServiceIdentityEmail } from "../../org/service-identity.js";
 import {
   getServicePrincipalPolicy,
+  isServicePrincipalActionPattern,
+  MAX_SERVICE_PRINCIPAL_ACTIONS,
   SERVICE_PRINCIPAL_RISK_TIERS,
   type ServicePrincipalLifecycle,
   type ServicePrincipalPolicy,
@@ -22,17 +24,14 @@ import {
 } from "../connect-store.js";
 import { ServiceTokenError } from "./service-token-access.js";
 
-export const MAX_ALLOWED_ACTIONS = 200;
-
-/** An exact action name, or a prefix with ONE trailing `*`. A bare `*` is rejected: unrestricted is `null`. */
-const ACTION_PATTERN = /^[A-Za-z0-9_.:-]+\*?$/;
+export const MAX_ALLOWED_ACTIONS = MAX_SERVICE_PRINCIPAL_ACTIONS;
 
 export const riskTierSchema = z
   .enum(SERVICE_PRINCIPAL_RISK_TIERS)
   .describe("Risk tier: low, medium (default) or high");
 
 export const allowedActionsSchema = z
-  .array(z.string().min(1).max(128).regex(ACTION_PATTERN))
+  .array(z.string().refine(isServicePrincipalActionPattern))
   .max(MAX_ALLOWED_ACTIONS)
   .describe(
     "Action names the principal may call; a trailing * matches a prefix (e.g. 'list-*'). An empty list grants nothing. Use null for unrestricted.",

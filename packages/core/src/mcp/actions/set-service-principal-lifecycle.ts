@@ -21,6 +21,7 @@ import {
 } from "../../audit/org-admin.js";
 import {
   SERVICE_PRINCIPAL_LIFECYCLES,
+  ServicePrincipalRetiredError,
   setServicePrincipalLifecycle,
 } from "../../org/service-principal-policy.js";
 import { revokeServiceTokensByName } from "../connect-store.js";
@@ -82,6 +83,9 @@ export default defineAction({
         { actorEmail: caller.email, reason: args.reason || null },
       );
     } catch (error) {
+      if (error instanceof ServicePrincipalRetiredError) {
+        throw new ServiceTokenError(error.message, error.statusCode);
+      }
       console.error("[service-principal] Lifecycle write failed:", error);
       throw new ServiceTokenError(
         "Could not change the service principal lifecycle. Nothing was changed; try again.",
