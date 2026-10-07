@@ -142,6 +142,13 @@ function wrapDefaultExport(
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
   if (
+    entry.schema &&
+    typeof entry.schema === "object" &&
+    "~standard" in entry.schema
+  ) {
+    out.schema = entry.schema;
+  }
+  if (
     entry.access &&
     typeof entry.access === "object" &&
     !Array.isArray(entry.access)

@@ -23,6 +23,7 @@ export type ActionCaller =
   | "tool"
   | "http"
   | "frontend"
+  | "mcp-widget"
   | "cli"
   | "mcp"
   | "webmcp"
@@ -279,6 +280,7 @@ export type ActionMcpAppHtmlBuilder = (ctx: {
   appId?: string;
   requestOrigin?: string;
   catalogMode?: "app" | "directory";
+  startToolName?: string;
 }) => string;
 
 export interface ActionMcpAppResourceConfig {

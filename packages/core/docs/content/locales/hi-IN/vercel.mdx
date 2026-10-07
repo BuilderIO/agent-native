@@ -1,43 +1,205 @@
 ---
 title: "Vercel"
-description: "Vercel Nitro preset के साथ एक agent-native ऐप को Vercel पर तैनात करें, standalone या एक कार्यस्थान के रूप में।"
+description: "Vercel CLI से किसी standalone Agent-Native ऐप को Vercel पर deploy करें।"
 ---
 
 # Vercel
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
+Vercel आपके लिए आपका ऐप host करता है, इसलिए कोई server set up करने या चालू रखने
+की ज़रूरत नहीं होती। Build ऐप को ऐसी files में बदलता है जिन्हें Vercel सीधे serve
+करता है, और ऐसे functions में जिन्हें Vercel ज़रूरत पड़ने पर चलाता है। Vercel ऐप
+को HTTPS के साथ एक public address भी देता है।
 
-Vercel CLI या git push के ज़रिए तैनात करें:
+यह guide शुरुआत से एक standalone ऐप deploy करने के चरण बताती है। आप ऐप बनाएंगे,
+उसे production database और auth secret देंगे, उसे Vercel project से link करेंगे,
+database तैयार करेंगे, और फिर ऐप को build करके deploy करेंगे।
+
+<Callout tone="info">
+
+Node.js `22.22+` आवश्यक है।
+
+</Callout>
+
+आपको एक Vercel account भी चाहिए। इस guide के commands अपने computer पर चलाएं।
+Vercel CLI तैयार build को आपके लिए Vercel पर upload करता है।
+
+## चरण 1: ऐप बनाएं {#step-1-create-the-app}
+
+अपना नया standalone ऐप बनाएं। नीचे दिया गया उदाहरण Chat template से ऐप बनाता है,
+लेकिन आप किसी भी template से शुरू कर सकते हैं। ऐप के folder में जाएं और उसकी
+dependencies install करें। `corepack enable` वह `pnpm` version चालू करता है
+जिसकी ऐप को ज़रूरत है, इसलिए आपको `pnpm` खुद install करने की ज़रूरत नहीं है।
 
 ```bash
-npx vercel deploy
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-Vercel में साइन इन किए बिना अस्थायी प्रीव्यू के लिए
-`npx vercel deploy --temporary` चलाएँ। अस्थायी डिप्लॉयमेंट प्रोजेक्ट के
-environment variables नहीं रखते, इसलिए UI प्रीव्यू से अधिक चाहिए तो database
-और secret values को `--env` और `--build-env` से दें।
+चाहें तो `my-app` को अपने ऐप के नाम से बदल दें। इस guide का बाकी हिस्सा मानता है
+कि आप ऐप के folder के अंदर हैं।
 
-एक कार्यस्थान के लिए, हर ऐप को एक Vercel Build Output API bundle में build करें:
+<Callout tone="info">
+
+अगर ये commands peer dependency errors के साथ fail होते हैं, तो इसकी वजह आपके npx cache में किसी package की पुरानी copy हो सकती है। Cache साफ़ करने के लिए `npx clear-npx-cache` चलाएं, फिर commands दोबारा चलाएं।
+
+</Callout>
+
+## चरण 2: Environment secrets configure करें {#step-2-configure-environment-secrets}
+
+ऐप अपनी production settings environment variables से पढ़ता है:
+
+| Variable             | आवश्यक | उद्देश्य                                                       |
+| -------------------- | ------ | -------------------------------------------------------------- |
+| `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है              |
+| `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                     |
+| `BETTER_AUTH_URL`    | नहीं   | वह public address सेट करता है जिससे लोग आपके ऐप तक पहुंचते हैं |
+
+नीचे दिए गए exports से आगे के commands इस shell में काम करते हैं। Deploy करने
+से पहले, यही variables अपने host की project या service environment settings में
+save करें। अगला चरण बताता है कि उन्हें Vercel में कैसे save करें।
+
+### Database URL {#database-url}
+
+Local development के दौरान, `DATABASE_URL` unset होने पर ऐप data को local
+database में store करता है। Deployed ऐप को एक असली PostgreSQL database चाहिए जो
+deploys के बीच अपना data बनाए रखे। Vercel requests के बीच files नहीं रखता,
+इसलिए database को Vercel के functions के बाहर होना चाहिए। अपने provider से
+connection string copy करें और उसे export करें:
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel
+export DATABASE_URL='your-postgres-url-string'
 ```
 
-Vercel Git deployments के लिए, build command को इस पर सेट करें:
+[Database provider guides](/docs/neon) बताती हैं कि हर provider के लिए connection
+string कहां मिलती है।
+
+<Callout tone="warning">
+
+एक persistent PostgreSQL provider चुनें: Neon, Supabase, Amazon RDS, आदि।
+
+</Callout>
+
+### Auth secret {#auth-secret}
+
+इसे एक बार generate करें और सभी deploys में इसे एक जैसा रखें।
+
+ऐप user sessions sign करने के लिए `BETTER_AUTH_SECRET` का उपयोग करता है। अगर यह
+बदलता है, तो हर signed-in user sign out हो जाता है। नीचे दिया गया command एक
+random value generate करता है:
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel --build-only
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
 ```
 
-कार्यस्थान build हर ऐप के Nitro `vercel` output को root `.vercel/output` में copy करता है, हर function को अपना खुद का mount-path environment देता है, और वह route config लिखता है जो ऐप्स को `/<app-id>` पर serve करता है।
+Generate की गई value को किसी सुरक्षित जगह save करें, जैसे password manager में।
+हर बार deploy करते समय यही value इस्तेमाल करें।
 
-## आगे क्या है
+### Public URL {#public-url}
 
-- [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें
-- [**कार्यस्थान तैनाती**](/docs/workspace-deployment) — `deploy --preset vercel` कार्यस्थान build पूरे विस्तार से
-- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare), और [**अन्य प्लेटफ़ॉर्म**](/docs/other-platforms) — बाकी Nitro presets
+वैकल्पिक। इसे तब सेट करें जब आप custom domain, reverse proxy, या ऐसा auth/OAuth
+flow इस्तेमाल करें जिसे fixed public origin चाहिए।
+
+`BETTER_AUTH_URL` वह public address है जिससे लोग आपके ऐप तक पहुंचते हैं। इसके
+बिना, ऐप हर incoming request से अपना address पता करता है। Vercel के दिए गए address
+पर आमतौर पर यह ठीक रहता है, लेकिन custom domain connect करते समय इसे सेट करें,
+ताकि sign-in links और OAuth redirects उसी domain का इस्तेमाल करें।
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## चरण 3: Project link करें और secrets save करें {#step-3-link-the-project-and-save-the-secrets}
+
+Command line से Vercel में sign in करें:
+
+```bash
+npx vercel login
+```
+
+ऐप के folder को किसी Vercel project से link करें। एक नया project बनाएं। उसकी
+settings customize करने की ज़रूरत नहीं है।
+
+```bash
+npx vercel link
+```
+
+CLI folder के नाम के आधार पर project का नाम सुझाता है। सुझाई गई settings स्वीकार
+करना ठीक है, क्योंकि चरण 5 में आप ऐप खुद build करते हैं और Vercel को अपनी build
+settings की ज़रूरत नहीं होती।
+
+दोनों आवश्यक variables को project के production environment में save करें:
+
+```bash
+printf '%s' "$DATABASE_URL" | npx vercel env add DATABASE_URL production
+
+printf '%s' "$BETTER_AUTH_SECRET" | npx vercel env add BETTER_AUTH_SECRET production
+```
+
+हर command चरण 2 में export की गई value पढ़ता है और उसे Vercel में save करता है,
+इसलिए आपको secrets हाथ से paste नहीं करने पड़ते। अगर आपने `BETTER_AUTH_URL` सेट
+किया है, तो उसे भी इसी तरह save करें। आप बाद में Vercel dashboard पर project की
+settings में भी ये values देख और बदल सकते हैं।
+
+## चरण 4: Migrate करें {#step-4-migrate}
+
+Migrations आपके database में वे tables बनाती और update करती हैं जिनकी ऐप को
+ज़रूरत है। पहले deploy से पहले इसे चलाएं:
+
+```bash
+pnpm migrate:production
+```
+
+यह command आपके computer पर चलता है और चरण 2 में export किए गए `DATABASE_URL` से
+production database से connect करता है। ऐप upgrade करने के बाद, नया version
+deploy करने से पहले इसे फिर से चलाएं।
+
+## चरण 5: Deploy करें {#step-5-deploy}
+
+Vercel के लिए ऐप build करें:
+
+```bash
+NITRO_PRESET=vercel pnpm build
+```
+
+`NITRO_PRESET=vercel` ऐप को उस format में build करता है जिसकी Vercel को ज़रूरत है,
+और उसे `.vercel/output` folder में लिखता है।
+
+Build upload करें और publish करें:
+
+```bash
+npx vercel deploy --prebuilt --prod
+```
+
+`--prebuilt` Vercel पर ऐप को फिर से build करने के बजाय अभी बनाया गया build upload
+करता है। `--prod` उसे आपके production address पर publish करता है, जो production
+environment के लिए save किए गए variables का इस्तेमाल करता है।
+
+Command पूरा होने पर यह ऐप का production address print करता है। उसे खोलें और
+पहला account बनाएं।
+
+## Updates deploy करें {#deploy-updates}
+
+नया version ship करने के लिए, ऐप के folder से migrate, build, और deploy commands
+फिर से चलाएं:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=vercel pnpm build
+
+npx vercel deploy --prebuilt --prod
+```
+
+Project link और save किए गए variables अपनी जगह बने रहते हैं, इसलिए आपको चरण 3
+दोहराने की ज़रूरत नहीं है।
+
+## आगे क्या है {#whats-next}
+
+- [**तैनाती: पर्यावरण चर**](/docs/deployment-environment-variables) - production settings की पूरी सूची
+- [**SSR कैशिंग**](/docs/ssr-caching) - hosted targets पर page caching कैसे काम करती है
+- [**तैनाती**](/docs/deployment) - hosting targets और prerequisites की तुलना करें

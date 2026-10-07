@@ -20,6 +20,7 @@ import {
   parseAgentThreadSnapshot,
 } from "@agent-native/agentkit/protocol";
 
+import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   retryContextFromRequest,
@@ -76,13 +77,71 @@ interface ActiveRunStatus {
   terminalReason?: unknown;
 }
 
+interface SnapshotAnnotationConflict {
+  messageId: string;
+  annotationId?: string;
+  operation: "upsert" | "remove";
+}
+
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
+const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
+const MAX_THREAD_SNAPSHOT_RETRIES = 2;
+const MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES = 64 * 1024;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function mergeStoredReasoningParts(
+  messageParts: AgentMessagePart[],
+  storedParts: AgentMessagePart[],
+): AgentMessagePart[] {
+  const storedReasoning = storedParts.filter(
+    (part): part is Extract<AgentMessagePart, { type: "reasoning" }> =>
+      part.type === "reasoning",
+  );
+  if (storedReasoning.length === 0) return messageParts;
+  const reasoningText = (parts: AgentMessagePart[]) =>
+    parts
+      .filter(
+        (part): part is Extract<AgentMessagePart, { type: "reasoning" }> =>
+          part.type === "reasoning",
+      )
+      .map((part) => part.text)
+      .join("");
+  if (reasoningText(messageParts) === reasoningText(storedReasoning)) {
+    return messageParts;
+  }
+  const withoutReasoning = messageParts.filter(
+    (part) => part.type !== "reasoning",
+  );
+  const firstTextIndex = withoutReasoning.findIndex(
+    (part) => part.type === "text",
+  );
+  const insertionIndex =
+    firstTextIndex < 0 ? withoutReasoning.length : firstTextIndex;
+  return [
+    ...withoutReasoning.slice(0, insertionIndex),
+    ...storedReasoning,
+    ...withoutReasoning.slice(insertionIndex),
+  ];
+}
+
+function latestSnapshotRunRecord(
+  runs: unknown,
+): Record<string, unknown> | undefined {
+  if (!Array.isArray(runs)) return undefined;
+  return runs.reduce<Record<string, unknown> | undefined>((latest, run) => {
+    const record = asRecord(run);
+    if (typeof record?.id !== "string") return latest;
+    if (!latest) return record;
+    const latestTime = latest.startedAt ?? latest.completedAt;
+    const runTime = record.startedAt ?? record.completedAt;
+    return latestTime && runTime && runTime < latestTime ? latest : record;
+  }, undefined);
 }
 
 function protocolTurnId(metadata: unknown): string | undefined {
@@ -92,6 +151,16 @@ function protocolTurnId(metadata: unknown): string | undefined {
   const observability = asRecord(native?.observability);
   return typeof observability?.turnId === "string"
     ? observability.turnId
+    : undefined;
+}
+
+function protocolInterruptedRunId(metadata: unknown): string | undefined {
+  const native = asRecord(
+    asRecord(metadata)?.[AGENT_NATIVE_PROTOCOL_METADATA_KEY],
+  );
+  const observability = asRecord(native?.observability);
+  return typeof observability?.interruptedRunId === "string"
+    ? observability.interruptedRunId
     : undefined;
 }
 
@@ -511,6 +580,7 @@ function reconcileDurableMessages(
   durable: AgentMessage[],
   events: AgentThreadSnapshot["events"],
   runs: AgentThreadSnapshot["runs"],
+  toolCalls: AgentThreadSnapshot["toolCalls"],
 ): AgentMessage[] {
   const submittedRunId = (message: AgentMessage) => {
     const value = asRecord(asRecord(message.metadata)?.custom)?.submittedRunId;
@@ -610,17 +680,34 @@ function reconcileDurableMessages(
     }
   }
 
+  const rootAssistantProjection = projectRootAssistantMessages({
+    rootMessages: durable,
+    snapshotMessages: messages,
+    events,
+    runs,
+    toolCalls,
+  });
+  const representedDurableAssistantIds =
+    rootAssistantProjection.representedRootMessageIds;
+  const rootMessageIdsBySnapshotMessageId = new Map(
+    [...rootAssistantProjection.snapshotMessageIdsByRootMessageId].map(
+      ([rootId, snapshotId]) => [snapshotId, rootId],
+    ),
+  );
+  const deduplicatedMessages = messages.filter(
+    (message) => !representedDurableAssistantIds.has(message.id),
+  );
+
   const representedSubmittedUserIds = new Set<string>();
   const storedUserBySnapshotId = new Map<string, AgentMessage>();
   const unmatchedSnapshotUsers: AgentMessage[] = [];
   const representedAssistantIds = new Set(
-    messages.flatMap((message) =>
+    deduplicatedMessages.flatMap((message) =>
       message.role === "assistant" ? [message.id] : [],
     ),
   );
-  const representedAssistantRunIds = new Set<string>();
   const snapshotAssistantRunIds = new Set<string>();
-  for (const message of messages) {
+  for (const message of deduplicatedMessages) {
     if (
       message.role === "user" &&
       asRecord(message.metadata)?.hideUserMessage !== true
@@ -648,8 +735,6 @@ function reconcileDurableMessages(
         typeof metadataRunId === "string"
           ? metadataRunId
           : runByAssistantId.get(message.id);
-      const stored = runId ? durableByRun.get(runId) : undefined;
-      if (runId && stored) representedAssistantRunIds.add(runId);
       if (runId) snapshotAssistantRunIds.add(runId);
     }
   }
@@ -728,6 +813,7 @@ function reconcileDurableMessages(
   for (const message of durable) {
     if (
       message.role !== "assistant" ||
+      representedDurableAssistantIds.has(message.id) ||
       representedAssistantIds.has(message.id)
     ) {
       continue;
@@ -736,22 +822,12 @@ function reconcileDurableMessages(
     if (typeof runId !== "string" || !recoverableAssistantRunIds.has(runId)) {
       continue;
     }
-    if (representedAssistantRunIds.has(runId)) continue;
-    // The snapshot holds an earlier run of this folded reply; the final pass
-    // completes that message instead of adding a second copy.
-    if (
-      durableRunIds(message).some(
-        (id) => id !== runId && snapshotAssistantRunIds.has(id),
-      )
-    ) {
-      continue;
-    }
     missingMessages.push(message);
     representedAssistantIds.add(message.id);
   }
 
   const projectedMessages = [
-    ...messages,
+    ...deduplicatedMessages,
     ...missingMessages.sort(
       (left, right) =>
         (durableIndexById.get(left.id) ?? 0) -
@@ -795,6 +871,28 @@ function reconcileDurableMessages(
       return stored ? withRefusedTurnMetadata(message, stored) : message;
     }
     if (message.role !== "assistant") return message;
+    const representedRootId = rootMessageIdsBySnapshotMessageId.get(message.id);
+    const representedRoot = representedRootId
+      ? durableById.get(representedRootId)
+      : undefined;
+    if (representedRoot?.role === "assistant") {
+      const parts = mergeStoredReasoningParts(
+        message.parts,
+        representedRoot.parts,
+      );
+      const terminalStatus =
+        representedRoot.status === "complete" ||
+        representedRoot.status === "error"
+          ? representedRoot.status
+          : undefined;
+      if (parts !== message.parts || terminalStatus !== undefined) {
+        message = {
+          ...message,
+          ...(parts !== message.parts ? { parts } : {}),
+          ...(terminalStatus ? { status: terminalStatus } : {}),
+        };
+      }
+    }
     const runId = snapshotRunId(message);
     const matched =
       durableById.get(message.id) ??
@@ -812,6 +910,17 @@ function reconcileDurableMessages(
         ? undefined
         : folded);
     if (stored?.role !== "assistant") return message;
+    const foldedRunIds = durableRunIds(stored);
+    const spansRuns = foldedRunIds.length > 1;
+    const foldedGroup = spansRuns
+      ? projectedMessages.filter(
+          (candidate) =>
+            candidate.role === "assistant" &&
+            foldedRunIds.includes(snapshotRunId(candidate) ?? ""),
+        )
+      : [message];
+    const isFoldedTerminalProjection =
+      !spansRuns || foldedGroup.at(-1) === message;
     const messageMetadata = asRecord(message.metadata);
     const storedMetadata = asRecord(stored.metadata);
     const messageCustom = asRecord(messageMetadata?.custom);
@@ -825,32 +934,62 @@ function reconcileDurableMessages(
             : {}),
         }
       : message.metadata;
+    const reconciledParts = isFoldedTerminalProjection
+      ? mergeStoredReasoningParts(message.parts, stored.parts)
+      : message.parts;
     const reconciled =
       stored === matched
         ? {
             ...message,
+            ...(reconciledParts !== message.parts
+              ? { parts: reconciledParts }
+              : {}),
             ...(stored.status === "complete" || stored.status === "error"
               ? { status: stored.status }
               : {}),
             ...(metadata ? { metadata } : {}),
           }
-        : message;
+        : reconciledParts !== message.parts
+          ? { ...message, parts: reconciledParts }
+          : message;
     const lastPart = reconciled.parts.at(-1);
-    const foldedRunIds = durableRunIds(stored);
-    const spansRuns = foldedRunIds.length > 1;
     if (lastPart && lastPart.type !== "text" && !spansRuns) return reconciled;
     // Only the last message the page saved for a folded reply takes the
     // continuation, and it is measured against everything the page saved.
-    const foldedGroup = spansRuns
-      ? projectedMessages.filter(
-          (candidate) =>
-            candidate.role === "assistant" &&
-            foldedRunIds.includes(snapshotRunId(candidate) ?? ""),
-        )
-      : [reconciled];
     if (spansRuns && foldedGroup.at(-1) !== message) return reconciled;
     const currentText = textOf(foldedGroup.flatMap((entry) => entry.parts));
     const storedText = textOf(stored.parts);
+    const orderedFoldedRunIds = [
+      ...new Set(
+        [
+          ...(Array.isArray(storedCustom?.foldedRunIds)
+            ? storedCustom.foldedRunIds
+            : []),
+          asRecord(stored.metadata)?.runId,
+        ].filter((id): id is string => typeof id === "string"),
+      ),
+    ];
+    const hasEarlierFoldedRun = orderedFoldedRunIds
+      .slice(0, -1)
+      .some((id) => snapshotAssistantRunIds.has(id));
+    if (
+      spansRuns &&
+      runId === asRecord(stored.metadata)?.runId &&
+      !hasEarlierFoldedRun &&
+      currentText.length > 0 &&
+      storedText.endsWith(currentText) &&
+      storedText.length > currentText.length
+    ) {
+      let replacedText = false;
+      const parts = reconciled.parts.map((part) => {
+        if (part.type !== "text") return part;
+        if (replacedText) return { ...part, text: "" };
+        replacedText = true;
+        return { ...part, text: storedText };
+      });
+      if (!replacedText) parts.push({ type: "text", text: storedText });
+      return { ...reconciled, parts };
+    }
     if (
       !storedText.startsWith(currentText) ||
       storedText.length <= currentText.length
@@ -1012,6 +1151,31 @@ function persistedAnnotations(
       ? [{ messageId, annotation: persistedAnnotation(annotation) }]
       : [],
   );
+}
+
+function assistantMessageIdsByRun(
+  events: AgentThreadSnapshot["events"],
+): Map<string, string> {
+  const messageIdsByRun = new Map<string, Set<string>>();
+  for (const event of events ?? []) {
+    if (
+      (event.type !== "message.created" &&
+        event.type !== "message.completed") ||
+      event.message.role !== "assistant"
+    ) {
+      continue;
+    }
+    const messageIds = messageIdsByRun.get(event.runId) ?? new Set<string>();
+    messageIds.add(event.message.id);
+    messageIdsByRun.set(event.runId, messageIds);
+  }
+  const uniqueMessageIdsByRun = new Map<string, string>();
+  for (const [runId, messageIds] of messageIdsByRun) {
+    if (messageIds.size === 1) {
+      uniqueMessageIdsByRun.set(runId, [...messageIds][0]!);
+    }
+  }
+  return uniqueMessageIdsByRun;
 }
 
 function persistedFileUrl(url?: string): string | undefined {
@@ -1194,6 +1358,27 @@ function mergeStoredAndIncomingMessages(
   return [...messages.values()];
 }
 
+function mergeLegacyRootMessages(
+  snapshotMessages: AgentMessage[],
+  legacyMessages: AgentMessage[],
+): AgentMessage[] {
+  const merged = [...snapshotMessages];
+  for (const message of legacyMessages) {
+    const createdAt = Date.parse(message.createdAt ?? "");
+    const index = merged.findIndex((candidate) => {
+      const candidateCreatedAt = Date.parse(candidate.createdAt ?? "");
+      return (
+        Number.isFinite(createdAt) &&
+        Number.isFinite(candidateCreatedAt) &&
+        candidateCreatedAt > createdAt
+      );
+    });
+    if (index === -1) merged.push(message);
+    else merged.splice(index, 0, message);
+  }
+  return merged;
+}
+
 function mergeStoredAndIncomingToolCalls(
   stored: AgentToolCall[],
   incoming: AgentToolCall[],
@@ -1210,16 +1395,10 @@ function mergeStoredAndIncomingWidgets(
   incoming: AgentWidgetSnapshot[],
 ): AgentWidgetSnapshot[] {
   const widgets = new Map(
-    stored.map((snapshot) => [
-      JSON.stringify([snapshot.messageId, snapshot.widget.id]),
-      snapshot,
-    ]),
+    stored.map((snapshot) => [snapshot.widget.id, snapshot]),
   );
   for (const snapshot of incoming) {
-    widgets.set(
-      JSON.stringify([snapshot.messageId, snapshot.widget.id]),
-      snapshot,
-    );
+    widgets.set(snapshot.widget.id, snapshot);
   }
   return [...widgets.values()];
 }
@@ -1279,6 +1458,72 @@ function persistedToolCalls(toolCalls: AgentToolCall[] = []): AgentToolCall[] {
         },
       },
     ];
+  });
+}
+
+function changedSnapshotEntries<T>(
+  incoming: T[],
+  previous: unknown,
+  getId: (entry: T) => string | undefined,
+): T[] {
+  const previousById = new Map<string, unknown>();
+  for (const entry of Array.isArray(previous) ? previous : []) {
+    const id = getId(entry as T);
+    if (id) previousById.set(id, entry);
+  }
+  return incoming.filter((entry) => {
+    const id = getId(entry);
+    if (!id || !previousById.has(id)) return true;
+    return JSON.stringify(previousById.get(id)) !== JSON.stringify(entry);
+  });
+}
+
+function samePersistedMessageContent(
+  left: AgentMessage,
+  right: AgentMessage,
+): boolean {
+  return (
+    left.role === right.role &&
+    JSON.stringify(left.parts) === JSON.stringify(right.parts) &&
+    JSON.stringify(left.status) === JSON.stringify(right.status) &&
+    JSON.stringify(left.metadata) === JSON.stringify(right.metadata)
+  );
+}
+
+function snapshotEntryId(value: unknown): string | undefined {
+  const entry = asRecord(value);
+  return typeof entry?.id === "string" ? entry.id : undefined;
+}
+
+function snapshotWidgetId(value: unknown): string | undefined {
+  const entry = asRecord(value);
+  const widget = asRecord(entry?.widget);
+  return typeof widget?.id === "string" ? widget.id : undefined;
+}
+
+function snapshotAnnotationKey(value: unknown): string {
+  const entry = asRecord(value);
+  const annotation = asRecord(entry?.annotation);
+  return typeof annotation?.id === "string"
+    ? JSON.stringify(["id", annotation.id])
+    : JSON.stringify(["value", value]);
+}
+
+function threadSnapshotBody(input: {
+  stored: StoredThread;
+  title?: string;
+  snapshotMessages: AgentMessage[];
+  agentKit: Record<string, unknown>;
+}): string {
+  const repository = { messages: [], agentKit: input.agentKit };
+  return JSON.stringify({
+    threadData: JSON.stringify(repository),
+    title:
+      input.title ??
+      (typeof input.stored.title === "string" ? input.stored.title : ""),
+    preview:
+      typeof input.stored.preview === "string" ? input.stored.preview : "",
+    messageCount: input.snapshotMessages.length,
   });
 }
 
@@ -1445,6 +1690,37 @@ function isRetryableHttpStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
+function snapshotAnnotationConflicts(
+  value: unknown,
+): SnapshotAnnotationConflict[] {
+  const response = asRecord(value);
+  if (!response || response.ok !== true) {
+    throw new TypeError("Agent chat thread save response must be an object.");
+  }
+  if (response.annotationConflicts === undefined) return [];
+  if (!Array.isArray(response.annotationConflicts)) {
+    throw new TypeError("Agent chat annotation conflicts must be an array.");
+  }
+  return response.annotationConflicts.map((value) => {
+    const conflict = asRecord(value);
+    if (
+      typeof conflict?.messageId !== "string" ||
+      (conflict.operation !== "upsert" && conflict.operation !== "remove") ||
+      (conflict.annotationId !== undefined &&
+        typeof conflict.annotationId !== "string")
+    ) {
+      throw new TypeError("Agent chat annotation conflict is invalid.");
+    }
+    return {
+      messageId: conflict.messageId,
+      ...(typeof conflict.annotationId === "string"
+        ? { annotationId: conflict.annotationId }
+        : {}),
+      operation: conflict.operation,
+    };
+  });
+}
+
 function scopedThreadEndpoint(
   endpoint: string,
   options: CreateAgentNativeAgentKitTransportOptions,
@@ -1470,6 +1746,8 @@ export function createAgentNativeAgentKitTransport(
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
   const promotionClaimIds = new Map<string, string>();
+  const durableAssistantMessageIdsByRun = new Map<string, string | null>();
+  const assistantHistoryMessageIdsByRun = new Map<string, string>();
   let transport: AgentKitProtocolAdapter;
 
   function promotionClaimId(threadId: string, messageId: string): string {
@@ -1546,6 +1824,37 @@ export function createAgentNativeAgentKitTransport(
       threadId,
       updatedAt,
     );
+    const agentKitMessages = Array.isArray(agentKit?.messages)
+      ? (agentKit.messages as AgentMessage[])
+      : undefined;
+    const agentKitMessageIds = new Set(
+      agentKitMessages?.map((message) => message.id) ?? [],
+    );
+    const legacyRootMessages = storedMessageProjection.filter((message) => {
+      if (agentKitMessageIds.has(message.id)) return false;
+      const metadata = asRecord(message.metadata);
+      const custom = asRecord(metadata?.custom);
+      if (
+        typeof metadata?.runId === "string" ||
+        typeof custom?.submittedRunId === "string" ||
+        typeof custom?.agentKitMessageId === "string"
+      ) {
+        return false;
+      }
+      return !message.parts.some((part) => {
+        if (part.type !== "data") return false;
+        const repositoryPart = asRecord(part.data);
+        return repositoryPart?.type === "tool-call";
+      });
+    });
+    const mergeAllStoredMessages =
+      agentKit?._mergeRootMessages === true || agentKitMessages?.length === 0;
+    const messagesWithLegacyRoot =
+      agentKitMessages &&
+      agentKit?._mergeRootMessages !== true &&
+      agentKitMessages.length > 0
+        ? mergeLegacyRootMessages(agentKitMessages, legacyRootMessages)
+        : undefined;
     const protocolSnapshot = agentKit
       ? parseAgentThreadSnapshot({
           id: threadId,
@@ -1553,8 +1862,13 @@ export function createAgentNativeAgentKitTransport(
           createdAt,
           updatedAt,
           metadata: asRecord(stored.metadata) ?? undefined,
-          messages: Array.isArray(agentKit.messages)
-            ? agentKit.messages
+          messages: agentKitMessages
+            ? mergeAllStoredMessages
+              ? mergeStoredAndIncomingMessages(
+                  storedMessageProjection,
+                  agentKitMessages,
+                )
+              : (messagesWithLegacyRoot ?? agentKitMessages)
             : storedMessageProjection,
           events: agentKit.events,
           runs: agentKit.runs,
@@ -1573,6 +1887,7 @@ export function createAgentNativeAgentKitTransport(
           durableMessages,
           protocolSnapshot.events,
           protocolSnapshot.runs,
+          protocolSnapshot.toolCalls ?? [],
         )
       : durableMessages;
     const actionWidgets = storedActionWidgets(repository.messages);
@@ -1779,8 +2094,12 @@ export function createAgentNativeAgentKitTransport(
         "Agent chat active-run response has an invalid status.",
       );
     }
+    const localRun = await protocolTransport.getRun?.({
+      threadId,
+      runId: value.runId,
+    });
     return {
-      id: value.runId,
+      id: localRun?.id ?? value.runId,
       threadId,
       status: runStatus,
       // The durable SSE endpoint replays from its first event when a browser
@@ -1796,14 +2115,43 @@ export function createAgentNativeAgentKitTransport(
     const stored = await fetchThread(threadId);
     const thread = stored ? projectThread(threadId, stored) : null;
     if (!stored || !thread) return thread;
-    if (options.runtime && !isAgentNativeChatRuntime(options.runtime)) {
-      return thread;
-    }
+    const repository = storedRepository(stored);
     const durableMessages = storedMessages(
-      storedRepository(stored).messages,
+      repository.messages,
       now,
       options.adapter?.textFormat,
     );
+    for (const message of durableMessages) {
+      if (message.role !== "assistant") continue;
+      const foldedRunIds = durableRunIds(message);
+      if (foldedRunIds.length < 2) continue;
+      for (const runId of foldedRunIds) {
+        const previous = durableAssistantMessageIdsByRun.get(runId);
+        durableAssistantMessageIdsByRun.set(
+          runId,
+          previous === undefined || previous === message.id ? message.id : null,
+        );
+      }
+    }
+    for (const [runId, messageId] of assistantMessageIdsByRun(thread.events)) {
+      assistantHistoryMessageIdsByRun.set(runId, messageId);
+    }
+    const assistantMessageIds = new Set(
+      thread.messages.flatMap((message) =>
+        message.role === "assistant" ? [message.id] : [],
+      ),
+    );
+    for (const run of thread.runs ?? []) {
+      if (
+        typeof run.activeMessageId === "string" &&
+        assistantMessageIds.has(run.activeMessageId)
+      ) {
+        assistantHistoryMessageIdsByRun.set(run.id, run.activeMessageId);
+      }
+    }
+    if (options.runtime && !isAgentNativeChatRuntime(options.runtime)) {
+      return thread;
+    }
     const completedRunIds = completedDurableRunIds(durableMessages);
     const userStoppedRunIds = userStoppedDurableRunIds(durableMessages);
     const durableFailures = durableRunFailures(durableMessages);
@@ -1891,6 +2239,7 @@ export function createAgentNativeAgentKitTransport(
       ),
       thread.events,
       runs,
+      thread.toolCalls,
     );
     const replayFromStart = [
       "running",
@@ -1911,11 +2260,11 @@ export function createAgentNativeAgentKitTransport(
     const messagesForReplay = replayFromStart
       ? messages.filter((message) => {
           if (message.role !== "assistant") return true;
-          const runId = asRecord(message.metadata)?.runId;
           return !(
-            runId === discoveredRun?.id ||
+            durableRunIds(message).includes(discoveredRun?.id ?? "") ||
             replayedMessageIds.has(message.id) ||
-            (message.status === "streaming" && typeof runId !== "string")
+            (message.status === "streaming" &&
+              typeof asRecord(message.metadata)?.runId !== "string")
           );
         })
       : messages;
@@ -1996,24 +2345,6 @@ export function createAgentNativeAgentKitTransport(
         )
       : input.snapshot.widgets;
     const compactEvents = persistedHistoryEvents(input.snapshot.events);
-    const compactRunIds = new Set(compactEvents.map((event) => event.runId));
-    const eventsById = new Map<string, unknown>();
-    const previousEvents = Array.isArray(previousAgentKit.events)
-      ? previousAgentKit.events
-      : [];
-    for (const event of previousEvents) {
-      const record = asRecord(event);
-      if (
-        typeof record?.id === "string" &&
-        typeof record.runId === "string" &&
-        !compactRunIds.has(record.runId)
-      ) {
-        eventsById.set(record.id, event);
-      }
-    }
-    for (const event of compactEvents) {
-      eventsById.set(event.id, event);
-    }
     const runsById = new Map<string, unknown>();
     const previousRuns = Array.isArray(previousAgentKit.runs)
       ? previousAgentKit.runs
@@ -2025,50 +2356,566 @@ export function createAgentNativeAgentKitTransport(
     const snapshotMessageIds = new Set(
       snapshotMessages.map((message) => message.id),
     );
+    const previousAgentKitMessageIds = new Set(
+      (Array.isArray(previousAgentKit.messages)
+        ? previousAgentKit.messages
+        : []
+      ).flatMap((message) => {
+        const id = snapshotEntryId(message);
+        return id ? [id] : [];
+      }),
+    );
+    const topLevelMessageProjections = new Map(
+      persistedMessages(
+        Array.isArray(repository.messages)
+          ? storedMessages(
+              repository.messages,
+              now,
+              options.adapter?.textFormat,
+            )
+          : [],
+      ).map((message) => [message.id, message]),
+    );
+    const persistedSnapshotMessages = persistedMessages(snapshotMessages);
+    const changedMessages = changedSnapshotEntries(
+      persistedSnapshotMessages,
+      previousAgentKit.messages,
+      snapshotEntryId,
+    ).filter((message) => {
+      if (previousAgentKitMessageIds.has(message.id)) return true;
+      const topLevelMessage = topLevelMessageProjections.get(message.id);
+      return (
+        !topLevelMessage ||
+        !samePersistedMessageContent(topLevelMessage, message)
+      );
+    });
+    const mergeRootMessages =
+      previousAgentKit._mergeRootMessages === true ||
+      persistedSnapshotMessages.some((message) => {
+        const topLevelMessage = topLevelMessageProjections.get(message.id);
+        return (
+          !previousAgentKitMessageIds.has(message.id) &&
+          topLevelMessage !== undefined &&
+          samePersistedMessageContent(topLevelMessage, message)
+        );
+      });
+    const changedWidgets = changedSnapshotEntries(
+      persistedActionWidgets(snapshotWidgets, snapshotMessageIds),
+      previousAgentKit.widgets,
+      snapshotWidgetId,
+    );
+    const changedToolCalls = changedSnapshotEntries(
+      persistedToolCalls(snapshotToolCalls),
+      previousAgentKit.toolCalls,
+      snapshotEntryId,
+    );
+    const previousEventsByRun = new Map<string, unknown[]>();
+    for (const event of Array.isArray(previousAgentKit.events)
+      ? previousAgentKit.events
+      : []) {
+      const runId = asRecord(event)?.runId;
+      if (typeof runId !== "string") continue;
+      const events = previousEventsByRun.get(runId);
+      if (events) events.push(event);
+      else previousEventsByRun.set(runId, [event]);
+    }
+    const incomingEventsByRun = new Map<string, AgentEvent[]>();
+    for (const event of compactEvents) {
+      const events = incomingEventsByRun.get(event.runId);
+      if (events) events.push(event);
+      else incomingEventsByRun.set(event.runId, [event]);
+    }
+    const changedEventRunIds = new Set<string>();
+    for (const [runId, events] of incomingEventsByRun) {
+      if (
+        JSON.stringify(previousEventsByRun.get(runId) ?? []) ===
+        JSON.stringify(events)
+      ) {
+        continue;
+      }
+      changedEventRunIds.add(runId);
+    }
+    const changedEvents = compactEvents.filter((event) =>
+      changedEventRunIds.has(event.runId),
+    );
+    const eventRunLastSequenceById = new Map<string, number>();
+    for (const run of input.snapshot.runs ?? []) {
+      if (
+        typeof run.id === "string" &&
+        Number.isSafeInteger(run.lastSequence) &&
+        run.lastSequence >= 0
+      ) {
+        eventRunLastSequenceById.set(run.id, run.lastSequence);
+      }
+    }
+    for (const event of input.snapshot.events ?? []) {
+      const previousSequence = eventRunLastSequenceById.get(event.runId) ?? 0;
+      if (Number.isSafeInteger(event.sequence)) {
+        eventRunLastSequenceById.set(
+          event.runId,
+          Math.max(previousSequence, event.sequence),
+        );
+      }
+    }
+    const changedEventsByRun = new Map<string, AgentEvent[]>();
+    for (const event of changedEvents) {
+      const runEvents = changedEventsByRun.get(event.runId);
+      if (runEvents) runEvents.push(event);
+      else changedEventsByRun.set(event.runId, [event]);
+    }
+    const eventRunSnapshotBatches = new Map<
+      string,
+      {
+        runId: string;
+        snapshotId: string;
+        lastSequence: number;
+        expectedEventCount: number;
+      }
+    >();
+    for (const [runId, events] of changedEventsByRun) {
+      const lastSequence = eventRunLastSequenceById.get(runId) ?? events.length;
+      const snapshotId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      eventRunSnapshotBatches.set(runId, {
+        runId,
+        snapshotId,
+        lastSequence,
+        expectedEventCount: new Set(events.map((event) => event.id)).size,
+      });
+    }
+    const lastChangedEventIndexByRun = new Map<string, number>();
+    changedEvents.forEach((event, index) => {
+      lastChangedEventIndexByRun.set(event.runId, index);
+    });
+    const changedEventUpdates = changedEvents.map((event, index) => {
+      return {
+        key: "events",
+        entry: event,
+        eventRunSnapshotBatch: eventRunSnapshotBatches.get(event.runId),
+        completesEventRunSnapshot:
+          lastChangedEventIndexByRun.get(event.runId) === index,
+      };
+    });
+    const persistedRuns = [...runsById.values()].map((run) => {
+      const record = asRecord(run);
+      return record && record.error !== undefined
+        ? { ...record, error: persistedError(record.error) }
+        : run;
+    });
+    const changedRuns = changedSnapshotEntries(
+      persistedRuns,
+      previousAgentKit.runs,
+      snapshotEntryId,
+    );
+    const latestRun = latestSnapshotRunRecord(persistedRuns);
+    const latestRunId = latestRun?.id;
+    const previousLatestRun = latestSnapshotRunRecord(previousAgentKit.runs);
+    const latestRunSequence =
+      typeof latestRun?.lastSequence === "number" &&
+      Number.isSafeInteger(latestRun.lastSequence) &&
+      latestRun.lastSequence >= 0
+        ? latestRun.lastSequence
+        : undefined;
+    const previousLatestRunSequence =
+      typeof previousLatestRun?.lastSequence === "number" &&
+      Number.isSafeInteger(previousLatestRun.lastSequence) &&
+      previousLatestRun.lastSequence >= 0
+        ? previousLatestRun.lastSequence
+        : undefined;
+    const latestRunIsNew = latestRun?.id !== previousLatestRun?.id;
+    const latestRunJustCompleted =
+      latestRun?.id === previousLatestRun?.id &&
+      previousLatestRun?.status !== "completed" &&
+      latestRunSequence !== undefined &&
+      previousLatestRunSequence !== undefined &&
+      latestRunSequence >= previousLatestRunSequence;
+    const latestRunSuggestionsChanged =
+      input.snapshot.suggestions !== undefined &&
+      JSON.stringify(input.snapshot.suggestions) !==
+        JSON.stringify(previousAgentKit.suggestions);
+    const shouldPersistLatestRunSuggestions =
+      latestRun?.status === "completed" &&
+      (latestRunIsNew ||
+        latestRunJustCompleted ||
+        (latestRunSuggestionsChanged &&
+          latestRunSequence !== undefined &&
+          previousLatestRunSequence !== undefined &&
+          latestRunSequence > previousLatestRunSequence));
     const annotations =
       input.snapshot.annotations ??
       (Array.isArray(previousAgentKit.annotations)
         ? (previousAgentKit.annotations as AgentAnnotationSnapshot[])
         : []);
-    const agentKit = {
-      ...previousAgentKit,
-      messages: persistedMessages(snapshotMessages),
-      widgets: persistedActionWidgets(snapshotWidgets, snapshotMessageIds),
-      toolCalls: persistedToolCalls(snapshotToolCalls),
-      events: [...eventsById.values()],
-      runs: [...runsById.values()].map((run) => {
-        const record = asRecord(run);
-        return record && record.error !== undefined
-          ? { ...record, error: persistedError(record.error) }
-          : run;
-      }),
-      activeRunIds: input.snapshot.activeRunIds ?? [],
-      suggestions: input.snapshot.suggestions ?? previousAgentKit.suggestions,
-      annotations: persistedAnnotations(annotations, snapshotMessageIds),
+    const persistedSnapshotAnnotations = persistedAnnotations(
+      annotations,
+      snapshotMessageIds,
+    );
+    const previousAnnotationsByMessage = new Map<string, unknown[]>();
+    for (const annotation of Array.isArray(previousAgentKit.annotations)
+      ? previousAgentKit.annotations
+      : []) {
+      const messageId = asRecord(annotation)?.messageId;
+      if (typeof messageId !== "string") continue;
+      const messageAnnotations = previousAnnotationsByMessage.get(messageId);
+      if (messageAnnotations) messageAnnotations.push(annotation);
+      else previousAnnotationsByMessage.set(messageId, [annotation]);
+    }
+    const incomingAnnotationsByMessage = new Map<
+      string,
+      AgentAnnotationSnapshot[]
+    >();
+    for (const annotation of persistedSnapshotAnnotations) {
+      const messageAnnotations = incomingAnnotationsByMessage.get(
+        annotation.messageId,
+      );
+      if (messageAnnotations) messageAnnotations.push(annotation);
+      else incomingAnnotationsByMessage.set(annotation.messageId, [annotation]);
+    }
+    const annotationMessageIdsToReplace: Array<{
+      messageId: string;
+      annotationsToRemove: Array<{ key: string; baseline: unknown }>;
+    }> = [];
+    const changedAnnotations: Array<{
+      entry: AgentAnnotationSnapshot;
+      baseline: unknown | null;
+    }> = [];
+    const annotationMessageIds = new Set([
+      ...previousAnnotationsByMessage.keys(),
+      ...incomingAnnotationsByMessage.keys(),
+    ]);
+    for (const messageId of annotationMessageIds) {
+      const previous = previousAnnotationsByMessage.get(messageId) ?? [];
+      const incoming = incomingAnnotationsByMessage.get(messageId) ?? [];
+      const previousByKey = new Map(
+        previous.map((annotation) => [
+          snapshotAnnotationKey(annotation),
+          annotation,
+        ]),
+      );
+      const incomingKeys = new Set(incoming.map(snapshotAnnotationKey));
+      const annotationsToRemove = previous.flatMap((annotation) => {
+        const key = snapshotAnnotationKey(annotation);
+        return incomingKeys.has(key) ? [] : [{ key, baseline: annotation }];
+      });
+      const changedIncoming = incoming.flatMap((annotation) => {
+        const previousAnnotation = previousByKey.get(
+          snapshotAnnotationKey(annotation),
+        );
+        if (
+          previousAnnotation !== undefined &&
+          JSON.stringify(previousAnnotation) === JSON.stringify(annotation)
+        ) {
+          return [];
+        }
+        return [
+          {
+            entry: annotation,
+            baseline: previousAnnotation ?? null,
+          },
+        ];
+      });
+      if (annotationsToRemove.length === 0 && changedIncoming.length === 0) {
+        continue;
+      }
+      if (annotationsToRemove.length > 0) {
+        let removals: typeof annotationsToRemove = [];
+        for (const removal of annotationsToRemove) {
+          const candidate = {
+            messageId,
+            annotationsToRemove: [...removals, removal],
+          };
+          if (
+            new TextEncoder().encode(JSON.stringify(candidate)).byteLength <=
+            MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES
+          ) {
+            removals.push(removal);
+            continue;
+          }
+          if (removals.length === 0) {
+            throw new RangeError(
+              "An annotation removal exceeds the persistence request size limit.",
+            );
+          }
+          annotationMessageIdsToReplace.push({
+            messageId,
+            annotationsToRemove: removals,
+          });
+          removals = [removal];
+          const singleRemoval = { messageId, annotationsToRemove: removals };
+          if (
+            new TextEncoder().encode(JSON.stringify(singleRemoval)).byteLength >
+            MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES
+          ) {
+            throw new RangeError(
+              "An annotation removal exceeds the persistence request size limit.",
+            );
+          }
+        }
+        if (removals.length > 0) {
+          annotationMessageIdsToReplace.push({
+            messageId,
+            annotationsToRemove: removals,
+          });
+        }
+      }
+      changedAnnotations.push(...changedIncoming);
+    }
+    type SnapshotUpdate = {
+      key: string;
+      entry: unknown;
+      eventRunSnapshotBatch?: {
+        runId: string;
+        snapshotId: string;
+        lastSequence: number;
+        expectedEventCount: number;
+      };
+      completesEventRunSnapshot?: boolean;
+      includeSuggestions?: boolean;
+    };
+    const updates: SnapshotUpdate[] = [
+      ...changedMessages.map((entry) => ({ key: "messages", entry })),
+      ...changedWidgets.map((entry) => ({ key: "widgets", entry })),
+      ...changedToolCalls.map((entry) => ({ key: "toolCalls", entry })),
+      ...changedEventUpdates,
+      ...changedAnnotations.map((entry) => ({
+        key: "annotationUpserts",
+        entry,
+      })),
+      ...annotationMessageIdsToReplace.map((entry) => ({
+        key: "annotationMessageIdsToReplace",
+        entry,
+      })),
+      ...changedRuns.map((entry) => ({
+        key: "runs",
+        entry,
+        ...(shouldPersistLatestRunSuggestions &&
+        asRecord(entry)?.id === latestRunId
+          ? { includeSuggestions: true }
+          : {}),
+      })),
+    ];
+    const fixedAgentKit = {
+      _snapshotDelta: true,
+      ...(mergeRootMessages ? { _mergeRootMessages: true } : {}),
+      messages: [],
+      widgets: [],
+      toolCalls: [],
+      events: [],
+      eventRunSnapshotBatches: [],
+      annotationMessageIdsToReplace: [],
+      annotations: [],
+      annotationUpserts: [],
+      runs: [],
     };
     const requestHeaders = await headers({ sessionId: input.threadId });
     requestHeaders.set("content-type", "application/json");
-    const snapshotRepository = { ...repository };
-    delete snapshotRepository.queuedMessages;
-    const response = await fetcher(
-      scopedThreadEndpoint(
-        `${apiUrl}/threads/${encodeURIComponent(input.threadId)}`,
-        options,
-      ),
-      {
-        method: "PUT",
-        headers: requestHeaders,
-        body: JSON.stringify({
-          threadData: JSON.stringify({ ...snapshotRepository, agentKit }),
-          title:
-            input.snapshot.title ??
-            (typeof stored.title === "string" ? stored.title : ""),
-          preview: typeof stored.preview === "string" ? stored.preview : "",
-          messageCount: snapshotMessages.length,
-        }),
-      },
+    const bodyFor = (entries: typeof updates) => {
+      const agentKit: Record<string, unknown> = { ...fixedAgentKit };
+      for (const key of [
+        "messages",
+        "widgets",
+        "toolCalls",
+        "events",
+        "eventRunSnapshotBatches",
+        "annotationMessageIdsToReplace",
+        "annotations",
+        "annotationUpserts",
+        "runs",
+      ]) {
+        agentKit[key] = [];
+      }
+      const eventSnapshotBatchRunIds = new Set<string>();
+      const completedEventRunIds = new Set(
+        entries.flatMap((update) =>
+          update.key === "events" &&
+          update.completesEventRunSnapshot &&
+          update.eventRunSnapshotBatch
+            ? [update.eventRunSnapshotBatch.runId]
+            : [],
+        ),
+      );
+      for (const {
+        key,
+        entry,
+        eventRunSnapshotBatch,
+        includeSuggestions,
+      } of entries) {
+        if (key === "events") {
+          (agentKit.events as unknown[]).push(entry);
+          if (
+            eventRunSnapshotBatch &&
+            !eventSnapshotBatchRunIds.has(eventRunSnapshotBatch.runId)
+          ) {
+            eventSnapshotBatchRunIds.add(eventRunSnapshotBatch.runId);
+            (agentKit.eventRunSnapshotBatches as unknown[]).push({
+              ...eventRunSnapshotBatch,
+              complete: completedEventRunIds.has(eventRunSnapshotBatch.runId),
+            });
+          }
+          continue;
+        }
+        if (key === "runs") {
+          (agentKit.runs as unknown[]).push(entry);
+          if (includeSuggestions && input.snapshot.suggestions !== undefined) {
+            agentKit.suggestions = input.snapshot.suggestions;
+          }
+        } else {
+          (agentKit[key] as unknown[]).push(entry);
+        }
+      }
+      return threadSnapshotBody({
+        stored,
+        title: input.snapshot.title,
+        snapshotMessages,
+        agentKit,
+      });
+    };
+    const chunks: Array<typeof updates> = [];
+    let chunk: typeof updates = [];
+    const encoder = new TextEncoder();
+    const baseBodyBytes = encoder.encode(bodyFor([])).byteLength;
+    let chunkBytes = baseBodyBytes;
+    const chunkKeyCounts = new Map<string, number>();
+    for (const update of updates) {
+      const duplicateAnnotationRemoval =
+        update.key === "annotationMessageIdsToReplace" &&
+        chunk.some(
+          (entry) =>
+            entry.key === "annotationMessageIdsToReplace" &&
+            asRecord(entry.entry)?.messageId ===
+              asRecord(update.entry)?.messageId,
+        );
+      if (duplicateAnnotationRemoval) {
+        chunks.push(chunk);
+        chunk = [];
+        chunkBytes = baseBodyBytes;
+        chunkKeyCounts.clear();
+      }
+      const entryBytes =
+        encoder.encode(bodyFor([update])).byteLength - baseBodyBytes;
+      const addition = entryBytes + (chunkKeyCounts.has(update.key) ? 1 : 0);
+      if (chunkBytes + addition > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
+        if (chunk.length === 0) {
+          throw new RangeError(
+            "An Agent chat snapshot entry exceeds the persistence request size limit.",
+          );
+        }
+        chunks.push(chunk);
+        chunk = [];
+        chunkBytes = baseBodyBytes;
+        chunkKeyCounts.clear();
+      }
+      const firstEntryBytes =
+        entryBytes + (chunkKeyCounts.has(update.key) ? 1 : 0);
+      if (chunkBytes + firstEntryBytes > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
+        throw new RangeError(
+          "An Agent chat snapshot entry exceeds the persistence request size limit.",
+        );
+      }
+      chunk.push(update);
+      chunkBytes += firstEntryBytes;
+      chunkKeyCounts.set(update.key, (chunkKeyCounts.get(update.key) ?? 0) + 1);
+    }
+    if (chunk.length > 0 || chunks.length === 0) chunks.push(chunk);
+
+    const threadUrl = scopedThreadEndpoint(
+      apiUrl + "/threads/" + encodeURIComponent(input.threadId),
+      options,
     );
-    if (!response.ok) throw await responseError(response);
+    const persistChunk = async (
+      entries: typeof updates,
+    ): Promise<SnapshotAnnotationConflict[]> => {
+      const body = bodyFor(entries);
+      if (encoder.encode(body).byteLength > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
+        if (entries.length > 1) {
+          const middle = Math.floor(entries.length / 2);
+          return [
+            ...(await persistChunk(entries.slice(0, middle))),
+            ...(await persistChunk(entries.slice(middle))),
+          ];
+        }
+        throw new RangeError(
+          "An Agent chat snapshot entry exceeds the persistence request size limit.",
+        );
+      }
+      for (let attempt = 0; ; attempt += 1) {
+        const retryAfterReadFailure = async (error: unknown) => {
+          if (
+            asRecord(error)?.name === "AbortError" ||
+            attempt >= MAX_THREAD_SNAPSHOT_RETRIES
+          ) {
+            throw error;
+          }
+          await new Promise((resolve) =>
+            setTimeout(resolve, 100 * 2 ** attempt),
+          );
+        };
+        let response: Response;
+        try {
+          response = await fetcher(threadUrl, {
+            method: "PUT",
+            headers: requestHeaders,
+            body,
+          });
+        } catch (error) {
+          await retryAfterReadFailure(error);
+          continue;
+        }
+        if (response.status === 413 && entries.length > 1) {
+          const middle = Math.floor(entries.length / 2);
+          return [
+            ...(await persistChunk(entries.slice(0, middle))),
+            ...(await persistChunk(entries.slice(middle))),
+          ];
+        }
+        if (!response.ok) {
+          let error: Error;
+          try {
+            error = await responseError(response);
+          } catch (readError) {
+            await retryAfterReadFailure(readError);
+            continue;
+          }
+          if (
+            asRecord(error)?.retryable !== true ||
+            attempt >= MAX_THREAD_SNAPSHOT_RETRIES
+          ) {
+            throw error;
+          }
+          await new Promise((resolve) =>
+            setTimeout(resolve, 100 * 2 ** attempt),
+          );
+          continue;
+        }
+        try {
+          return snapshotAnnotationConflicts(await response.json());
+        } catch (readError) {
+          await retryAfterReadFailure(readError);
+        }
+      }
+    };
+    const annotationConflicts = new Map<string, SnapshotAnnotationConflict>();
+    for (const entries of chunks) {
+      for (const conflict of await persistChunk(entries)) {
+        annotationConflicts.set(
+          JSON.stringify([
+            conflict.messageId,
+            conflict.annotationId ?? null,
+            conflict.operation,
+          ]),
+          conflict,
+        );
+      }
+    }
+    if (annotationConflicts.size > 0) {
+      const error = new Error(
+        "An annotation changed in another save. The latest saved value was preserved; reload the thread before retrying.",
+      );
+      error.name = "AgentAnnotationSaveConflictError";
+      throw error;
+    }
   }
 
   type QueueMutation =
@@ -2164,9 +3011,12 @@ export function createAgentNativeAgentKitTransport(
       }
     }
     if (lastError) throw lastError;
-    throw new AgentKitRunSlotBusyError(
-      typeof status?.runId === "string" ? status.runId : undefined,
-    );
+    const activeRunId =
+      typeof status?.runId === "string" ? status.runId : undefined;
+    const localRun = activeRunId
+      ? await protocolTransport.getRun?.({ threadId, runId: activeRunId })
+      : null;
+    throw new AgentKitRunSlotBusyError(localRun?.id ?? activeRunId);
   }
 
   async function startRunTrackingRunningState(
@@ -2253,9 +3103,6 @@ export function createAgentNativeAgentKitTransport(
       connectionRequests: true,
     },
     operations: {
-      ...options.operations,
-      persistThreadSnapshot:
-        options.operations?.persistThreadSnapshot ?? persistThreadSnapshot,
       getThread: async ({ threadId }) => {
         const thread = await snapshot(threadId);
         if (!thread) return null;
@@ -2445,8 +3292,8 @@ export function createAgentNativeAgentKitTransport(
         if (fromMessageId) {
           const repository = storedRepository(source);
           const agentKit = asRecord(repository.agentKit);
-          const sourceMessages = Array.isArray(agentKit?.messages)
-            ? agentKit.messages
+          const sourceMessages = agentKit
+            ? projectThread(threadId, source).messages
             : repository.messages;
           if (!Array.isArray(sourceMessages)) {
             throw new Error(
@@ -2564,6 +3411,8 @@ export function createAgentNativeAgentKitTransport(
         trackRunFeedback({ runId, threadId, positive: value === "positive" });
       },
       ...options.operations,
+      persistThreadSnapshot:
+        options.operations?.persistThreadSnapshot ?? persistThreadSnapshot,
     },
   });
   const protocolStartRun = protocolTransport.startRun.bind(protocolTransport);
@@ -2605,7 +3454,17 @@ export function createAgentNativeAgentKitTransport(
       return await protocolStartRun(input, context);
     } catch (error) {
       const record = asRecord(error);
-      const activeRunId = record?.activeRunId;
+      const serverActiveRunId =
+        typeof record?.activeRunId === "string"
+          ? record.activeRunId
+          : undefined;
+      const localRun = serverActiveRunId
+        ? await protocolTransport.getRun?.({
+            threadId: input.threadId,
+            runId: serverActiveRunId,
+          })
+        : null;
+      const activeRunId = localRun?.id ?? serverActiveRunId;
       const explicitNonSlotCode =
         typeof record?.code === "string" &&
         record.code !== "run_slot_busy" &&
@@ -2640,9 +3499,101 @@ export function createAgentNativeAgentKitTransport(
         runId: input.runId,
       });
       const assistantMessageIds = new Set<string>();
+      // Continuation runs keep the durable identity of their folded reply.
+      let durableAssistantMessageId =
+        durableAssistantMessageIdsByRun.get(input.runId) ?? undefined;
+      let foldedAssistantSourceMessageId: string | undefined;
+      const foldedMessageIdFor = (sourceMessageId?: string) => {
+        if (!durableAssistantMessageId || !sourceMessageId) return undefined;
+        foldedAssistantSourceMessageId ??= sourceMessageId;
+        return foldedAssistantSourceMessageId === sourceMessageId
+          ? durableAssistantMessageId
+          : undefined;
+      };
       let responseStarted = false;
       let turnId: string | undefined;
-      for await (const event of subscribeToRun(input)) {
+      for await (const sourceEvent of subscribeToRun(input)) {
+        const interruptedRunId = protocolInterruptedRunId(sourceEvent.metadata);
+        const inheritedMessageId = interruptedRunId
+          ? (durableAssistantMessageIdsByRun.get(interruptedRunId) ??
+            assistantHistoryMessageIdsByRun.get(interruptedRunId))
+          : undefined;
+        if (inheritedMessageId) {
+          if (durableAssistantMessageId !== inheritedMessageId) {
+            foldedAssistantSourceMessageId = undefined;
+          }
+          durableAssistantMessageId = inheritedMessageId;
+          durableAssistantMessageIdsByRun.set(input.runId, inheritedMessageId);
+        }
+        let event = sourceEvent;
+        if (isAgentNativeChatRuntime(runtime)) {
+          switch (sourceEvent.type) {
+            case "message.created":
+            case "message.completed":
+              if (sourceEvent.message.role === "assistant") {
+                const messageId = foldedMessageIdFor(sourceEvent.message.id);
+                if (messageId && messageId !== sourceEvent.message.id) {
+                  event = {
+                    ...sourceEvent,
+                    message: { ...sourceEvent.message, id: messageId },
+                  };
+                }
+              }
+              break;
+            case "message.delta":
+            case "reasoning.delta": {
+              const messageId = foldedMessageIdFor(sourceEvent.messageId);
+              if (messageId && messageId !== sourceEvent.messageId) {
+                event = { ...sourceEvent, messageId };
+              }
+              break;
+            }
+            case "tool.started":
+            case "tool.updated": {
+              if (sourceEvent.toolCall.messageId) {
+                const messageId = foldedMessageIdFor(
+                  sourceEvent.toolCall.messageId,
+                );
+                if (messageId && messageId !== sourceEvent.toolCall.messageId) {
+                  event = {
+                    ...sourceEvent,
+                    toolCall: { ...sourceEvent.toolCall, messageId },
+                  };
+                }
+              }
+              break;
+            }
+            case "widget.created":
+            case "widget.updated":
+            case "annotation.created":
+            case "annotation.updated": {
+              if (sourceEvent.messageId) {
+                const messageId = foldedMessageIdFor(sourceEvent.messageId);
+                if (messageId && messageId !== sourceEvent.messageId) {
+                  event = { ...sourceEvent, messageId };
+                }
+              }
+              break;
+            }
+            case "action.started": {
+              if (sourceEvent.invocation.messageId) {
+                const messageId = foldedMessageIdFor(
+                  sourceEvent.invocation.messageId,
+                );
+                if (
+                  messageId &&
+                  messageId !== sourceEvent.invocation.messageId
+                ) {
+                  event = {
+                    ...sourceEvent,
+                    invocation: { ...sourceEvent.invocation, messageId },
+                  };
+                }
+              }
+              break;
+            }
+          }
+        }
         turnId ??= protocolTurnId(event.metadata);
         if (event.type === "run.started" && turnId) {
           dispatchAgentChatRunning({

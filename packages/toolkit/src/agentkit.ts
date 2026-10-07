@@ -3,6 +3,7 @@ export {
   AgentSuggestionBar,
   agentSuggestionPrompt,
 } from "./composer/AgentSuggestionBar.js";
+export { formatAttachmentError } from "./composer/attachment-accept.js";
 export { MessageQueueDrawer } from "./composer/MessageQueueDrawer.js";
 export {
   ComposerContextMenu,
@@ -21,6 +22,7 @@ export {
   type ComposerContextPickerFooterAction,
 } from "./composer/ComposerContextMenu.js";
 export {
+  createChatAttachmentAdapter,
   PromptComposer,
   type PromptComposerFile,
   type PromptComposerProps,
