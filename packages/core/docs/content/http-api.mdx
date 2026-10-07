@@ -60,7 +60,7 @@ The command still authenticates you in the browser first — minting requires or
 | Who can mint                 | Any signed-in user          | Org owner/admin only             |
 | Best for                     | Your own scripts, local dev | CI, bots, scheduled integrations |
 
-Both default to a 365-day lifetime and accept `--ttl-days` between 1 and 365. If a machine cannot open a browser, the app's connect page at `https://<app>/mcp/connect` is the fallback: sign in there, copy the token, and pass it with `connect <url> --token <token>` or paste it directly into your secret store.
+Personal tokens default to 365 days in the CLI device flow; to choose a lifetime from 1 to 365 days, use the app's Connect page at `https://<app>/mcp/connect`. Org service tokens also default to 365 days and accept `--ttl-days` values between 1 and 3650. If a machine cannot open a browser, the app's Connect page is the fallback: sign in there, copy the token, and pass it with `connect <url> --token <token>` or paste it directly into your secret store.
 
 For a self-hosted, single-tenant app where per-person identity does not matter, the static `ACCESS_TOKEN` / `ACCESS_TOKENS` environment variables are the simplest option — see [Authentication — Static MCP Bearer Tokens](/docs/authentication#access-tokens).
 
@@ -223,7 +223,7 @@ The action ran exactly as it would have from chat or the UI — same validation,
 
 Tokens are JWTs signed by the app and bound to that app's audience. A token minted for one app cannot call another.
 
-- **Lifetime** — 365 days by default, `--ttl-days` between 1 and 365. Shorter is better for anything that runs unattended.
+- **Lifetime** — 365 days by default, `--ttl-days` between 1 and 3650. Shorter is better for anything that runs unattended.
 - **Rotation** — mint the new token, deploy it to the caller, confirm traffic is flowing, then revoke the old one. There is no in-place rotation; the two tokens are independent and can overlap.
 - **Revocation** — every token carries a `jti`, and revocation is a `jti` check on every request, so a revoked token stops working immediately. Use the `list-org-service-tokens` action to see names, who minted them, and last-used timestamps, then `revoke-org-service-token` with the id. Both are owner/admin-gated for writes; any org member can list.
 - **Recovery** — the token value is never stored, only its `jti`. If you lose it, mint a new one and revoke the old.
