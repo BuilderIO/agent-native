@@ -63,6 +63,7 @@ import {
   updateThreadData,
   withThreadDataLock,
 } from "../chat-threads/store.js";
+import { withDbExec, type DbExec } from "../db/client.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
@@ -1063,10 +1064,30 @@ async function executeBackgroundAutomation(
 
       assertHardDeadline(options.hardDeadlineAt);
       await options.assertCanStart?.();
+      await persistBackgroundAutomationTurn({
+        threadId: thread.id,
+        threadTitle,
+        prompt: executionPrompt,
+        run: { runId, turnId, startedAt: Date.now(), events: [] },
+      });
+      const afterInsert = (tx: DbExec) =>
+        withDbExec(tx, async () => {
+          await recordRunThread(
+            historyId,
+            thread.id,
+            runId,
+            Boolean(options.historyId),
+          );
+          if (!(await claimBackgroundRun(runId)))
+            throw new Error(
+              `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
+            );
+        });
       if (options.resume) {
         const claim = await tryClaimRunSlot(thread.id, runId, undefined, {
           turnId,
           dispatchMode: "background",
+          afterInsert,
         });
         if (!claim.claimed)
           throw new BackgroundAutomationRunError(
@@ -1076,30 +1097,13 @@ async function executeBackgroundAutomation(
       } else {
         await insertRun(runId, thread.id, turnId, {
           dispatchMode: "background",
+          afterInsert,
         });
-      }
-      const claimedOwnRun = await claimBackgroundRun(runId);
-      if (!claimedOwnRun) {
-        throw new Error(
-          `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
-        );
       }
       if (runIdRef) {
         runIdRef.current = runId;
         runIdRef.threadId = thread.id;
       }
-      await persistBackgroundAutomationTurn({
-        threadId: thread.id,
-        threadTitle,
-        prompt: executionPrompt,
-        run: { runId, turnId, startedAt: Date.now(), events: [] },
-      });
-      await recordRunThread(
-        historyId,
-        thread.id,
-        runId,
-        Boolean(options.historyId),
-      );
       try {
         await options.assertCanStart?.();
       } catch (error) {

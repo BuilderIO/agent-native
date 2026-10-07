@@ -6,6 +6,7 @@ import {
 } from "./shared.js";
 
 interface AutomationRecoveryMessages {
+  deliveryUnknown: string;
   leaseLost: string;
   stopped: string;
   confirmed: string;
@@ -19,6 +20,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
   AutomationRecoveryMessages
 > = {
   "en-US": {
+    deliveryUnknown:
+      "The agent finished, but response delivery is unknown. The response was not resent to avoid duplicate delivery.",
     leaseLost:
       "The automation scheduler lost its execution lease. Unfinished work remains recoverable.",
     missingPrompt:
@@ -32,6 +35,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
       "Delivery outcome is unknown because the run journal could not be read.",
   },
   "zh-CN": {
+    deliveryUnknown:
+      "代理已完成，但响应的交付结果未知。为避免重复交付，未重新发送响应。",
     leaseLost: "自动化调度器失去了执行租约。未完成的工作仍可恢复。",
     missingPrompt:
       "无法读取中断的自动化的原始指令。为避免重复已完成的步骤，恢复已停止。",
@@ -41,6 +46,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
     unreadable: "无法读取运行日志，因此交付结果未知。",
   },
   "zh-TW": {
+    deliveryUnknown:
+      "代理已完成，但回應的交付結果未知。為避免重複交付，未重新傳送回應。",
     leaseLost: "自動化排程器失去了執行租約。未完成的工作仍可復原。",
     missingPrompt:
       "無法讀取中斷的自動化的原始指令。為避免重複已完成的步驟，復原已停止。",
@@ -50,6 +57,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
     unreadable: "無法讀取執行日誌，因此交付結果未知。",
   },
   "es-ES": {
+    deliveryUnknown:
+      "El agente terminó, pero se desconoce si se entregó la respuesta. No se volvió a enviar para evitar una entrega duplicada.",
     leaseLost:
       "El programador de automatizaciones perdió su permiso temporal de ejecución. El trabajo pendiente aún se puede recuperar.",
     missingPrompt:
@@ -63,6 +72,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
       "El resultado de la entrega es desconocido porque no se pudo leer el registro de ejecución.",
   },
   "fr-FR": {
+    deliveryUnknown:
+      "L’agent a terminé, mais la livraison de la réponse est inconnue. La réponse n’a pas été renvoyée afin d’éviter une livraison en double.",
     leaseLost:
       "Le planificateur d’automatisations a perdu son bail d’exécution. Le travail inachevé reste récupérable.",
     missingPrompt:
@@ -76,6 +87,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
       "Le résultat de la livraison est inconnu car le journal d’exécution n’a pas pu être lu.",
   },
   "de-DE": {
+    deliveryUnknown:
+      "Der Agent ist fertig, aber die Zustellung der Antwort ist unbekannt. Die Antwort wurde nicht erneut gesendet, um eine doppelte Zustellung zu vermeiden.",
     leaseLost:
       "Der Automatisierungsplaner hat seine Ausführungsberechtigung verloren. Unvollständige Arbeit kann weiterhin wiederhergestellt werden.",
     missingPrompt:
@@ -90,6 +103,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
       "Das Zustellungsergebnis ist unbekannt, weil das Ausführungsprotokoll nicht gelesen werden konnte.",
   },
   "pt-BR": {
+    deliveryUnknown:
+      "O agente terminou, mas não se sabe se a resposta foi entregue. A resposta não foi reenviada para evitar uma entrega duplicada.",
     leaseLost:
       "O agendador de automações perdeu sua permissão temporária de execução. O trabalho pendente ainda pode ser recuperado.",
     missingPrompt:
@@ -103,6 +118,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
       "O resultado da entrega é desconhecido porque não foi possível ler o registro de execução.",
   },
   "ja-JP": {
+    deliveryUnknown:
+      "エージェントは完了しましたが、応答の配信結果は不明です。重複配信を避けるため、応答は再送していません。",
     leaseLost:
       "自動化スケジューラーの実行リースが失われました。未完了の作業は引き続き復旧できます。",
     missingPrompt:
@@ -114,6 +131,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
     unreadable: "実行ログを読み取れなかったため、配信結果は不明です。",
   },
   "ko-KR": {
+    deliveryUnknown:
+      "에이전트가 작업을 완료했지만 응답 전달 결과는 알 수 없습니다. 중복 전달을 피하기 위해 응답을 다시 보내지 않았습니다.",
     leaseLost:
       "자동화 스케줄러의 실행 임대가 만료되었습니다. 미완료 작업은 계속 복구할 수 있습니다.",
     missingPrompt:
@@ -126,6 +145,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
     unreadable: "실행 기록을 읽을 수 없어 전달 결과를 알 수 없습니다.",
   },
   "hi-IN": {
+    deliveryUnknown:
+      "एजेंट का काम पूरा हो गया, लेकिन उत्तर की डिलीवरी का परिणाम अज्ञात है। दोहरी डिलीवरी से बचने के लिए उत्तर दोबारा नहीं भेजा गया।",
     leaseLost:
       "ऑटोमेशन शेड्यूलर की अस्थायी निष्पादन अनुमति समाप्त हो गई। अधूरा काम अब भी पुनर्प्राप्त किया जा सकता है।",
     missingPrompt:
@@ -137,6 +158,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
     unreadable: "रन जर्नल पढ़ा नहीं जा सका, इसलिए डिलीवरी का परिणाम अज्ञात है।",
   },
   "ar-SA": {
+    deliveryUnknown:
+      "انتهى الوكيل، لكن نتيجة تسليم الرد غير معروفة. لم يُعد إرسال الرد لتجنب التسليم المكرر.",
     leaseLost:
       "فقد مجدول الأتمتة إذن التنفيذ المؤقت. لا يزال العمل غير المكتمل قابلاً للاستعادة.",
     missingPrompt:

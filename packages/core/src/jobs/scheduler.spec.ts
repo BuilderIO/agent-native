@@ -144,7 +144,7 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    getDbExec: getDbExecMock,
+    getDbExec: () => actual.getScopedDbExec() ?? getDbExecMock(),
   };
 });
 
@@ -168,7 +168,12 @@ describe("processRecurringJobs", () => {
     process.env = { ...originalEnv };
     vi.clearAllMocks();
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
-    getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
+    getDbExecMock.mockReturnValue({
+      execute: dbExecuteMock,
+      transaction: async (
+        fn: (tx: { execute: typeof dbExecuteMock }) => Promise<unknown>,
+      ) => fn({ execute: dbExecuteMock }),
+    });
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-1",

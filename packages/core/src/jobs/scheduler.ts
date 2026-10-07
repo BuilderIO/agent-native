@@ -340,9 +340,10 @@ async function processRecurringJobsWithLease(
 
       if (meta.lastStatus === "running") {
         try {
-          const recovery = meta.schedule
-            ? await inspectAutomationRecovery(resource, meta, now, deps.appId)
-            : null;
+          const recovery =
+            meta.lastHistoryId || meta.schedule
+              ? await inspectAutomationRecovery(resource, meta, now, deps.appId)
+              : null;
           if (recovery?.state === "active") continue;
           if (recovery?.state === "resume") {
             dueJobCandidates.push({
@@ -1124,7 +1125,21 @@ async function executeJob(
           jobOrgId,
           deps.appId,
         ));
-  await options.assertCanStart?.();
+  try {
+    await options.assertCanStart?.();
+  } catch (error) {
+    if (historyId && !options.resume)
+      await finishAutomationRun(
+        historyId,
+        "error",
+        error instanceof Error ? error.message : String(error),
+        error instanceof AutomationSchedulerLeaseLostError
+          ? error.errorCode
+          : "background_automation_interrupted",
+        { requirePersisted: true },
+      );
+    throw error;
+  }
   if (!options.resume) {
     meta.lastRun = new Date().toISOString();
     meta.lastHistoryId = historyId;

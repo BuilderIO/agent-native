@@ -531,6 +531,7 @@ export async function insertRun(
     dispatchPayload?: string;
     continuationOrder?: number;
     turnInitiator?: AgentTurnInitiator;
+    afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<void> {
   await ensureRunTables();
@@ -550,7 +551,7 @@ export async function insertRun(
         options.turnInitiator,
       );
     }
-    await db.execute({
+    const inserted = await db.execute({
       sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
       args: [
         id,
@@ -564,8 +565,15 @@ export async function insertRun(
         continuationOrder,
       ],
     });
+    if (options?.afterInsert) {
+      if (Number(inserted.rowsAffected ?? 0) !== 1)
+        throw new Error(`Failed to insert run ${id}`);
+      await options.afterInsert(db);
+    }
   };
   if (!client.transaction) {
+    if (options?.afterInsert)
+      throw new Error("Atomic run insertion requires transaction support");
     if (options?.turnInitiator) {
       throw new Error(
         "Atomic turn initiator binding requires transaction support",
@@ -1080,6 +1088,7 @@ export async function tryClaimRunSlot(
     turnInitiator?: AgentTurnInitiator;
     /** The time-limit stop this run automatically continues. */
     autoContinueOf?: string;
+    afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<{
   claimed: boolean;
@@ -1234,6 +1243,7 @@ export async function tryClaimRunSlot(
     if ((inserted.rowsAffected ?? 0) !== 1) {
       throw new Error(`Failed to insert claimed run ${runId}`);
     }
+    await options?.afterInsert?.(tx);
     return { claimed: true, activeRunId: null };
   });
 }

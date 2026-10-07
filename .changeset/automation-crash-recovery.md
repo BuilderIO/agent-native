@@ -11,3 +11,5 @@ Preserve interrupted firings during temporary identity lookup failures, settle p
 Keep interrupted firings retryable when the scheduler loses its lease during setup, and release any unstarted successor before retrying the same turn.
 
 Synchronize packaged Factory feedback guidance with its canonical skill.
+
+Atomically link and claim automation workers after saving their original instructions, settle lease loss before a firing starts, recover manual firings without schedules, and report uncertain response delivery without resending it.

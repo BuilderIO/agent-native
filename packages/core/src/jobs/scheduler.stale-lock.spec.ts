@@ -116,7 +116,10 @@ vi.mock("../server/onboarding-html.js", () => ({
 
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, getDbExec: getDbExecMock };
+  return {
+    ...actual,
+    getDbExec: () => actual.getScopedDbExec() ?? getDbExecMock(),
+  };
 });
 
 const testEngine = {
@@ -172,7 +175,10 @@ function interruptedScheduledJob(runCount = 1) {
       .mockResolvedValue([]),
     vi
       .spyOn(runStore, "tryClaimRunSlot")
-      .mockResolvedValue({ claimed: true, activeRunId: null }),
+      .mockImplementation(async (_threadId, _runId, _maxStaleMs, options) => {
+        await options?.afterInsert?.({ execute: dbExecuteMock });
+        return { claimed: true, activeRunId: null };
+      }),
   ];
   return {
     resource,
@@ -192,7 +198,12 @@ describe("stale automation run-lock recovery across trigger types", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
-    getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
+    getDbExecMock.mockReturnValue({
+      execute: dbExecuteMock,
+      transaction: async (
+        fn: (tx: { execute: typeof dbExecuteMock }) => Promise<unknown>,
+      ) => fn({ execute: dbExecuteMock }),
+    });
     resourcePutMock.mockResolvedValue(undefined);
     resourcePutIfCurrentMock.mockImplementation(
       async (input: { owner: string; path: string; content: string }) => {
@@ -433,6 +444,89 @@ describe("stale automation run-lock recovery across trigger types", () => {
     } finally {
       start.mockRestore();
       attach.mockRestore();
+    }
+  });
+
+  it("settles a newly opened history when the scheduler lease is lost before its running marker", async () => {
+    const resource = {
+      id: "resource-lease-before-marker",
+      owner: "owner@example.com",
+      path: "jobs/due.md",
+      content:
+        '---\nschedule: "* * * * *"\nenabled: true\nnextRun: 2026-01-01T00:00:00Z\n---\nRun work.',
+    };
+    resourceListAllOwnersMock.mockResolvedValue([resource]);
+    const renewal = vi
+      .spyOn(schedulerHealth, "renewAutomationSchedulerLease")
+      .mockResolvedValue(true);
+    const start = vi
+      .spyOn(runHistory, "startAutomationRun")
+      .mockImplementation(async () => {
+        renewal.mockResolvedValue(false);
+        return "unstarted-firing";
+      });
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledWith(
+        "unstarted-firing",
+        "error",
+        expect.any(String),
+        "automation_scheduler_lease_lost",
+        { requirePersisted: true },
+      );
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(startRunMock).not.toHaveBeenCalled();
+    } finally {
+      renewal.mockRestore();
+      start.mockRestore();
+      finish.mockRestore();
+    }
+  });
+
+  it("resumes an interrupted manual firing without a cron schedule", async () => {
+    const fixture = interruptedScheduledJob();
+    fixture.resource.content = fixture.resource.content.replace(
+      'schedule: "*/2 * * * *"\n',
+      "lastRunManual: true\nlastRunAdvanceSchedule: false\n",
+    );
+    vi.mocked(getThread).mockResolvedValueOnce({
+      id: "thread-1",
+      threadData: JSON.stringify({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Original manual request" }],
+            metadata: { custom: { submittedTurnId: "killed-worker" } },
+          },
+        ],
+      }),
+    } as any);
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(runAgentLoopMock).toHaveBeenCalledOnce();
+      expect(runAgentLoopMock.mock.calls[0]![0]).toMatchObject({
+        threadId: "thread-1",
+        turnId: "killed-worker",
+      });
+      const settled = parseJobResource(
+        resourcePutMock.mock.calls.at(-1)![2],
+      ).meta;
+      expect(settled).toMatchObject({
+        lastStatus: "success",
+        lastRunManual: true,
+        lastRunAdvanceSchedule: false,
+      });
+      expect(settled.schedule).toBe("");
+      expect(settled.nextRun).toBeUndefined();
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
     }
   });
 

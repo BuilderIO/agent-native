@@ -11,6 +11,7 @@ afterAll(async () => {
 type ExecuteInput = string | { sql: string; args?: unknown[] };
 
 const rawClient = {
+  transaction: pglite.transaction,
   execute: vi.fn(async (input: ExecuteInput) => {
     if (typeof input === "string") {
       await pglite.exec(input);
@@ -28,7 +29,7 @@ const rawClient = {
 
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, getDbExec: () => rawClient };
+  return { ...actual, getDbExec: () => actual.getScopedDbExec() ?? rawClient };
 });
 
 interface StoredResource {

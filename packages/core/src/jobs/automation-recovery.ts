@@ -174,6 +174,23 @@ export async function inspectAutomationRecovery(
   const ref = await getRunTurnRef(run.id);
   if (!ref || ref.threadId !== history.threadId)
     throw new Error(`Automation worker ${run.id} has no matching turn`);
+  if (history.finishedAt === null && run.status === "completed") {
+    const events = await getCurrentTurnEventsForThread(
+      ref.threadId,
+      ref.turnId,
+    );
+    return {
+      state: "settle",
+      status: "error",
+      history,
+      error: automationDeliveryNote(
+        automationRecoveryMessagesForLocale().deliveryUnknown,
+        events,
+      ),
+      errorCode: "background_automation_delivery_unknown",
+      deliveryNote: deliveryNoteForEvents(events),
+    };
+  }
   const hardDeadlineAt = lastRun + resolveBackgroundRunHardTimeoutMs();
   if (
     meta.lastHistoryId &&

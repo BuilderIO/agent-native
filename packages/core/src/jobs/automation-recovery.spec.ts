@@ -117,6 +117,30 @@ describe("automation worker recovery", () => {
     expect(mocks.reap).toHaveBeenCalledWith("job-1");
   });
 
+  it("reports completed response delivery as unknown without replaying the turn", async () => {
+    mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+    const result = await inspectAutomationRecovery(
+      resource,
+      { ...meta, deliveryDestination: "test-destination" },
+      now,
+    );
+    expect(result).toMatchObject({
+      state: "settle",
+      status: "error",
+      errorCode: "background_automation_delivery_unknown",
+    });
+    expect(result?.state === "settle" && result.error).toContain(
+      "response delivery is unknown",
+    );
+    expect(result?.state === "settle" && result.error).toContain(
+      "send-test-email",
+    );
+    expect(result?.state === "settle" && result.error).not.toContain(
+      "Worker stopped",
+    );
+    expect(mocks.count).not.toHaveBeenCalled();
+  });
+
   it("leaves a worker with a live heartbeat alone", async () => {
     mocks.reap.mockResolvedValue(false);
     mocks.get.mockResolvedValue({ id: "job-1", status: "running" });

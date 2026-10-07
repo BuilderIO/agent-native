@@ -9,6 +9,7 @@ afterAll(async () => {
 });
 
 const rawClient = {
+  transaction: pglite.transaction,
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
       await pglite.exec(input);
@@ -26,7 +27,7 @@ const rawClient = {
 
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, getDbExec: () => rawClient };
+  return { ...actual, getDbExec: () => actual.getScopedDbExec() ?? rawClient };
 });
 
 const getThreadMock = vi.hoisted(() =>
@@ -1148,6 +1149,44 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
 });
 
 describe("runBackgroundAutomation — a failed run reports its own cause", () => {
+  it("saves the original prompt and attaches history before the worker claim", async () => {
+    const history = await import("./run-history.js");
+    const { getDbExec } = await import("../db/client.js");
+    const originalAttach = history.attachAutomationRunThread;
+    const historyId = await history.startAutomationRun({
+      owner: "alice@agent-native.test",
+      automation: "linked-admission",
+      path: "jobs/linked-admission.md",
+    });
+    updateThreadDataMock.mockClear();
+    const attach = vi
+      .spyOn(history, "attachAutomationRunThread")
+      .mockImplementation(async (historyId, threadId, runId, options) => {
+        expect(updateThreadDataMock).toHaveBeenCalled();
+        expect(JSON.stringify(updateThreadDataMock.mock.calls[0])).toContain(
+          "Original admission request",
+        );
+        const worker = await getDbExec().execute({
+          sql: "SELECT dispatch_mode FROM agent_runs WHERE id = ?",
+          args: [runId],
+        });
+        expect(worker.rows[0]?.dispatch_mode).toBe("background");
+        await originalAttach(historyId, threadId, runId, options);
+      });
+    try {
+      await runBackgroundAutomation(
+        runOptions(precondition("linked-admission"), {
+          historyId,
+          prompt: "Original admission request",
+        }),
+        standardDeps,
+      );
+      expect(attach).toHaveBeenCalledOnce();
+    } finally {
+      attach.mockRestore();
+    }
+  });
+
   it.each(["before claim", "after claim"])(
     "leaves a resumed firing retryable after lease loss %s",
     async (stage) => {
@@ -1185,6 +1224,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
           async (claimedThreadId, runId, _maxStaleMs, options) => {
             await runStore.insertRun(runId, claimedThreadId, options!.turnId!, {
               dispatchMode: "background",
+              afterInsert: options!.afterInsert,
             });
             return { claimed: true, activeRunId: null };
           },
