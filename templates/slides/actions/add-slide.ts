@@ -26,7 +26,10 @@ import {
   deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
-import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
+import {
+  generationTimingFields,
+  noteGenerationFirstOutput,
+} from "../server/lib/generation-completion.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import {
   createLayoutFitRevision,
@@ -622,16 +625,7 @@ export default defineAction({
             slide_count: slides.length,
             generation_mode: "incremental",
             outcome: "completed",
-            ...(generationStartedAt !== undefined
-              ? {
-                  started_at_ms: generationStartedAt,
-                  ended_at_ms: generationEndedAt,
-                  duration_ms: Math.max(
-                    0,
-                    generationEndedAt - generationStartedAt,
-                  ),
-                }
-              : { ended_at_ms: generationEndedAt }),
+            ...generationTimingFields(generationStartedAt, generationEndedAt),
             source: "add_slide_action",
           },
           ctx,

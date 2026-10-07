@@ -342,6 +342,28 @@ describe("add-slide", () => {
       });
     });
 
+    it("marks a skewed run completion instead of clamping duration", async () => {
+      await writeFirstSlide("turn-skew", "run-skew");
+      vi.spyOn(Date, "now").mockReturnValue(50);
+
+      try {
+        await trackGenerationCompletedForRun(
+          { runId: "run-skew", turnId: "turn-skew", status: "completed" },
+          finished,
+          async () => 2,
+        );
+      } finally {
+        vi.restoreAllMocks();
+      }
+
+      expect(reported()[0]?.[1]).toMatchObject({
+        started_at_ms: 100,
+        ended_at_ms: 50,
+        duration_error: "clock_skew",
+      });
+      expect(reported()[0]?.[1]).not.toHaveProperty("duration_ms");
+    });
+
     it("keeps waiting when an errored chunk chains a continuation, and drops the turn if that fails", async () => {
       await writeFirstSlide("turn-retry", "run-chunk-1");
 
@@ -456,6 +478,7 @@ describe("add-slide", () => {
   it("closes an incremental generation on its final slide", async () => {
     deckData.generationContext = {
       generationAttemptId: "attempt-1",
+      generationStartedAt: 100,
       generationMode: "action",
     };
 
@@ -476,7 +499,40 @@ describe("add-slide", () => {
       slide_count: 3,
       generation_mode: "incremental",
       source: "add_slide_action",
+      started_at_ms: 100,
+      ended_at_ms: expect.any(Number),
+      duration_ms: expect.any(Number),
     });
+  });
+
+  it("marks a skewed incremental completion instead of clamping duration", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationStartedAt: 100,
+      generationMode: "action",
+    };
+    vi.spyOn(Date, "now").mockReturnValue(50);
+
+    try {
+      await action.run({
+        deckId: "deck-1",
+        slideId: "slide-final",
+        content: "<div>Final</div>",
+        generationComplete: true,
+      });
+    } finally {
+      vi.restoreAllMocks();
+    }
+
+    const completed = mockTrack.mock.calls.find(
+      ([name]) => name === "generation_completed",
+    );
+    expect(completed?.[1]).toMatchObject({
+      started_at_ms: 100,
+      ended_at_ms: 50,
+      duration_error: "clock_skew",
+    });
+    expect(completed?.[1]).not.toHaveProperty("duration_ms");
   });
 
   it("requires an explicit completion flag for each action-owned incremental write", async () => {
