@@ -8,6 +8,7 @@ import {
   getOverviewScreenExportGeometryById,
   elementInfoForSelectionSnapshot,
   getOverviewScreenContentKey,
+  explicitOverviewScreenSelectionForHistory,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
   isUserOriginatedSelectionIntent,
@@ -20,6 +21,7 @@ import {
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
+  updateExplicitOverviewScreenSelection,
 } from "./selection-state";
 
 describe("overview screen export geometry", () => {
@@ -162,6 +164,62 @@ describe("overviewScreenSelectionForPendingEcho", () => {
         screenFileIds: new Set(["screen-1", "screen-2"]),
       }),
     ).toEqual(["screen-1"]);
+  });
+});
+
+describe("explicit overview screen selection provenance", () => {
+  it("does not promote a child layer's owner Screen when Shift adds another Screen", () => {
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: [],
+        selectedScreenIds: ["owner-screen", "picked-screen"],
+        currentExplicitScreenIds: [],
+        ownerDerivedScreenIds: new Set(["owner-screen"]),
+        additive: true,
+      }),
+    ).toEqual(["picked-screen"]);
+  });
+
+  it("treats a replacement selection as explicit even for the prior layer owner", () => {
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: ["owner-screen"],
+        selectedScreenIds: ["owner-screen", "picked-screen"],
+        currentExplicitScreenIds: [],
+        ownerDerivedScreenIds: new Set(["owner-screen"]),
+        additive: false,
+      }),
+    ).toEqual(["owner-screen", "picked-screen"]);
+  });
+
+  it("restores explicit Screen provenance alongside a child layer selection", () => {
+    expect(
+      explicitOverviewScreenSelectionForHistory({
+        selection: makeSelection({
+          overviewSelectedScreenIds: ["owner-screen", "picked-screen"],
+          selectedLayerIds: ["child-layer", "picked-screen"],
+          explicitOverviewScreenIds: ["picked-screen"],
+        }),
+        screenFileIds: new Set(["owner-screen", "picked-screen"]),
+      }),
+    ).toEqual(["picked-screen"]);
+  });
+
+  it("treats snapshots with different explicit Screen targets as different selections", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({
+          overviewSelectedScreenIds: ["owner-screen", "picked-screen"],
+          selectedLayerIds: ["child-layer", "picked-screen"],
+          explicitOverviewScreenIds: ["picked-screen"],
+        }),
+        makeSelection({
+          overviewSelectedScreenIds: ["owner-screen", "picked-screen"],
+          selectedLayerIds: ["child-layer", "picked-screen"],
+          explicitOverviewScreenIds: [],
+        }),
+      ),
+    ).toBe(false);
   });
 });
 

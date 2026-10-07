@@ -215,6 +215,56 @@ test("deleting a selected child layer keeps its owning Screen", async ({
   }
 });
 
+test("undo restores a child layer with its additive Screen selection", async ({
+  page,
+}) => {
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const cards = page.locator("[data-screen-card]");
+    await expect(cards).toHaveCount(3);
+
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    await expect(blueBoxButton).toHaveCount(1);
+    const blueBoxId = await blueBoxButton.getAttribute("data-layer-node-id");
+    expect(blueBoxId).toBeTruthy();
+    await blueBoxButton.click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+
+    const secondId = await fileIdByFilename(page, id, "second.html");
+    const secondFrameTitle = page.locator(
+      `[data-frame-id="${secondId}"] [data-frame-title]`,
+    );
+    await expect(secondFrameTitle).toHaveText("Second");
+    await secondFrameTitle.click({ modifiers: ["Shift"] });
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+
+    const indigoBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Indigo Box" });
+    await expect(indigoBoxButton).toHaveCount(1);
+    const indigoBoxId =
+      await indigoBoxButton.getAttribute("data-layer-node-id");
+    expect(indigoBoxId).toBeTruthy();
+    await indigoBoxButton.click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([indigoBoxId]);
+
+    await page.keyboard.press(UNDO);
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Second")).toHaveCount(0, { timeout: 10_000 });
+    await expect(layerRow(page, "Home")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 test("marquee selection persists and deletes Screens after a prior layer selection", async ({
   page,
 }) => {

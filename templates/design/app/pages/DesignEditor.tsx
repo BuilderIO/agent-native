@@ -1176,11 +1176,13 @@ import {
   resolveEffectiveSelectedLayerIds,
   resolveMarqueeAdditive,
   sameStringIds,
+  explicitOverviewScreenSelectionForHistory,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldLimitEditorChromeUntilContentReady,
   shouldUseOverviewRuntimeReplacement,
+  updateExplicitOverviewScreenSelection,
 } from "./design-editor/selection-state";
 import {
   resolveSourceBaseForPublication,
@@ -2982,6 +2984,9 @@ function DesignEditor() {
         overviewSelectedScreenIds: [...overviewSelectedScreenIdsRef.current],
         selectedLayerIds: [...selectedLayerIdsStateRef.current],
         activeFileId: activeFileIdForUndoRef.current,
+        explicitOverviewScreenIds: [
+          ...explicitOverviewScreenSelectionRef.current,
+        ],
       },
       codeLayerOwnerByNodeIdRef.current,
       (screenId) => historySourceReaderRef.current(screenId),
@@ -2999,13 +3004,8 @@ function DesignEditor() {
       const screenFileIds = new Set(
         getOverviewScreenFileIds(historyFilesRef.current),
       );
-      const restoresChildLayerSelection = selection.selectedLayerIds.some(
-        (layerId) =>
-          layerId && !layerId.startsWith("__") && !screenFileIds.has(layerId),
-      );
-      explicitOverviewScreenSelectionRef.current = restoresChildLayerSelection
-        ? []
-        : [...selection.overviewSelectedScreenIds];
+      explicitOverviewScreenSelectionRef.current =
+        explicitOverviewScreenSelectionForHistory({ selection, screenFileIds });
       const restoredLayerId =
         selection.selectedLayerIds.length === 1
           ? selection.selectedLayerIds[0]
@@ -11250,7 +11250,20 @@ function DesignEditor() {
         clearPendingOverviewLayerSelectionTimer();
         setCreatedOverviewLayerSelection(null);
       }
-      explicitOverviewScreenSelectionRef.current = nextIds;
+      const ownerDerivedScreenIds = new Set(
+        selectedLayerIdsStateRef.current.flatMap((layerId) => {
+          const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+          return owner ? [owner.fileId] : [];
+        }),
+      );
+      explicitOverviewScreenSelectionRef.current =
+        updateExplicitOverviewScreenSelection({
+          previousSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+          selectedScreenIds: nextIds,
+          currentExplicitScreenIds: explicitOverviewScreenSelectionRef.current,
+          ownerDerivedScreenIds,
+          additive: shiftKeyHeldRef.current,
+        });
       setOverviewSelectedScreenIds((current) =>
         sameStringIds(current, nextIds) ? current : nextIds,
       );
@@ -24231,8 +24244,8 @@ function DesignEditor() {
         range: boolean;
       },
     ) => {
-      explicitOverviewScreenSelectionRef.current = [];
       recordSelectionHistoryAroundChange(() => {
+        explicitOverviewScreenSelectionRef.current = [];
         const effectiveIds = runLayerSelectionChange(
           {
             applyFileContentUpdate,
@@ -24289,6 +24302,9 @@ function DesignEditor() {
       intent: ElementSelectionIntent,
     ) => {
       recordMarqueeSelectionHistoryAroundChange(() => {
+        if (!intent.cancelled && intent.source !== "marquee") {
+          explicitOverviewScreenSelectionRef.current = [];
+        }
         runLayerMarqueeSelectionChange(
           {
             clearPendingOverviewLayerSelectionTimer,
@@ -24328,9 +24344,6 @@ function DesignEditor() {
       infos: ElementInfo[],
       intent?: ElementSelectionIntent,
     ) => {
-      if (!intent?.cancelled) {
-        explicitOverviewScreenSelectionRef.current = [];
-      }
       handleLayerMarqueeSelectionChange(
         infos.map((info) => ({ screenId, info })),
         {
@@ -25531,8 +25544,9 @@ function DesignEditor() {
       // (design-editor/selection-state.ts) for the full race this closes:
       // MultiScreenCanvas's shift-click toggle can't report its full
       // multi-id array through the single-id onPick signature, so a
-      // shift-held pick must leave the current selection alone rather than
-      // clobber it to a wrong singleton.
+      // shift-held pick must leave screen-selection provenance to
+      // handleOverviewScreenSelectionChange rather than treating the new
+      // primary screen as the toggled screen.
       if (!shiftKeyHeldRef.current) {
         setOverviewSelectedScreenIds([pickedId]);
       }
