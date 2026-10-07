@@ -2927,6 +2927,7 @@ function DesignEditor() {
   const selectedLayerIdsStateRef = useRef<string[]>([]);
   const overviewSelectedScreenIdsRef = useRef<string[]>([]);
   const explicitOverviewScreenSelectionRef = useRef<string[]>([]);
+  const selectionRevisionRef = useRef(0);
   const fileCreationUndoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const fileCreationRedoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const pendingFileCreationHistoryEntriesRef = useRef<
@@ -11281,6 +11282,9 @@ function DesignEditor() {
         }
         return;
       }
+      if (!sameStringIds(overviewSelectedScreenIdsRef.current, nextIds)) {
+        selectionRevisionRef.current += 1;
+      }
       if (pendingId) {
         pendingOverviewScreenSelectionRef.current = null;
         pendingOverviewLayerSelectionRef.current = null;
@@ -12023,6 +12027,7 @@ function DesignEditor() {
         run();
         return;
       }
+      selectionRevisionRef.current += 1;
       recordSelectionHistoryAroundChange(run);
     },
     [
@@ -12061,6 +12066,7 @@ function DesignEditor() {
       if (shouldPreserveBlockedOverviewLayerSelectionRef.current(screenId)) {
         return;
       }
+      selectionRevisionRef.current += 1;
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
@@ -17017,6 +17023,7 @@ function DesignEditor() {
           localContentUndoStackRef,
           queryClient,
           redoOrderRef: redoOrderRef as React.RefObject<UndoRedoOrderKind[]>,
+          selectionRevisionRef,
           overviewSelectedScreenIds,
           selectedElement,
           selectedLayerIdsState,
@@ -17135,10 +17142,12 @@ function DesignEditor() {
       const explicitScreenIds = explicitScreenDeletion
         ? boundedFilesToDelete.map((file) => file.id)
         : explicitlySelectedFiles.map((file) => file.id);
+      const selectionRevisionAtStart = selectionRevisionRef.current;
       explicitOverviewScreenSelectionRef.current = [];
       performDeleteFiles(boundedFilesToDelete, {
         recordDeletionHistory: true,
         onMutationSettled: (deletedFiles) => {
+          if (selectionRevisionRef.current !== selectionRevisionAtStart) return;
           const deletedIds = new Set(deletedFiles.map((file) => file.id));
           explicitOverviewScreenSelectionRef.current = explicitScreenIds.filter(
             (fileId) => !deletedIds.has(fileId),
@@ -24313,6 +24322,9 @@ function DesignEditor() {
         range: boolean;
       },
     ) => {
+      if (!sameStringIds(selectedLayerIdsStateRef.current, ids)) {
+        selectionRevisionRef.current += 1;
+      }
       recordSelectionHistoryAroundChange(() => {
         explicitOverviewScreenSelectionRef.current = [];
         const effectiveIds = runLayerSelectionChange(
@@ -24371,6 +24383,7 @@ function DesignEditor() {
       intent: ElementSelectionIntent,
       options: { clearExplicitScreenSelection?: boolean } = {},
     ) => {
+      if (!intent.cancelled) selectionRevisionRef.current += 1;
       recordMarqueeSelectionHistoryAroundChange(() => {
         if (
           !intent.cancelled &&

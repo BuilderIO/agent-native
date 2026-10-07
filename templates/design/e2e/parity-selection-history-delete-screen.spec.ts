@@ -454,6 +454,88 @@ test("failed Screen deletion keeps the explicit Screen target for retry", async 
   }
 });
 
+// oracle: none — this checks async selection settlement, not Figma behavior.
+test("a newer layer selection survives failed Screen deletion settlement", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).__DESIGN_TRACE = true;
+  });
+
+  const id = await newThreeScreenDesign(page);
+  const deleteTargets: string[][] = [];
+  let releaseFirstDelete: () => void = () => {};
+  const firstDeleteGate = new Promise<void>((resolve) => {
+    releaseFirstDelete = resolve;
+  });
+  let signalFirstDelete: () => void = () => {};
+  const firstDeleteSeen = new Promise<void>((resolve) => {
+    signalFirstDelete = resolve;
+  });
+
+  try {
+    await openEditor(page, id);
+    const secondId = await fileIdByFilename(page, id, "second.html");
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    const blueBoxId = await blueBoxButton.getAttribute("data-layer-node-id");
+    expect(blueBoxId).toBeTruthy();
+    await blueBoxButton.click();
+    await expect(
+      blueBoxButton.locator("xpath=ancestor::*[@role='treeitem'][1]"),
+    ).toHaveAttribute("aria-selected", "true");
+
+    const greenBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Green Box" });
+    const greenBoxId = await greenBoxButton.getAttribute("data-layer-node-id");
+    expect(greenBoxId).toBeTruthy();
+    const greenBoxRow = greenBoxButton.locator(
+      "xpath=ancestor::*[@role='treeitem'][1]",
+    );
+    await page.route("**/_agent-native/actions/delete-file", async (route) => {
+      const body = route.request().postDataJSON() as {
+        id?: string;
+        fileIds?: string[];
+      };
+      deleteTargets.push(body.fileIds ?? (body.id ? [body.id] : []));
+      if (deleteTargets.length === 1) {
+        signalFirstDelete();
+        await firstDeleteGate;
+        await route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "intentional E2E route failure" }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    const secondFrameTitle = page.locator(
+      `[data-frame-id="${secondId}"] [data-frame-title]`,
+    );
+    await secondFrameTitle.click({ modifiers: ["Shift"] });
+    await page.keyboard.press("Delete");
+    await firstDeleteSeen;
+
+    await greenBoxButton.click();
+    await expect(greenBoxRow).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([greenBoxId]);
+    releaseFirstDelete();
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect(greenBoxRow).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([greenBoxId]);
+    expect(deleteTargets).toEqual([[secondId]]);
+  } finally {
+    releaseFirstDelete();
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 // oracle: none — this checks app selection behavior, not a Figma observation.
 test("marquee selection persists and deletes Screens after a prior layer selection", async ({
   page,
