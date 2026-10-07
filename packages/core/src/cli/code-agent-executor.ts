@@ -59,6 +59,7 @@ import {
   getAmbientUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -2356,19 +2357,19 @@ function buildCodeAgentMessages(
 
   for (const att of attachments ?? []) {
     if (!att.dataUrl) continue;
-    const match = att.dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/i);
-    if (!match) continue;
-    const mime = normalizeImageMediaType(match[1]);
+    const parsed = parseBase64DataUrl(att.dataUrl);
+    if (!parsed) continue;
+    const mime = normalizeImageMediaType(parsed.mediaType);
     if (mime) {
       imageParts.push({
         type: "image",
-        data: match[2],
+        data: parsed.data,
         mediaType: mime,
       });
     } else {
       const label = att.name ? `"${att.name}"` : "An image";
       unsupportedImageNotes.push(
-        `[${label} could not be processed — unsupported image format (${match[1]}). ` +
+        `[${label} could not be processed — unsupported image format (${parsed.mediaType}). ` +
           `Only JPEG, PNG, GIF, and WebP are supported.]`,
       );
     }

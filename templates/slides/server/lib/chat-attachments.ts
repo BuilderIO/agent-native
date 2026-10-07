@@ -11,6 +11,7 @@ import {
   getRequestRunContext,
   type AgentChatAttachment,
 } from "@agent-native/core/server";
+import { parseBase64DataUrl } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 
 import {
@@ -134,11 +135,11 @@ function decodeDataUrl(data: string | undefined): {
   bytes: Buffer;
   contentType: string;
 } | null {
-  const match = data?.match(/^data:([^;,]+);base64,(.*)$/s);
-  if (!match) return null;
+  const parsed = data ? parseBase64DataUrl(data) : null;
+  if (!parsed) return null;
   return {
-    contentType: match[1] || "application/octet-stream",
-    bytes: Buffer.from(match[2], "base64"),
+    contentType: parsed.mediaType,
+    bytes: Buffer.from(parsed.data, "base64"),
   };
 }
 

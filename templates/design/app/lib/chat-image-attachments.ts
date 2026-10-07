@@ -7,8 +7,6 @@ const CHAT_IMAGE_ATTACHMENT_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
-const CHAT_IMAGE_DATA_URL =
-  /^data:image\/(?:gif|jpe?g|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/i;
 
 export interface VisualImageAttachment {
   type?: string;
@@ -51,7 +49,7 @@ export function imageAttachmentsFromUploadedFiles(
   const images: string[] = [];
   for (const file of imageFiles) {
     const image = file.dataUrl?.trim();
-    if (!image || !CHAT_IMAGE_DATA_URL.test(image)) {
+    if (!image || !imageContentFromDataUrl(image)) {
       throw new MissingVisualImagePayloadError();
     }
     images.push(image);

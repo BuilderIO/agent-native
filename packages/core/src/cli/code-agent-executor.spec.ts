@@ -160,7 +160,7 @@ describe("executeCodeAgentRun", () => {
       attachments: [
         {
           name: "screen.jpg",
-          dataUrl: `data:image/jpg;base64,${JPEG_BASE64}`,
+          dataUrl: `data:IMAGE/JPG;charset=binary;base64,${JPEG_BASE64}`,
         },
       ],
       engine,
