@@ -85,7 +85,7 @@ export default {
     visibilityPrivateOnly: "मेरे",
     visibilitySharedOnly: "साझा",
     visibilityAllDescription: "सभी आइटम दिखाएं",
-    visibilityPrivateOnlyDescription: "केवल आपको दिखाई देने वाले आइटम दिखाएं",
+    visibilityPrivateOnlyDescription: "आपके बनाए आइटम दिखाएं",
     visibilitySharedOnlyDescription: "संगठन से साझा और सार्वजनिक आइटम दिखाएं",
     hiddenAnalyses: "छिपे हुए विश्लेषण",
     shareWithOrg: "संगठन से साझा करें",

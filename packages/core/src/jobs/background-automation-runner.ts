@@ -872,6 +872,19 @@ async function resolveUsableBackgroundEngine(
   return engine;
 }
 
+async function resolveBackgroundAutomationModel(
+  engine: AgentEngine,
+  automationModel: string | undefined,
+  deps: BackgroundAutomationDeps,
+): Promise<string> {
+  const modelCandidate =
+    automationModel ??
+    deps.model ??
+    (await getStoredModelForEngine(engine, { appId: deps.appId })) ??
+    engine.defaultModel;
+  return normalizeModelForEngine(engine, modelCandidate);
+}
+
 /**
  * Whether the automation's run identity has a usable LLM credential right now,
  * without starting a run. The scheduler asks this to resume an automation it
@@ -880,13 +893,29 @@ async function resolveUsableBackgroundEngine(
 export async function checkBackgroundAutomationCredentials(
   identity: { ownerEmail: string; orgId?: string },
   deps: BackgroundAutomationDeps,
-): Promise<{ ok: true } | { ok: false; failure: AutomationFailure }> {
+  automationModel?: string,
+): Promise<
+  | { ok: true; engine: AgentEngine; model: string }
+  | { ok: false; failure: AutomationFailure }
+> {
   try {
-    await runWithRequestContext(
+    const { engine, model } = await runWithRequestContext(
       { userEmail: identity.ownerEmail, orgId: identity.orgId },
-      () => resolveUsableBackgroundEngine(identity, deps, () => undefined),
+      async () => {
+        const engine = await resolveUsableBackgroundEngine(
+          identity,
+          deps,
+          () => undefined,
+        );
+        const model = await resolveBackgroundAutomationModel(
+          engine,
+          automationModel,
+          deps,
+        );
+        return { engine, model };
+      },
     );
-    return { ok: true };
+    return { ok: true, engine, model };
   } catch (error) {
     return { ok: false, failure: classifyAutomationFailure(error) };
   }
@@ -934,12 +963,11 @@ async function executeBackgroundAutomation(
         () => assertHardDeadline(options.hardDeadlineAt),
       );
       assertHardDeadline(options.hardDeadlineAt);
-      const modelCandidate =
-        automation.meta.model ??
-        deps.model ??
-        (await getStoredModelForEngine(engine, { appId: deps.appId })) ??
-        engine.defaultModel;
-      const model = normalizeModelForEngine(engine, modelCandidate);
+      const model = await resolveBackgroundAutomationModel(
+        engine,
+        automation.meta.model,
+        deps,
+      );
       assertHardDeadline(options.hardDeadlineAt);
       const systemPrompt = await deps.getSystemPrompt(ownerEmail);
       assertHardDeadline(options.hardDeadlineAt);

@@ -59,8 +59,19 @@ import {
   WIREFRAME_REFERENCE_MD,
 } from "./skills-content/index.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
+import { allTemplateNames } from "./templates-meta.js";
 import {
-  linkDefaultWorkspaceSkills,
+  CLIPS_TEMPLATE_SHARED_SKILLS,
+  CHAT_STARTER_SKILLS,
+  DEFAULT_TEMPLATE_SHARED_SKILLS,
+  DISPATCH_TEMPLATE_SHARED_SKILLS,
+  DOMAIN_TEMPLATE_SHARED_SKILLS,
+  FACTORY_TEMPLATE_SHARED_SKILLS,
+  HEADLESS_TEMPLATE_SHARED_SKILLS,
+  WORKSPACE_SKILLS,
+} from "./workspace-skill-policy.js";
+import {
+  linkWorkspaceSkills,
   removeCopiedFrameworkSkills,
 } from "./workspacify.js";
 
@@ -763,9 +774,11 @@ interface SkillInstallState {
 interface ScaffoldGuidanceState {
   kind: "workspace-core" | "standalone";
   displayName: string;
-  templateName: "workspace-core" | "headless" | "default";
+  templateName: "workspace-core" | "headless" | "default" | "chat";
   path: string;
   sourcePath: string;
+  additionalSourcePaths?: string[];
+  allowedSkills: readonly string[];
   projectRoot: string;
   workspaceRoot?: string;
   sharedPackageDir?: string;
@@ -1750,9 +1763,7 @@ function corePackageRootDir(): string {
   return path.resolve(here, "../..");
 }
 
-function bundledScaffoldSkillsDir(
-  templateName: ScaffoldGuidanceState["templateName"],
-): string {
+function bundledScaffoldSkillsDir(templateName: string): string {
   return path.join(
     corePackageRootDir(),
     "src",
@@ -1813,9 +1824,16 @@ function hasAgentNativeCoreDependency(
   return false;
 }
 
+interface ScaffoldGuidancePolicy {
+  templateName: string;
+  sourceTemplate: ScaffoldGuidanceState["templateName"];
+  additionalSourceTemplates?: readonly string[];
+  skills: readonly string[];
+}
+
 function markedScaffoldGuidanceTemplate(
   pkg: Record<string, unknown> | undefined,
-): "headless" | "default" | undefined {
+): ScaffoldGuidancePolicy | undefined {
   const agentNative = pkg?.["agent-native"];
   if (
     !agentNative ||
@@ -1828,10 +1846,65 @@ function markedScaffoldGuidanceTemplate(
   if (!scaffold || typeof scaffold !== "object" || Array.isArray(scaffold)) {
     return undefined;
   }
-  const frameworkSkills = (scaffold as Record<string, unknown>).frameworkSkills;
-  return frameworkSkills === "headless" || frameworkSkills === "default"
-    ? frameworkSkills
-    : undefined;
+  const scaffoldData = scaffold as Record<string, unknown>;
+  const templateName =
+    typeof scaffoldData.template === "string" ? scaffoldData.template : "";
+  const frameworkSkills = scaffoldData.frameworkSkills;
+  if (
+    frameworkSkills === "headless" &&
+    (templateName === "headless" || templateName === "blank")
+  ) {
+    return {
+      templateName,
+      sourceTemplate: "headless",
+      skills: HEADLESS_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  if (frameworkSkills !== "default") return undefined;
+  if (templateName === "chat") {
+    return {
+      templateName,
+      sourceTemplate: "chat",
+      skills: CHAT_STARTER_SKILLS,
+    };
+  }
+  if (templateName === "dispatch") {
+    return {
+      templateName,
+      sourceTemplate: "workspace-core",
+      skills: DISPATCH_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  if (templateName === "factory") {
+    return {
+      templateName,
+      sourceTemplate: "workspace-core",
+      additionalSourceTemplates: ["factory"],
+      skills: FACTORY_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  if (templateName === "clips") {
+    return {
+      templateName,
+      sourceTemplate: "workspace-core",
+      skills: CLIPS_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  if (allTemplateNames().includes(templateName)) {
+    return {
+      templateName,
+      sourceTemplate: "workspace-core",
+      skills: DOMAIN_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  if (templateName === "default" || !templateName) {
+    return {
+      templateName: "default",
+      sourceTemplate: "default",
+      skills: DEFAULT_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  return undefined;
 }
 
 function findWorkspaceCorePackageDir(
@@ -1879,9 +1952,9 @@ function findGeneratedWorkspace(startDir: string):
   return undefined;
 }
 
-function detectStandaloneScaffoldTemplate(
+function detectStandaloneScaffoldPolicy(
   projectRoot: string,
-): "headless" | "default" | undefined {
+): ScaffoldGuidancePolicy | undefined {
   const pkg = readPackageJson(projectRoot);
   if (!hasAgentNativeCoreDependency(pkg)) return undefined;
   if (!fs.existsSync(path.join(projectRoot, ".agents", "skills"))) {
@@ -1895,22 +1968,60 @@ function detectStandaloneScaffoldTemplate(
   const hasHeadlessHello = fs.existsSync(
     path.join(projectRoot, "actions", "hello.ts"),
   );
-  if (!hasAppDir && hasHeadlessHello) return "headless";
+  if (!hasAppDir && hasHeadlessHello) {
+    return {
+      templateName: "headless",
+      sourceTemplate: "headless",
+      skills: HEADLESS_TEMPLATE_SHARED_SKILLS,
+    };
+  }
 
   const looksLikeDefaultTemplate =
     fs.existsSync(path.join(projectRoot, "app", "routes", "database.tsx")) &&
     fs.existsSync(path.join(projectRoot, "app", "routes", "_index.tsx")) &&
     fs.existsSync(path.join(projectRoot, "actions", "view-screen.ts"));
-  return looksLikeDefaultTemplate ? "default" : undefined;
+  return looksLikeDefaultTemplate
+    ? {
+        templateName: "default",
+        sourceTemplate: "default",
+        skills: DEFAULT_TEMPLATE_SHARED_SKILLS,
+      }
+    : undefined;
 }
 
 function listImmediateSkillDirs(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => {
+      if (entry.isDirectory()) return true;
+      if (!entry.isSymbolicLink()) return false;
+      return fs.statSync(path.join(dir, entry.name)).isDirectory();
+    })
     .map((entry) => entry.name)
     .sort();
+}
+
+function scaffoldSkillSourcesToSync(
+  sourceRoots: readonly string[],
+  allowedSkills: readonly string[],
+): Array<{ skill: string; sourceRoot: string }> {
+  const allowed = new Set(allowedSkills);
+  const sources = new Map<string, string>();
+  for (const sourceRoot of sourceRoots) {
+    for (const skill of listImmediateSkillDirs(sourceRoot)) {
+      if (allowed.has(skill) && !sources.has(skill)) {
+        sources.set(skill, sourceRoot);
+      }
+    }
+  }
+  return [...sources]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([skill, sourceRoot]) => ({ skill, sourceRoot }));
+}
+
+function existingScaffoldSkillNames(targetRoot: string): Set<string> {
+  return new Set(listImmediateSkillDirs(targetRoot));
 }
 
 function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
@@ -1926,12 +2037,15 @@ function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
 }
 
 function scaffoldGuidanceCurrent(
-  sourceRoot: string,
+  sourceRoots: readonly string[],
   targetRoot: string,
+  allowedSkills: readonly string[],
 ): boolean {
-  const skills = listImmediateSkillDirs(sourceRoot);
-  if (skills.length === 0) return false;
-  return skills.every((skill) =>
+  const existing = existingScaffoldSkillNames(targetRoot);
+  const skills = scaffoldSkillSourcesToSync(sourceRoots, allowedSkills).filter(
+    ({ skill }) => existing.has(skill),
+  );
+  return skills.every(({ skill, sourceRoot }) =>
     skillDirContentsMatch(
       path.join(sourceRoot, skill),
       path.join(targetRoot, skill),
@@ -1950,6 +2064,7 @@ function collectScaffoldGuidanceStates(
   const workspace = findGeneratedWorkspace(baseDir);
   if (workspace) {
     const sourcePath = bundledScaffoldSkillsDir("workspace-core");
+    const sourcePaths = [sourcePath];
     const targetPath = path.join(
       workspace.sharedPackageDir,
       ".agents",
@@ -1963,40 +2078,67 @@ function collectScaffoldGuidanceStates(
         templateName: "workspace-core",
         path: targetPath,
         sourcePath,
+        additionalSourcePaths: [],
+        allowedSkills: WORKSPACE_SKILLS,
         projectRoot: workspace.workspaceRoot,
         workspaceRoot: workspace.workspaceRoot,
         sharedPackageDir: workspace.sharedPackageDir,
-        current: scaffoldGuidanceCurrent(sourcePath, targetPath),
-        skillCount: listImmediateSkillDirs(sourcePath).length,
+        current: scaffoldGuidanceCurrent(
+          sourcePaths,
+          targetPath,
+          WORKSPACE_SKILLS,
+        ),
+        skillCount: scaffoldSkillSourcesToSync(
+          sourcePaths,
+          WORKSPACE_SKILLS,
+        ).filter(({ skill }) =>
+          existingScaffoldSkillNames(targetPath).has(skill),
+        ).length,
       },
     ];
   }
 
-  const templateName = detectStandaloneScaffoldTemplate(baseDir);
-  if (!templateName) return [];
-  const sourcePath = bundledScaffoldSkillsDir(templateName);
+  const policy = detectStandaloneScaffoldPolicy(baseDir);
+  if (!policy) return [];
+  const sourcePath = bundledScaffoldSkillsDir(policy.sourceTemplate);
+  const additionalSourcePaths =
+    policy.additionalSourceTemplates?.map(bundledScaffoldSkillsDir) ?? [];
+  const sourcePaths = [sourcePath, ...additionalSourcePaths];
   const targetPath = path.join(baseDir, ".agents", "skills");
-  if (!fs.existsSync(sourcePath)) return [];
+  if (!sourcePaths.some((source) => fs.existsSync(source))) return [];
   return [
     {
       kind: "standalone",
-      displayName: `Generated ${templateName} app framework skills`,
-      templateName,
+      displayName: `Generated ${policy.templateName} app framework skills`,
+      templateName: policy.sourceTemplate,
       path: targetPath,
       sourcePath,
+      additionalSourcePaths,
+      allowedSkills: policy.skills,
       projectRoot: baseDir,
-      current: scaffoldGuidanceCurrent(sourcePath, targetPath),
-      skillCount: listImmediateSkillDirs(sourcePath).length,
+      current: scaffoldGuidanceCurrent(sourcePaths, targetPath, policy.skills),
+      skillCount: scaffoldSkillSourcesToSync(sourcePaths, policy.skills).filter(
+        ({ skill }) => existingScaffoldSkillNames(targetPath).has(skill),
+      ).length,
     },
   ];
 }
 
 function copyScaffoldGuidanceSkills(
-  sourceRoot: string,
+  sourceRoots: readonly string[],
   targetRoot: string,
+  allowedSkills: readonly string[],
+  onlyExistingTargetSkills = true,
 ): void {
   fs.mkdirSync(targetRoot, { recursive: true });
-  for (const skill of listImmediateSkillDirs(sourceRoot)) {
+  const existing = onlyExistingTargetSkills
+    ? existingScaffoldSkillNames(targetRoot)
+    : undefined;
+  for (const { skill, sourceRoot } of scaffoldSkillSourcesToSync(
+    sourceRoots,
+    allowedSkills,
+  )) {
+    if (existing && !existing.has(skill)) continue;
     const targetSkillDir = path.join(targetRoot, skill);
     if (
       fs.existsSync(targetSkillDir) &&
@@ -2019,7 +2161,11 @@ function updateScaffoldGuidanceStates(
   for (const state of states) {
     if (state.current) continue;
     if (!dryRun) {
-      copyScaffoldGuidanceSkills(state.sourcePath, state.path);
+      copyScaffoldGuidanceSkills(
+        [state.sourcePath, ...(state.additionalSourcePaths ?? [])],
+        state.path,
+        state.allowedSkills,
+      );
     }
     updated.push({
       ...state,
@@ -2047,7 +2193,12 @@ function ensureWorkspaceRootSkillsLink(
       if (fs.readlinkSync(linkPath) === target) return;
       fs.unlinkSync(linkPath);
     } else {
-      copyScaffoldGuidanceSkills(sharedSkillsDir, linkPath);
+      copyScaffoldGuidanceSkills(
+        [sharedSkillsDir],
+        linkPath,
+        listImmediateSkillDirs(sharedSkillsDir),
+        false,
+      );
       return;
     }
   } catch {}
@@ -2073,7 +2224,12 @@ function refreshCopiedClaudeSkills(projectRoot: string): void {
   }
   try {
     if (fs.lstatSync(claudeSkillsDir).isSymbolicLink()) return;
-    copyScaffoldGuidanceSkills(agentsSkillsDir, claudeSkillsDir);
+    copyScaffoldGuidanceSkills(
+      [agentsSkillsDir],
+      claudeSkillsDir,
+      listImmediateSkillDirs(agentsSkillsDir),
+      false,
+    );
   } catch {}
 }
 
@@ -2098,11 +2254,20 @@ function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
           if (!entry.isDirectory()) continue;
           const appDir = path.join(appsDir, entry.name);
           if (fs.existsSync(path.join(appDir, "package.json"))) {
+            const existingAppSkills = existingScaffoldSkillNames(
+              path.join(appDir, ".agents", "skills"),
+            );
             const preserved = new Set([
               ...removeCopiedFrameworkSkills(appDir, {
                 workspaceRoot: state.workspaceRoot,
               }),
-              ...linkDefaultWorkspaceSkills(appDir, state.workspaceRoot),
+              ...linkWorkspaceSkills(
+                appDir,
+                state.workspaceRoot,
+                WORKSPACE_SKILLS.filter((skill) =>
+                  existingAppSkills.has(skill),
+                ),
+              ),
             ]);
             if (preserved.size > 0) {
               console.warn(

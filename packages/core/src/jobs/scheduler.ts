@@ -814,6 +814,7 @@ async function resumeRecoveredPauses(
               orgId: identity.identity.orgId,
             },
             deps,
+            meta.model,
           )
         ).ok;
       if (!recovered) {

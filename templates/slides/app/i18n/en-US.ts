@@ -353,6 +353,7 @@ const messages = {
     googleSlidesCreated: "Exported to Google Slides",
     googleSlidesCreatedHint:
       "A copy of this deck was created in your Google Drive.",
+    googleSlidesGoTo: "Go to Google Slides",
     duplicateDeck: "Duplicate deck",
   },
   share: {
