@@ -59,8 +59,7 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
 
 function TemplateFallbackArt({ template }: { template: Template }) {
   const t = useT();
-  const screenshot =
-    genericHeroScreenshots[template.slug] ?? template.screenshot;
+  const screenshot = genericHeroScreenshots[template.slug];
 
   if (screenshot) {
     return (
@@ -76,15 +75,24 @@ function TemplateFallbackArt({ template }: { template: Template }) {
   }
 
   return (
-    <div
-      className="flex min-h-[320px] w-full items-center justify-center"
-      style={{
-        background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
-      }}
-    >
-      <span className="rounded-xl bg-[var(--bg)]/85 px-6 py-3 text-lg font-semibold text-[var(--fg)] shadow-sm">
-        {template.name}
-      </span>
+    <div className="relative w-full">
+      <BuilderImage
+        src={template.screenshot.dark}
+        crossOrigin="anonymous"
+        alt={t("templateCard.screenshotAlt", { name: template.name })}
+        loading="lazy"
+        decoding="async"
+        className="theme-img-dark h-auto max-h-[640px] w-full object-cover object-top"
+      />
+      <BuilderImage
+        src={template.screenshot.light}
+        crossOrigin="anonymous"
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        decoding="async"
+        className="theme-img-light absolute inset-0 h-full w-full object-cover object-top"
+      />
     </div>
   );
 }

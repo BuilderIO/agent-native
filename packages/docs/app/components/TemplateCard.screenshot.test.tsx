@@ -6,8 +6,8 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
+import { TEMPLATE_SCREENSHOTS } from "./template-screenshots";
 import { templates, TemplateCard } from "./TemplateCard";
-import { APP_ART } from "./website-redesign/app-art";
 
 afterEach(() => {
   cleanup();
@@ -33,30 +33,24 @@ function renderCard(slug: string) {
   );
 }
 
-function imageClasses(container: HTMLElement) {
-  return Array.from(container.querySelectorAll("img")).map(
-    (image) => image.className,
-  );
-}
-
-describe("TemplateCard artwork", () => {
-  it("shows only the wireframe, with no image swap on hover", () => {
+describe("TemplateCard screenshots", () => {
+  it("uses both catalog screenshot variants as the card images", () => {
+    const template = templates.find((entry) => entry.slug === "clips");
     const { container } = renderCard("clips");
+    const images = Array.from(container.querySelectorAll("img"));
 
-    const classes = imageClasses(container);
-    expect(classes).toHaveLength(2);
-    expect(classes[0]).toContain("theme-img-dark");
-    expect(classes[1]).toContain("theme-img-light");
-    expect(classes.join(" ")).not.toContain("group-hover:opacity-100");
+    expect(images).toHaveLength(2);
+    expect(images[0]?.getAttribute("src")).toBe(template!.screenshot.dark);
+    expect(images[1]?.getAttribute("src")).toBe(template!.screenshot.light);
+    expect(images[1]?.getAttribute("alt")).toBe("");
   });
 
-  it("has art for every app in the catalog", () => {
+  it("has dark and light screenshots for every app in the catalog", () => {
     for (const template of templates) {
-      expect(APP_ART[template.slug]).toBeDefined();
+      expect(template.screenshot.dark).toMatch(/^\/app-hero-screenshots\//);
+      expect(template.screenshot.light).toMatch(/^\/app-hero-screenshots\//);
+      expect(TEMPLATE_SCREENSHOTS[template.slug]).toEqual(template.screenshot);
     }
-
-    const { container } = renderCard("forms");
-    expect(imageClasses(container)).toHaveLength(2);
   });
 });
 
