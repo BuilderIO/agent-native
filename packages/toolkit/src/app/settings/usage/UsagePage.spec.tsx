@@ -330,6 +330,24 @@ describe("UsagePage", () => {
     expect(container.textContent).not.toContain("$1.50");
   });
 
+  it("does not assign a unit to historical usage without engine metadata", () => {
+    state.metrics = metrics({
+      billing: { unit: "unknown" },
+      totals: {
+        costCents: 1_500,
+        calls: 3,
+        inputTokens: 1_000,
+        outputTokens: 200,
+        activeUsers: 1,
+      },
+    });
+    render(member);
+
+    expect(container.textContent).toContain("Unclassified usage");
+    expect(container.textContent).not.toContain("$15.00");
+    expect(container.textContent).not.toContain("375 credits");
+  });
+
   it("tells a failed chat read apart from a missing title or prompt", () => {
     const chat = metrics().topChats[0]!;
     state.metrics = metrics({

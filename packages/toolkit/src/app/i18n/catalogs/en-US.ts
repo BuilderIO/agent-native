@@ -1653,6 +1653,7 @@ const messages = {
   "settings.usage.appFilterLabel": "App",
   "settings.usage.allApps": "All apps",
   "settings.usage.unattributedApp": "Unattributed",
+  "settings.usage.unclassifiedUsage": "Unclassified usage",
   "settings.usage.peopleFilterLabel": "People",
   "settings.usage.everyone": "Everyone",
   "settings.usage.justYou": "Just you",

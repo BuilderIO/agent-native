@@ -1622,6 +1622,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "앱",
   "settings.usage.allApps": "모든 앱",
   "settings.usage.unattributedApp": "미지정",
+  "settings.usage.unclassifiedUsage": "분류되지 않은 사용량",
   "settings.usage.peopleFilterLabel": "사용자",
   "settings.usage.everyone": "모든 사람",
   "settings.usage.justYou": "나만",

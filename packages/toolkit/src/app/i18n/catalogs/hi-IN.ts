@@ -1626,6 +1626,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "ऐप",
   "settings.usage.allApps": "सभी ऐप",
   "settings.usage.unattributedApp": "अनिर्दिष्ट",
+  "settings.usage.unclassifiedUsage": "अवर्गीकृत उपयोग",
   "settings.usage.peopleFilterLabel": "लोग",
   "settings.usage.everyone": "सभी",
   "settings.usage.justYou": "केवल आप",

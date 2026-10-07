@@ -1648,6 +1648,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "アプリ",
   "settings.usage.allApps": "すべてのアプリ",
   "settings.usage.unattributedApp": "未分類",
+  "settings.usage.unclassifiedUsage": "未分類の利用",
   "settings.usage.peopleFilterLabel": "メンバー",
   "settings.usage.everyone": "全員",
   "settings.usage.justYou": "自分のみ",

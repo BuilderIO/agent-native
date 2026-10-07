@@ -38,6 +38,8 @@ async function seedUsage(row: {
   id: number;
   runId: string | null;
   threadId: string;
+  engineName?: string | null;
+  builderCredits?: number | null;
   taskId?: string;
   owner?: string;
   model?: string;
@@ -50,9 +52,12 @@ async function seedUsage(row: {
 }) {
   await pglite.exec(`INSERT INTO token_usage
     (id, owner_email, input_tokens, output_tokens, cache_read_tokens,
-     cache_write_tokens, cost_cents_x100, cost_source, model, app, run_id, thread_id, task_id, created_at)
+     cache_write_tokens, cost_cents_x100, builder_credits_used, engine_name,
+     cost_source, model, app, run_id, thread_id, task_id, created_at)
     VALUES (${row.id}, '${row.owner ?? OWNER}', ${row.input}, ${row.output},
      ${row.read}, ${row.write}, ${row.costX100 ?? 100},
+     ${row.builderCredits == null ? "NULL" : row.builderCredits},
+     ${row.engineName === null ? "NULL" : `'${row.engineName ?? "external"}'`},
      '${row.costSource ?? "reported"}', '${row.model ?? MODEL}',
      'design', ${row.runId === null ? "NULL" : `'${row.runId}'`},
      '${row.threadId}', ${row.taskId ? `'${row.taskId}'` : "NULL"}, ${Date.now()})`);
@@ -100,7 +105,7 @@ beforeAll(async () => {
     cache_read_tokens BIGINT NOT NULL DEFAULT 0, cache_write_tokens BIGINT NOT NULL DEFAULT 0,
     cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
     builder_credits_used DOUBLE PRECISION,
-    engine_name TEXT NOT NULL DEFAULT 'external',
+    engine_name TEXT,
     cost_source TEXT NOT NULL DEFAULT 'estimated', model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat', app TEXT NOT NULL DEFAULT '', org_id TEXT,
     run_id TEXT, thread_id TEXT, task_id TEXT, created_at BIGINT NOT NULL)`);
@@ -118,6 +123,28 @@ afterAll(async () => {
 });
 
 describe("getUsageRun", () => {
+  it("leaves billing unknown for legacy rows without engine metadata", async () => {
+    await seedUsage({
+      id: 100,
+      runId: "run-legacy-billing",
+      threadId: "thread-legacy-billing",
+      engineName: null,
+      input: 1_000,
+      output: 100,
+      read: 0,
+      write: 0,
+    });
+
+    const run = await getUsageRun({ runId: "run-legacy-billing" }, ACCESS);
+
+    expect(run!.billing).toEqual({
+      providerCostUsd: null,
+      providerCostSource: null,
+      builderCredits: null,
+      builderCreditsSource: null,
+    });
+  });
+
   it("prices a context restart after a tool lookup and groups tools with their errors", async () => {
     await seedUsage({
       id: 1,

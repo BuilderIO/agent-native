@@ -1739,6 +1739,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "App",
   "settings.usage.allApps": "Alle Apps",
   "settings.usage.unattributedApp": "Nicht zugeordnet",
+  "settings.usage.unclassifiedUsage": "Nicht zugeordnete Nutzung",
   "settings.usage.peopleFilterLabel": "Personen",
   "settings.usage.everyone": "Alle",
   "settings.usage.justYou": "Nur du",

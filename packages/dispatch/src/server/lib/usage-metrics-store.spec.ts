@@ -51,6 +51,18 @@ vi.mock("@agent-native/core/usage", () => ({
     shortLabel: "Cost",
     source: "estimated-provider-cost",
   }),
+  MIXED_USAGE_BILLING: {
+    unit: "mixed",
+    label: "Builder credits and provider cost",
+    shortLabel: "Mixed",
+    source: "mixed-provider-usage",
+  },
+  UNKNOWN_USAGE_BILLING: {
+    unit: "unknown",
+    label: "Unknown billing unit",
+    shortLabel: "Unknown",
+    source: "unknown",
+  },
   isSelfScopedUsageRead: (ownerEmails: string[], viewerEmail: string) => {
     const viewer = viewerEmail.trim().toLowerCase();
     if (!viewer || ownerEmails.length !== 1) return false;
@@ -119,6 +131,52 @@ describe("listDispatchUsageMetrics", () => {
 
     expect(metrics.access.viewerEmail).toBe("owner@example.test");
     expect(metrics.access.role).toBe("member");
+  });
+
+  it("keeps legacy usage billing unknown without engine metadata", async () => {
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("unknown_calls")
+        ? { rows: [{ calls: 1, cost_x100: 1_000, unknown_calls: 1 }] }
+        : { rows: [] },
+    );
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 30,
+      scope: "me",
+    });
+
+    expect(metrics.billing.unit).toBe("unknown");
+    expect(mocks.getSetting).not.toHaveBeenCalled();
+  });
+
+  it("keeps known provider and Builder usage classified as mixed", async () => {
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("unknown_calls")
+        ? {
+            rows: [
+              {
+                calls: 2,
+                cost_x100: 2_000,
+                builder_calls: 1,
+                provider_calls: 1,
+                unknown_calls: 0,
+              },
+            ],
+          }
+        : { rows: [] },
+    );
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 30,
+      scope: "me",
+    });
+
+    expect(metrics.billing.unit).toBe("mixed");
+    expect(mocks.getSetting).not.toHaveBeenCalled();
   });
 
   it("returns empty metrics when usage storage bootstrap and reads fail", async () => {

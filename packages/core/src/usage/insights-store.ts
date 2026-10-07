@@ -3,7 +3,6 @@ import { getDbExec } from "../db/client.js";
 import { ensureObservabilityTables } from "../observability/store.js";
 import {
   loadRunExchanges,
-  detectUsageEngineName,
   numberField,
   resolveScope,
   stringField,
@@ -537,7 +536,6 @@ async function billingByRun(
   runId: string,
   scope: { where: string; args: unknown[] },
 ): Promise<UsageRunDetail["billing"]> {
-  const legacyRowsUseBuilder = (await detectUsageEngineName()) === "builder";
   const { rows } = await getDbExec().execute({
     sql: `SELECT engine_name, model, cost_source,
         CASE WHEN builder_credits_used IS NULL THEN 1 ELSE 0 END AS missing_builder_credits,
@@ -564,12 +562,11 @@ async function billingByRun(
   for (const row of rows as Array<Record<string, unknown>>) {
     const missingBuilderCredits =
       numberField(row, "missing_builder_credits") === 1;
-    const hasEngineName =
-      typeof row.engine_name === "string" && row.engine_name.length > 0;
-    const builderUsage =
-      row.engine_name === "builder" ||
-      (!hasEngineName && legacyRowsUseBuilder) ||
-      !missingBuilderCredits;
+    const engineName =
+      typeof row.engine_name === "string" && row.engine_name.trim()
+        ? row.engine_name.trim()
+        : null;
+    const builderUsage = engineName === "builder" || !missingBuilderCredits;
     if (builderUsage) {
       if (!missingBuilderCredits) {
         hasBuilderUsage = true;
@@ -584,6 +581,8 @@ async function billingByRun(
       builderEstimated = true;
       continue;
     }
+
+    if (!engineName) continue;
 
     const costCents = recordedBreakdown(row).totalCents;
     if (row.cost_source === "unavailable" && costCents <= 0) continue;

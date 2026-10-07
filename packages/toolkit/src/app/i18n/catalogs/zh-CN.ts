@@ -1535,6 +1535,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "应用",
   "settings.usage.allApps": "所有应用",
   "settings.usage.unattributedApp": "未归属",
+  "settings.usage.unclassifiedUsage": "未分类的用量",
   "settings.usage.peopleFilterLabel": "人员",
   "settings.usage.everyone": "所有人",
   "settings.usage.justYou": "仅限你",

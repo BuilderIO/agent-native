@@ -13,6 +13,8 @@ import {
   builderCreditsFromCostCents,
   getUsageSummary,
   isSelfScopedUsageRead,
+  MIXED_USAGE_BILLING,
+  UNKNOWN_USAGE_BILLING,
   usageBillingForEngine,
   usageOrgScope,
   type UsageBillingMode,
@@ -97,7 +99,7 @@ export interface MonthlyUserUsageMetric {
   month: string;
   ownerEmail: string;
   costCents: number;
-  credits: number;
+  credits: number | null;
   calls: number;
   chatCalls: number;
   inputTokens: number;
@@ -952,8 +954,6 @@ export async function listDispatchUsageMetrics(input: {
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const generatedAt = Date.now();
   const sinceMs = generatedAt - sinceDays * DAY_MS;
-  const billing = usageBillingForEngine(await detectUsageEngineName());
-
   const apps = await listWorkspaceApps({ includeAgentCards: false });
   const requestedAppId = input.appId?.trim() || null;
   const selectedApp =
@@ -1082,6 +1082,9 @@ export async function listDispatchUsageMetrics(input: {
             COALESCE(SUM(output_tokens), 0) AS output_tokens,
             COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
             COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+            COUNT(*) FILTER (WHERE engine_name = 'builder' OR builder_credits_used IS NOT NULL) AS builder_calls,
+            COUNT(*) FILTER (WHERE NULLIF(engine_name, '') IS NOT NULL AND NULLIF(engine_name, '') <> 'builder' AND builder_credits_used IS NULL) AS provider_calls,
+            COUNT(*) FILTER (WHERE NULLIF(engine_name, '') IS NULL AND builder_credits_used IS NULL) AS unknown_calls,
             COUNT(DISTINCT owner_email) AS active_users
           FROM token_usage
           WHERE ${usage.where}`,
@@ -1123,6 +1126,20 @@ export async function listDispatchUsageMetrics(input: {
           workspaceAppCreation.args,
         ),
   ]);
+
+  const totals = totalsRows[0] ?? {};
+  const builderCalls = numberField(totals, "builder_calls");
+  const providerCalls = numberField(totals, "provider_calls");
+  const unknownCalls = numberField(totals, "unknown_calls");
+  const billing = unknownCalls
+    ? UNKNOWN_USAGE_BILLING
+    : builderCalls > 0 && providerCalls > 0
+      ? MIXED_USAGE_BILLING
+      : builderCalls > 0
+        ? usageBillingForEngine("builder")
+        : providerCalls > 0
+          ? usageBillingForEngine("external")
+          : usageBillingForEngine(await detectUsageEngineName());
 
   const topAppRows =
     viewScope === "app"
@@ -1231,7 +1248,10 @@ export async function listDispatchUsageMetrics(input: {
       ? []
       : monthlyUsage.map((row) => ({
           ...row,
-          credits: builderCreditsFromCostCents(row.costCents),
+          credits:
+            billing.unit === "unknown" || billing.unit === "mixed"
+              ? null
+              : builderCreditsFromCostCents(row.costCents),
         }));
 
   const workspaceAppCreationMap = new Map<
@@ -1346,7 +1366,6 @@ export async function listDispatchUsageMetrics(input: {
     } satisfies AppAccessMetric;
   });
 
-  const totals = totalsRows[0] ?? {};
   const chatThreadTotals = [...chatStats.values()].reduce(
     (acc, value) => ({
       threads: acc.threads + value.threads,

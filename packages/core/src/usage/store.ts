@@ -25,7 +25,7 @@ interface ModelPricing {
 export const BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER = 1.25;
 export const BUILDER_AGENT_CREDITS_PER_USD = 20;
 
-export type UsageBillingUnit = "usd" | "builder-credits" | "mixed";
+export type UsageBillingUnit = "usd" | "builder-credits" | "mixed" | "unknown";
 
 export interface UsageBillingMode {
   unit: UsageBillingUnit;
@@ -34,7 +34,8 @@ export interface UsageBillingMode {
   source:
     | "estimated-provider-cost"
     | "builder-agent-credits"
-    | "mixed-provider-usage";
+    | "mixed-provider-usage"
+    | "unknown";
   hardCostMarginMultiplier?: number;
   creditsPerUsd?: number;
 }
@@ -60,6 +61,13 @@ export const MIXED_USAGE_BILLING: UsageBillingMode = {
   label: "Builder credits and provider cost",
   shortLabel: "Mixed",
   source: "mixed-provider-usage",
+};
+
+export const UNKNOWN_USAGE_BILLING: UsageBillingMode = {
+  unit: "unknown",
+  label: "Unknown billing unit",
+  shortLabel: "Unknown",
+  source: "unknown",
 };
 
 export function usageBillingForEngine(

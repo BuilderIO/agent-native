@@ -1,6 +1,7 @@
 ---
 "@agent-native/core": minor
+"@agent-native/dispatch": patch
 "@agent-native/toolkit": patch
 ---
 
-Expose per-run billing details so chat messages can show provider cost or Builder credits.
+Show per-run provider or Builder credit costs in chat, and keep historical usage without billing metadata unclassified across usage dashboards.
