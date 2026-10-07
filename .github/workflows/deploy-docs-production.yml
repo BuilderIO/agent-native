@@ -83,9 +83,13 @@ jobs:
 
   migrate:
     name: Migrate docs production schema
+    needs: [verify-stable-release, pause-netlify-builds]
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.verify-stable-release.outputs.verified != 'true' &&
+      needs.pause-netlify-builds.result == 'success' }}
     permissions:
       contents: read
-    needs: pause-netlify-builds
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: production
@@ -103,7 +107,12 @@ jobs:
     name: docs production prebuilt deploy
     permissions:
       contents: read
-    needs: [pause-netlify-builds, migrate]
+    needs: [verify-stable-release, pause-netlify-builds, migrate]
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.verify-stable-release.outputs.verified != 'true' &&
+      needs.pause-netlify-builds.result == 'success' &&
+      needs.migrate.result == 'success' }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: production
