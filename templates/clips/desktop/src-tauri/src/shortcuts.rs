@@ -112,6 +112,7 @@ static COUNTDOWN_SHORTCUTS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static COUNTDOWN_SHORTCUTS_GENERATION: AtomicU64 = AtomicU64::new(0);
 static COUNTDOWN_SHORTCUTS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static DICTATION_ESCAPE_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
+static MONITOR_PICKER_ESCAPE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default)]
 struct PendingVoiceStart {
@@ -483,6 +484,7 @@ pub fn install_popover_dismiss_handler(app: &tauri::App) {
                 }
             } else if !COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
                 && !DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
+                && !MONITOR_PICKER_ESCAPE_ACTIVE.load(Ordering::SeqCst)
                 && gs.is_registered(shortcut)
             {
                 let _ = gs.unregister(shortcut);
@@ -542,6 +544,31 @@ pub(crate) async fn arm_window_picker_escape(app: &AppHandle) -> Result<(), Stri
     })
     .await
     .map_err(|error| format!("Window picker Escape registration worker stopped: {error}"))?
+}
+
+/// The monitor picker's webviews only see Esc while one of them is focused, so
+/// Esc is claimed globally for as long as the picker is open.
+pub(crate) fn set_monitor_picker_escape(app: &AppHandle, active: bool) {
+    MONITOR_PICKER_ESCAPE_ACTIVE.store(active, Ordering::SeqCst);
+    let app = app.clone();
+    thread::spawn(move || {
+        let shortcut = escape_shortcut();
+        let gs = app.global_shortcut();
+        if active {
+            if !gs.is_registered(shortcut) {
+                if let Err(err) = gs.register(shortcut) {
+                    eprintln!("[clips-tray] failed to register monitor picker Escape: {err}");
+                }
+            }
+        } else if !MONITOR_PICKER_ESCAPE_ACTIVE.load(Ordering::SeqCst)
+            && !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
+            && !COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
+            && !DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
+            && gs.is_registered(shortcut)
+        {
+            let _ = gs.unregister(shortcut);
+        }
+    });
 }
 
 pub fn set_dictation_active_and_sync_escape(app: &AppHandle, active: bool) {
@@ -627,6 +654,7 @@ pub(crate) async fn finish_countdown_shortcuts(
         let escape = escape_shortcut();
         if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
             && !DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
+            && !MONITOR_PICKER_ESCAPE_ACTIVE.load(Ordering::SeqCst)
             && gs.is_registered(escape)
         {
             let _ = gs.unregister(escape);
@@ -746,6 +774,10 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             }
             if crate::native_screen::window_picker_active() {
                 crate::native_screen::cancel_window_picker(app);
+                return;
+            }
+            if MONITOR_PICKER_ESCAPE_ACTIVE.load(Ordering::SeqCst) {
+                let _ = app.emit("clips:monitor-picker-cancelled", ());
                 return;
             }
             if is_dictation_active(app) {

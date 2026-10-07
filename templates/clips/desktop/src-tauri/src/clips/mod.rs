@@ -701,6 +701,7 @@ fn close_monitor_picker_windows(app: &AppHandle) {
             let _ = window.close();
         }
     }
+    crate::shortcuts::set_monitor_picker_escape(app, false);
 }
 
 #[cfg(target_os = "macos")]
@@ -792,6 +793,7 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
         if let Some(win) = last_window {
             present_interactive_window(&win);
         }
+        crate::shortcuts::set_monitor_picker_escape(&app, true);
         Ok(true)
     }
 }
