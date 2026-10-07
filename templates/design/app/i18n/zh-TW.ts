@@ -1627,6 +1627,8 @@ export default {
     assetsNoImageUrl: "Assets 未回傳圖片 URL。",
     assetAdded: "新增資產",
     failedToUploadFile: "上傳檔案失敗",
+    imageAttachmentUnavailable:
+      "無法將此圖片準備為視覺輸入。請附加較小的 PNG、JPG、GIF 或 WebP 檔案。",
     attachmentsTooLarge:
       "這些附件太大。上傳總大小上限為 {{max}} MB — 請減少檔案數量或改用較小的檔案。",
     failedToSubmitPrompt: "無法提交提示",

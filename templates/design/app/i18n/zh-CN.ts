@@ -1523,6 +1523,8 @@ export default {
     assetAdded: "添加资产",
     assetsNoImageUrl: "Assets 未返回图片 URL。",
     failedToUploadFile: "上传文件失败",
+    imageAttachmentUnavailable:
+      "无法将此图片准备为视觉输入。请附加较小的 PNG、JPG、GIF 或 WebP 文件。",
     attachmentsTooLarge:
       "这些附件太大。上传总大小上限为 {{max}} MB — 请减少文件数量或使用更小的文件。",
     failedToSubmitPrompt: "无法提交提示",

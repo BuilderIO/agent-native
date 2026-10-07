@@ -3,6 +3,7 @@ import { readCreativeContextState } from "@agent-native/creative-context/client"
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
+import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import {
   formatComposerContext,
   hasComposerSystemContext,
@@ -47,6 +48,7 @@ export interface ResumePendingGenerationArgs {
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
   } | null>;
+  imageAttachmentUnavailableMessage: string;
   id: string | undefined;
   markGenerationStale: () => void;
   setGenerationChatTabId: Dispatch<SetStateAction<string | null>>;
@@ -64,6 +66,7 @@ export function runResumePendingGeneration({
   design,
   files,
   generationModelRef,
+  imageAttachmentUnavailableMessage,
   id,
   markGenerationStale,
   setGenerationChatTabId,
@@ -111,7 +114,15 @@ export function runResumePendingGeneration({
       : `Create an initial design for ${design.title}.`;
   const uploadedFiles = Array.isArray(pending.files) ? pending.files : [];
   const fileContext = formatUploadedFileContext(uploadedFiles);
-  const images = imageAttachmentsFromUploadedFiles(uploadedFiles);
+  let images: string[];
+  try {
+    images = imageAttachmentsFromUploadedFiles(uploadedFiles);
+  } catch (error) {
+    if (!(error instanceof MissingVisualImagePayloadError)) throw error;
+    setGenerationIssue(imageAttachmentUnavailableMessage);
+    setHasPendingGeneration(true);
+    return;
+  }
   const sourceContext = pending.source
     ? `The user picked the "${pending.source}" template${pending.templateId ? ` (id: "${pending.templateId}")` : ""}.`
     : "The user just created a new empty design.";
@@ -122,8 +133,9 @@ export function runResumePendingGeneration({
 
   let cancelled = false;
   void (async () => {
-    const shouldExploreVariants = promptRequestsVariantExploration(prompt);
     const hasReferenceImages = images.length > 0;
+    const shouldExploreVariants =
+      !hasReferenceImages && promptRequestsVariantExploration(prompt);
     const explicitSkip =
       pending.skipQuestions === true ||
       shouldExploreVariants ||
@@ -161,6 +173,7 @@ export function runResumePendingGeneration({
             id,
             pending.templateId,
             pendingDesignSystemId,
+            images.length,
           )
         : shouldExploreVariants
           ? designVariantGenerationDirectives(id, pendingDesignSystemId)

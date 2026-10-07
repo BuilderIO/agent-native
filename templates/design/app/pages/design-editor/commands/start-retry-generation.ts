@@ -3,6 +3,7 @@ import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import {
   formatComposerContext,
   hasComposerSystemContext,
@@ -34,6 +35,7 @@ export interface StartRetryGenerationArgs {
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
   } | null>;
+  imageAttachmentUnavailableMessage: string;
   id: string | undefined;
   setGenerationChatTabId: Dispatch<SetStateAction<string | null>>;
   setGenerationIssue: Dispatch<SetStateAction<string | null>>;
@@ -63,6 +65,7 @@ export async function runStartRetryGeneration(
     clearGenerationCompleteTimer,
     design,
     generationModelRef,
+    imageAttachmentUnavailableMessage,
     id,
     setGenerationChatTabId,
     setGenerationIssue,
@@ -76,7 +79,16 @@ export async function runStartRetryGeneration(
   if (!id || !design || !canEditDesign) return;
   clearAutoRetryTimer();
   const fileContext = formatUploadedFileContext(promptState.files);
-  const images = imageAttachmentsFromUploadedFiles(promptState.files);
+  let images: string[];
+  try {
+    images = imageAttachmentsFromUploadedFiles(promptState.files);
+  } catch (error) {
+    if (!(error instanceof MissingVisualImagePayloadError)) throw error;
+    setGenerationIssue(imageAttachmentUnavailableMessage);
+    setHasPendingGeneration(false);
+    setRetryablePrompt(null);
+    return;
+  }
   const designSystemContext = hasComposerSystemContext(promptState.contextItems)
     ? ""
     : await loadDesignSystemGenerationContext(promptState.designSystemId);
@@ -102,8 +114,13 @@ export async function runStartRetryGeneration(
           id,
           promptState.templateId,
           promptState.designSystemId,
+          images.length,
         )
-      : designGenerationDirectives(id, promptState.designSystemId)),
+      : designGenerationDirectives(
+          id,
+          promptState.designSystemId,
+          images.length,
+        )),
   ].join("\n");
   clearGenerationCompleteTimer();
   setGenerationIssue(null);

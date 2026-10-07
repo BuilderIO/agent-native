@@ -523,6 +523,7 @@ import {
   isBuilderHostEmbed,
   rememberBuilderHostOrigin,
 } from "@/lib/builder-host-origin";
+import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import {
   acknowledgeClipboardContentMutation,
   publishClipboardContentMutation,
@@ -982,6 +983,7 @@ import {
   imageAttachmentsFromUploadedFiles,
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
+  referenceImageContextDirectives,
 } from "./design-editor/generation-prompt-directives";
 import {
   quantizeCanvasFrameGeometryForPersist,
@@ -3845,14 +3847,23 @@ function DesignEditor() {
     const pending = readPendingGeneration(id, { allowUntimestamped: true });
     if (!pending) return null;
     const files = pending.files ?? [];
+    let images: string[];
+    try {
+      images = imageAttachmentsFromUploadedFiles(files);
+    } catch (error) {
+      if (!(error instanceof MissingVisualImagePayloadError)) throw error;
+      setGenerationIssue(t("promptDialog.imageAttachmentUnavailable"));
+      setHasPendingGeneration(false);
+      return null;
+    }
     return {
       prompt: pending.prompt,
       designSystemId: pending.designSystemId,
-      images: imageAttachmentsFromUploadedFiles(files),
+      images,
       contextItems: pending.contextItems,
       uploadedFileContext: formatUploadedFileContext(files),
     };
-  }, [id]);
+  }, [id, t]);
   const {
     questions: pendingQuestions,
     title: pendingQuestionsTitle,
@@ -6301,6 +6312,9 @@ function DesignEditor() {
         design,
         files,
         generationModelRef,
+        imageAttachmentUnavailableMessage: t(
+          "promptDialog.imageAttachmentUnavailable",
+        ),
         id,
         markGenerationStale,
         setGenerationChatTabId,
@@ -11634,6 +11648,9 @@ function DesignEditor() {
           canEditDesign,
           design,
           handleTweakPromptOpenChange,
+          imageAttachmentUnavailableMessage: t(
+            "promptDialog.imageAttachmentUnavailable",
+          ),
           id,
           tweakSelections,
           tweaks,
@@ -11649,6 +11666,7 @@ function DesignEditor() {
       design,
       handleTweakPromptOpenChange,
       id,
+      t,
       tweakSelections,
       tweaks,
     ],
@@ -18990,6 +19008,9 @@ function DesignEditor() {
           clearGenerationCompleteTimer,
           design,
           generationModelRef,
+          imageAttachmentUnavailableMessage: t(
+            "promptDialog.imageAttachmentUnavailable",
+          ),
           id,
           setGenerationChatTabId,
           setGenerationIssue,
@@ -19007,6 +19028,7 @@ function DesignEditor() {
       clearGenerationCompleteTimer,
       design,
       id,
+      t,
     ],
   );
 
@@ -28808,11 +28830,20 @@ function DesignEditor() {
           files: UploadedFile[],
           options: PromptComposerSubmitOptions,
         ) => {
+          const images = imageAttachmentsFromUploadedFiles(files);
           if (isBuilderDesignEmbed) {
+            const referenceContext = referenceImageContextDirectives(
+              images.length,
+            ).join("\n");
             window.parent.postMessage(
               {
                 type: "agentNative.submitChat",
-                data: { message: prompt, submit: true },
+                data: {
+                  message: prompt,
+                  submit: true,
+                  ...(images.length ? { images } : {}),
+                  ...(referenceContext ? { context: referenceContext } : {}),
+                },
               },
               parentOriginRef.current ?? window.location.origin,
             );
@@ -28828,13 +28859,15 @@ function DesignEditor() {
           const designSystemId = selectedPromptDesignSystemId;
           persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
-          const images = imageAttachmentsFromUploadedFiles(files);
           const designSystemContext =
             await loadDesignSystemGenerationContext(designSystemId);
+          const hasReferenceImages = images.length > 0;
           const shouldExploreVariants =
-            promptRequestsVariantExploration(prompt);
+            !hasReferenceImages && promptRequestsVariantExploration(prompt);
           const intake =
-            shouldExploreVariants || !creativeContextEnabled
+            shouldExploreVariants ||
+            hasReferenceImages ||
+            !creativeContextEnabled
               ? null
               : await (async () => {
                   await creativeContextPersistRef.current?.catch(() => {});
@@ -28845,6 +28878,7 @@ function DesignEditor() {
                 })();
           const shouldSkipQuestions =
             shouldExploreVariants ||
+            hasReferenceImages ||
             (intake ? allIntakeTopicsCovered(intake.coverage) : false);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
@@ -28857,7 +28891,11 @@ function DesignEditor() {
               ? designVariantGenerationDirectives(id, designSystemId)
               : shouldSkipQuestions
                 ? [
-                    ...designGenerationDirectives(id, designSystemId),
+                    ...designGenerationDirectives(
+                      id,
+                      designSystemId,
+                      images.length,
+                    ),
                     ...(intake?.explicitContext &&
                     intake.precedent.status === "strong"
                       ? designPrecedentDirectives(
@@ -28870,7 +28908,7 @@ function DesignEditor() {
                 : designIntakeQuestionDirectives(
                     id,
                     designSystemId,
-                    0,
+                    images.length,
                     intake
                       ? {
                           coverage: intake.coverage,

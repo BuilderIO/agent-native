@@ -74,6 +74,7 @@ function createArgs(
     design: { title: "New design" } as never,
     files: [],
     generationModelRef: { current: null } as never,
+    imageAttachmentUnavailableMessage: "Attach the image again.",
     id: "design-1",
     markGenerationStale: vi.fn(),
     setGenerationChatTabId: vi.fn(),

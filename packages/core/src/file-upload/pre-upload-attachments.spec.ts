@@ -88,6 +88,32 @@ describe("preUploadAttachments", () => {
     expect(result.injectedText).toContain("https://cdn.example.com/photo.png");
   });
 
+  it("keeps inline image data when the client serialized it in url", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/photo.png",
+      provider: "builder",
+    });
+
+    const dataUrl =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVQI12NgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==";
+    const att = makeImageAtt({ data: undefined, url: dataUrl });
+    const result = await preUploadImageAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.any(Uint8Array),
+        filename: "photo.png",
+        mimeType: "image/png",
+      }),
+    );
+    expect(att.data).toBe(dataUrl);
+    expect(att.url).toBe("https://cdn.example.com/photo.png");
+    expect(result.uploaded).toHaveLength(1);
+  });
+
   it("uses the serialized data URL MIME type when it differs from the original file type", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/logo.png",

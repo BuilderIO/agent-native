@@ -2,6 +2,11 @@ import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { describe, expect, it } from "vitest";
 
+import {
+  imageAttachmentsFromUploadedFiles,
+  MissingVisualImagePayloadError,
+} from "@/lib/chat-image-attachments";
+
 import { designFinalResponseGuard } from "../../../server/lib/design-response-guard";
 import {
   designGenerationDirectives,
@@ -11,6 +16,27 @@ import {
   structuralReferenceDirectives,
 } from "./generation-prompt-directives";
 import type { IntakeTopicCoverage } from "./intake-question-topics";
+
+describe("imageAttachmentsFromUploadedFiles", () => {
+  it("requires a visual payload for every attached image", () => {
+    expect(() =>
+      imageAttachmentsFromUploadedFiles([
+        { type: "image/png", originalName: "reference.png" },
+      ]),
+    ).toThrow(MissingVisualImagePayloadError);
+  });
+
+  it("returns visual image data and ignores non-image files", () => {
+    const image = "data:image/png;base64,AAAA";
+
+    expect(
+      imageAttachmentsFromUploadedFiles([
+        { type: "image/png", originalName: "reference.png", dataUrl: image },
+        { type: "application/pdf", originalName: "brief.pdf" },
+      ]),
+    ).toEqual([image]);
+  });
+});
 
 describe("designTemplateRefinementDirectives", () => {
   it("uses copy-first editing instructions without a positive fresh-generation directive", () => {
@@ -72,6 +98,20 @@ describe("designIntakeQuestionDirectives", () => {
     expect(text).toContain("could not be checked");
     expect(text).toContain("context service down");
     expect(text).toContain('not treat it as "nothing saved"');
+  });
+
+  it("uses an attached screenshot as the complete generation brief", () => {
+    const intake = designIntakeQuestionDirectives("design-1", null, 1).join(
+      "\n",
+    );
+    const generation = designGenerationDirectives("design-1", null, 1).join(
+      "\n",
+    );
+
+    expect(intake).toBe(generation);
+    expect(generation).toContain("Inspect the actual image pixels");
+    expect(generation).toContain("ask the user to attach it again");
+    expect(generation).not.toContain("If the user asked to explore variations");
   });
 });
 

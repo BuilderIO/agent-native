@@ -1575,6 +1575,8 @@ export default {
     assetAdded: "자산이 추가됨",
     assetsNoImageUrl: "Assets에서 이미지 URL을 반환하지 않았습니다.",
     failedToUploadFile: "파일을 업로드하지 못했습니다.",
+    imageAttachmentUnavailable:
+      "이 이미지를 시각 입력으로 준비하지 못했습니다. 더 작은 PNG, JPG, GIF 또는 WebP 파일을 첨부하세요.",
     attachmentsTooLarge:
       "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
     failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",

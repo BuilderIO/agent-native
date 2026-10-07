@@ -246,11 +246,28 @@ export async function preUploadAttachments(opts: {
   };
 
   for (const att of list) {
-    const isImage = att.type === "image";
-    const isFile = att.type === "file" || att.type === "document";
+    let isImage = att.type === "image";
+    let isFile = att.type === "file" || att.type === "document";
     if (!isImage && !(includeFiles && isFile)) continue;
 
     let data: string | undefined = att.data;
+    const dataUrlInUrl =
+      typeof att.url === "string" ? att.url.match(FILE_DATA_URL_RE) : null;
+    if (
+      (typeof data !== "string" || !FILE_DATA_URL_RE.test(data)) &&
+      dataUrlInUrl &&
+      (isImage || isFile)
+    ) {
+      data = att.url;
+      att.data = data;
+      att.contentType = normalizeContentType(dataUrlInUrl[1]);
+      delete att.url;
+      if (isFile && dataUrlInUrl[1].toLowerCase().startsWith("image/")) {
+        att.type = "image";
+        isImage = true;
+        isFile = false;
+      }
+    }
     if (
       typeof data !== "string" &&
       includeFiles &&
