@@ -228,9 +228,7 @@ export function BuilderConnectPopover({
   useEffect(() => {
     if (flow.connecting || !provisioningAttemptRef.current) return;
     provisioningAttemptRef.current = false;
-    setOpen(
-      !!flow.accountExists || !!flow.error || flow.configured !== true,
-    );
+    setOpen(!!flow.accountExists || !!flow.error || flow.configured !== true);
   }, [flow.accountExists, flow.configured, flow.connecting, flow.error]);
 
   const start = (provisionAccount: boolean) => {
