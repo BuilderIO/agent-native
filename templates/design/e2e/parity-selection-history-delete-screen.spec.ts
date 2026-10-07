@@ -117,6 +117,7 @@ async function lastSelectedLayers(page: Page): Promise<string[]> {
   });
 }
 
+// oracle: none — this checks app undo-history mapping, not a Figma observation.
 test("undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id", async ({
   page,
 }) => {

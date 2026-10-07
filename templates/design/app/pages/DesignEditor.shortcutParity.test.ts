@@ -51,6 +51,7 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     expect(editorSource).toContain("openCommandMenu();");
   });
 
+  // oracle: none — this checks app toolbar wiring, not measured Figma behavior.
   it("projects the active move-group sub-tool through the toolbar", () => {
     expect(bottomToolbarSource).toContain(
       "label: t(activeMoveGroupTool.labelKey)",
