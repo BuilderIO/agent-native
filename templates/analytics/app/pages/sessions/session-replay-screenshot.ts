@@ -342,8 +342,11 @@ function isElementRendered(element: Element, document: Document): boolean {
 function replayDocuments(document: Document): Document[] {
   const documents: Document[] = [];
   const visited = new Set<Document>();
-  const visit = (current: Document) => {
+  const visit = (current: Document, depth: number) => {
     if (visited.has(current)) return;
+    if (depth >= MAX_REPLAY_IFRAME_DEPTH) {
+      throw new ReplayScreenshotAssetError();
+    }
     visited.add(current);
     documents.push(current);
 
@@ -355,12 +358,23 @@ function replayDocuments(document: Document): Document[] {
       if (!child?.documentElement) {
         throw new ReplayScreenshotAssetError();
       }
-      visit(child);
+      visit(child, depth + 1);
     }
   };
 
-  visit(document);
+  visit(document, 0);
   return documents;
+}
+
+export function completeReplayScreenshotCapture(
+  activeCapture: { current: AbortController | null },
+  capture: AbortController,
+  unlockPlayback: () => void,
+): boolean {
+  if (activeCapture.current !== capture) return false;
+  activeCapture.current = null;
+  unlockPlayback();
+  return true;
 }
 
 type CssImageUrlToken = { end: number; start: number; url: string };

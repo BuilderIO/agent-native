@@ -8,6 +8,7 @@ vi.mock("html2canvas", () => ({ default: html2canvasMock }));
 import {
   assertReplayFontsReady,
   assertRemoteImagesCapturable,
+  completeReplayScreenshotCapture,
   crossOriginImageUrls,
   downloadReplayScreenshot,
   inlineReplayAssets,
@@ -122,6 +123,23 @@ function stubImageProbes(
     "data:image/png;base64,c2NyZWVuc2hvdA==",
   );
   return requests;
+}
+
+function appendNestedReplayFrames(depth: number): Document {
+  let parent = document;
+  let deepest = document;
+  for (let index = 0; index < depth; index += 1) {
+    const child = document.implementation.createHTMLDocument();
+    const frame = parent.createElement("iframe");
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: child,
+    });
+    parent.body.appendChild(frame);
+    parent = child;
+    deepest = child;
+  }
+  return deepest;
 }
 
 describe("session replay screenshot asset checks", () => {
@@ -524,6 +542,51 @@ describe("session replay screenshot asset checks", () => {
       ReplayScreenshotAssetError,
     );
     frame.remove();
+  });
+
+  it("bounds nested frame traversal before font and asset preflight", async () => {
+    const deepest = appendNestedReplayFrames(8);
+    const image = deepest.createElement("img");
+    image.src = "https://assets.example.test/deep.png";
+    deepest.body.appendChild(image);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(() => crossOriginImageUrls(document)).toThrow(
+      ReplayScreenshotAssetError,
+    );
+    await expect(assertReplayFontsReady(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not unlock playback when a stale screenshot capture finishes", () => {
+    const staleCapture = new AbortController();
+    const activeCapture = new AbortController();
+    const captureRef: { current: AbortController | null } = {
+      current: activeCapture,
+    };
+    const unlockPlayback = vi.fn();
+
+    expect(
+      completeReplayScreenshotCapture(captureRef, staleCapture, unlockPlayback),
+    ).toBe(false);
+    expect(captureRef.current).toBe(activeCapture);
+    expect(unlockPlayback).not.toHaveBeenCalled();
+
+    expect(
+      completeReplayScreenshotCapture(
+        captureRef,
+        activeCapture,
+        unlockPlayback,
+      ),
+    ).toBe(true);
+    expect(captureRef.current).toBeNull();
+    expect(unlockPlayback).toHaveBeenCalledOnce();
   });
 
   it("rejects video sources rather than saving a blank media frame", async () => {

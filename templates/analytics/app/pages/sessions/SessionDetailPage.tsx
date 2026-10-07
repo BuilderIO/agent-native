@@ -96,6 +96,7 @@ import {
 import { extractReplayDiagnostics } from "./session-replay-devtools";
 import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import {
+  completeReplayScreenshotCapture,
   downloadReplayScreenshot,
   ReplayScreenshotAssetError,
 } from "./session-replay-screenshot";
@@ -1080,12 +1081,14 @@ function ReplayPlayer({
         );
       }
     } finally {
-      const captureStillCurrent = screenshotCaptureRef.current === capture;
-      if (captureStillCurrent) {
-        screenshotCaptureRef.current = null;
-      }
-      savingScreenshotRef.current = false;
-      if (captureStillCurrent) setSavingScreenshot(false);
+      const captureStillCurrent = completeReplayScreenshotCapture(
+        screenshotCaptureRef,
+        capture,
+        () => {
+          savingScreenshotRef.current = false;
+          setSavingScreenshot(false);
+        },
+      );
       if (
         captureStillCurrent &&
         wasPlaying &&
