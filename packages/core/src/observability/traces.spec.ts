@@ -821,6 +821,63 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(llmSpans[1]?.metadata).not.toHaveProperty("output_truncated");
   });
 
+  it("redacts a standalone API key prefix cut off by the output limit", async () => {
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [{ role: "user", content: "summarize this" }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+    const captureLimit = MAX_AI_CONTENT_BYTES - 1024;
+    const incompleteKey = " sk-abc";
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({
+          type: "text",
+          text: `${"a".repeat(captureLimit - incompleteKey.length)}${incompleteKey}defghijklmnop`,
+        });
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+        return {
+          inputTokens: 5,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-truncated-key-prefix",
+      threadId: "thread-truncated-key-prefix",
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const llmSpan = persistedSpans.find((span) => span.spanType === "llm_call");
+    const output = JSON.stringify(llmSpan?.metadata?.output);
+    expect(llmSpan?.metadata).toMatchObject({ output_truncated: true });
+    expect(output).toContain("[REDACTED]");
+    expect(output).not.toContain("sk-abc");
+  });
+
   it("captures the request messages, not the transcript the loop appended to", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
@@ -3109,6 +3166,54 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     expect(generations[0]?.properties).not.toHaveProperty("$ai_tools");
     expect(generations[1]?.properties).not.toHaveProperty("$ai_tools");
+  });
+
+  it("keeps the observed prompt when a model call fails before stream start", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ onModelInput }) => {
+        onModelInput?.([
+          { role: "user", content: "transformed prompt sent to the model" },
+        ]);
+        throw new Error("provider failed before streaming");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [{ role: "user", content: "original request" }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-model-failed-before-stream",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const failed = byName.get("$ai_generation")?.[0];
+    expect(failed?.properties?.["$ai_is_error"]).toBe(true);
+    expect(failed?.properties?.["$ai_input"]).toEqual([
+      { role: "user", content: "transformed prompt sent to the model" },
+    ]);
   });
 
   it("marks the failing layer: the model call, the tool, or the run", async () => {

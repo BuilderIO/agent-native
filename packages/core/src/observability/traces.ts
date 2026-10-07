@@ -1311,7 +1311,7 @@ export async function instrumentAgentLoop(opts: {
                   callUsage: usage,
                   stopReason: undefined as string | undefined,
                   tokensKnown: usageReported,
-                  input: requestMessages,
+                  input: pendingModelInput ?? requestMessages,
                   assistantText: assistantTextCapture.parts.join(""),
                   assistantTextTruncated: assistantTextCapture.truncated,
                   toolSpans: collectedToolSpans,
