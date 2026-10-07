@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { CHATGPT_DIRECTORY_PROFILE as contentProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
+import { isActionHiddenFromEveryAgentSurface } from "../action.js";
 import {
   filterFrameworkToolGroups,
   type FrameworkToolGroup,
@@ -16,8 +17,13 @@ import {
   filterAgentTools,
   filterMcpOnlyActions,
 } from "../server/agent-chat/action-filters-a2a.js";
+import { resolveAgentChatMcpOptions } from "../server/agent-chat/mcp-options.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
-import { validateMcpDirectoryProfile } from "./build-server.js";
+import {
+  createMCPServerForRequest,
+  selectMcpDirectoryWidgetReadActions,
+  validateMcpDirectoryProfile,
+} from "./build-server.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 const repoRoot = path.resolve(
@@ -54,12 +60,18 @@ async function loadTemplateActions(appId: string) {
   )?.profile;
   if (!profile) throw new Error(`Unknown ChatGPT directory template ${appId}.`);
   const toolNames = profile.connectorCatalog;
+  const loadNames = [
+    ...new Set([
+      ...toolNames,
+      ...Object.keys(profile.widgetReadActionArguments ?? {}),
+    ]),
+  ];
   const actionNames = [
     ...registrySource.matchAll(/^\s*"([^"]+)":\s*a_[\w]+,?$/gm),
   ].map(([, name]) => name!);
   const modules = Object.fromEntries(
     await Promise.all(
-      toolNames.map(async (name) => {
+      loadNames.map(async (name) => {
         const symbol = `a_${name.replace(/[^a-zA-Z0-9_]/g, "_")}`;
         if (!registrySource.includes(`"${name}": ${symbol}`)) {
           throw new Error(`${appId} action registry is missing "${name}".`);
@@ -113,23 +125,55 @@ describe("ChatGPT directory template profiles", () => {
     },
   );
 
+  it("keeps Design's bootstrap read out of model tool discovery", () => {
+    expect(designProfile.connectorCatalog).not.toContain("get-design");
+    expect(designProfile.widgetReadPublicActions).toEqual(["get-design"]);
+    expect(designProfile.widgetReadActionArguments?.["get-design"]).toEqual({
+      id: "designId",
+    });
+  });
+
   it.each(templateProfiles)(
     "$appId allowlist is registered, exposed, annotated, and narrowly scoped",
     async ({ appId, profile }) => {
       const { actions, productionActions, actionNames } =
         await loadTemplateActions(appId);
+      const mcpOptions = resolveAgentChatMcpOptions({
+        mcp: { directoryProfile: profile },
+      });
+      const widgetReadActions = selectMcpDirectoryWidgetReadActions(
+        mcpOptions.directoryProfile,
+        actions,
+      );
+      const serverConfig = {
+        name: `agent-native-${appId}`,
+        appId,
+        description: "ChatGPT directory profile validation",
+        catalogMode: "directory" as const,
+        connectorCatalog: profile.connectorCatalog,
+        widgetDomain: profile.widgetDomain,
+        actions: productionActions,
+        productionActions,
+        widgetReadActions,
+        directoryProfile: mcpOptions.directoryProfile,
+      };
 
-      expect(() =>
-        validateMcpDirectoryProfile({
-          name: `agent-native-${appId}`,
-          appId,
-          description: "ChatGPT directory profile validation",
-          catalogMode: "directory",
-          actions,
-          productionActions,
-          directoryProfile: profile,
+      expect(mcpOptions.catalog).toBeUndefined();
+      await expect(
+        createMCPServerForRequest(serverConfig, {
+          userEmail: "reviewer@example.test",
+          orgId: null,
         }),
-      ).not.toThrow();
+      ).resolves.toBeDefined();
+
+      if (appId === "content") {
+        const privateRead = "query-content-database-items";
+        expect(profile.connectorCatalog).not.toContain(privateRead);
+        expect(profile.widgetReadPrivateActions).toContain(privateRead);
+        expect(isActionHiddenFromEveryAgentSurface(actions[privateRead]!)).toBe(
+          true,
+        );
+      }
 
       const deniedTools = actionNames.filter(
         (name) => !profile.connectorCatalog.includes(name),
@@ -243,5 +287,208 @@ describe("ChatGPT directory template profiles", () => {
         directoryProfile: { connectorCatalog: ["disabled-group"] },
       }),
     ).toThrow(/not registered or is not exposed to MCP/);
+  });
+
+  it("requires scoped widget reads to be bounded GET actions", () => {
+    const writeAnnotations = {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    };
+    const readAnnotations = {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    };
+    const config = {
+      name: "agent-native-directory-test",
+      description: "Widget read-route validation.",
+      catalogMode: "directory" as const,
+      actions: {
+        "create-document": {
+          tool: { description: "Create one document." },
+          readOnly: false,
+          mcpAnnotations: writeAnnotations,
+          mcpApp: {
+            resource: {
+              uri: "ui://content/shell-v67",
+              title: "Document",
+              html: "<html></html>",
+            },
+          },
+          run: async () => ({ id: "doc-1" }),
+        },
+        "get-document": {
+          tool: { description: "Read one document." },
+          readOnly: true,
+          requiresAuth: true,
+          http: { method: "GET" },
+          mcpAnnotations: readAnnotations,
+          run: async () => ({ id: "doc-1" }),
+        },
+      },
+      directoryProfile: {
+        connectorCatalog: ["create-document", "get-document"],
+        widgetTargets: {
+          "create-document": () => ({
+            targetPath: "/page/doc-1",
+            resourceIds: { documentId: "doc-1" },
+          }),
+        },
+        widgetReadActionArguments: {
+          "get-document": { id: "documentId" },
+        },
+      },
+    };
+
+    expect(() => validateMcpDirectoryProfile(config)).not.toThrow();
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...config,
+        actions: {
+          ...config.actions,
+          "get-document": {
+            ...config.actions["get-document"],
+            requiresAuth: false,
+          },
+        },
+      }),
+    ).toThrow(/explicitly scoped read-only GET action/);
+
+    const boundedConfig = {
+      ...config,
+      directoryProfile: {
+        ...config.directoryProfile,
+        widgetReadActionArguments: {
+          "get-document": {
+            id: "documentId",
+            limit: { type: "integerRange" as const, min: 0, max: 5_000 },
+          },
+        },
+      },
+    };
+    expect(() => validateMcpDirectoryProfile(boundedConfig)).not.toThrow();
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...boundedConfig,
+        directoryProfile: {
+          ...boundedConfig.directoryProfile,
+          widgetReadActionArguments: {
+            "get-document": {
+              id: "documentId",
+              limit: { type: "integerRange", min: 0, max: 5_001 },
+            },
+          },
+        },
+      }),
+    ).toThrow(/valid resource arguments/);
+
+    const publicReadAction = {
+      tool: { description: "Read one public design." },
+      readOnly: true,
+      requiresAuth: false,
+      http: { method: "GET" as const },
+      mcpAnnotations: readAnnotations,
+      run: async () => ({ id: "design-1" }),
+    };
+    const publicReadConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "get-design": publicReadAction,
+      },
+      directoryProfile: {
+        ...config.directoryProfile,
+        widgetReadActionArguments: {
+          ...config.directoryProfile.widgetReadActionArguments,
+          "get-design": { id: "designId" },
+        },
+        widgetReadPublicActions: ["get-design"],
+      },
+    };
+    expect(() => validateMcpDirectoryProfile(publicReadConfig)).not.toThrow();
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...publicReadConfig,
+        directoryProfile: {
+          ...publicReadConfig.directoryProfile,
+          connectorCatalog: [
+            ...publicReadConfig.directoryProfile.connectorCatalog,
+            "get-design",
+          ],
+        },
+      }),
+    ).toThrow(/unlisted, explicitly scoped, public GET action/);
+  });
+
+  it("requires read routes before widget tools run and preserves legacy tool discovery", () => {
+    const widgetAction = {
+      tool: { description: "Create one document." },
+      readOnly: false,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/create-document",
+          title: "Document",
+          html: "<html></html>",
+        },
+      },
+      run: async () => ({ id: "doc-1" }),
+    };
+    const readAction = {
+      tool: { description: "Read one document." },
+      readOnly: false,
+      requiresAuth: true,
+      http: { method: "GET" as const },
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ id: "doc-1" }),
+    };
+    const config = {
+      name: "content",
+      description: "Content directory.",
+      catalogMode: "directory" as const,
+      actions: { "create-document": widgetAction, "get-document": readAction },
+      directoryProfile: {
+        connectorCatalog: ["create-document", "get-document"],
+        widgetTargets: {
+          "create-document": () => ({
+            targetPath: "/page/doc-1",
+            resourceIds: { documentId: "doc-1" },
+          }),
+        },
+        widgetReadActionArguments: {
+          "get-document": { id: "documentId" },
+        },
+        widgetReadOnlyActions: ["get-document"],
+      },
+    };
+
+    expect(() => validateMcpDirectoryProfile(config)).not.toThrow();
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...config,
+        directoryProfile: {
+          ...config.directoryProfile,
+          widgetReadOnlyActions: [],
+        },
+      }),
+    ).toThrow(/explicitly scoped read-only GET action/);
+
+    const legacyConfig = {
+      name: "content",
+      description: "Content directory.",
+      catalogMode: "directory" as const,
+      directoryProfile: { connectorCatalog: ["create-document"] },
+      actions: { "create-document": widgetAction },
+    };
+    expect(() => validateMcpDirectoryProfile(legacyConfig)).not.toThrow();
   });
 });

@@ -57,6 +57,7 @@ import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import {
   describeAttachmentBytesVerdict,
+  normalizeImageMediaType,
   reconcileImageBytes,
   reconcilePdfBytes,
 } from "../file-upload/attachment-bytes.js";
@@ -126,6 +127,7 @@ import {
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
   isReasoningEffort,
@@ -2067,23 +2069,6 @@ function retryDelay(
   });
 }
 
-type SupportedImageMediaType =
-  | "image/jpeg"
-  | "image/png"
-  | "image/gif"
-  | "image/webp";
-
-function isSupportedImageMediaType(
-  mediaType: string,
-): mediaType is SupportedImageMediaType {
-  return (
-    mediaType === "image/jpeg" ||
-    mediaType === "image/png" ||
-    mediaType === "image/gif" ||
-    mediaType === "image/webp"
-  );
-}
-
 function isSvgMediaType(mediaType: string | undefined): boolean {
   return mediaType?.split(";")[0]?.trim().toLowerCase() === "image/svg+xml";
 }
@@ -2144,12 +2129,14 @@ function dataUrlToFilePart(
   att: AgentChatAttachment,
 ): { type: "file"; data: string; mediaType: string; filename?: string } | null {
   if (att.type !== "file" || typeof att.data !== "string") return null;
-  const match = att.data.match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) return null;
+  const parsed = parseBase64DataUrl(att.data);
+  if (!parsed) return null;
   return {
     type: "file",
-    data: match[2],
-    mediaType: att.contentType || match[1],
+    data: parsed.data,
+    mediaType:
+      att.contentType?.split(";", 1)[0]?.trim().toLowerCase() ||
+      parsed.mediaType,
     filename: att.name || undefined,
   };
 }
@@ -2184,11 +2171,14 @@ export function buildUserContentWithAttachments(opts: {
         }
         continue;
       }
-      const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
+      const parsed = parseBase64DataUrl(att.data);
+      const mediaType = parsed
+        ? normalizeImageMediaType(parsed.mediaType)
+        : null;
       if (
-        match &&
-        isSupportedImageMediaType(match[1]) &&
-        match[2].length > MAX_INLINE_IMAGE_BASE64_CHARS
+        parsed &&
+        mediaType &&
+        parsed.data.length > MAX_INLINE_IMAGE_BASE64_CHARS
       ) {
         const label = att.name ? `"${att.name}"` : "An image";
         const limit = formatBase64CharBudget(MAX_INLINE_IMAGE_BASE64_CHARS);
@@ -2199,15 +2189,15 @@ export function buildUserContentWithAttachments(opts: {
         );
         continue;
       }
-      if (match && isSupportedImageMediaType(match[1])) {
+      if (parsed && mediaType) {
         const verdict = reconcileImageBytes({
-          base64: match[2],
-          declared: match[1],
+          base64: parsed.data,
+          declared: mediaType,
         });
         if (verdict.kind === "ok") {
           userContent.push({
             type: "image",
-            data: match[2],
+            data: parsed.data,
             mediaType: verdict.mediaType,
           });
         } else {
@@ -2217,7 +2207,7 @@ export function buildUserContentWithAttachments(opts: {
             : "";
           const logName = att.name ?? "(unnamed)";
           console.warn(
-            `[attachments] dropped image block name=${logName} declared=${match[1]} verdict=${verdict.kind} base64Chars=${match[2].length}`,
+            `[attachments] dropped image block name=${logName} declared=${parsed.mediaType} verdict=${verdict.kind} base64Chars=${parsed.data.length}`,
           );
           textAttachments.push(
             `[${label} could not be sent for vision analysis because ${describeAttachmentBytesVerdict(verdict)}.` +
@@ -2226,7 +2216,7 @@ export function buildUserContentWithAttachments(opts: {
           );
         }
       } else {
-        const mime = match?.[1] ?? att.contentType ?? "unknown format";
+        const mime = parsed?.mediaType ?? att.contentType ?? "unknown format";
         const label = att.name ? `"${att.name}"` : "An image";
         const uploadedHint = uploadedUrl
           ? ` It is available at ${uploadedUrl}; use that URL for embedding/reference if the task does not require vision analysis.`
@@ -4809,6 +4799,74 @@ function validateRawToolInput(
   });
 }
 
+type ModelInputObserver = (
+  messages: readonly unknown[],
+) => void | Promise<void>;
+
+function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
+  const seen = new WeakMap<object, unknown>();
+  const project = (value: unknown, isImageListEntry = false): unknown => {
+    if (!value || typeof value !== "object") return value;
+    const existing = seen.get(value);
+    if (existing !== undefined) return existing;
+    if (Array.isArray(value)) {
+      const projected: unknown[] = [];
+      seen.set(value, projected);
+      for (const entry of value) {
+        projected.push(project(entry, isImageListEntry));
+      }
+      return projected;
+    }
+
+    const part = value as Record<string, unknown>;
+    const isMedia =
+      isImageListEntry || part.type === "image" || part.type === "file";
+    if (isMedia) {
+      const mediaType =
+        typeof part.mediaType === "string" ? part.mediaType : "unknown";
+      const filename =
+        part.type === "file" && typeof part.filename === "string"
+          ? ` ${part.filename}`
+          : "";
+      const label = part.type === "file" ? `file${filename}` : "image";
+      const data = typeof part.data === "string" ? part.data : "";
+      return {
+        type: "text",
+        text: `[${label}: ${mediaType}, ~${Math.floor((data.length * 3) / 4)} bytes]`,
+      };
+    }
+
+    const projected: Record<string, unknown> = {};
+    seen.set(value, projected);
+    for (const [key, nested] of Object.entries(part)) {
+      projected[key] =
+        key === "images" && Array.isArray(nested)
+          ? project(nested, true)
+          : project(nested);
+    }
+    return projected;
+  };
+
+  return project(messages) as unknown[];
+}
+
+function notifyModelInputObserver(
+  observer: ModelInputObserver | undefined,
+  messages: readonly unknown[],
+): void {
+  if (!observer) return;
+  try {
+    const result = observer(projectModelInputForObserver(messages));
+    if (result !== undefined) {
+      void Promise.resolve(result).catch(() => {
+        // coercion-ok: observer failures cannot change agent execution.
+      });
+    }
+  } catch {
+    // coercion-ok: observer failures cannot change agent execution.
+  }
+}
+
 export async function runAgentLoop(opts: {
   engine: AgentEngine;
   model: string;
@@ -4820,6 +4878,7 @@ export async function runAgentLoop(opts: {
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  onModelInput?: ModelInputObserver;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
@@ -5364,6 +5423,7 @@ export async function runAgentLoop(opts: {
         };
 
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
+        notifyModelInputObserver(opts.onModelInput, contextMessages);
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();

@@ -59,6 +59,23 @@ export async function requireEditableDashboard(
 }
 
 /**
+ * An agent write that left the dashboard exactly as it was. `changed: false`
+ * makes the loop have the model say so instead of calling the edit done; a
+ * later verified change to the same dashboard supersedes it.
+ */
+export function dashboardNoopReceipt(dashboardId: string): WriteReceipt {
+  return {
+    changed: false,
+    verified: "unverified",
+    subject: dashboardId,
+    summary: oneLine(
+      `Nothing was written to "${dashboardId}": it already matched the requested state.`,
+      RECEIPT_SUMMARY_CHARS,
+    ),
+  };
+}
+
+/**
  * What an agent write proved, for the loop's final-answer guard. `saved` is
  * the leading clause ("Saved 2 op(s) to \"growth\""). There is one check per
  * verified panel, named by its panel id, so a later write can clear an earlier

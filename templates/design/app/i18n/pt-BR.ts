@@ -1593,6 +1593,8 @@ export default {
     assetAdded: "Recurso adicionado",
     assetsNoImageUrl: "Assets não retornou uma URL de imagem.",
     failedToUploadFile: "Falha ao carregar o arquivo",
+    imageAttachmentUnavailable:
+      "Não foi possível preparar esta imagem como referência visual. Anexe um arquivo PNG, JPG, GIF ou WebP menor.",
     attachmentsTooLarge:
       "Esses anexos são grandes demais. Os envios são limitados a {{max}} MB no total — anexe menos arquivos ou arquivos menores.",
     failedToSubmitPrompt: "Não foi possível enviar o prompt",

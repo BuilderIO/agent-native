@@ -1566,6 +1566,8 @@ export default {
     assetAdded: "संपत्ति जोड़ी गई",
     assetsNoImageUrl: "Assets ने कोई छवि URL नहीं लौटाया।",
     failedToUploadFile: "फ़ाइल अपलोड करने में विफल",
+    imageAttachmentUnavailable:
+      "इस छवि को दृश्य इनपुट के रूप में तैयार नहीं किया जा सका। छोटी PNG, JPG, GIF या WebP फ़ाइल जोड़ें।",
     attachmentsTooLarge:
       "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
     failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",

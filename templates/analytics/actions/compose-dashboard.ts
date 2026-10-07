@@ -25,8 +25,7 @@ import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-ti
 import {
   getDashboard,
   upsertDashboard,
-  upsertDashboardWithRetry,
-  type DashboardRecord,
+  upsertDashboardWithRetryOutcome,
 } from "../server/lib/dashboards-store";
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
 import {
@@ -37,8 +36,6 @@ import {
   type MetricWindow,
   usesFirstPartyDashboardFilters,
 } from "../server/lib/first-party-metric-catalog";
-import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
-import { stableStringify } from "../shared/panel-render-contract";
 
 const WINDOWS = new Set<MetricWindow>(["30d", "90d", "all"]);
 
@@ -102,18 +99,6 @@ function filterId(filter: unknown): string | null {
   }
   const id = (filter as { id?: unknown }).id;
   return typeof id === "string" && id.trim() ? id : null;
-}
-
-/** The store skips a save whose normalized config equals the stored one. */
-function changesRecord(
-  record: Pick<DashboardRecord, "kind" | "config">,
-  next: Record<string, unknown>,
-): boolean {
-  return (
-    record.kind !== "sql" ||
-    stableStringify(normalizeDashboardConfig(record.config)) !==
-      stableStringify(normalizeDashboardConfig(next))
-  );
 }
 
 function withFirstPartyDashboardFilters(
@@ -281,17 +266,18 @@ export default defineAction({
     }
 
     let finalConfig!: Record<string, unknown>;
+    let updatedAt!: string;
     let appendedCount = composedPanels.length;
     let skippedExistingIds: string[] = [];
     let refreshedExistingIds: string[] = [];
-    // Whether the store persisted anything, judged against the record the save
-    // was made over; the counters miss filter-only and identical-config saves.
+    // Whether the store persisted anything; the counters miss filter-only and
+    // identical-config saves.
     let changed = true;
     let appended = existing !== null && !args.overwrite;
 
     const appendToExisting = async () => {
       appended = true;
-      const saved = await upsertDashboardWithRetry(
+      const saved = await upsertDashboardWithRetryOutcome(
         args.dashboardId,
         ctx,
         async (freshExisting) => {
@@ -346,7 +332,6 @@ export default defineAction({
                 : dashboardName,
             panels: [...mergedExistingPanels, ...toAppend],
           });
-          changed = changesRecord(freshExisting, merged);
           if (agentCaller) {
             verdict = await verifyPanelWrite({
               base: existingConfig,
@@ -361,7 +346,9 @@ export default defineAction({
           return { kind: "sql" as const, body: merged };
         },
       );
-      finalConfig = saved.config as Record<string, unknown>;
+      finalConfig = saved.dashboard.config as Record<string, unknown>;
+      updatedAt = saved.dashboard.updatedAt;
+      changed = saved.didWrite;
     };
 
     if (existing && !args.overwrite) {
@@ -390,9 +377,24 @@ export default defineAction({
       if (latest) await requireEditableDashboard(args.dashboardId, ctx, latest);
       if (latest && !args.overwrite) {
         await appendToExisting();
+      } else if (latest) {
+        const composed = finalConfig;
+        const saved = await upsertDashboardWithRetryOutcome(
+          args.dashboardId,
+          ctx,
+          () => ({ kind: "sql" as const, body: composed }),
+        );
+        finalConfig = saved.dashboard.config as Record<string, unknown>;
+        updatedAt = saved.dashboard.updatedAt;
+        changed = saved.didWrite;
       } else {
-        changed = !latest || changesRecord(latest, finalConfig);
-        await upsertDashboard(args.dashboardId, "sql", finalConfig, ctx);
+        const saved = await upsertDashboard(
+          args.dashboardId,
+          "sql",
+          finalConfig,
+          ctx,
+        );
+        updatedAt = saved.updatedAt;
       }
     }
 
@@ -401,7 +403,12 @@ export default defineAction({
       : 0;
 
     if (changed) {
-      queueDashboardCollabSync(args.dashboardId, finalConfig, "agent");
+      void queueDashboardCollabSync(
+        args.dashboardId,
+        updatedAt,
+        () => getDashboard(args.dashboardId, ctx),
+        "agent",
+      );
       track(
         "dashboard_saved",
         {

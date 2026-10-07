@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { sameJsonValue } from "./dashboard-mutation-api";
+
 const store = new Map<string, { config: Record<string, unknown> }>();
 
 const mocks = vi.hoisted(() => ({
   assertDashboardEditable: vi.fn(async (): Promise<void> => undefined),
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboardWithRetryOutcome: vi.fn(),
   resolvePanel: vi.fn(),
 }));
 
@@ -41,7 +43,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
   assertDashboardEditable: mocks.assertDashboardEditable,
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
-  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
+  upsertDashboardWithRetryOutcome: mocks.upsertDashboardWithRetryOutcome,
 }));
 vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
   resolveAnalyticsPanelSource: mocks.resolvePanel,
@@ -116,12 +118,13 @@ beforeEach(() => {
       return { id, title: id, archivedAt: null };
     },
   );
-  mocks.upsertDashboardWithRetry.mockImplementation(
+  mocks.upsertDashboardWithRetryOutcome.mockImplementation(
     async (id: string, ctx: unknown, mutate: any) => {
       const existing = await mocks.getDashboard(id, ctx);
       const { kind, body } = await mutate(existing);
+      const didWrite = !sameJsonValue(existing.config, body);
       await mocks.upsertDashboard(id, kind, body, ctx);
-      return { ...existing, kind, config: body };
+      return { dashboard: { ...existing, kind, config: body }, didWrite };
     },
   );
 });

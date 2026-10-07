@@ -15,7 +15,6 @@ import {
   editDistance,
   PANEL_CHART_TYPES,
   PANEL_CONFIG_KEYS,
-  stableStringify,
 } from "../shared/panel-render-contract";
 import { movePanelsById, type PanelOrderTarget } from "./dashboard-panel-order";
 
@@ -214,11 +213,8 @@ export type DashboardMutationOperation =
 export interface DashboardMutationResult {
   operations: DashboardMutationOperation[];
   commandLog: string[];
-  /** False when the resulting config is deep-equal to the one passed in. */
-  changed: boolean;
-  /** 1-based positions of operations that left the dashboard exactly as it was. */
-  noopOps: number[];
   changedPanelIds: string[];
+  movedPanelIds: string[];
   removedPanelIds: string[];
   insertedPanelIds: string[];
   dashboardFieldsChanged: string[];
@@ -332,7 +328,7 @@ function setFilterDefault(
   config: Record<string, unknown>,
   filterId: string,
   value: string | number | boolean | null,
-): void {
+): boolean {
   const filter = requireDashboardFilter(config, filterId);
   if (Array.isArray(filter.options) && filter.options.length > 0) {
     const optionValues = filter.options
@@ -348,7 +344,9 @@ function setFilterDefault(
       );
     }
   }
+  if (hasSameJsonProperty(filter, "default", value)) return false;
   filter.default = value;
+  return true;
 }
 
 function panelId(panel: Record<string, unknown>): string {
@@ -740,6 +738,50 @@ function insertPanel(
   return result.insertIndex;
 }
 
+export function sameJsonValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (
+    !left ||
+    !right ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameJsonValue(value, right[index]))
+    );
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(rightRecord, key) &&
+        sameJsonValue(leftRecord[key], rightRecord[key]),
+    )
+  );
+}
+
+function hasSameJsonProperty(
+  record: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(record, key) &&
+    sameJsonValue(record[key], value)
+  );
+}
+
 function patchPanel(
   panel: Record<string, unknown>,
   patch: Record<string, unknown>,
@@ -758,6 +800,7 @@ function patchPanel(
         !Array.isArray(panel.config)
           ? { ...(panel.config as Record<string, unknown>) }
           : {};
+      if (hasSameJsonProperty(config, "description", value)) continue;
       config.description = value;
       panel.config = config;
       changed.push("config.description");
@@ -770,11 +813,18 @@ function patchPanel(
         !Array.isArray(panel.config)
           ? { ...(panel.config as Record<string, unknown>) }
           : {};
-      Object.assign(config, assertObject(value, "patch.config"));
+      const configPatch = assertObject(value, "patch.config");
+      const changedConfigEntries = Object.entries(configPatch).filter(
+        ([configKey, configValue]) =>
+          !hasSameJsonProperty(config, configKey, configValue),
+      );
+      if (changedConfigEntries.length === 0) continue;
+      Object.assign(config, Object.fromEntries(changedConfigEntries));
       panel.config = config;
       changed.push("config");
       continue;
     }
+    if (hasSameJsonProperty(panel, key, value)) continue;
     panel[key] = value;
     changed.push(key);
   }
@@ -785,7 +835,7 @@ function setConfigPath(
   panel: Record<string, unknown>,
   rawPath: string,
   value: unknown,
-): string {
+): { field: string; changed: boolean } {
   const path = assertString(rawPath, "config path");
   const segments = path
     .split(".")
@@ -811,6 +861,29 @@ function setConfigPath(
     !Array.isArray(panel.config)
       ? { ...(panel.config as Record<string, unknown>) }
       : {};
+  const leaf = segments[segments.length - 1];
+  let existingCursor: unknown = config;
+  for (const segment of segments.slice(0, -1)) {
+    if (
+      !existingCursor ||
+      typeof existingCursor !== "object" ||
+      Array.isArray(existingCursor) ||
+      !Object.prototype.hasOwnProperty.call(existingCursor, segment)
+    ) {
+      existingCursor = undefined;
+      break;
+    }
+    existingCursor = (existingCursor as Record<string, unknown>)[segment];
+  }
+  const unchanged =
+    existingCursor !== undefined &&
+    typeof existingCursor === "object" &&
+    !Array.isArray(existingCursor) &&
+    Object.prototype.hasOwnProperty.call(existingCursor, leaf) &&
+    sameJsonValue((existingCursor as Record<string, unknown>)[leaf], value);
+  if (unchanged) {
+    return { field: `config.${segments.join(".")}`, changed: false };
+  }
   let cursor: Record<string, unknown> = config;
   for (const segment of segments.slice(0, -1)) {
     const existing = cursor[segment];
@@ -819,9 +892,9 @@ function setConfigPath(
     }
     cursor = cursor[segment] as Record<string, unknown>;
   }
-  cursor[segments[segments.length - 1]] = value;
+  cursor[leaf] = value;
   panel.config = config;
-  return `config.${segments.join(".")}`;
+  return { field: `config.${segments.join(".")}`, changed: true };
 }
 
 function duplicatePanel(
@@ -842,43 +915,6 @@ function duplicatePanel(
   return insertPanel(config, duplicate, target);
 }
 
-function snapshotPanels(
-  config: Record<string, unknown>,
-): Map<string, { json: string; index: number }> {
-  const snapshot = new Map<string, { json: string; index: number }>();
-  if (!Array.isArray(config.panels)) return snapshot;
-  config.panels.forEach((panel, index) => {
-    const id =
-      panel && typeof panel === "object"
-        ? panelId(panel as Record<string, unknown>)
-        : "";
-    if (id) snapshot.set(id, { json: stableStringify(panel), index });
-  });
-  return snapshot;
-}
-
-function valueAtPath(value: unknown, path: string): unknown {
-  let cursor = value;
-  for (const segment of path.split(".")) {
-    if (!cursor || typeof cursor !== "object") return undefined;
-    cursor = (cursor as Record<string, unknown>)[segment];
-  }
-  return cursor;
-}
-
-function dashboardFieldValue(
-  config: Record<string, unknown>,
-  field: string,
-): unknown {
-  const filterId = /^filters\.(.+)\.default$/.exec(field)?.[1];
-  if (filterId === undefined) return config[field];
-  return Array.isArray(config.filters)
-    ? (config.filters as Array<Record<string, unknown>>).find(
-        (item) => item?.id === filterId,
-      )?.default
-    : undefined;
-}
-
 export function applyDashboardMutationOperations(
   config: Record<string, unknown>,
   operations: DashboardMutationOperation[],
@@ -888,32 +924,17 @@ export function applyDashboardMutationOperations(
   }
 
   const commandLog: string[] = [];
-  const touchedPanelIds = new Set<string>();
+  const changedPanelIds = new Set<string>();
   const movedPanelIds = new Set<string>();
   const removedPanelIds = new Set<string>();
   const insertedPanelIds = new Set<string>();
   const dashboardFieldsChanged = new Set<string>();
-  const dashboardFieldsBefore = new Map<string, string>();
-  const noopOps: number[] = [];
-  const startPanels = snapshotPanels(config);
-  const startJson = stableStringify(config);
-  // Plain JSON order is stable under these in-place edits; a missed no-op
-  // only means an op is reported as effective, never the reverse.
-  let opSnapshot = JSON.stringify(config);
-  const rememberDashboardField = (field: string) => {
-    if (dashboardFieldsBefore.has(field)) return;
-    dashboardFieldsBefore.set(
-      field,
-      stableStringify(dashboardFieldValue(config, field)),
-    );
-  };
 
   for (let opIndex = 0; opIndex < operations.length; opIndex++) {
     const op = operations[opIndex];
     try {
       switch (op.op) {
         case "movePanels": {
-          for (const id of op.panelIds) movedPanelIds.add(id);
           const target = targetFromOperation(op);
           if (isVisualPlacementTarget(target)) {
             if (op.panelIds.length !== 1) {
@@ -926,19 +947,30 @@ export function applyDashboardMutationOperations(
               op.panelIds[0],
               target,
             );
-            touchedPanelIds.add(op.panelIds[0]);
+            changedPanelIds.add(op.panelIds[0]);
+            movedPanelIds.add(op.panelIds[0]);
             commandLog.push(`movePanels(${op.panelIds[0]}) -> index ${index}`);
             break;
           }
+          const panelOrderBefore = panelsFromConfig(config).map(panelId);
           let result;
           try {
             result = movePanelsById(config, op.panelIds, target);
           } catch (err) {
             enhancePanelError(config, err);
           }
-          for (const id of result.movedPanelIds) touchedPanelIds.add(id);
+          const orderChanged = !sameJsonValue(
+            panelOrderBefore,
+            result.panelOrder,
+          );
+          if (orderChanged) {
+            for (const id of result.movedPanelIds) {
+              changedPanelIds.add(id);
+              movedPanelIds.add(id);
+            }
+          }
           commandLog.push(
-            `movePanels(${result.movedPanelIds.join(", ")}) -> index ${result.insertIndex}`,
+            `movePanels(${orderChanged ? result.movedPanelIds.join(", ") : "no order change"}) -> index ${result.insertIndex}`,
           );
           break;
         }
@@ -950,7 +982,7 @@ export function applyDashboardMutationOperations(
             (panel) => !ids.includes(panelId(panel)),
           );
           for (const id of ids) {
-            touchedPanelIds.add(id);
+            changedPanelIds.add(id);
             removedPanelIds.add(id);
           }
           commandLog.push(`removePanels(${ids.join(", ")})`);
@@ -958,35 +990,26 @@ export function applyDashboardMutationOperations(
         }
         case "updatePanel": {
           const panel = requirePanel(panelsFromConfig(config), op.panelId);
-          const before = JSON.parse(JSON.stringify(panel));
-          const changedFields = patchPanel(panel, op.patch).filter(
-            (field) =>
-              stableStringify(valueAtPath(before, field)) !==
-              stableStringify(valueAtPath(panel, field)),
-          );
-          touchedPanelIds.add(op.panelId);
+          const changedFields = patchPanel(panel, op.patch);
+          if (changedFields.length > 0) changedPanelIds.add(op.panelId);
           commandLog.push(
-            `updatePanel(${op.panelId}: ${changedFields.join(", ") || "no change"})`,
+            `updatePanel(${op.panelId}: ${changedFields.join(", ") || "no fields"})`,
           );
           break;
         }
         case "updatePanelPath": {
           const panel = requirePanel(panelsFromConfig(config), op.panelId);
-          const before = JSON.parse(JSON.stringify(panel));
-          const field = setConfigPath(panel, op.path, op.value);
-          const unchanged =
-            stableStringify(valueAtPath(before, field)) ===
-            stableStringify(valueAtPath(panel, field));
-          touchedPanelIds.add(op.panelId);
+          const result = setConfigPath(panel, op.path, op.value);
+          if (result.changed) changedPanelIds.add(op.panelId);
           commandLog.push(
-            `updatePanelPath(${op.panelId}: ${unchanged ? "no change" : field})`,
+            `updatePanelPath(${op.panelId}: ${result.field}${result.changed ? "" : " unchanged"})`,
           );
           break;
         }
         case "insertPanel": {
           const index = insertPanel(config, op.panel, targetFromOperation(op));
           const id = assertString(op.panel.id, "panel.id");
-          touchedPanelIds.add(id);
+          changedPanelIds.add(id);
           insertedPanelIds.add(id);
           commandLog.push(`insertPanel(${id}) -> index ${index}`);
           break;
@@ -999,7 +1022,7 @@ export function applyDashboardMutationOperations(
             op.patch ?? {},
             targetFromOperation(op),
           );
-          touchedPanelIds.add(op.newPanelId);
+          changedPanelIds.add(op.newPanelId);
           insertedPanelIds.add(op.newPanelId);
           commandLog.push(
             `duplicatePanel(${op.panelId} -> ${op.newPanelId}) -> index ${index}`,
@@ -1007,22 +1030,25 @@ export function applyDashboardMutationOperations(
           break;
         }
         case "setDashboard": {
+          const changedFields: string[] = [];
           for (const [key, value] of Object.entries(op.patch)) {
-            rememberDashboardField(key);
+            if (hasSameJsonProperty(config, key, value)) continue;
             config[key] = value;
             dashboardFieldsChanged.add(key);
+            changedFields.push(key);
           }
           commandLog.push(
-            `setDashboard(${Object.keys(op.patch).join(", ") || "no fields"})`,
+            `setDashboard(${changedFields.join(", ") || "no changes"})`,
           );
           break;
         }
         case "setFilterDefault": {
-          rememberDashboardField(`filters.${op.filterId}.default`);
-          setFilterDefault(config, op.filterId, op.value);
-          dashboardFieldsChanged.add(`filters.${op.filterId}.default`);
+          const changed = setFilterDefault(config, op.filterId, op.value);
+          if (changed) {
+            dashboardFieldsChanged.add(`filters.${op.filterId}.default`);
+          }
           commandLog.push(
-            `setFilterDefault(${op.filterId}: ${JSON.stringify(op.value)})`,
+            `setFilterDefault(${op.filterId}: ${JSON.stringify(op.value)}${changed ? "" : " unchanged"})`,
           );
           break;
         }
@@ -1036,39 +1062,16 @@ export function applyDashboardMutationOperations(
         errorCode: "invalid_dashboard_mutation",
       });
     }
-    const afterOp = JSON.stringify(config);
-    if (afterOp === opSnapshot) noopOps.push(opIndex + 1);
-    opSnapshot = afterOp;
   }
-
-  const endPanels = snapshotPanels(config);
-  const panelChanged = (id: string) => {
-    const before = startPanels.get(id);
-    const after = endPanels.get(id);
-    if (!before || !after) return Boolean(before) !== Boolean(after);
-    return (
-      before.json !== after.json ||
-      (movedPanelIds.has(id) && before.index !== after.index)
-    );
-  };
 
   return {
     operations,
     commandLog,
-    changed: stableStringify(config) !== startJson,
-    noopOps,
-    changedPanelIds: Array.from(touchedPanelIds).filter(panelChanged),
-    removedPanelIds: Array.from(removedPanelIds).filter(
-      (id) => startPanels.has(id) && !endPanels.has(id),
-    ),
-    insertedPanelIds: Array.from(insertedPanelIds).filter(
-      (id) => endPanels.has(id) && !startPanels.has(id),
-    ),
-    dashboardFieldsChanged: Array.from(dashboardFieldsChanged).filter(
-      (field) =>
-        dashboardFieldsBefore.get(field) !==
-        stableStringify(dashboardFieldValue(config, field)),
-    ),
+    changedPanelIds: Array.from(changedPanelIds),
+    movedPanelIds: Array.from(movedPanelIds),
+    removedPanelIds: Array.from(removedPanelIds),
+    insertedPanelIds: Array.from(insertedPanelIds),
+    dashboardFieldsChanged: Array.from(dashboardFieldsChanged),
   };
 }
 

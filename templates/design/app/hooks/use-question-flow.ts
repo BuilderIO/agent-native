@@ -142,10 +142,14 @@ export function useQuestionFlow(
 
   const sendContinuation = useCallback(
     async (message: string, context?: string) => {
-      flow.clear();
       const selection = getModelSelection?.() ?? {};
       const { model, engine, effort } = selection;
       const brief = getGenerationBrief?.() ?? null;
+      if (getGenerationBrief && !brief) {
+        flow.clear();
+        return;
+      }
+      flow.clear();
       const designSystemContext =
         brief?.designSystemId && !hasComposerSystemContext(brief.contextItems)
           ? await loadDesignSystemGenerationContext(brief.designSystemId)

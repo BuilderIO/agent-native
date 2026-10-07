@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { sameJsonValue } from "./dashboard-mutation-api";
+
 interface SavedDashboard {
   config: Record<string, unknown>;
 }
@@ -9,14 +11,14 @@ const store = new Map<string, SavedDashboard>();
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboardWithRetryOutcome: vi.fn(),
   verifyPanelWrite: vi.fn(),
   hasCollabState: vi.fn(async () => false),
   applyText: vi.fn(async () => undefined),
   seedFromText: vi.fn(async () => undefined),
 }));
 
-function defaultUpsertDashboardWithRetry(
+function defaultUpsertDashboardWithRetryOutcome(
   id: string,
   ctx: unknown,
   mutate: (existing: any) =>
@@ -34,8 +36,12 @@ function defaultUpsertDashboardWithRetry(
       );
     }
     const { kind, body } = await mutate(existing);
+    const didWrite = !sameJsonValue(existing.config, body);
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body };
+    return {
+      dashboard: { ...existing, kind, config: body },
+      didWrite,
+    };
   })();
 }
 
@@ -68,6 +74,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: mocks.applyText,
+  getText: vi.fn(async () => ""),
   hasCollabState: mocks.hasCollabState,
   seedFromText: mocks.seedFromText,
 }));
@@ -76,7 +83,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
   assertDashboardEditable: vi.fn(async () => undefined),
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
-  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
+  upsertDashboardWithRetryOutcome: mocks.upsertDashboardWithRetryOutcome,
 }));
 
 // Panel verification has its own specs; here it only has to let a save through.
@@ -155,8 +162,8 @@ beforeEach(() => {
       };
     },
   );
-  mocks.upsertDashboardWithRetry.mockImplementation(
-    defaultUpsertDashboardWithRetry,
+  mocks.upsertDashboardWithRetryOutcome.mockImplementation(
+    defaultUpsertDashboardWithRetryOutcome,
   );
 });
 
@@ -644,7 +651,7 @@ describe("compose-dashboard", () => {
     };
 
     let mutateCallCount = 0;
-    mocks.upsertDashboardWithRetry.mockImplementationOnce(
+    mocks.upsertDashboardWithRetryOutcome.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
         mutateCallCount += 1;
         await mutate({ kind: "sql", config: beforeConcurrentWrite });
@@ -654,7 +661,10 @@ describe("compose-dashboard", () => {
           config: afterConcurrentWrite,
         });
         await mocks.upsertDashboard(id, kind, body, ctx);
-        return { kind, config: body };
+        return {
+          dashboard: { kind, config: body },
+          didWrite: true,
+        };
       },
     );
 

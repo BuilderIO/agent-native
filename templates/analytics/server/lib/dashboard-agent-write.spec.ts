@@ -8,8 +8,11 @@ vi.mock("./dashboards-store", () => ({
   assertDashboardEditable: mocks.assertDashboardEditable,
 }));
 
-const { dashboardWriteReceipt, requireEditableDashboard } =
-  await import("./dashboard-agent-write");
+const {
+  dashboardNoopReceipt,
+  dashboardWriteReceipt,
+  requireEditableDashboard,
+} = await import("./dashboard-agent-write");
 
 const ctx = { email: "alice@example.com", orgId: null };
 const record = { id: "growth", kind: "sql", config: {} } as never;
@@ -88,6 +91,24 @@ function verdict(overrides: Record<string, unknown>) {
     ...overrides,
   } as never;
 }
+
+describe("dashboardNoopReceipt", () => {
+  it("says nothing was written, unchecked, for the dashboard it names", () => {
+    expect(dashboardNoopReceipt("growth")).toEqual({
+      changed: false,
+      verified: "unverified",
+      subject: "growth",
+      summary: expect.stringContaining("Nothing was written"),
+    });
+  });
+
+  it("carries the dashboard id as one clipped line", () => {
+    const receipt = dashboardNoopReceipt(`a\n<b>${"x".repeat(400)}`);
+
+    expect(receipt.summary).not.toMatch(/[\n<>]/);
+    expect(receipt.summary.length).toBeLessThanOrEqual(200);
+  });
+});
 
 describe("dashboardWriteReceipt", () => {
   it("says nothing about panel health, and carries no checks, when no panel render was affected", () => {

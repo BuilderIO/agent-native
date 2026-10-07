@@ -828,9 +828,10 @@ export default defineAction({
         }
         throw err;
       }
-      queueDashboardCollabSync(
+      void queueDashboardCollabSync(
         dashboardId,
-        args.config,
+        saved.updatedAt,
+        () => getDashboard(dashboardId, ctx),
         agentCaller ? "agent" : undefined,
       );
       const panelCount = countPanels(args.config);
@@ -880,9 +881,10 @@ export default defineAction({
         },
       );
       const root = saved.config as Record<string, unknown>;
-      queueDashboardCollabSync(
+      void queueDashboardCollabSync(
         dashboardId,
-        root,
+        saved.updatedAt,
+        () => getDashboard(dashboardId, ctx),
         agentCaller ? "agent" : undefined,
       );
       trackDashboardSaved(dashboardId, root, actionContext);
@@ -943,9 +945,10 @@ export default defineAction({
       },
     );
     const root = saved.config as Record<string, unknown>;
-    queueDashboardCollabSync(
+    void queueDashboardCollabSync(
       dashboardId,
-      root,
+      saved.updatedAt,
+      () => getDashboard(dashboardId, ctx),
       agentCaller ? "agent" : undefined,
     );
 

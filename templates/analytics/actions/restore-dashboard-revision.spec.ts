@@ -15,6 +15,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: vi.fn(),
+  getText: vi.fn(async () => ""),
   hasCollabState: vi.fn().mockResolvedValue(false),
   seedFromText: vi.fn(),
 }));
@@ -194,7 +195,12 @@ describe("restore-dashboard-revision action", () => {
     expect(result.verified).toBeUndefined();
     expect(result._receipt).toBeUndefined();
     expect(result.message).toBe('Restored dashboard "Growth" from history.');
-    expect(mocks.getDashboard).not.toHaveBeenCalled();
+    // The collab sync re-reads the saved record; no read may precede the restore.
+    const [restoreOrder] =
+      mocks.restoreDashboardRevision.mock.invocationCallOrder;
+    for (const readOrder of mocks.getDashboard.mock.invocationCallOrder) {
+      expect(readOrder).toBeGreaterThan(restoreOrder);
+    }
     expect(mocks.resolvePanel).not.toHaveBeenCalled();
   });
 });

@@ -8793,38 +8793,50 @@ describe("server/auth", () => {
       expect(readDesktopSso).not.toHaveBeenCalled();
     });
 
-    it("does not promote a capability embed into the ticket owner's AuthSession", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      delete process.env.ACCESS_TOKEN;
-      delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
+    it.each([
+      {
+        scope: "capability:visual-edit:design:design_1",
+        targetPath: "/visual-edit/design_1",
+      },
+      {
+        scope: "capability:mcp-directory-widget-read:get-document",
+        targetPath: "/documents/doc-1",
+      },
+    ])(
+      "does not promote a capability embed into the ticket owner's AuthSession ($scope)",
+      async ({ scope, targetPath }) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        delete process.env.AUTH_DISABLED;
 
-      vi.doMock("./embed-session.js", async (importOriginal) => ({
-        ...(await importOriginal<object>()),
-        resolveEmbedSessionFromRequest: vi.fn(async () => ({
-          email: "ticket-owner@example.com",
-          token: "signed-capability",
-          targetPath: "/visual-edit/design_1",
-          scope: "capability:visual-edit:design:design_1",
-        })),
-      }));
-      vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({
-          execute: vi.fn(async () => ({ rows: [] })),
-        }),
-        isLocalDatabase: () => true,
-        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
-      }));
-      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
-        ...(await importOriginal<object>()),
-        getBetterAuth: async () => undefined,
-        getBetterAuthSync: () => null,
-      }));
+        vi.doMock("./embed-session.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          resolveEmbedSessionFromRequest: vi.fn(async () => ({
+            email: "ticket-owner@example.com",
+            token: "signed-capability",
+            targetPath,
+            scope,
+          })),
+        }));
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({
+            execute: vi.fn(async () => ({ rows: [] })),
+          }),
+          isLocalDatabase: () => true,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+        vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          getBetterAuth: async () => undefined,
+          getBetterAuthSync: () => null,
+        }));
 
-      const { getSession } = await import("./auth.js");
+        const { getSession } = await import("./auth.js");
 
-      await expect(getSession(createMockEvent())).resolves.toBeNull();
-    });
+        await expect(getSession(createMockEvent())).resolves.toBeNull();
+      },
+    );
 
     it("returns a shared session when AUTH_DISABLED=1", async () => {
       vi.stubEnv("NODE_ENV", "production");

@@ -39,15 +39,15 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async (args, actionContext) => {
-    const scope = resolveScope();
+    const ctx = resolveScope();
     // Read before the restore: the verifier diffs against the config being replaced.
     const before = isAgentCaller(actionContext?.caller)
-      ? await getDashboard(args.dashboardId, scope)
+      ? await getDashboard(args.dashboardId, ctx)
       : null;
     const restored = await restoreDashboardRevision(
       args.dashboardId,
       args.revisionId,
-      scope,
+      ctx,
       args.expectedUpdatedAt,
     );
     if (!restored) {
@@ -59,9 +59,10 @@ export default defineAction({
       );
     }
     const { dashboard, snapshotRevisionId } = restored;
-    queueDashboardCollabSync(
+    void queueDashboardCollabSync(
       dashboard.id,
-      dashboard.config,
+      dashboard.updatedAt,
+      () => getDashboard(dashboard.id, ctx),
       actionContext?.caller === "frontend" ? undefined : "agent",
     );
     // A restore is the recovery path and is already saved here, so it reports

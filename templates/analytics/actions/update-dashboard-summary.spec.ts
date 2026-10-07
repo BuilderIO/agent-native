@@ -63,6 +63,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: mocks.applyText,
+  getText: vi.fn(async () => ""),
   hasCollabState: mocks.hasCollabState,
   seedFromText: mocks.seedFromText,
 }));
@@ -190,6 +191,9 @@ describe("update-dashboard proof-of-done summary", () => {
   it("does not mark frontend saves as AI edits", async () => {
     mocks.hasCollabState.mockResolvedValue(true);
     const config = { name: "Weekly", panels: [panel("a")] };
+    const updatedAt = "2026-10-06T00:00:00.000Z";
+    mocks.upsertDashboard.mockResolvedValue({ archivedAt: null, updatedAt });
+    mocks.getDashboard.mockResolvedValue({ config, updatedAt });
 
     await updateDashboard.run(
       { dashboardId: "weekly", config },
@@ -201,12 +205,16 @@ describe("update-dashboard proof-of-done summary", () => {
       JSON.stringify(config),
       "content",
       undefined,
+      expect.objectContaining({ validateSnapshot: expect.any(Function) }),
     );
   });
 
   it("marks agent tool edits as AI edits", async () => {
     mocks.hasCollabState.mockResolvedValue(true);
     const config = { name: "Weekly", panels: [panel("a")] };
+    const updatedAt = "2026-10-06T00:00:00.000Z";
+    mocks.upsertDashboard.mockResolvedValue({ archivedAt: null, updatedAt });
+    mocks.getDashboard.mockResolvedValue({ config, updatedAt });
 
     await updateDashboard.run(
       { dashboardId: "weekly", config },
@@ -218,6 +226,7 @@ describe("update-dashboard proof-of-done summary", () => {
       JSON.stringify(config),
       "content",
       "agent",
+      expect.objectContaining({ validateSnapshot: expect.any(Function) }),
     );
   });
 

@@ -789,12 +789,31 @@ describe("buildUserContentWithAttachments", () => {
             type: "image",
             name: "screen.png",
             contentType: "image/png",
-            data: `data:image/png;base64,${PNG_BASE64}`,
+            data: `data:image/png;charset=binary;base64,${PNG_BASE64}`,
           },
         ],
       }),
     ).toEqual([
       { type: "image", mediaType: "image/png", data: PNG_BASE64 },
+      { type: "text", text: "Describe this" },
+    ]);
+  });
+
+  it("normalizes image/jpg before sending the image to vision", () => {
+    expect(
+      buildUserContentWithAttachments({
+        text: "Describe this",
+        attachments: [
+          {
+            type: "image",
+            name: "screen.jpg",
+            contentType: "image/jpg",
+            data: `data:image/jpg;base64,${JPEG_BASE64}`,
+          },
+        ],
+      }),
+    ).toEqual([
+      { type: "image", mediaType: "image/jpeg", data: JPEG_BASE64 },
       { type: "text", text: "Describe this" },
     ]);
   });
@@ -1134,7 +1153,7 @@ describe("buildUserContentWithAttachments", () => {
             type: "file",
             name: "reference.pdf",
             contentType: "application/pdf",
-            data: `data:application/pdf;base64,${PDF_BASE64}`,
+            data: `data:application/pdf;charset=binary;base64,${PDF_BASE64}`,
           },
         ],
       }),
@@ -4593,8 +4612,10 @@ describe("runAgentLoop", () => {
   const modelStreamBracket = (events: AgentChatEvent[]) =>
     events.filter((event) => event.type === "model_stream");
 
-  it("brackets each engine call with a model_stream start/end pair", async () => {
+  it("brackets each call and gives the observer an isolated media projection", async () => {
     let streamCalls = 0;
+    const streamedMessages: unknown[] = [];
+    const imageData = "a".repeat(1024 * 1024);
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -4607,25 +4628,64 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        streamedMessages.push(structuredClone(opts.messages));
         yield { type: "text-delta", text: "answer" };
       },
     };
     const events: AgentChatEvent[] = [];
+    const capturedInputs: unknown[] = [];
 
     await runAgentLoop({
       engine,
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "go" },
+            { type: "image", mediaType: "image/png", data: imageData },
+          ],
+        },
+      ],
       actions: {},
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      onModelInput: async (messages) => {
+        capturedInputs.push(structuredClone(messages));
+        const observerMessages = messages as unknown as Array<{
+          role: string;
+          content: Array<{ type: string; text: string }>;
+        }>;
+        observerMessages[0]!.content[0]!.text = "observer mutation";
+        observerMessages.push({
+          role: "user",
+          content: [{ type: "text", text: "observer mutation" }],
+        });
+        throw new Error("observer failure");
+      },
     });
 
     expect(streamCalls).toBe(1);
+    expect(capturedInputs).toEqual([
+      [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "go" },
+            { type: "text", text: "[image: image/png, ~786432 bytes]" },
+          ],
+        },
+      ],
+    ]);
+    const modelInput = streamedMessages[0] as Array<{
+      content: Array<{ data?: string; text?: string }>;
+    }>;
+    expect(modelInput[0]?.content[0]?.text).toBe("go");
+    expect(modelInput[0]?.content[1]?.data).toBe(imageData);
     expect(events[0]).toEqual({ type: "model_stream", status: "start" });
     expect(modelStreamBracket(events)).toEqual([
       { type: "model_stream", status: "start" },
