@@ -29,6 +29,31 @@ describe("redactToolErrorMessage", () => {
       ),
     ).toBe("DATABASE_URL=[REDACTED]\npostgresql://[REDACTED]@db.example/app");
   });
+
+  it("redacts URI userinfo through the final authority delimiter", () => {
+    expect(
+      redactToolErrorMessage("postgresql://alice:pa@ss@db.example/app"),
+    ).toBe("postgresql://[REDACTED]@db.example/app");
+  });
+
+  it("leaves an authority without userinfo visible", () => {
+    expect(redactToolErrorMessage("https://example.com/path")).toBe(
+      "https://example.com/path",
+    );
+  });
+
+  it("redacts an incomplete URI authority at a bounded trace capture", () => {
+    expect(
+      redactToolErrorMessage("postgresql://alice:partial-secret", {
+        truncated: true,
+      }),
+    ).toBe("postgresql://[REDACTED]");
+    expect(
+      redactToolErrorMessage("postgresql://alice:pa@ss", {
+        truncated: true,
+      }),
+    ).toBe("postgresql://[REDACTED]");
+  });
 });
 
 describe("toolErrorSignature", () => {

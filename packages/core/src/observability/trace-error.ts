@@ -14,7 +14,9 @@ const QUOTED_CREDENTIAL_PATTERN = new RegExp(
 );
 const PRIVATE_KEY_BLOCK_PATTERN =
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/gi;
-const URI_USERINFO_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)([^/?#@\s]*@)/gi;
+const URI_USERINFO_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)([^/?#\s]*@)/gi;
+const TRUNCATED_URI_AUTHORITY_PATTERN =
+  /\b([a-z][a-z0-9+.-]*:\/\/)([^/?#\s]+)$/gi;
 const CREDENTIAL_HEADER_PATTERN =
   /(["']?\b(?:authorization|cookie)\b["']?\s*[:=]\s*)(?:(\[(?:\\.|[^\]])*\])|(["'])(?:\\.|(?!\3)[\s\S])*?\3|[^\r\n"'{}\]]+)/gim;
 
@@ -28,8 +30,11 @@ export const TOOL_ERROR_CAPTURE_METADATA_KEY = "__tool_error_capture_version";
  */
 export const TOOL_ERROR_DETAIL_METADATA_KEY = "__tool_error_detail";
 
-export function redactToolErrorMessage(value: string): string {
-  return value
+export function redactToolErrorMessage(
+  value: string,
+  options: { truncated?: boolean } = {},
+): string {
+  const redacted = value
     .replace(PRIVATE_KEY_BLOCK_PATTERN, "[REDACTED]")
     .replace(QUOTED_CREDENTIAL_PATTERN, "$1$2[REDACTED]$2")
     .replace(
@@ -51,6 +56,9 @@ export function redactToolErrorMessage(value: string): string {
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
     .replace(URI_USERINFO_PATTERN, "$1[REDACTED]@")
     .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
+  return options.truncated
+    ? redacted.replace(TRUNCATED_URI_AUTHORITY_PATTERN, "$1[REDACTED]")
+    : redacted;
 }
 
 function boundToolErrorMessage(redacted: string): string {

@@ -717,13 +717,17 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       send: () => {},
       signal: new AbortController().signal,
     };
+    const uri = "postgresql://alice:partial-secret-password@db.example/app";
+    const uriPrefix = uri.slice(0, uri.indexOf("@"));
+    const outputPrefix = '"client_secret": "partial secret value" ';
+    const captureLimit = MAX_AI_CONTENT_BYTES - 1024;
 
     await instrumentAgentLoop({
       runAgentLoop: async ({ send }) => {
         send({ type: "model_stream", status: "start" });
         send({
           type: "text",
-          text: `${"a".repeat(MAX_AI_CONTENT_BYTES - 1024 - 36)}"client_secret": "partial secret value that continues past the capture limit`,
+          text: `${"a".repeat(captureLimit - outputPrefix.length - uriPrefix.length)}${outputPrefix}${uri}`,
         });
         send({ type: "model_stream", status: "end", reason: "tool_use" });
         send({ type: "model_stream", status: "start" });
@@ -766,6 +770,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(firstOutput).toContain("[REDACTED]");
     expect(firstOutput).toContain("[truncated]");
     expect(firstOutput).not.toContain("partial secret valu");
+    expect(firstOutput).toContain("postgresql://[REDACTED]");
+    expect(firstOutput).not.toContain("partial-secret-password");
     expect(
       new TextEncoder().encode(firstOutput).byteLength,
     ).toBeLessThanOrEqual(MAX_AI_CONTENT_BYTES);

@@ -227,8 +227,11 @@ type GenerationToolCall = {
   error_message?: string;
 };
 
-function redactToolErrorMessage(value: string): string {
-  return redactToolErrorMessageText(value);
+function redactToolErrorMessage(
+  value: string,
+  options: { truncated?: boolean } = {},
+): string {
+  return redactToolErrorMessageText(value, options);
 }
 
 export function httpStatusFromError(err: unknown): number | undefined {
@@ -459,7 +462,9 @@ function buildGenerationContent(args: {
   const output = hasChoice
     ? config.capturePrompts
       ? boundAssistantOutput(
-          redactToolErrorMessage(args.assistantText),
+          redactToolErrorMessage(args.assistantText, {
+            truncated: args.assistantTextTruncated === true,
+          }),
           toolCalls,
           args.assistantTextTruncated === true,
         )
