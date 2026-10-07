@@ -1191,7 +1191,7 @@ export function writeReplayScreenshotToClipboard(
   screenshot: Blob | Promise<Blob>,
   clipboard: Pick<Clipboard, "write"> | undefined = globalThis.navigator
     ?.clipboard,
-  capture?: AbortController,
+  onClipboardWriteFailure?: () => void,
 ): Promise<void> {
   const ClipboardItemConstructor = globalThis.ClipboardItem;
   const boundedPng = Promise.resolve(screenshot).then((blob) => {
@@ -1230,7 +1230,7 @@ export function writeReplayScreenshotToClipboard(
   return Promise.race([pngResult, writeResult]).then(async (firstResult) => {
     if (firstResult.kind === "write-failed") {
       const error = new ReplayScreenshotClipboardError();
-      capture?.abort(error);
+      onClipboardWriteFailure?.();
       throw error;
     }
 
@@ -1249,7 +1249,7 @@ export function writeReplayScreenshotToClipboard(
       firstResult.kind === "write-succeeded" ? firstResult : await writeResult;
     if (finalWriteResult.kind === "write-failed") {
       const error = new ReplayScreenshotClipboardError();
-      capture?.abort(error);
+      onClipboardWriteFailure?.();
       throw error;
     }
   });

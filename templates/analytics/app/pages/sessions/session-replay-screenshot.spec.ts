@@ -1488,6 +1488,7 @@ describe("session replay screenshot clipboard", () => {
       },
     );
     const capture = new AbortController();
+    const onClipboardWriteFailure = vi.fn(() => capture.abort());
     const screenshot = new Promise<Blob>((_resolve, reject) => {
       capture.signal.addEventListener(
         "abort",
@@ -1502,13 +1503,11 @@ describe("session replay screenshot clipboard", () => {
         {
           write: vi.fn().mockRejectedValue(new Error("clipboard denied")),
         } as unknown as Clipboard,
-        capture,
+        onClipboardWriteFailure,
       ),
     ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
+    expect(onClipboardWriteFailure).toHaveBeenCalledTimes(1);
     expect(capture.signal.aborted).toBe(true);
-    expect(capture.signal.reason).toBeInstanceOf(
-      ReplayScreenshotClipboardError,
-    );
   });
 
   it("rejects when clipboard writing is unavailable or fails", async () => {

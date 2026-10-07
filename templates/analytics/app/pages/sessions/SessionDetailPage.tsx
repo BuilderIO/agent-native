@@ -1042,7 +1042,7 @@ function ReplayPlayer({
     operation: (
       screenshot: Promise<Blob>,
       filename: string,
-      capture: AbortController,
+      onClipboardWriteFailure: () => void,
     ) => Promise<void>,
     onSuccess: () => void,
     onFailure: (error: unknown) => void,
@@ -1062,6 +1062,12 @@ function ReplayPlayer({
       replayer.getCurrentTime?.() ?? currentTimeRef.current,
     );
     const capture = new AbortController();
+    let clipboardWriteFailed = false;
+    const onClipboardWriteFailure = () => {
+      if (screenshotCaptureRef.current !== capture) return;
+      clipboardWriteFailed = true;
+      capture.abort();
+    };
     screenshotCaptureRef.current = capture;
     savingScreenshotRef.current = true;
     setSavingScreenshot(true);
@@ -1082,14 +1088,17 @@ function ReplayPlayer({
         capture.signal,
       );
       // Clipboard writes need this click's activation, so start the operation before awaiting capture.
-      actionPromise = operation(screenshot, filename, capture);
+      actionPromise = operation(screenshot, filename, onClipboardWriteFailure);
     } catch (error) {
       actionPromise = Promise.reject(error);
     }
 
     void actionPromise
       .then(onSuccess, (error: unknown) => {
-        if (!capture.signal.aborted || capture.signal.reason === error) {
+        if (
+          !capture.signal.aborted ||
+          (clipboardWriteFailed && screenshotCaptureRef.current === capture)
+        ) {
           capture.abort();
           onFailure(error);
         }
@@ -1139,8 +1148,12 @@ function ReplayPlayer({
   function copyScreenshotToDesign() {
     runScreenshotAction(
       "copy",
-      (screenshot, _filename, capture) =>
-        writeReplayScreenshotToClipboard(screenshot, undefined, capture),
+      (screenshot, _filename, onClipboardWriteFailure) =>
+        writeReplayScreenshotToClipboard(
+          screenshot,
+          undefined,
+          onClipboardWriteFailure,
+        ),
       () => toast.success(t("sessions.screenshotCopiedForDesign")),
       (error) =>
         toast.error(
