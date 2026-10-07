@@ -571,10 +571,14 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
-  assert.ok(regressionCases.includes("timeout-minutes: 18"));
-  assert.ok(workflow.includes("timeout-minutes: 25"));
+  assert.ok(regressionCases.includes("timeout-minutes: 7"));
+  assert.ok(workflow.includes("timeout-minutes: 9"));
   assert.ok(regressionCases.includes("--workers=2"));
-  assert.ok(workflow.includes("shard: [inspector, drag, position, changed]"));
+  assert.ok(
+    workflow.includes(
+      "shard: [inspector, drag, position, changed-1, changed-2, changed-3]",
+    ),
+  );
   assert.ok(
     regressionCases.includes(
       "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
@@ -587,7 +591,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     regressionCases.includes(
-      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=3',
+      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=3 --fully-parallel --shard="${changed_shard}/3"',
     ),
   );
   assert.ok(

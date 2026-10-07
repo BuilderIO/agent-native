@@ -423,11 +423,11 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 9
     strategy:
       fail-fast: false
       matrix:
-        shard: [inspector, drag, position, changed]
+        shard: [inspector, drag, position, changed-1, changed-2, changed-3]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -449,7 +449,7 @@ jobs:
 
       - name: Run focused Design regression cases
         working-directory: templates/design
-        timeout-minutes: 18
+        timeout-minutes: 7
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -471,12 +471,14 @@ jobs:
             fi
           done
           case "${{ matrix.shard }}" in
-            changed)
+            changed-*)
+              changed_shard="${{ matrix.shard }}"
+              changed_shard="${changed_shard#changed-}"
               if ((${#existing_changed_specs[@]} == 0)); then
                 echo "No changed Design E2E specs to run."
                 exit 0
               fi
-              pnpm exec playwright test "${existing_changed_specs[@]}" --workers=3
+              pnpm exec playwright test "${existing_changed_specs[@]}" --workers=3 --fully-parallel --shard="${changed_shard}/3"
               exit
               ;;
             inspector)
