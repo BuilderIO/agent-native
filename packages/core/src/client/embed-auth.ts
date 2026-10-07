@@ -10,6 +10,10 @@ import { isMcpDirectoryWidgetReadCapabilityScope } from "../shared/embed-auth.js
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import { MCP_APP_HOST_FILL_ATTRIBUTE } from "../shared/mcp-app-display.js";
 import {
+  EMBED_TOKEN_STORAGE_KEY,
+  MCP_CHAT_BRIDGE_STORAGE_KEY,
+} from "../shared/mcp-app-widget-embed.js";
+import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
@@ -19,8 +23,6 @@ let installed = false;
 let memoryToken: string | null = null;
 let mcpChatBridgeActive = false;
 let mcpChatBridgeScope: string | null = null;
-const EMBED_TOKEN_STORAGE_KEY = "agent-native:embed-auth-token";
-const MCP_CHAT_BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 
 const AUTH_FAILURE_COOLDOWN_MS = 60_000;
 const GUARDED_METHODS = new Set(["GET", "HEAD"]);
@@ -202,13 +204,14 @@ function readEmbedTokenScope(token: string): string | undefined {
 let readOnlyScopeCache: { token: string; readOnly: boolean } | null = null;
 
 /**
- * True when this document is the app nested in an MCP App widget shell (the
- * chat bridge is active) on a directory-widget read capability, which the
- * server limits to the widget's own resource reads. The token's claims are
- * only a UI hint (the signature is checked server-side), so this decides what
- * not to attempt, never what is allowed.
+ * True when the embed credential is a directory-widget read capability, which
+ * only the MCP App widget flows mint. It stays readable after a client
+ * navigation drops the URL params, so it identifies a widget document without
+ * the chat-bridge flag. The token's claims are only a UI hint (the signature
+ * is checked server-side), so this decides what not to attempt, never what is
+ * allowed.
  */
-export function isMcpDirectoryWidgetReadOnlyEmbed(): boolean {
+export function hasMcpDirectoryWidgetCapabilityToken(): boolean {
   const token = getEmbedAuthToken();
   if (!token) return false;
   if (readOnlyScopeCache?.token !== token) {
@@ -219,7 +222,16 @@ export function isMcpDirectoryWidgetReadOnlyEmbed(): boolean {
       ),
     };
   }
-  return readOnlyScopeCache.readOnly && isEmbedMcpChatBridgeActive();
+  return readOnlyScopeCache.readOnly;
+}
+
+/**
+ * True when this document is the app nested in an MCP App widget shell (the
+ * chat bridge is active) on a directory-widget read capability, which the
+ * server limits to the widget's own resource reads.
+ */
+export function isMcpDirectoryWidgetReadOnlyEmbed(): boolean {
+  return hasMcpDirectoryWidgetCapabilityToken() && isEmbedMcpChatBridgeActive();
 }
 
 export function isEmbedAuthActive(): boolean {

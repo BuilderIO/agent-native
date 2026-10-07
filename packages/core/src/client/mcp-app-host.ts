@@ -9,8 +9,10 @@ import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   mcpAppHostFillsContainer,
 } from "../shared/mcp-app-display.js";
+import { MCP_APP_WIDGET_EMBED_ATTRIBUTE } from "../shared/mcp-app-widget-embed.js";
 import {
   getEmbedAuthToken,
+  hasMcpDirectoryWidgetCapabilityToken,
   isEmbedAuthActive,
   markEmbedMcpChatBridgeActive,
   isEmbedMcpChatBridgeActive,
@@ -506,18 +508,54 @@ function readOpenAiBridge(): OpenAiAppBridge | null {
     : null;
 }
 
+const widgetEmbedListeners = new Set<() => void>();
+let widgetEmbedLatched = false;
+
+function latchWidgetEmbed(): void {
+  if (widgetEmbedLatched) return;
+  widgetEmbedLatched = true;
+  document.documentElement?.setAttribute(MCP_APP_WIDGET_EMBED_ATTRIBUTE, "1");
+  // The first answer is computed during a render, and a subscriber must not be
+  // told to re-render from inside another component's render.
+  queueMicrotask(() => {
+    for (const listener of widgetEmbedListeners) listener();
+  });
+}
+
 /**
  * True when this document is an app running inside an MCP App widget (a
  * ChatGPT, Codex, or Claude card or panel). The host, not the app, owns
  * navigation and chat there, so apps drop their own navigation chrome.
+ *
+ * Being a widget is a property of the document, not of its current URL: the
+ * first positive answer is kept (and marked on `<html>`, where the first-paint
+ * script in `getMcpAppWidgetEmbedBootScriptBody` also marks it), so a client
+ * navigation that drops the embed query params, or a token swap that
+ * de-enrolls the chat bridge, never brings the app's own chrome back.
  */
 export function isMcpAppWidgetEmbed(): boolean {
-  return isInChildFrame() && isMcpAppBridgeEnabled();
+  if (!isBrowserWindow()) return false;
+  if (widgetEmbedLatched) return true;
+  if (
+    document.documentElement?.hasAttribute(MCP_APP_WIDGET_EMBED_ATTRIBUTE) ||
+    (isInChildFrame() &&
+      (isMcpAppBridgeEnabled() || hasMcpDirectoryWidgetCapabilityToken()))
+  ) {
+    latchWidgetEmbed();
+  }
+  return widgetEmbedLatched;
+}
+
+function subscribeToWidgetEmbed(listener: () => void): () => void {
+  widgetEmbedListeners.add(listener);
+  return () => {
+    widgetEmbedListeners.delete(listener);
+  };
 }
 
 export function useIsMcpAppWidgetEmbed(): boolean {
   return useSyncExternalStore(
-    () => () => {},
+    subscribeToWidgetEmbed,
     isMcpAppWidgetEmbed,
     () => false,
   );
@@ -930,8 +968,11 @@ export function _resetMcpAppHostForTests(): void {
   directHostChatQueue = Promise.resolve();
   snapshot = { context: null, capabilities: null, version: null };
   listeners.clear();
+  widgetEmbedLatched = false;
+  widgetEmbedListeners.clear();
   if (isBrowserWindow()) {
     document.documentElement?.removeAttribute(MCP_APP_HOST_FILL_ATTRIBUTE);
+    document.documentElement?.removeAttribute(MCP_APP_WIDGET_EMBED_ATTRIBUTE);
   }
 }
 

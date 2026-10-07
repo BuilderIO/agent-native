@@ -608,9 +608,12 @@ describe("createEmbedStartRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
+    // The widget flag rides along even when the start URL lacked it: a
+    // directory capability only exists for a widget frame.
     expect(res.headers.get("Location")).toBe(
-      "/page/doc-1?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
+      "/page/doc-1?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&agentSidebar=closed",
     );
+    expect(res.headers.get("Location")).not.toContain("capability");
   });
 
   it("strips an untrusted directory widget marker from embed targets", async () => {
