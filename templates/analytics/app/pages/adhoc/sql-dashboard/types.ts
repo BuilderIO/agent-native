@@ -7,19 +7,22 @@ export type DataSourceType =
   | "prometheus"
   | "program";
 
-export type ChartType =
-  | "line"
-  | "area"
-  | "bar"
-  | "combo"
-  | "metric"
-  | "table"
-  | "pie"
-  | "section"
-  | "funnel"
-  | "heatmap"
-  | "callout"
-  | "extension";
+export const PANEL_CHART_TYPES = [
+  "line",
+  "area",
+  "bar",
+  "combo",
+  "metric",
+  "table",
+  "pie",
+  "section",
+  "funnel",
+  "heatmap",
+  "callout",
+  "extension",
+] as const;
+
+export type ChartType = (typeof PANEL_CHART_TYPES)[number];
 
 export type FilterType =
   | "date"

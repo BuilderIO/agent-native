@@ -809,11 +809,20 @@ async function resolveResourceOrgId(
   return resolved === undefined ? getRequestOrgId() : resolved;
 }
 
+// Lean runs never receive the compact framework prompt, so the batching rule
+// it carries has to ride the run policy instead.
+const LEAN_PARALLEL_READS_NOTE =
+  "\n\nWhen several independent reads are needed, emit them in the same step.";
+
 export function buildLeanRunPolicyPrompt(
   codeEditingSurfaceRestriction: string,
   prodCodeExecPromptNote: string,
 ): string {
-  return codeEditingSurfaceRestriction + prodCodeExecPromptNote;
+  return (
+    LEAN_PARALLEL_READS_NOTE +
+    codeEditingSurfaceRestriction +
+    prodCodeExecPromptNote
+  );
 }
 
 export function filterPromptActionsToSurface(
@@ -1390,6 +1399,16 @@ export function createAgentChatPlugin(
       const docsScripts = frameworkTools.isEnabled("docs")
         ? await createDocsScriptEntries()
         : {};
+      // The compact prompt sends the model to `docs-search` for skill text, so
+      // it is the one docs tool the lean registry keeps (`framework-search`
+      // stays out of the first request). Every registry carries it through
+      // `docsScripts` or `skillReadScripts`, which is why one resolved name
+      // serves every prompt site.
+      const docsSearchEntry = docsScripts["docs-search"];
+      const skillReadScripts: Record<string, ActionEntry> = docsSearchEntry
+        ? { "docs-search": docsSearchEntry }
+        : {};
+      const skillReadTool = docsSearchEntry ? "docs-search" : null;
       const databaseToolsMode = normalizeDatabaseToolsMode(
         frameworkTools.database,
       );
@@ -2523,7 +2542,7 @@ export function createAgentChatPlugin(
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           const schemaBlock = lazyContext
             ? ""
@@ -3287,7 +3306,7 @@ export function createAgentChatPlugin(
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -4145,6 +4164,7 @@ export function createAgentChatPlugin(
       const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
+        ...skillReadScripts,
         ...workspaceFileActions,
         ...refreshScreenTool,
         ...urlTools,
@@ -4561,7 +4581,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               true,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             await emitContextXraySystemSections(event, {
               frameworkPrompt: requestLeanPrompt.slice(
@@ -4595,7 +4615,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           // In lazy context mode, skip embedding the full schema. When database
           // tools are enabled the agent can call `db-schema` on demand.
@@ -4974,7 +4994,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 true,
                 options?.appId,
                 undefined,
-                { disabledFrameworkGroups },
+                { disabledFrameworkGroups, skillReadTool },
               );
               await emitContextXraySystemSections(event, {
                 frameworkPrompt: requestLeanPrompt.slice(
@@ -5005,7 +5025,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock =
               lazyContext || !databaseToolsEnabled
@@ -8175,7 +8195,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -8668,7 +8688,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           const schemaBlock = lazyContext
             ? ""

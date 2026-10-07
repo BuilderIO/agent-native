@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
-  upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
+  upsertDashboard: vi.fn(async (..._args: unknown[]) => ({ archivedAt: null })),
   dryRunQuery: vi.fn(),
   hasCollabState: vi.fn(async () => false),
   applyText: vi.fn(async () => undefined),
@@ -44,8 +44,12 @@ vi.mock("@agent-native/core/collab", () => ({
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: vi.fn(async () => undefined),
   getDashboard: mocks.getDashboard,
-  upsertDashboard: mocks.upsertDashboard,
+  upsertDashboardOutcome: async (...args: unknown[]) => ({
+    dashboard: await mocks.upsertDashboard(...args),
+    didWrite: true,
+  }),
   DashboardConflictError: class DashboardConflictError extends Error {},
 }));
 
