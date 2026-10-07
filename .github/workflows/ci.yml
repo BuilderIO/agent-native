@@ -506,12 +506,12 @@ jobs:
                 e2e/position-alignment.spec.ts:361 \
                 e2e/position-alignment.spec.ts:431 \
                 e2e/position-alignment.spec.ts:509 \
-                e2e/position-alignment.spec.ts:562 \
-                e2e/position-alignment.spec.ts:607 \
-                e2e/position-alignment.spec.ts:653 \
-                e2e/position-alignment.spec.ts:700 \
-                e2e/position-alignment.spec.ts:732 \
-                e2e/position-alignment.spec.ts:772 \
+                e2e/position-alignment.spec.ts:570 \
+                e2e/position-alignment.spec.ts:615 \
+                e2e/position-alignment.spec.ts:661 \
+                e2e/position-alignment.spec.ts:708 \
+                e2e/position-alignment.spec.ts:740 \
+                e2e/position-alignment.spec.ts:780 \
               )
               ;;
             *)

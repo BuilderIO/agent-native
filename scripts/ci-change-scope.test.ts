@@ -679,32 +679,32 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      562,
+      570,
       "Position stays Frame-relative through Groups and resets at nested Frames",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      607,
+      615,
       "Position edits use the CSS containing block through static wrappers and borders",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      653,
+      661,
       "Position stays Frame-relative through a positioned plain wrapper",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      700,
+      708,
       "unframed absolute positions use the initial containing block through static wrappers",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      732,
+      740,
       "Position edits invert own and static-containing-block transforms and persist",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      772,
+      780,
       "Align uses a Group's bounds while Position stays Frame-relative",
     ],
   ] as const;
