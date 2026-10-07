@@ -23,7 +23,7 @@ export function TemplateScreenshot({
         crossOrigin="anonymous"
         loading="lazy"
         decoding="async"
-        className={`theme-img-dark relative h-full w-full object-contain object-center transition-opacity group-hover:opacity-90 ${className}`}
+        className={`theme-img-dark absolute inset-0 block h-full w-full object-cover object-center transition-opacity group-hover:opacity-90 ${className}`}
       />
       <BuilderImage
         src={variants.light}
@@ -33,7 +33,7 @@ export function TemplateScreenshot({
         crossOrigin="anonymous"
         loading="lazy"
         decoding="async"
-        className={`theme-img-light absolute inset-0 h-full w-full object-contain object-center transition-opacity group-hover:opacity-90 ${className}`}
+        className={`theme-img-light absolute inset-0 block h-full w-full object-cover object-center transition-opacity group-hover:opacity-90 ${className}`}
       />
     </>
   );
