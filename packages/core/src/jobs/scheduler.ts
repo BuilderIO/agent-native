@@ -397,6 +397,10 @@ async function processRecurringJobsWithLease(
                       !meta.lastRunManual &&
                       isPermanentIdentityFailure(recovery.errorCode),
                     eventId: recovery.history.id,
+                    ...(recovery.history.finishedAt !== null &&
+                    recovery.history.error
+                      ? { recordedError: recovery.history.error }
+                      : {}),
                   }
                 : undefined,
             );
@@ -1483,6 +1487,7 @@ type ExecutionOutcome = Pick<
 
 interface ExecutionFailure {
   failure: AutomationFailure;
+  recordedError?: string;
   /** A manual run records its cause but never pauses the automation. */
   countTowardPause: boolean;
   eventId?: string;
@@ -1541,6 +1546,8 @@ async function recordExecutionOutcome(
           eventId: failed.eventId,
         });
     extra = transition.patch;
+    if (failed.recordedError !== undefined)
+      extra.lastError = failed.recordedError;
     if (transition.pause) {
       pausedAfter = transition.consecutiveFailures;
       console.warn(

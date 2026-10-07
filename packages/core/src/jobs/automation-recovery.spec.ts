@@ -199,6 +199,43 @@ describe("automation worker recovery", () => {
     expect(mocks.reap).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["success", true],
+    ["success", false],
+    ["error", true],
+    ["error", false],
+    ["interrupted", true],
+    ["interrupted", false],
+  ])(
+    "settles terminal %s history with worker link %s independently of worker retention",
+    async (status, linked) => {
+      const terminal = {
+        ...history,
+        status,
+        finishedAt: now.getTime() - 1_000,
+        runId: linked ? history.runId : null,
+        threadId: linked ? history.threadId : null,
+        error: "Ticket failed. Confirmed completed steps: send-test-email.",
+        errorCode: "http_502",
+      };
+      mocks.history.mockResolvedValue(terminal);
+      mocks.get.mockResolvedValue(null);
+      expect(
+        await inspectAutomationRecovery(resource, meta, now),
+      ).toMatchObject({
+        state: "settle",
+        status: status === "success" ? "success" : "error",
+        history: terminal,
+        error: terminal.error,
+        errorCode: terminal.errorCode,
+      });
+      expect(mocks.reap).not.toHaveBeenCalled();
+      expect(mocks.get).not.toHaveBeenCalled();
+      expect(mocks.ref).not.toHaveBeenCalled();
+      expect(mocks.events).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not confuse a newer queued Run now with the stopped worker", async () => {
     mocks.list.mockResolvedValue([
       {

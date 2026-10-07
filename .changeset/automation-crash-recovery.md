@@ -17,3 +17,5 @@ Atomically link and claim automation workers after saving their original instruc
 Clear an earlier scheduler firing's recovery identity when admitting an event or webhook run, so its history cannot settle the new firing.
 
 Commit new firing history and its running marker together, honor live queued dispatch claims during setup and settlement, and restrict legacy scheduler recovery to scheduled trigger markers.
+
+Keep newly admitted firings retryable after pre-start lease loss and reconcile terminal history independently of worker retention, preserving its recorded delivery evidence.

@@ -1068,7 +1068,6 @@ async function executeBackgroundAutomation(
       let hardTimedOut = false;
 
       assertHardDeadline(options.hardDeadlineAt);
-      await options.assertCanStart?.();
       await persistBackgroundAutomationTurn({
         threadId: thread.id,
         threadTitle,

@@ -138,10 +138,17 @@ export async function inspectAutomationRecovery(
     history = candidates[0] ?? null;
   }
   if (!history) return null;
+  if (history.finishedAt !== null)
+    return {
+      state: "settle",
+      status: history.status === "success" ? "success" : "error",
+      history,
+      ...(history.error ? { error: history.error } : {}),
+      ...(history.errorCode ? { errorCode: history.errorCode } : {}),
+    };
   if (!history.runId || !history.threadId) {
     const lastQueueTouch = history.claimedAt ?? history.startedAt;
     if (
-      history.finishedAt === null &&
       history.dispatchPending &&
       Number.isFinite(lastQueueTouch) &&
       lastQueueTouch > now.getTime() - automationRunClaimLeaseMs()
@@ -159,32 +166,19 @@ export async function inspectAutomationRecovery(
       deliveryNote: deliveryNoteForEvents([]),
     };
   }
-  if (history.finishedAt !== null && history.status === "success")
-    return {
-      state: "settle",
-      status: "success",
-      history,
-      ...(history.error ? { error: history.error } : {}),
-      ...(history.errorCode ? { errorCode: history.errorCode } : {}),
-    };
-  if (history.finishedAt === null) await reapIfStale(history.runId);
+  await reapIfStale(history.runId);
   const run = await getRunById(history.runId);
   if (!run)
     throw new Error(
       `Automation worker ${history.runId} has no durable run record`,
     );
-  if (history.finishedAt === null && run.status === "running")
-    return { state: "active" };
-  if (
-    history.finishedAt === null &&
-    run.status === "completed" &&
-    !meta.deliveryDestination
-  )
+  if (run.status === "running") return { state: "active" };
+  if (run.status === "completed" && !meta.deliveryDestination)
     return { state: "settle", status: "success", history };
   const ref = await getRunTurnRef(run.id);
   if (!ref || ref.threadId !== history.threadId)
     throw new Error(`Automation worker ${run.id} has no matching turn`);
-  if (history.finishedAt === null && run.status === "completed") {
+  if (run.status === "completed") {
     const events = await getCurrentTurnEventsForThread(
       ref.threadId,
       ref.turnId,
@@ -204,7 +198,6 @@ export async function inspectAutomationRecovery(
   const hardDeadlineAt = lastRun + resolveBackgroundRunHardTimeoutMs();
   if (
     meta.lastHistoryId &&
-    history.finishedAt === null &&
     (run.errorCode === "stale_run" ||
       run.errorCode === "automation_scheduler_lease_lost") &&
     now.getTime() < hardDeadlineAt &&

@@ -970,6 +970,49 @@ describe("stale automation run-lock recovery across trigger types", () => {
     }
   });
 
+  it.each([0, RUNTIME_PAUSE_AFTER - 1])(
+    "projects terminal history after worker pruning with %s prior failures",
+    async (priorFailures) => {
+      const fixture = interruptedScheduledJob();
+      const error =
+        "Ticket failed. Confirmed completed steps: send-test-email.";
+      Object.assign(fixture.history, {
+        finishedAt: Date.now(),
+        status: "error",
+        error,
+        errorCode: "http_502",
+      });
+      fixture.resource.content = fixture.resource.content.replace(
+        "lastStatus: running",
+        `lastStatus: running\nlastErrorCode: http_502\nconsecutiveFailures: ${priorFailures}`,
+      );
+      vi.mocked(runStore.getRunById).mockResolvedValue(null);
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockResolvedValue(undefined);
+      resourceListAllOwnersMock.mockResolvedValue([fixture.resource]);
+      resourceGetByPathMock.mockResolvedValue(fixture.resource);
+      try {
+        await processRecurringJobs(recoveryDeps);
+        expect(resourcePutMock).toHaveBeenCalledOnce();
+        const meta = parseJobResource(resourcePutMock.mock.calls[0]![2]).meta;
+        expect(meta).toMatchObject({
+          lastStatus: priorFailures === 0 ? "error" : "paused",
+          lastError: error,
+          lastErrorCode: "http_502",
+          consecutiveFailures: priorFailures + 1,
+          lastFailedEventId: fixture.history.id,
+        });
+        expect(finish).not.toHaveBeenCalled();
+        expect(runAgentLoopMock).not.toHaveBeenCalled();
+        expect(runStore.getRunById).not.toHaveBeenCalled();
+      } finally {
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
+
   it("does not apply a recovered failure to a newer firing read during settlement", async () => {
     const fixture = interruptedScheduledJob(4);
     const finish = vi
