@@ -1593,6 +1593,8 @@ export default {
     assetAdded: "Recurso adicionado",
     assetsNoImageUrl: "Assets não retornou uma URL de imagem.",
     failedToUploadFile: "Falha ao carregar o arquivo",
+    imageAttachmentUnavailable:
+      "Não foi possível preparar esta imagem como referência visual. Anexe um arquivo PNG, JPG, GIF ou WebP menor.",
     attachmentsTooLarge:
       "Esses anexos são grandes demais. Os envios são limitados a {{max}} MB no total — anexe menos arquivos ou arquivos menores.",
     failedToSubmitPrompt: "Não foi possível enviar o prompt",
@@ -2035,9 +2037,11 @@ export default {
     comingSoonTitle: "Os sistemas de design chegarão em breve",
     waitlist: {
       join: "Entrar na lista de espera",
-      joining: "Entrando...",
-      joined: "Você está na lista de espera",
+      joining: "Entrando…",
+      joined: "Você entrou na lista de espera",
       error: "Não foi possível entrar na lista de espera. Tente novamente.",
+      unavailable:
+        "A inscrição na lista de espera não está disponível agora. Tente novamente mais tarde.",
     },
     deleteError: "Não foi possível excluir o sistema de design",
     updateSuccess: "Sistema de design atualizado",

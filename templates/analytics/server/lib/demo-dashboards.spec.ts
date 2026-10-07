@@ -81,6 +81,7 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: mocks.applyText,
+  getText: vi.fn(async () => ""),
   hasCollabState: mocks.hasCollabState,
   seedFromText: mocks.seedFromText,
 }));
@@ -184,8 +185,8 @@ describe("demo dashboards", () => {
   });
 
   it("does not block installation when collab synchronization stalls", async () => {
-    mocks.hasCollabState.mockImplementation(
-      () => new Promise<boolean>(() => undefined),
+    mocks.applyText.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
     );
 
     const result = await ensureDemoDashboardsForUser(alice);
@@ -194,7 +195,7 @@ describe("demo dashboards", () => {
       expect.objectContaining({ installed: true, created: true }),
     );
     expect(mocks.putUserSetting).toHaveBeenCalledTimes(1);
-    expect(mocks.hasCollabState).toHaveBeenCalledTimes(1);
+    expect(mocks.applyText).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes existing demos when the embedded demo version is outdated", async () => {

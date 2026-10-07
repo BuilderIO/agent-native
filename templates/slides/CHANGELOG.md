@@ -7,6 +7,17 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Reopening a ChatGPT Slides widget restores the saved deck editor without a second sign-in.
+- Fixed attached images missing from visual analysis.
+- Fixed returning to shared decks after completing an account prompt
+- Generated decks from ChatGPT open in the full Slides editor.
+- Google Slides exports open the created copy directly.
+- Keep one close control in Slides export error dialogs
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- Slides applies linked design systems to deck style references
+- Slides stop cleanly when generation reaches the requested slide count.
+- Slides uses a reference deck's linked system only when available and won't guess when the reference cannot be read.
+- The Recent tab restores immediately from the last known library state and stays visible while decks load.
 - Fixed home prompts silently doing nothing instead of starting a new deck.
 
 ## 2026-10-05

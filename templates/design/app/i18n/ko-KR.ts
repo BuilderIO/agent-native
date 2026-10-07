@@ -1575,6 +1575,8 @@ export default {
     assetAdded: "자산이 추가됨",
     assetsNoImageUrl: "Assets에서 이미지 URL을 반환하지 않았습니다.",
     failedToUploadFile: "파일을 업로드하지 못했습니다.",
+    imageAttachmentUnavailable:
+      "이 이미지를 시각 입력으로 준비하지 못했습니다. 더 작은 PNG, JPG, GIF 또는 WebP 파일을 첨부하세요.",
     attachmentsTooLarge:
       "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
     failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
@@ -2006,10 +2008,12 @@ export default {
   designSystems: {
     comingSoonTitle: "디자인 시스템이 곧 제공됩니다",
     waitlist: {
-      join: "대기자 명단에 등록",
-      joining: "등록 중...",
-      joined: "대기자 명단에 등록되었습니다",
-      error: "대기자 명단에 등록하지 못했습니다. 다시 시도해 주세요.",
+      join: "대기 목록 등록",
+      joining: "등록 중…",
+      joined: "대기 목록에 등록되었습니다",
+      error: "대기 목록에 등록할 수 없습니다. 다시 시도해 주세요.",
+      unavailable:
+        "대기 목록 등록을 지금 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     },
     deleteError: "디자인 시스템을 삭제할 수 없습니다.",
     updateSuccess: "디자인 시스템 업데이트",

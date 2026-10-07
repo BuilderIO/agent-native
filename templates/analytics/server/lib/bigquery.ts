@@ -612,10 +612,63 @@ export interface DryRunQueryOptions {
   signal?: AbortSignal;
 }
 
+export interface DryRunQueryResult {
+  error: string | null;
+  timedOut?: true;
+  /** Absent when BigQuery's dry-run response carried no schema. */
+  schema?: { name: string; type: string }[];
+  /** Absent when BigQuery's dry-run response carried no byte estimate. */
+  totalBytesProcessed?: number;
+}
+
+async function readDryRunStatistics(
+  res: Response,
+): Promise<Pick<DryRunQueryResult, "schema" | "totalBytesProcessed">> {
+  let job: {
+    statistics?: {
+      totalBytesProcessed?: string | number;
+      query?: {
+        totalBytesProcessed?: string | number;
+        schema?: { fields?: { name?: unknown; type?: unknown }[] };
+      };
+    };
+  };
+  try {
+    job = await res.json();
+  } catch {
+    // coercion-ok: a dry run that succeeded without a readable body is validated SQL with no schema or byte estimate, and both fields stay absent.
+    return {};
+  }
+  const stats = job?.statistics;
+  const fields = stats?.query?.schema?.fields;
+  const bytes = Number(
+    stats?.totalBytesProcessed ?? stats?.query?.totalBytesProcessed,
+  );
+  return {
+    ...(Array.isArray(fields)
+      ? {
+          schema: fields.flatMap((field) =>
+            typeof field?.name === "string"
+              ? [{ name: field.name, type: String(field.type ?? "") }]
+              : [],
+          ),
+        }
+      : {}),
+    ...(Number.isFinite(bytes) ? { totalBytesProcessed: bytes } : {}),
+  };
+}
+
 export async function dryRunQuery(
   sql: string,
   options: DryRunQueryOptions = {},
 ): Promise<string | null> {
+  return (await dryRunQuerySchema(sql, options)).error;
+}
+
+export async function dryRunQuerySchema(
+  sql: string,
+  options: DryRunQueryOptions = {},
+): Promise<DryRunQueryResult> {
   if (options.signal?.aborted) {
     throw new Error("BigQuery validation was cancelled before it started");
   }
@@ -659,7 +712,7 @@ export async function dryRunQuery(
     });
     const res = await Promise.race([request, timeout]);
 
-    if (res.ok) return null;
+    if (res.ok) return { error: null, ...(await readDryRunStatistics(res)) };
 
     const text = await res.text();
     try {
@@ -667,14 +720,14 @@ export async function dryRunQuery(
         error?: { message?: string };
       };
       const msg = parsed.error?.message?.trim();
-      if (msg) return msg;
+      if (msg) return { error: msg };
       // coercion-ok: malformed BigQuery error bodies use the status fallback below.
     } catch {
       // Fall through
     }
-    return `BigQuery validation failed (${res.status})`;
+    return { error: `BigQuery validation failed (${res.status})` };
   } catch (error) {
-    if (timedOut) return timeoutMessage;
+    if (timedOut) return { error: timeoutMessage, timedOut: true };
     throw error;
   } finally {
     options.signal?.removeEventListener("abort", abortFromCaller);

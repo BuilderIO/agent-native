@@ -1,4 +1,20 @@
 .plans-product-art {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 0 0% 15%;
+  --secondary: 0 0% 95%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-border: 0 0% 90%;
   --plan-document: hsl(var(--background));
   --plan-canvas: color-mix(in srgb, var(--plan-document) 72%, black);
   --plan-block: hsl(var(--secondary));
@@ -24,6 +40,25 @@
   font-size: 11px;
   line-height: 1.45;
   box-shadow: 0 18px 48px hsl(var(--foreground) / 0.12);
+}
+
+.dark .plans-product-art {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --popover: 0 0% 15%;
+  --primary: 0 0% 75%;
+  --secondary: 0 0% 18%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-border: 0 0% 20%;
 }
 
 .plans-product-art *,

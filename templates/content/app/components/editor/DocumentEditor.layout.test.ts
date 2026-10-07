@@ -32,6 +32,7 @@ import {
   documentTitleWidthChanged,
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
+  enqueueRecoveryDraftTitleSync,
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
   isSuggestionStaleActionError,
@@ -74,6 +75,7 @@ import {
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
+import { runPageSaveIfSessionActive } from "./pageSession";
 import {
   markdownSuggestionOperation,
   markdownSuggestionOperations,
@@ -2108,6 +2110,33 @@ describe("document editor layout", () => {
     ]);
   });
 
+  it("abandons a retry that reaches the save queue after its editor unmounts", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const queueRef = { current: Promise.resolve() };
+    let active = true;
+    const persistRetry = vi.fn().mockResolvedValue({ contentPersisted: true });
+    const first = enqueueDocumentSave(queueRef, async () => {
+      await firstGate;
+      return "first";
+    });
+    const retry = enqueueDocumentSave(queueRef, () =>
+      runPageSaveIfSessionActive(() => active, persistRetry),
+    );
+
+    active = false;
+    releaseFirst();
+
+    await expect(first).resolves.toBe("first");
+    await expect(retry).resolves.toEqual({
+      contentPersisted: false,
+      outcome: "abandoned",
+    });
+    expect(persistRetry).not.toHaveBeenCalled();
+  });
+
   it("continues the save queue after an earlier request fails", async () => {
     const queueRef = { current: Promise.resolve() };
     const first = enqueueDocumentSave(queueRef, async () => {
@@ -2117,6 +2146,50 @@ describe("document editor layout", () => {
 
     await expect(first).rejects.toThrow("network interrupted");
     await expect(second).resolves.toBe("latest");
+  });
+
+  it("does not re-retain stale content from a queued peer-title sync", async () => {
+    const queueRef = { current: Promise.resolve() };
+    let currentDraft = {
+      title: "Original title",
+      content: "A",
+      supersedable: true,
+    };
+    const retained: (typeof currentDraft)[] = [];
+    const persist = async (draft: typeof currentDraft) => {
+      currentDraft = draft;
+      retained.push({ ...draft });
+    };
+
+    await enqueueDocumentSave(queueRef, async () => persist(currentDraft));
+
+    const peerTitle = "Peer title";
+    const newerDraft = {
+      title: peerTitle,
+      content: "A+B",
+      supersedable: false,
+    };
+    const newerRetention = enqueueDocumentSave(queueRef, async () =>
+      persist(newerDraft),
+    );
+    const titleSync = enqueueRecoveryDraftTitleSync(
+      queueRef,
+      peerTitle,
+      () => currentDraft,
+      async (draft) => persist({ ...draft, title: peerTitle }),
+    );
+
+    await Promise.all([newerRetention, titleSync]);
+
+    expect(retained).toEqual([
+      {
+        title: "Original title",
+        content: "A",
+        supersedable: true,
+      },
+      newerDraft,
+    ]);
+    expect(currentDraft).toEqual(newerDraft);
   });
 
   it("keeps the first title edit writable after canonical creation advances the optimistic timestamp", () => {

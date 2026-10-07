@@ -1533,6 +1533,12 @@ export default {
       "Zugriffsgeschützte Chunks zum Rekonstruieren dieser Wiedergabe. Anbieter-URLs bleiben privat.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Screenshot herunterladen",
+    savingScreenshot: "Screenshot wird gespeichert…",
+    screenshotDownloaded: "Screenshot heruntergeladen",
+    screenshotSaveFailed: "Screenshot konnte nicht gespeichert werden",
+    screenshotUnsupportedAssets:
+      "Screenshot nicht gespeichert: Eingebettete Medien oder Bilder können teilweise nicht sicher erfasst werden.",
     timeline: "Ereignis-Timeline",
     replayTimeline: "Wiedergabe-Zeitachse",
     timelineDescription:

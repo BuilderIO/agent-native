@@ -8,6 +8,7 @@ import { openMcpAppHostLink } from "@agent-native/core/client/mcp-app-host";
 import { oauthPopupWaitingUrl } from "@agent-native/core/client/oauth-popup";
 import { applyBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
 
 /**
  * A Builder.io connection: the organization's shared one, or the caller's
@@ -847,6 +848,7 @@ export function useBuilderConnectFlow(
   const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
   const statusConnectUrlAtRef = useRef<number | null>(null);
   const connectStartedAtRef = useRef<number | null>(null);
+  const provisionAccountAttemptRef = useRef(false);
   const connectAttemptIdRef = useRef<string | null>(null);
   const cancelledConnectAttemptIdRef = useRef<string | null>(null);
   const activePopupRef = useRef<Window | null>(null);
@@ -869,6 +871,11 @@ export function useBuilderConnectFlow(
   const statusPollFailuresRef = useRef(0);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
+  const notifyProvisionedAccount = useCallback(() => {
+    if (!provisionAccountAttemptRef.current) return;
+    provisionAccountAttemptRef.current = false;
+    toast.success(t("agentChat.onboarding.builderAccountCreated"));
+  }, [t]);
   const onConnectedRef = useRef(onConnected);
   onConnectedRef.current = onConnected;
   const activeTrackingRef = useRef<{ source: string; flow?: string }>({
@@ -1066,6 +1073,7 @@ export function useBuilderConnectFlow(
       }
       if (connectComplete && !notifiedConnectedRef.current) {
         notifiedConnectedRef.current = true;
+        notifyProvisionedAccount();
         notifyAgentEngineConfiguredChanged("builder-status");
         try {
           await onConnectedRef.current?.({ orgName: org });
@@ -1115,13 +1123,14 @@ export function useBuilderConnectFlow(
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
-  }, [enabled, fetchStatus]);
+  }, [enabled, fetchStatus, notifyProvisionedAccount]);
 
   const retry = useCallback(() => retryStatusRef.current(), []);
   const cancel = useCallback(() => {
     const started = connectStartedAtRef.current;
     if (started === null) return;
     const attemptId = connectAttemptIdRef.current;
+    provisionAccountAttemptRef.current = false;
     cancelledConnectAttemptIdRef.current = attemptId;
     popupClosedAtRef.current ??= Date.now();
     if (callbackSuccessCancelRef.current?.started === started)
@@ -1175,6 +1184,7 @@ export function useBuilderConnectFlow(
       callbackSuccessRequestControllerRef.current?.controller.abort();
       connectStartedAtRef.current = started;
       connectAttemptIdRef.current = connectAttemptId;
+      provisionAccountAttemptRef.current = provisionAccountForStart;
       cancelledConnectAttemptIdRef.current = null;
       statusPollFailuresRef.current = 0;
       callbackSuccessStartedAtRef.current = null;
@@ -1666,6 +1676,7 @@ export function useBuilderConnectFlow(
         setConnecting(false);
         connectStartedAtRef.current = null;
         notifiedConnectedRef.current = true;
+        notifyProvisionedAccount();
         notifyAgentEngineConfiguredChanged("builder-connect");
         try {
           await onConnectedRef.current?.({ orgName });
@@ -1910,6 +1921,7 @@ export function useBuilderConnectFlow(
       setOrgName(org);
       setConnecting(false);
       connectStartedAtRef.current = null;
+      notifyProvisionedAccount();
       notifiedConnectedRef.current = true;
       notifyAgentEngineConfiguredChanged("builder-connect-message");
       try {
@@ -1969,7 +1981,7 @@ export function useBuilderConnectFlow(
       channel?.close();
       window.removeEventListener("message", handler);
     };
-  }, [fetchStatus]);
+  }, [fetchStatus, notifyProvisionedAccount]);
 
   return {
     configured,
