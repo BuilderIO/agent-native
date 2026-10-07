@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_TEAM_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
 import {
@@ -4538,6 +4539,12 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
     expect(entry).toContain(
       'const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task"',
+    );
+    expect(entry).toContain(
+      `const AGENT_TEAM_PROCESS_RUN_PATH = ${JSON.stringify(AGENT_TEAM_PROCESS_RUN_PATH)}`,
+    );
+    expect(entry).toContain(
+      'const BACKGROUND_PROCESSOR_AGENT_TEAM = "agent-team"',
     );
     expect(entry).toContain(
       'const BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor"',

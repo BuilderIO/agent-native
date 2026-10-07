@@ -48,6 +48,11 @@ export interface DiscoveredAgent {
   kind?: RemoteAgentKind;
 }
 
+export interface DiscoverAgentsOptions {
+  preferLocalUrls?: boolean;
+  requireReadableResources?: boolean;
+}
+
 export type OrgDirectoryDiscoveryResult =
   | { status: "available"; agents: DiscoveredAgent[] }
   | {
@@ -362,7 +367,7 @@ function isUnofferedBuiltinManifest(
 
 export async function discoverAgents(
   selfAppId?: string,
-  options?: { preferLocalUrls?: boolean },
+  options?: DiscoverAgentsOptions,
 ): Promise<DiscoveredAgent[]> {
   const builtins = getBuiltinAgents(selfAppId, options);
   const offeredBuiltinIds = new Set(builtins.map((agent) => agent.id));
@@ -396,9 +401,15 @@ export async function discoverAgents(
 
     for (const r of resources) {
       if (!r.path.endsWith(".json")) continue;
+      let full: Awaited<ReturnType<typeof resourceGet>>;
       try {
-        const full = await resourceGet(r.id);
-        if (!full) continue;
+        full = await resourceGet(r.id);
+      } catch (error) {
+        if (options?.requireReadableResources) throw error;
+        continue;
+      }
+      if (!full) continue;
+      try {
         const manifest = parseRemoteAgentManifest(full.content, r.path);
         if (!manifest || !shouldIncludeRemoteAgentManifest(manifest, selfAppId))
           continue;
@@ -449,7 +460,12 @@ export async function discoverAgents(
         // Skip unreadable resources
       }
     }
-  } catch {
+  } catch (error) {
+    if (options?.requireReadableResources) {
+      throw new Error("Unable to read connected agent resources", {
+        cause: error,
+      });
+    }
     // Resources not available — use built-ins only
   }
 
@@ -629,9 +645,10 @@ export function agentHandleNumberVariant(handle: string): string | null {
 export async function findAgent(
   idOrName: string,
   selfAppId?: string,
+  options?: DiscoverAgentsOptions,
 ): Promise<DiscoveredAgent | undefined> {
   const lower = normalizeAgentId(idOrName);
-  const agents = await discoverAgents(selfAppId);
+  const agents = await discoverAgents(selfAppId, options);
   const exact = agents.find(
     (a) => a.id === lower || a.name.toLowerCase() === lower,
   );

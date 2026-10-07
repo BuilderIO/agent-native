@@ -693,7 +693,41 @@ export async function run(
     );
   }
 
-  const agent = await findAgent(agentIdOrName, selfAppId);
+  const resolutionStartedAt = Date.now();
+  const resolutionMode: A2AInvocationMode = action
+    ? "direct_action"
+    : taskId
+      ? "task_poll"
+      : "message";
+  let agent: DiscoveredAgent | undefined;
+  try {
+    agent = await findAgent(agentIdOrName, selfAppId, {
+      requireReadableResources: true,
+    });
+  } catch (error) {
+    const terminalCode = "agent_discovery_failed";
+    const targetApp = normalizeAppHandle(agentIdOrName) || "unknown";
+    const correlation = buildDelegationCorrelation(context, selfAppId);
+    console.error(
+      `[call-agent] Could not read connected agents while resolving "${agentIdOrName}":`,
+      error,
+    );
+    trackA2AInvocation({
+      invocationId: randomUUID(),
+      callerApp: selfAppId,
+      targetApp,
+      mode: resolutionMode,
+      status: "error",
+      startedAt: resolutionStartedAt,
+      terminalCode,
+      correlation,
+    });
+    throw new A2AInvocationError(
+      `Could not read the connected-agent registry while resolving "${agentIdOrName}". ` +
+        "No request was sent to another agent. Retry after the workspace agent list is available.",
+      { errorCode: terminalCode },
+    );
+  }
   if (!agent) {
     throw unresolvableAgentTargetError(
       agentIdOrName,

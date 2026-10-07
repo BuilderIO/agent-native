@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
+import { AGENT_TEAM_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import type {
@@ -63,6 +64,7 @@ import {
   startRun as startProgressRun,
   updateRunProgress,
 } from "../progress/registry.js";
+import { dispatchAgentTeamRun } from "./agent-teams-dispatch.js";
 import {
   enqueueAgentTeamRun,
   claimAgentTeamRun,
@@ -84,7 +86,8 @@ import {
   hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
-import { fireInternalDispatch } from "./self-dispatch.js";
+
+export { AGENT_TEAM_PROCESS_RUN_PATH };
 
 const delegationDepthStorage = new AsyncLocalStorage<number>();
 
@@ -131,9 +134,6 @@ export function evaluateSubagentDepth(
       : `Delegation depth limit reached (max ${maxDepth}); cannot spawn another sub-agent.`,
   };
 }
-
-export const AGENT_TEAM_PROCESS_RUN_PATH =
-  "/_agent-native/agent-teams/_process-run";
 
 const RUN_QUEUE_HEARTBEAT_MS = 5_000;
 
@@ -603,9 +603,8 @@ async function refireStuckAgentTeamRunIfNeeded(
   if (idleFor < RUN_DISPATCH_STUCK_AFTER_MS) return;
   if (idleFor >= RUN_PROCESSING_STUCK_AFTER_MS) return;
   try {
-    await fireInternalDispatch({
+    await dispatchAgentTeamRun({
       event,
-      path: AGENT_TEAM_PROCESS_RUN_PATH,
       taskId: task.taskId,
       body: { mode: dispatch.continuationCount > 0 ? "continue" : "start" },
     });
@@ -1242,8 +1241,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
       orgId,
       payload,
     });
-    await fireInternalDispatch({
-      path: AGENT_TEAM_PROCESS_RUN_PATH,
+    await dispatchAgentTeamRun({
       taskId,
       body: { mode: "start" },
     });
@@ -1786,9 +1784,8 @@ export async function processAgentTeamRun(
                   await saveTask(task);
                   if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
                   try {
-                    await fireInternalDispatch({
+                    await dispatchAgentTeamRun({
                       event: opts.event,
-                      path: AGENT_TEAM_PROCESS_RUN_PATH,
                       taskId: opts.taskId,
                       body: {
                         mode: "continue",

@@ -113,6 +113,28 @@ describe("agent discovery", () => {
     expect(ids).not.toContain("voice");
   });
 
+  it("preserves remote resource read failures for callers that need complete discovery", async () => {
+    resourceListMock.mockRejectedValueOnce(new Error("resource store offline"));
+
+    await expect(
+      discoverAgents("dispatch", { requireReadableResources: true }),
+    ).rejects.toThrow("Unable to read connected agent resources");
+    await expect(discoverAgents("dispatch")).resolves.toEqual(
+      getBuiltinAgents("dispatch"),
+    );
+  });
+
+  it("preserves individual resource read failures for callers that need complete discovery", async () => {
+    resourceListMock.mockResolvedValueOnce([
+      { id: "remote-1", path: "remote-agents/custom.json" },
+    ]);
+    resourceGetMock.mockRejectedValueOnce(new Error("resource unavailable"));
+
+    await expect(
+      discoverAgents("dispatch", { requireReadableResources: true }),
+    ).rejects.toThrow("Unable to read connected agent resources");
+  });
+
   it("exposes the remote-agent visibility predicate used by list views", () => {
     expect(
       shouldIncludeRemoteAgentManifest({ id: "dispatch" }, "dispatch"),

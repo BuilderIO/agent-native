@@ -905,6 +905,54 @@ describe("call-agent action", () => {
     }
   });
 
+  it("reports an agent registry read failure instead of treating it as an unknown target", async () => {
+    const discovery = await import("../server/agent-discovery.js");
+    vi.mocked(discovery.findAgent).mockRejectedValueOnce(
+      new Error("resource store offline"),
+    );
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-a2a-discovery-failed",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    try {
+      const { run } = await import("./call-agent.js");
+      await expect(
+        run(
+          { agent: "analytics", message: "Summarize this" },
+          { send: vi.fn(), threadId: "thread-qa", runId: "run-qa" } as any,
+          "mail",
+        ),
+      ).rejects.toMatchObject({
+        name: "A2AInvocationError",
+        errorCode: "agent_discovery_failed",
+      });
+
+      expect(discovery.findAgent).toHaveBeenCalledWith("analytics", "mail", {
+        requireReadableResources: true,
+      });
+      expect(callAgentMock).not.toHaveBeenCalled();
+      expect(
+        tracked.find((event) => event.name === "$a2a_invocation")?.properties,
+      ).toMatchObject({
+        caller_app: "mail",
+        target_app: "analytics",
+        status: "error",
+        terminal_code: "agent_discovery_failed",
+        mode: "message",
+      });
+    } finally {
+      unregisterTrackingProvider("qa-a2a-discovery-failed");
+      consoleError.mockRestore();
+    }
+  });
+
   it.each([
     {
       label: "direct action",
