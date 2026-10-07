@@ -33,13 +33,13 @@ const firstPartyAuthPlugins = [
 ];
 
 describe("Toolkit auth server renderer", () => {
-  it("renders the full sign-in page and shared wave into the initial HTML", () => {
+  it("renders the full sign-in page without a background fallback", () => {
     const html = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
       renderSignInPage: renderAuthPage,
     });
 
-    expect(html).toContain('data-agent-native-wave="true"');
+    expect(html).not.toContain('data-agent-native-wave="true"');
     expect(html).toContain('id="signup-form"');
     expect(html).toContain('id="login-form"');
     expect(html).not.toContain('data-agent-native-auth-fallback="true"');
