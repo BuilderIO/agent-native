@@ -458,6 +458,7 @@ describe("AgentPanel settings navigation", () => {
     }
 
     try {
+      vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
       act(() => {
         window.history.replaceState(null, "", "/dispatch/chat#llm");
         root.render(
@@ -479,6 +480,7 @@ describe("AgentPanel settings navigation", () => {
       act(() => root.unmount());
       container.remove();
       window.history.replaceState(null, "", "/");
+      vi.unstubAllEnvs();
     }
   });
 
