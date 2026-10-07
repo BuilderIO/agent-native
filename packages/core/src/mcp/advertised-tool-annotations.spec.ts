@@ -1,155 +1,209 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { beforeAll, describe, expect, it } from "vitest";
 
-import { describe, expect, it } from "vitest";
-
-import { isActionExposedToExternalAgents } from "../action.js";
-import type { ActionEntry } from "../agent/production-agent.js";
 import {
-  loadActionsFromStaticRegistry,
-  mergeCoreSharingActions,
-} from "../server/action-discovery.js";
+  LOAD_TIMEOUT_MS,
+  loadAppCatalogs,
+  type AdvertisedTool,
+  type AppCatalog,
+} from "./advertised-catalog.harness.js";
 import {
-  filterAgentTools,
-  filterMcpOnlyActions,
-} from "../server/agent-chat/action-filters-a2a.js";
-import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
-import type { MCPConfig } from "./build-server.js";
-import { getBuiltinCrossAppTools } from "./builtin-tools.js";
-import { DESTRUCTIVE_HINT_DECISIONS as decisions } from "./destructive-hint-decisions.fixture.js";
+  LEGACY_UNREVIEWED,
+  LEGACY_UNREVIEWED_COUNT,
+} from "./legacy-unreviewed-destructive-hint.fixture.js";
 
-const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../",
-);
-const FIXTURE = "packages/core/src/mcp/destructive-hint-decisions.fixture.ts";
-const LOAD_TIMEOUT_MS = 180_000;
+const FIXTURE =
+  "packages/core/src/mcp/legacy-unreviewed-destructive-hint.fixture.ts";
 
-async function loadTemplateActions(appId: string) {
-  const projectRoot = path.join(repoRoot, "templates", appId);
-  generateActionRegistryForProject(projectRoot);
-  const registry = await import(
-    pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
-      .href + `?cacheBust=${Date.now()}`
+// `ask-agent` is added by the server itself with explicit annotations, not by
+// an action, so there is no action to declare on.
+const SERVER_DECIDED_TOOLS = new Set(["ask-agent"]);
+
+// Declared `mcpAnnotations` that the default and full catalogs do not
+// advertise yet, because on main only the directory catalog reads them. They
+// are advertised as declared once #6836 ("declared mcpAnnotations win on every
+// catalog") lands; that flips the it.fails below, which is the cue to delete
+// this list and the marker. Keys are "<app>/<tool>".
+const DECLARATION_NOT_ADVERTISED_UNTIL_6836 = new Set([
+  "content/add-database-item",
+  "content/edit-document",
+  "content/update-database-item",
+  "design/edit-design",
+  "design/generate-design",
+  "design/get-design-system",
+  "design/present-design-variants",
+  "slides/create-deck",
+  "slides/get-design-system",
+  "slides/patch-deck",
+  "slides/update-slide",
+]);
+
+let apps: AppCatalog[] = [];
+
+beforeAll(async () => {
+  apps = await loadAppCatalogs();
+}, LOAD_TIMEOUT_MS);
+
+function advertisedIn(app: AppCatalog): Map<string, AdvertisedTool[]> {
+  const byName = new Map<string, AdvertisedTool[]>();
+  for (const tool of [...app.catalogs.default, ...app.catalogs.full]) {
+    byName.set(tool.name, [...(byName.get(tool.name) ?? []), tool]);
+  }
+  return byName;
+}
+
+// A tool is mutating when any catalog advertises it as not read-only.
+function mutatingToolNames(app: AppCatalog): string[] {
+  return [...advertisedIn(app)]
+    .filter(([, tools]) =>
+      tools.some((tool) => tool.annotations.readOnlyHint !== true),
+    )
+    .map(([name]) => name)
+    .filter((name) => !SERVER_DECIDED_TOOLS.has(name));
+}
+
+function declaresDestructiveHint(app: AppCatalog, name: string): boolean {
+  return (
+    typeof app.entries[name]?.mcpAnnotations?.destructiveHint === "boolean"
   );
-  return loadActionsFromStaticRegistry(registry.default);
 }
 
-async function loadCoreActions() {
-  const actions: Record<string, ActionEntry> = {};
-  await mergeCoreSharingActions(actions);
-  Object.assign(
-    actions,
-    getBuiltinCrossAppTools({ name: "core", actions: {} } as MCPConfig),
-  );
-  return actions;
+// Legacy entries are keyed by whose action the tool is: the template's own
+// actions under the app, everything the framework composes under "core".
+function sectionFor(app: AppCatalog, name: string): string {
+  return app.templateActionNames.has(name) ? app.appId : "core";
 }
 
-// Same exposure rule the external surface applies: MCP-only actions plus every
-// agent tool, minus actions that opt out of external agents.
-function externallyExposed(actions: Record<string, ActionEntry>) {
-  return Object.entries({
-    ...filterMcpOnlyActions(actions),
-    ...filterAgentTools(actions),
-  }).filter(([, entry]) => isActionExposedToExternalAgents(entry));
-}
-
-// What a host would read as `readOnlyHint`: the declared value, else the
-// derived one. A tool that is not read-only needs a destructive decision.
-function isAdvertisedReadOnly(entry: ActionEntry): boolean {
-  return entry.mcpAnnotations
-    ? entry.mcpAnnotations.readOnlyHint
-    : entry.readOnly === true;
-}
-
-function mutatingTools(actions: Record<string, ActionEntry>) {
-  return externallyExposed(actions).filter(
-    ([, entry]) => !isAdvertisedReadOnly(entry),
+function undeclaredMutatingTools(app: AppCatalog): string[] {
+  return mutatingToolNames(app).filter(
+    (name) => !declaresDestructiveHint(app, name),
   );
 }
 
-const templateIds = fs
-  .readdirSync(path.join(repoRoot, "templates"), { withFileTypes: true })
-  .filter(
-    (entry) =>
-      entry.isDirectory() &&
-      fs.existsSync(path.join(repoRoot, "templates", entry.name, "actions")),
-  )
-  .map((entry) => entry.name)
-  .sort();
+function declaredMismatches(): string[] {
+  const mismatches: string[] = [];
+  for (const app of apps) {
+    for (const [name, tools] of advertisedIn(app)) {
+      const declared = app.entries[name]?.mcpAnnotations;
+      if (!declared) continue;
+      const differs = tools.some((tool) =>
+        (["readOnlyHint", "destructiveHint", "openWorldHint"] as const).some(
+          (hint) => declared[hint] !== tool.annotations[hint],
+        ),
+      );
+      if (differs) mismatches.push(`${app.appId}/${name}`);
+    }
+  }
+  return mismatches;
+}
 
-describe("MCP destructiveHint decisions", () => {
-  it("has a fixture section for every app and nothing else", () => {
-    expect(Object.keys(decisions).sort()).toEqual(
-      [...templateIds, "core"].sort(),
+describe("MCP destructiveHint contract over each app's real catalog", () => {
+  it("builds a catalog that includes the framework tools for every app", () => {
+    expect(apps.map((app) => app.appId)).toEqual(
+      expect.arrayContaining([
+        "content",
+        "design",
+        "forms",
+        "mail",
+        "plan",
+        "slides",
+      ]),
+    );
+    for (const app of apps) {
+      expect(
+        app.catalogs.full.map((tool) => tool.name),
+        `${app.appId}: framework tools are missing from the full catalog`,
+      ).toContain("manage-automations");
+      expect(
+        app.catalogs.default.map((tool) => tool.name),
+        `${app.appId}: tool-search is missing from the default catalog`,
+      ).toContain("tool-search");
+      expect(app.catalogs.full.length).toBeGreaterThan(
+        app.catalogs.default.length,
+      );
+    }
+  });
+
+  it("has a legacy section for every app, plus core, and nothing else", () => {
+    expect(Object.keys(LEGACY_UNREVIEWED).sort()).toEqual(
+      [...apps.map((app) => app.appId), "core"].sort(),
     );
   });
 
-  it(
-    "records a decision for every externally exposed mutating tool without declared annotations",
-    async () => {
-      const recorded = decisions;
-      const apps: Array<[string, Record<string, ActionEntry>]> = [
-        ["core", await loadCoreActions()],
-        ...(await Promise.all(
-          templateIds.map(
-            async (appId) =>
-              [appId, await loadTemplateActions(appId)] as [
-                string,
-                Record<string, ActionEntry>,
-              ],
-          ),
-        )),
-      ];
-      // mergeCoreSharingActions swallows import failures, so a broken core
-      // import would otherwise read as "fewer tools to decide".
-      expect(Object.keys(apps[0]![1]).length).toBeGreaterThan(100);
+  it("requires every mutating tool outside the legacy baseline to declare destructiveHint", () => {
+    const undeclared = apps.flatMap((app) =>
+      undeclaredMutatingTools(app)
+        .filter(
+          (name) => !LEGACY_UNREVIEWED[sectionFor(app, name)]?.includes(name),
+        )
+        .map((name) => `${app.appId}/${name}`),
+    );
+    expect(
+      undeclared,
+      "These MCP tools can change data but declare no destructiveHint. Add `mcpAnnotations: { readOnlyHint, destructiveHint, openWorldHint }` " +
+        "to the action (destructiveHint is true when it deletes, overwrites, or replaces user content, recoverable Trash included). " +
+        `Do not add them to ${FIXTURE}: that baseline is frozen and may only shrink. Hosts use the hint to decide when to ask the user first.`,
+    ).toEqual([]);
+  });
 
-      const missing: string[] = [];
-      const stale: string[] = [];
-      const doubled: string[] = [];
-      for (const [appId, actions] of apps) {
-        const mutating = mutatingTools(actions);
-        // An action that declares mcpAnnotations has made its own decision, so
-        // it needs no entry, but may keep one: the declaration wins either way.
-        const needsDecision = mutating
-          .filter(([, entry]) => !entry.mcpAnnotations)
-          .map(([name]) => name);
-        const section = recorded[appId]!;
-        const all = [...section.destructive, ...section.nonDestructive];
-        doubled.push(
-          ...section.destructive
-            .filter((name) => section.nonDestructive.includes(name))
-            .map((name) => `${appId}/${name}`),
-        );
-        const known = new Set(mutating.map(([name]) => name));
-        stale.push(
-          ...all.filter((name) => !known.has(name)).map((n) => `${appId}/${n}`),
-        );
-        missing.push(
-          ...needsDecision
-            .filter((name) => !all.includes(name))
-            .map((name) => `${appId}/${name}`),
-        );
+  it("keeps the legacy baseline limited to tools that are still undeclared", () => {
+    const undeclared = new Set<string>();
+    for (const app of apps) {
+      for (const name of undeclaredMutatingTools(app)) {
+        undeclared.add(`${sectionFor(app, name)}/${name}`);
       }
+    }
+    const stale = Object.entries(LEGACY_UNREVIEWED).flatMap(
+      ([section, names]) =>
+        names
+          .filter((name) => !undeclared.has(`${section}/${name}`))
+          .map((name) => `${section}/${name}`),
+    );
+    expect(
+      stale,
+      `These ${FIXTURE} entries name a tool that was removed, is read-only, is not advertised, or now declares mcpAnnotations. Delete them and lower LEGACY_UNREVIEWED_COUNT.`,
+    ).toEqual([]);
+  });
 
-      expect(
-        missing,
-        `These MCP tools can change data but have no reviewed destructiveHint decision. ` +
-          `Declare mcpAnnotations on the action (readOnlyHint, destructiveHint, openWorldHint), or add the name ` +
-          `to "destructive" (deletes, overwrites, or replaces user content, recoverable Trash included) or ` +
-          `"nonDestructive" in ${FIXTURE}. Hosts use this hint to decide when to ask the user first.`,
-      ).toEqual([]);
-      expect(
-        doubled,
-        `Listed as both destructive and nonDestructive in ${FIXTURE}.`,
-      ).toEqual([]);
-      expect(
-        stale,
-        `These entries in ${FIXTURE} name an action that was removed, is read-only, or is hidden from external agents. Delete them.`,
-      ).toEqual([]);
-    },
-    LOAD_TIMEOUT_MS,
-  );
+  it("freezes the legacy baseline size", () => {
+    const names = Object.entries(LEGACY_UNREVIEWED).flatMap(
+      ([section, section_names]) =>
+        section_names.map((name) => `${section}/${name}`),
+    );
+    expect(
+      new Set(names).size,
+      "A tool is listed twice in the legacy baseline.",
+    ).toBe(names.length);
+    expect(
+      names.length,
+      names.length > LEGACY_UNREVIEWED_COUNT
+        ? `${FIXTURE} grew. Do not add tools to the legacy baseline: declare mcpAnnotations on the new action instead.`
+        : `${FIXTURE} shrank. Lower LEGACY_UNREVIEWED_COUNT to ${names.length} so the freed room cannot be reused.`,
+    ).toBe(LEGACY_UNREVIEWED_COUNT);
+  });
+
+  it("advertises the declared hints wherever the derived hints already agree", () => {
+    expect(
+      declaredMismatches().filter(
+        (key) => !DECLARATION_NOT_ADVERTISED_UNTIL_6836.has(key),
+      ),
+      "A catalog advertises hints that differ from the action's declared mcpAnnotations.",
+    ).toEqual([]);
+  });
+
+  // On main the default and full catalogs derive their hints and ignore the
+  // declaration, so this fails. Once #6836 lands it passes: remove `.fails`
+  // and DECLARATION_NOT_ADVERTISED_UNTIL_6836 together.
+  it.fails("advertises the declared hints on every declared tool (#6836)", () => {
+    expect(declaredMismatches()).toEqual([]);
+  });
+
+  it("keeps the pending-#6836 list limited to declarations that still mismatch", () => {
+    const mismatching = new Set(declaredMismatches());
+    expect(
+      [...DECLARATION_NOT_ADVERTISED_UNTIL_6836].filter(
+        (key) => !mismatching.has(key),
+      ),
+      "These now advertise their declaration: remove them from DECLARATION_NOT_ADVERTISED_UNTIL_6836.",
+    ).toEqual([]);
+  });
 });

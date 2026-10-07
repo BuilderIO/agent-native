@@ -19,9 +19,15 @@ export default mergeConfig(
         enforce: "pre",
         async resolveId(source, importer, options) {
           const alias = /^@(shared)?\/(.*)$/.exec(source);
-          const template = /[\\/]templates[\\/]([^\\/]+)[\\/]/.exec(
-            importer ?? "",
-          )?.[1];
+          // Only importers inside the repo's templates folder: core also
+          // bundles its own `src/templates`, which must keep resolving normally.
+          const relative = importer
+            ? path.relative(templatesRoot, importer.split("?")[0]!)
+            : "..";
+          const template =
+            relative.startsWith("..") || path.isAbsolute(relative)
+              ? undefined
+              : relative.split(path.sep)[0];
           if (!alias || !template) return null;
           return this.resolve(
             path.join(

@@ -97,27 +97,39 @@ test("falls back to all core tests for fixture, config, and instruction changes"
   );
 });
 
-test("runs the template-registry core specs when a template's actions or plugin change", () => {
+test("runs the template-registry core specs when anything a template's catalog loads changes", () => {
   const specs = [
     "src/mcp/advertised-tool-annotations.spec.ts",
     "src/mcp/instructions-name-advertised-tools.spec.ts",
   ];
-  assert.deepEqual(
-    templateRegistryCoreSpecs(["templates/mail/actions/send-email.ts"]),
-    specs,
-  );
-  assert.deepEqual(
-    templateRegistryCoreSpecs(["templates/forms/server/plugins/agent-chat.ts"]),
-    specs,
-  );
-  assert.deepEqual(
-    templateRegistryCoreSpecs([
-      "templates/mail/actions/send-email.test.ts",
-      "templates/mail/app/routes/inbox.tsx",
-      "packages/core/src/mcp/server.ts",
-    ]),
-    [],
-  );
+  for (const changed of [
+    "templates/mail/actions/send-email.ts",
+    "templates/forms/server/plugins/agent-chat.ts",
+    // A helper an action or plugin imports, not an action itself.
+    "templates/content/server/lib/chatgpt-directory-tools.ts",
+    "templates/slides/shared/api.ts",
+    "templates/design/app/lib/design-tokens.ts",
+    // A template that has no spec or registry entry yet.
+    "templates/newapp/actions/create-thing.ts",
+    "templates/newapp/server/plugins/agent-chat.ts",
+    // Core code that composes the catalog or adds a framework tool.
+    "packages/core/src/server/agent-chat-plugin.ts",
+    "packages/core/src/server/agent-chat/mcp-options.ts",
+    "packages/core/src/resources/actions/delete-resource.ts",
+  ]) {
+    assert.deepEqual(templateRegistryCoreSpecs([changed]), specs, changed);
+  }
+  for (const unrelated of [
+    "templates/mail/actions/send-email.test.ts",
+    "templates/mail/app/routes/inbox.spec.tsx",
+    "templates/mail/app/global.css",
+    "templates/mail/README.md",
+    "templates/mail/server/types.d.ts",
+    "packages/core/src/mcp/server.ts",
+    "packages/core/src/server/agent-chat-plugin.lifecycle.spec.ts",
+  ]) {
+    assert.deepEqual(templateRegistryCoreSpecs([unrelated]), [], unrelated);
+  }
 });
 
 test("refuses lanes that skip or repeat a core shard", () => {
