@@ -319,16 +319,15 @@ inventing a fix.
 
 ### Deployment, release, and publish failures
 
-Scan app/template, desktop build/release, and package-publish lanes on every
-sweep, even without a linked report. Include queued/running runs, run-only
-failures, and missing/stale artifacts; carry active run IDs and rows across
-cursors. Fix verified repo-owned causes; record external/manual causes with the
-next owner/action. CI-red deploy/release/publish rows reuse this workflow
-fingerprint and operational row. Follow
-[`deployment-recovery.md`](references/deployment-recovery.md) for lane-specific
-recovery and target proof. Keep the operational row active until target proof
-passes; a source issue may be **Fixed** separately. Delivery gaps are never
-**Quarantined**. Green CI or merged source does not prove delivery.
+Scan app/template, desktop, and package lanes every sweep, even without linked
+feedback. Carry active run IDs, queued/running runs, failures, and missing/stale
+artifacts across cursors. Fix repo causes; record external/manual causes with
+the next owner/action. CI-red deploy rows from [CI triage](references/ci-red-report.md)
+reuse this operational fingerprint. Follow
+[`deployment-recovery.md`](references/deployment-recovery.md) for recovery and
+target proof; keep delivery active until proof passes. A source issue may be
+**Fixed** separately; delivery gaps are never **Quarantined**. Green CI or
+merged source does not prove delivery.
 
 ## Phase 2: fix
 
@@ -430,10 +429,9 @@ pre-existing.
 ### Npx and package reports have a release follow-up
 
 Use [`deployment-recovery.md`](references/deployment-recovery.md) for npx
-version evidence, registry proof, publication status, and existing-app upgrade
-verification. A verified merge may be **Fixed** under the issue-closure rule
-above while its delivery row stays open; a local scaffold or beta promise is not
-delivery.
+version, registry, publication, and existing-app upgrade proof. A verified merge
+may be **Fixed** while its delivery row stays open; a local scaffold or beta
+promise is not delivery.
 
 ### Documentation has a runnable proof obligation
 

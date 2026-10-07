@@ -23,6 +23,7 @@ const MAX_LEDGER_ARTIFACT_BYTES = 50 * 1024 * 1024;
 const MAX_DECOMPRESSED_PNG_BYTES = 128 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 32 * 1024 * 1024;
 const JPEG_DECODER_UNAVAILABLE = "JPEG_DECODER_UNAVAILABLE";
+const INVALID_IMAGE_DATA = "INVALID_IMAGE_DATA";
 const WITHHELD_FIGMA_PAGE_NAME =
   "not captured; private scratch page name withheld";
 const ORACLE_ID = /^fig\.[a-z0-9]+(?:-[a-z0-9]+)*\.[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -307,8 +308,12 @@ async function imageFormat(
       .raw()
       .toBuffer();
     return "jpeg";
-  } catch {
-    return null;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw Object.assign(new Error(`JPEG image data is invalid: ${detail}`), {
+      code: INVALID_IMAGE_DATA,
+      cause: error,
+    });
   }
 }
 
@@ -641,7 +646,11 @@ async function loadLedger(
           const code =
             isRecord(error) && typeof error.code === "string" ? error.code : "";
           const detail = error instanceof Error ? error.message : String(error);
-          if (code === "ENOENT" || code === "INVALID_ARTIFACT_PATH") {
+          if (code === INVALID_IMAGE_DATA) {
+            problems.push(
+              `${label}: artifact ${relPath} is not a valid PNG or JPEG image`,
+            );
+          } else if (code === "ENOENT" || code === "INVALID_ARTIFACT_PATH") {
             problems.push(
               `${label}: artifact ${relPath} is missing or unsafe (${detail})`,
             );
@@ -876,11 +885,14 @@ function validateAddedTests(
     const matches = [...source.matchAll(TEST_BLOCK)];
     for (let index = 0; index < matches.length; index += 1) {
       const start = matches[index].index ?? 0;
-      const end = matches[index + 1]?.index ?? source.length;
+      const nextStart = matches[index + 1]?.index;
+      const end = nextStart ?? source.length;
       const startLine = lineNumber(source, start);
-      const endLine = lineNumber(source, end);
+      const endLine =
+        nextStart === undefined ? undefined : lineNumber(source, nextStart);
       const changedInBlock = [...changed].some(
-        (number) => number >= startLine && number <= endLine,
+        (number) =>
+          number >= startLine && (endLine === undefined || number < endLine),
       );
       if (!changedInBlock) continue;
       const body = source.slice(start, end);

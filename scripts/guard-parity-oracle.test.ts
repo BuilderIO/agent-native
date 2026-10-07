@@ -502,6 +502,32 @@ describe("parity oracle guard", () => {
     }
   });
 
+  it("does not treat an appended test declaration as a changed previous test", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root);
+      const rel = "templates/design/e2e/parity-appended.spec.ts";
+      const file = path.join(root, rel);
+      const source = [
+        'test("existing behavior", () => {});',
+        "",
+        "// oracle: none — this appended test checks harness state only",
+        'test("appended behavior", () => {});',
+        "",
+      ].join("\n");
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, source);
+      const result = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: new Map([[file, new Set([4])]]),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(result.exitCode, 0, result.message);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects artifact hash mismatches and paths outside the entry directory", async () => {
     const root = makeRoot();
     try {

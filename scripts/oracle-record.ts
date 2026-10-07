@@ -78,6 +78,8 @@ function containsPrivateFigmaLocator(value: unknown): boolean {
     return (
       normalizedKey === "filekey" ||
       normalizedKey === "figmafilekey" ||
+      normalizedKey === "pageid" ||
+      normalizedKey === "figmapageid" ||
       containsPrivateFigmaLocator(child)
     );
   });
@@ -100,7 +102,9 @@ function requireExactString(value: unknown, field: string): string {
 export function parseRecorderManifest(value: unknown): RecorderManifest {
   if (!isRecord(value)) throw new Error("manifest must be a JSON object");
   if (containsPrivateFigmaLocator(value)) {
-    throw new Error("private Figma locators are not accepted in the manifest");
+    throw new Error(
+      "private Figma locators and page IDs are not accepted in the manifest",
+    );
   }
   const manifest: RecorderManifest = {
     id: requireString(value.id, "id"),
@@ -315,10 +319,6 @@ export async function readFigmaSelectedProbe(
             }
 
             return new Promise((resolve) => {
-              const timeout = window.setTimeout(() => {
-                window.removeEventListener("message", receive);
-                resolve({ found: true, probe: null });
-              }, 5_000);
               const receive = (event: MessageEvent) => {
                 const message = (event.data as { pluginMessage?: unknown })
                   ?.pluginMessage;
@@ -334,6 +334,10 @@ export async function readFigmaSelectedProbe(
                 window.removeEventListener("message", receive);
                 resolve({ found: true, probe: message });
               };
+              const timeout = window.setTimeout(() => {
+                window.removeEventListener("message", receive);
+                resolve({ found: true, probe: null });
+              }, 5_000);
               window.addEventListener("message", receive);
               window.parent.postMessage(
                 {
@@ -460,10 +464,6 @@ export async function readFigmaActivePage(
             }
 
             return new Promise((resolve) => {
-              const timeout = window.setTimeout(() => {
-                window.removeEventListener("message", receive);
-                resolve({ found: true, page: null });
-              }, 2_000);
               const receive = (event: MessageEvent) => {
                 const message = (event.data as { pluginMessage?: unknown })
                   ?.pluginMessage;
@@ -482,6 +482,10 @@ export async function readFigmaActivePage(
                   page: (message as { page?: unknown }).page ?? null,
                 });
               };
+              const timeout = window.setTimeout(() => {
+                window.removeEventListener("message", receive);
+                resolve({ found: true, page: null });
+              }, 2_000);
               window.addEventListener("message", receive);
               window.parent.postMessage(
                 {

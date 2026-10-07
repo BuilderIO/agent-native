@@ -12,6 +12,7 @@ import {
   requireSelectedDesignProbe,
   requireSelectedFigmaProbe,
   readFigmaActivePage,
+  readFigmaSelectedProbe,
   withVerifiedFigmaPage,
 } from "./oracle-record.ts";
 
@@ -72,6 +73,7 @@ function createFigmaPage(
         },
       };
       return await runInNewContext(`(${callback.toString()})(payload)`, {
+        __name: (target: unknown) => target,
         window: fakeWindow,
         document: { getElementById: () => ({}) },
         payload: args,
@@ -406,6 +408,42 @@ describe("oracle-record manifest", () => {
     );
   });
 
+  it("declares Figma bridge listeners before arming their timeout", async () => {
+    const frame = {
+      async evaluate(callback: (args: unknown) => unknown, args: unknown) {
+        const fakeWindow = {
+          addEventListener() {},
+          removeEventListener() {},
+          setTimeout(callback: () => void) {
+            callback();
+            return 1;
+          },
+          clearTimeout() {},
+          parent: { postMessage() {} },
+        };
+        return runInNewContext(`(${callback.toString()})(payload)`, {
+          __name: (target: unknown) => target,
+          window: fakeWindow,
+          document: { getElementById: () => ({}) },
+          payload: args,
+        });
+      },
+    };
+
+    await assert.rejects(
+      readFigmaActivePage({ frames: () => [frame] }, "local-plugin-id"),
+      /active Figma page bridge returned no page identity/,
+    );
+    await assert.rejects(
+      readFigmaSelectedProbe(
+        { frames: () => [frame] },
+        "123456789012",
+        validManifest.probeMarker,
+      ),
+      /Figma selected probe bridge returned no export/,
+    );
+  });
+
   it("rejects an invalid id and a marker for a different page", () => {
     assert.throws(
       () => parseRecorderManifest({ ...validManifest, id: "../../private" }),
@@ -437,7 +475,7 @@ describe("oracle-record manifest", () => {
           ...validManifest,
           values: { nested: { figmaFileKey: "must-not-be-committed" } },
         }),
-      /private Figma locators are not accepted/,
+      /private Figma locators and page IDs are not accepted/,
     );
     assert.throws(
       () =>
@@ -445,7 +483,7 @@ describe("oracle-record manifest", () => {
           ...validManifest,
           figmaPageName: "https://www.figma.com/design/example-file-id/Probe",
         }),
-      /private Figma locators are not accepted/,
+      /private Figma locators and page IDs are not accepted/,
     );
     assert.throws(
       () =>
@@ -455,7 +493,19 @@ describe("oracle-record manifest", () => {
             comparison: "Open https://www.figma.com/file/example-file-id/Probe",
           },
         }),
-      /private Figma locators are not accepted/,
+      /private Figma locators and page IDs are not accepted/,
     );
+  });
+
+  it("rejects native Figma page IDs in nested measured values", () => {
+    for (const values of [
+      { fill: "#D9D9D9", pageId: "private-page-id" },
+      { fill: "#D9D9D9", capture: { figma_page_id: "private-page-id" } },
+    ]) {
+      assert.throws(
+        () => parseRecorderManifest({ ...validManifest, values }),
+        /private Figma locators and page IDs are not accepted/,
+      );
+    }
   });
 });
