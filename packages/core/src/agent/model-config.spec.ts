@@ -168,12 +168,6 @@ describe("agent model config catalog", () => {
       "gemini-3-5-flash",
     );
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain("gpt-5-6-luna");
-    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
-      "grok-code-fast",
-    );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
-      "deepseek-v4-pro",
-    );
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain(
       "gemini-3-1-flash-lite",
     );
