@@ -23,6 +23,18 @@ describe("EditorToolbar layout contract", () => {
     );
   });
 
+  it("drops the deck-list link and the agent panel controls inside an MCP App widget", () => {
+    expect(editorToolbarSource).toContain(
+      "const widgetEmbed = useIsMcpAppWidgetEmbed();",
+    );
+    expect(editorToolbarSource).toMatch(
+      /\{!widgetEmbed && \(\s*<Tooltip>\s*<TooltipTrigger asChild>\s*<Link\s+to="\/home"/,
+    );
+    expect(editorToolbarSource).toMatch(
+      /\{!widgetEmbed && \(\s*<div className="flex items-center gap-1">\s*<RunsTray pollMs=\{0\} \/>\s*<AgentToggleButton \/>/,
+    );
+  });
+
   it("leaves the contextual toolbar the full row segment instead of splitting it with a flex spacer", () => {
     expect(editorToolbarSource).toContain('<div className="w-2 shrink-0" />');
     expect(editorToolbarSource).not.toContain(

@@ -1,6 +1,7 @@
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { reloadForClientCompatibilityMismatch } from "@agent-native/core/client/route-chunk-recovery";
 import {
   CreativeContextShareTab,
@@ -236,6 +237,9 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
+  // The host owns navigation and chat, so the widget drops the way back to the
+  // deck list and the agent panel controls.
+  const widgetEmbed = useIsMcpAppWidgetEmbed();
   const { resolveDeckContentConflict, retryDeckSave } = useDecks();
   const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
@@ -761,18 +765,20 @@ export default function EditorToolbar({
   return (
     <div className="deck-editor-toolbar flex h-12 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       {/* Back button */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Link
-            to="/home"
-            className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
-            aria-label={t("editorToolbar.backToDecks")}
-          >
-            <IconArrowLeft className="size-4 text-muted-foreground" />
-          </Link>
-        </TooltipTrigger>
-        <TooltipContent>{t("editorToolbar.backToDecks")}</TooltipContent>
-      </Tooltip>
+      {!widgetEmbed && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Link
+              to="/home"
+              className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
+              aria-label={t("editorToolbar.backToDecks")}
+            >
+              <IconArrowLeft className="size-4 text-muted-foreground" />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>{t("editorToolbar.backToDecks")}</TooltipContent>
+        </Tooltip>
+      )}
 
       {/* Slide-list toggle (mobile only — desktop uses the app sidebar rail) */}
       <Tooltip>
@@ -1183,10 +1189,12 @@ export default function EditorToolbar({
         onRetry={() => void storageQuery.refetch()}
       />
 
-      <div className="flex items-center gap-1">
-        <RunsTray pollMs={0} />
-        <AgentToggleButton />
-      </div>
+      {!widgetEmbed && (
+        <div className="flex items-center gap-1">
+          <RunsTray pollMs={0} />
+          <AgentToggleButton />
+        </div>
+      )}
     </div>
   );
 }
