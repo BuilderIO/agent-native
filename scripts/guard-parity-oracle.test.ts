@@ -17,6 +17,7 @@ import { oracle } from "../templates/design/e2e/parity-oracle.ts";
 import { runParityOracleGuard } from "./guard-parity-oracle.ts";
 
 const oracleId = "fig.inspector.empty-fill-title";
+const withheldPageName = "not captured; private scratch page name withheld";
 const pngBytes = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==",
   "base64",
@@ -54,7 +55,7 @@ function writeEntry(
     nativeObservation: "D9D9D9 at 100%; the color picker opens.",
     trials: "One raw pointer click.",
     values: { fill: "#D9D9D9", opacity: 100 },
-    figma: { fileKeyWithheld: true, pageName: "private probe page" },
+    figma: { fileKeyWithheld: true, pageName: withheldPageName },
     source: "User-supplied native Figma evidence packet.",
     artifacts: [
       {
@@ -323,6 +324,85 @@ describe("parity oracle guard", () => {
     }
   });
 
+  it("requires explicit classification for generic-named Design E2E tests", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root);
+      const source =
+        'it("renders a selected item", async () => {\n  expect(selection).toBeTruthy();\n});';
+      const missing = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/selection.spec.ts",
+          source,
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(missing.exitCode, 1, missing.message);
+      assert.match(missing.message, /test block needs oracle:/);
+
+      const classified = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/selection.spec.ts",
+          `// oracle: none — this checks app state, not a Figma observation\n${source}`,
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(classified.exitCode, 0, classified.message);
+      assert.match(classified.message, /1 entry, 1 citation/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("requires citations for TypeScript generic-argument test.each calls", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root);
+      const result = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/parity-generic.spec.ts",
+          'it.each<ResultShape>([{ value: 1 }])("renders a selected item", (result) => {\n  expect(result.value).toBe(1);\n});',
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(result.exitCode, 1, result.message);
+      assert.match(result.message, /test block needs oracle:/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not let the next test's oracle comment classify its predecessor", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root);
+      const result = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/parity-inspector.spec.ts",
+          'test("renders the first item", () => {});\n\n// oracle: none — this applies only to the next test\nit("renders the second item", () => {});',
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(result.exitCode, 1, result.message);
+      assert.equal(
+        result.message.match(/test block needs oracle:/g)?.length,
+        1,
+        result.message,
+      );
+      assert.match(result.message, /1 citation/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("requires oracle citations for parameterized test.each and it.each blocks", async () => {
     const root = makeRoot();
     try {
@@ -523,6 +603,28 @@ describe("parity oracle guard", () => {
     }
   });
 
+  it("reports JPEG decoder loading failures as inspection errors", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root, {}, jpegBytes);
+      const result = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: new Map(),
+        today: new Date("2026-10-06T00:00:00Z"),
+        jpegDecoderLoader: () => {
+          throw Object.assign(new Error("native decoder binary missing"), {
+            code: "ENOENT",
+          });
+        },
+      });
+      assert.equal(result.exitCode, 2, result.message);
+      assert.match(result.message, /JPEG decoder unavailable/);
+      assert.doesNotMatch(result.message, /artifact .* missing or unsafe/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects private Figma keys and citations to nonexistent oracle documents", async () => {
     const root = makeRoot();
     try {
@@ -578,6 +680,60 @@ describe("parity oracle guard", () => {
       });
       assert.equal(inventedDoc.exitCode, 1);
       assert.match(inventedDoc.message, /nonexistent Figma oracle document/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects persisted Figma page IDs", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root, {
+        figma: {
+          fileKeyWithheld: true,
+          pageId: "private-page-id",
+          pageName: withheldPageName,
+        },
+      });
+      const result = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: new Map(),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(result.exitCode, 1, result.message);
+      assert.match(result.message, /figma\.pageId must not be persisted/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects concrete Figma page names and accepts the withheld placeholder", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root, {
+        figma: {
+          fileKeyWithheld: true,
+          pageName: "Private Scratch Design",
+        },
+      });
+      const privateName = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: new Map(),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(privateName.exitCode, 1, privateName.message);
+      assert.match(
+        privateName.message,
+        /figma\.pageName must use the withheld placeholder/,
+      );
+
+      writeEntry(root);
+      const withheldName = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: new Map(),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(withheldName.exitCode, 0, withheldName.message);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

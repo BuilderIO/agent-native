@@ -6,6 +6,7 @@ import {
   captureSelectedDesignProbe,
   captureSelectedFigmaProbe,
   parseRecorderManifest,
+  recordedFigmaMetadata,
   requireExpectedFigmaPage,
   requireStableFigmaPage,
   requireSelectedDesignProbe,
@@ -121,6 +122,15 @@ describe("oracle-record manifest", () => {
       }).name,
       " oracle-probes ",
     );
+  });
+
+  it("withholds private Figma page identity from committed metadata", () => {
+    assert.deepEqual(recordedFigmaMetadata(), {
+      fileKeyWithheld: true,
+      pageName: "not captured; private scratch page name withheld",
+      appBuild: "not exposed by the native Figma page",
+    });
+    assert.equal("pageId" in recordedFigmaMetadata(), false);
   });
 
   it("requires the matching Design probe layer to be selected", () => {

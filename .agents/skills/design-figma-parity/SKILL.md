@@ -81,7 +81,9 @@ parity log is not a native Figma oracle.
   from screenshots supplied without its stated gesture.
 - Use a disposable local Design fixture and a Figma probe layer named exactly
   `AN-ORACLE-PROBE:<id>`. Keep the private Figma file key out of the manifest
-  and repository. Record the Figma page name in the local manifest.
+  and repository. Keep the exact Figma page name in the local manifest only;
+  committed records use `not captured; private scratch page name withheld` and
+  omit page IDs.
 - In Figma Desktop, create a Custom UI development plugin so Figma assigns its
   plugin id. Keep its generated directory under `.tmp/` or outside the repo.
   Build the bridge into that plugin with

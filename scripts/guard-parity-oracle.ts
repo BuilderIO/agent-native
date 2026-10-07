@@ -22,6 +22,9 @@ const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024;
 const MAX_LEDGER_ARTIFACT_BYTES = 50 * 1024 * 1024;
 const MAX_DECOMPRESSED_PNG_BYTES = 128 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 32 * 1024 * 1024;
+const JPEG_DECODER_UNAVAILABLE = "JPEG_DECODER_UNAVAILABLE";
+const WITHHELD_FIGMA_PAGE_NAME =
+  "not captured; private scratch page name withheld";
 const ORACLE_ID = /^fig\.[a-z0-9]+(?:-[a-z0-9]+)*\.[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const HASH = /^[a-f0-9]{64}$/;
 const TEST_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$/i;
@@ -31,7 +34,7 @@ const ARTIFACT_KINDS = new Set([
   "comparison-sheet",
 ]);
 const TEST_BLOCK =
-  /\b(?:test|it)(?:\.(?:only|skip|fixme|each|concurrent))*\s*(?:`[\s\S]*?`\s*)?\(/g;
+  /\b(?:test|it)(?:\.(?:only|skip|fixme|each|concurrent))*\s*(?:<[^>\n]+>\s*)?(?:`[\s\S]*?`\s*)?\(/g;
 const ORACLE_CALL = /\boracle\s*\(\s*["'](fig\.[a-z0-9.-]+)["']\s*\)/g;
 const ORACLE_COMMENT =
   /\boracle\s*:\s*(fig\.[a-z0-9.-]+|none\s*[—-]\s*\S[^\r\n]*)/i;
@@ -53,6 +56,21 @@ type SharpFactory = (
     withoutEnlargement: true;
   }): { raw(): { toBuffer(): Promise<Buffer> } };
 };
+
+type JpegDecoderLoader = () => SharpFactory;
+
+function requireJpegDecoder(
+  load: JpegDecoderLoader = () => requireCore("sharp") as SharpFactory,
+): SharpFactory {
+  try {
+    return load();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw Object.assign(new Error(`JPEG decoder unavailable: ${detail}`), {
+      code: JPEG_DECODER_UNAVAILABLE,
+    });
+  }
+}
 
 function jpegHasEntropyData(bytes: Buffer): boolean {
   let offset = 2;
@@ -165,7 +183,10 @@ function containsPrivateFigmaLocator(value: unknown): boolean {
   });
 }
 
-async function imageFormat(bytes: Buffer): Promise<"png" | "jpeg" | null> {
+async function imageFormat(
+  bytes: Buffer,
+  jpegDecoderLoader?: JpegDecoderLoader,
+): Promise<"png" | "jpeg" | null> {
   const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
   if (bytes.length >= 45 && bytes.subarray(0, 8).equals(pngSignature)) {
     let offset = 8;
@@ -275,7 +296,7 @@ async function imageFormat(bytes: Buffer): Promise<"png" | "jpeg" | null> {
     return null;
   }
   if (!jpegHasEntropyData(bytes)) return null;
-  const sharp = requireCore("sharp") as SharpFactory;
+  const sharp = requireJpegDecoder(jpegDecoderLoader);
   try {
     await sharp(bytes, {
       failOn: "warning",
@@ -438,7 +459,11 @@ function isDate(value: unknown): value is string {
   );
 }
 
-async function loadLedger(root: string, today: Date): Promise<Ledger> {
+async function loadLedger(
+  root: string,
+  today: Date,
+  jpegDecoderLoader?: JpegDecoderLoader,
+): Promise<Ledger> {
   const entries = new Map<string, OracleEntry>();
   const problems: string[] = [];
   let artifactBytes = 0;
@@ -530,6 +555,18 @@ async function loadLedger(root: string, today: Date): Promise<Ledger> {
       problems.push(`${label}: repeat-required entries need repeatReason`);
     if (containsPrivateFigmaLocator(entry))
       problems.push(`${label}: private Figma locator must not be committed`);
+    if (isRecord(entry.figma)) {
+      if (Object.hasOwn(entry.figma, "pageId"))
+        problems.push(`${label}: figma.pageId must not be persisted`);
+      if (
+        entry.figma.pageName !== undefined &&
+        entry.figma.pageName !== WITHHELD_FIGMA_PAGE_NAME
+      ) {
+        problems.push(
+          `${label}: figma.pageName must use the withheld placeholder`,
+        );
+      }
+    }
     if (!Array.isArray(entry.artifacts)) {
       problems.push(`${label}: artifacts must be an array`);
     } else {
@@ -589,7 +626,7 @@ async function loadLedger(root: string, today: Date): Promise<Ledger> {
           }
           artifactBytes += stat.size;
           const bytes = readFileSync(target);
-          const format = await imageFormat(bytes);
+          const format = await imageFormat(bytes, jpegDecoderLoader);
           if (!format) {
             problems.push(
               `${label}: artifact ${relPath} is not a valid PNG or JPEG image`,
@@ -641,10 +678,10 @@ async function loadLedger(root: string, today: Date): Promise<Ledger> {
       if (
         !isRecord(entry.figma) ||
         entry.figma.fileKeyWithheld !== true ||
-        !nonempty(entry.figma.pageName)
+        entry.figma.pageName !== WITHHELD_FIGMA_PAGE_NAME
       ) {
         problems.push(
-          `${label}: measured entries need a page name and fileKeyWithheld=true`,
+          `${label}: measured entries need a withheld page name and fileKeyWithheld=true`,
         );
       }
     } else if (
@@ -849,13 +886,15 @@ function validateAddedTests(
       const body = source.slice(start, end);
       const relName = path.posix.basename(rel);
       const parityClaim =
+        rel.startsWith("templates/design/e2e/") ||
         /(?:parity|oracle)/i.test(relName) ||
         /\b(?:Figma|figma|parity|matches\s+(?:the\s+)?native)\b/.test(body);
       if (!parityClaim) continue;
 
-      const citationSource = `${precedingOracleComment(source, start) ?? ""}\n${body}`;
-      const citation = citationSource.match(ORACLE_COMMENT);
-      const call = citationSource.match(ORACLE_CALL);
+      const citation = precedingOracleComment(source, start)?.match(
+        ORACLE_COMMENT,
+      );
+      const call = body.match(ORACLE_CALL);
       if (!citation && !call) {
         problems.push(
           `${rel}:${startLine}: test block needs oracle: fig.* or oracle: none — reason`,
@@ -883,6 +922,7 @@ export async function runParityOracleGuard(options: {
   repoRoot: string;
   addedLines: AddedLines | null;
   today?: Date;
+  jpegDecoderLoader?: JpegDecoderLoader;
 }): Promise<GuardResult> {
   if (options.addedLines === null) {
     return {
@@ -893,6 +933,7 @@ export async function runParityOracleGuard(options: {
   const ledger = await loadLedger(
     options.repoRoot,
     options.today ?? new Date(),
+    options.jpegDecoderLoader,
   );
   if (ledger.inspectionError) {
     return { exitCode: 2, message: `${GUARD_NAME}: ${ledger.inspectionError}` };

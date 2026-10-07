@@ -158,7 +158,7 @@ describe("ci-red-report", () => {
     const lines = stdout[0].trimEnd().split("\n");
     assert.equal(
       lines[0],
-      "workflow\tworkflow_path\tjob\tstep\ttest\tfingerprint_grain\tfingerprint\trun_count\truns_json",
+      "workflow\tworkflow_path\tjob\tstep\ttest\tfingerprint_grain\tfingerprint\trun_count\toccurrence_count\truns_json",
     );
     const columns = Object.fromEntries(
       lines[0].split("\t").map((name, index) => [name, index]),
@@ -279,6 +279,43 @@ describe("ci-red-report", () => {
       ),
       [31, 30],
     );
+  });
+
+  it("retains every matrix job occurrence for one test fingerprint", () => {
+    const workflowRun = run(35);
+    const test =
+      "chromium :: e2e/canvas-invariants.spec.ts:42:1 › fill persists";
+    const jobs = [
+      job(35, 351, {
+        name: "chromium / Node 22",
+        steps: [step("Run browser tests", "failure")],
+      }),
+      job(35, 352, {
+        name: "chromium / Node 24",
+        steps: [step("Run browser tests", "failure")],
+      }),
+    ];
+    const rows = buildCiRedRows(
+      [workflowRun],
+      new Map([[workflowRun.id, jobs]]),
+      since,
+      now,
+      new Map([
+        [workflowRun.id, new Map(jobs.map(({ name }) => [name, [test]]))],
+      ]),
+    );
+    const [header, ...lines] = renderCiRedReport(rows).trimEnd().split("\n");
+    const columns = Object.fromEntries(
+      header.split("\t").map((name, index) => [name, index]),
+    );
+    assert.equal(lines.length, 1);
+    const fields = lines[0].split("\t");
+    assert.equal(fields[columns.run_count], "1");
+    assert.equal(fields[columns.occurrence_count], "2");
+    assert.deepEqual(JSON.parse(fields[columns.runs_json])[0].jobSteps, [
+      { job: "chromium / Node 22", step: "Run browser tests", test },
+      { job: "chromium / Node 24", step: "Run browser tests", test },
+    ]);
   });
 
   it("uses stable run/job/step rows for pure fixture input", () => {
@@ -422,16 +459,21 @@ describe("ci-red-report", () => {
     assert.equal(workflowFailure[0].fingerprintGrain, "workflow");
   });
 
-  it("includes timed-out and startup-failed runs but ignores cancelled runs", async () => {
+  it("includes actionable conclusions but ignores cancelled runs", async () => {
     const timedOut = run(42, { conclusion: "timed_out" });
     const startupFailed = run(44, { conclusion: "startup_failure" });
+    const actionRequired = run(45, { conclusion: "action_required" });
     const cancelled = run(43, { event: "schedule", conclusion: "cancelled" });
     const stdout: string[] = [];
     const stderr: string[] = [];
     const exitCode = await runCiRedReportCli({
       api: (endpoint) => {
         if (endpoint.includes("event=push")) {
-          return paged("workflow_runs", [timedOut, startupFailed]);
+          return paged("workflow_runs", [
+            timedOut,
+            startupFailed,
+            actionRequired,
+          ]);
         }
         if (endpoint.includes("event=schedule")) {
           return paged("workflow_runs", [cancelled]);
@@ -459,12 +501,12 @@ describe("ci-red-report", () => {
       header.split("\t").map((name, index) => [name, index]),
     );
     const row = rows[0].split("\t");
-    assert.equal(row[columns.run_count], "2");
+    assert.equal(row[columns.run_count], "3");
     assert.deepEqual(
       JSON.parse(row[columns.runs_json]).map(
         ({ runId }: { runId: number }) => runId,
       ),
-      [44, 42],
+      [45, 44, 42],
     );
   });
 

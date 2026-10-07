@@ -9,7 +9,12 @@ const SEARCH_RESULT_LIMIT = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
 const MAX_RUN_DURATION_MS = 35 * 24 * 60 * 60 * 1000;
-const RED_CONCLUSIONS = new Set(["failure", "timed_out", "startup_failure"]);
+const RED_CONCLUSIONS = new Set([
+  "failure",
+  "timed_out",
+  "startup_failure",
+  "action_required",
+]);
 const WORKFLOW_RUN_QUERY_ATTEMPTS = 2;
 const EVENTS = ["push", "schedule"] as const;
 
@@ -771,22 +776,42 @@ function tsvField(value: string): string {
 
 export function renderCiRedReport(rows: CiRedRow[]): string {
   const header =
-    "workflow\tworkflow_path\tjob\tstep\ttest\tfingerprint_grain\tfingerprint\trun_count\truns_json";
-  const grouped = new Map<string, Map<string, CiRedRow>>();
+    "workflow\tworkflow_path\tjob\tstep\ttest\tfingerprint_grain\tfingerprint\trun_count\toccurrence_count\truns_json";
+  type Attempt = {
+    row: CiRedRow;
+    jobSteps: Array<Pick<CiRedRow, "job" | "step" | "test">>;
+  };
+  const grouped = new Map<string, Map<string, Attempt>>();
   for (const row of rows) {
     const key = `${row.workflowPath}\u0000${row.fingerprint}`;
-    const attempts = grouped.get(key) ?? new Map<string, CiRedRow>();
-    attempts.set(`${row.runId}\u0000${row.attempt}`, row);
+    const attempts = grouped.get(key) ?? new Map<string, Attempt>();
+    const attemptKey = `${row.runId}\u0000${row.attempt}`;
+    const current = attempts.get(attemptKey);
+    const occurrence = { job: row.job, step: row.step, test: row.test };
+    if (current) {
+      if (
+        !current.jobSteps.some(
+          (jobStep) =>
+            jobStep.job === occurrence.job &&
+            jobStep.step === occurrence.step &&
+            jobStep.test === occurrence.test,
+        )
+      ) {
+        current.jobSteps.push(occurrence);
+      }
+    } else {
+      attempts.set(attemptKey, { row, jobSteps: [occurrence] });
+    }
     grouped.set(key, attempts);
   }
   const groups = [...grouped.values()].map((attempts) => {
     const orderedRuns = [...attempts.values()].sort(
       (left, right) =>
-        Date.parse(right.concludedAt) - Date.parse(left.concludedAt) ||
-        right.runId - left.runId ||
-        right.attempt - left.attempt,
+        Date.parse(right.row.concludedAt) - Date.parse(left.row.concludedAt) ||
+        right.row.runId - left.row.runId ||
+        right.row.attempt - left.row.attempt,
     );
-    return { row: orderedRuns[0], runs: orderedRuns };
+    return { row: orderedRuns[0].row, runs: orderedRuns };
   });
   const workflowPriority = (row: CiRedRow): number => {
     const workflow = `${row.workflow} ${row.workflowPath}`.toLowerCase();
@@ -815,14 +840,16 @@ export function renderCiRedReport(rows: CiRedRow[]): string {
       row.fingerprintGrain,
       tsvField(row.fingerprint),
       String(runs.length),
+      String(runs.reduce((count, run) => count + run.jobSteps.length, 0)),
       tsvField(
         JSON.stringify(
-          runs.map((run) => ({
+          runs.map(({ row: run, jobSteps }) => ({
             runId: run.runId,
             attempt: run.attempt,
             createdAt: run.createdAt,
             concludedAt: run.concludedAt,
             url: run.url,
+            jobSteps,
           })),
         ),
       ),

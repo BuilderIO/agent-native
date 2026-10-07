@@ -319,12 +319,16 @@ inventing a fix.
 
 ### Deployment, release, and publish failures
 
-Scan app/template, desktop, and package lanes each sweep. Keep one row per
-workflow fingerprint. CI-red deploy rows reuse that row; follow
-[`deployment-recovery.md`](references/deployment-recovery.md) for target proof.
-Keep it active until proof passes; its source issue may be **Fixed** separately.
-Delivery gaps are never **Quarantined**. Green CI or merge is not delivery
-proof.
+Scan app/template, desktop build/release, and package-publish lanes on every
+sweep, even without a linked report. Include queued/running runs, run-only
+failures, and missing/stale artifacts; carry active run IDs and rows across
+cursors. Fix verified repo-owned causes; record external/manual causes with the
+next owner/action. CI-red deploy/release/publish rows reuse this workflow
+fingerprint and operational row. Follow
+[`deployment-recovery.md`](references/deployment-recovery.md) for lane-specific
+recovery and target proof. Keep the operational row active until target proof
+passes; a source issue may be **Fixed** separately. Delivery gaps are never
+**Quarantined**. Green CI or merged source does not prove delivery.
 
 ## Phase 2: fix
 

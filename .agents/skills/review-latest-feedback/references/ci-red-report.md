@@ -4,11 +4,14 @@
 whose jobs completed during the last five days. It searches up to 35 days back
 for long-running workflows and ignores cancellations. Rows include the run,
 workflow, failed job/step, stable fingerprint, and the count plus JSON evidence
-for every matching run ID, attempt, timestamp, and URL. The report groups
+for every matching run ID, attempt, timestamp, URL, and job/step occurrence.
+`run_count` counts distinct run attempts; `occurrence_count` counts distinct
+failed job/step/test occurrences across them. `runs_json` keeps those
+occurrences under each run attempt's `jobSteps` array. The report groups
 repeated failures by workflow and fingerprint, orders Design E2E first, then
 deployment, release, and health workflows, followed by other CI/test/build
 workflows. It preserves every fingerprint and includes all matching run
-occurrences in each row. If logs name Playwright
+attempts and job occurrences in each row. If logs name Playwright
 cases, the fingerprint is test-level; otherwise `job-step` is broader and
 requires logs or artifacts for case-level diagnosis. An incomplete or failed
 API query exits 2 and means **CI unavailable**, never an empty result.

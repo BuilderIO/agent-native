@@ -49,6 +49,18 @@ type FigmaPageIdentity = {
   pageChangeCount: number;
 };
 
+export function recordedFigmaMetadata(): {
+  fileKeyWithheld: true;
+  pageName: string;
+  appBuild: string;
+} {
+  return {
+    fileKeyWithheld: true,
+    pageName: "not captured; private scratch page name withheld",
+    appBuild: "not exposed by the native Figma page",
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -583,7 +595,6 @@ async function record(
 
     let figmaShot = "";
     let figmaInspector: Record<string, string> = {};
-    let activeFigmaPage: FigmaPageIdentity;
     await withLock("osmouse", async () => {
       const browser = await chromium.connectOverCDP(CDP_URL);
       try {
@@ -608,7 +619,7 @@ async function record(
             "Figma login cookie is unavailable; no capture was written",
           );
         }
-        const verified = await withVerifiedFigmaPage(
+        await withVerifiedFigmaPage(
           manifest.figmaPageName,
           () => readFigmaActivePage(page, pluginId),
           async () => {
@@ -622,7 +633,6 @@ async function record(
             writeFileSync(figmaShot, probePng);
           },
         );
-        activeFigmaPage = verified.activePage;
       } finally {
         await browser.close();
       }
@@ -727,11 +737,7 @@ async function record(
         designInspector,
       },
       figma: {
-        fileKeyWithheld: true,
-        pageId: activeFigmaPage.id,
-        pageName: activeFigmaPage.name,
-        probeLayerName: manifest.probeMarker,
-        appBuild: "not exposed by the native Figma page",
+        ...recordedFigmaMetadata(),
       },
       designBuild: appBuild(),
       source:
