@@ -44,6 +44,7 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   useReviewComments,
   useSendReviewThreadToAgent,
@@ -1421,7 +1422,11 @@ function DesignEditor() {
   const isLiveCanvasShareLink =
     isVisualEditSurface && searchParams.get("share") === "1";
   const embedChromeRequested = isEmbedChromeRequested();
-  const hostOwnsChrome = embedded && !shellMode && !embedChromeRequested;
+  // An MCP App host owns navigation and chat, not the editor: the widget keeps
+  // the canvas, tools, and inspector as floating controls instead of going bare.
+  const widgetEmbed = useIsMcpAppWidgetEmbed();
+  const hostOwnsChrome =
+    embedded && !shellMode && !embedChromeRequested && !widgetEmbed;
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
     isBuilderHostEmbed(),
   );
@@ -2307,7 +2312,7 @@ function DesignEditor() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
   const [uiHidden, setUiHidden] = useState(false);
   const minimalUiByDefault =
-    embedded && !hostOwnsChrome && !embedChromeRequested;
+    widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested);
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
   useEffect(() => {
     setMinimalUi(minimalUiByDefault);
@@ -26742,8 +26747,11 @@ function DesignEditor() {
     selectedLayerIds,
     selectedScreenGeometry,
   });
+  // Below md the inspector panel is display:none and the Sheet below carries
+  // it, so the panel must neither inset the canvas nor displace the toolbar.
   const rightSidebarVisible =
     !hostOwnsChrome &&
+    !isMobileViewport &&
     !uiHidden &&
     !initialGenerationChromeLimited &&
     !responsiveInteractActive &&
@@ -27908,6 +27916,14 @@ function DesignEditor() {
                           hasExplicitOverviewZoomCommand &&
                           explicitOverviewCanvasZoom === null
                         }
+                        initialFitScreenId={
+                          widgetEmbed
+                            ? (findDesignFileByScreenTarget(
+                                files,
+                                initialRouteScreenTarget,
+                              )?.id ?? null)
+                            : undefined
+                        }
                         chromeInsetLeft={chromeInsetLeft}
                         chromeInsetRight={chromeInsetRight}
                         visibleCanvasRectRef={visibleCanvasRectRef}
@@ -28689,14 +28705,20 @@ function DesignEditor() {
             className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
           >
             <div className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3">
-              <div
-                data-design-minimal-bar="left"
-                className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
-              >
-                <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
-                <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
-                {minimalUiToggle}
-              </div>
+              {widgetEmbed ? (
+                <div aria-hidden="true" />
+              ) : (
+                <div
+                  data-design-minimal-bar="left"
+                  className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
+                >
+                  <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
+                  <div className="min-w-0 flex-1 px-1">
+                    {projectTitleControl}
+                  </div>
+                  {minimalUiToggle}
+                </div>
+              )}
               <div
                 data-design-minimal-bar="interact"
                 className="pointer-events-none flex min-w-0 justify-center"
@@ -28710,7 +28732,13 @@ function DesignEditor() {
                   data-design-minimal-bar="right"
                   className="pointer-events-auto min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
                 >
-                  {rightSidebarActions}
+                  {widgetEmbed ? (
+                    <div className="flex h-10 items-center px-1">
+                      {renderZoomControl("inspector")}
+                    </div>
+                  ) : (
+                    rightSidebarActions
+                  )}
                 </div>
               ) : (
                 <div aria-hidden="true" style={{ width: rightSidebarWidth }} />
@@ -28721,18 +28749,21 @@ function DesignEditor() {
       </div>
 
       {/* ── Render: mobile inspector sheet ── */}
+      {/* Minimal UI on a phone opens the sheet itself on every selection. The
+          widget shares a pane with chat, so it opens on request instead, and
+          a frame selected by the route never covers the canvas on load. */}
       {!hostOwnsChrome &&
       !uiHidden &&
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
         <Sheet
           open={
-            minimalUi
+            minimalUi && !widgetEmbed
               ? isMobileViewport && minimalInspectorHasSelection
               : undefined
           }
           onOpenChange={
-            minimalUi
+            minimalUi && !widgetEmbed
               ? (nextOpen) => {
                   if (nextOpen) return;
                   setSelectedElement(null);
@@ -28742,7 +28773,7 @@ function DesignEditor() {
               : undefined
           }
         >
-          {!minimalUi ? (
+          {!minimalUi || (widgetEmbed && minimalInspectorHasSelection) ? (
             <SheetTrigger asChild>
               <Button
                 type="button"

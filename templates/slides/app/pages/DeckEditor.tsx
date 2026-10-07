@@ -20,6 +20,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
@@ -685,9 +686,15 @@ export default function DeckEditor() {
   if (isNewDeckGenerationRoute) {
     wasNewDeckCreation.current = true;
   }
+  const widgetEmbed = useIsMcpAppWidgetEmbed();
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
+  // In an MCP App widget the pane is narrower than 768px but still wants the
+  // slide rail, as a compact strip beside the slide rather than an overlay.
+  useEffect(() => {
+    if (widgetEmbed) setSidebarOpen(true);
+  }, [widgetEmbed]);
   const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
   useEffect(() => {
     setDescribeSlideId(null);
@@ -1976,10 +1983,11 @@ export default function DeckEditor() {
   }, [generating, addSlideGenerating, endAddSlideGeneration]);
 
   useEffect(() => {
-    const onResize = () => setSidebarOpen(window.innerWidth >= 768);
+    const onResize = () =>
+      setSidebarOpen(widgetEmbed || window.innerWidth >= 768);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
+  }, [widgetEmbed]);
 
   const previousSlideIdsRef = useRef<string[]>([]);
   useEffect(() => {
@@ -2407,9 +2415,9 @@ export default function DeckEditor() {
       setSelectedSlideIds(result.selectedSlideIds);
       setGeneratingSlideSelected(false);
       setActiveSlideId(slideId);
-      if (window.innerWidth < 768) setSidebarOpen(false);
+      if (!widgetEmbed && window.innerWidth < 768) setSidebarOpen(false);
     },
-    [deck, selectedSlideIds],
+    [deck, selectedSlideIds, widgetEmbed],
   );
 
   const uploadImageAsset = useCallback(
@@ -3972,11 +3980,19 @@ export default function DeckEditor() {
       <div className="deck-editor-workspace relative flex min-h-0 flex-1 overflow-hidden rounded-l-lg bg-background">
         {sidebarOpen && (
           <>
+            {!widgetEmbed && (
+              <div
+                className="md:hidden fixed inset-0 bg-black/50 z-30"
+                onClick={() => setSidebarOpen(false)}
+              />
+            )}
             <div
-              className="md:hidden fixed inset-0 bg-black/50 z-30"
-              onClick={() => setSidebarOpen(false)}
-            />
-            <div className="absolute z-[70] h-full min-h-0 md:relative">
+              className={
+                widgetEmbed
+                  ? "relative z-[70] h-full min-h-0"
+                  : "absolute z-[70] h-full min-h-0 md:relative"
+              }
+            >
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -3986,6 +4002,7 @@ export default function DeckEditor() {
                 onDragCancel={handleDragCancel}
               >
                 <EditorSidebar
+                  compact={widgetEmbed}
                   slides={deck.slides}
                   activeSlideId={currentSlide?.id || ""}
                   selectedSlideIds={selectedSlideIds}
@@ -4022,7 +4039,9 @@ export default function DeckEditor() {
                   generatingSlideSelected={generatingSlideSelected}
                   onSelectGeneratingSlide={() => {
                     setGeneratingSlideSelected(true);
-                    if (window.innerWidth < 768) setSidebarOpen(false);
+                    if (!widgetEmbed && window.innerWidth < 768) {
+                      setSidebarOpen(false);
+                    }
                   }}
                   hasSlideClipboard={hasSlideClipboard}
                   onCutSlide={cutSlides}

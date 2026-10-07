@@ -31,6 +31,57 @@ export function shouldDeferLineupRecenterToCameraCommand(args: {
   );
 }
 
+const FOCUSED_LINEUP_SIDE_PADDING_PX = 16;
+// Room for the floating zoom control above a top-aligned frame.
+const FOCUSED_LINEUP_TOP_INSET_PX = 56;
+
+/**
+ * Screen a focused first layout lands on: the selected one, else the one the
+ * route asked for, else the active one, else the first.
+ */
+export function resolveFocusedLineupScreenId(args: {
+  screenIds: readonly string[];
+  selectedScreenIds: readonly string[];
+  requestedScreenId?: string | null;
+  activeScreenId?: string | null;
+}): string | null {
+  const known = new Set(args.screenIds);
+  const preferred = [
+    ...args.selectedScreenIds,
+    args.requestedScreenId,
+    args.activeScreenId,
+  ].find((id): id is string => Boolean(id) && known.has(id as string));
+  return preferred ?? args.screenIds[0] ?? null;
+}
+
+/**
+ * Scale that fits a frame to the pane width, never past `maxScale` (100%
+ * display zoom) so a narrow screen is not blown up to fill the pane.
+ */
+export function getFocusedLineupScale(args: {
+  frameWidth: number;
+  availableWidth: number;
+  minScale: number;
+  maxScale: number;
+}): number {
+  const fit =
+    (args.availableWidth - FOCUSED_LINEUP_SIDE_PADDING_PX * 2) /
+    Math.max(1, args.frameWidth);
+  return Math.max(args.minScale, Math.min(args.maxScale, fit));
+}
+
+/** Top edge of a focused frame: centered when it fits, else top-aligned. */
+export function getFocusedLineupTop(args: {
+  frameHeight: number;
+  scale: number;
+  viewportHeight: number;
+}): number {
+  return Math.max(
+    FOCUSED_LINEUP_TOP_INSET_PX,
+    (args.viewportHeight - args.frameHeight * args.scale) / 2,
+  );
+}
+
 export function shouldSuppressLineupRecenter(args: {
   armed: LineupRecenterDuplicateArm | null;
   nowMs: number;

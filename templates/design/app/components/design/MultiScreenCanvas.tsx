@@ -339,8 +339,11 @@ import {
   getBoardSurfaceLayerStyle,
   getBoardSurfaceStaticPreviewTransform,
   getBoardSurfaceStaticPreviewViewport,
+  getFocusedLineupScale,
+  getFocusedLineupTop,
   isLineupShrinkOnlyChange,
   OVERVIEW_FRAME_WIDTH,
+  resolveFocusedLineupScreenId,
   shouldDeferLineupRecenterToCameraCommand,
   shouldRenderBoardSurfaceStaticPreview,
   shouldSuppressLineupRecenter,
@@ -689,6 +692,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   suppressLineupRecenter,
   preserveCameraOnScreenCountChange = false,
   deferLineupZoomChange = false,
+  initialFitScreenId,
   chromeInsetLeft = 0,
   chromeInsetRight = 0,
   visibleCanvasRectRef,
@@ -2386,22 +2390,36 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         previewDeviceFrame,
       });
     });
+    const frameEntries = frames
+      .map((geometry, index) => ({
+        id: renderedScreens[index]?.id ?? String(index),
+        geometry,
+      }))
+      .concat(
+        renderedScreens.length === 0 && boardSurfaceContentBounds
+          ? [
+              {
+                id: boardFileId ?? "__board__",
+                geometry: boardSurfaceContentBounds,
+              },
+            ]
+          : [],
+      );
+    const focusScreenId =
+      initialFitScreenId === undefined
+        ? null
+        : resolveFocusedLineupScreenId({
+            screenIds: renderedScreens.map((screen) => screen.id),
+            selectedScreenIds: selectedIds,
+            requestedScreenId: initialFitScreenId,
+            activeScreenId: activeId,
+          });
+    const focusIndex = renderedScreens.findIndex(
+      (screen) => screen.id === focusScreenId,
+    );
+    const focusScreen = focusIndex >= 0 ? renderedScreens[focusIndex] : null;
     const bounds = getFrameGroupBounds(
-      frames
-        .map((geometry, index) => ({
-          id: renderedScreens[index]?.id ?? String(index),
-          geometry,
-        }))
-        .concat(
-          renderedScreens.length === 0 && boardSurfaceContentBounds
-            ? [
-                {
-                  id: boardFileId ?? "__board__",
-                  geometry: boardSurfaceContentBounds,
-                },
-              ]
-            : [],
-        ),
+      focusScreen ? [frameEntries[focusIndex]!] : frameEntries,
     );
     const totalWidth = bounds?.width ?? SCREEN_WIDTH;
     const totalHeight = bounds?.height ?? SCREEN_CARD_HEIGHT;
@@ -2420,10 +2438,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       totalHeight > 0
         ? Math.max(minFitScale, (rect.height - 96) / totalHeight)
         : scale;
+    // A focused screen fills the pane width up to 100% display zoom, in either
+    // direction; fitting every screen only ever zooms out.
+    const focusScale = focusScreen
+      ? getFocusedLineupScale({
+          frameWidth: totalWidth,
+          availableWidth,
+          minScale: minFitScale,
+          maxScale: getResolvedMetadata(focusScreen).width / totalWidth,
+        })
+      : null;
     const nextScale = deferLineupZoomChange
       ? scale
-      : Math.min(scale, widthFitScale, heightFitScale);
-    if (!deferLineupZoomChange && nextScale < scale) {
+      : (focusScale ?? Math.min(scale, widthFitScale, heightFitScale));
+    if (
+      !deferLineupZoomChange &&
+      (focusScale === null ? nextScale < scale : nextScale !== scale)
+    ) {
       const nextZoom = nextScale * 100;
       zoomRef.current = nextZoom;
       setCanvasZoom(nextZoom);
@@ -2432,7 +2463,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     const visualLeft =
       chromeInsetLeft + (availableWidth - totalWidth * nextScale) / 2;
-    const visualTop = (rect.height - totalHeight * nextScale) / 2;
+    const visualTop = focusScreen
+      ? getFocusedLineupTop({
+          frameHeight: totalHeight,
+          scale: nextScale,
+          viewportHeight: rect.height,
+        })
+      : (rect.height - totalHeight * nextScale) / 2;
     const nextPan = {
       x: visualLeft - (SURFACE_PADDING + boundsLeft) * nextScale,
       y: visualTop - (SURFACE_PADDING + boundsTop) * nextScale,

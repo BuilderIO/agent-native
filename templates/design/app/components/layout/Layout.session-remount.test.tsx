@@ -147,8 +147,9 @@ it("renders Design's app chrome for a token embed outside an MCP App widget", as
   expect(renderedAppChrome()).toEqual(
     expect.arrayContaining(["sidebar", "agent-sidebar"]),
   );
-  expect(container.querySelector('[aria-label="navigation.openNavigation"]'))
-    .not.toBeNull();
+  expect(
+    container.querySelector('[aria-label="navigation.openNavigation"]'),
+  ).not.toBeNull();
 });
 
 it("renders only the canvas in an MCP App widget, with no nav, header, or agent sidebar", async () => {
@@ -160,8 +161,9 @@ it("renders only the canvas in an MCP App widget, with no nav, header, or agent 
 
   expect(container.querySelector('[data-testid="editor"]')).not.toBeNull();
   expect(renderedAppChrome()).toEqual([]);
-  expect(container.querySelector('[aria-label="navigation.openNavigation"]'))
-    .toBeNull();
+  expect(
+    container.querySelector('[aria-label="navigation.openNavigation"]'),
+  ).toBeNull();
   expect(container.firstElementChild?.className).toContain("h-[100dvh]");
 });
 

@@ -340,7 +340,10 @@ describe("ChatGPT directory template profiles", () => {
       );
       const [clientTransport, serverTransport] =
         InMemoryTransport.createLinkedPair();
-      const client = new Client({ name: "directory-profile-spec", version: "1" });
+      const client = new Client({
+        name: "directory-profile-spec",
+        version: "1",
+      });
       await Promise.all([
         client.connect(clientTransport),
         server.connect(serverTransport),

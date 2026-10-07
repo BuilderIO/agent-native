@@ -72,11 +72,15 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       zoom = 100,
       chromeInsetLeft = 0,
       chromeInsetRight = 0,
+      initialFitScreenId,
+      selectedScreenIds,
     }: {
       height?: number;
       zoom?: number;
       chromeInsetLeft?: number;
       chromeInsetRight?: number;
+      initialFitScreenId?: string | null;
+      selectedScreenIds?: string[];
     } = {},
   ) {
     const screens = widths.map((width, index) => ({
@@ -102,10 +106,29 @@ describe("MultiScreenCanvas auto-fit framing", () => {
           onPick={() => {}}
           chromeInsetLeft={chromeInsetLeft}
           chromeInsetRight={chromeInsetRight}
+          initialFitScreenId={initialFitScreenId}
+          selectedScreenIds={selectedScreenIds}
         />,
       );
     });
     return readView(container);
+  }
+
+  function frameScreenRect(
+    view: ReturnType<typeof readView>,
+    index: number,
+    width: number,
+    height: number,
+  ) {
+    const left =
+      view.x + (SURFACE_PADDING + index * (width + 120)) * view.scale;
+    const top = view.y + SURFACE_PADDING * view.scale;
+    return {
+      left,
+      top,
+      right: left + width * view.scale,
+      height: height * view.scale,
+    };
   }
 
   it("centres an overflowing lineup instead of pinning it against one edge", async () => {
@@ -201,5 +224,54 @@ describe("MultiScreenCanvas auto-fit framing", () => {
     expect(afterLateScreen.scale).toBeCloseTo(afterPan.scale, 6);
     expect(afterLateScreen.x).toBeCloseTo(afterPan.x, 6);
     expect(afterLateScreen.y).toBeCloseTo(afterPan.y, 6);
+  });
+  describe("initialFitScreenId", () => {
+    it("fits every screen when it is omitted", async () => {
+      const view = await renderScreens([1280, 1280, 1280], { height: 2560 });
+      expect(view.scale).toBeLessThan(0.25);
+    });
+
+    it("fits the first screen to the pane width, top-aligned, when null", async () => {
+      const view = await renderScreens([1280, 1280, 1280], {
+        height: 2560,
+        initialFitScreenId: null,
+      });
+      const frame = frameScreenRect(view, 0, 1280, 2560);
+      expect(view.scale).toBeCloseTo((SURFACE_WIDTH - 32) / 1280, 6);
+      expect(frame.left).toBeCloseTo(16, 4);
+      expect(frame.right).toBeCloseTo(SURFACE_WIDTH - 16, 4);
+      expect(frame.top).toBeCloseTo(56, 4);
+    });
+
+    it("lands on the selected screen over the requested one", async () => {
+      const view = await renderScreens([1280, 1280, 1280], {
+        height: 2560,
+        initialFitScreenId: "screen-1",
+        selectedScreenIds: ["screen-2"],
+      });
+      const frame = frameScreenRect(view, 2, 1280, 2560);
+      expect(frame.left).toBeCloseTo(16, 4);
+      expect(frame.right).toBeCloseTo(SURFACE_WIDTH - 16, 4);
+    });
+
+    it("lands on the requested screen when nothing is selected", async () => {
+      const view = await renderScreens([1280, 1280, 1280], {
+        height: 2560,
+        initialFitScreenId: "screen-1",
+      });
+      expect(frameScreenRect(view, 1, 1280, 2560).left).toBeCloseTo(16, 4);
+    });
+
+    it("zooms a narrow screen in but stops at 100% and centers it", async () => {
+      const view = await renderScreens([390], {
+        height: 600,
+        zoom: 50,
+        initialFitScreenId: null,
+      });
+      const frame = frameScreenRect(view, 0, 390, 600);
+      expect(view.scale).toBeCloseTo(1, 6);
+      expect(frame.left).toBeCloseTo((SURFACE_WIDTH - 390) / 2, 4);
+      expect(frame.top).toBeCloseTo(56, 4);
+    });
   });
 });
