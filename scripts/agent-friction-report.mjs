@@ -2005,10 +2005,11 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
 ];
 
 const FEEDBACK_RELEASE_COVERAGE_RE =
-  /\b(?:we|you|the sweep|the review|this)\b[^.!?\n]{0,120}\b(?:aren['’]?t|are not|isn['’]?t|is not|doesn['’]?t|does not|didn['’]?t|did not|miss(?:ed|ing)?|skip(?:ped|ping)?)\b[^.!?\n]{0,160}\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b|(?=[^.!?\n]{0,240}\b(?:feedback|sweeps?|reviews?|triage)\b)(?=[^.!?\n]{0,240}\b(?:fail(?:ed|ing|ure|ures)?|broken|stale|missing|unavailable|incomplete|errored?|red)\b)\b(?:also\s+)?(?:add|include|check|scan|review|inspect|cover|make sure)\b[^.!?\n]{0,160}\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b|\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b[^.!?\n]{0,120}\b(?:missed|skipped|ignored|overlooked|forgot(?:ten)?|not (?:included|covered|checked|scanned|reviewed))\b/i;
+  /\b(?:we|you|the (?:feedback )?sweep|the (?:feedback )?review|this)\b[^.!?\n]{0,120}\b(?:aren['’]?t|are not|isn['’]?t|is not|doesn['’]?t|does not|didn['’]?t|did not|miss(?:ed|ing)?|skip(?:ped|ping)?)\b[^.!?\n]{0,160}\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b|(?=[^.!?\n]{0,240}\b(?:feedback|sweeps?|reviews?|triage)\b)(?=[^.!?\n]{0,240}\b(?:fail(?:ed|ing|ure|ures)?|broken|stale|missing|unavailable|incomplete|errored?|red)\b)\b(?:also\s+)?(?:add|include|check|scan|review|inspect|cover|make sure)\b[^.!?\n]{0,160}\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b|\b(?:deploy(?:ment)?s?|releases?|publish(?:es|ing)?|packages?|desktop apps?)\b[^.!?\n]{0,120}\b(?:missed|skipped|ignored|overlooked|forgot(?:ten)?|not (?:included|covered|checked|scanned|reviewed))\b/i;
 
 const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [true, "We are not scanning deployment failures in the feedback review."],
+  [true, "The feedback sweep missed desktop release failures."],
   [true, "Add failed app deploys to the sweep."],
   [true, "Please also scan package publish failures during reviews."],
   [true, "Make sure the review includes desktop release failures."],
