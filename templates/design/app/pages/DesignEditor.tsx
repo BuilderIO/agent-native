@@ -820,7 +820,10 @@ import { runScreenTextContentChange } from "./design-editor/commands/screen-text
 import { runScreenVisualDuplicateChange } from "./design-editor/commands/screen-visual-duplicate-change";
 import { runScreenVisualStructureChange } from "./design-editor/commands/screen-visual-structure-change";
 import { runScreenVisualStyleChange } from "./design-editor/commands/screen-visual-style-change";
-import { runSelectAll } from "./design-editor/commands/select-all";
+import {
+  runSelectAll,
+  screenDeletionProvenanceAfterSelectAll,
+} from "./design-editor/commands/select-all";
 import {
   restoreSelectionColorPreview,
   runSelectionColorChange,
@@ -18871,6 +18874,12 @@ function DesignEditor() {
           })
         : ({ kind: "screens" } as const);
       if (projection && decision.kind === "layers") {
+        selectionRevisionRef.current += 1;
+        explicitOverviewScreenSelectionRef.current =
+          screenDeletionProvenanceAfterSelectAll(
+            decision,
+            explicitOverviewScreenSelectionRef.current,
+          );
         setSelectedLayerIdsState(decision.layerIds);
         const lastId = decision.layerIds[decision.layerIds.length - 1];
         const lastNode = projection.nodes.find((n) => n.id === lastId);

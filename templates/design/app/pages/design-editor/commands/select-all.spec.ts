@@ -4,7 +4,10 @@ import {
 } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
-import { runSelectAll } from "./select-all";
+import {
+  runSelectAll,
+  screenDeletionProvenanceAfterSelectAll,
+} from "./select-all";
 
 const TODO_SCREEN = `<body>
   <section class="card">
@@ -62,6 +65,19 @@ describe("select-all with a layer selected", () => {
     });
 
     expect(decision.kind === "layers" && decision.layerIds).toContain(anchor);
+  });
+
+  it("clears explicit Screen deletion provenance when it selects layer siblings", () => {
+    const decision = runSelectAll({
+      tree: treeOf(TODO_SCREEN),
+      selectedLayerIds: [idOfClass(TODO_SCREEN, "row")],
+      nonLayerIds: new Set(),
+      fallback: "screens",
+    });
+
+    expect(
+      screenDeletionProvenanceAfterSelectAll(decision, ["screen-explicit"]),
+    ).toEqual([]);
   });
 
   it("reaches a nested selection, not just a root one", () => {
