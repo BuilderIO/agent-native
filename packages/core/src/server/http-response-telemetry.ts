@@ -29,6 +29,7 @@ import {
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { track } from "../tracking/index.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
+import { httpRouteForRequest } from "./http-route.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const TELEMETRY_EVENT_NAME = "http.response";
@@ -381,6 +382,14 @@ async function emitTelemetry(
   const statusCode = responseStatusCode(event, response);
   const pathname = requestPath(event);
   const decision = trackingDecision(pathname, statusCode, state);
+  const route =
+    state.routeTemplate ??
+    httpRouteForRequest({
+      method: getMethod(event),
+      pathname,
+      matchedRoute: (event.context as { matchedRoute?: { route?: unknown } })
+        ?.matchedRoute?.route,
+    });
 
   if (decision.track) {
     try {
@@ -395,12 +404,8 @@ async function emitTelemetry(
           method: getMethod(event),
           path: normalizeHttpTelemetryPath(pathname),
           route_kind: routeKind(pathname),
-          ...(actionName
-            ? {
-                action_name: actionName,
-                route_template: state.routeTemplate,
-              }
-            : {}),
+          route_template: route,
+          ...(actionName ? { action_name: actionName } : {}),
           status_code: statusCode,
           status_class: statusClass(statusCode),
           sample_rate: decision.sampleRate,
@@ -482,7 +487,7 @@ async function emitTelemetry(
     method: getMethod(event),
     statusCode,
     durationMs,
-    route: state.routeTemplate,
+    route,
   });
   await flushTrackingEvents(state.trackingScope);
   await flushObservability();
