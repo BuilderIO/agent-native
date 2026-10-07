@@ -33,6 +33,7 @@ export const DEVICE_CODE_TTL_MS = 10 * 60_000;
 export const DEFAULT_TOKEN_TTL_DAYS = 365;
 export const MIN_TOKEN_TTL_DAYS = 1;
 export const MAX_TOKEN_TTL_DAYS = 365;
+export const MAX_SERVICE_TOKEN_TTL_DAYS = 3_650;
 
 export const DEVICE_START_MAX = 20;
 export const DEVICE_START_WINDOW_MS = 60_000;

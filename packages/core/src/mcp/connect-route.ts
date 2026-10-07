@@ -50,6 +50,7 @@ import {
   DEFAULT_TOKEN_TTL_DAYS,
   MIN_TOKEN_TTL_DAYS,
   MAX_TOKEN_TTL_DAYS,
+  MAX_SERVICE_TOKEN_TTL_DAYS,
   DEVICE_CODE_TTL_MS,
 } from "./connect-store.js";
 import {
@@ -202,13 +203,10 @@ async function resolveOrgDomain(
   }
 }
 
-function clampTtlDays(input: unknown): number {
+function clampTtlDays(input: unknown, maxDays = MAX_TOKEN_TTL_DAYS): number {
   const n = Number(input);
   if (!Number.isFinite(n)) return DEFAULT_TOKEN_TTL_DAYS;
-  return Math.min(
-    MAX_TOKEN_TTL_DAYS,
-    Math.max(MIN_TOKEN_TTL_DAYS, Math.floor(n)),
-  );
+  return Math.min(maxDays, Math.max(MIN_TOKEN_TTL_DAYS, Math.floor(n)));
 }
 
 /**
@@ -332,7 +330,10 @@ export async function mintOrgServiceToken(params: {
   const serviceName = normalizeServiceName(params.serviceName);
   const serviceEmail = serviceIdentityEmail(serviceName, params.orgId);
   const orgDomain = await resolveOrgDomain(params.orgId);
-  const ttlDays = clampTtlDays(params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS);
+  const ttlDays = clampTtlDays(
+    params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS,
+    MAX_SERVICE_TOKEN_TTL_DAYS,
+  );
   await prepareConnectIssuance();
   return withMcpCredentialIssuance(
     {
