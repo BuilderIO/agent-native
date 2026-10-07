@@ -97,6 +97,14 @@ description: "defineAction() 的結構：架構、run，以及 HTTP 設定，還
             '當 outputErrorStrategy 為 "fallback" 時，用來取代無效結果回傳的值。',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            '向 MCP 用戶端公布 outputSchema，並用它驗證每個結果。需要 outputErrorStrategy 為 "strict"。',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -241,6 +249,12 @@ export default defineAction({
 | `"fallback"` | 回傳提供的 `outputFallback` 值，取代無效的結果。                                    |
 
 當 `run()` 成功時，框架會回傳經過驗證的值，因此 `outputSchema` 上的任何預設值或強制轉換都會生效，就像對輸入所做的一樣。若您沒有傳入 `outputSchema`，回傳值則維持不變。
+
+strict 驗證在 `run()` 之後執行，因此錯誤（`ActionOutputContractError`，`errorCode: "output_contract_violation"`）回報的是已經發生的事：唯讀呼叫的 `effect` 為 `"none"`，變更已生效的寫入為 `"committed"`，呼叫端不得重試。訊息只列出已宣告的欄位路徑與問題代碼，絕不包含回傳的值。
+
+### 透過 MCP 公布契約 {#mcp-output-schema}
+
+由於 `"warn"` 模式下的 schema 不會被強制執行，預設情況下 MCP 用戶端看不到任何 `outputSchema`。確認每個真實結果都符合後，將 `mcpOutputSchema: true` 與 `outputErrorStrategy: "strict"` 一起設定。之後工具會以 MCP 用戶端實際收到的形態公布 schema（陣列根會包裝為 `{ items }`，帶 `link` 的 action 會增加 `openLink` 與 `url`），並在回傳前用它驗證每個 `structuredContent`。根必須是物件、僅由物件組成的聯集或陣列；帶有轉換的 schema 無法啟用。
 
 ## 結果契約 {#result-contracts}
 

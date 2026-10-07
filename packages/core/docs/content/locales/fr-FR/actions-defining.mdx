@@ -101,6 +101,14 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
             "Renvoyé à la place d’un résultat invalide quand outputErrorStrategy vaut « fallback ».",
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'Annonce outputSchema aux clients MCP et valide chaque résultat avec lui. Nécessite outputErrorStrategy "strict".',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -246,6 +254,12 @@ export default defineAction({
 | `"fallback"` | Renvoie la valeur `outputFallback` fournie à la place du résultat invalide.                             |
 
 Quand `run()` réussit, le framework renvoie la valeur validée, de sorte que les valeurs par défaut ou les coercions de `outputSchema` s’appliquent, de la même manière que pour l’entrée. Quand vous ne passez pas de `outputSchema`, la valeur de retour reste inchangée.
+
+La vérification stricte s’exécute après `run()`, donc l’erreur (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) décrit ce qui s’est déjà produit : `effect` vaut `"none"` pour un appel en lecture seule et `"committed"` pour une écriture dont les modifications sont déjà appliquées, que l’appelant ne doit pas relancer. Le message ne cite que les chemins de champs déclarés et les codes de problème, jamais les valeurs renvoyées.
+
+### Annoncer le contrat via MCP {#mcp-output-schema}
+
+Par défaut, les clients MCP ne voient aucun `outputSchema`, car un schéma en `"warn"` n’est pas appliqué. Une fois que vous avez vérifié que chaque résultat réel correspond, définissez `mcpOutputSchema: true` avec `outputErrorStrategy: "strict"`. L’outil annonce alors le schéma sous la forme que reçoivent les clients MCP — une racine de type tableau est enveloppée en `{ items }`, et les actions avec un `link` reçoivent `openLink` et `url` — et valide chaque `structuredContent` avec lui avant de le renvoyer. La racine doit être un objet, une union d’objets uniquement ou un tableau ; les schémas avec des transformations ne peuvent pas l’activer.
 
 ## Contrats de résultat {#result-contracts}
 

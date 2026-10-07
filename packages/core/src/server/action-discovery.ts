@@ -160,6 +160,14 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.mcpAnnotations = entry.mcpAnnotations;
   }
+  if (
+    entry.mcpOutputContract &&
+    typeof entry.mcpOutputContract === "object" &&
+    entry.mcpOutputContract.response &&
+    typeof entry.mcpOutputContract.response === "object"
+  ) {
+    out.mcpOutputContract = entry.mcpOutputContract;
+  }
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
   }

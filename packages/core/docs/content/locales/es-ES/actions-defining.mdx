@@ -101,6 +101,14 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
             'Se devuelve en lugar de un resultado inválido cuando outputErrorStrategy es "fallback".',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'Anuncia outputSchema a los clientes MCP y valida cada resultado con él. Requiere outputErrorStrategy "strict".',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -246,6 +254,12 @@ export default defineAction({
 | `"fallback"` | Devuelve el valor `outputFallback` proporcionado en lugar del resultado inválido.                                         |
 
 Cuando `run()` tiene éxito, el framework devuelve el valor validado, así que cualquier valor por defecto o coerción de `outputSchema` surte efecto, igual que ocurre con la entrada. Cuando no pasas un `outputSchema`, el valor de retorno queda sin cambios.
+
+La comprobación estricta se ejecuta después de `run()`, así que el error (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) informa de lo que ya ha ocurrido: `effect` es `"none"` en una llamada de solo lectura y `"committed"` en una escritura cuyos cambios ya se han aplicado, que quien llama no debe reintentar. El mensaje solo enumera rutas de campos declarados y códigos de incidencia, nunca los valores devueltos.
+
+### Anunciar el contrato por MCP {#mcp-output-schema}
+
+Por defecto, los clientes MCP no ven ningún `outputSchema`, porque un esquema en `"warn"` no se hace cumplir. Cuando hayas comprobado que todos los resultados reales coinciden, define `mcpOutputSchema: true` junto con `outputErrorStrategy: "strict"`. La herramienta anuncia entonces el esquema con la forma que reciben los clientes MCP —una raíz de tipo array se envuelve como `{ items }`, y las acciones con `link` obtienen `openLink` y `url`— y valida cada `structuredContent` con él antes de devolverlo. La raíz debe ser un objeto, una unión solo de objetos o un array; los esquemas con transformaciones no pueden activarlo.
 
 ## Contratos de resultado {#result-contracts}
 

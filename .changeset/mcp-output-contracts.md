@@ -1,0 +1,5 @@
+---
+"@agent-native/core": minor
+---
+
+Add opt-in MCP output contracts. An action with `outputErrorStrategy: "strict"` and `mcpOutputSchema: true` advertises its `outputSchema` to MCP clients, in the shape they receive (array roots wrapped as `{ items }`, open-link fields for linked actions), and each `structuredContent` is validated against it. Actions without the opt-in advertise no output schema, as before. A strict output mismatch now throws `ActionOutputContractError` (`errorCode: "output_contract_violation"`), which carries `effect: "none"` for read-only calls and `effect: "committed"` for writes that already applied, and whose message never includes returned values.

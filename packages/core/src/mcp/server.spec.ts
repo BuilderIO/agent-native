@@ -6211,6 +6211,163 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  describe("output contracts", () => {
+    const outputContractConfig = {
+      ...config,
+      actions: {
+        "warn-read": defineAction({
+          description: "Read with an unaudited output schema.",
+          schema: z.object({}),
+          outputSchema: z.object({ id: z.string() }),
+          readOnly: true,
+          run: async () => ({ id: "w1" }),
+        }),
+        "list-rows": defineAction({
+          description: "List rows.",
+          schema: z.object({}),
+          outputSchema: z.array(z.object({ id: z.string() })),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => [{ id: "r1" }, { id: "r2" }],
+        }),
+        "rename-row": defineAction({
+          description: "Rename a row.",
+          schema: z.object({ id: z.string() }),
+          outputSchema: z.object({ id: z.string(), title: z.string() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          link: ({ result }: any) => ({
+            label: "Open row",
+            view: "row",
+            url: `/_agent-native/open?view=row&id=${result.id}`,
+          }),
+          run: async ({ id }) => ({ id, title: "Renamed" }),
+        }),
+        "count-rows": defineAction({
+          description: "Count rows.",
+          schema: z.object({}),
+          outputSchema: z.object({ count: z.number() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({ count: "erin@example.com" }) as any,
+        }),
+        "assign-owner": {
+          tool: {
+            description: "Assign an owner.",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          run: async () => ({ owner: "frank@example.com" }),
+          mcpOutputContract: {
+            semantic: { type: "object" },
+            response: {
+              type: "object",
+              properties: { owner: { type: "number" } },
+              required: ["owner"],
+            },
+          },
+        },
+      },
+    };
+
+    beforeEach(() => {
+      actionChangeMocks.writeMarker.mockClear();
+    });
+
+    it("advertises outputSchema only for actions that opted in", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const { tools } = await client.listTools();
+        const byName = new Map(tools.map((tool) => [tool.name, tool]));
+        expect(byName.get("warn-read")?.outputSchema).toBeUndefined();
+        expect(byName.get("list-rows")?.outputSchema).toMatchObject({
+          type: "object",
+          properties: { items: { type: "array" } },
+          required: ["items"],
+        });
+        expect(byName.get("rename-row")?.outputSchema).toMatchObject({
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            openLink: { type: "object" },
+            url: { type: "string" },
+          },
+        });
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("returns structuredContent that the client validates against the advertised contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const list = await client.callTool({
+          name: "list-rows",
+          arguments: {},
+        });
+        expect(list.isError).toBeFalsy();
+        expect(list.structuredContent).toEqual({
+          items: [{ id: "r1" }, { id: "r2" }],
+        });
+
+        const rename = await client.callTool({
+          name: "rename-row",
+          arguments: { id: "row-7" },
+        });
+        expect(rename.isError).toBeFalsy();
+        expect(rename.structuredContent).toMatchObject({
+          id: "row-7",
+          title: "Renamed",
+          openLink: { label: "Open row" },
+        });
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("reports a read's broken output as changing nothing, without its values", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "count-rows",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toBeUndefined();
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("count: invalid_type");
+        expect(text).toContain("changed nothing");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("erin@example.com");
+        expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("reports a write's broken MCP response as committed and still refreshes other sessions", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-owner",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("owner: type");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("frank@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+  });
+
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {
     const event = makeWebEvent({ method: "POST", path: "/connect" });
     const res = await handleMcpRequest(event, config as any);

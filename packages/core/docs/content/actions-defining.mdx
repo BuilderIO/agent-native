@@ -101,6 +101,14 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
             'Returned in place of an invalid result when outputErrorStrategy is "fallback".',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'Advertises outputSchema to MCP clients and validates each result against it. Requires outputErrorStrategy "strict".',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -242,10 +250,16 @@ export default defineAction({
 | Strategy     | Behavior on mismatch                                                                               |
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | `"warn"`     | **Default.** `console.warn` the issues and return the **original** result unchanged. Non-breaking. |
-| `"strict"`   | Throw a clear error, so a bug in the action is easy to notice.                                     |
+| `"strict"`   | Throw `ActionOutputContractError`, so a bug in the action is easy to notice.                       |
 | `"fallback"` | Return the provided `outputFallback` value in place of the invalid result.                         |
 
 When `run()` succeeds, the framework returns the validated value, so any defaults or coercions on `outputSchema` take effect, the same way they do for input. When you don't pass an `outputSchema`, the return value is unchanged.
+
+The strict check runs after `run()`, so the error (`errorCode: "output_contract_violation"`) reports what already happened: `effect` is `"none"` for a read-only call and `"committed"` for a write whose changes are already applied, which callers must not retry. The message lists only declared field paths and issue codes, never the returned values.
+
+### Advertising the contract over MCP {#mcp-output-schema}
+
+MCP clients see no `outputSchema` by default, because a `"warn"` schema is not enforced. Once you have checked that every real result matches, set `mcpOutputSchema: true` together with `outputErrorStrategy: "strict"`. The tool then advertises the schema in the shape MCP clients receive — an array root is wrapped as `{ items }`, and actions with a `link` gain `openLink` and `url` — and validates each `structuredContent` against it before returning. The root must be an object, an object-only union, or an array; schemas with transforms cannot opt in.
 
 ## Result contracts {#result-contracts}
 

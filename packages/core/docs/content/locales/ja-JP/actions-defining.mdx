@@ -101,6 +101,14 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
             '`outputErrorStrategy` が "fallback" のとき、無効な結果の代わりに返されます。',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'outputSchema を MCP クライアントに公開し、各結果をそれに照らして検証します。outputErrorStrategy が "strict" である必要があります。',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -246,6 +254,12 @@ export default defineAction({
 | `"fallback"` | 無効な結果の代わりに、指定された `outputFallback` の値を返します。                                  |
 
 `run()` が成功すると、フレームワークは検証済みの値を返すため、`outputSchema` に設定されたデフォルト値や型変換が、入力の場合と同じように反映されます。`outputSchema` を渡さない場合、戻り値は変更されません。
+
+strict の検証は `run()` の後に実行されるため、エラー（`ActionOutputContractError`、`errorCode: "output_contract_violation"`）はすでに起きたことを報告します。`effect` は読み取り専用の呼び出しでは `"none"`、変更がすでに適用された書き込みでは `"committed"` で、呼び出し側は再試行してはいけません。メッセージには宣言されたフィールドのパスと問題コードだけが含まれ、返された値は含まれません。
+
+### MCP で契約を公開する {#mcp-output-schema}
+
+`"warn"` のスキーマは強制されないため、デフォルトでは MCP クライアントに `outputSchema` は公開されません。実際の結果がすべて一致することを確認したら、`outputErrorStrategy: "strict"` と一緒に `mcpOutputSchema: true` を設定します。するとツールは MCP クライアントが受け取る形でスキーマを公開し（配列のルートは `{ items }` で包まれ、`link` を持つアクションには `openLink` と `url` が加わります）、各 `structuredContent` を返す前にそれに照らして検証します。ルートはオブジェクト、オブジェクトのみのユニオン、または配列である必要があり、変換を含むスキーマはオプトインできません。
 
 ## 結果の契約 {#result-contracts}
 

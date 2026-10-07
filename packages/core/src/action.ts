@@ -1,5 +1,13 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import { actionCallIsReadOnly } from "./action-call-classification.js";
+import {
+  buildActionMcpOutputContract,
+  describeOutputContractIssue,
+  outputContractPropertyNames,
+  outputSchemaToJsonSchema,
+  type ActionMcpOutputContract,
+} from "./action-output-contract.js";
 import {
   normalizeActionChatUIConfig,
   type ActionChatUIConfig,
@@ -125,6 +133,77 @@ export function fail(message: string, options: FailOptions = {}): never {
     statusCode: options.statusCode ?? 400,
     ...(options.details === undefined ? {} : { details: options.details }),
   });
+}
+
+export type { ActionMcpOutputContract } from "./action-output-contract.js";
+
+/** What a call that broke its output contract already did. `run` returned
+ *  before the check, so a non-read-only call's changes are applied. */
+export type ActionOutputEffect = "none" | "committed";
+
+export interface ActionOutputContractErrorOptions {
+  actionName?: string;
+  effect: ActionOutputEffect;
+  /** `semantic` is the action's `outputSchema`; `mcp` is the MCP response
+   *  contract derived from it. */
+  contract: "semantic" | "mcp";
+  /** Sanitized `path: code` lines; never values from the output. */
+  issues: readonly string[];
+}
+
+const MAX_REPORTED_OUTPUT_ISSUES = 5;
+const MAX_DETAILED_OUTPUT_ISSUES = 50;
+
+/**
+ * A result that broke its declared output contract after `run` returned. It is
+ * typed so no caller mistakes it for a failed call: a write reports `committed`
+ * and tells the caller not to retry.
+ */
+export class ActionOutputContractError extends ActionContractError {
+  readonly outputContractError = true;
+  readonly effect: ActionOutputEffect;
+  readonly contract: "semantic" | "mcp";
+  readonly issues: readonly string[];
+
+  constructor(options: ActionOutputContractErrorOptions) {
+    const shown = options.issues.slice(0, MAX_REPORTED_OUTPUT_ISSUES);
+    const more = options.issues.length - shown.length;
+    const issueText = `${shown.join("; ")}${more > 0 ? `; and ${more} more` : ""}`;
+    const subject = options.actionName
+      ? `"${options.actionName}"`
+      : "The action";
+    const outcome =
+      options.effect === "committed"
+        ? "Its changes are already applied: do not retry it. Read the current state instead."
+        : "It is read-only and changed nothing.";
+    super(
+      `${subject} returned a result that does not match its declared output contract (${issueText}). ${outcome}`,
+      {
+        errorCode: "output_contract_violation",
+        statusCode: 500,
+        details: {
+          effect: options.effect,
+          contract: options.contract,
+          issues: options.issues.slice(0, MAX_DETAILED_OUTPUT_ISSUES),
+        },
+      },
+    );
+    this.name = "ActionOutputContractError";
+    this.effect = options.effect;
+    this.contract = options.contract;
+    this.issues = options.issues.slice(0, MAX_DETAILED_OUTPUT_ISSUES);
+  }
+}
+
+export function isActionOutputContractError(
+  error: unknown,
+): error is ActionOutputContractError {
+  return (
+    isActionContractError(error) &&
+    (error as { outputContractError?: unknown }).outputContractError === true &&
+    ((error as { effect?: unknown }).effect === "none" ||
+      (error as { effect?: unknown }).effect === "committed")
+  );
 }
 
 export class AgentActionStopError extends Error {
@@ -333,6 +412,14 @@ interface DefineActionWithSchema<
   outputSchema?: TOutputSchema;
   outputErrorStrategy?: ActionOutputErrorStrategy;
   outputFallback?: TReturn;
+  /** Advertise `outputSchema` to MCP clients as the tool's `outputSchema`
+   *  and validate every `structuredContent` against it. Set it only after
+   *  auditing that every value `run` can return meets the schema; it requires
+   *  `outputErrorStrategy: "strict"`, because a `"warn"` or `"fallback"`
+   *  action would otherwise advertise a contract it does not enforce.
+   *  `defineAction` throws when the schema has no Standard JSON Schema output
+   *  converter or its root cannot become `structuredContent`. */
+  mcpOutputSchema?: boolean;
   run: (
     args: StandardSchemaV1.InferOutput<TSchema>,
     ctx?: ActionRunContext,
@@ -452,6 +539,7 @@ interface DefineActionWithParams<
   outputSchema?: StandardSchemaV1;
   outputErrorStrategy?: ActionOutputErrorStrategy;
   outputFallback?: TReturn;
+  mcpOutputSchema?: boolean;
   run: (
     args: InferParams<TParams>,
     ctx?: ActionRunContext,
@@ -534,6 +622,8 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly outputSchema?: StandardSchemaV1;
   readonly outputErrorStrategy?: ActionOutputErrorStrategy;
   readonly outputFallback?: TReturn;
+  /** Present only when the action opted in with `mcpOutputSchema: true`. */
+  readonly mcpOutputContract?: ActionMcpOutputContract;
   readonly needsApproval?:
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
@@ -608,15 +698,6 @@ export function defineAction(options: any) {
     options.outputErrorStrategy === "fallback"
       ? options.outputErrorStrategy
       : "warn";
-  const run = hasOutputSchema
-    ? wrapWithOutputValidation(
-        options.outputSchema,
-        inputValidatedRun,
-        outputErrorStrategy,
-        options.outputFallback,
-        options.description,
-      )
-    : inputValidatedRun;
 
   const httpConfig = options.http as ActionHttpConfig | false | undefined;
   const inferredReadOnly =
@@ -629,6 +710,25 @@ export function defineAction(options: any) {
       : inferredReadOnly
         ? true
         : undefined;
+
+  const run = hasOutputSchema
+    ? wrapWithOutputValidation(
+        options.outputSchema,
+        inputValidatedRun,
+        outputErrorStrategy,
+        options.outputFallback,
+        options.description,
+        (args) =>
+          actionCallIsReadOnly(
+            { readOnly, planMode: options.planMode },
+            args,
+            false,
+          )
+            ? "none"
+            : "committed",
+      )
+    : inputValidatedRun;
+
   const uiOnly: boolean | undefined =
     typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
 
@@ -708,6 +808,20 @@ export function defineAction(options: any) {
     return undefined;
   })();
   const chatUI = normalizeActionChatUIConfig(options.chatUI);
+  const mcpOutputContract: ActionMcpOutputContract | undefined = (() => {
+    if (options.mcpOutputSchema !== true) return undefined;
+    if (!hasOutputSchema) {
+      throw new TypeError("mcpOutputSchema requires an outputSchema.");
+    }
+    if (outputErrorStrategy !== "strict") {
+      throw new TypeError(
+        'mcpOutputSchema requires outputErrorStrategy: "strict", so the advertised contract is enforced.',
+      );
+    }
+    return buildActionMcpOutputContract(options.outputSchema, {
+      openLink: Boolean(link || mcpApp?.resource),
+    });
+  })();
 
   return {
     tool: {
@@ -780,6 +894,7 @@ export function defineAction(options: any) {
             : {}),
         }
       : {}),
+    ...(mcpOutputContract ? { mcpOutputContract } : {}),
     ...(typeof options.needsApproval === "boolean" ||
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
@@ -1423,7 +1538,8 @@ function wrapWithOutputValidation(
   run: (args: any, ctx?: ActionRunContext) => any,
   strategy: ActionOutputErrorStrategy,
   fallback: unknown,
-  description?: string,
+  description: string | undefined,
+  effectOf: (args: any) => ActionOutputEffect,
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
     const output = await run(args, ctx);
@@ -1433,6 +1549,35 @@ function wrapWithOutputValidation(
       return (result as StandardSchemaV1.SuccessResult<any>).value;
     }
 
+    if (strategy === "strict") {
+      let declaredNames: ReadonlySet<string> = new Set();
+      try {
+        declaredNames = outputContractPropertyNames(
+          outputSchemaToJsonSchema(outputSchema),
+        );
+      } catch {
+        // coercion-ok: without a JSON Schema no key is known to be declared,
+        // so every object key in an issue path is masked.
+      }
+      throw new ActionOutputContractError({
+        actionName: ctx?.actionName,
+        effect: effectOf(args),
+        contract: "semantic",
+        issues: result.issues.map((issue) =>
+          describeOutputContractIssue(
+            (issue.path ?? []).map((p) => {
+              const key = typeof p === "object" ? p.key : p;
+              return typeof key === "number" ? key : String(key);
+            }),
+            (issue as { code?: unknown }).code,
+            declaredNames,
+          ),
+        ),
+      });
+    }
+    if (strategy === "fallback") {
+      return fallback;
+    }
     const issues = result.issues
       .map((issue) => {
         const pathStr = issue.path
@@ -1443,15 +1588,7 @@ function wrapWithOutputValidation(
       })
       .join("; ");
     const label = description ? ` (${description})` : "";
-    const summary = `Action output did not match outputSchema${label}: ${issues}`;
-
-    if (strategy === "strict") {
-      throw new Error(summary);
-    }
-    if (strategy === "fallback") {
-      return fallback;
-    }
-    console.warn(summary);
+    console.warn(`Action output did not match outputSchema${label}: ${issues}`);
     return output;
   };
 }

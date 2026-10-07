@@ -14,6 +14,7 @@ import {
 } from "../a2a/organization-identity.js";
 import {
   actionCallEmitsChange,
+  actionCallIsReadOnly,
   actionChangeResource,
 } from "../action-call-classification.js";
 import {
@@ -27,6 +28,7 @@ import type { ActionRunContext } from "../action.js";
 import {
   isActionContractError,
   isActionExposedToExternalAgents,
+  isActionOutputContractError,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -86,6 +88,7 @@ import {
   parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { mcpResponseOutputCheck } from "./output-contract.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
@@ -1073,6 +1076,27 @@ export function buildLinkArtifacts(
   }
 }
 
+async function writeMcpActionChangeMarker(
+  entry: ActionEntry,
+  name: string,
+  args: unknown,
+  result: unknown,
+): Promise<void> {
+  try {
+    await writeActionChangeMarker({
+      actionName: name,
+      ...actionChangeResource(entry, args, result),
+      owner: getRequestUserEmail() ?? undefined,
+      orgId: getRequestOrgId() ?? undefined,
+    });
+  } catch (error) {
+    console.warn(
+      "Could not write the action-change marker after an MCP tool call",
+      error,
+    );
+  }
+}
+
 function mergeBuiltinTools(
   config: MCPConfig,
   baseActions: Record<string, ActionEntry>,
@@ -1623,6 +1647,22 @@ function mcpAppStructuredContent(
     if (typeof webUrl === "string" && !out.url) out.url = webUrl;
   }
   return Object.keys(out).length > 0 ? out : { status: "ok" };
+}
+
+/**
+ * The transport transform from an action's sanitized result to
+ * `structuredContent`. An opted-in action's advertised `outputSchema` is
+ * derived from its own by these same steps (`deriveMcpResponseOutputSchema`),
+ * so a change here must change that derivation too.
+ */
+function mcpResponseStructuredContent(
+  result: unknown,
+  meta: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  return mcpAppStructuredContent(
+    Array.isArray(result) ? { items: result } : result,
+    meta,
+  );
 }
 
 function truncateToolText(value: string, max = 2000): string {
@@ -2178,20 +2218,18 @@ export async function createMCPServerForRequest(
             } else if (hasLink) {
               annotations["agent-native/producesOpenLink"] = true;
             }
+            const outputSchema = directoryCatalog
+              ? mcpAppResource
+                ? { type: "object", additionalProperties: true }
+                : undefined
+              : entry.mcpOutputContract?.response;
             return {
               name,
               description: hasLink
                 ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
                 : baseDescription,
               inputSchema,
-              ...(directoryCatalog && mcpAppResource
-                ? {
-                    outputSchema: {
-                      type: "object",
-                      additionalProperties: true,
-                    },
-                  }
-                : {}),
+              ...(outputSchema ? { outputSchema } : {}),
               ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
               annotations,
             } as Tool;
@@ -2357,6 +2395,7 @@ export async function createMCPServerForRequest(
           };
         }
 
+        let rawResult: unknown;
         try {
           const approvalResult = await requireMcpActionApproval(
             entry,
@@ -2365,6 +2404,15 @@ export async function createMCPServerForRequest(
             ctx,
           );
           if (approvalResult !== undefined) return approvalResult;
+
+          // A directory profile may project results arbitrarily, so the
+          // derived contract is advertised and enforced on app catalogs only.
+          const outputContract = directoryCatalog
+            ? undefined
+            : entry.mcpOutputContract;
+          const checkOutput = outputContract
+            ? mcpResponseOutputCheck(outputContract)
+            : undefined;
 
           const result = await entry.run(
             (args as Record<string, string>) ?? {},
@@ -2377,7 +2425,7 @@ export async function createMCPServerForRequest(
             },
           );
           const mcpResult = isMcpActionResult(result) ? result : null;
-          const rawResult = mcpResult ? mcpResult.raw : result;
+          rawResult = mcpResult ? mcpResult.raw : result;
           const resultForClient = mcpResult ? mcpResult.text : result;
           const projectDirectoryResult = directoryCatalog
             ? config.directoryProfile?.projectResult
@@ -2460,25 +2508,34 @@ export async function createMCPServerForRequest(
             Array.isArray(toolVisibility) &&
             toolVisibility.length > 0 &&
             toolVisibility.every((v) => v === "app");
-          const structuredResult =
+          const wantsStructuredResult =
             (entry.readOnly === true ||
               entry.mcpApp?.structuredContent === true) &&
             actionResultForClient &&
-            typeof actionResultForClient === "object"
-              ? Array.isArray(actionResultForClient)
-                ? { items: actionResultForClient }
-                : actionResultForClient
-              : undefined;
-          const structuredContent = mcpAppResource
-            ? mcpAppStructuredContent(actionResultForClient, responseMeta)
-            : isAppOnlyVisibility &&
-                actionResultForClient &&
-                typeof actionResultForClient === "object" &&
-                !Array.isArray(actionResultForClient)
-              ? (actionResultForClient as Record<string, unknown>)
-              : structuredResult
-                ? mcpAppStructuredContent(structuredResult, responseMeta)
-                : undefined;
+            typeof actionResultForClient === "object";
+          const structuredContent = outputContract
+            ? mcpResponseStructuredContent(actionResultForClient, responseMeta)
+            : mcpAppResource
+              ? mcpAppStructuredContent(actionResultForClient, responseMeta)
+              : isAppOnlyVisibility &&
+                  actionResultForClient &&
+                  typeof actionResultForClient === "object" &&
+                  !Array.isArray(actionResultForClient)
+                ? (actionResultForClient as Record<string, unknown>)
+                : wantsStructuredResult
+                  ? mcpResponseStructuredContent(
+                      actionResultForClient,
+                      responseMeta,
+                    )
+                  : undefined;
+          if (checkOutput && !mcpResultIsError && !embedProducedNothing) {
+            checkOutput(structuredContent!, {
+              actionName: name,
+              effect: actionCallIsReadOnly(entry, args, false)
+                ? "none"
+                : "committed",
+            });
+          }
           const text = mcpAppResource
             ? conciseMcpAppToolText(
                 name,
@@ -2527,22 +2584,19 @@ export async function createMCPServerForRequest(
             response.isError !== true &&
             actionCallEmitsChange(entry, args, false)
           ) {
-            try {
-              await writeActionChangeMarker({
-                actionName: name,
-                ...actionChangeResource(entry, args, rawResult),
-                owner: getRequestUserEmail() ?? undefined,
-                orgId: getRequestOrgId() ?? undefined,
-              });
-            } catch (error) {
-              console.warn(
-                "Could not write the action-change marker after an MCP tool call",
-                error,
-              );
-            }
+            await writeMcpActionChangeMarker(entry, name, args, rawResult);
           }
           return response;
         } catch (err: any) {
+          // A write whose result broke its output contract is still applied,
+          // so other sessions must refresh exactly as after a success.
+          if (
+            isActionOutputContractError(err) &&
+            err.effect === "committed" &&
+            actionCallEmitsChange(entry, args, false)
+          ) {
+            await writeMcpActionChangeMarker(entry, name, args, rawResult);
+          }
           const errorCode =
             isActionContractError(err) && err.errorCode !== "action_failed"
               ? ` (errorCode: ${err.errorCode})`

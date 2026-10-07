@@ -101,6 +101,14 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
             'Wird anstelle eines ungültigen Ergebnisses zurückgegeben, wenn outputErrorStrategy "fallback" ist.',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'Macht outputSchema für MCP-Clients sichtbar und prüft jedes Ergebnis dagegen. Erfordert outputErrorStrategy "strict".',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -246,6 +254,12 @@ export default defineAction({
 | `"fallback"` | Gibt den bereitgestellten `outputFallback`-Wert anstelle des ungültigen Ergebnisses zurück.                                    |
 
 Wenn `run()` erfolgreich ist, gibt das Framework den validierten Wert zurück, sodass alle Defaults oder Coercions auf `outputSchema` greifen, genau wie bei der Eingabe. Wenn Sie kein `outputSchema` übergeben, bleibt der Rückgabewert unverändert.
+
+Die strikte Prüfung läuft nach `run()`, daher meldet der Fehler (`ActionOutputContractError`, `errorCode: "output_contract_violation"`), was bereits geschehen ist: `effect` ist `"none"` bei einem rein lesenden Aufruf und `"committed"` bei einem Schreibvorgang, dessen Änderungen bereits übernommen wurden und den Aufrufer nicht wiederholen dürfen. Die Meldung nennt nur deklarierte Feldpfade und Fehlercodes, niemals die zurückgegebenen Werte.
+
+### Den Vertrag über MCP bekannt machen {#mcp-output-schema}
+
+MCP-Clients sehen standardmäßig kein `outputSchema`, weil ein Schema mit `"warn"` nicht durchgesetzt wird. Sobald Sie geprüft haben, dass jedes echte Ergebnis passt, setzen Sie `mcpOutputSchema: true` zusammen mit `outputErrorStrategy: "strict"`. Das Tool macht das Schema dann in der Form bekannt, die MCP-Clients erhalten — eine Array-Wurzel wird als `{ items }` verpackt, und Actions mit `link` erhalten `openLink` und `url` — und prüft jeden `structuredContent` dagegen, bevor er zurückgegeben wird. Die Wurzel muss ein Objekt, eine Union aus reinen Objekten oder ein Array sein; Schemas mit Transformationen können nicht teilnehmen.
 
 ## Ergebnisverträge {#result-contracts}
 

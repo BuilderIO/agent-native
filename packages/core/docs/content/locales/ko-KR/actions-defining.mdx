@@ -101,6 +101,14 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
             'outputErrorStrategy가 "fallback"일 때 유효하지 않은 결과 대신 반환되는 값입니다.',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'outputSchema를 MCP 클라이언트에 공개하고 각 결과를 이에 맞춰 검증합니다. outputErrorStrategy가 "strict"여야 합니다.',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -246,6 +254,12 @@ export default defineAction({
 | `"fallback"` | 유효하지 않은 결과 대신 제공된 `outputFallback` 값을 반환합니다.                                           |
 
 `run()`이 성공하면 프레임워크는 검증된 값을 반환하므로, `outputSchema`의 기본값이나 형 변환이 입력값과 마찬가지로 적용됩니다. `outputSchema`를 전달하지 않으면 반환값은 그대로 유지됩니다.
+
+strict 검사는 `run()` 이후에 실행되므로, 오류(`ActionOutputContractError`, `errorCode: "output_contract_violation"`)는 이미 일어난 일을 알려 줍니다. `effect`는 읽기 전용 호출이면 `"none"`, 변경 사항이 이미 적용된 쓰기면 `"committed"`이며, 호출자는 이를 재시도하면 안 됩니다. 메시지에는 선언된 필드 경로와 문제 코드만 나오고, 반환된 값은 절대 나오지 않습니다.
+
+### MCP로 계약 공개하기 {#mcp-output-schema}
+
+`"warn"` 스키마는 강제되지 않으므로 기본적으로 MCP 클라이언트에는 `outputSchema`가 보이지 않습니다. 실제 결과가 모두 일치하는지 확인했다면 `outputErrorStrategy: "strict"`와 함께 `mcpOutputSchema: true`를 설정하세요. 그러면 도구는 MCP 클라이언트가 받는 형태로 스키마를 공개하고(배열 루트는 `{ items }`로 감싸지고, `link`가 있는 액션에는 `openLink`와 `url`이 추가됩니다) 각 `structuredContent`를 반환하기 전에 이에 맞춰 검증합니다. 루트는 객체, 객체만으로 된 유니언, 또는 배열이어야 하며, 변환이 있는 스키마는 옵트인할 수 없습니다.
 
 ## 결과 계약 {#result-contracts}
 

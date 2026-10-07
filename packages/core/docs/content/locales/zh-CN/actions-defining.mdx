@@ -97,6 +97,14 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
             '当 outputErrorStrategy 为 "fallback" 时,用它代替无效结果返回。',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            '向 MCP 客户端公布 outputSchema，并用它校验每个结果。要求 outputErrorStrategy 为 "strict"。',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -241,6 +249,12 @@ export default defineAction({
 | `"fallback"` | 返回提供的 `outputFallback` 值,代替无效的结果。                               |
 
 当 `run()` 成功时,框架会返回校验后的值,所以 `outputSchema` 上的任何默认值或类型转换都会生效,和输入的处理方式一样。如果你没有传入 `outputSchema`,返回值不会有任何变化。
+
+strict 校验在 `run()` 之后运行，因此错误（`ActionOutputContractError`，`errorCode: "output_contract_violation"`）报告的是已经发生的事：只读调用的 `effect` 为 `"none"`，更改已生效的写入为 `"committed"`，调用方不得重试。消息只列出已声明的字段路径和问题代码，从不包含返回的值。
+
+### 通过 MCP 公布契约 {#mcp-output-schema}
+
+由于 `"warn"` 模式下的 schema 不会被强制执行，默认情况下 MCP 客户端看不到任何 `outputSchema`。确认每个真实结果都符合后，将 `mcpOutputSchema: true` 与 `outputErrorStrategy: "strict"` 一起设置。之后工具会以 MCP 客户端实际收到的形态公布 schema（数组根会包装为 `{ items }`，带 `link` 的 action 会增加 `openLink` 和 `url`），并在返回前用它校验每个 `structuredContent`。根必须是对象、仅由对象组成的联合或数组；带有转换的 schema 无法启用。
 
 ## 结果契约 {#result-contracts}
 
