@@ -533,17 +533,28 @@ test.describe("two tabs editing one page at beta cadence", () => {
             content: expect.stringContaining(aMarker),
           });
 
-        const journal = await a.evaluate((documentId) => {
-          for (let index = 0; index < localStorage.length; index++) {
-            const key = localStorage.key(index);
-            if (!key?.startsWith("content-page-draft-journal-v1:")) continue;
-            const raw = localStorage.getItem(key);
-            if (!raw) continue;
-            const entry = JSON.parse(raw);
-            if (entry?.scope?.documentId === documentId) return { key, entry };
-          }
-          return null;
-        }, s.id);
+        const retained = await getPreviewDraft(s.reader, s.id);
+        if (!retained?.editorSessionId) {
+          throw new Error("The retained recovery draft has no writer ID.");
+        }
+        const journal = await a.evaluate(
+          ({ documentId, writerId }) => {
+            for (let index = 0; index < localStorage.length; index++) {
+              const key = localStorage.key(index);
+              if (!key?.startsWith("content-page-draft-journal-v1:")) continue;
+              const raw = localStorage.getItem(key);
+              if (!raw) continue;
+              const entry = JSON.parse(raw);
+              if (
+                entry?.scope?.documentId === documentId &&
+                entry?.scope?.writerId === writerId
+              )
+                return { key, entry };
+            }
+            return null;
+          },
+          { documentId: s.id, writerId: retained.editorSessionId },
+        );
         expect(journal?.entry.snapshot).toMatchObject({
           title: peerTitle,
           baseTitle: peerTitle,
@@ -561,7 +572,6 @@ test.describe("two tabs editing one page at beta cadence", () => {
         });
         await a.unroute(collabUpdateMatcher);
 
-        const retained = await getPreviewDraft(s.reader, s.id);
         expect(
           retained && { title: retained.title, content: retained.content },
         ).toEqual({
