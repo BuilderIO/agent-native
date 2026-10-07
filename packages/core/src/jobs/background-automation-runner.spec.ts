@@ -112,6 +112,147 @@ const testEngine = {
   supportedModels: ["test-model"],
 } as any;
 
+describe("default selection reaches new chats and background runs", () => {
+  it("preserves app overrides on shared changes, honors app changes and resets only explicitly", async () => {
+    const { registerAgentEngine, resolveEngine, getStoredModelForEngine } =
+      await import("../agent/engine/index.js");
+    const { unregisterAgentEngine } =
+      await import("../agent/engine/registry.js");
+    const {
+      writeAgentAppModelDefaultSettings,
+      resetAgentAppModelDefaultSettings,
+    } = await import("../agent/app-model-defaults.js");
+    const { selectDefaultAgentEngine } =
+      await import("../scripts/agent-engines/set-agent-engine.js");
+    const { run: manageEngine } =
+      await import("../scripts/agent-engines/manage-agent-engine.js");
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const ctx = { userEmail: "default-model@example.test" };
+    const fakeEngine = {
+      ...testEngine,
+      name: "default-model-fixture",
+      defaultModel: "claude-sonnet-5-5",
+      supportedModels: ["claude-sonnet-5-5", "gpt-6-luna", "app-choice"],
+    };
+    registerAgentEngine({
+      ...fakeEngine,
+      label: "Fixture",
+      description: "",
+      capabilities: {},
+      requiredEnvVars: [],
+      create: () => fakeEngine,
+    });
+    try {
+      await writeAgentAppModelDefaultSettings(ctx, "calendar", {
+        engine: fakeEngine.name,
+        model: "gpt-6-luna",
+      });
+      await runWithRequestContext(ctx, async () => {
+        const engine = await resolveEngine({ appId: "calendar" });
+        expect(
+          await getStoredModelForEngine(engine, { appId: "calendar" }),
+        ).toBe("gpt-6-luna");
+        expect(
+          await selectDefaultAgentEngine(
+            {
+              engine: fakeEngine.name,
+              model: "claude-sonnet-5-5",
+              appId: "calendar",
+            },
+            { actionName: "manage-agent-engine", caller: "tool" },
+          ),
+        ).toMatchObject({
+          status: "selected",
+          scope: "user",
+          effective: { model: "gpt-6-luna", source: "app-default" },
+        });
+        const newChatEngine = await resolveEngine({ appId: "calendar" });
+        expect(
+          await getStoredModelForEngine(newChatEngine, { appId: "calendar" }),
+        ).toBe("gpt-6-luna");
+        const inheritingEngine = await resolveEngine({ appId: "mail" });
+        expect(
+          await getStoredModelForEngine(inheritingEngine, { appId: "mail" }),
+        ).toBe("claude-sonnet-5-5");
+        const changed = JSON.parse(
+          await manageEngine({
+            action: "set-app-default",
+            appId: "calendar",
+            engine: fakeEngine.name,
+            model: "app-choice",
+          }),
+        );
+        expect(changed).toMatchObject({
+          requestedScope: "app",
+          model: "app-choice",
+        });
+      });
+      for (const pinned of [false, true]) {
+        vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+        await runBackgroundAutomation(
+          {
+            automation: {
+              name: "model-precedence",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                ...(pinned ? { model: "gpt-6-luna" } : {}),
+              },
+              body: "Return a short status.",
+              resource: {
+                owner: ctx.userEmail,
+                path: "jobs/model-precedence.md",
+              } as any,
+            },
+            ownerEmail: ctx.userEmail,
+            prompt: "Return a short status.",
+            threadTitle: "Job: model precedence",
+            runIdPrefix: `job-model-${pinned}`,
+            usageLabel: "recurring-job:model-precedence",
+          },
+          {
+            appId: "calendar",
+            getActions: () => ({}),
+            getSystemPrompt: async () => "system",
+          },
+        );
+        expect(
+          vi.mocked(runAgentLoopDirectWithSoftTimeout).mock.calls.at(-1)?.[0],
+        ).toMatchObject({
+          engine: { name: fakeEngine.name },
+          model: pinned ? "gpt-6-luna" : "app-choice",
+        });
+      }
+      await runWithRequestContext(ctx, async () => {
+        const reset = JSON.parse(
+          await manageEngine({
+            action: "reset-app-default",
+            appId: "calendar",
+          }),
+        );
+        expect(reset).toMatchObject({
+          requestedScope: "app",
+          engine: null,
+          model: null,
+        });
+        const inheritedEngine = await resolveEngine({ appId: "calendar" });
+        expect(
+          await getStoredModelForEngine(inheritedEngine, { appId: "calendar" }),
+        ).toBe("claude-sonnet-5-5");
+      });
+    } finally {
+      unregisterAgentEngine(fakeEngine.name);
+      await resetAgentAppModelDefaultSettings(ctx, "calendar");
+      const { deleteUserSetting } =
+        await import("../settings/user-settings.js");
+      await deleteUserSetting(ctx.userEmail, "agent-engine");
+    }
+  });
+});
+
 describe("runBackgroundAutomation — background-run self-claim", () => {
   it("keeps the outer hard timeout at the ten-minute background budget", () => {
     expect(BACKGROUND_RUN_HARD_TIMEOUT_MS).toBe(10 * 60_000);
