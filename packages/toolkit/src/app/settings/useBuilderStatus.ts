@@ -1752,7 +1752,7 @@ export function useBuilderConnectFlow(
               cleanTrackingParam(flow) ??
               inferBuilderConnectTrackingFlow(source),
           });
-          setError(t("agentChat.settingsShell.builder.setupFailed"));
+          if (s) setError(t("agentChat.settingsShell.builder.setupFailed"));
         }
       } else if (Date.now() - started > POLL_TIMEOUT_MS) {
         connectStartedAtRef.current = null;

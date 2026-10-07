@@ -2532,6 +2532,48 @@ describe("useBuilderConnectFlow", () => {
     expect(openSpy).toHaveBeenCalled();
   });
 
+  it("preserves the retryable status-read error after the popup closes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    const notConfiguredStatus = {
+      ...connectedBuilderStatus,
+      configured: false,
+    };
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(notConfiguredStatus))
+      .mockResolvedValueOnce(jsonResponse(notConfiguredStatus))
+      .mockRejectedValue(new Error("status unavailable"));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    (popup as unknown as { closed: boolean }).closed = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain(
+      "Couldn't read the Builder.io connections.",
+    );
+    expect(
+      container.querySelector("[data-testid='error-kind']")?.textContent,
+    ).toBe("status-read");
+  });
+
   it("resets after the browser OAuth popup closes", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));

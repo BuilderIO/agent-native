@@ -3,4 +3,4 @@ type: fixed
 date: 2026-10-07
 ---
 
-Fixed popup recovery guidance for Builder connections
+Builder connection errors now show actionable retry and browser recovery guidance.
