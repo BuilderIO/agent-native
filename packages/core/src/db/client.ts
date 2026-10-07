@@ -325,6 +325,7 @@ const pgliteProcess = process as NodeJS.Process & {
   __agentNativePgliteClients?: PgliteClientRegistry;
   __agentNativePgliteProcessLocks?: PgliteProcessLockRegistry;
   __agentNativePgliteProcessExitCleanupRegistered?: boolean;
+  __agentNativePgliteClientShutdownRequested?: boolean;
   __agentNativeDbClientsClosingHooks?: DbClientsClosingHooks;
 };
 const _pgliteClients = (pgliteProcess.__agentNativePgliteClients ??= new Map<
@@ -338,6 +339,24 @@ const _dbClientsClosingHooks =
 
 export function onDbClientsClosing(hook: () => void): void {
   _dbClientsClosingHooks.add(hook);
+}
+
+export function beginPgliteClientShutdown(): void {
+  pgliteProcess.__agentNativePgliteClientShutdownRequested = true;
+}
+
+export function resumePgliteClientAccess(): void {
+  pgliteProcess.__agentNativePgliteClientShutdownRequested = false;
+}
+
+function assertPgliteClientAccessOpen(): void {
+  if (!pgliteProcess.__agentNativePgliteClientShutdownRequested) return;
+  const error = new Error(
+    "PGlite access is paused while the development server restarts.",
+  ) as Error & { statusCode: number; statusMessage: string };
+  error.statusCode = 503;
+  error.statusMessage = "Service Unavailable";
+  throw error;
 }
 
 function notifyDbClientsClosing(): void {
@@ -514,7 +533,9 @@ async function acquirePgliteProcessLock(
 }
 
 export async function getPgliteClient(url: string): Promise<any> {
+  assertPgliteClientAccessOpen();
   const dataDir = await preparePgliteDataDir(pgliteDataDirFromUrl(url));
+  assertPgliteClientAccessOpen();
   const clientKey = pgliteClientKey(dataDir);
   let ready = _pgliteClients.get(clientKey);
   if (!ready) {

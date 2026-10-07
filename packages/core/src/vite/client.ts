@@ -3739,11 +3739,27 @@ function localWorkspacePackageAliases(
 }
 
 function nitroDevEnvironmentClosePlugin(): Plugin {
+  let databaseShutdownPending = false;
   return {
     name: "agent-native-nitro-dev-environment-close",
     apply: "serve",
     configureServer(server) {
       const closeServer = server.close.bind(server);
+      const listenServer = server.listen.bind(server);
+      server.listen = async (...args) => {
+        if (databaseShutdownPending) {
+          const environment = server.environments.nitro as unknown as {
+            hot?: {
+              off?: (event: string, listener: (payload: any) => void) => void;
+              on?: (event: string, listener: (payload: any) => void) => void;
+              send?: (payload: any) => void;
+            };
+          };
+          await requestNitroDevDatabaseResume(environment);
+          databaseShutdownPending = false;
+        }
+        return listenServer(...args);
+      };
       let closePromise: Promise<void> | undefined;
       server.close = () => {
         closePromise ??= (async () => {
@@ -3761,7 +3777,17 @@ function nitroDevEnvironmentClosePlugin(): Plugin {
           const runner = environment?.devServer;
           if (runner && !runner.closed) {
             if (runner.ready) {
-              await requestNitroDevDatabaseClose(environment);
+              databaseShutdownPending = true;
+              try {
+                await requestNitroDevDatabaseClose(environment);
+              } catch (error) {
+                const detail =
+                  error instanceof Error ? error.message : String(error);
+                server.config.logger.warn(
+                  `Nitro dev database cleanup was not acknowledged before Vite shutdown: ${detail}`,
+                  { timestamp: true },
+                );
+              }
             }
           }
           await closeServer();
@@ -3782,10 +3808,45 @@ async function requestNitroDevDatabaseClose(environment: {
     send?: (payload: any) => void;
   };
 }): Promise<void> {
+  await requestNitroDevDatabaseLifecycleEvent(
+    environment,
+    "agent-native:dev-database-close",
+    "agent-native:dev-database-closed",
+    "cleanup",
+  );
+}
+
+async function requestNitroDevDatabaseResume(environment: {
+  hot?: {
+    off?: (event: string, listener: (payload: any) => void) => void;
+    on?: (event: string, listener: (payload: any) => void) => void;
+    send?: (payload: any) => void;
+  };
+}): Promise<void> {
+  await requestNitroDevDatabaseLifecycleEvent(
+    environment,
+    "agent-native:dev-database-resume",
+    "agent-native:dev-database-resumed",
+    "resume",
+  );
+}
+
+async function requestNitroDevDatabaseLifecycleEvent(
+  environment: {
+    hot?: {
+      off?: (event: string, listener: (payload: any) => void) => void;
+      on?: (event: string, listener: (payload: any) => void) => void;
+      send?: (payload: any) => void;
+    };
+  },
+  requestEvent: string,
+  acknowledgementEvent: string,
+  operation: "cleanup" | "resume",
+): Promise<void> {
   const hot = environment.hot;
   if (!hot?.on || !hot.off || !hot.send) {
     throw new Error(
-      "Nitro dev environment cannot acknowledge database cleanup before restart.",
+      `Nitro dev environment cannot acknowledge database ${operation} before restart.`,
     );
   }
 
@@ -3793,7 +3854,7 @@ async function requestNitroDevDatabaseClose(environment: {
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timeout);
-      hot.off?.("agent-native:dev-database-closed", onClosed);
+      hot.off?.(acknowledgementEvent, onClosed);
     };
     const onClosed = (payload: any) => {
       if (payload?.requestId !== requestId) return;
@@ -3801,7 +3862,7 @@ async function requestNitroDevDatabaseClose(environment: {
       if (typeof payload.error === "string") {
         reject(
           new Error(
-            `Nitro dev database cleanup failed before restart: ${payload.error}`,
+            `Nitro dev database ${operation} failed before restart: ${payload.error}`,
           ),
         );
       } else {
@@ -3812,15 +3873,15 @@ async function requestNitroDevDatabaseClose(environment: {
       cleanup();
       reject(
         new Error(
-          "Nitro dev environment did not acknowledge database cleanup before restart.",
+          `Nitro dev environment did not acknowledge database ${operation} before restart.`,
         ),
       );
     }, 5_000);
-    hot.on?.("agent-native:dev-database-closed", onClosed);
+    hot.on?.(acknowledgementEvent, onClosed);
     try {
       hot.send?.({
         type: "custom",
-        event: "agent-native:dev-database-close",
+        event: requestEvent,
         data: { requestId },
       });
     } catch (error) {
