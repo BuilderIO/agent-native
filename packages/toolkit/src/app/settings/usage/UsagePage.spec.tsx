@@ -330,6 +330,27 @@ describe("UsagePage", () => {
     expect(container.textContent).not.toContain("$1.50");
   });
 
+  it("keeps provider spend separate from Builder credits for mixed usage", () => {
+    state.metrics = metrics({
+      billing: { unit: "mixed" },
+      totals: {
+        costCents: 1_500,
+        builderCredits: 38,
+        otherCostCents: 1_500,
+        calls: 3,
+        inputTokens: 1_000,
+        outputTokens: 200,
+        activeUsers: 1,
+      },
+    });
+    render(member);
+
+    expect(container.textContent).toContain("Your Builder.io credit spend");
+    expect(container.textContent).toContain("38 credits");
+    expect(container.textContent).toContain("Other or unclassified USD spend");
+    expect(container.textContent).toContain("$15.00");
+  });
+
   it("does not assign a unit to historical usage without engine metadata", () => {
     state.metrics = metrics({
       billing: { unit: "unknown" },
