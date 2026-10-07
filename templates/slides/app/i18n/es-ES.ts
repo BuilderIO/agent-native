@@ -127,7 +127,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth no está configurado para este despliegue.",
     googlePickerNeedsKeys:
-      "Google Picker necesita GOOGLE_PICKER_API_KEY y GOOGLE_PICKER_APP_ID.",
+      "La exploración de archivos de Google Drive no está configurada. Aun así, puedes importar un documento pegando su enlace.",
     imageUploadFailed: "Error al subir la imagen",
     imageUploadNeedsBuilder:
       "Conecta un almacenamiento de objetos para subir imágenes: conecta Builder.io (gratis) o añade tus propias claves de almacenamiento compatibles con S3 en Configuración → Cargas de archivos.",

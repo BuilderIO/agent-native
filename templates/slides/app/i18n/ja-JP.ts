@@ -127,7 +127,7 @@ const messages = {
     googleOAuthNotConfigured:
       "このデプロイではGoogle OAuthが設定されていません。",
     googlePickerNeedsKeys:
-      "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
+      "Google Drive のファイル選択は設定されていません。ドキュメントのリンクを貼り付ければインポートできます。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
       "画像をアップロードするにはオブジェクトストレージを接続してください。Builder.io（無料）を接続するか、設定 → ファイルアップロードで独自の S3 互換ストレージキーを追加してください。",
