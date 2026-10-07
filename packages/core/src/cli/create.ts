@@ -18,7 +18,10 @@ import {
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
-import { addConfiguredMigrationDependencies } from "./upgrade.js";
+import {
+  addConfiguredMigrationDependencies,
+  readUpgradeEnvironment,
+} from "./upgrade.js";
 import {
   ensureNodePtyBuildDependency,
   parseWorkspaceScope,
@@ -722,7 +725,7 @@ async function createWorkspaceInteractive(
         ...resolution,
         shape: "workspace",
       });
-      addConfiguredFeatureDependencies(appDir, targetDir);
+      _addConfiguredFeatureDependencies(appDir, targetDir);
       ensureGuardedScaffold(appDir);
       fixWebManifestName(
         appDir,
@@ -1078,7 +1081,7 @@ async function scaffoldOneAppIntoWorkspace(
       ...resolution,
       shape: "workspace",
     });
-    addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
+    _addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
     ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
@@ -2094,9 +2097,6 @@ function ensureGuardedScaffold(appDir: string): void {
     !existingNativeDoctor.includes(AGENT_NATIVE_DOCTOR)
       ? `${existingNativeDoctor} && ${AGENT_NATIVE_DOCTOR}`
       : AGENT_NATIVE_DOCTOR;
-  if (typeof scripts.doctor !== "string") {
-    scripts.doctor = AGENT_NATIVE_DOCTOR;
-  }
 
   if (
     typeof scripts.build === "string" &&
@@ -2230,7 +2230,7 @@ function postProcessStandalone(
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-      addConfiguredFeatureDependencies(targetDir);
+      _addConfiguredFeatureDependencies(targetDir);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Could not finalize ${pkgPath}: ${detail}`, {
@@ -2293,17 +2293,21 @@ function postProcessStandalone(
   setupAgentSymlinks(targetDir);
 }
 
-function addConfiguredFeatureDependencies(
+export function _addConfiguredFeatureDependencies(
   appDir: string,
   workspaceRoot = appDir,
 ): void {
   const packageFile = path.join(appDir, "package.json");
   if (!fs.existsSync(packageFile)) return;
-  addConfiguredMigrationDependencies({
-    root: workspaceRoot,
-    kind: workspaceRoot === appDir ? "standalone" : "workspace",
-    packageFiles: [packageFile],
-  });
+  const projectEnvironment = readUpgradeEnvironment(workspaceRoot, appDir, {});
+  addConfiguredMigrationDependencies(
+    {
+      root: workspaceRoot,
+      kind: workspaceRoot === appDir ? "standalone" : "workspace",
+      packageFiles: [packageFile],
+    },
+    projectEnvironment,
+  );
 }
 
 function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {

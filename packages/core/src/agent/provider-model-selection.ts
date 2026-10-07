@@ -14,11 +14,18 @@ import {
   AGENT_PROVIDER_CATALOG,
   type AgentProviderId,
 } from "../client/agent-provider-catalog.js";
+import {
+  assertCredentialCanReachEndpoint,
+  CredentialEndpointMismatchError,
+} from "../credentials/index.js";
 import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../org/permissions.js";
+import { readAppSecret } from "../secrets/storage.js";
 import {
+  canUseDeployCredentialFallbackForRequest,
   resolveBuilderCredentialsDetailed,
   resolveSecretDetailed,
+  readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import {
   getRequestOrgId,
@@ -32,9 +39,14 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "../settings/index.js";
-import { OLLAMA_BASE_URL_ENV_VAR } from "./engine/openai-compatible-endpoint.js";
+import {
+  isCustomOpenAiBaseUrl,
+  OLLAMA_BASE_URL_ENV_VAR,
+  OPENAI_BASE_URL_ENV_VAR,
+} from "./engine/openai-compatible-endpoint.js";
 import { PROVIDER_ENV_META } from "./engine/provider-env-vars.js";
 import { BUILDER_MODEL_CONFIG } from "./model-config.js";
+import { upgradeModelToLatestSupportedVersion } from "./model-version.js";
 
 export const PROVIDER_MODEL_SELECTION_KEY_PREFIX = "agent-provider-models";
 
@@ -60,6 +72,7 @@ export interface ProviderModelSelectionRow {
   provider: ProviderModelSelectionProvider;
   scope: ProviderModelSelectionScope;
   models: string[] | null;
+  preserveCustomModels?: boolean;
   updatedAt?: number;
   updatedBy?: string;
 }
@@ -73,12 +86,14 @@ export type EffectiveProviderModelSelection =
       state: "default";
       provider: ProviderModelSelectionProvider;
       scope: ProviderModelSelectionScope;
+      preserveCustomModels?: boolean;
     }
   | {
       state: "selected";
       provider: ProviderModelSelectionProvider;
       scope: ProviderModelSelectionScope;
       models: string[];
+      preserveCustomModels?: boolean;
     }
   | {
       state: "unreadable";
@@ -153,6 +168,7 @@ function providerCredentialEnvVar(
 export function normalizeSelectedModels(
   provider: ProviderModelSelectionProvider,
   models: readonly unknown[],
+  options: { preserveCustomModels?: boolean } = {},
 ): string[] {
   if (models.length > MAX_SELECTED_MODELS) {
     throw new ProviderModelSelectionError(
@@ -172,7 +188,16 @@ export function normalizeSelectedModels(
     }
     seen.add(id);
   }
-  const normalized = [...seen];
+  const supportedModels = recommendedProviderModels(provider);
+  const normalized = [
+    ...new Set(
+      [...seen].map((id) =>
+        options.preserveCustomModels
+          ? id
+          : (upgradeModelToLatestSupportedVersion(id, supportedModels) ?? id),
+      ),
+    ),
+  ];
   if (provider === "builder") {
     const catalog = new Set<string>(BUILDER_MODEL_CONFIG.supportedModels);
     const unknown = normalized.filter((id) => !catalog.has(id));
@@ -186,28 +211,157 @@ export function normalizeSelectedModels(
   return normalized;
 }
 
+async function preserveCustomModelsForScope(
+  provider: ProviderModelSelectionProvider,
+  scope: ProviderModelSelectionScope,
+  ctx: ProviderModelSelectionContext,
+): Promise<boolean> {
+  if (provider !== "openai") return false;
+
+  const scopeId = scopeIdFor(ctx, scope);
+  const credentialRefs =
+    scope === "user"
+      ? [
+          { scope: "user" as const, scopeId },
+          { scope: "workspace" as const, scopeId: `solo:${scopeId}` },
+        ]
+      : [
+          { scope: "org" as const, scopeId },
+          { scope: "workspace" as const, scopeId },
+        ];
+  const [credentials, endpoints] = await Promise.all([
+    Promise.all(
+      credentialRefs.map((ref) =>
+        readAppSecret({ key: PROVIDER_ENV_META.openai.envVar, ...ref }),
+      ),
+    ),
+    Promise.all(
+      credentialRefs.map((ref) =>
+        readAppSecret({ key: OPENAI_BASE_URL_ENV_VAR, ...ref }),
+      ),
+    ),
+  ]);
+  for (const [endpointIndex, endpoint] of endpoints.entries()) {
+    if (!isCustomOpenAiBaseUrl(endpoint?.value)) continue;
+    for (const [credentialIndex, credential] of credentials.entries()) {
+      if (!credential?.value) continue;
+      try {
+        assertCredentialCanReachEndpoint(
+          credentialRefs[endpointIndex],
+          credentialRefs[credentialIndex],
+          PROVIDER_ENV_META.openai.envVar,
+        );
+        return true;
+      } catch (error) {
+        if (!(error instanceof CredentialEndpointMismatchError)) throw error;
+      }
+    }
+  }
+  if (
+    endpoints.some((secret) => secret?.value) ||
+    credentials.some((secret) => secret?.value)
+  ) {
+    return false;
+  }
+
+  if (scope === "user") {
+    if (
+      !canUseDeployCredentialFallbackForRequest(
+        PROVIDER_ENV_META.openai.envVar,
+      ) ||
+      !canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR)
+    ) {
+      return false;
+    }
+    return Boolean(
+      readDeployCredentialEnv(PROVIDER_ENV_META.openai.envVar) &&
+      isCustomOpenAiBaseUrl(readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)),
+    );
+  }
+
+  const [credential, resolvedEndpoint] = await Promise.all([
+    resolveSecretDetailed(PROVIDER_ENV_META.openai.envVar, {
+      skipUserScope: true,
+    }),
+    resolveSecretDetailed(OPENAI_BASE_URL_ENV_VAR, { skipUserScope: true }),
+  ]);
+  if (credential.lookupFailed || resolvedEndpoint.lookupFailed) {
+    throw new Error("Could not read the OpenAI credential configuration.");
+  }
+  if (
+    !credential.value ||
+    !resolvedEndpoint.value ||
+    !isCustomOpenAiBaseUrl(resolvedEndpoint.value) ||
+    !credential.source ||
+    !resolvedEndpoint.source
+  ) {
+    return false;
+  }
+  if (credential.source === "env" || resolvedEndpoint.source === "env") {
+    return credential.source === "env" && resolvedEndpoint.source === "env";
+  }
+  if (
+    credential.source === "workspace" &&
+    credential.scopeId?.startsWith("solo:")
+  ) {
+    return false;
+  }
+  try {
+    assertCredentialCanReachEndpoint(
+      {
+        scope: resolvedEndpoint.source,
+        scopeId: resolvedEndpoint.scopeId,
+      },
+      { scope: credential.source, scopeId: credential.scopeId },
+      PROVIDER_ENV_META.openai.envVar,
+    );
+    return true;
+  } catch (error) {
+    if (error instanceof CredentialEndpointMismatchError) return false;
+    throw error;
+  }
+}
+
 function parseRow(
   provider: ProviderModelSelectionProvider,
   scope: ProviderModelSelectionScope,
   stored: Record<string, unknown> | null,
+  preserveCustomModels = false,
 ): ProviderModelSelectionRow {
+  const customModelMetadata =
+    provider === "openai" && preserveCustomModels
+      ? { preserveCustomModels: true }
+      : {};
   if (!stored || !Array.isArray(stored.models)) {
-    return { provider, scope, models: null };
+    return { provider, scope, models: null, ...customModelMetadata };
   }
   const models = stored.models.filter(
     (model): model is string => typeof model === "string" && !!model.trim(),
   );
+  const currentModels = [
+    ...new Set(
+      models.map((model) =>
+        preserveCustomModels
+          ? model
+          : (upgradeModelToLatestSupportedVersion(
+              model,
+              recommendedProviderModels(provider),
+            ) ?? model),
+      ),
+    ),
+  ];
   return {
     provider,
     scope,
+    ...customModelMetadata,
     models:
       provider === "builder"
-        ? models.filter((model) =>
+        ? currentModels.filter((model) =>
             (
               BUILDER_MODEL_CONFIG.supportedModels as readonly string[]
             ).includes(model),
           )
-        : models,
+        : currentModels,
     ...(typeof stored.updatedAt === "number" &&
     Number.isFinite(stored.updatedAt)
       ? { updatedAt: stored.updatedAt }
@@ -249,7 +403,12 @@ export async function readProviderModelSelection(
     scope === "org"
       ? await getOrgSetting(scopeId, key)
       : await getUserSetting(scopeId, key);
-  return parseRow(provider, scope, stored);
+  const preserveCustomModels = await preserveCustomModelsForScope(
+    provider,
+    scope,
+    ctx,
+  );
+  return parseRow(provider, scope, stored, preserveCustomModels);
 }
 
 /**
@@ -280,7 +439,14 @@ export async function writeProviderModelSelection(
   models: readonly unknown[],
 ): Promise<ProviderModelSelectionRow> {
   await assertMayWriteProviderModelSelection(ctx, scope);
-  const normalized = normalizeSelectedModels(provider, models);
+  const preserveCustomModels = await preserveCustomModelsForScope(
+    provider,
+    scope,
+    ctx,
+  );
+  const normalized = normalizeSelectedModels(provider, models, {
+    preserveCustomModels,
+  });
   const scopeId = scopeIdFor(ctx, scope);
   const key = providerModelSelectionSettingsKey(provider);
   const value: Record<string, unknown> = {
@@ -338,7 +504,11 @@ export async function resolveProviderModelSelectionScope(
   if (detail.lookupFailed && !detail.value) {
     throw new Error("Could not read the credential store.");
   }
-  return detail.source === "user" ? "user" : "org";
+  return detail.source === "user" ||
+    (detail.source === "workspace" &&
+      detail.scopeId === `solo:${ctx.userEmail}`)
+    ? "user"
+    : "org";
 }
 
 /** The selection the current request's picker shows for `provider`. */
@@ -388,13 +558,22 @@ export async function resolveProviderModelSelectionAtScope(
 function selectionFromRow(
   row: ProviderModelSelectionRow,
 ): EffectiveProviderModelSelection {
+  const customModelMetadata = row.preserveCustomModels
+    ? { preserveCustomModels: true }
+    : {};
   return row.models === null
-    ? { state: "default", provider: row.provider, scope: row.scope }
+    ? {
+        state: "default",
+        provider: row.provider,
+        scope: row.scope,
+        ...customModelMetadata,
+      }
     : {
         state: "selected",
         provider: row.provider,
         scope: row.scope,
         models: row.models,
+        ...customModelMetadata,
       };
 }
 
@@ -430,7 +609,13 @@ export async function resolveUncheckedDefaultModelReplacement(engine: {
     return undefined;
   }
   if (selection.state !== "selected") return undefined;
-  if (selection.models.includes(engine.defaultModel)) return undefined;
+  const currentDefault = selection.preserveCustomModels
+    ? engine.defaultModel
+    : (upgradeModelToLatestSupportedVersion(
+        engine.defaultModel,
+        recommendedProviderModels(provider),
+      ) ?? engine.defaultModel);
+  if (selection.models.includes(currentDefault)) return undefined;
   return selection.models[0];
 }
 

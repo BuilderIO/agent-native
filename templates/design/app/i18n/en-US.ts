@@ -2009,6 +2009,13 @@ export default {
       "Code and repository indexing requires the Builder Enterprise plan",
   },
   designSystems: {
+    comingSoonTitle: "Design systems are coming soon",
+    waitlist: {
+      join: "Join the waitlist",
+      joining: "Joining...",
+      joined: "You're on the waitlist",
+      error: "Couldn't join the waitlist. Please try again.",
+    },
     deleteError: "Could not delete design system",
     updateSuccess: "Design system updated",
     updateError: "Could not update design system",

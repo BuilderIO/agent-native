@@ -57,8 +57,8 @@ const SCHEMA_BUDGET_EXCEPTIONS: Record<string, string> = {};
 const RUNTIME_REGISTERED_TOOLS = ["run-code", "connect-builder"];
 /** Actions of another app, reached through `call-agent`; they are not local tools. */
 const REMOTE_ACTIONS = ["list-dispatch-usage-metrics"];
-/** Kebab-case names in the instructions that are not tools. */
-const NOT_TOOLS = ["selected-object"];
+/** Kebab-case names in the instructions that are not tools (state keys, `navigate` views). */
+const NOT_TOOLS = ["selected-object", "event-catalog"];
 
 /** Tools the initial surface used to carry. Each must stay one `tool-search` away. */
 const LAZY_TOOLS = [

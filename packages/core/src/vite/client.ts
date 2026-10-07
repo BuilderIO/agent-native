@@ -76,6 +76,7 @@ import {
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
 import {
+  AGENT_NATIVE_TYPEGEN_ENV,
   formatRuntimeConfigReport,
   getRuntimeConfigReport,
   isTruthyRuntimeValue,
@@ -4089,6 +4090,8 @@ function reportRuntimeConfigDiagnostics(
   mode: string,
   env: Record<string, string | undefined> = process.env,
 ): void {
+  if (process.env[AGENT_NATIVE_TYPEGEN_ENV] === "1") return;
+
   const production =
     mode === "production" || process.env.NODE_ENV === "production";
   if (!production) return;
@@ -4341,6 +4344,20 @@ function createAgentNativeConfig(
       ),
       __AGENT_NATIVE_TEMPLATE__: JSON.stringify(
         resolveAgentNativeTemplate(cwd),
+      ),
+      __AGENT_NATIVE_APP_ID__: JSON.stringify(
+        runtimeEnv.AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+          runtimeEnv.VITE_AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+          runtimeEnv.AGENT_NATIVE_APP_ID?.trim() ||
+          runtimeEnv.APP_ID?.trim() ||
+          runtimeEnv.AGENT_APP?.trim() ||
+          runtimeEnv.npm_package_name?.trim() ||
+          "",
+      ),
+      __AGENT_NATIVE_WORKSPACE_APP_ID__: JSON.stringify(
+        runtimeEnv.AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+          runtimeEnv.VITE_AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+          "",
       ),
     },
     server: {

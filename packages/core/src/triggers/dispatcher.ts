@@ -650,7 +650,25 @@ async function drainReadyTriggerQueue(
   }
 }
 
-export async function refreshEventSubscriptions(): Promise<boolean> {
+/**
+ * Refreshes are serialized: a snapshot taken before a concurrent define or
+ * delete must not run after it and unsubscribe the newer automation. The event
+ * bus is process-local, so a per-process queue is the whole scope.
+ */
+let _subscriptionRefreshQueue: Promise<unknown> = Promise.resolve();
+
+export function refreshEventSubscriptions(): Promise<boolean> {
+  const refresh = _subscriptionRefreshQueue.then(() =>
+    refreshEventSubscriptionsOnce(),
+  );
+  _subscriptionRefreshQueue = refresh.then(
+    () => undefined,
+    () => undefined,
+  );
+  return refresh;
+}
+
+async function refreshEventSubscriptionsOnce(): Promise<boolean> {
   try {
     const jobResources = await resourceListAllOwners("jobs/");
     const eventNames = new Set<string>();

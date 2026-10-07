@@ -148,7 +148,7 @@ describe("agent model config catalog", () => {
       "gpt-5-5",
       "gpt-5-4-mini",
       "gpt-5-1-codex-mini",
-      "gpt-6-sol",
+      "gpt-6.1-sol",
       "gpt-5-6-terra",
       "gpt-6-luna",
       "gemini-3-1-pro",
@@ -191,16 +191,14 @@ describe("agent model config catalog", () => {
       "gpt-5-5",
       "gpt-5-4-mini",
       "gpt-5-1-codex-mini",
-      "gpt-6-sol",
+      "gpt-6.1-sol",
       "gpt-5-6-terra",
       "gpt-6-luna",
     ]);
     expect(AI_SDK_MODEL_CONFIG.openai.supportedModels).toEqual([
       "gpt-6-luna",
-      "gpt-5.6-luna",
       "gpt-5.6-terra",
-      "gpt-5.6-sol",
-      "gpt-6-sol",
+      "gpt-6.1-sol",
     ]);
     expect(
       (
@@ -208,10 +206,8 @@ describe("agent model config catalog", () => {
       ).filter((model) => model.startsWith("openai/gpt-")),
     ).toEqual([
       "openai/gpt-6-luna",
-      "openai/gpt-5.6-luna",
       "openai/gpt-5.6-terra",
-      "openai/gpt-5.6-sol",
-      "openai/gpt-6-sol",
+      "openai/gpt-6.1-sol",
       "openai/gpt-6-astra",
       "openai/gpt-6-astra-pro",
     ]);
@@ -303,11 +299,13 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("openai/gpt-5.6-luna")).toBe(1_050_000);
   });
 
-  it("returns the documented 1.05M context window for GPT-6 Sol and Luna", () => {
+  it("returns the documented 1.05M context window for current GPT-6 models", () => {
     for (const model of [
       "gpt-6-sol",
+      "gpt-6.1-sol",
       "gpt-6-luna",
       "openai/gpt-6-sol",
+      "openai/gpt-6.1-sol",
       "openai/gpt-6-luna",
     ]) {
       expect(getContextWindowForModel(model)).toBe(1_050_000);
@@ -381,11 +379,13 @@ describe("getMaxOutputTokensForModel", () => {
     expect(getMaxOutputTokensForModel("openai/gpt-5.6-luna")).toBe(128_000);
   });
 
-  it("returns 128K for GPT-6 Sol and Luna in direct and OpenRouter forms", () => {
+  it("returns 128K for current GPT-6 models in direct and OpenRouter forms", () => {
     for (const model of [
       "gpt-6-sol",
+      "gpt-6.1-sol",
       "gpt-6-luna",
       "openai/gpt-6-sol",
+      "openai/gpt-6.1-sol",
       "openai/gpt-6-luna",
     ]) {
       expect(getMaxOutputTokensForModel(model)).toBe(128_000);
