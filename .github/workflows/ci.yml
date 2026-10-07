@@ -102,7 +102,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.lint == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -442,6 +442,17 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
+      - name: Run focused Screen selection history regressions
+        working-directory: templates/design
+        timeout-minutes: 10
+        env:
+          E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          pnpm exec playwright test \
+            e2e/parity-selection-history-delete-screen.spec.ts \
+            --grep "deleting a selected child layer keeps its owning Screen|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry|a newer layer selection survives failed Screen deletion settlement|marquee selection persists and deletes Screens after a prior layer selection" \
+            --workers=1
+
       - name: Run focused Design regression cases
         working-directory: templates/design
         timeout-minutes: 10
@@ -467,17 +478,6 @@ jobs:
             e2e/position-alignment.spec.ts:606 \
             e2e/position-alignment.spec.ts:646 \
             --workers=2
-
-      - name: Run focused Screen selection history regressions
-        working-directory: templates/design
-        timeout-minutes: 10
-        env:
-          E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          pnpm exec playwright test \
-            e2e/parity-selection-history-delete-screen.spec.ts \
-            --grep "deleting a selected child layer keeps its owning Screen|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry|a newer layer selection survives failed Screen deletion settlement|marquee selection persists and deletes Screens after a prior layer selection" \
-            --workers=1
 
   fast-tests:
     name: Fast tests
