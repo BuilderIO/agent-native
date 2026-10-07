@@ -557,7 +557,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
-  assert.ok(regressionCases.includes("timeout-minutes: 15"));
+  assert.ok(regressionCases.includes("timeout-minutes: 10"));
   assert.ok(regressionCases.includes("--workers=2"));
   const selectedTests = [
     [
