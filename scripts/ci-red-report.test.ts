@@ -510,17 +510,27 @@ describe("ci-red-report", () => {
     );
   });
 
-  it("ignores failed workflow runs whose jobs were all cancelled or skipped", () => {
-    const failed = run(46);
+  it("ignores failed workflows cancelled before actionable jobs ran", () => {
+    const cancelled = run(46);
+    const skippedOnly = run(47);
     const jobs = new Map([
       [
-        failed.id,
+        cancelled.id,
         [
-          job(failed.id, 461, {
+          job(cancelled.id, 461, {
             conclusion: "cancelled",
             steps: [step("Run Design E2E", "cancelled")],
           }),
-          job(failed.id, 462, {
+          job(cancelled.id, 462, {
+            conclusion: "skipped",
+            steps: [step("Run Design E2E", "skipped")],
+          }),
+        ],
+      ],
+      [
+        skippedOnly.id,
+        [
+          job(skippedOnly.id, 471, {
             conclusion: "skipped",
             steps: [step("Run Design E2E", "skipped")],
           }),
@@ -528,7 +538,11 @@ describe("ci-red-report", () => {
       ],
     ]);
 
-    assert.deepEqual(buildCiRedRows([failed], jobs, since, now), []);
+    const rows = buildCiRedRows([cancelled, skippedOnly], jobs, since, now);
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].runId, skippedOnly.id);
+    assert.equal(rows[0].fingerprintGrain, "workflow");
   });
 
   it("warns and keeps job-step fingerprints when case annotations lack a final summary", async () => {
