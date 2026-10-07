@@ -27,11 +27,11 @@ import {
   decodeFig,
   decodeKiwiContainer,
 } from "./fig-file-decoder.js";
-import { BROWSER_FIG_LIMITS, SERVER_FIG_LIMITS } from "./fig-file-limits.js";
 import {
   convertDecodedFigToEditableHtml,
   importFigFileToEditableHtml,
 } from "./fig-file-import.js";
+import { BROWSER_FIG_LIMITS, SERVER_FIG_LIMITS } from "./fig-file-limits.js";
 import {
   collectTopLevelFrames,
   renderHtmlTemplates,
@@ -232,9 +232,9 @@ describe("bounded .fig decoding", () => {
     const limits = { ...SERVER_FIG_LIMITS, fileBytes: fig.byteLength - 1 };
 
     expect(() => decodeFig(fig, { limits })).toThrow(/too large/);
-    expect(
-      decodeFig(fig, { limits: BROWSER_FIG_LIMITS }).document,
-    ).toEqual({ hello: "world" });
+    expect(decodeFig(fig, { limits: BROWSER_FIG_LIMITS }).document).toEqual({
+      hello: "world",
+    });
   });
 
   it("keeps stored zip entries as views outside the inflate budget", () => {

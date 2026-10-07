@@ -95,10 +95,7 @@ function detectImageExt(buf: Uint8Array): string {
   return "bin";
 }
 
-function checkDecompressedSize(
-  buf: Uint8Array,
-  maxBytes: number,
-): Uint8Array {
+function checkDecompressedSize(buf: Uint8Array, maxBytes: number): Uint8Array {
   if (buf.length > maxBytes) throw chunkTooLarge(maxBytes);
   return buf;
 }
@@ -227,10 +224,7 @@ export function decodeKiwiContainer(
     }
     const compressed = file.subarray(offset, offset + length);
     offset += length;
-    const decompressed = decompressChunk(
-      compressed,
-      limits.inflatedChunkBytes,
-    );
+    const decompressed = decompressChunk(compressed, limits.inflatedChunkBytes);
     decompressedBytes += decompressed.length;
     if (decompressedBytes > limits.inflatedBytes) {
       throw new Error(
@@ -459,7 +453,10 @@ export function assertSafeDecodedFigDocument(
     if (stringValue !== undefined) {
       const bytes = utf8ByteLength(stringValue);
       stringBytes += bytes;
-      if (bytes > MAX_DECODED_STRING_BYTES || stringBytes > limits.stringBytes) {
+      if (
+        bytes > MAX_DECODED_STRING_BYTES ||
+        stringBytes > limits.stringBytes
+      ) {
         throw new Error("Decoded .fig document contains too much string data.");
       }
       continue;
@@ -929,11 +926,7 @@ export function decodeFig(
   assertFileWithinLimit(file, limits);
   if (isZip(file)) {
     const { entries, inner } = readZipCanvas(file, limits);
-    const kiwiResult = decodeKiwiDocument(
-      inner.schema,
-      inner.document,
-      limits,
-    );
+    const kiwiResult = decodeKiwiDocument(inner.schema, inner.document, limits);
     const thumbnailEntry = entries.find((e) => e.name === "thumbnail.png");
     return {
       format: "zip",
