@@ -1390,24 +1390,20 @@ export async function updateThreadData(
       let nextThreadData = incomingThreadData;
       let nextMessageCount = messageCount;
       const annotationConflicts: ThreadAnnotationSnapshotConflict[] = [];
-      try {
-        const merged = mergeThreadDataForClientSave(
-          parseThreadData(current.threadData),
-          parseThreadData(incomingThreadData),
-          {
-            preserveExistingQueuedMessages:
-              options.preserveExistingQueuedMessages ?? true,
-            preserveExistingTopLevelKeys:
-              options.preserveExistingTopLevelKeys ?? true,
-            onAnnotationConflict: (conflict) =>
-              annotationConflicts.push(conflict),
-          },
-        );
-        nextThreadData = JSON.stringify(merged);
-        nextMessageCount = countThreadMessages(merged, messageCount);
-      } catch {
-        // Keep the caller's serialized value if either JSON blob is malformed.
-      }
+      const merged = mergeThreadDataForClientSave(
+        parseThreadData(current.threadData),
+        parseThreadData(incomingThreadData),
+        {
+          preserveExistingQueuedMessages:
+            options.preserveExistingQueuedMessages ?? true,
+          preserveExistingTopLevelKeys:
+            options.preserveExistingTopLevelKeys ?? true,
+          onAnnotationConflict: (conflict) =>
+            annotationConflicts.push(conflict),
+        },
+      );
+      nextThreadData = JSON.stringify(merged);
+      nextMessageCount = countThreadMessages(merged, messageCount);
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
       // Completion persistence can race the separate generated-title save.

@@ -1988,6 +1988,568 @@ describe("mergeThreadDataForClientSave", () => {
     );
   });
 
+  it("keeps a run's prior events until all staged snapshot chunks arrive", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "old-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "old-run-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.updated",
+          },
+        ],
+      },
+    };
+    const batch = {
+      runId: "run-1",
+      snapshotId: "snapshot-1",
+      lastSequence: 3,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const firstChunk = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batch],
+        events: [
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+
+    expect(firstChunk.agentKit.events.map((event: any) => event.id)).toEqual([
+      "old-run-start",
+      "old-run-event",
+    ]);
+    expect(firstChunk.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+    expect(
+      firstChunk.agentKit._pendingEventRunSnapshots["run-1"]["snapshot-1"]
+        .events,
+    ).toHaveLength(1);
+
+    const retriedFirstChunk = mergeThreadDataForClientSave(firstChunk, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batch],
+        events: [
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    expect(
+      retriedFirstChunk.agentKit._pendingEventRunSnapshots["run-1"][
+        "snapshot-1"
+      ].events,
+    ).toHaveLength(1);
+    expect(() =>
+      mergeThreadDataForClientSave(retriedFirstChunk, {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotBatches: [{ ...batch, complete: true }],
+          events: [
+            {
+              id: "new-run-start",
+              runId: "run-1",
+              sequence: 1,
+              type: "run.started",
+            },
+          ],
+        },
+      }),
+    ).toThrow("Agent chat event snapshot ended before all events arrived.");
+
+    const completed = mergeThreadDataForClientSave(retriedFirstChunk, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batch, complete: true }],
+        events: [
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(completed.agentKit.events.map((event: any) => event.id)).toEqual([
+      "new-run-start",
+      "new-run-completed",
+    ]);
+    expect(completed.agentKit._eventRunWatermarks).toEqual({ "run-1": 3 });
+    expect(completed.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+    expect(completed.agentKit).not.toHaveProperty("eventRunSnapshotBatches");
+
+    const retriedFinalChunk = mergeThreadDataForClientSave(completed, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batch, complete: true }],
+        events: [
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+    expect(retriedFinalChunk.agentKit.events).toEqual(
+      completed.agentKit.events,
+    );
+    expect(retriedFinalChunk.agentKit._eventRunSnapshotCommits).toEqual(
+      completed.agentKit._eventRunSnapshotCommits,
+    );
+  });
+
+  it("repairs a legacy event snapshot at the same sequence", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "partial-old-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+    const batch = {
+      runId: "run-1",
+      snapshotId: "repair-snapshot",
+      lastSequence: 2,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const partial = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batch],
+        events: [
+          {
+            id: "repaired-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const completed = mergeThreadDataForClientSave(partial, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batch, complete: true }],
+        events: [
+          {
+            id: "repaired-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(completed.agentKit.events.map((event: any) => event.id)).toEqual([
+      "repaired-event-1",
+      "repaired-event-2",
+    ]);
+    expect(completed.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+  });
+
+  it("drops incomplete older event batches after a newer snapshot commits", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 2,
+          },
+        ],
+        events: [
+          {
+            id: "old-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+    const staleBatch = {
+      runId: "run-1",
+      snapshotId: "stale-snapshot",
+      lastSequence: 3,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const staged = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [staleBatch],
+        events: [
+          {
+            id: "stale-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const newer = mergeThreadDataForClientSave(staged, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 4 }],
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 4 }],
+        events: [
+          {
+            id: "newer-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "newer-event-4",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "completed",
+            lastSequence: 4,
+          },
+        ],
+      },
+    });
+    expect(newer.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+    const retriedOldBatch = mergeThreadDataForClientSave(newer, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...staleBatch, complete: true }],
+        events: [
+          {
+            id: "stale-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    });
+
+    expect(
+      retriedOldBatch.agentKit.events.map((event: any) => event.id),
+    ).toEqual(["newer-event-1", "newer-event-4"]);
+    expect(retriedOldBatch.agentKit._eventRunWatermarks).toEqual({
+      "run-1": 4,
+    });
+    expect(retriedOldBatch.agentKit).not.toHaveProperty(
+      "_pendingEventRunSnapshots",
+    );
+  });
+
+  it("replaces an abandoned partial event batch without mixing its events", () => {
+    const partial = mergeThreadDataForClientSave(
+      { messages: [], agentKit: { events: [] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotBatches: [
+            {
+              runId: "run-1",
+              snapshotId: "abandoned",
+              lastSequence: 2,
+              expectedEventCount: 2,
+              complete: false,
+            },
+          ],
+          events: [
+            {
+              id: "abandoned-event",
+              runId: "run-1",
+              sequence: 1,
+              type: "run.started",
+            },
+          ],
+        },
+      },
+    );
+    const retried = mergeThreadDataForClientSave(partial, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [
+          {
+            runId: "run-1",
+            snapshotId: "complete-retry",
+            lastSequence: 2,
+            expectedEventCount: 2,
+            complete: true,
+          },
+        ],
+        events: [
+          {
+            id: "retry-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "retry-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(retried.agentKit.events.map((event: any) => event.id)).toEqual([
+      "retry-event-1",
+      "retry-event-2",
+    ]);
+    expect(retried.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+    expect(retried.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+  });
+
+  it("does not let equal-sequence event batches replace one another", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "old-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+    const batchA = {
+      runId: "run-1",
+      snapshotId: "snapshot-a",
+      lastSequence: 3,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const batchB = {
+      ...batchA,
+      snapshotId: "snapshot-b",
+    };
+    const partialA = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batchA],
+        events: [
+          {
+            id: "snapshot-a-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const partialB = mergeThreadDataForClientSave(partialA, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batchB],
+        events: [
+          {
+            id: "snapshot-b-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const completeB = mergeThreadDataForClientSave(partialB, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batchB, complete: true }],
+        events: [
+          {
+            id: "snapshot-b-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+    const lateLegacyReplacement = mergeThreadDataForClientSave(completeB, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 3 }],
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "legacy-equal-sequence-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    expect(
+      lateLegacyReplacement.agentKit.events.map((event: any) => event.id),
+    ).toEqual(["snapshot-b-start", "snapshot-b-completed"]);
+
+    const lateCompleteA = mergeThreadDataForClientSave(lateLegacyReplacement, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batchA, complete: true }],
+        events: [
+          {
+            id: "snapshot-a-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(lateCompleteA.agentKit.events.map((event: any) => event.id)).toEqual(
+      ["snapshot-b-start", "snapshot-b-completed"],
+    );
+    expect(lateCompleteA.agentKit._eventRunWatermarks).toEqual({
+      "run-1": 3,
+    });
+    expect(lateCompleteA.agentKit).not.toHaveProperty(
+      "_pendingEventRunSnapshots",
+    );
+  });
+
+  it("protects a committed event snapshot from a stale full thread save", () => {
+    const runId = "run-committed-full-save";
+    const committed = mergeThreadDataForClientSave(
+      {
+        messages: [],
+        agentKit: {
+          _eventRunWatermarks: { [runId]: 1 },
+          events: [
+            {
+              id: "previous-event",
+              runId,
+              sequence: 1,
+              type: "run.started",
+            },
+          ],
+        },
+      },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotBatches: [
+            {
+              runId,
+              snapshotId: "committed-snapshot",
+              lastSequence: 3,
+              expectedEventCount: 2,
+              complete: true,
+            },
+          ],
+          events: [
+            {
+              id: "committed-event-1",
+              runId,
+              sequence: 1,
+              type: "run.started",
+            },
+            {
+              id: "committed-event-3",
+              runId,
+              sequence: 2,
+              type: "run.completed",
+            },
+          ],
+        },
+      },
+    );
+    const staleFullSave = mergeThreadDataForClientSave(committed, {
+      messages: [],
+      agentKit: {
+        runs: [
+          {
+            id: runId,
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 2,
+          },
+        ],
+        events: [
+          {
+            id: "stale-full-save-event",
+            runId,
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+
+    expect(staleFullSave.agentKit.events.map((event: any) => event.id)).toEqual(
+      ["committed-event-1", "committed-event-3"],
+    );
+    expect(staleFullSave.agentKit._eventRunSnapshotCommits[runId]).toEqual(
+      committed.agentKit._eventRunSnapshotCommits[runId],
+    );
+  });
+
   it("keeps newer same-run events when a stale snapshot retries after a write", () => {
     const latest = {
       messages: [],

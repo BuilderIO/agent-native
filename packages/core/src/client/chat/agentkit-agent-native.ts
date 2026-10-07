@@ -2461,20 +2461,45 @@ export function createAgentNativeAgentKitTransport(
         );
       }
     }
-    const firstChangedEventByRun = new Set<string>();
-    const changedEventUpdates = changedEvents.map((event) => {
-      const isFirstForRun = !firstChangedEventByRun.has(event.runId);
-      firstChangedEventByRun.add(event.runId);
-      const lastSequence = eventRunLastSequenceById.get(event.runId);
+    const changedEventsByRun = new Map<string, AgentEvent[]>();
+    for (const event of changedEvents) {
+      const runEvents = changedEventsByRun.get(event.runId);
+      if (runEvents) runEvents.push(event);
+      else changedEventsByRun.set(event.runId, [event]);
+    }
+    const eventRunSnapshotBatches = new Map<
+      string,
+      {
+        runId: string;
+        snapshotId: string;
+        lastSequence: number;
+        expectedEventCount: number;
+      }
+    >();
+    for (const [runId, events] of changedEventsByRun) {
+      const lastSequence = eventRunLastSequenceById.get(runId) ?? events.length;
+      const snapshotId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      eventRunSnapshotBatches.set(runId, {
+        runId,
+        snapshotId,
+        lastSequence,
+        expectedEventCount: new Set(events.map((event) => event.id)).size,
+      });
+    }
+    const lastChangedEventIndexByRun = new Map<string, number>();
+    changedEvents.forEach((event, index) => {
+      lastChangedEventIndexByRun.set(event.runId, index);
+    });
+    const changedEventUpdates = changedEvents.map((event, index) => {
       return {
         key: "events",
         entry: event,
-        ...(lastSequence !== undefined
-          ? { snapshotThroughSequence: lastSequence }
-          : {}),
-        ...(isFirstForRun && lastSequence !== undefined
-          ? { replaceRunThroughSequence: lastSequence }
-          : {}),
+        eventRunSnapshotBatch: eventRunSnapshotBatches.get(event.runId),
+        completesEventRunSnapshot:
+          lastChangedEventIndexByRun.get(event.runId) === index,
       };
     });
     const persistedRuns = [...runsById.values()].map((run) => {
@@ -2644,8 +2669,13 @@ export function createAgentNativeAgentKitTransport(
     type SnapshotUpdate = {
       key: string;
       entry: unknown;
-      replaceRunThroughSequence?: number;
-      snapshotThroughSequence?: number;
+      eventRunSnapshotBatch?: {
+        runId: string;
+        snapshotId: string;
+        lastSequence: number;
+        expectedEventCount: number;
+      };
+      completesEventRunSnapshot?: boolean;
       includeSuggestions?: boolean;
     };
     const updates: SnapshotUpdate[] = [
@@ -2677,8 +2707,7 @@ export function createAgentNativeAgentKitTransport(
       widgets: [],
       toolCalls: [],
       events: [],
-      eventRunReplacements: [],
-      eventRunSnapshotWatermarks: [],
+      eventRunSnapshotBatches: [],
       annotationMessageIdsToReplace: [],
       annotations: [],
       annotationUpserts: [],
@@ -2693,8 +2722,7 @@ export function createAgentNativeAgentKitTransport(
         "widgets",
         "toolCalls",
         "events",
-        "eventRunReplacements",
-        "eventRunSnapshotWatermarks",
+        "eventRunSnapshotBatches",
         "annotationMessageIdsToReplace",
         "annotations",
         "annotationUpserts",
@@ -2702,35 +2730,32 @@ export function createAgentNativeAgentKitTransport(
       ]) {
         agentKit[key] = [];
       }
-      const eventWatermarkRunIds = new Set<string>();
+      const eventSnapshotBatchRunIds = new Set<string>();
+      const completedEventRunIds = new Set(
+        entries.flatMap((update) =>
+          update.key === "events" &&
+          update.completesEventRunSnapshot &&
+          update.eventRunSnapshotBatch
+            ? [update.eventRunSnapshotBatch.runId]
+            : [],
+        ),
+      );
       for (const {
         key,
         entry,
-        replaceRunThroughSequence,
-        snapshotThroughSequence,
+        eventRunSnapshotBatch,
         includeSuggestions,
       } of entries) {
         if (key === "events") {
           (agentKit.events as unknown[]).push(entry);
-          const runId = asRecord(entry)?.runId;
           if (
-            typeof runId === "string" &&
-            snapshotThroughSequence !== undefined &&
-            !eventWatermarkRunIds.has(runId)
+            eventRunSnapshotBatch &&
+            !eventSnapshotBatchRunIds.has(eventRunSnapshotBatch.runId)
           ) {
-            eventWatermarkRunIds.add(runId);
-            (agentKit.eventRunSnapshotWatermarks as unknown[]).push({
-              runId,
-              lastSequence: snapshotThroughSequence,
-            });
-          }
-          if (
-            replaceRunThroughSequence !== undefined &&
-            typeof runId === "string"
-          ) {
-            (agentKit.eventRunReplacements as unknown[]).push({
-              runId,
-              lastSequence: replaceRunThroughSequence,
+            eventSnapshotBatchRunIds.add(eventRunSnapshotBatch.runId);
+            (agentKit.eventRunSnapshotBatches as unknown[]).push({
+              ...eventRunSnapshotBatch,
+              complete: completedEventRunIds.has(eventRunSnapshotBatch.runId),
             });
           }
           continue;
@@ -2820,6 +2845,17 @@ export function createAgentNativeAgentKitTransport(
         );
       }
       for (let attempt = 0; ; attempt += 1) {
+        const retryAfterReadFailure = async (error: unknown) => {
+          if (
+            asRecord(error)?.name === "AbortError" ||
+            attempt >= MAX_THREAD_SNAPSHOT_RETRIES
+          ) {
+            throw error;
+          }
+          await new Promise((resolve) =>
+            setTimeout(resolve, 100 * 2 ** attempt),
+          );
+        };
         let response: Response;
         try {
           response = await fetcher(threadUrl, {
@@ -2828,11 +2864,7 @@ export function createAgentNativeAgentKitTransport(
             body,
           });
         } catch (error) {
-          if (asRecord(error)?.name === "AbortError") throw error;
-          if (attempt >= MAX_THREAD_SNAPSHOT_RETRIES) throw error;
-          await new Promise((resolve) =>
-            setTimeout(resolve, 100 * 2 ** attempt),
-          );
+          await retryAfterReadFailure(error);
           continue;
         }
         if (response.status === 413 && entries.length > 1) {
@@ -2843,7 +2875,13 @@ export function createAgentNativeAgentKitTransport(
           ];
         }
         if (!response.ok) {
-          const error = await responseError(response);
+          let error: Error;
+          try {
+            error = await responseError(response);
+          } catch (readError) {
+            await retryAfterReadFailure(readError);
+            continue;
+          }
           if (
             asRecord(error)?.retryable !== true ||
             attempt >= MAX_THREAD_SNAPSHOT_RETRIES
@@ -2855,7 +2893,11 @@ export function createAgentNativeAgentKitTransport(
           );
           continue;
         }
-        return snapshotAnnotationConflicts(await response.json());
+        try {
+          return snapshotAnnotationConflicts(await response.json());
+        } catch (readError) {
+          await retryAfterReadFailure(readError);
+        }
       }
     };
     const annotationConflicts = new Map<string, SnapshotAnnotationConflict>();

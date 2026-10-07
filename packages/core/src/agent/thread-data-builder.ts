@@ -2006,6 +2006,394 @@ function mergeAgentKitEvents(
   return merged;
 }
 
+function mergeAgentKitFullEventSnapshot(
+  existingEvents: unknown,
+  incomingEvents: unknown,
+  incomingRuns: unknown,
+  committedSnapshots: unknown,
+): unknown[] | undefined {
+  if (!Array.isArray(incomingEvents)) return undefined;
+  const previousEvents = Array.isArray(existingEvents) ? existingEvents : [];
+  const incomingRunSequences = new Map<string, number>();
+  for (const run of Array.isArray(incomingRuns) ? incomingRuns : []) {
+    if (
+      typeof run?.id === "string" &&
+      typeof run.lastSequence === "number" &&
+      Number.isSafeInteger(run.lastSequence) &&
+      run.lastSequence >= 0
+    ) {
+      incomingRunSequences.set(run.id, run.lastSequence);
+    }
+  }
+  const existingEventsByRun = new Map<string, unknown[]>();
+  for (const event of previousEvents) {
+    if (typeof event?.runId !== "string") continue;
+    const events = existingEventsByRun.get(event.runId) ?? [];
+    events.push(event);
+    existingEventsByRun.set(event.runId, events);
+  }
+  const incomingEventsByRun = new Map<string, unknown[]>();
+  for (const event of incomingEvents) {
+    if (typeof event?.runId !== "string") continue;
+    const events = incomingEventsByRun.get(event.runId) ?? [];
+    events.push(event);
+    incomingEventsByRun.set(event.runId, events);
+  }
+
+  const protectedRunIds = new Set<string>();
+  if (
+    committedSnapshots &&
+    typeof committedSnapshots === "object" &&
+    !Array.isArray(committedSnapshots)
+  ) {
+    for (const [runId, value] of Object.entries(committedSnapshots)) {
+      if (!Array.isArray(value)) continue;
+      const committedSequence = value.reduce((maxSequence, entry) => {
+        const sequence = entry?.lastSequence;
+        return typeof sequence === "number" &&
+          Number.isSafeInteger(sequence) &&
+          sequence >= 0
+          ? Math.max(maxSequence, sequence)
+          : maxSequence;
+      }, -1);
+      if (committedSequence < 0) continue;
+      const runEvents = incomingEventsByRun.get(runId) ?? [];
+      const incomingSequence = Math.max(
+        incomingRunSequences.get(runId) ?? 0,
+        ...runEvents.map((event) => {
+          const sequence =
+            event && typeof event === "object"
+              ? (event as Record<string, unknown>).sequence
+              : undefined;
+          return typeof sequence === "number" &&
+            Number.isSafeInteger(sequence) &&
+            sequence >= 0
+            ? sequence
+            : 0;
+        }),
+      );
+      if (runEvents.length === 0 || incomingSequence <= committedSequence) {
+        protectedRunIds.add(runId);
+      }
+    }
+  }
+  if (protectedRunIds.size === 0) return incomingEvents;
+
+  const merged: unknown[] = [];
+  const insertedProtectedRuns = new Set<string>();
+  for (const event of incomingEvents) {
+    const runId = event?.runId;
+    if (typeof runId === "string" && protectedRunIds.has(runId)) {
+      if (!insertedProtectedRuns.has(runId)) {
+        merged.push(...(existingEventsByRun.get(runId) ?? []));
+        insertedProtectedRuns.add(runId);
+      }
+      continue;
+    }
+    merged.push(event);
+  }
+  for (const runId of protectedRunIds) {
+    if (insertedProtectedRuns.has(runId)) continue;
+    merged.push(...(existingEventsByRun.get(runId) ?? []));
+  }
+  return merged;
+}
+
+type AgentKitEventRunSnapshotBatch = {
+  runId: string;
+  snapshotId: string;
+  lastSequence: number;
+  expectedEventCount: number;
+  complete: boolean;
+};
+
+type PendingAgentKitEventRunSnapshot = Pick<
+  AgentKitEventRunSnapshotBatch,
+  "lastSequence" | "expectedEventCount"
+> & { events: unknown[] };
+
+type CommittedAgentKitEventRunSnapshot = Pick<
+  AgentKitEventRunSnapshotBatch,
+  "snapshotId" | "lastSequence" | "expectedEventCount"
+>;
+
+const MAX_PENDING_EVENT_RUN_SNAPSHOTS_PER_RUN = 2;
+const MAX_COMMITTED_EVENT_RUN_SNAPSHOTS_PER_RUN = 8;
+
+function mergeAgentKitEventRunSnapshots(input: {
+  existingEvents: unknown;
+  incomingEvents: unknown;
+  existingWatermarks: Map<string, number>;
+  existingRunSequences: Map<string, number>;
+  incomingWatermarks: Map<string, number>;
+  incomingReplacements: Map<string, number>;
+  batches: Map<string, AgentKitEventRunSnapshotBatch>;
+  existingPending: unknown;
+  existingCommits: unknown;
+}): {
+  events: unknown[] | undefined;
+  watermarks: Map<string, number>;
+  pending: Record<string, Record<string, PendingAgentKitEventRunSnapshot>>;
+  commits: Record<string, CommittedAgentKitEventRunSnapshot[]>;
+} {
+  const incomingEvents = Array.isArray(input.incomingEvents)
+    ? input.incomingEvents
+    : [];
+  const batchedRunIds = new Set(input.batches.keys());
+  const unbatchedEvents = Array.isArray(input.incomingEvents)
+    ? incomingEvents.filter((event) => !batchedRunIds.has(event?.runId))
+    : undefined;
+  const previousEvents = Array.isArray(input.existingEvents)
+    ? input.existingEvents
+    : [];
+  const commits: Record<string, CommittedAgentKitEventRunSnapshot[]> = {};
+  if (
+    input.existingCommits &&
+    typeof input.existingCommits === "object" &&
+    !Array.isArray(input.existingCommits)
+  ) {
+    for (const [runId, value] of Object.entries(input.existingCommits)) {
+      if (!Array.isArray(value)) continue;
+      const entries = value.flatMap((candidate) => {
+        if (!candidate || typeof candidate !== "object") return [];
+        const commit = candidate as Record<string, unknown>;
+        if (
+          typeof commit.snapshotId !== "string" ||
+          typeof commit.lastSequence !== "number" ||
+          !Number.isSafeInteger(commit.lastSequence) ||
+          commit.lastSequence < 0 ||
+          typeof commit.expectedEventCount !== "number" ||
+          !Number.isSafeInteger(commit.expectedEventCount) ||
+          commit.expectedEventCount < 1
+        ) {
+          return [];
+        }
+        return [
+          {
+            snapshotId: commit.snapshotId,
+            lastSequence: commit.lastSequence,
+            expectedEventCount: commit.expectedEventCount,
+          },
+        ];
+      });
+      if (entries.length > 0) {
+        commits[runId] = entries.slice(
+          -MAX_COMMITTED_EVENT_RUN_SNAPSHOTS_PER_RUN,
+        );
+      }
+    }
+  }
+  const watermarks = new Map(input.existingWatermarks);
+  const replacedRunIds = new Set<string>();
+  const staleRunIds = new Set<string>();
+
+  for (const [runId, lastSequence] of input.incomingWatermarks) {
+    const storedWatermark = watermarks.get(runId);
+    const storedRunSequence = input.existingRunSequences.get(runId);
+    const hasCommittedSnapshot = (commits[runId]?.length ?? 0) > 0;
+    const committedSequence = Math.max(
+      0,
+      ...(commits[runId] ?? []).map((entry) => entry.lastSequence),
+    );
+    const knownSequence = Math.max(
+      storedWatermark ?? 0,
+      storedRunSequence ?? 0,
+      committedSequence,
+    );
+    const hasKnownSequence =
+      storedWatermark !== undefined ||
+      storedRunSequence !== undefined ||
+      hasCommittedSnapshot;
+    const hasStoredEvents = previousEvents.some(
+      (event) => event?.runId === runId,
+    );
+    if (
+      (hasKnownSequence && lastSequence < knownSequence) ||
+      (hasCommittedSnapshot && lastSequence <= committedSequence)
+    ) {
+      staleRunIds.add(runId);
+      continue;
+    }
+    if (
+      input.incomingReplacements.has(runId) &&
+      (hasKnownSequence || !hasStoredEvents)
+    ) {
+      replacedRunIds.add(runId);
+    }
+    watermarks.set(runId, Math.max(knownSequence, lastSequence));
+  }
+
+  let events = mergeAgentKitEvents(
+    input.existingEvents,
+    unbatchedEvents,
+    replacedRunIds,
+    staleRunIds,
+  );
+  const pending: Record<
+    string,
+    Record<string, PendingAgentKitEventRunSnapshot>
+  > = {};
+  if (
+    input.existingPending &&
+    typeof input.existingPending === "object" &&
+    !Array.isArray(input.existingPending)
+  ) {
+    for (const [runId, value] of Object.entries(input.existingPending)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        continue;
+      }
+      const batches: Record<string, PendingAgentKitEventRunSnapshot> = {};
+      for (const [snapshotId, candidate] of Object.entries(value)) {
+        if (!candidate || typeof candidate !== "object") continue;
+        const candidateRecord = candidate as Record<string, unknown>;
+        if (
+          Array.isArray(candidate) ||
+          typeof candidateRecord.lastSequence !== "number" ||
+          !Number.isSafeInteger(candidateRecord.lastSequence) ||
+          candidateRecord.lastSequence < 0 ||
+          typeof candidateRecord.expectedEventCount !== "number" ||
+          !Number.isSafeInteger(candidateRecord.expectedEventCount) ||
+          candidateRecord.expectedEventCount < 1 ||
+          !Array.isArray(candidateRecord.events)
+        ) {
+          continue;
+        }
+        batches[snapshotId] = {
+          lastSequence: candidateRecord.lastSequence,
+          expectedEventCount: candidateRecord.expectedEventCount,
+          events: candidateRecord.events.filter(
+            (event) => event?.runId === runId,
+          ),
+        };
+      }
+      if (Object.keys(batches).length > 0) pending[runId] = batches;
+    }
+  }
+  for (const [runId, batches] of Object.entries(pending)) {
+    const committedSequence = Math.max(
+      watermarks.get(runId) ?? 0,
+      input.existingRunSequences.get(runId) ?? 0,
+    );
+    if (!watermarks.has(runId) && !input.existingRunSequences.has(runId)) {
+      continue;
+    }
+    for (const [snapshotId, batch] of Object.entries(batches)) {
+      const supersededByLegacySnapshot =
+        (input.incomingWatermarks.get(runId) ?? -1) >= batch.lastSequence;
+      if (
+        batch.lastSequence < committedSequence ||
+        supersededByLegacySnapshot
+      ) {
+        delete batches[snapshotId];
+      }
+    }
+    if (Object.keys(batches).length === 0) delete pending[runId];
+  }
+
+  for (const [runId, batch] of input.batches) {
+    const committed = commits[runId]?.find(
+      (entry) => entry.snapshotId === batch.snapshotId,
+    );
+    if (committed) {
+      if (
+        committed.lastSequence !== batch.lastSequence ||
+        committed.expectedEventCount !== batch.expectedEventCount
+      ) {
+        throw new TypeError("Agent chat event snapshot id was reused.");
+      }
+      continue;
+    }
+
+    const knownSequence = Math.max(
+      watermarks.get(runId) ?? 0,
+      input.existingRunSequences.get(runId) ?? 0,
+    );
+    const hasKnownSequence =
+      watermarks.has(runId) || input.existingRunSequences.has(runId);
+    const alreadyCommittedAtOrAfter = (commits[runId] ?? []).some(
+      (entry) => entry.lastSequence >= batch.lastSequence,
+    );
+    if (
+      hasKnownSequence &&
+      (batch.lastSequence < knownSequence || alreadyCommittedAtOrAfter)
+    ) {
+      if (pending[runId]) {
+        delete pending[runId][batch.snapshotId];
+        if (Object.keys(pending[runId]).length === 0) delete pending[runId];
+      }
+      continue;
+    }
+
+    const current = pending[runId]?.[batch.snapshotId];
+    const matchingCurrent =
+      current?.lastSequence === batch.lastSequence &&
+      current.expectedEventCount === batch.expectedEventCount;
+    const batchEvents = incomingEvents.filter(
+      (event) => event?.runId === runId,
+    );
+    const stagedEvents =
+      mergeAgentKitEvents(matchingCurrent ? current.events : [], batchEvents) ??
+      [];
+
+    if (stagedEvents.length > batch.expectedEventCount) {
+      throw new TypeError(
+        "Agent chat event snapshot exceeded its event count.",
+      );
+    }
+    if (batch.complete && stagedEvents.length < batch.expectedEventCount) {
+      throw new TypeError(
+        "Agent chat event snapshot ended before all events arrived.",
+      );
+    }
+
+    if (stagedEvents.length === batch.expectedEventCount) {
+      events = mergeAgentKitEvents(events, stagedEvents, new Set([runId]));
+      watermarks.set(runId, Math.max(knownSequence, batch.lastSequence));
+      commits[runId] = [
+        ...(commits[runId] ?? []).filter(
+          (entry) => entry.snapshotId !== batch.snapshotId,
+        ),
+        {
+          snapshotId: batch.snapshotId,
+          lastSequence: batch.lastSequence,
+          expectedEventCount: batch.expectedEventCount,
+        },
+      ].slice(-MAX_COMMITTED_EVENT_RUN_SNAPSHOTS_PER_RUN);
+      if (pending[runId]) {
+        for (const [snapshotId, pendingBatch] of Object.entries(
+          pending[runId],
+        )) {
+          if (pendingBatch.lastSequence <= batch.lastSequence) {
+            delete pending[runId][snapshotId];
+          }
+        }
+        if (Object.keys(pending[runId]).length === 0) delete pending[runId];
+      }
+      continue;
+    }
+
+    const runPending = { ...(pending[runId] ?? {}) };
+    if (!matchingCurrent) {
+      while (
+        Object.keys(runPending).length >=
+        MAX_PENDING_EVENT_RUN_SNAPSHOTS_PER_RUN
+      ) {
+        const oldestSnapshotId = Object.keys(runPending)[0];
+        if (oldestSnapshotId === undefined) break;
+        delete runPending[oldestSnapshotId];
+      }
+    }
+    runPending[batch.snapshotId] = {
+      lastSequence: batch.lastSequence,
+      expectedEventCount: batch.expectedEventCount,
+      events: stagedEvents,
+    };
+    pending[runId] = runPending;
+  }
+
+  return { events, watermarks, pending, commits };
+}
+
 function mergeAgentKitAnnotations(
   existing: unknown,
   incoming: unknown,
@@ -2142,6 +2530,35 @@ function mergeAgentKitHistory(
         : [],
     ),
   );
+  const eventRunSnapshotBatches = new Map<
+    string,
+    AgentKitEventRunSnapshotBatch
+  >();
+  for (const batch of Array.isArray(next.eventRunSnapshotBatches)
+    ? next.eventRunSnapshotBatches
+    : []) {
+    if (
+      typeof batch?.runId === "string" &&
+      typeof batch.snapshotId === "string" &&
+      batch.snapshotId.length > 0 &&
+      typeof batch.lastSequence === "number" &&
+      Number.isSafeInteger(batch.lastSequence) &&
+      batch.lastSequence >= 0 &&
+      typeof batch.expectedEventCount === "number" &&
+      Number.isSafeInteger(batch.expectedEventCount) &&
+      batch.expectedEventCount > 0 &&
+      typeof batch.complete === "boolean" &&
+      incomingEventRunIds.has(batch.runId)
+    ) {
+      eventRunSnapshotBatches.set(batch.runId, {
+        runId: batch.runId,
+        snapshotId: batch.snapshotId,
+        lastSequence: batch.lastSequence,
+        expectedEventCount: batch.expectedEventCount,
+        complete: batch.complete,
+      });
+    }
+  }
   const eventRunSnapshotWatermarks = new Map<string, number>();
   for (const watermark of Array.isArray(next.eventRunSnapshotWatermarks)
     ? next.eventRunSnapshotWatermarks
@@ -2151,7 +2568,8 @@ function mergeAgentKitHistory(
       typeof watermark.lastSequence === "number" &&
       Number.isSafeInteger(watermark.lastSequence) &&
       watermark.lastSequence >= 0 &&
-      incomingEventRunIds.has(watermark.runId)
+      incomingEventRunIds.has(watermark.runId) &&
+      !eventRunSnapshotBatches.has(watermark.runId)
     ) {
       eventRunSnapshotWatermarks.set(
         watermark.runId,
@@ -2171,7 +2589,8 @@ function mergeAgentKitHistory(
       typeof replacement.lastSequence === "number" &&
       Number.isSafeInteger(replacement.lastSequence) &&
       replacement.lastSequence >= 1 &&
-      incomingRunStarts.has(replacement.runId)
+      incomingRunStarts.has(replacement.runId) &&
+      !eventRunSnapshotBatches.has(replacement.runId)
     ) {
       eventRunReplacements.set(
         replacement.runId,
@@ -2239,16 +2658,32 @@ function mergeAgentKitHistory(
       if (Array.isArray(initial.messages) && initial.messages.length === 0) {
         delete initial.messages;
       }
-      const events = mergeAgentKitEvents(
-        undefined,
-        next.events,
-        new Set(eventRunReplacements.keys()),
-      );
-      if (events) initial.events = events;
-      if (eventRunSnapshotWatermarks.size > 0) {
+      const eventSnapshot = mergeAgentKitEventRunSnapshots({
+        existingEvents: undefined,
+        incomingEvents: next.events,
+        existingWatermarks: new Map(),
+        existingRunSequences: new Map(),
+        incomingWatermarks: eventRunSnapshotWatermarks,
+        incomingReplacements: eventRunReplacements,
+        batches: eventRunSnapshotBatches,
+        existingPending: undefined,
+        existingCommits: undefined,
+      });
+      if (eventSnapshot.events) initial.events = eventSnapshot.events;
+      if (eventSnapshot.watermarks.size > 0) {
         initial._eventRunWatermarks = Object.fromEntries(
-          eventRunSnapshotWatermarks,
+          eventSnapshot.watermarks,
         );
+      }
+      if (Object.keys(eventSnapshot.pending).length > 0) {
+        initial._pendingEventRunSnapshots = eventSnapshot.pending;
+      } else {
+        delete initial._pendingEventRunSnapshots;
+      }
+      if (Object.keys(eventSnapshot.commits).length > 0) {
+        initial._eventRunSnapshotCommits = eventSnapshot.commits;
+      } else {
+        delete initial._eventRunSnapshotCommits;
       }
       const annotations = mergeAgentKitAnnotations(
         undefined,
@@ -2263,6 +2698,7 @@ function mergeAgentKitHistory(
     delete initial._snapshotDelta;
     delete initial.eventRunReplacements;
     delete initial.eventRunSnapshotWatermarks;
+    delete initial.eventRunSnapshotBatches;
     delete initial.annotationMessageIdsToReplace;
     delete initial.annotationUpserts;
     return initial;
@@ -2423,48 +2859,40 @@ function mergeAgentKitHistory(
         previousRunSequences.set(run.id, run.lastSequence);
       }
     }
-    const previousEvents = Array.isArray(previous.events)
-      ? previous.events
-      : [];
-    const replacedRunIds = new Set<string>();
-    const staleRunIds = new Set<string>();
-    for (const [runId, lastSequence] of eventRunSnapshotWatermarks) {
-      const storedWatermark = previousWatermarks.get(runId);
-      const storedRunSequence = previousRunSequences.get(runId);
-      const knownSequence = Math.max(
-        storedWatermark ?? 0,
-        storedRunSequence ?? 0,
-      );
-      const hasKnownSequence =
-        storedWatermark !== undefined || storedRunSequence !== undefined;
-      const hasStoredEvents = previousEvents.some(
-        (event) => event?.runId === runId,
-      );
-      if (hasKnownSequence && lastSequence < knownSequence) {
-        staleRunIds.add(runId);
-        continue;
-      }
-      if (
-        eventRunReplacements.has(runId) &&
-        (hasKnownSequence || !hasStoredEvents)
-      ) {
-        replacedRunIds.add(runId);
-      }
-      previousWatermarks.set(runId, Math.max(knownSequence, lastSequence));
-    }
-    const events = mergeAgentKitEvents(
-      previous.events,
-      next.events,
-      replacedRunIds,
-      staleRunIds,
-    );
-    if (events) merged.events = events;
+    const eventSnapshot = mergeAgentKitEventRunSnapshots({
+      existingEvents: previous.events,
+      incomingEvents: next.events,
+      existingWatermarks: previousWatermarks,
+      existingRunSequences: previousRunSequences,
+      incomingWatermarks: eventRunSnapshotWatermarks,
+      incomingReplacements: eventRunReplacements,
+      batches: eventRunSnapshotBatches,
+      existingPending: previous._pendingEventRunSnapshots,
+      existingCommits: previous._eventRunSnapshotCommits,
+    });
+    if (eventSnapshot.events) merged.events = eventSnapshot.events;
     delete merged._eventRunWatermarks;
-    if (previousWatermarks.size > 0) {
-      merged._eventRunWatermarks = Object.fromEntries(previousWatermarks);
+    if (eventSnapshot.watermarks.size > 0) {
+      merged._eventRunWatermarks = Object.fromEntries(eventSnapshot.watermarks);
+    }
+    if (Object.keys(eventSnapshot.pending).length > 0) {
+      merged._pendingEventRunSnapshots = eventSnapshot.pending;
+    } else {
+      delete merged._pendingEventRunSnapshots;
+    }
+    if (Object.keys(eventSnapshot.commits).length > 0) {
+      merged._eventRunSnapshotCommits = eventSnapshot.commits;
+    } else {
+      delete merged._eventRunSnapshotCommits;
     }
   } else {
-    if (Array.isArray(next.events)) merged.events = next.events;
+    const events = mergeAgentKitFullEventSnapshot(
+      previous.events,
+      next.events,
+      next.runs,
+      previous._eventRunSnapshotCommits,
+    );
+    if (events) merged.events = events;
     if (previous._eventRunWatermarks === undefined) {
       delete merged._eventRunWatermarks;
     } else {
@@ -2474,6 +2902,7 @@ function mergeAgentKitHistory(
   delete merged._snapshotDelta;
   delete merged.eventRunReplacements;
   delete merged.eventRunSnapshotWatermarks;
+  delete merged.eventRunSnapshotBatches;
   if (
     snapshotDelta ||
     annotationMessageIdsToReplace.size > 0 ||

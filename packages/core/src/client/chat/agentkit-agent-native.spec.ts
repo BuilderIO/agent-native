@@ -603,11 +603,19 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(
       eventRequests.every(
         (agentKit) =>
-          agentKit.eventRunSnapshotWatermarks?.length === 1 &&
-          agentKit.eventRunSnapshotWatermarks[0].runId === runId &&
-          agentKit.eventRunSnapshotWatermarks[0].lastSequence === 20,
+          agentKit.eventRunSnapshotBatches?.length === 1 &&
+          agentKit.eventRunSnapshotBatches[0].runId === runId &&
+          agentKit.eventRunSnapshotBatches[0].lastSequence === 20 &&
+          agentKit.eventRunSnapshotBatches[0].expectedEventCount === 20,
       ),
     ).toBe(true);
+    expect(
+      new Set(
+        eventRequests.map(
+          (agentKit) => agentKit.eventRunSnapshotBatches[0].snapshotId,
+        ),
+      ).size,
+    ).toBe(1);
     expect(
       requests.some(
         (agentKit) =>
@@ -650,6 +658,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       )?.activity.label,
     ).toBe("newer snapshot");
     expect(repository.agentKit._eventRunWatermarks).toEqual({ [runId]: 21 });
+    expect(repository.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
     expect(repository.agentKit.annotations).toHaveLength(20);
     expect(
       repository.agentKit.annotations.every((entry: any) =>
@@ -660,9 +669,300 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(repository.agentKit).not.toHaveProperty(
       "eventRunSnapshotWatermarks",
     );
+    expect(repository.agentKit).not.toHaveProperty("eventRunSnapshotBatches");
     expect(repository.agentKit).not.toHaveProperty(
       "annotationMessageIdsToReplace",
     );
+    await transport.dispose();
+  });
+
+  it("keeps a prior run history when a later event chunk fails", async () => {
+    const threadId = "failed-event-chunk-history";
+    const runId = "run-failed-event-chunk";
+    const messageId = "assistant-failed-event-chunk";
+    const largeLabel = "x".repeat(110_000);
+    const snapshotEvents = Array.from({ length: 6 }, (_, index) => ({
+      id: `new-event-${index}`,
+      threadId,
+      runId,
+      sequence: index + 1,
+      occurredAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString(),
+      type: "activity.started" as const,
+      activity: {
+        id: `activity-${index}`,
+        kind: "tool" as const,
+        label: largeLabel,
+        status: "running" as const,
+      },
+    }));
+    const snapshot = {
+      id: threadId,
+      title: "Retry event chunks",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-01T00:00:01.000Z",
+      messages: [
+        {
+          id: messageId,
+          role: "assistant" as const,
+          parts: [{ type: "text" as const, text: "The answer." }],
+        },
+      ],
+      events: snapshotEvents,
+      runs: [
+        {
+          id: runId,
+          threadId,
+          status: "completed" as const,
+          lastSequence: snapshotEvents.length,
+        },
+      ],
+    };
+    let repository: Record<string, any> = {
+      messages: [],
+      agentKit: {
+        messages: snapshot.messages,
+        events: [
+          {
+            id: "old-run-start",
+            threadId,
+            runId,
+            sequence: 1,
+            occurredAt: "2026-10-01T00:00:00.000Z",
+            type: "run.started",
+          },
+          {
+            id: "old-run-completed",
+            threadId,
+            runId,
+            sequence: 2,
+            occurredAt: "2026-10-01T00:00:02.000Z",
+            type: "run.completed",
+          },
+        ],
+        runs: [
+          {
+            id: runId,
+            threadId,
+            status: "running",
+            lastSequence: 2,
+          },
+        ],
+        _eventRunWatermarks: { [runId]: 2 },
+      },
+    };
+    let acceptedEventChunk = false;
+    let failLaterEventChunks = true;
+    const responseLimit = 300_000;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            title: "Retry event chunks",
+            threadData: JSON.stringify(repository),
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          const body = String(init?.body);
+          const incoming = JSON.parse(JSON.parse(body).threadData);
+          const agentKit = incoming.agentKit;
+          const hasEvents = (agentKit.events?.length ?? 0) > 0;
+          if (new TextEncoder().encode(body).byteLength > responseLimit) {
+            return json({ error: "Request too large" }, 413);
+          }
+          if (hasEvents && acceptedEventChunk && failLaterEventChunks) {
+            throw new TypeError(
+              "Connection reset after the first event chunk.",
+            );
+          }
+          repository = mergeThreadDataForClientSave(repository, incoming);
+          if (hasEvents) acceptedEventChunk = true;
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.persistThreadSnapshot?.({ threadId, snapshot }),
+    ).rejects.toThrow("Connection reset after the first event chunk.");
+
+    expect(acceptedEventChunk).toBe(true);
+    expect(repository.agentKit.events.map((event: any) => event.id)).toEqual([
+      "old-run-start",
+      "old-run-completed",
+    ]);
+    expect(repository.agentKit._eventRunWatermarks).toEqual({ [runId]: 2 });
+    expect(
+      Object.values(repository.agentKit._pendingEventRunSnapshots[runId])[0]
+        .events.length,
+    ).toBeGreaterThan(0);
+
+    failLaterEventChunks = false;
+    await transport.persistThreadSnapshot?.({ threadId, snapshot });
+
+    expect(repository.agentKit.events.map((event: any) => event.id)).toEqual(
+      snapshotEvents.map((event) => event.id),
+    );
+    expect(repository.agentKit._eventRunWatermarks).toEqual({
+      [runId]: snapshotEvents.length,
+    });
+    expect(repository.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+    await transport.dispose();
+  });
+
+  it("replays a committed final event chunk when its response is lost", async () => {
+    const threadId = "lost-final-event-response";
+    const runId = "run-lost-final-response";
+    const previousMessage = {
+      id: "previous-message",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Earlier answer." }],
+    };
+    const newMessage = {
+      id: "new-message",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "New answer." }],
+    };
+    const events = [
+      {
+        id: "new-run-started",
+        threadId,
+        runId,
+        sequence: 1,
+        occurredAt: "2026-10-01T00:00:01.000Z",
+        type: "run.started" as const,
+      },
+      {
+        id: "new-run-completed",
+        threadId,
+        runId,
+        sequence: 2,
+        occurredAt: "2026-10-01T00:00:02.000Z",
+        type: "run.completed" as const,
+      },
+    ];
+    let repository: Record<string, any> = {
+      messages: [],
+      queuedMessages: [{ id: "queued-message", text: "Keep me" }],
+      appData: { marker: "preserved" },
+      agentKit: {
+        messages: [previousMessage],
+        events: [
+          {
+            id: "other-run-event",
+            threadId,
+            runId: "other-run",
+            sequence: 1,
+            occurredAt: "2026-10-01T00:00:00.000Z",
+            type: "run.started",
+          },
+        ],
+        runs: [
+          {
+            id: "other-run",
+            threadId,
+            status: "completed",
+            lastSequence: 1,
+          },
+        ],
+        _eventRunWatermarks: { "other-run": 1 },
+      },
+    };
+    let loseFinalResponse = true;
+    const committedFinalBodies: string[] = [];
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            title: "Event retry",
+            threadData: JSON.stringify(repository),
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          const body = String(init?.body);
+          const incoming = JSON.parse(JSON.parse(body).threadData);
+          const agentKit = incoming.agentKit;
+          if ((agentKit.events?.length ?? 0) > 1) {
+            return json({ error: "Split event chunks" }, 413);
+          }
+          const batch = agentKit.eventRunSnapshotBatches?.[0];
+          repository = mergeThreadDataForClientSave(repository, incoming);
+          if (batch?.complete) {
+            committedFinalBodies.push(body);
+            if (loseFinalResponse) {
+              loseFinalResponse = false;
+              const response = json({ ok: true });
+              Object.defineProperty(response, "json", {
+                value: async () => {
+                  throw new TypeError(
+                    "Connection reset while reading the committed response.",
+                  );
+                },
+              });
+              return response;
+            }
+          }
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        title: "Event retry",
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:01.000Z",
+        messages: [previousMessage, newMessage],
+        events,
+        runs: [
+          {
+            id: runId,
+            threadId,
+            status: "completed",
+            lastSequence: 2,
+          },
+        ],
+      },
+    });
+
+    expect(committedFinalBodies).toHaveLength(2);
+    expect(committedFinalBodies[1]).toBe(committedFinalBodies[0]);
+    expect(repository.queuedMessages).toEqual([
+      { id: "queued-message", text: "Keep me" },
+    ]);
+    expect(repository.appData).toEqual({ marker: "preserved" });
+    expect(
+      repository.agentKit.messages.map((message: any) => message.id),
+    ).toEqual(["previous-message", "new-message"]);
+    expect(repository.agentKit.events.map((event: any) => event.id)).toEqual([
+      "other-run-event",
+      "new-run-started",
+      "new-run-completed",
+    ]);
+    expect(repository.agentKit._eventRunWatermarks).toEqual({
+      "other-run": 1,
+      [runId]: 2,
+    });
+    expect(repository.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+    expect(repository.agentKit).not.toHaveProperty("eventRunSnapshotBatches");
+    expect(repository.agentKit._eventRunSnapshotCommits[runId]).toHaveLength(1);
     await transport.dispose();
   });
 

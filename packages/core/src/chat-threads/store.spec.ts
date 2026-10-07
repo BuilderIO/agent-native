@@ -1006,6 +1006,62 @@ describe("chat thread store", () => {
     expect(row!.title).toBe("Generated chat title");
   });
 
+  it("does not replace full thread data when snapshot validation fails", async () => {
+    row!.thread_data = JSON.stringify({
+      messages: [userMessage],
+      queuedMessages: [{ id: "queued-1", text: "Keep this" }],
+      customData: { marker: "preserved" },
+      agentKit: {
+        events: [
+          {
+            id: "existing-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+        _eventRunWatermarks: { "run-1": 1 },
+      },
+    });
+    row!.message_count = 1;
+    const existingThreadData = row!.thread_data;
+    const incompleteSnapshot = JSON.stringify({
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [
+          {
+            runId: "run-1",
+            snapshotId: "incomplete-snapshot",
+            lastSequence: 2,
+            expectedEventCount: 2,
+            complete: true,
+          },
+        ],
+        events: [
+          {
+            id: "new-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+
+    await expect(
+      updateThreadData("thread-1", incompleteSnapshot, "Thread", "Done", 2, {
+        maxAttempts: 1,
+      }),
+    ).rejects.toThrow(
+      "Agent chat event snapshot ended before all events arrived.",
+    );
+
+    expect(row!.thread_data).toBe(existingThreadData);
+    expect(row!.message_count).toBe(1);
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
   it("throws after exhausted thread-data conflicts by default", async () => {
     conflictEveryThreadDataUpdate = true;
 
