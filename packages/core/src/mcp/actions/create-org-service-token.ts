@@ -178,6 +178,31 @@ export default defineAction({
       );
     }
 
+    // Retirement can finish revoking existing tokens after the initial
+    // lifecycle check but before this mint is recorded. The upsert returns the
+    // persisted lifecycle; contain this token before ever returning its secret.
+    if (policy.lifecycle !== "active") {
+      let revoked = false;
+      try {
+        revoked = await revokeOrgServiceToken(caller.orgId, minted.id);
+      } catch (error) {
+        console.error(
+          "[service-principal] Revoke after lifecycle change:",
+          error,
+        );
+      }
+      if (!revoked) {
+        throw new ServiceTokenError(
+          `Service principal "${serviceName}" became ${policy.lifecycle} while minting, and token ${minted.id} could not be revoked. Revoke it with revoke-org-service-token.`,
+          503,
+        );
+      }
+      throw new ServiceTokenError(
+        `Service principal "${serviceName}" became ${policy.lifecycle} while minting. The new token was revoked; resume it before minting again.`,
+        409,
+      );
+    }
+
     return {
       // The ONLY place the secret ever appears. Never stored, never logged.
       token: minted.token,

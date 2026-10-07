@@ -233,6 +233,43 @@ describe("create-org-service-token", () => {
     },
   );
 
+  it("revokes the new token if the principal becomes inactive during minting", async () => {
+    upsertPolicyMock.mockResolvedValue({
+      serviceName: "ci",
+      lifecycle: "retired",
+      ownerEmail: "admin@example.com",
+      riskTier: "medium",
+      allowedActions: null,
+    });
+
+    await expect(createAction.run({ name: "ci" }, CTX())).rejects.toMatchObject(
+      {
+        statusCode: 409,
+        message: expect.stringContaining("The new token was revoked"),
+      },
+    );
+    expect(revokeOrgServiceTokenMock).toHaveBeenCalledWith("org-1", "tok-1");
+  });
+
+  it("fails closed when a token minted during a lifecycle change cannot be revoked", async () => {
+    upsertPolicyMock.mockResolvedValue({
+      serviceName: "ci",
+      lifecycle: "retired",
+      ownerEmail: "admin@example.com",
+      riskTier: "medium",
+      allowedActions: null,
+    });
+    revokeOrgServiceTokenMock.mockResolvedValue(false);
+
+    await expect(createAction.run({ name: "ci" }, CTX())).rejects.toMatchObject(
+      {
+        statusCode: 503,
+        message: expect.stringContaining("tok-1 could not be revoked"),
+      },
+    );
+    expect(revokeOrgServiceTokenMock).toHaveBeenCalledWith("org-1", "tok-1");
+  });
+
   it("refuses a non-member or service identity owner before minting", async () => {
     isOrgMemberMock.mockResolvedValue(false);
     await expect(

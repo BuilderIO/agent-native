@@ -20,7 +20,9 @@ import {
 } from "../server/auth.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
+import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import {
   MCP_CONNECT_MCP_URL_TEMPLATE,
   getMcpConnectGuides,
@@ -1028,7 +1030,12 @@ function renderConnectPage(params: {
 (function () {
   var BASE = ${JSON.stringify(joinAppPath(connectBasePath, MCP_PUBLIC_ROUTE_PREFIX + "/connect"))};
   var USER_CODE = ${JSON.stringify(safeUserCode || null)};
-  var ACTIONS = ${JSON.stringify(joinAppPath(connectBasePath, "/_agent-native/actions"))};
+  var ACTIONS = ${JSON.stringify(
+    joinAppPath(
+      connectBasePath,
+      publicFrameworkPath(`${FRAMEWORK_INTERNAL_ROUTE_PREFIX}/actions`),
+    ),
+  )};
   var COPY = ${JSON.stringify(connectMessages)};
   var msgEl = document.getElementById("msg");
   var connectionsEl = document.getElementById("connections");
@@ -1191,8 +1198,8 @@ function renderConnectPage(params: {
     }
   }
 
-  // Governance view over the org's service principals. Hidden when the caller
-  // has no org (400/401/403/404); any other failure is shown, never read as "none".
+   // Governance view over the org's service principals. Hidden when the caller
+   // has no org (400/401/403); route failures are shown, never read as "none".
   var principalsEl = document.getElementById("principals");
   var principalsStateEl = document.getElementById("principalsState");
   var principalListEl = document.getElementById("principalList");
@@ -1233,7 +1240,7 @@ function renderConnectPage(params: {
     principalNote("");
     try {
       var res = await fetch(ACTIONS + "/list-org-service-tokens", { credentials: "same-origin" });
-      if (res.status === 400 || res.status === 401 || res.status === 403 || res.status === 404) {
+       if (res.status === 400 || res.status === 401 || res.status === 403) {
         principalsEl.classList.add("hidden");
         return;
       }
