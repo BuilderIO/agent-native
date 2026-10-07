@@ -554,6 +554,7 @@ for (const target of targets) {
             verificationLinkFor(result.message, target.origin),
             { waitUntil: "domcontentloaded" },
           );
+          await continueFromEmailLinkLanding(returningPage);
           expect(
             await waitForPostLinkState(
               returningPage,
