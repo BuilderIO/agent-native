@@ -123,6 +123,8 @@ export default function ObservabilityPage() {
 
 預設不會擷取工具引數、結果和完整的錯誤內文。若要儲存這些內容，請在 `observability` 設定中啟用 `captureToolArgs`（儲存引數）和 `captureToolResults`（儲存結果和完整錯誤內文）。敏感欄位會在儲存前遮蔽。失敗的工具一律會保留其錯誤的第一行（長度有限），其中的憑證、電子郵件地址和較長的不透明 ID 會被遮蔽，因此即使關閉 `captureToolResults`，失敗仍可診斷。
 
+提示詞擷取預設為關閉。在 `observability` 設定中設為 `capturePrompts: true`，或設定 `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true`，即可在此詳細檢視中儲存每個 `llm_call` 範圍的輸入與輸出。系統提示詞不會包含在內，結構化敏感欄位會遮蔽，且輸入與輸出各限制為 128 KiB。既有範圍不會追溯補齊。
+
 ### 人工審查 {#review}
 
 「人工審查」分頁會顯示每次執行的請求與回答，並可記錄意見回饋及草擬指示更新，交由人員審查。儲存草稿不會自動變更指示。

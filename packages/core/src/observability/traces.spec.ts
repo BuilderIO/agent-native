@@ -586,6 +586,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
   it("exports messages when capturePrompts is on", async () => {
     const events: TrackingEvent[] = [];
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
     registerTrackingProvider({
       name: "qa-ai-generation",
       track(event) {
@@ -596,7 +601,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     const loopOpts: any = {
       engine: { name: "anthropic" },
       model: "claude-test",
-      systemPrompt: "",
+      systemPrompt: "Do not persist this system instruction.",
       tools: [
         { name: "search", description: "Search the docs", inputSchema: {} },
       ],
@@ -640,6 +645,74 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       { role: "assistant", content: "Run pnpm deploy." },
     ]);
     expect(events[0]?.properties).not.toHaveProperty("$ai_tools");
+    const llmSpan = persistedSpans.find((span) => span.spanType === "llm_call");
+    expect(llmSpan?.metadata).toEqual({
+      input: [{ role: "user", content: "how do I deploy?" }],
+      output: [{ role: "assistant", content: "Run pnpm deploy." }],
+    });
+    expect(JSON.stringify(llmSpan?.metadata)).not.toContain(
+      "Do not persist this system instruction.",
+    );
+  });
+
+  it("bounds streamed output per model call and marks truncated calls", async () => {
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [{ role: "user", content: "summarize this" }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: "a".repeat(140_000) });
+        send({ type: "model_stream", status: "end", reason: "tool_use" });
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: "second model response" });
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+        return {
+          inputTokens: 5,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+          llmCalls: 2,
+        };
+      },
+      loopOpts,
+      runId: "run-per-call-content-limit",
+      threadId: "thread-per-call-content-limit",
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const llmSpans = persistedSpans.filter(
+      (span) => span.spanType === "llm_call",
+    );
+    expect(llmSpans).toHaveLength(2);
+    expect(llmSpans[0]?.metadata).toMatchObject({ output_truncated: true });
+    expect(llmSpans[1]?.metadata).toMatchObject({
+      output: [{ role: "assistant", content: "second model response" }],
+    });
+    expect(llmSpans[1]?.metadata).not.toHaveProperty("output_truncated");
   });
 
   it("captures the request messages, not the transcript the loop appended to", async () => {
@@ -794,6 +867,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
   it("omits tool span content unless capture is enabled", async () => {
     const events: TrackingEvent[] = [];
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
     registerTrackingProvider({
       name: "qa-ai-generation",
       track(event) {
@@ -841,6 +919,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.properties).not.toHaveProperty("$ai_input_state");
     expect(JSON.stringify(events[0])).not.toContain("must-not-be-tracked");
+    expect(
+      persistedSpans.find((span) => span.spanType === "llm_call")?.metadata,
+    ).toBeNull();
   });
 
   it("redacts and gates tool failure detail on tool spans", async () => {

@@ -43,6 +43,32 @@ function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+type BoundedAssistantText = {
+  parts: string[];
+  length: number;
+  truncated: boolean;
+};
+
+function appendBoundedAssistantText(
+  capture: BoundedAssistantText,
+  text: string,
+): void {
+  const remaining = MAX_AI_CONTENT_BYTES - capture.length;
+  if (remaining <= 0) {
+    if (text.length > 0) capture.truncated = true;
+    return;
+  }
+
+  const chunk = text.slice(0, remaining);
+  if (chunk) capture.parts.push(chunk);
+  capture.length += chunk.length;
+  if (chunk.length < text.length) capture.truncated = true;
+}
+
+function createBoundedAssistantText(): BoundedAssistantText {
+  return { parts: [], length: 0, truncated: false };
+}
+
 function llmProviderFromEngine(
   engineName: string | undefined,
   model: string,
@@ -322,6 +348,7 @@ function buildGenerationContent(args: {
   config: ObservabilityConfig;
   messages: unknown;
   assistantText: string;
+  assistantTextTruncated?: boolean;
   toolSpans: TraceSpan[];
   toolCallIds: Map<string, string>;
 }): {
@@ -366,7 +393,7 @@ function buildGenerationContent(args: {
     aiInput: input?.value,
     aiOutputChoices: output?.value,
     aiInputTruncated: input?.truncated,
-    aiOutputTruncated: output?.truncated,
+    aiOutputTruncated: output?.truncated || args.assistantTextTruncated,
   };
 }
 
@@ -500,8 +527,7 @@ export async function instrumentAgentLoop(opts: {
   const toolNameToCounters = new Map<string, number[]>();
   const toolCallIdToCounter = new Map<string, number>();
   const generationToolCalls = new Map<number, GenerationToolCall>();
-  const assistantTextParts: string[] = [];
-  let assistantTextLength = 0;
+  const assistantTextCapture = createBoundedAssistantText();
 
   let toolCallCount = 0;
   let successfulTools = 0;
@@ -515,7 +541,7 @@ export async function instrumentAgentLoop(opts: {
     usage?: AgentLoopUsage;
     stopReason?: string;
     input?: unknown[];
-    assistantText: string[];
+    assistantText: BoundedAssistantText;
   }> = [];
   const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
   type CostCalculator = (
@@ -682,14 +708,12 @@ export async function instrumentAgentLoop(opts: {
 
   const instrumentedSend = (event: AgentChatEvent): void => {
     try {
-      if (
-        config.capturePrompts &&
-        event.type === "text" &&
-        assistantTextLength < MAX_AI_CONTENT_BYTES
-      ) {
-        assistantTextParts.push(event.text);
-        assistantTextLength += event.text.length;
-        currentRoundTrip()?.assistantText.push(event.text);
+      if (config.capturePrompts && event.type === "text") {
+        appendBoundedAssistantText(assistantTextCapture, event.text);
+        const roundTrip = currentRoundTrip();
+        if (roundTrip) {
+          appendBoundedAssistantText(roundTrip.assistantText, event.text);
+        }
       }
       if (event.type === "clear" || event.type === "done") {
         finishAwaitingOtelModelSpans();
@@ -729,7 +753,7 @@ export async function instrumentAgentLoop(opts: {
               ...(config.capturePrompts
                 ? { input: [...loopOpts.messages] }
                 : {}),
-              assistantText: [],
+              assistantText: createBoundedAssistantText(),
             });
             startOtelModelSpan(tripIndex);
           }
@@ -1162,7 +1186,8 @@ export async function instrumentAgentLoop(opts: {
                 stopReason: trip.stopReason,
                 tokensKnown: trip.usage !== undefined,
                 input: trip.input,
-                assistantText: trip.assistantText.join(""),
+                assistantText: trip.assistantText.parts.join(""),
+                assistantTextTruncated: trip.assistantText.truncated,
                 toolSpans: collectedToolSpans.filter(
                   (span) => toolSpanRoundTrip.get(span.id) === index,
                 ),
@@ -1185,7 +1210,8 @@ export async function instrumentAgentLoop(opts: {
                   stopReason: undefined as string | undefined,
                   tokensKnown: usageReported,
                   input: requestMessages,
-                  assistantText: assistantTextParts.join(""),
+                  assistantText: assistantTextCapture.parts.join(""),
+                  assistantTextTruncated: assistantTextCapture.truncated,
                   toolSpans: collectedToolSpans,
                   toolDetails: [...generationToolCalls.entries()]
                     .sort(([a], [b]) => a - b)
@@ -1222,9 +1248,26 @@ export async function instrumentAgentLoop(opts: {
             config,
             messages: generation.input,
             assistantText: generation.assistantText,
+            assistantTextTruncated: generation.assistantTextTruncated,
             toolSpans: generation.toolSpans,
             toolCallIds: toolSpanCallId,
           });
+          const capturedContent = config.capturePrompts
+            ? {
+                ...(generationContent.aiInput !== undefined
+                  ? { input: generationContent.aiInput }
+                  : {}),
+                ...(generationContent.aiOutputChoices !== undefined
+                  ? { output: generationContent.aiOutputChoices }
+                  : {}),
+                ...(generationContent.aiInputTruncated
+                  ? { input_truncated: true }
+                  : {}),
+                ...(generationContent.aiOutputTruncated
+                  ? { output_truncated: true }
+                  : {}),
+              }
+            : null;
 
           spans.push({
             id: generation.spanId,
@@ -1242,7 +1285,10 @@ export async function instrumentAgentLoop(opts: {
             durationMs: generation.latencyMs,
             status: generationStatus,
             errorMessage: generationError,
-            metadata: null,
+            metadata:
+              capturedContent && Object.keys(capturedContent).length > 0
+                ? capturedContent
+                : null,
             createdAt: generation.createdAt,
           });
 

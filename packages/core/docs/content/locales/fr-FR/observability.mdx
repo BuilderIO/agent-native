@@ -125,6 +125,8 @@ L’onglet Conversations affiche les exécutions enregistrées. Sélectionnez-en
 
 La capture des arguments, des résultats et des corps d’erreur complets des outils est désactivée par défaut. Activez `captureToolArgs` pour stocker les arguments et `captureToolResults` pour stocker les résultats et les corps d’erreur complets dans la configuration `observability`. Les champs sensibles sont expurgés avant l’enregistrement. Un outil en échec conserve toujours la première ligne de son erreur, limitée en longueur, avec les identifiants de connexion, les adresses e-mail et les longs identifiants opaques expurgés, afin que les échecs restent diagnosticables même lorsque `captureToolResults` est désactivé.
 
+La capture des prompts est désactivée par défaut. Définissez `capturePrompts: true` dans la configuration `observability`, ou réglez `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true`, pour enregistrer l’entrée et la sortie de chaque étendue `llm_call` dans cette vue détaillée. Le prompt système est exclu, les champs sensibles structurés sont expurgés et chaque partie est limitée à 128 Kio. Les étendues existantes ne sont pas complétées rétroactivement.
+
 ### Revue humaine {#review}
 
 L’onglet Revue humaine présente la demande et la réponse de chaque exécution, permet de noter un retour et d’enregistrer un brouillon de modification des instructions pour examen humain. L’enregistrement du brouillon ne modifie pas automatiquement les instructions.
