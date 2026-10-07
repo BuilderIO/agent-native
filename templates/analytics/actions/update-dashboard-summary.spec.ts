@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
-  upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboard: vi.fn(async (..._args: unknown[]) => ({ archivedAt: null })),
+  upsertDashboardWithRetryOutcome: vi.fn(),
   dryRunQuery: vi.fn(),
   resolvePanel: vi.fn(),
   hasCollabState: vi.fn(async () => false),
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   seedFromText: vi.fn(async () => undefined),
 }));
 
-function defaultUpsertDashboardWithRetry(
+function defaultUpsertDashboardWithRetryOutcome(
   id: string,
   ctx: unknown,
   mutate: (existing: any) =>
@@ -33,9 +33,14 @@ function defaultUpsertDashboardWithRetry(
     const { kind, body } = await mutate(existing);
     // Like the store: an identical config persists nothing and returns the
     // stored record, with the same revision.
-    if (JSON.stringify(body) === stored) return existing;
+    if (JSON.stringify(body) === stored) {
+      return { dashboard: existing, didWrite: false };
+    }
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body, updatedAt: "moved" };
+    return {
+      dashboard: { ...existing, kind, config: body, updatedAt: "moved" },
+      didWrite: true,
+    };
   })();
 }
 
@@ -76,8 +81,11 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("../server/lib/dashboards-store", () => ({
   assertDashboardEditable: vi.fn(async () => undefined),
   getDashboard: mocks.getDashboard,
-  upsertDashboard: mocks.upsertDashboard,
-  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
+  upsertDashboardOutcome: async (...args: unknown[]) => ({
+    dashboard: await mocks.upsertDashboard(...args),
+    didWrite: true,
+  }),
+  upsertDashboardWithRetryOutcome: mocks.upsertDashboardWithRetryOutcome,
   DashboardConflictError: class DashboardConflictError extends Error {},
 }));
 
@@ -133,9 +141,9 @@ describe("update-dashboard proof-of-done summary", () => {
   beforeEach(() => {
     mocks.getDashboard.mockReset();
     mocks.upsertDashboard.mockClear();
-    mocks.upsertDashboardWithRetry.mockReset();
-    mocks.upsertDashboardWithRetry.mockImplementation(
-      defaultUpsertDashboardWithRetry,
+    mocks.upsertDashboardWithRetryOutcome.mockReset();
+    mocks.upsertDashboardWithRetryOutcome.mockImplementation(
+      defaultUpsertDashboardWithRetryOutcome,
     );
     mocks.dryRunQuery.mockReset();
     mocks.dryRunQuery.mockResolvedValue(null);
@@ -361,7 +369,7 @@ describe("update-dashboard proof-of-done summary", () => {
     };
 
     let mutateCallCount = 0;
-    mocks.upsertDashboardWithRetry.mockImplementationOnce(
+    mocks.upsertDashboardWithRetryOutcome.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
         mutateCallCount += 1;
         await mutate(beforeConcurrentWrite);
@@ -369,10 +377,13 @@ describe("update-dashboard proof-of-done summary", () => {
         const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
         return {
-          ...afterConcurrentWrite,
-          kind,
-          config: body,
-          updatedAt: "moved",
+          dashboard: {
+            ...afterConcurrentWrite,
+            kind,
+            config: body,
+            updatedAt: "moved",
+          },
+          didWrite: true,
         };
       },
     );

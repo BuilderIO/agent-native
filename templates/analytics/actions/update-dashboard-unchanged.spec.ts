@@ -46,7 +46,9 @@ vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
 // The store's contract (see dashboards-store.interleave.spec.ts): every write
 // moves updatedAt, a fenced save lands only on the revision it was built from,
 // and a save identical to what is stored persists nothing and returns the
-// stored record untouched.
+// stored record untouched with `didWrite: false`. An unfenced save compares
+// against the latest row, so a peer's identical save that landed after the
+// caller read the dashboard moves `updatedAt` without this save writing.
 let row: { config: Record<string, unknown>; updatedAt: string } | null = null;
 let version = 0;
 let writes = 0;
@@ -73,17 +75,17 @@ const write = async (
   ) {
     throw new mocks.DashboardConflictError(id);
   }
-  if (!row || JSON.stringify(row.config) !== JSON.stringify(config)) {
-    save(config);
-  }
-  return (await read())!;
+  const didWrite =
+    !row || JSON.stringify(row.config) !== JSON.stringify(config);
+  if (didWrite) save(config);
+  return { dashboard: (await read())!, didWrite };
 };
 
 vi.mock("../server/lib/dashboards-store", () => ({
   assertDashboardEditable: mocks.assertDashboardEditable,
   DashboardConflictError: mocks.DashboardConflictError,
   getDashboard: vi.fn(read),
-  upsertDashboard: vi.fn(
+  upsertDashboardOutcome: vi.fn(
     (
       id: string,
       _kind: string,
@@ -92,7 +94,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
       expectedUpdatedAt?: string,
     ) => write(id, config, expectedUpdatedAt),
   ),
-  upsertDashboardWithRetry: vi.fn(
+  upsertDashboardWithRetryOutcome: vi.fn(
     async (
       id: string,
       _ctx: unknown,
@@ -113,6 +115,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
 }));
 
 const { default: updateDashboard } = await import("./update-dashboard");
+const store = await import("../server/lib/dashboards-store");
 
 const agent = { caller: "tool" } as never;
 const frontend = { caller: "frontend" } as never;
@@ -148,6 +151,43 @@ const identicalWrites: [string, Record<string, unknown>][] = [
   ["a panelOrder reorder", { panelOrder: ["a"] }],
   ["an ops edit", setSql(SQL)],
 ];
+// The store's answer for the next save, whatever its own revision bookkeeping
+// would have said: the action must read `didWrite`, not infer it.
+function stubStoreOutcome(
+  path: "config" | "retry",
+  didWrite: boolean,
+  updatedAt: string,
+) {
+  const record = async (config: Record<string, unknown>) =>
+    ({ ...(await read())!, config, updatedAt }) as never;
+  if (path === "config") {
+    vi.mocked(store.upsertDashboardOutcome).mockImplementationOnce(
+      async (_id, _kind, config) => ({
+        dashboard: await record(config),
+        didWrite,
+      }),
+    );
+  } else {
+    vi.mocked(store.upsertDashboardWithRetryOutcome).mockImplementationOnce(
+      async (_id, _ctx, mutate) => {
+        const { body } = await mutate((await read())! as never);
+        return { dashboard: await record(body), didWrite };
+      },
+    );
+  }
+}
+
+const storeWritePaths: [string, "config" | "retry", Record<string, unknown>][] =
+  [
+    [
+      "a config replace",
+      "config",
+      { config: dashboard(panel("a", EDITED_SQL), panel("b")) },
+    ],
+    ["a panelOrder reorder", "retry", { panelOrder: ["b"] }],
+    ["an ops edit", "retry", setSql(EDITED_SQL)],
+  ];
+
 const changingWrites: [string, Record<string, unknown>][] = [
   [
     "a config replace",
@@ -299,6 +339,93 @@ describe("update-dashboard saves that change nothing", () => {
     expect(result.updatedAt).not.toBe(peer);
     expect(row!.config).toEqual(loaded);
     expect(mocks.queueDashboardCollabSync).toHaveBeenCalledOnce();
+  });
+
+  describe("a UI config save overtaken by a peer's save while it validated", () => {
+    const edited = () => dashboard(panel("a", EDITED_SQL), panel("b"));
+
+    it("is unchanged when the peer already saved the same config", async () => {
+      const loaded = row!.updatedAt;
+      mocks.dryRunQuery.mockImplementationOnce(async () => {
+        save(edited());
+        return null;
+      });
+
+      const result: any = await updateDashboard.run(
+        { dashboardId: "growth", config: edited() },
+        frontend,
+      );
+
+      expect(result).toMatchObject({
+        saved: false,
+        changed: false,
+        updatedAt: row!.updatedAt,
+      });
+      expect(row!.updatedAt).not.toBe(loaded);
+      expect(result).not.toHaveProperty("_receipt");
+      expect(writes).toBe(1);
+      expect(mocks.queueDashboardCollabSync).not.toHaveBeenCalled();
+      expect(mocks.track).not.toHaveBeenCalled();
+    });
+
+    it("is still changed when the peer saved something different", async () => {
+      mocks.dryRunQuery.mockImplementationOnce(async () => {
+        save(dashboard(panel("a"), panel("b"), panel("added-elsewhere")));
+        return null;
+      });
+
+      const result: any = await updateDashboard.run(
+        { dashboardId: "growth", config: edited() },
+        frontend,
+      );
+
+      expect(result).toMatchObject({
+        saved: true,
+        changed: true,
+        updatedAt: row!.updatedAt,
+      });
+      expect(row!.config).toEqual(edited());
+      expect(writes).toBe(2);
+      expect(mocks.queueDashboardCollabSync).toHaveBeenCalledOnce();
+      expect(mocks.track).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe.each(storeWritePaths)("%s", (_, path, args) => {
+    it("is unchanged when the store reports no write, even though the record it returns is newer", async () => {
+      stubStoreOutcome(path, false, "peer-newer");
+
+      const result: any = await updateDashboard.run(
+        { dashboardId: "growth", ...args } as never,
+        frontend,
+      );
+
+      expect(result).toMatchObject({
+        saved: false,
+        changed: false,
+        updatedAt: "peer-newer",
+      });
+      expect(mocks.queueDashboardCollabSync).not.toHaveBeenCalled();
+      expect(mocks.track).not.toHaveBeenCalled();
+    });
+
+    it("is saved when the store reports a write, even though the record's revision did not move", async () => {
+      const stored = row!.updatedAt;
+      stubStoreOutcome(path, true, stored);
+
+      const result: any = await updateDashboard.run(
+        { dashboardId: "growth", ...args } as never,
+        frontend,
+      );
+
+      expect(result).toMatchObject({
+        saved: true,
+        changed: true,
+        updatedAt: stored,
+      });
+      expect(mocks.queueDashboardCollabSync).toHaveBeenCalledOnce();
+      expect(mocks.track).toHaveBeenCalledOnce();
+    });
   });
 
   it("reports a brand-new dashboard as saved", async () => {

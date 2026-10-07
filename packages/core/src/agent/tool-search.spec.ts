@@ -12,8 +12,10 @@ import {
   createToolSearchEntry,
   filterActionsForAgentDiscovery,
   isTargetedToolSearch,
+  readLoadedToolNames,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
+  withLoadedToolNames,
 } from "./tool-search.js";
 
 function action(
@@ -739,5 +741,67 @@ describe("tool-search", () => {
       expect(searchToolRegistry(registry, { queries: [" "] }).query).toBe("");
       expect(searchToolRegistry(registry, {}).results).toHaveLength(4);
     });
+  });
+});
+
+describe("readLoadedToolNames", () => {
+  const output = {
+    query: "alpha",
+    totalTools: 2,
+    count: 1,
+    results: [
+      { name: "alpha-tool", callable: true },
+      { name: "plan-only", callable: false },
+    ],
+  };
+
+  it("reads the loaded list from a result followed by notes", () => {
+    const stored = `${JSON.stringify(
+      withLoadedToolNames(output, ["alpha-tool", 'odd "name"']),
+      null,
+      2,
+    )}\n\nLoaded matching tool schemas for the next step, not this one: alpha-tool`;
+    expect(readLoadedToolNames(stored)).toEqual(["alpha-tool", 'odd "name"']);
+  });
+
+  it("keeps the loaded list readable after the rest of the result is clipped", () => {
+    const stored = JSON.stringify(
+      withLoadedToolNames(output, ["alpha-tool", "beta-tool"]),
+      null,
+      2,
+    );
+    const clipped = `${stored.slice(0, stored.indexOf('"results"') + 20)}\n\n...[truncated]`;
+    expect(readLoadedToolNames(clipped)).toEqual(["alpha-tool", "beta-tool"]);
+  });
+
+  it("reads a compact result and an empty loaded list", () => {
+    expect(
+      readLoadedToolNames(JSON.stringify(withLoadedToolNames(output, []))),
+    ).toEqual([]);
+    expect(
+      readLoadedToolNames(
+        JSON.stringify(withLoadedToolNames(output, ["a", "b"])),
+      ),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("reads the callable matches of a result stored before the loaded list", () => {
+    const stored = `${JSON.stringify(output, null, 2)}\n\nLoaded matching tool schemas for next step: alpha-tool`;
+    expect(readLoadedToolNames(stored)).toEqual(["alpha-tool"]);
+    expect(readLoadedToolNames(JSON.stringify(output))).toEqual(["alpha-tool"]);
+  });
+
+  it("tells a result that loaded nothing from one it cannot read", () => {
+    expect(
+      readLoadedToolNames("Interrupted before this tool returned"),
+    ).toEqual([]);
+    expect(
+      readLoadedToolNames(JSON.stringify({ query: "", results: [] })),
+    ).toEqual([]);
+    const stored = JSON.stringify(output, null, 2);
+    expect(
+      readLoadedToolNames(`${stored.slice(0, 60)}\n\n...[truncated]`),
+    ).toBeNull();
+    expect(readLoadedToolNames('{"query": "alpha", "results": [')).toBeNull();
   });
 });

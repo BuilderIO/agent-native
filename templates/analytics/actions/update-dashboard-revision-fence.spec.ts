@@ -44,7 +44,7 @@ vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
 
 // A store with the real revision fence: a fenced save lands only on the
 // updatedAt it was derived from, and the retry helper re-reads and re-runs the
-// mutation on a lost race like upsertDashboardWithRetry does.
+// mutation on a lost race like upsertDashboardWithRetryOutcome does.
 let row: { config: Record<string, unknown>; updatedAt: string } | null = null;
 let version = 0;
 const save = (config: Record<string, unknown>) => {
@@ -69,15 +69,18 @@ const write = async (
   ) {
     throw new mocks.DashboardConflictError(id);
   }
+  if (row && JSON.stringify(row.config) === JSON.stringify(config)) {
+    return { dashboard: { ...row }, didWrite: false };
+  }
   save(config);
-  return { ...row! };
+  return { dashboard: { ...row! }, didWrite: true };
 };
 
 vi.mock("../server/lib/dashboards-store", () => ({
   assertDashboardEditable: mocks.assertDashboardEditable,
   DashboardConflictError: mocks.DashboardConflictError,
   getDashboard: vi.fn(read),
-  upsertDashboard: vi.fn(
+  upsertDashboardOutcome: vi.fn(
     (
       id: string,
       _kind: string,
@@ -86,7 +89,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
       expectedUpdatedAt?: string,
     ) => write(id, config, expectedUpdatedAt),
   ),
-  upsertDashboardWithRetry: vi.fn(
+  upsertDashboardWithRetryOutcome: vi.fn(
     async (
       id: string,
       _ctx: unknown,

@@ -497,6 +497,63 @@ export function isTargetedToolSearch(args: object): boolean {
   return parsedQueries.kept.length > 0 || parsedNames.kept.length > 0;
 }
 
+/** Callable matches of a targeted search; empty for a menu or an error. */
+export function extractToolSearchResultNames(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const result = value as { query?: unknown; results?: unknown };
+  if (typeof result.query !== "string" || result.query.trim().length === 0) {
+    return [];
+  }
+  if (!Array.isArray(result.results)) return [];
+  const names: string[] = [];
+  for (const item of result.results) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    if (record.callable === false) continue;
+    const name = record.name;
+    if (typeof name === "string" && name.trim()) names.push(name);
+  }
+  return names;
+}
+
+/**
+ * The tools a search made callable lead its stored result. Replayed history
+ * clips a result mid-object, and the loaded list must outlive that clip, so it
+ * is read before the rest of the object is parsed.
+ */
+export function withLoadedToolNames<T extends object>(
+  output: T,
+  names: string[],
+) {
+  return { loadedForNextStep: names, ...output };
+}
+
+const LEADING_LOADED_TOOL_NAMES =
+  /^\s*\{\s*"loadedForNextStep"\s*:\s*(\[\s*(?:"(?:[^"\\]|\\.)*"(?:\s*,\s*"(?:[^"\\]|\\.)*")*)?\s*\])/;
+
+/**
+ * Tools a stored tool-search result made callable. `[]` means it loaded
+ * nothing, which includes a failed or interrupted search (not an object);
+ * `null` means it is a search result that cannot be read, clipped or corrupt.
+ */
+export function readLoadedToolNames(content: string): string[] | null {
+  try {
+    const leading = LEADING_LOADED_TOOL_NAMES.exec(content);
+    if (leading) return JSON.parse(leading[1]) as string[];
+    if (!content.trimStart().startsWith("{")) return [];
+    // Results stored before the loaded list existed carry every callable
+    // match. Pretty-printed JSON has no blank line, so notes appended after
+    // the object start at the first one.
+    const end = content.indexOf("\n\n");
+    return extractToolSearchResultNames(
+      JSON.parse(end < 0 ? content : content.slice(0, end)),
+    );
+    // coercion-ok: unreadable returns null, which callers tell apart from [] (loaded nothing) and warn about
+  } catch {
+    return null;
+  }
+}
+
 function parseStringList(
   values: unknown[],
   max: number,

@@ -33,10 +33,10 @@ import {
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   getDashboard,
-  upsertDashboard,
-  upsertDashboardWithRetry,
+  upsertDashboardOutcome,
+  upsertDashboardWithRetryOutcome,
   DashboardConflictError,
-  type DashboardRecord,
+  type DashboardUpsertOutcome,
 } from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
@@ -680,21 +680,8 @@ function dashboardResult(
 }
 
 /**
- * The store moves `updatedAt` on every write and hands back the stored record
- * untouched when nothing differed, so a revision that did not move is its answer
- * that nothing was persisted. `observedUpdatedAt` is the revision the save
- * compared against: the fence, or else the record the edit was built from.
- */
-function persistedNothing(
-  saved: DashboardRecord,
-  observedUpdatedAt: string | undefined,
-): boolean {
-  return saved.updatedAt === observedUpdatedAt;
-}
-
-/**
- * A save the store did not persist is reported like an unchanged
- * `mutate-dashboard` batch: no sync, no tracking, and nothing verified.
+ * A save the store did not persist (`didWrite: false`) is reported like an
+ * unchanged `mutate-dashboard` batch: no sync, no tracking, and nothing verified.
  */
 function unchangedDashboardResult(
   dashboardId: string,
@@ -859,12 +846,23 @@ export default defineAction({
       // verified against. Other callers keep last-write-wins unless they send one.
       const fence =
         args.expectedUpdatedAt ?? (agentCaller ? before?.updatedAt : undefined);
-      let saved: DashboardRecord;
+      let outcome: DashboardUpsertOutcome;
       try {
-        saved =
+        outcome =
           fence !== undefined
-            ? await upsertDashboard(dashboardId, "sql", args.config, ctx, fence)
-            : await upsertDashboard(dashboardId, "sql", args.config, ctx);
+            ? await upsertDashboardOutcome(
+                dashboardId,
+                "sql",
+                args.config,
+                ctx,
+                fence,
+              )
+            : await upsertDashboardOutcome(
+                dashboardId,
+                "sql",
+                args.config,
+                ctx,
+              );
       } catch (err) {
         if (err instanceof DashboardConflictError) {
           fail(
@@ -874,7 +872,8 @@ export default defineAction({
         }
         throw err;
       }
-      if (before && persistedNothing(saved, fence ?? before.updatedAt)) {
+      const saved = outcome.dashboard;
+      if (!outcome.didWrite) {
         return unchangedDashboardResult(
           dashboardId,
           args.config,
@@ -907,13 +906,11 @@ export default defineAction({
     if (args.panelOrder) {
       let orderDetails!: PanelOrderResult;
       let orderVerdict: PanelWriteVerdict | null = null;
-      let observedUpdatedAt!: string;
-      const saved = await upsertDashboardWithRetry(
+      const outcome = await upsertDashboardWithRetryOutcome(
         dashboardId,
         ctx,
         async (existing) => {
           await requireEditableDashboard(dashboardId, ctx, existing);
-          observedUpdatedAt = existing.updatedAt;
           const root = existing.config as Record<string, unknown>;
           // applyPanelOrder edits `root` in place, so the pre-edit config must be copied first.
           const baseline = JSON.parse(JSON.stringify(root)) as Record<
@@ -937,8 +934,9 @@ export default defineAction({
           return { kind: existing.kind, body: root };
         },
       );
+      const saved = outcome.dashboard;
       const root = saved.config as Record<string, unknown>;
-      if (persistedNothing(saved, observedUpdatedAt)) {
+      if (!outcome.didWrite) {
         return unchangedDashboardResult(
           dashboardId,
           root,
@@ -969,13 +967,11 @@ export default defineAction({
 
     let appliedDetails: string[] = [];
     let opsVerdict: PanelWriteVerdict | null = null;
-    let observedUpdatedAt!: string;
-    const saved = await upsertDashboardWithRetry(
+    const outcome = await upsertDashboardWithRetryOutcome(
       dashboardId,
       ctx,
       async (existing) => {
         await requireEditableDashboard(dashboardId, ctx, existing);
-        observedUpdatedAt = existing.updatedAt;
         const root = existing.config as Record<string, unknown>;
         // The ops below edit `root` in place, so the pre-edit config must be copied first.
         const baseline = JSON.parse(JSON.stringify(root)) as Record<
@@ -1012,8 +1008,9 @@ export default defineAction({
         return { kind: existing.kind, body: root };
       },
     );
+    const saved = outcome.dashboard;
     const root = saved.config as Record<string, unknown>;
-    if (persistedNothing(saved, observedUpdatedAt)) {
+    if (!outcome.didWrite) {
       return unchangedDashboardResult(
         dashboardId,
         root,

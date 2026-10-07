@@ -50,7 +50,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: vi.fn(async () =>
     row ? { kind: "sql", config: row.config } : null,
   ),
-  upsertDashboard: vi.fn(
+  upsertDashboardOutcome: vi.fn(
     async (
       _id: string,
       _kind: string,
@@ -67,10 +67,10 @@ vi.mock("../server/lib/dashboards-store", () => ({
       }
       nextUpdatedAt += 1;
       row = { config, updatedAt: `t${nextUpdatedAt}` };
-      return { ...row };
+      return { dashboard: { ...row }, didWrite: true };
     },
   ),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboardWithRetryOutcome: vi.fn(),
 }));
 
 const { default: updateDashboard } = await import("./update-dashboard");

@@ -24,7 +24,10 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("../server/lib/dashboards-store", () => ({
   assertDashboardEditable: vi.fn(async () => undefined),
   getDashboard: vi.fn(),
-  upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
+  upsertDashboardOutcome: vi.fn(async () => ({
+    dashboard: { archivedAt: null },
+    didWrite: true,
+  })),
   DashboardConflictError: class DashboardConflictError extends Error {},
 }));
 

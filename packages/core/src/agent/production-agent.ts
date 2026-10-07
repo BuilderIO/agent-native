@@ -335,9 +335,12 @@ import {
 } from "./tool-result-images.js";
 import {
   createToolSearchEntry,
+  extractToolSearchResultNames,
   filterActionsForAgentDiscovery,
+  readLoadedToolNames,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
+  withLoadedToolNames,
 } from "./tool-search.js";
 import {
   normalizeAgentActionScope,
@@ -3872,28 +3875,12 @@ function isDefaultInitialToolName(name: string): boolean {
   return DEFAULT_INITIAL_TOOL_NAMES.has(name);
 }
 
-function extractToolSearchResultNames(value: unknown): string[] {
-  if (!value || typeof value !== "object") return [];
-  const result = value as { query?: unknown; results?: unknown };
-  if (typeof result.query !== "string" || result.query.trim().length === 0) {
-    return [];
-  }
-  if (!Array.isArray(result.results)) return [];
+function readToolSearchHistory(messages: EngineMessage[]): {
+  names: string[];
+  unreadable: number;
+} {
   const names: string[] = [];
-  for (const item of result.results) {
-    if (!item || typeof item !== "object") continue;
-    const record = item as Record<string, unknown>;
-    if (record.callable === false) continue;
-    const name = record.name;
-    if (typeof name === "string" && name.trim()) names.push(name);
-  }
-  return names;
-}
-
-function extractToolSearchResultNamesFromMessages(
-  messages: EngineMessage[],
-): string[] {
-  const names: string[] = [];
+  let unreadable = 0;
   for (const message of messages) {
     if (message.role !== "user") continue;
     for (const part of message.content) {
@@ -3904,14 +3891,12 @@ function extractToolSearchResultNamesFromMessages(
       ) {
         continue;
       }
-      try {
-        names.push(...extractToolSearchResultNames(JSON.parse(part.content)));
-      } catch {
-        // Tool results are best-effort history hints; ignore non-JSON content.
-      }
+      const loaded = readLoadedToolNames(part.content);
+      if (loaded) names.push(...loaded);
+      else unreadable += 1;
     }
   }
-  return names;
+  return { names, unreadable };
 }
 
 function normalizeToolInputSchema(
@@ -5122,10 +5107,14 @@ export async function runAgentLoop(opts: {
     return { added, overflow };
   };
 
+  const priorSearches = readToolSearchHistory(messages);
+  if (priorSearches.unreadable > 0) {
+    console.warn(
+      `[agent-loop] ${priorSearches.unreadable} earlier tool-search result(s) could not be read, so the tools they loaded were not restored (runId=${opts.runId ?? "none"})`,
+    );
+  }
   // Newest searches lead, so they win if history alone overflows the cap.
-  expandActiveTools(
-    extractToolSearchResultNamesFromMessages(messages).reverse(),
-  );
+  expandActiveTools(priorSearches.names.reverse());
 
   const processorChain =
     opts.processors && opts.processors.length > 0
@@ -7177,6 +7166,31 @@ export async function runAgentLoop(opts: {
               ...imageNotes,
             ];
           }
+          let toolSearch:
+            | {
+                matched: string[];
+                overflow: string[];
+                loadedThisStep: string[];
+              }
+            | undefined;
+          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
+            const matched = extractToolSearchResultNames(rawForAgent);
+            const { added, overflow } = expandActiveTools(
+              matched,
+              toolNamesLoadedThisStep,
+            );
+            for (const name of added) toolNamesLoadedThisStep.add(name);
+            const loadedThisStep = matched.filter((name) =>
+              toolNamesLoadedThisStep.has(name),
+            );
+            toolSearch = { matched, overflow, loadedThisStep };
+            if (matched.length > 0) {
+              resultForAgent = withLoadedToolNames(
+                rawForAgent as Record<string, unknown>,
+                loadedThisStep,
+              );
+            }
+          }
           let resultStr =
             typeof resultForAgent === "string"
               ? resultForAgent
@@ -7189,16 +7203,8 @@ export async function runAgentLoop(opts: {
             resultStr = `${resultStr}\n\n${imageNotes.join("\n")}`;
           }
           result = resultStr;
-          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
-            const matched = extractToolSearchResultNames(rawForAgent);
-            const { added, overflow } = expandActiveTools(
-              matched,
-              toolNamesLoadedThisStep,
-            );
-            for (const name of added) toolNamesLoadedThisStep.add(name);
-            const loadedThisStep = matched.filter((name) =>
-              toolNamesLoadedThisStep.has(name),
-            );
+          if (toolSearch) {
+            const { matched, overflow, loadedThisStep } = toolSearch;
             const loadedNote = `Loaded matching tool schemas for the next step, not this one: ${loadedThisStep.join(", ")}`;
             if (loadedThisStep.length > 0) {
               result += `\n\n${loadedNote}`;
@@ -7211,7 +7217,7 @@ export async function runAgentLoop(opts: {
                 .message;
               result = JSON.stringify(
                 {
-                  ...(rawForAgent as Record<string, unknown>),
+                  ...(resultForAgent as Record<string, unknown>),
                   alreadyLoaded: true,
                   message: [
                     `All ${matched.length} matches are already callable; call them directly.`,
@@ -7258,7 +7264,7 @@ export async function runAgentLoop(opts: {
                 (rawForAgent as { repeated?: unknown }).repeated === true
                   ? JSON.stringify(
                       {
-                        ...(rawForAgent as Record<string, unknown>),
+                        ...(resultForAgent as Record<string, unknown>),
                         message: [
                           loadedThisStep.length > 0 ? loadedNote : "",
                           overflowNote,

@@ -4,15 +4,15 @@ const mocks = vi.hoisted(() => ({
   assertDashboardEditable: vi.fn(async (): Promise<void> => undefined),
   dryRunQuery: vi.fn(async (): Promise<string | null> => null),
   getDashboard: vi.fn(),
-  upsertDashboard: vi.fn(async () => ({
+  upsertDashboard: vi.fn(async (..._args: unknown[]) => ({
     archivedAt: null,
     updatedAt: "2026-10-01T00:00:00.000Z",
   })),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboardWithRetryOutcome: vi.fn(),
   resolvePanel: vi.fn(),
 }));
 
-function defaultUpsertDashboardWithRetry(
+function defaultUpsertDashboardWithRetryOutcome(
   id: string,
   ctx: unknown,
   mutate: (existing: any) => Promise<any> | any,
@@ -24,9 +24,14 @@ function defaultUpsertDashboardWithRetry(
     const { kind, body } = await mutate(existing);
     // Like the store: an identical config persists nothing and returns the
     // stored record, with the same revision.
-    if (JSON.stringify(body) === stored) return existing;
+    if (JSON.stringify(body) === stored) {
+      return { dashboard: existing, didWrite: false };
+    }
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body, updatedAt: "moved" };
+    return {
+      dashboard: { ...existing, kind, config: body, updatedAt: "moved" },
+      didWrite: true,
+    };
   })();
 }
 
@@ -60,8 +65,11 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("../server/lib/dashboards-store", () => ({
   assertDashboardEditable: mocks.assertDashboardEditable,
   getDashboard: mocks.getDashboard,
-  upsertDashboard: mocks.upsertDashboard,
-  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
+  upsertDashboardOutcome: async (...args: unknown[]) => ({
+    dashboard: await mocks.upsertDashboard(...args),
+    didWrite: true,
+  }),
+  upsertDashboardWithRetryOutcome: mocks.upsertDashboardWithRetryOutcome,
   DashboardConflictError: class DashboardConflictError extends Error {},
 }));
 vi.mock("../server/lib/bigquery", () => ({
@@ -144,9 +152,9 @@ beforeEach(() => {
     config: dashboard([pivotPanel()]),
   });
   mocks.upsertDashboard.mockClear();
-  mocks.upsertDashboardWithRetry.mockReset();
-  mocks.upsertDashboardWithRetry.mockImplementation(
-    defaultUpsertDashboardWithRetry,
+  mocks.upsertDashboardWithRetryOutcome.mockReset();
+  mocks.upsertDashboardWithRetryOutcome.mockImplementation(
+    defaultUpsertDashboardWithRetryOutcome,
   );
   mocks.resolvePanel.mockReset();
   mocks.resolvePanel.mockResolvedValue(result(LONG_ROWS));
