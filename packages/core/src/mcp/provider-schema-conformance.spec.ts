@@ -87,7 +87,9 @@ describe("providerSchemaViolations", () => {
       "openai: array has no items schema at $.properties.list",
     ]);
     expect(rulesFor({ type: "object", required: "id" })).toEqual([
-      "anthropic: not a valid draft 2020-12 JSON Schema at $",
+      expect.stringMatching(
+        /^anthropic: not a valid draft 2020-12 JSON Schema \(.*required.*\) at \$$/,
+      ),
     ]);
   });
 

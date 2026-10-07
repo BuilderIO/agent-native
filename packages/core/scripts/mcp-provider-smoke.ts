@@ -230,7 +230,8 @@ async function postToProvider(
       max_tokens: choice.kind === "none" ? 16 : 4000,
     }),
   });
-  const body = (await response.json().catch(() => ({}))) as {
+  const text = await response.text();
+  let body: {
     error?: { message?: string; metadata?: unknown };
     choices?: {
       message?: {
@@ -238,6 +239,15 @@ async function postToProvider(
       };
     }[];
   };
+  try {
+    body = JSON.parse(text);
+  } catch (error) {
+    return {
+      ok: false,
+      status: response.status,
+      error: `response is not JSON (${error instanceof Error ? error.message : String(error)}): ${text.slice(0, 600)}`,
+    };
+  }
   if (!response.ok || body.error) {
     return {
       ok: false,

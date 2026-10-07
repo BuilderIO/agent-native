@@ -143,12 +143,13 @@ function declaresType(schema: JsonSchema, type: string): boolean {
 
 const draft2020 = new Ajv2020({ strict: false, validateFormats: false });
 
-function compilesAsDraft2020(schema: JsonSchema): boolean {
+/** Ajv's reason the schema is not valid draft 2020-12, or undefined. */
+function draft2020CompileError(schema: JsonSchema): string | undefined {
   try {
     draft2020.compile(schema);
-    return true;
-  } catch {
-    return false;
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   }
 }
 
@@ -186,8 +187,12 @@ export function providerSchemaViolations(tool: {
       add(["anthropic", "openai"], `root uses ${keyword}`);
     }
   }
-  if (!compilesAsDraft2020(schema)) {
-    add(["anthropic"], "not a valid draft 2020-12 JSON Schema");
+  const compileError = draft2020CompileError(schema);
+  if (compileError) {
+    add(
+      ["anthropic"],
+      `not a valid draft 2020-12 JSON Schema (${compileError})`,
+    );
   }
 
   visitSubschemas(schema, "$", (node, at) => {
