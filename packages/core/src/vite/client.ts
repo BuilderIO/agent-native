@@ -3738,6 +3738,98 @@ function localWorkspacePackageAliases(
   return aliases;
 }
 
+function nitroDevEnvironmentClosePlugin(): Plugin {
+  return {
+    name: "agent-native-nitro-dev-environment-close",
+    apply: "serve",
+    configureServer(server) {
+      const closeServer = server.close.bind(server);
+      let closePromise: Promise<void> | undefined;
+      server.close = () => {
+        closePromise ??= (async () => {
+          const environment = server.environments.nitro as unknown as {
+            devServer?: {
+              closed?: boolean;
+              ready?: boolean;
+            };
+            hot?: {
+              off?: (event: string, listener: (payload: any) => void) => void;
+              on?: (event: string, listener: (payload: any) => void) => void;
+              send?: (payload: any) => void;
+            };
+          };
+          const runner = environment?.devServer;
+          if (runner && !runner.closed) {
+            if (runner.ready) {
+              await requestNitroDevDatabaseClose(environment);
+            }
+          }
+          await closeServer();
+        })().catch((error) => {
+          closePromise = undefined;
+          throw error;
+        });
+        return closePromise;
+      };
+    },
+  };
+}
+
+async function requestNitroDevDatabaseClose(environment: {
+  hot?: {
+    off?: (event: string, listener: (payload: any) => void) => void;
+    on?: (event: string, listener: (payload: any) => void) => void;
+    send?: (payload: any) => void;
+  };
+}): Promise<void> {
+  const hot = environment.hot;
+  if (!hot?.on || !hot.off || !hot.send) {
+    throw new Error(
+      "Nitro dev environment cannot acknowledge database cleanup before restart.",
+    );
+  }
+
+  const requestId = randomUUID();
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout);
+      hot.off?.("agent-native:dev-database-closed", onClosed);
+    };
+    const onClosed = (payload: any) => {
+      if (payload?.requestId !== requestId) return;
+      cleanup();
+      if (typeof payload.error === "string") {
+        reject(
+          new Error(
+            `Nitro dev database cleanup failed before restart: ${payload.error}`,
+          ),
+        );
+      } else {
+        resolve();
+      }
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(
+        new Error(
+          "Nitro dev environment did not acknowledge database cleanup before restart.",
+        ),
+      );
+    }, 5_000);
+    hot.on?.("agent-native:dev-database-closed", onClosed);
+    try {
+      hot.send?.({
+        type: "custom",
+        event: "agent-native:dev-database-close",
+        data: { requestId },
+      });
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
+}
+
 function localWorkspaceExportTarget(
   packageDir: string,
   target: unknown,
@@ -4050,9 +4142,9 @@ function createAgentNativePlugins(
     silenceConnectionResets(),
     rolldownInputFix(),
     ...(useServeOnlyNitroPlugin
-      ? [forceServeOnly(nitroPlugin)]
+      ? [forceServeOnly(nitroPlugin), nitroDevEnvironmentClosePlugin()]
       : includeNitro
-        ? [nitroPlugin]
+        ? [nitroPlugin, nitroDevEnvironmentClosePlugin()]
         : []),
     nitroStartupRecovery(),
     includeReactTransform ? createReactTransformPlugin() : null,

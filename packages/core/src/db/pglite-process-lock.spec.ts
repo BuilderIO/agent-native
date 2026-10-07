@@ -93,7 +93,7 @@ async function waitFor(pathname: string): Promise<void> {
 }
 
 describe("PGlite persistent process ownership", () => {
-  it("releases a worker-owned database when Nitro closes the dev runtime", async () => {
+  it("releases database clients when Nitro closes the dev runtime", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "pglite-worker-close-"));
     const dbDir = path.join(dir, "db");
     const lockPath = `${dbDir}.agent-native-pglite.lock`;
@@ -186,8 +186,9 @@ describe("PGlite persistent process ownership", () => {
   it("rejects a competing process without losing the owner's write", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "pglite-process-lock-"));
     const dbDir = path.join(dir, "db");
+    let owner: ReturnType<typeof spawnChild> | undefined;
     try {
-      const owner = spawnChild(dir, "owner", "ignore");
+      owner = spawnChild(dir, "owner", "ignore");
       await waitFor(path.join(dir, "owner-ready"));
 
       const competitor = spawnChild(dir, "competitor", "ignore");
@@ -211,6 +212,10 @@ describe("PGlite persistent process ownership", () => {
       expect(output.trim()).toBe('[{"id":1,"who":"A"}]');
       expect(existsSync(`${dbDir}.agent-native-pglite.lock`)).toBe(false);
     } finally {
+      if (owner?.child.exitCode === null && owner.child.signalCode === null) {
+        owner.child.kill("SIGKILL");
+      }
+      await owner?.exited.catch(() => {});
       await rm(dir, { recursive: true, force: true });
     }
   }, 90_000);
