@@ -38,14 +38,13 @@ is a default input, not a special-case exclusion.
 
 ## Slack ownership gate
 
-Before reading a Slack message or using a search hit, check the message and
-parent reactions. Any pre-existing `👀` or checkmark (`✅`, `✔️`) from anyone,
-including us, means skip it: don't read it or its replies, open its thread,
-inspect linked work, investigate, react, reply, or record its details. New
-replies, evidence, and upvotes do not override the gate. In every phase, inspect
-reactions before search text; apply the same rule to thread replies. Only this
-run may handle the `👀` it adds to an unmarked item; later runs skip it. Stop
-if anyone else adds a mark during the run.
+Before reading Slack, inspect message and parent reactions. Skip checkmarks and
+`👀` owned by another task, including replies and linked work. Only the active
+task named in status may resume its own `👀`: verify ownership, reread thread
+and reactions, then continue only its scope. Handoffs require the current
+owner's explicit reply naming the new task and scope. Claims never expire. Ask
+Steve if ownership is unclear; stop if another mark appears. For continuing
+work, post one status reply with task link and remaining scope.
 
 ## Phase 0: claim what you are taking
 
@@ -97,12 +96,14 @@ For clusters, post one owner status with each source permalink and
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
 - **Owned elsewhere:** use only for an unmarked item when accessible evidence
-  confirms an active owner; pre-existing marks are skipped by the ownership gate.
+  confirms an active owner; marks owned by another task are skipped by the
+  ownership gate.
 
-After merge, **Fixed** closes the source issue. Track release/runtime
-separately; normal rollout and optional live checks neither reopen it nor
-warrant `🎫`. Follow up only on accepted work outside this run; record source,
-target, owner, exact action, and verification. Don't reopen closed fixes.
+After merge, mark **Fixed** when the source fix is verified. Track
+release/runtime separately; normal rollout and optional live checks neither
+reopen it nor warrant `🎫`. Follow up only on accepted work outside this run;
+record source, target, owner, exact action, and verification. Don't reopen
+closed fixes.
 **Clustered** closes one row but retains it.
 
 Enumerate channel parents newest backward through `next_cursor` until older
@@ -115,8 +116,8 @@ and put their count in the recap. Sort targeted searches oldest-first and follow
 Search hits are often replies; resolve `thread_ts` and check parent reactions
 before reading the hit or opening the thread.
 
-Read back each `👀` this run added once before investigation. Never resume a
-pre-existing `👀` or checkmark.
+Read back each new `👀` once. Resume only through the verified owner or handoff
+above; never resume checkmarked items.
 
 Claiming does not investigate. Read back new claims. Do not claim out-of-scope
 items. If a current-run claim proves out of scope, keep `👀` and post **Skipped**
@@ -218,14 +219,16 @@ Phase 2 reapplies these rules after full-thread review.
 
 Use `## Slack channels` unless the invocation narrows scope.
 
-**Automated diagnostics count as feedback regardless of author.** Claim
-actionable CI/Beta E2E and monitoring alerts with `👀` after the ownership gate,
-then inspect linked runs, builds/commits, job logs, test results, artifacts, and
-issue state. Treat labels/counts as leads. Fix verified repo-owned causes; for
-other causes, record evidence and the next owner/action. Don't ask bots; ask a
-person only when a fact blocks a fix. If our report lacks evidence, improve its
-checks/report with concise context and links; avoid duplicate details and
-secrets.
+**Automated diagnostics are feedback.** For Slack, gate before reading.
+Before investigating, use only alert and linked issue/PR/run/task metadata to
+identify repo/ref/SHA, workflow/service/environment, failure fingerprint, and
+active same-failure owner; this is Phase 0's sole pre-claim exception. If
+unowned/in scope, claim: Slack `👀`; elsewhere, current-task status row with
+source permalink, fingerprint, owner task/worktree, next action. Continue if
+this task owns it; else record **Owned elsewhere** (owner/link/action) and
+stop. No logs/tests/artifacts before claim. The required Slack claim reaction
+is authorized here; other source mutations need exact authorization. Then read
+`references/automated-diagnostics.md`.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
@@ -278,7 +281,7 @@ delegation and read it back. Keep an evidence-limited disposition until Phase
 2's four bars hold; then use **Shipped**, adding `✅` only if it also meets
 **Fixed**.
 
-Do not search `has::eyes:` to resume work.
+Don't search `has::eyes:`; use the owner or handoff path above.
 
 For GitHub, Sentry, and first-party Agent-Native Analytics, use native state as
 the cursor: recent open or unresolved items with no maintainer disposition,
@@ -290,8 +293,9 @@ query.
 
 Read each issue's body, comments, author, labels, linked PRs. Treat
 prior `fixed`, `shipped`, or `merged` comments as leads; recheck the surface.
-When a fix merges, thank the reporter, link it, and close. Track release/runtime
-gaps separately; keep open only while scope is unfixed, unmerged, or needs input.
+When a fix merges, record **Fixed** and link proof in the recap. Close a GitHub
+issue only when this invocation explicitly authorizes it; otherwise record the
+pending close. Track release/runtime gaps separately.
 
 Before claiming an issue, check comments for handoffs. If someone offers a PR,
 or Steve asks them to, mark **Owned elsewhere**; do not investigate, edit, test,
@@ -426,11 +430,12 @@ Npx scaffolds are versioned. Record pinned/filed versions, fresh npm cache/no
 local override, candidate result, release, and existing-app path (`pnpm add
 @agent-native/core@<version>` or hand edit).
 
-Local proof, beta promises, and scaffolds are not **Shipped**/**Live verified**
-until published. A verified merged fix is **Fixed** and closes the issue. Record
-merge commit, release, verification, and bump/re-scaffold follow-up. Unknown
-package/endpoint context is a release follow-up. Ask only if source scope or
-reporter input is unclear; missing evidence does not keep a merged fix open.
+Local proof, beta promises, and scaffolds aren't **Shipped**/**Live verified**
+until published. A verified merge is **Fixed**; follow the issue-closure rule
+above. Record merge proof, release, verification, and bump/re-scaffold
+follow-up. Unknown package/endpoint context is a release follow-up. Ask only if
+scope or reporter input is unclear. Missing evidence alone doesn't keep a
+verified merge open.
 Merge/beta is not npx delivery.
 
 ### Documentation has a runnable proof obligation

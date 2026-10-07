@@ -1581,6 +1581,8 @@ export default {
     assetAdded: "Asset added",
     assetsNoImageUrl: "Assets did not return an image URL.",
     failedToUploadFile: "Failed to upload file",
+    imageAttachmentUnavailable:
+      "We couldn't prepare this image as visual input. Attach a smaller PNG, JPG, GIF, or WebP file.",
     attachmentsTooLarge:
       "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
     failedToSubmitPrompt: "Failed to submit prompt",
@@ -2011,10 +2013,12 @@ export default {
   designSystems: {
     comingSoonTitle: "Design systems are coming soon",
     waitlist: {
-      join: "Join the waitlist",
-      joining: "Joining...",
+      join: "Join waitlist",
+      joining: "Joining…",
       joined: "You're on the waitlist",
-      error: "Couldn't join the waitlist. Please try again.",
+      error: "Could not join the waitlist. Please try again.",
+      unavailable:
+        "Waitlist sign-up isn't available right now. Please try again later.",
     },
     deleteError: "Could not delete design system",
     updateSuccess: "Design system updated",

@@ -42,6 +42,7 @@ import {
   truncateCodingOutput,
   type StructuredToolMetadata,
 } from "../coding-tools/index.js";
+import { normalizeImageMediaType } from "../file-upload/attachment-bytes.js";
 import {
   buildMergedConfig,
   McpClientManager,
@@ -58,6 +59,7 @@ import {
   getAmbientUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -2301,14 +2303,6 @@ function createFakeCodeAgentEngine(text: string): AgentEngine {
   };
 }
 
-const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
-
 function buildCodeAgentMessages(
   run: CodeAgentRunRecord,
   prompt: string,
@@ -2363,20 +2357,19 @@ function buildCodeAgentMessages(
 
   for (const att of attachments ?? []) {
     if (!att.dataUrl) continue;
-    const match = att.dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
-    if (!match) continue;
-    const mime = match[1].toLowerCase();
-    if (SUPPORTED_IMAGE_MEDIA_TYPES.has(mime)) {
+    const parsed = parseBase64DataUrl(att.dataUrl);
+    if (!parsed) continue;
+    const mime = normalizeImageMediaType(parsed.mediaType);
+    if (mime) {
       imageParts.push({
         type: "image",
-        data: match[2],
-        mediaType:
-          mime as import("../agent/engine/types.js").EngineImagePart["mediaType"],
+        data: parsed.data,
+        mediaType: mime,
       });
     } else {
       const label = att.name ? `"${att.name}"` : "An image";
       unsupportedImageNotes.push(
-        `[${label} could not be processed — unsupported image format (${mime}). ` +
+        `[${label} could not be processed — unsupported image format (${parsed.mediaType}). ` +
           `Only JPEG, PNG, GIF, and WebP are supported.]`,
       );
     }

@@ -1611,6 +1611,8 @@ export default {
     assetAdded: "Asset hinzugefügt",
     assetsNoImageUrl: "Assets hat keine Bild-URL zurückgegeben.",
     failedToUploadFile: "Datei konnte nicht hochgeladen werden",
+    imageAttachmentUnavailable:
+      "Dieses Bild konnte nicht als visuelle Eingabe vorbereitet werden. Füge eine kleinere PNG-, JPG-, GIF- oder WebP-Datei an.",
     attachmentsTooLarge:
       "Diese Anhänge sind zu groß. Uploads sind auf insgesamt {{max}} MB begrenzt – hänge weniger oder kleinere Dateien an.",
     failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
@@ -2060,11 +2062,13 @@ export default {
   designSystems: {
     comingSoonTitle: "Designsysteme kommen bald",
     waitlist: {
-      join: "Zur Warteliste",
-      joining: "Wird hinzugefügt...",
-      joined: "Du stehst auf der Warteliste",
+      join: "Warteliste beitreten",
+      joining: "Wird eingetragen…",
+      joined: "Sie stehen auf der Warteliste",
       error:
-        "Du konntest nicht zur Warteliste hinzugefügt werden. Bitte versuche es erneut.",
+        "Sie konnten nicht zur Warteliste hinzugefügt werden. Bitte versuchen Sie es erneut.",
+      unavailable:
+        "Die Anmeldung zur Warteliste ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
     },
     deleteError: "Das Designsystem konnte nicht gelöscht werden",
     updateSuccess: "Designsystem aktualisiert",

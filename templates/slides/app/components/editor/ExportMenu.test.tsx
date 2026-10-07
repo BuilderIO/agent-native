@@ -512,6 +512,9 @@ describe("<ExportMenu>", () => {
       ),
     );
     expect(window.open).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("shows a loading dialog for PDF instead of navigating away", async () => {

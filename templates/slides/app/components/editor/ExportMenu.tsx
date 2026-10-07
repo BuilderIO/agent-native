@@ -180,15 +180,6 @@ export function ExportStatusDialog({
                 {status.message}
               </DialogDescription>
             </DialogHeader>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onStatusChange({ state: "idle" })}
-              >
-                {t("comments.close")}
-              </Button>
-            </DialogFooter>
           </>
         ) : null}
       </DialogContent>

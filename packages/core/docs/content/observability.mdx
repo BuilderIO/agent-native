@@ -122,6 +122,8 @@ Select a run to inspect its spans. Expand any span to view captured tool inputs,
 
 Tool arguments, results, and full error bodies are off by default. Enable `captureToolArgs` to store arguments and `captureToolResults` to store results and full error bodies in the `observability` config. Sensitive fields are redacted before storage. A failed tool always keeps a bounded first line of its error, with credentials, emails, and long opaque ids redacted, so failures stay diagnosable even when `captureToolResults` is off.
 
+Prompt capture is off by default. Set `capturePrompts: true` in the `observability` config, or set `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true`, to store each `llm_call` span's input and output for this detail view. The system prompt is excluded, structured sensitive fields are redacted, and each side is capped at 128 KiB. Existing spans are not backfilled.
+
 ### Human review {#review}
 
 The Human review tab shows each run’s ask and answer, lets you record feedback, and lets you draft an instruction update for a human to review. Saving the draft does not change instructions automatically.

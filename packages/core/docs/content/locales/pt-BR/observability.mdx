@@ -125,6 +125,8 @@ A guia Conversas mostra as execuções registradas. Selecione uma para inspecion
 
 Os argumentos, os resultados e os corpos de erro completos das ferramentas não são capturados por padrão. Ative `captureToolArgs` para armazenar os argumentos e `captureToolResults` para armazenar os resultados e os corpos de erro completos na configuração `observability`. Os campos sensíveis são ocultados antes do armazenamento. Uma ferramenta com falha sempre mantém a primeira linha do erro, com tamanho limitado e com credenciais, e-mails e IDs opacos longos ocultados, para que as falhas continuem diagnosticáveis mesmo com `captureToolResults` desativado.
 
+A captura de prompts fica desativada por padrão. Defina `capturePrompts: true` na configuração `observability` ou configure `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true` para armazenar a entrada e a saída de cada span `llm_call` nesta visualização detalhada. O prompt do sistema é excluído, campos sensíveis estruturados são ocultados e cada lado é limitado a 128 KiB. Spans existentes não são preenchidos retroativamente.
+
 ### Revisão humana {#review}
 
 A guia Revisão humana mostra o pedido e a resposta de cada execução, permite registrar feedback e salvar um rascunho de atualização das instruções para revisão humana. Salvar o rascunho não altera as instruções automaticamente.
