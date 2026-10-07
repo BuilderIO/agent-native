@@ -7,7 +7,14 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { appPath, designFrame, gotoEditor, selectByText } from "./helpers";
+import {
+  appPath,
+  designFrame,
+  gotoEditor,
+  installBridge,
+  selectByText,
+  waitForBridge,
+} from "./helpers";
 
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Corner radius</title></head>
@@ -154,6 +161,10 @@ async function dragSouthEastRadius(
   page: Page,
   frame: ReturnType<typeof designFrame>,
 ) {
+  await installBridge(page);
+  await page.evaluate(() => {
+    (window as any).__bridge = [];
+  });
   const target = frame.locator("#radius-target");
   const corner = frame.locator('[data-agent-native-radius-handle="se"]');
   const initial = await corner.boundingBox();
@@ -195,6 +206,8 @@ async function dragSouthEastRadius(
     }
   }
   await page.mouse.up();
+  const commit = await waitForBridge(page, "visual-style-change");
+  expect(commit.styles?.borderRadius).toBe(`${previousRadius}px`);
   return previousRadius;
 }
 
