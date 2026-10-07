@@ -89,8 +89,7 @@ For clusters, post one owner status with each source permalink and
   **Clustered**, or **Abandoned - no answer in 4 days**. Apply the reaction
   gate above.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
-  **Deployed - live unverified**, **Not reproducible - attempted**,
-  **Quarantined** (owner, expiry, issue; revisit until fixed or restored), or
+  **Deployed - live unverified**, **Not reproducible - attempted**, or
   **In progress**.
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
@@ -320,11 +319,12 @@ inventing a fix.
 
 ### Deployment, release, and publish failures
 
-Scan app/template, desktop, and package lanes each sweep. CI rows use one
-fingerprint recap row; follow **CI failures** for ownership. Follow
+Scan app/template, desktop, and package lanes each sweep. Keep one row per
+workflow fingerprint. CI-red deploy rows reuse that row; follow
 [`deployment-recovery.md`](references/deployment-recovery.md) for target proof.
-Keep the row active until proof passes; its source issue may be **Fixed**
-separately. Green CI or merge is not delivery proof.
+Keep it active until proof passes; its source issue may be **Fixed** separately.
+Delivery gaps are never **Quarantined**. Green CI or merge is not delivery
+proof.
 
 ## Phase 2: fix
 

@@ -89,8 +89,7 @@ For clusters, post one owner status with each source permalink and
   **Clustered**, or **Abandoned - no answer in 4 days**. Apply the reaction
   gate above.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
-  **Deployed - live unverified**, **Not reproducible - attempted**,
-  **Quarantined** (owner, expiry, issue; revisit until fixed or restored), or
+  **Deployed - live unverified**, **Not reproducible - attempted**, or
   **In progress**.
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
@@ -286,10 +285,9 @@ query.
 
 Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
 Failed queries mean **CI unavailable**, never an empty source.
-For deploy/release/publish rows, use
-[`deployment-recovery.md`](references/deployment-recovery.md) for delivery
-proof; keep the same fingerprint row active until target proof passes. A
-delivery gap is not **Quarantined**.
+CI-red deploy/release/publish failures use one fingerprint row; follow
+[`deployment-recovery.md`](references/deployment-recovery.md) for target proof.
+Keep delivery gaps active; never quarantine them.
 <!-- framework-repo-only:end -->
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
@@ -331,11 +329,12 @@ inventing a fix.
 
 ### Deployment, release, and publish failures
 
-Scan app/template, desktop, and package lanes each sweep. CI rows use one
-fingerprint recap row; follow **CI failures** for ownership. Follow
+Scan app/template, desktop, and package lanes each sweep. Keep one row per
+workflow fingerprint. CI-red deploy rows reuse that row; follow
 [`deployment-recovery.md`](references/deployment-recovery.md) for target proof.
-Keep the row active until proof passes; its source issue may be **Fixed**
-separately. Green CI or merge is not delivery proof.
+Keep it active until proof passes; its source issue may be **Fixed** separately.
+Delivery gaps are never **Quarantined**. Green CI or merge is not delivery
+proof.
 
 ## Phase 2: fix
 
@@ -584,7 +583,7 @@ Upvoted items in scope: N (built: N)
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
 <!-- framework-repo-only:start -->
-| CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | fix/quarantine or target proof | N/A | owner/[issue](...) | N/A | N/A |
+| CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | test fix/quarantine; deploy target proof | N/A | owner/[issue](...) | N/A | N/A |
 <!-- framework-repo-only:end -->
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
