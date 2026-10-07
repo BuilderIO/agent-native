@@ -221,6 +221,87 @@ describe("useChatModels", () => {
     ).toBe("gpt-6-luna");
   });
 
+  it("upgrades a saved OpenRouter GPT model when its catalog lists the newer version", async () => {
+    const storageKey = "legacy-openrouter-gpt-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "ai-sdk:openrouter",
+        model: "openai/gpt-5.6-luna",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["openai/gpt-5.6-luna", "openai/gpt-6-luna"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENROUTER_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("openai/gpt-6-luna");
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {
+        engine: "ai-sdk:openrouter",
+        model: "openai/gpt-6-luna",
+        effort: "high",
+      },
+    );
+  });
+
+  it("keeps a saved OpenRouter GPT model when its checked catalog lacks an upgrade", async () => {
+    const storageKey = "checked-openrouter-gpt-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "ai-sdk:openrouter",
+        model: "openai/gpt-5.6-luna",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["openai/gpt-5.6-luna"],
+          modelSelection: { state: "selected", scope: "user" },
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENROUTER_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("openai/gpt-5.6-luna");
+    expect(
+      JSON.parse(window.localStorage.getItem(storageKey) ?? "{}").model,
+    ).toBe("openai/gpt-5.6-luna");
+  });
+
   it("preserves an explicit custom model for its OpenAI-compatible endpoint", async () => {
     const storageKey = "custom-gateway-model-selection";
     window.localStorage.setItem(

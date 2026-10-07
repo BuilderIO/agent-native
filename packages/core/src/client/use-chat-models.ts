@@ -478,15 +478,10 @@ export function useChatModels({
           const selectedGroup = exactSelectedGroup ?? upgradedSelection?.group;
           if (selectedGroup) {
             const selectedModel =
-              selectedGroup.preserveCustomModels &&
-              selection.selectedEngine === selectedGroup.engine
-                ? selection.selectedModel
-                : (upgradedSelection?.model ??
-                  upgradeModelToLatestSupportedVersion(
-                    selection.selectedModel,
-                    selectedGroup.models,
-                  ) ??
-                  selection.selectedModel);
+              upgradeModelToLatestSupportedVersion(
+                selection.selectedModel,
+                selectedGroup.models,
+              ) ?? selection.selectedModel;
             const nextSelection = {
               ...selection,
               selectedModel,
