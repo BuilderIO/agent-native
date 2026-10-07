@@ -18,6 +18,7 @@ describe("runtime budget zoom waits", () => {
         now += milliseconds;
       },
       1_000,
+      async () => {},
       () => now,
     );
 
@@ -40,6 +41,7 @@ describe("runtime budget zoom waits", () => {
         now += milliseconds;
       },
       500,
+      async () => {},
       () => now,
     );
 
@@ -48,21 +50,58 @@ describe("runtime budget zoom waits", () => {
     expect(waits).toEqual([250, 250]);
   });
 
-  it("bounds a stalled animation-frame wait", async () => {
+  it("cleans up a stalled zoom read when its deadline wins", async () => {
+    let resolveRead!: (value: number | null) => void;
+    let settled = false;
+    let cleanedUp = false;
+
+    const zoom = await readZoomUntilAvailable(
+      () =>
+        new Promise<number | null>((resolve) => {
+          resolveRead = resolve;
+        }).finally(() => {
+          settled = true;
+        }),
+      async () => {},
+      Date.now() + 25,
+      async () => {
+        cleanedUp = true;
+        resolveRead(null);
+      },
+    );
+    await Promise.resolve();
+
+    expect(zoom).toBeNull();
+    expect(cleanedUp).toBe(true);
+    expect(settled).toBe(true);
+  });
+
+  it("cleans up a stalled animation-frame wait", async () => {
     const startedAt = Date.now();
+    let resolveFrame!: () => void;
+    let cleanedUp = false;
     const frameArrived = await waitForAnimationFrame(
-      () => new Promise<void>(() => {}),
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFrame = resolve;
+        }),
       25,
+      async () => {
+        cleanedUp = true;
+        resolveFrame();
+      },
     );
 
     expect(frameArrived).toBe(false);
     expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(cleanedUp).toBe(true);
   });
 
   it("resolves as soon as the animation-frame callback arrives", async () => {
     const frameArrived = await waitForAnimationFrame(
       () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
       1_000,
+      async () => {},
     );
 
     expect(frameArrived).toBe(true);

@@ -316,6 +316,7 @@ async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
       zoomOf,
       (ms) => page.waitForTimeout(ms),
       giveUpAt,
+      () => cdp.send("Runtime.terminateExecution"),
     );
     if (zoom === null) break;
     const off = Math.log(zoom / target);
@@ -341,11 +342,19 @@ async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
             ),
         ),
       giveUpAt - Date.now(),
+      () => cdp.send("Runtime.terminateExecution"),
     );
     if (!frameArrived) break;
   }
-  await page.waitForTimeout(1500);
-  const actual = await zoomOf();
+  await page.waitForTimeout(
+    Math.min(1_500, Math.max(0, giveUpAt - Date.now())),
+  );
+  const actual = await readZoomUntilAvailable(
+    zoomOf,
+    (ms) => page.waitForTimeout(ms),
+    giveUpAt,
+    () => cdp.send("Runtime.terminateExecution"),
+  );
   const arrived = actual !== null && Math.abs(Math.log(actual / target)) < 0.15;
   if (!arrived) {
     console.log(
