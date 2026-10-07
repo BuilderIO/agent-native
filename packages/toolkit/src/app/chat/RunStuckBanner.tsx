@@ -161,8 +161,12 @@ export function RunStuckBanner({
   const inFlightWork =
     state.hasInFlightWork === true || (hasInFlightWork?.() ?? false);
   const awaitingResponse = chatAwaiting ?? true;
+  // While the status is unreadable `isStuck` is the last answer carried forward
+  // by the clock, not a fresh one: only the unreadable notice may speak, and
+  // nothing may abort a run on it.
+  const isStuck = state.isStuck && !state.statusUnreadable;
   const showsStuckBanner =
-    state.isStuck &&
+    isStuck &&
     !!state.runId &&
     !backgroundWorkerStillAlive &&
     !inFlightWork &&
@@ -267,7 +271,7 @@ export function RunStuckBanner({
       backgroundWorkerStillAlive ||
       inFlightWork ||
       !awaitingResponse ||
-      !state.isStuck ||
+      !isStuck ||
       !state.runId ||
       busy.type !== "none" ||
       autoRetriedRunIdsRef.current.has(state.runId)
@@ -302,9 +306,9 @@ export function RunStuckBanner({
     busy,
     inFlightWork,
     isServerContinuedDispatch,
+    isStuck,
     onRetry,
     ownerId,
-    state.isStuck,
     state.runId,
     state.stuckSinceMs,
     threadId,

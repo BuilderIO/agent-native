@@ -81,6 +81,10 @@ interface ActiveRunResponse {
   hasInFlightWork?: boolean;
 }
 
+function isActiveRunResponse(body: unknown): body is ActiveRunResponse {
+  return typeof (body as ActiveRunResponse | null)?.active === "boolean";
+}
+
 const EMPTY_STATE: RunStuckState = {
   isStuck: false,
   runId: null,
@@ -139,6 +143,13 @@ export function useRunStuckDetection({
 
     const pollFailureDelay = () => {
       consecutivePollFailures += 1;
+      // A poll that got no answer breaks an idle streak still being confirmed:
+      // a run can start and be missed between two idle answers that surround
+      // it. A streak that already settled stands, or the verdict would flip
+      // off and on again across one outage.
+      if (consecutiveIdlePolls < SETTLED_CONFIRMATIONS) {
+        consecutiveIdlePolls = 0;
+      }
       if (!cancelled && consecutivePollFailures >= UNREADABLE_AFTER_FAILURES) {
         setState((current) =>
           current.statusUnreadable
@@ -150,13 +161,6 @@ export function useRunStuckDetection({
         Math.max(pollIntervalMs, 1) * 2 ** consecutivePollFailures,
         MAX_POLL_ERROR_BACKOFF_MS,
       );
-    };
-
-    const clearObservedRun = () => {
-      snapshotVersion += 1;
-      if (snapshotTransitionTimer) clearTimeout(snapshotTransitionTimer);
-      snapshotTransitionTimer = null;
-      setState(EMPTY_STATE);
     };
 
     type RunHealthSnapshot = {
@@ -356,74 +360,62 @@ export function useRunStuckDetection({
           { credentials: "same-origin", signal },
         );
         if (cancelled) return;
-        if (res.ok) {
-          consecutivePollFailures = 0;
-          const data = (await res.json()) as ActiveRunResponse;
-          if (cancelled) return;
-          consecutiveIdlePolls = data.active ? 0 : consecutiveIdlePolls + 1;
-          const serverSettled = consecutiveIdlePolls >= SETTLED_CONFIRMATIONS;
-          const lastProgressAt = data.lastProgressAt ?? null;
-          const nowMs = data.serverNow ?? Date.now();
-          const stuckSinceMs =
-            lastProgressAt != null ? nowMs - lastProgressAt : null;
-          const heartbeatAt = data.heartbeatAt ?? null;
-          const heartbeatSinceMs =
-            heartbeatAt != null ? nowMs - heartbeatAt : null;
-          const dispatchMode =
-            typeof data.dispatchMode === "string" ? data.dispatchMode : null;
-          const runId = data.runId ?? null;
-          const activeRun = getActiveRun();
-          const localProgressObservedAt =
-            activeRun?.threadId === threadId && activeRun.runId === runId
-              ? (activeRun.lastProgressObservedAt ?? null)
-              : null;
-          const localProgressSinceMs =
-            localProgressObservedAt == null
-              ? null
-              : Math.max(0, Date.now() - localProgressObservedAt);
-          const effectiveThresholdMs = effectiveThresholdFor(
-            dispatchMode,
-            heartbeatSinceMs,
-          );
-          const isStuck = Boolean(
-            data.active &&
-            data.status === "running" &&
-            stuckSinceMs != null &&
-            stuckSinceMs > effectiveThresholdMs &&
-            (localProgressSinceMs == null ||
-              localProgressSinceMs > effectiveThresholdMs),
-          );
-          const observedAtMs = Date.now();
-          const version = ++snapshotVersion;
-          scheduleSnapshotTransition(
-            {
-              active: data.active,
-              runId,
-              status: data.status ?? null,
-              lastProgressAt,
-              stuckSinceMs,
-              localProgressObservedAt,
-              lastProgressSeq:
-                activeRun?.threadId === threadId && activeRun.runId === runId
-                  ? (activeRun.lastProgressSeq ?? null)
-                  : null,
-              heartbeatAt,
-              heartbeatSinceMs,
-              dispatchMode,
-            },
-            observedAtMs,
-            version,
-          );
-          setState({
-            isStuck,
+        // The endpoint answers "no run" with a 200 and a boolean `active`, so
+        // no other status or body is an idle answer: a 401/403/404 or a body
+        // without `active` leaves the run's state unknown, not gone.
+        if (!res.ok) {
+          nextDelay = pollFailureDelay();
+          return;
+        }
+        const data: unknown = await res.json();
+        if (cancelled) return;
+        if (!isActiveRunResponse(data)) {
+          nextDelay = pollFailureDelay();
+          return;
+        }
+        consecutiveIdlePolls = data.active ? 0 : consecutiveIdlePolls + 1;
+        const serverSettled = consecutiveIdlePolls >= SETTLED_CONFIRMATIONS;
+        const lastProgressAt = data.lastProgressAt ?? null;
+        const nowMs = data.serverNow ?? Date.now();
+        const stuckSinceMs =
+          lastProgressAt != null ? nowMs - lastProgressAt : null;
+        const heartbeatAt = data.heartbeatAt ?? null;
+        const heartbeatSinceMs =
+          heartbeatAt != null ? nowMs - heartbeatAt : null;
+        const dispatchMode =
+          typeof data.dispatchMode === "string" ? data.dispatchMode : null;
+        const runId = data.runId ?? null;
+        const activeRun = getActiveRun();
+        const localProgressObservedAt =
+          activeRun?.threadId === threadId && activeRun.runId === runId
+            ? (activeRun.lastProgressObservedAt ?? null)
+            : null;
+        const localProgressSinceMs =
+          localProgressObservedAt == null
+            ? null
+            : Math.max(0, Date.now() - localProgressObservedAt);
+        const effectiveThresholdMs = effectiveThresholdFor(
+          dispatchMode,
+          heartbeatSinceMs,
+        );
+        const isStuck = Boolean(
+          data.active &&
+          data.status === "running" &&
+          stuckSinceMs != null &&
+          stuckSinceMs > effectiveThresholdMs &&
+          (localProgressSinceMs == null ||
+            localProgressSinceMs > effectiveThresholdMs),
+        );
+        const observedAtMs = Date.now();
+        const version = ++snapshotVersion;
+        scheduleSnapshotTransition(
+          {
+            active: data.active,
             runId,
             status: data.status ?? null,
             lastProgressAt,
-            stuckSinceMs:
-              localProgressSinceMs != null &&
-              localProgressSinceMs <= effectiveThresholdMs
-                ? null
-                : stuckSinceMs,
+            stuckSinceMs,
+            localProgressObservedAt,
             lastProgressSeq:
               activeRun?.threadId === threadId && activeRun.runId === runId
                 ? (activeRun.lastProgressSeq ?? null)
@@ -431,27 +423,41 @@ export function useRunStuckDetection({
             heartbeatAt,
             heartbeatSinceMs,
             dispatchMode,
-            hasInFlightWork:
-              typeof data.hasInFlightWork === "boolean"
-                ? data.hasInFlightWork
-                : null,
-            serverSettled,
-            statusUnreadable: false,
-          });
-          // The first idle answer is confirmed at the normal cadence, so a
-          // run the server has not registered yet is not called settled.
-          const confirmingIdle = !data.active && !serverSettled;
-          if (!confirmingIdle && (!data.active || data.status !== "running")) {
-            nextDelay = IDLE_BACKOFF_INTERVAL_MS;
-          }
-        } else if (res.status === 429 || res.status >= 500) {
-          nextDelay = pollFailureDelay();
-        } else {
-          consecutivePollFailures = 0;
-          consecutiveIdlePolls = 0;
-          clearObservedRun();
-          nextDelay = MAX_POLL_ERROR_BACKOFF_MS;
+          },
+          observedAtMs,
+          version,
+        );
+        setState({
+          isStuck,
+          runId,
+          status: data.status ?? null,
+          lastProgressAt,
+          stuckSinceMs:
+            localProgressSinceMs != null &&
+            localProgressSinceMs <= effectiveThresholdMs
+              ? null
+              : stuckSinceMs,
+          lastProgressSeq:
+            activeRun?.threadId === threadId && activeRun.runId === runId
+              ? (activeRun.lastProgressSeq ?? null)
+              : null,
+          heartbeatAt,
+          heartbeatSinceMs,
+          dispatchMode,
+          hasInFlightWork:
+            typeof data.hasInFlightWork === "boolean"
+              ? data.hasInFlightWork
+              : null,
+          serverSettled,
+          statusUnreadable: false,
+        });
+        // The first idle answer is confirmed at the normal cadence, so a
+        // run the server has not registered yet is not called settled.
+        const confirmingIdle = !data.active && !serverSettled;
+        if (!confirmingIdle && (!data.active || data.status !== "running")) {
+          nextDelay = IDLE_BACKOFF_INTERVAL_MS;
         }
+        consecutivePollFailures = 0;
       } catch {
         nextDelay = pollFailureDelay();
       } finally {

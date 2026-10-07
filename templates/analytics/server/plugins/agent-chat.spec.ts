@@ -255,29 +255,26 @@ describe("Analytics prompt-reference preparation", () => {
     });
   });
 
-  it.each([
-    "hello",
-    "thanks!",
-    "make it blue",
-    "rename this chart",
-    "Remove the legend from this panel",
-  ])("does not spend the preload budget on %j", async (message) => {
-    const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
-      details: Record<string, unknown>,
-    ) => Promise<unknown>;
+  it.each(["hello", "thanks!", "👍", "?"])(
+    "does not spend the preload budget on the trivial turn %j",
+    async (message) => {
+      const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
+        details: Record<string, unknown>,
+      ) => Promise<unknown>;
 
-    await expect(
-      prepareRequest({
-        ownerEmail: "owner@example.test",
-        message,
-        requestContext: `Current request:\n${message}`,
-        contextPrefetchDeadlineAt: Date.now() + 1_300,
-        dispatchToBackground: false,
-      }),
-    ).resolves.toBeUndefined();
+      await expect(
+        prepareRequest({
+          ownerEmail: "owner@example.test",
+          message,
+          requestContext: `Current request:\n${message}`,
+          contextPrefetchDeadlineAt: Date.now() + 1_300,
+          dispatchToBackground: false,
+        }),
+      ).resolves.toBeUndefined();
 
-    expect(retrieveAnalyticsPromptReferences).not.toHaveBeenCalled();
-  });
+      expect(retrieveAnalyticsPromptReferences).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     "what's our NRR",
@@ -290,6 +287,25 @@ describe("Analytics prompt-reference preparation", () => {
     "split it by owner",
     "change it to last quarter",
     "ok",
+    // An artifact edit may still change what is measured; the relevance bar
+    // keeps unrelated references out.
+    "make it blue",
+    "rename this chart",
+    "Remove the legend from this panel",
+    "resize the chart by 20%",
+    "change this chart to paid signups",
+    "switch this panel to net revenue",
+    "set the chart to EMEA",
+    "update the chart to use the orders table",
+    "remove test accounts from this chart",
+    "turn off bot traffic on this chart",
+    "make it ARR",
+    "make this chart about retention",
+    "fix the revenue numbers on this chart",
+    "update the dashboard with the latest numbers",
+    "add revenue panel to this dashboard",
+    "change the dashboard to show page views",
+    "switch the chart to page views",
   ])("retrieves references for %j", async (message) => {
     vi.mocked(retrieveAnalyticsPromptReferences).mockResolvedValue({
       jevPromptCandidates: [],
@@ -1854,6 +1870,8 @@ describe("realDataFinalGuard turn classification", () => {
     "fix the layout of the accounts page",
     "the route for tickets is broken",
     "update the code that handles signups",
+    "open the data sources page",
+    "add the revenue dashboard to my favorites",
   ])("does not retry a confirmation of %j that quotes counts", (userText) => {
     expect(
       realDataFinalGuard(
@@ -1865,6 +1883,73 @@ describe("realDataFinalGuard turn classification", () => {
       ),
     ).toBeNull();
   });
+
+  // An edit of how an artifact looks quotes nothing measured, even when its
+  // size, device, or new name carries a figure or a metric word.
+  it.each([
+    ["move the legend to the left", "Done. The legend now lists 2 accounts."],
+    [
+      "change the chart title to Overview",
+      "Done. The legend now lists 2 accounts.",
+    ],
+    [
+      "make the chart show the legend",
+      "Done. The legend now lists 2 accounts.",
+    ],
+    [
+      "resize the chart to full width",
+      "Done. The legend now lists 2 accounts.",
+    ],
+    ["resize the chart by 20%", "Done. The chart is now 20% wider."],
+    ["resize the chart by 20%", "Resized the chart by 20%."],
+    [
+      "move the legend by 10px",
+      "Done. Moved the legend by 10px; it now lists 2 accounts.",
+    ],
+    [
+      "make the chart bigger for mobile",
+      "Done. The chart is now 40% taller on mobile.",
+    ],
+    [
+      "rename the chart to Revenue Overview",
+      "Renamed the chart to Revenue Overview; it still shows 2 accounts.",
+    ],
+    [
+      "rename the chart to Revenue by Region",
+      "Renamed the chart to Revenue by Region; it still shows 2 accounts.",
+    ],
+  ])(
+    "does not retry a confirmation of the look edit %j",
+    (userText, draftText) => {
+      expect(
+        realDataFinalGuard(guardContext({ userText, draftText })),
+      ).toBeNull();
+    },
+  );
+
+  // An edit that changes what a chart measures is a data turn: figures in the
+  // reply need a query, however the ask is worded.
+  it.each([
+    "change this chart to show revenue by region",
+    "make this chart show signups by plan",
+    "add a series for churn to this chart",
+    "add ARR to this panel",
+    "add a line for MRR to the chart",
+    "change the chart to exclude trial accounts",
+    "change this chart to revenue",
+    "turn this chart into a funnel",
+    "change this chart for mobile users",
+    "change this chart for 2024",
+  ])(
+    "judges an unqueried draft of figures for the data edit %j",
+    (userText) => {
+      expect(
+        realDataFinalGuard(
+          guardContext({ userText, draftText: UNGROUNDED_FIGURES }),
+        ),
+      ).toMatchObject({ retryMessage: expect.any(String) });
+    },
+  );
 
   it.each([
     "write me a haiku about autumn",

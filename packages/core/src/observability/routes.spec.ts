@@ -12,6 +12,8 @@ const mockGetFeedback = vi.hoisted(() => vi.fn());
 const mockGetFeedbackStats = vi.hoisted(() => vi.fn());
 const mockPromoteTraceEvalFromStore = vi.hoisted(() => vi.fn());
 const mockListExperimentsPage = vi.hoisted(() => vi.fn());
+const mockResolveThreadAccess = vi.hoisted(() => vi.fn());
+const mockIsOrgMember = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -45,6 +47,14 @@ vi.mock("../server/auth.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
+}));
+
+vi.mock("../org/membership.js", () => ({
+  isOrgMember: (...args: unknown[]) => mockIsOrgMember(...args),
+}));
+
+vi.mock("../chat-threads/store.js", () => ({
+  resolveThreadAccess: (...args: unknown[]) => mockResolveThreadAccess(...args),
 }));
 
 vi.mock("../server/request-context.js", () => ({
@@ -115,6 +125,10 @@ describe("observability routes", () => {
       model: "gpt-5.6-terra",
     });
     mockInsertFeedback.mockResolvedValue(true);
+    mockResolveThreadAccess.mockImplementation(
+      async (_user: string, threadId: string) => ({ id: threadId }),
+    );
+    mockIsOrgMember.mockResolvedValue(true);
     mockListExperimentsPage.mockResolvedValue({
       items: [],
       nextCursor: null,
@@ -341,6 +355,13 @@ describe("observability routes", () => {
         model: "gpt-5.6-terra",
       },
       {
+        runId: "run-active-org",
+        threadId: "thread-active-org",
+        userId: "alice@example.com",
+        orgId: "org-a",
+        model: "gpt-5.6-terra",
+      },
+      {
         runId: "run-of-bob",
         threadId: "thread-of-bob",
         userId: "bob@example.com",
@@ -396,6 +417,73 @@ describe("observability routes", () => {
         );
       },
     );
+
+    it("attaches the run's org only while the caller is still a member of it", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "thread-other-org",
+        runId: "run-other-org",
+        feedbackType: "thumbs_down",
+      });
+      const handler = createObservabilityHandler() as any;
+
+      await handler(createEvent("/feedback", "POST"));
+
+      expect(mockIsOrgMember).toHaveBeenCalledWith(
+        "org-b",
+        "alice@example.com",
+      );
+      expect(mockInsertFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({ runId: "run-other-org", orgId: "org-b" }),
+      );
+    });
+
+    it("still saves a vote on a run from an org the caller has left, without that org", async () => {
+      mockIsOrgMember.mockResolvedValue(false);
+      mockReadBody.mockResolvedValue({
+        threadId: "thread-other-org",
+        runId: "run-other-org",
+        feedbackType: "thumbs_down",
+        value: "wrong answer",
+      });
+      const handler = createObservabilityHandler() as any;
+      const event = createEvent("/feedback", "POST");
+
+      await expect(handler(event)).resolves.toEqual({
+        id: expect.any(String),
+      });
+
+      expect(event._status).toBe(200);
+      expect(mockInsertFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId: "run-other-org",
+          threadId: "thread-other-org",
+          orgId: null,
+          userId: "alice@example.com",
+        }),
+      );
+      expect(mockTrack).toHaveBeenCalledOnce();
+    });
+
+    it("keeps the active org for a run with no org or in the active org without a membership lookup", async () => {
+      const handler = createObservabilityHandler() as any;
+      for (const [runId, threadId] of [
+        ["run-no-org", "thread-no-org"],
+        ["run-active-org", "thread-active-org"],
+      ]) {
+        mockReadBody.mockResolvedValue({
+          threadId,
+          runId,
+          feedbackType: "thumbs_up",
+        });
+        await handler(createEvent("/feedback", "POST"));
+      }
+
+      expect(mockIsOrgMember).not.toHaveBeenCalled();
+      expect(mockInsertFeedback).toHaveBeenCalledTimes(2);
+      for (const [entry] of mockInsertFeedback.mock.calls) {
+        expect(entry).toMatchObject({ orgId: "org-a" });
+      }
+    });
 
     it("rejects a vote on another user's run before insertion", async () => {
       mockReadBody.mockResolvedValue({
@@ -482,6 +570,227 @@ describe("observability routes", () => {
     const [entry] = mockInsertFeedback.mock.calls[0];
     expect(JSON.parse(entry.value).unverifiedRunId).toBe("r".repeat(200));
     expect(mockTrack.mock.calls[0][1].unverified_run_id).toBe("r".repeat(200));
+  });
+
+  describe("trusting the thread a vote names", () => {
+    it("saves a never-persisted run's vote on a thread the caller cannot access, unlinked and marked", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "thread-of-bob",
+        runId: "run-never-persisted",
+        feedbackType: "thumbs_down",
+        value: { reason: "said done" },
+      });
+      mockGetTraceSummary.mockResolvedValue(null);
+      mockResolveThreadAccess.mockResolvedValue(null);
+      const handler = createObservabilityHandler() as any;
+      const event = createEvent("/feedback", "POST");
+
+      await expect(handler(event)).resolves.toEqual({
+        id: expect.any(String),
+        traceMissing: true,
+      });
+
+      expect(event._status).toBe(200);
+      const [entry] = mockInsertFeedback.mock.calls[0];
+      expect(entry).toMatchObject({ runId: null, threadId: null });
+      expect(JSON.parse(entry.value)).toEqual({
+        reason: "said done",
+        traceMissing: true,
+        unverifiedRunId: "run-never-persisted",
+        unverifiedThreadId: "thread-of-bob",
+      });
+      expect(mockTrack.mock.calls[0][1]).toMatchObject({
+        thread_id: null,
+        run_id: null,
+        trace_missing: true,
+        unverified_run_id: "run-never-persisted",
+        unverified_thread_id: "thread-of-bob",
+      });
+      expect(mockTrack.mock.calls[0][1].$ai_session_id).toBeUndefined();
+    });
+
+    it("saves feedback naming a thread the caller cannot access when no run is named, unlinked and marked", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "thread-of-bob",
+        feedbackType: "text",
+        value: "the answer cited the wrong doc",
+      });
+      mockResolveThreadAccess.mockResolvedValue(null);
+      const handler = createObservabilityHandler() as any;
+      const event = createEvent("/feedback", "POST");
+
+      await expect(handler(event)).resolves.toEqual({
+        id: expect.any(String),
+        traceMissing: true,
+      });
+
+      expect(event._status).toBe(200);
+      expect(mockInsertFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId: null,
+          threadId: null,
+          value: "the answer cited the wrong doc",
+        }),
+      );
+      expect(mockTrack.mock.calls[0][1]).toMatchObject({
+        thread_id: null,
+        trace_missing: true,
+        unverified_thread_id: "thread-of-bob",
+      });
+      expect(mockTrack.mock.calls[0][1]).not.toHaveProperty(
+        "unverified_run_id",
+      );
+    });
+
+    it("answers a thread that does not exist exactly like one the caller cannot access", async () => {
+      const handler = createObservabilityHandler() as any;
+      const answers: unknown[] = [];
+      for (const threadId of ["thread-of-bob", "thread-does-not-exist"]) {
+        mockReadBody.mockResolvedValue({
+          threadId,
+          runId: "run-never-persisted",
+          feedbackType: "thumbs_down",
+        });
+        mockGetTraceSummary.mockResolvedValue(null);
+        mockResolveThreadAccess.mockResolvedValue(null);
+        const event = createEvent("/feedback", "POST");
+        const result = await handler(event);
+        answers.push({
+          status: event._status,
+          keys: Object.keys(result).sort(),
+          traceMissing: result.traceMissing,
+          stored: {
+            ...mockInsertFeedback.mock.calls.at(-1)![0],
+            id: undefined,
+            createdAt: undefined,
+          },
+        });
+      }
+
+      expect(answers[0]).toMatchObject({
+        status: 200,
+        keys: ["id", "traceMissing"],
+        traceMissing: true,
+        stored: { runId: null, threadId: null },
+      });
+      expect(answers[1]).toEqual(answers[0]);
+    });
+
+    it("links a never-persisted run's vote to a thread the caller can view", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "thread-1",
+        runId: "run-never-persisted",
+        feedbackType: "thumbs_down",
+      });
+      mockGetTraceSummary.mockResolvedValue(null);
+      const handler = createObservabilityHandler() as any;
+
+      await handler(createEvent("/feedback", "POST"));
+
+      expect(mockResolveThreadAccess).toHaveBeenCalledWith(
+        "alice@example.com",
+        "thread-1",
+        "viewer",
+        { orgId: "org-a" },
+      );
+      expect(mockInsertFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({ runId: null, threadId: "thread-1" }),
+      );
+    });
+
+    it("links a thread the caller can view without marking the vote", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "thread-1",
+        feedbackType: "thumbs_up",
+        value: { reason: "great" },
+      });
+      const handler = createObservabilityHandler() as any;
+
+      await expect(handler(createEvent("/feedback", "POST"))).resolves.toEqual({
+        id: expect.any(String),
+      });
+
+      const [entry] = mockInsertFeedback.mock.calls[0];
+      expect(entry.threadId).toBe("thread-1");
+      expect(JSON.parse(entry.value)).toEqual({ reason: "great" });
+      expect(mockTrack.mock.calls[0][1]).toMatchObject({
+        thread_id: "thread-1",
+      });
+      expect(mockTrack.mock.calls[0][1]).not.toHaveProperty("trace_missing");
+      expect(mockTrack.mock.calls[0][1]).not.toHaveProperty(
+        "unverified_thread_id",
+      );
+    });
+
+    it("bounds the unverified thread id it carries for a thread it cannot link", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "t".repeat(5_000),
+        feedbackType: "thumbs_down",
+        value: { reason: "wrong" },
+      });
+      mockResolveThreadAccess.mockResolvedValue(null);
+      const handler = createObservabilityHandler() as any;
+
+      await handler(createEvent("/feedback", "POST"));
+
+      const [entry] = mockInsertFeedback.mock.calls[0];
+      expect(entry.threadId).toBeNull();
+      expect(JSON.parse(entry.value).unverifiedThreadId).toBe("t".repeat(200));
+      expect(mockTrack.mock.calls[0][1].unverified_thread_id).toBe(
+        "t".repeat(200),
+      );
+    });
+
+    it("stores no thread, and checks none, when the vote names none", async () => {
+      mockReadBody.mockResolvedValue({
+        feedbackType: "text",
+        value: "general feedback",
+      });
+      const handler = createObservabilityHandler() as any;
+
+      await handler(createEvent("/feedback", "POST"));
+
+      expect(mockResolveThreadAccess).not.toHaveBeenCalled();
+      expect(mockInsertFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: null }),
+      );
+    });
+
+    it("does not re-check the thread of a run the caller's own trace already vouches for", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "thread-1",
+        runId: "run-1",
+        feedbackType: "thumbs_up",
+      });
+      const handler = createObservabilityHandler() as any;
+
+      await handler(createEvent("/feedback", "POST"));
+
+      expect(mockResolveThreadAccess).not.toHaveBeenCalled();
+      expect(mockInsertFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({ runId: "run-1", threadId: "thread-1" }),
+      );
+    });
+
+    it("bounds the thread id it looks up", async () => {
+      mockReadBody.mockResolvedValue({
+        threadId: "t".repeat(5_000),
+        feedbackType: "thumbs_up",
+      });
+      const handler = createObservabilityHandler() as any;
+
+      await handler(createEvent("/feedback", "POST"));
+
+      expect(mockResolveThreadAccess).toHaveBeenCalledWith(
+        "alice@example.com",
+        "t".repeat(200),
+        "viewer",
+        { orgId: "org-a" },
+      );
+      expect(mockInsertFeedback.mock.calls[0][0].threadId).toBe(
+        "t".repeat(200),
+      );
+    });
   });
 
   it("rejects an oversized feedback value instead of storing it", async () => {

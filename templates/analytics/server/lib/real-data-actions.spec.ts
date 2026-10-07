@@ -17,6 +17,7 @@ import {
   isGenericNoDataFallback,
   isNonDataTurn,
   isSafeNoDataAnalyticsResponse,
+  isTrivialTurn,
   looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
@@ -443,8 +444,9 @@ const DATA_ASKS = [
   "now exclude EMEA",
 ];
 
-// Asks that need no lookup: the pre-model retrieval is skipped for these.
-const SKIPPED_ASKS = [
+// Greetings, thanks, and text with nothing to read: the only turns the
+// pre-model retrieval skips.
+const TRIVIAL_ASKS = [
   "hello",
   "hey!",
   "hi there",
@@ -453,6 +455,14 @@ const SKIPPED_ASKS = [
   "perfect",
   "how's it going?",
   "hows it going",
+  "k",
+  "?",
+  "👍",
+];
+
+// An edit, navigation, or bug report about an artifact skips the final guard
+// (not the retrieval) even when a metric word is part of the artifact's name.
+const ARTIFACT_ASKS = [
   "make it blue",
   "rename this chart",
   "rename this panel to Overview",
@@ -462,14 +472,6 @@ const SKIPPED_ASKS = [
   "please retitle this",
   "fix the dashboard layout",
   "refactor the sidebar component",
-  "k",
-  "?",
-  "👍",
-];
-
-// An edit, navigation, or bug report about an artifact skips the lookup even
-// when a metric word is part of the artifact's name.
-const ARTIFACT_ASKS = [
   "open the revenue dashboard",
   "go to the pipeline dashboard",
   "share the churn dashboard with Sam",
@@ -485,6 +487,110 @@ const ARTIFACT_ASKS = [
   "switch the theme to dark",
   "edit the extension so the header is sticky",
   "the sidebar component is broken",
+];
+
+// An edit whose object is a measure, dimension, grouping, filter, series, or
+// source changes what is measured, so it needs the lookup and the guard even
+// though it opens like a UI edit and names an artifact.
+const DATA_EDIT_ASKS = [
+  "change this chart to show revenue by region",
+  "can you change the chart to show conversion by source",
+  "make this chart show signups by plan",
+  "update the dashboard to show customers by plan",
+  "update the dashboard so it shows pipeline per rep",
+  "set this panel to show tickets by priority",
+  "edit this panel to display revenue",
+  "change this panel to plot ARR for EMEA",
+  "change this chart for EMEA",
+  "change the dashboard to track activation",
+  "add a series for churn to this chart",
+  "add a line for MRR to the chart",
+  "add a column for revenue to this table",
+  "please add ARR to this panel",
+  "add win rate to this panel",
+  "split the chart by owner",
+  "change the panel to group by plan",
+  "make this panel break down signups by channel",
+  "make this chart compare paid vs free",
+  "filter this table to enterprise",
+  "change the dashboard to exclude trial accounts",
+  "update this chart to include enterprise deals",
+  "switch this chart to the signups metric",
+  "swap the chart's source to the events table",
+  "edit this panel to use the sessions dataset",
+  "update the query to group by month",
+  "switch the panel to the last 30 days",
+  "change this chart to revenue",
+  "switch this panel to ARR",
+  "turn this chart into a funnel",
+  "change this table to list open deals",
+  "switch this panel to the sessions table",
+  "add the signups series to the chart",
+  // The same prepositions as a look edit, with a data operand.
+  "change this chart for mobile users",
+  "change this chart for 2024",
+  "update the chart for enterprise accounts",
+  "change the chart title and show revenue by region",
+];
+
+// Edits that change what is measured but open with words no allow-list can
+// enumerate, so only the retrieval gate (any substantive turn) covers them.
+const UNLISTED_DATA_EDIT_ASKS = [
+  "change this chart to paid signups",
+  "switch this panel to net revenue",
+  "set the chart to EMEA",
+  "change this chart to 2024",
+  "update the chart to use the orders table",
+  "remove test accounts from this chart",
+  "turn off bot traffic on this chart",
+  "make it ARR",
+  "make this chart about retention",
+  "fix the revenue numbers on this chart",
+  "update the dashboard with the latest numbers",
+  "add revenue panel to this dashboard",
+  "change the dashboard to show page views",
+  "switch the chart to page views",
+];
+
+// An edit of how an artifact looks or where it lives changes nothing measured.
+const PRESENTATION_EDIT_ASKS = [
+  "move the legend to the left",
+  "resize the chart to full width",
+  "make the chart bars thicker",
+  "make the chart lines thicker",
+  "change the chart title to Overview",
+  "change the panel colors to blue",
+  "set the theme to light",
+  "rename this dashboard to Overview",
+  "make the chart show the legend",
+  "change the chart to display the title",
+  "update the page layout to two columns",
+  "reorder the panels",
+  "turn the chart title bold",
+  "share this dashboard with Alex",
+  "delete the old chart",
+  "hide the tooltip",
+  "make the labels bigger",
+  // A size, device, theme, audience, or new name after by, for, or to.
+  "resize the chart by 20%",
+  "move the legend by 10px",
+  "make the chart bigger for mobile",
+  "make the chart wider for dark mode",
+  "make the legend smaller for the team",
+  "make the chart font bigger for review",
+  "rename the chart to Revenue Overview",
+  "rename the panel to Revenue by Region",
+  'rename the chart to "Top Customers by ARR"',
+  "retitle this panel to Weekly Active Users",
+  // A data-model word heading an artifact's name is not what the edit applies.
+  "open the data sources page",
+  "go to the metrics page",
+  "open the queries page",
+  "share the sources page with Sam",
+  "rename the metrics dashboard",
+  "refactor the query component",
+  "add the revenue dashboard to my favorites",
+  "move this chart to the signups dashboard",
 ];
 
 // General asks: retrieval may run, but a draft without figures passes the guard
@@ -505,13 +611,41 @@ describe("analytics turn classification probe", () => {
     expect(isNonDataTurn(ask)).toBe(false);
   });
 
-  it.each(SKIPPED_ASKS)("skips retrieval and the guard for %j", (ask) => {
+  it.each(TRIVIAL_ASKS)("skips retrieval and the guard for %j", (ask) => {
+    expect(isTrivialTurn(ask)).toBe(true);
     expect(isNonDataTurn(ask)).toBe(true);
+  });
+
+  // Retrieval is relevance-gated, so it runs for every substantive turn,
+  // including the artifact edits and the data edits no allow-list can list.
+  it.each([
+    ...DATA_ASKS,
+    ...GENERAL_ASKS,
+    ...ARTIFACT_ASKS,
+    ...DATA_EDIT_ASKS,
+    ...PRESENTATION_EDIT_ASKS,
+    ...UNLISTED_DATA_EDIT_ASKS,
+  ])("runs retrieval for the substantive turn %j", (ask) => {
+    expect(isTrivialTurn(ask)).toBe(false);
   });
 
   it.each(ARTIFACT_ASKS)("treats the artifact ask %j as non-data", (ask) => {
     expect(isNonDataTurn(ask)).toBe(true);
   });
+
+  it.each(DATA_EDIT_ASKS)(
+    "treats the data-changing edit %j as a data ask",
+    (ask) => {
+      expect(isNonDataTurn(ask)).toBe(false);
+    },
+  );
+
+  it.each(PRESENTATION_EDIT_ASKS)(
+    "treats the presentation edit %j as non-data",
+    (ask) => {
+      expect(isNonDataTurn(ask)).toBe(true);
+    },
+  );
 
   it.each(GENERAL_ASKS)("leaves %j to the guard's figure check", (ask) => {
     expect(isNonDataTurn(ask)).toBe(false);
@@ -535,12 +669,18 @@ describe("analytics turn classification probe", () => {
     expect(
       isNonDataTurn("delete the old dashboard. REAL_DATA_REQUIRED: signups"),
     ).toBe(false);
+    expect(isTrivialTurn("REAL_DATA_REQUIRED")).toBe(false);
   });
 
   it("ignores framework-injected screen context when classifying the ask", () => {
     expect(
       isNonDataTurn(
         "open the revenue dashboard\n\n<current-screen>\nRevenue by region, last 90 days\n</current-screen>",
+      ),
+    ).toBe(true);
+    expect(
+      isTrivialTurn(
+        "thanks!\n\n<current-screen>\nRevenue by region, last 90 days\n</current-screen>",
       ),
     ).toBe(true);
   });

@@ -9,7 +9,9 @@ import {
 } from "h3";
 
 import { isActionContractError } from "../action.js";
+import { resolveThreadAccess } from "../chat-threads/store.js";
 import { getOrgContext } from "../org/context.js";
+import { isOrgMember } from "../org/membership.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getRequestContext } from "../server/request-context.js";
@@ -44,6 +46,11 @@ const FEEDBACK_TYPES = [
 ] as const satisfies readonly FeedbackType[];
 
 const MAX_FEEDBACK_VALUE_CHARS = 20_000;
+const MAX_ID_CHARS = 200;
+
+function boundedId(value: unknown): string | null {
+  return value ? String(value).slice(0, MAX_ID_CHARS) : null;
+}
 
 function isFeedbackType(value: unknown): value is FeedbackType {
   return (
@@ -249,11 +256,15 @@ export function createObservabilityHandler() {
           ? getHeader(event, "idempotency-key")?.trim() || null
           : null;
       const org = await getOrgContext(event);
-      let runId = body.runId ? String(body.runId).slice(0, 200) : null;
-      let threadId = body.threadId ? String(body.threadId) : null;
+      let runId = boundedId(body.runId);
+      let threadId = boundedId(body.threadId);
       let model: string | undefined;
       let orgId = org.orgId;
       let unverifiedRunId: string | undefined;
+      let unverifiedThreadId: string | undefined;
+      // A thread id is the caller's claim until one of their own runs vouches
+      // for it or they are shown to have access to the thread.
+      let threadVouched = false;
       if (runId) {
         // Ownership is the user, not the org: a run recorded with no org, or
         // under another of the caller's orgs, is still the caller's own.
@@ -265,23 +276,46 @@ export function createObservabilityHandler() {
         if (traceMissing) {
           unverifiedRunId = runId;
           runId = null;
-          if (rawValue && typeof rawValue === "object") {
-            value = JSON.stringify({
-              ...rawValue,
-              traceMissing: true,
-              unverifiedRunId,
-            });
-          }
         } else if (!summary || (threadId && threadId !== summary.threadId)) {
           setResponseStatus(event, 404);
           return { error: "Trace not found" };
         } else {
           threadId = summary.threadId;
+          threadVouched = true;
           model = summary.model || undefined;
-          orgId = summary.orgId ?? org.orgId;
+          // The run is the caller's, but it may be recorded under an org they
+          // have since left; that org's review data is not theirs to write to.
+          if (summary.orgId && summary.orgId !== org.orgId) {
+            orgId = (await isOrgMember(summary.orgId, owner))
+              ? summary.orgId
+              : null;
+          }
         }
       }
-      const traceMissingResult = unverifiedRunId
+      if (
+        threadId &&
+        !threadVouched &&
+        !(await resolveThreadAccess(owner, threadId, "viewer", {
+          orgId: org.orgId ?? undefined,
+        }))
+      ) {
+        // The thread may live in another app (a workspace chat rail posts
+        // votes to the host for a remote app's thread), so an unverifiable id
+        // is not an error. A missing and an inaccessible thread must answer
+        // alike, or the route reveals which thread ids exist.
+        unverifiedThreadId = threadId;
+        threadId = null;
+      }
+      const traceMissing = !!(unverifiedRunId || unverifiedThreadId);
+      if (traceMissing && rawValue && typeof rawValue === "object") {
+        value = JSON.stringify({
+          ...rawValue,
+          traceMissing: true,
+          ...(unverifiedRunId ? { unverifiedRunId } : {}),
+          ...(unverifiedThreadId ? { unverifiedThreadId } : {}),
+        });
+      }
+      const traceMissingResult = traceMissing
         ? { traceMissing: true as const }
         : {};
       const inserted = await insertFeedback({
@@ -318,8 +352,10 @@ export function createObservabilityHandler() {
             run_id: runId,
             thread_id: threadId,
             model,
-            ...(unverifiedRunId
-              ? { trace_missing: true, unverified_run_id: unverifiedRunId }
+            ...(traceMissing ? { trace_missing: true } : {}),
+            ...(unverifiedRunId ? { unverified_run_id: unverifiedRunId } : {}),
+            ...(unverifiedThreadId
+              ? { unverified_thread_id: unverifiedThreadId }
               : {}),
             $ai_trace_id: runId ?? undefined,
             $ai_session_id: threadId ?? undefined,

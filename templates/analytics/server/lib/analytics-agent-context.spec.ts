@@ -445,6 +445,15 @@ describe("retrieveAnalyticsPromptReferences", () => {
       "ok do it",
       "translate this to Spanish",
       "how do I share a dashboard",
+      // Retrieval runs for these artifact edits; the relevance bar, not the
+      // turn gate, keeps the catalog out of them.
+      "make it blue",
+      "rename this chart",
+      "remove the legend from this panel",
+      "resize the chart by 20%",
+      "make the chart bigger for mobile",
+      "rename the chart to Revenue Overview",
+      "move the legend by 10px",
     ])("injects nothing for the non-data ask %j", async (request) => {
       expect(await injectedFor(request)).toEqual([]);
     });

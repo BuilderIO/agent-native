@@ -940,6 +940,91 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(3);
   });
 
+  it("counts a raw tool-call mirror once when its stored result is model-facing text and the AgentKit output is structured", async () => {
+    const output = {
+      ok: true,
+      message: "Hello, AgentKit Browser!",
+      ui: { kind: "greeting", name: "AgentKit Browser" },
+    };
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-hello",
+                toolName: "hello",
+                args: { details: { name: "AgentKit Browser" } },
+                result: JSON.stringify(
+                  { ok: true, message: "Hello, AgentKit Browser!" },
+                  null,
+                  2,
+                ),
+              },
+              { type: "text", text: "The task is complete." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Calling the tool." }],
+          },
+          {
+            id: "assistant-final-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The task is complete." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-tool-step", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-final-answer", role: "assistant" },
+          },
+        ],
+        toolCalls: [
+          {
+            id: "call-hello",
+            name: "hello",
+            input: { details: { name: "AgentKit Browser" } },
+            output,
+            messageId: "assistant-final-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
   it("counts a mirrored reply once when only the durable copy has reasoning", async () => {
     const repository = {
       messages: [

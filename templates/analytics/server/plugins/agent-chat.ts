@@ -38,6 +38,7 @@ import {
   looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
   isNonDataTurn,
+  isTrivialTurn,
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
   registerGroundingActions,
@@ -1217,7 +1218,7 @@ export default createAgentChatPlugin({
     if (
       !ownerEmail ||
       dispatchToBackground ||
-      isNonDataTurn(message ?? requestContext)
+      isTrivialTurn(message ?? requestContext)
     ) {
       return;
     }

@@ -7,6 +7,9 @@ import {
 } from "./bigquery";
 
 const LOOKUP_TIMEOUT_MS = 8_000;
+// The deadline aborts the metadata fetches, and the lookup gets this long to
+// settle with the tables that did answer before it is abandoned.
+const ABORT_GRACE_MS = 250;
 const MAX_LOOKUP_TABLES = 3;
 const MAX_COLUMNS = 60;
 const MAX_SUGGESTIONS = 5;
@@ -163,10 +166,24 @@ export async function recoverFromSchemaMiss(
   const missingTable = /Not found:\s*Table\s+`?([^\s`]+)`?/i.exec(message)?.[1];
   if (!column && !missingTable) return null;
 
+  // The deadline bounds the whole lookup. Aborting the metadata fetches alone
+  // does not: the token and credential reads ahead of them take no signal, and
+  // a token cache miss retries Google for 30 seconds per attempt. So the abort
+  // lets the fetches reject and the lookup keep what answered, and only a lookup
+  // still pending after the grace is abandoned.
+  const deadline = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`timed out after ${LOOKUP_TIMEOUT_MS}ms`);
+      deadline.abort(error);
+      timer = setTimeout(() => reject(error), ABORT_GRACE_MS);
+    }, LOOKUP_TIMEOUT_MS);
+  });
   const lookupSignal = signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)])
-    : AbortSignal.timeout(LOOKUP_TIMEOUT_MS);
-  try {
+    ? AbortSignal.any([signal, deadline.signal])
+    : deadline.signal;
+  const lookup = async (): Promise<SchemaRecovery> => {
     if (missingTable) {
       const ref = await parseTableRef(missingTable);
       if (!ref) return { schemaLookup: "unavailable" };
@@ -231,11 +248,16 @@ export async function recoverFromSchemaMiss(
       columnCount: best.columns.length,
       ...(unread.length ? { unreadTables: unread } : {}),
     };
+  };
+  try {
+    return await Promise.race([lookup(), expired]);
   } catch (error) {
     console.warn(
       "[bigquery] Schema lookup after a failed query did not finish.",
       error instanceof Error ? error.message : "unknown error",
     );
     return { schemaLookup: "failed" };
+  } finally {
+    clearTimeout(timer);
   }
 }

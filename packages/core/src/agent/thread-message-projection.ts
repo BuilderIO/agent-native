@@ -203,14 +203,16 @@ function representedToolCallMessageIds(
           ? rootCall.id
           : undefined;
     const call = id ? byId.get(id) : undefined;
+    // A tool call's identity is its id, name, and args. Never compare results:
+    // the stored root keeps the model-facing text while the snapshot output is
+    // the structured chat-UI result, so one call never compares equal and its
+    // reply renders twice.
     if (
       !call ||
       (typeof rootCall.toolName === "string" &&
         rootCall.toolName !== call.name) ||
       (Object.prototype.hasOwnProperty.call(rootCall, "args") &&
-        !sameValue(rootCall.args, call.input)) ||
-      (Object.prototype.hasOwnProperty.call(rootCall, "result") &&
-        !sameValue(rootCall.result, call.output))
+        !sameValue(rootCall.args, call.input))
     ) {
       return undefined;
     }

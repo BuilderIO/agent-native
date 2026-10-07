@@ -650,11 +650,39 @@ const ARTIFACT_FAULT =
   /\b(?:broken|bugs?|buggy|crash\w*|glitch\w*|misaligned|not (?:working|loading|rendering))\b|n['’]t (?:work|load|render)/;
 // After a UI verb, "it" and "this" are the open dashboard or selected panel.
 const ARTIFACT_PRONOUN = /^(?:it|this|that|these|those|them)\b/;
+const ARTIFACT_HEAD = `(?:${ARTIFACT_NOUNS})\\b`;
+// After "by" or "for", a size ("by 20%", "by 10px"; a four-digit year still
+// scopes), a device or theme ("for mobile", "for dark mode"), or an audience
+// ("for review", "for the team") says how the edit looks, not what it measures.
+const PRESENTATION_OPERAND =
+  "(?:\\d{1,3}(?:\\.\\d+)?(?!\\d)|(?:the\\s+)?(?:mobile|desktop|tablet|phones?|print(?:ing)?|dark mode|light mode|review|readability|accessibility|clarity|presentations?|team|me|us|everyone)\\b(?!\\s+(?:users?|visitors?|traffic|sessions?|customers?|accounts?|signups?)))";
+// What an edit changes about the data instead of the look: it puts something on
+// the artifact that is not a part of it ("show the legend" is a part), narrows
+// or splits what it shows, scopes it ("by region", "for EMEA"), names a
+// data-model noun, or applies a metric ("add ARR", "change this chart to
+// revenue"). A word that heads an artifact's name ("the revenue dashboard",
+// "the sources page") is none of these.
+const DATA_EDIT_OBJECT = new RegExp(
+  [
+    `\\b(?:show|display|list)\\w*\\b(?!\\s+(?:(?:the|its|this|that|a|an|my|our)\\s+)?(?:[\\w-]+\\s+){0,2}?${ARTIFACT_HEAD})`,
+    "\\b(?:plot|graph|track|visuali[sz]|compar|includ|exclud|group|split|segment|filter|break(?:s|ing)? down)\\w*\\b",
+    `\\b(?:by|for)\\s+(?!${PRESENTATION_OPERAND})\\w`,
+    `\\b(?:series|metrics?|measures?|dimensions?|breakdowns?|cohorts?|datasets?|data ?sources?|sources?|queries|query|sql)\\b(?!\\s+${ARTIFACT_HEAD})`,
+    "\\badd(?:ing)?\\b[^.!?;]*?\\b(?:lines?|columns?|trend ?lines?|filters?|groupings?)\\b",
+    `\\b(?:(?:add(?:ing)?|swap in|use|using)\\s+(?:(?:the|a|an|some|more|new|our)\\s+)?(?:[\\w-]+\\s+)?|(?:to|into)\\s+(?:(?:the|an?)\\s+)?)${ANALYTICS_RESULT_TERMS.source}(?!\\s+${ARTIFACT_HEAD})`,
+  ].join("|"),
+);
+// What a rename sets is a name, whatever words it uses: "rename the chart to
+// Revenue by Region" scopes nothing.
+const NEW_NAME =
+  /(?<=\b(?:rename|retitle|title|label)\w*\b[^.!?;]*?)(?:\b(?:to|as)\b|["“])[^.!?;]*/g;
 
 /** An edit, navigation, or bug report about an existing artifact that asks for
  *  nothing to be measured. */
-function isArtifactRequest(lower: string): boolean {
+function isArtifactRequest(text: string): boolean {
+  const lower = text.replace(NEW_NAME, " ");
   if (
+    lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase()) ||
     DATA_ASK_SHAPE.test(lower) ||
     METRIC_RESULT_INTENT.test(lower) ||
     NEW_ARTIFACT.test(lower)
@@ -663,29 +691,46 @@ function isArtifactRequest(lower: string): boolean {
   }
   const edit = UI_EDIT_OPENER.exec(lower);
   if (!edit) return ARTIFACT_FAULT.test(lower) && ARTIFACT_NOUN.test(lower);
+  // The artifact is only what the edit acts on; its object decides.
+  if (DATA_EDIT_OBJECT.test(lower)) return false;
   return (
     ARTIFACT_NOUN.test(lower) ||
     ARTIFACT_PRONOUN.test(lower.slice(edit[0].length))
   );
 }
 
-/** Turns that never need a data lookup: greetings, thanks, and an edit,
- *  navigation, or bug report about an artifact. The one boundary for pre-model
- *  retrieval and the final guard; every other turn, in any language, is a
- *  candidate data turn. A wrong "data" costs one retrieval, since the guard
- *  only rejects a draft that states figures without evidence; a wrong
- *  "non-data" lets an invented figure through. */
-export function isNonDataTurn(text: string): boolean {
-  const lower = boundAnalyticsClassificationText(
+function askText(text: string): string {
+  return boundAnalyticsClassificationText(
     stripInjectedAnalyticsGuardContext(text),
   ).toLowerCase();
-  if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return false;
-  if ((lower.match(/[\p{L}\p{N}]/gu) ?? []).length < 2) return true;
-  return GREETING_OR_THANKS.test(lower) || isArtifactRequest(lower);
+}
+
+/** Greetings, thanks, and text with nothing in it to read: the only turns
+ *  pre-model retrieval skips. Retrieval is cheap and relevance-gated (a
+ *  reference below the bar is never injected), so a wrongly retrieved turn costs
+ *  one lookup, and every substantive turn, an artifact edit included, may name
+ *  data the artifact rule cannot enumerate. */
+export function isTrivialTurn(text: string): boolean {
+  const lower = askText(text);
+  return (
+    (lower.match(/[\p{L}\p{N}]/gu) ?? []).length < 2 ||
+    GREETING_OR_THANKS.test(lower)
+  );
+}
+
+/** Turns the final guard never judges: trivial ones, and an edit, navigation,
+ *  or bug report about an artifact. The guard is the intrusive gate, since a
+ *  draft that states figures without query evidence is retried and then
+ *  replaced, so it leans to non-data for a presentation edit ("resize the chart
+ *  by 20%" confirms with a figure that measures nothing). Every other turn, in
+ *  any language, is a candidate data turn. */
+export function isNonDataTurn(text: string): boolean {
+  return isTrivialTurn(text) || isArtifactRequest(askText(text));
 }
 
 /** Whether a request is an analytics lookup by vocabulary. Only the coverage
- *  checks use it; the guard and retrieval gate on `isNonDataTurn`. */
+ *  checks use it; the guard gates on `isNonDataTurn`, retrieval on
+ *  `isTrivialTurn`. */
 export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const requestText = boundAnalyticsClassificationText(
     stripInjectedAnalyticsGuardContext(text),

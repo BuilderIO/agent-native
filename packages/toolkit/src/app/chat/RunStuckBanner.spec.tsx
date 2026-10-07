@@ -37,12 +37,14 @@ const hookState = vi.hoisted(() => ({
   awaitingResponse: undefined as boolean | undefined,
 }));
 
+const abortRunMock = vi.hoisted(() => vi.fn(async () => null));
+
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   useRunStuckDetection: (options: { awaitingResponse?: boolean }) => {
     hookState.awaitingResponse = options.awaitingResponse;
     return hookState.current;
   },
-  useAbortRun: () => vi.fn(),
+  useAbortRun: () => abortRunMock,
 }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({
@@ -62,6 +64,8 @@ describe("RunStuckBanner", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(1_000_000);
     trackEventMock.mockClear();
+    abortRunMock.mockClear();
+    window.localStorage.clear();
     hookState.current = STUCK_STATE;
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -269,14 +273,34 @@ describe("RunStuckBanner", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("keeps the stuck banner when the status is also unreadable", async () => {
+  it("shows the unreadable status, not a stuck banner, when the status is unreadable", async () => {
     hookState.current = { ...STUCK_STATE, statusUnreadable: true };
 
     await render({ threadId: "thread-1" });
 
-    expect(container.textContent).toContain("agentChat.recovery.stuckTitle");
-    expect(container.textContent).not.toContain(
+    expect(container.textContent).toContain(
       "agentChat.recovery.statusUnreadable",
     );
+    expect(container.textContent).not.toContain(
+      "agentChat.recovery.stuckTitle",
+    );
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  it("does not auto-abort a run on a stuck verdict it cannot confirm", async () => {
+    const props = {
+      threadId: "thread-auto-retry",
+      autoRetry: true,
+      autoRetryOwnerId: "owner-1",
+    };
+    hookState.current = { ...STUCK_STATE, statusUnreadable: true };
+
+    await render(props);
+    expect(abortRunMock).not.toHaveBeenCalled();
+
+    hookState.current = { ...STUCK_STATE };
+    await render(props);
+    await act(async () => {});
+    expect(abortRunMock).toHaveBeenCalledWith("run-1", "auto_stuck_retry");
   });
 });

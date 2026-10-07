@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   runQuery: vi.fn(),
@@ -77,6 +77,10 @@ beforeEach(() => {
     key === "BIGQUERY_PROJECT_ID" ? "test-project" : null,
   );
   vi.stubGlobal("fetch", mocks.fetch);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("bigquery failed-query schema recovery", () => {
@@ -293,6 +297,141 @@ describe("bigquery failed-query schema recovery", () => {
       didYouMean: ["event_timestamp"],
     });
     expect(result).not.toHaveProperty("schemaLookup");
+  });
+
+  describe("the lookup deadline", () => {
+    it.each([
+      [
+        "an unrecognized column",
+        "Unrecognized name: event_time",
+        "SELECT event_time FROM `test-project.product.signups_deadline`",
+      ],
+      [
+        "a missing table",
+        "Not found: Table test-project:product.signup_events was not found in location US",
+        "SELECT * FROM `test-project.product.signup_events`",
+      ],
+    ])(
+      "answers %s within the deadline when the access token is slow",
+      async (_name, detail, sql) => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        mocks.runQuery.mockRejectedValue(failedQuery(detail));
+        // A token cache miss: the exchange retries Google for far longer than
+        // the lookup is allowed to take.
+        mocks.getAccessToken.mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              setTimeout(() => resolve("late-token"), 120_000);
+            }),
+        );
+        let settled = false;
+        const run = bigquery.run({ sql }).finally(() => {
+          settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(7_999);
+        expect(settled).toBe(false);
+        // The deadline, then the short grace a lookup stuck before its fetches
+        // gets to settle.
+        await vi.advanceTimersByTimeAsync(1_001);
+
+        expect(settled).toBe(true);
+        const result = (await run) as Record<string, unknown>;
+        expect(result).toMatchObject({
+          error: "bigquery_query_failed",
+          message: `${detail} at [1:8]`,
+          recoverable: true,
+          schemaLookup: "failed",
+        });
+        expect(result).not.toHaveProperty("columns");
+        expect(result).not.toHaveProperty("didYouMeanTables");
+        expect(mocks.fetch).not.toHaveBeenCalled();
+      },
+    );
+
+    // A fetch settles when its signal aborts, as the real one does.
+    const hangUntilAborted = (init?: { signal?: AbortSignal }) =>
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(init.signal?.reason),
+        );
+      });
+
+    it("keeps the columns of the tables that answered when a sibling read hangs", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const [fast, hung] = ["signups_deadline_fast", "signups_deadline_hung"];
+      mocks.runQuery.mockRejectedValue(failedQuery("Unrecognized name: planx"));
+      mocks.fetch.mockImplementation(
+        (url: string, init?: { signal?: AbortSignal }) =>
+          String(url).endsWith(`/tables/${fast}`)
+            ? Promise.resolve(
+                jsonResponse(tableMetadata(fast, [["plan", "STRING"]])),
+              )
+            : hangUntilAborted(init),
+      );
+      let settled = false;
+      const run = bigquery
+        .run({
+          sql: `SELECT planx FROM product.${fast} a JOIN product.${hung} b ON a.id = b.id`,
+        })
+        .finally(() => {
+          settled = true;
+        });
+
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      expect(settled).toBe(true);
+      const result = (await run) as Record<string, unknown>;
+      expect(result).toMatchObject({
+        error: "bigquery_query_failed",
+        table: `test-project.product.${fast}`,
+        didYouMean: ["plan"],
+        unreadTables: [`test-project.product.${hung}`],
+      });
+      expect(result).not.toHaveProperty("schemaLookup");
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("says the lookup failed when the only table read hangs", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      mocks.runQuery.mockRejectedValue(
+        failedQuery("Unrecognized name: event_time"),
+      );
+      mocks.fetch.mockImplementation((_url: string, init) =>
+        hangUntilAborted(init),
+      );
+      const run = bigquery.run({
+        sql: "SELECT event_time FROM `test-project.product.signups_deadline_only`",
+      });
+
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      expect(await run).toMatchObject({
+        error: "bigquery_query_failed",
+        schemaLookup: "failed",
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("clears the deadline timer once the lookup answers", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      // Not freshTable(): a shifted sequence reorders the string-sorted URLs of
+      // the comma-join test below.
+      const table = "signups_deadline_timer";
+      mocks.runQuery.mockRejectedValue(
+        failedQuery("Unrecognized name: event_time"),
+      );
+      mocks.fetch.mockResolvedValue(
+        jsonResponse(tableMetadata(table, [["event_timestamp", "TIMESTAMP"]])),
+      );
+
+      const result = (await bigquery.run({
+        sql: `SELECT event_time FROM \`test-project.product.${table}\``,
+      })) as Record<string, unknown>;
+
+      expect(result).toMatchObject({ didYouMean: ["event_timestamp"] });
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 
   describe("tables read out of the SQL", () => {
