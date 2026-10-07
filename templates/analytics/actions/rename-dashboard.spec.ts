@@ -173,10 +173,13 @@ describe("rename-dashboard", () => {
 
     await renameDashboard.run({ id: "traffic", name: "New Name" });
 
-    expect(mocks.hasCollabState).toHaveBeenCalledWith("dash-traffic");
-    expect(mocks.seedFromText).toHaveBeenCalledTimes(1);
-    const seededConfig = JSON.parse(mocks.seedFromText.mock.calls[0][1]);
-    expect(seededConfig.name).toBe("New Name");
+    expect(mocks.applyText).toHaveBeenCalledWith(
+      "dash-traffic",
+      JSON.stringify({ ...dashboardConfig(), name: "New Name" }),
+      "content",
+      "agent",
+      expect.objectContaining({ validateSnapshot: expect.any(Function) }),
+    );
   });
 
   it("does not mark a frontend rename as an AI edit", async () => {
@@ -198,6 +201,7 @@ describe("rename-dashboard", () => {
       JSON.stringify({ ...dashboardConfig(), name: "New Name" }),
       "content",
       undefined,
+      expect.objectContaining({ validateSnapshot: expect.any(Function) }),
     );
   });
 });

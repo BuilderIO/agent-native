@@ -446,16 +446,12 @@ describe("mutate-dashboard", () => {
   it("returns the SQL save proof when collab sync hangs", async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    let releaseCollabState!: (exists: boolean) => void;
     mocks.getDashboard.mockResolvedValue({
       kind: "sql",
       config: dashboardConfig(),
     });
-    mocks.hasCollabState.mockImplementationOnce(
-      () =>
-        new Promise<boolean>((resolve) => {
-          releaseCollabState = resolve;
-        }),
+    mocks.applyText.mockImplementationOnce(
+      () => new Promise<void>(() => undefined),
     );
 
     try {
@@ -476,7 +472,6 @@ describe("mutate-dashboard", () => {
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("Dashboard collab sync timed out for traffic"),
       );
-      releaseCollabState(false);
       await mocks.queueDashboardCollabSync.mock.results[0]?.value;
     } finally {
       warn.mockRestore();

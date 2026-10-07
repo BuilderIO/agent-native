@@ -156,6 +156,7 @@ describe("update-dashboard proof-of-done summary", () => {
       JSON.stringify(config),
       "content",
       undefined,
+      expect.objectContaining({ validateSnapshot: expect.any(Function) }),
     );
   });
 
@@ -176,6 +177,7 @@ describe("update-dashboard proof-of-done summary", () => {
       JSON.stringify(config),
       "content",
       "agent",
+      expect.objectContaining({ validateSnapshot: expect.any(Function) }),
     );
   });
 
