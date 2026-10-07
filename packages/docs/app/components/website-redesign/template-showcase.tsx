@@ -161,6 +161,7 @@ export function TemplateShowcase() {
                       alt={t("templateCard.screenshotAlt", {
                         name: app.name,
                       })}
+                      frame={app.slug === "clips"}
                       scaleX={getScreenshotTileScaleX(app.slug)}
                       sizes={CARD_IMAGE_SIZES}
                       variants={TEMPLATE_SCREENSHOTS[app.slug]}
