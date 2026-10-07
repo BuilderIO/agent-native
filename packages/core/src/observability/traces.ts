@@ -105,6 +105,13 @@ function createBoundedAssistantText(): BoundedAssistantText {
   return { parts: [], byteLength: 0, truncated: false };
 }
 
+function redactCapturedError(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return redactCapturedString(
+    typeof value === "string" ? value : String(value),
+  );
+}
+
 function boundAssistantOutput(
   content: string,
   toolCalls: Array<{
@@ -731,11 +738,18 @@ export async function instrumentAgentLoop(opts: {
   ): void => {
     const entry = pendingOtelModelSpans.get(index);
     if (!entry || entry.ended) return;
-    entry.endResult = result;
+    const safeResult = {
+      ...result,
+      errorMessage:
+        result.errorMessage === null
+          ? null
+          : redactCapturedString(result.errorMessage),
+    };
+    entry.endResult = safeResult;
     if (!entry.span) return;
     entry.ended = true;
     openOtelModelSpans.delete(entry.span);
-    endAgentSpan(entry.span, result);
+    endAgentSpan(entry.span, safeResult);
   };
   const finishAwaitingOtelModelSpans = (
     finalErrorMessage: string | null = null,
@@ -794,17 +808,18 @@ export async function instrumentAgentLoop(opts: {
       errorMessage = null;
     } else {
       runStatus = "error";
-      errorMessage =
+      errorMessage = redactCapturedError(
         outcome.state === "canceled"
           ? (outcome.message ?? "Agent run was canceled.")
-          : outcome.message;
+          : outcome.message,
+      );
     }
     runMetadata = {
       ...(runMetadata ?? {}),
       terminal_state: outcome.state,
       ...("code" in outcome ? { terminal_code: outcome.code } : {}),
       ...(outcome.state === "input_required"
-        ? { terminal_message: outcome.message }
+        ? { terminal_message: redactCapturedError(outcome.message) }
         : {}),
       ...(outcome.state === "failed"
         ? { terminal_retryable: outcome.retryable }
@@ -836,14 +851,16 @@ export async function instrumentAgentLoop(opts: {
         cutOffReason = reason;
         if (!EXPECTED_CONTINUATION_REASONS.has(reason)) {
           runStatus = "error";
-          errorMessage = `Agent run was cut off before finishing (${reason}).`;
+          errorMessage = redactCapturedError(
+            `Agent run was cut off before finishing (${reason}).`,
+          );
         }
       } else if (event.type === "error") {
         runStatus = "error";
-        errorMessage = event.error;
+        errorMessage = redactCapturedError(event.error);
       } else if (event.type === "tripwire") {
         runStatus = "error";
-        errorMessage = event.reason;
+        errorMessage = redactCapturedError(event.reason);
       } else if (event.type === "loop_limit") {
         runStatus = "error";
         errorMessage = "Agent stopped at the loop limit";
@@ -1134,10 +1151,11 @@ export async function instrumentAgentLoop(opts: {
   } catch (err: any) {
     const classification = opts.classifyError?.(err) ?? null;
     runStatus = classification?.status ?? "error";
-    errorMessage =
+    errorMessage = redactCapturedError(
       classification?.errorMessage === undefined
         ? (err?.message ?? String(err))
-        : classification.errorMessage;
+        : classification.errorMessage,
+    );
     errorHttpStatus = httpStatusFromError(err);
     const errorMetadata = classification?.metadata ?? null;
     runMetadata =
@@ -1426,7 +1444,12 @@ export async function instrumentAgentLoop(opts: {
             generationStatus === "error"
               ? (generation.errorMessage ?? errorMessage)
               : null;
+          const capturedGenerationError =
+            generationError === null
+              ? null
+              : redactCapturedString(generationError);
           const assistantTextIncomplete =
+            (modelRoundTrips.length > 0 && !generation.stopReason) ||
             generation.stopReason === "max_tokens" ||
             (generationStatus === "error" &&
               generation.assistantText.length > 0);
@@ -1471,7 +1494,7 @@ export async function instrumentAgentLoop(opts: {
             costCentsX100: callCostCentsX100 ?? 0,
             durationMs: generation.latencyMs,
             status: generationStatus,
-            errorMessage: generationError,
+            errorMessage: capturedGenerationError,
             metadata:
               capturedContent && Object.keys(capturedContent).length > 0
                 ? capturedContent
@@ -1507,7 +1530,7 @@ export async function instrumentAgentLoop(opts: {
             llmCallCount: modelRoundTrips.length > 0 ? 1 : llmCallCount,
             firstTokenMs: generation.isFirst ? runFirstTokenMs : undefined,
             status: generationStatus,
-            errorMessage: generationError,
+            errorMessage: capturedGenerationError,
             httpStatus:
               generationStatus === "error" ? errorHttpStatus : HTTP_STATUS_OK,
             toolCalls: generation.toolSpans.length,
@@ -1552,7 +1575,7 @@ export async function instrumentAgentLoop(opts: {
         costCentsX100,
         durationMs: totalDurationMs,
         status: runPaused ? "paused" : runStatus,
-        errorMessage,
+        errorMessage: redactCapturedError(errorMessage),
         metadata: runMetadata,
         createdAt: runStart,
       };
@@ -1781,7 +1804,8 @@ export async function instrumentAgentLoop(opts: {
           );
           endAgentSpan(aggregateLlmSpan, {
             status: runStatus,
-            errorMessage,
+            errorMessage:
+              errorMessage === null ? null : redactCapturedString(errorMessage),
             attributes: {
               "gen_ai.response.model": usage.model,
               ...(usage.usageReported
@@ -1814,7 +1838,7 @@ export async function instrumentAgentLoop(opts: {
         openOtelToolSpans.clear();
         endAgentSpan(otelRunSpan, {
           status: runStatus,
-          errorMessage,
+          errorMessage: redactCapturedError(errorMessage),
           attributes: {
             "agent.llm_calls": llmCallCount,
             "agent.tool_calls": toolCallCount,

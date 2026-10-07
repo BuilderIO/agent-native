@@ -851,6 +851,150 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     }
   });
 
+  it("redacts provider errors before persistence, tracking, and OTel export", async () => {
+    const events: TrackingEvent[] = [];
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    const providerToken = "synthetic-provider-token";
+    const urlPassword = "synthetic-url-password";
+    const signedUrlSecret = "synthetic-signed-signature";
+    const webhookSecret = "FAKEWEBHOOKSECRET";
+    const providerError =
+      `Provider rejected api_key=sk-proj-FAKE000000000000 token=${providerToken} ` +
+      `https://alice:${urlPassword}@provider.example/v1?sig=${signedUrlSecret} ` +
+      `webhookUrl=https://hooks.slack.com/services/T00000000/B00000000/${webhookSecret}`;
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        throw new Error(providerError);
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-redacted-provider-error",
+      threadId: "thread-redacted-provider-error",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const llmSpan = persistedSpans.find((span) => span.spanType === "llm_call");
+    const parentSpan = persistedSpans.find(
+      (span) => span.spanType === "agent_run",
+    );
+    const event = events.find((entry) => entry.name === "$ai_generation");
+    const otelModelSpan = spans.find((span) => span.name.startsWith("chat "));
+    const otelRunSpan = spans.find((span) => span.name === "invoke_agent");
+    expect(llmSpan?.errorMessage).toContain("[REDACTED]");
+    expect(parentSpan?.errorMessage).toContain("[REDACTED]");
+    expect(event?.properties?.error_message).toContain("[REDACTED]");
+    expect(
+      (event?.properties?.["$ai_error"] as { message: string })?.message,
+    ).toContain("[REDACTED]");
+    expect(otelModelSpan?.status?.message).toContain("[REDACTED]");
+    expect(otelRunSpan?.status?.message).toContain("[REDACTED]");
+    const serialized = JSON.stringify({ persistedSpans, events, spans });
+    for (const secret of [
+      "sk-proj-FAKE000000000000",
+      providerToken,
+      urlPassword,
+      signedUrlSecret,
+      webhookSecret,
+    ]) {
+      expect(serialized).not.toContain(secret);
+    }
+  });
+
+  it("marks streamed assistant output incomplete when its finish reason is missing", async () => {
+    const events: TrackingEvent[] = [];
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: "Partial response" });
+        send({ type: "model_stream", status: "end" });
+        send({ type: "done" });
+        return {
+          inputTokens: 5,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [{ role: "user", content: "Say something" }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-incomplete-model-output",
+      threadId: "thread-incomplete-model-output",
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const llmSpan = persistedSpans.find((span) => span.spanType === "llm_call");
+    const event = events[0];
+    expect(llmSpan?.status).toBe("success");
+    expect(llmSpan?.metadata).toMatchObject({
+      output_truncated: true,
+      output: [{ role: "assistant", content: "Partial response\n[truncated]" }],
+    });
+    expect(event?.properties).toMatchObject({
+      status: "success",
+      output_truncated: true,
+      $ai_is_error: false,
+      $ai_output_choices: [
+        { role: "assistant", content: "Partial response\n[truncated]" },
+      ],
+    });
+    expect(event?.properties?.$ai_stop_reason).toBeUndefined();
+  });
+
   it("projects inline attachments before redacting captured model input", async () => {
     const events: TrackingEvent[] = [];
     const inlineImageData = "A".repeat(512_000);
