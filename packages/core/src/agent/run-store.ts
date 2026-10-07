@@ -1998,6 +1998,25 @@ export async function updateRunStatusIfRunning(
   return (rowsAffected ?? 0) > 0;
 }
 
+/** The caller owns this claim and has not called startRun yet. */
+export async function releaseBackgroundRunBeforeStart(
+  runId: string,
+  errorCode: string,
+  errorDetail: string,
+): Promise<void> {
+  await ensureRunTables();
+  const { rowsAffected } = await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET status = 'errored', completed_at = ?, error_code = ?, error_detail = ?, dispatch_payload = NULL
+          WHERE id = ? AND status = 'running' AND dispatch_mode = 'background-processing'`,
+    args: [Date.now(), errorCode, errorDetail, runId],
+  });
+  if (rowsAffected !== 1)
+    throw new Error(
+      `Unstarted background worker ${runId} could not be released`,
+    );
+}
+
 export async function getRunStatus(runId: string): Promise<string | null> {
   await ensureRunTables();
   const client = getDbExec();

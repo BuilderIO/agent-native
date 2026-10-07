@@ -74,6 +74,11 @@ vi.mock("../chat-threads/store.js", () => ({
 }));
 
 vi.mock("../agent/production-agent.js", () => ({
+  appendAgentLoopContinuation: (messages: unknown[]) =>
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: "Resume unfinished work." }],
+    }),
   actionsToEngineTools: () => [],
   filterInitialEngineTools: (tools: unknown[]) => tools,
   resolveOwnerEngineApiKey: vi.fn(async () => ({
@@ -1143,6 +1148,137 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
 });
 
 describe("runBackgroundAutomation — a failed run reports its own cause", () => {
+  it.each(["before claim", "after claim"])(
+    "leaves a resumed firing retryable after lease loss %s",
+    async (stage) => {
+      const runStore = await import("../agent/run-store.js");
+      const history = await import("./run-history.js");
+      const { AutomationSchedulerLeaseLostError } =
+        await import("./scheduler-health.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const name = stage.replaceAll(" ", "-");
+      const threadId = `thread-lease-${name}`;
+      const turnId = `turn-lease-${name}`;
+      const historyId = `history-lease-${name}`;
+      getThreadMock.mockResolvedValueOnce({
+        id: threadId,
+        title: "Interrupted",
+        preview: "",
+        messageCount: 1,
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Original request" }],
+              metadata: { custom: { submittedTurnId: turnId } },
+            },
+          ],
+        }),
+      });
+      const journal = vi
+        .spyOn(runStore, "getCurrentTurnRunEventsForThread")
+        .mockResolvedValue([]);
+      const claim = vi
+        .spyOn(runStore, "tryClaimRunSlot")
+        .mockImplementation(
+          async (claimedThreadId, runId, _maxStaleMs, options) => {
+            await runStore.insertRun(runId, claimedThreadId, options!.turnId!, {
+              dispatchMode: "background",
+            });
+            return { claimed: true, activeRunId: null };
+          },
+        );
+      const attach = vi
+        .spyOn(history, "attachAutomationRunThread")
+        .mockResolvedValue(undefined);
+      const finish = vi
+        .spyOn(history, "finishAutomationRun")
+        .mockResolvedValue(undefined);
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+      let checks = 0;
+      const options = runOptions(precondition(`lease-${name}`), {
+        historyId,
+        resume: {
+          historyId: `history-lease-${name}`,
+          threadId,
+          turnId,
+          previousRunId: `previous-${name}`,
+          hardDeadlineAt: Date.now() + 60_000,
+        },
+        assertCanStart: async () => {
+          checks++;
+          if (checks === (stage === "before claim" ? 1 : 2))
+            throw new AutomationSchedulerLeaseLostError();
+        },
+      });
+      try {
+        await expect(
+          runBackgroundAutomation(options, standardDeps),
+        ).rejects.toMatchObject({
+          errorCode: "automation_scheduler_lease_lost",
+        });
+        expect(finish).not.toHaveBeenCalled();
+        expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+        const rows = (await pglite
+          .prepare(
+            "SELECT id, status, error_code FROM agent_runs WHERE turn_id = ?",
+          )
+          .all(turnId)) as Array<{
+          id: string;
+          status: string;
+          error_code: string;
+        }>;
+        if (stage === "before claim") expect(rows).toHaveLength(0);
+        else {
+          expect(rows).toHaveLength(1);
+          expect(rows[0]).toMatchObject({
+            status: "errored",
+            error_code: "automation_scheduler_lease_lost",
+          });
+          expect(attach).toHaveBeenCalledWith(
+            historyId,
+            threadId,
+            rows[0]!.id,
+            { requirePersisted: true },
+          );
+        }
+        getThreadMock.mockResolvedValueOnce({
+          id: threadId,
+          title: "Interrupted",
+          preview: "",
+          messageCount: 1,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                role: "user",
+                content: [{ type: "text", text: "Original request" }],
+                metadata: { custom: { submittedTurnId: turnId } },
+              },
+            ],
+          }),
+        });
+        await runBackgroundAutomation(
+          { ...options, assertCanStart: async () => {} },
+          standardDeps,
+        );
+        expect(runAgentLoopDirectWithSoftTimeout).toHaveBeenCalledOnce();
+        expect(finish).toHaveBeenCalledWith(
+          historyId,
+          "success",
+          undefined,
+          undefined,
+          { notify: true, requirePersisted: true },
+        );
+      } finally {
+        journal.mockRestore();
+        claim.mockRestore();
+        attach.mockRestore();
+        finish.mockRestore();
+      }
+    },
+  );
+
   it("settles an expired recovery deadline with its previous worker's journal evidence", async () => {
     const runStore = await import("../agent/run-store.js");
     const history = await import("./run-history.js");

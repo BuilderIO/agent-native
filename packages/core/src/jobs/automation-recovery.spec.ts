@@ -87,6 +87,22 @@ describe("automation worker recovery", () => {
     mocks.events.mockResolvedValue(sent);
   });
 
+  it("recovers an unstarted successor released after scheduler lease loss", async () => {
+    mocks.get.mockResolvedValue({
+      id: "job-1",
+      status: "errored",
+      errorCode: "automation_scheduler_lease_lost",
+    });
+    expect(await inspectAutomationRecovery(resource, meta, now)).toMatchObject({
+      state: "resume",
+      resume: {
+        historyId: history.id,
+        threadId: history.threadId,
+        turnId: "job-1",
+      },
+    });
+  });
+
   it("recovers a dead worker at two minutes without waiting for the job's ten-minute timeout", async () => {
     expect(await inspectAutomationRecovery(resource, meta, now)).toEqual({
       state: "resume",

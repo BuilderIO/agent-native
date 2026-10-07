@@ -178,7 +178,8 @@ export async function inspectAutomationRecovery(
   if (
     meta.lastHistoryId &&
     history.finishedAt === null &&
-    run.errorCode === "stale_run" &&
+    (run.errorCode === "stale_run" ||
+      run.errorCode === "automation_scheduler_lease_lost") &&
     now.getTime() < hardDeadlineAt &&
     (await countRunsForTurn(ref.threadId, ref.turnId)) <=
       STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN

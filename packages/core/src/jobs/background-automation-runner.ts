@@ -36,6 +36,7 @@ import {
   getCurrentTurnRunEventsForThread,
   getRunTurnRef,
   getCurrentTurnEventsForThread,
+  releaseBackgroundRunBeforeStart,
 } from "../agent/run-store.js";
 import {
   buildAssistantMessage,
@@ -103,6 +104,7 @@ import {
   finishAutomationRun,
   startAutomationRun,
 } from "./run-history.js";
+import { AutomationSchedulerLeaseLostError } from "./scheduler-health.js";
 
 export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 
@@ -580,8 +582,9 @@ export async function runBackgroundAutomation(
     );
   } catch (err) {
     if (
-      err instanceof BackgroundAutomationRunError &&
-      err.errorCode === "background_automation_claim_lost"
+      err instanceof AutomationSchedulerLeaseLostError ||
+      (err instanceof BackgroundAutomationRunError &&
+        err.errorCode === "background_automation_claim_lost")
     )
       throw err;
     const failure = classifyAutomationFailure(err);
@@ -1097,7 +1100,25 @@ async function executeBackgroundAutomation(
         runId,
         Boolean(options.historyId),
       );
-      await options.assertCanStart?.();
+      try {
+        await options.assertCanStart?.();
+      } catch (error) {
+        if (error instanceof AutomationSchedulerLeaseLostError) {
+          try {
+            await releaseBackgroundRunBeforeStart(
+              runId,
+              error.errorCode,
+              error.message,
+            );
+          } catch (cleanupError) {
+            console.error(
+              "[automations] Could not release the unstarted worker; heartbeat recovery will retry:",
+              cleanupError,
+            );
+          }
+        }
+        throw error;
+      }
       const hardTimeoutMs = Math.min(
         maxHardTimeoutMs,
         options.hardDeadlineAt === undefined

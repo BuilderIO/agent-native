@@ -81,6 +81,7 @@ import {
   releaseAutomationSchedulerLease,
   renewAutomationSchedulerLease,
   AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS,
+  AutomationSchedulerLeaseLostError,
 } from "./scheduler-health.js";
 import { reapStaleWork } from "./stale-reaper.js";
 
@@ -190,10 +191,10 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
           owner: leaseOwner,
         }))
       ) {
-        lease.abort();
+        lease.abort(new AutomationSchedulerLeaseLostError());
       }
     } catch (error) {
-      lease.abort(error);
+      lease.abort(new AutomationSchedulerLeaseLostError(error));
     }
     lease.signal.throwIfAborted();
   };
@@ -1286,6 +1287,7 @@ async function executeJob(
     return { status: "success", runId: result.runId };
   } catch (err) {
     const failure = classifyAutomationFailure(err);
+    if (err instanceof AutomationSchedulerLeaseLostError) throw err;
     if (failure.code === "background_automation_history_write_failed")
       throw err;
     if (failure.code === "background_automation_claim_lost")

@@ -331,6 +331,13 @@ describe("stale automation run-lock recovery across trigger types", () => {
       });
       expect(runAgentLoopMock).not.toHaveBeenCalled();
       expect(startRunMock).not.toHaveBeenCalled();
+      expect(finish).not.toHaveBeenCalled();
+      expect(
+        parseJobResource(resourcePutMock.mock.calls.at(-1)![2]).meta,
+      ).toMatchObject({
+        lastStatus: "running",
+        lastHistoryId: fixture.history.id,
+      });
     } finally {
       renewal.mockRestore();
       finish.mockRestore();
