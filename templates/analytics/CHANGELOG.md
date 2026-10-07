@@ -5,8 +5,19 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-06
 
+### Added
+
+- Save a screenshot of any visible moment in a session replay.
+- Save exact session replay screens as PNG screenshots.
+- Session replays can be saved as screenshots without the replay controls.
+
 ### Fixed
 
+- Collaborators see a consistent dashboard after simultaneous edits
+- Dashboard edits stay in sync when simultaneous updates occur.
+- Dashboard filter "Mine" now lists every dashboard you own (including ones you've shared) and no longer includes installed demos or items shared with you
+- Return each dashboard mutation's own written value even when another update lands immediately afterward
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
 - Dashboard edits now report no change when the selected panels already match the requested values or order.
 - Dashboard mutation results now report only changes that were actually saved.
 - Refreshing a BigQuery dashboard panel now fetches current data.
