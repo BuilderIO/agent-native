@@ -115,7 +115,7 @@ run one pass and list the open criteria.
 - [ ] 2 Design decided, brief posted with App design
 - [ ] 3 Real scaffold, onboarding config, local sign-in
 - [ ] 4 Actions, domain surface, sample data, agent moments, agent instructions
-- [ ] 5 Running; screenshots reviewed and refined (three passes at most)
+- [ ] 5 Running; screenshots reviewed and refined (two passes by default)
 - [ ] 6 Typecheck, doctor, build; final report with evidence labels
 ```
 
@@ -259,7 +259,8 @@ Start the dev server as the run and deploy guide says (detached, log and PID in
   clipped text, raw markdown, sideways scroll, console errors) overrides the
   mean.
 - Fix every finding in one batch, reset what the click changed, and shoot
-  again. Stop when the bar is met: three passes at most.
+  again. Stop when the bar is met: two passes; a third only to clear an
+  automatic fail.
 - Installed design skills are optional; the review loop limits them.
 
 Screenshots stay in the app's `.tmp/ui-review/out/`.

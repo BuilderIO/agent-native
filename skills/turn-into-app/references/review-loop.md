@@ -284,8 +284,9 @@ Reading the metrics:
 6. Fix every finding in one batch; do not hunt micro-issues between passes.
    The click is real: reset what it changed (Retry, Clear, or the sample-data
    reset) so the next pass and the delivered app open on the sample state.
-7. Shoot `p2` and rescore. Shoot `p3` only if the bar is still missed, then
-   stop: three passes at most.
+7. Shoot `p2` and rescore. Shoot `p3` only to clear an automatic fail, then
+   stop: two passes by default, three at most. Use the script as written;
+   do not grow a separate test harness.
 8. The bar (defaults): mean 4.0 or higher, no criterion below 3, no automatic
    fail. On the final pass, if the host can spawn a sub-agent and time
    remains, give it only the PNGs, the rubric, and the brief, have it score
