@@ -14,6 +14,7 @@ import {
   getQuery,
   getHeader,
   getRequestIP,
+  readBody as readH3Body,
   type H3Event,
 } from "h3";
 
@@ -127,6 +128,7 @@ import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   type ThreadSuggestionRun,
+  type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
 import { attachToolSearch } from "../agent/tool-search.js";
@@ -202,7 +204,10 @@ import {
   normalizeMcpPrincipal,
   principalFromRequestContext,
 } from "../mcp-client/principal.js";
-import { declaredMcpToolNames } from "../mcp/build-server.js";
+import {
+  declaredMcpToolNames,
+  getMcpDirectoryWidgetResourceUri,
+} from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -1229,6 +1234,9 @@ export function createAgentChatPlugin(
       // `externalAgents` into `mcp`. A2A reads the same object, so the
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
+      const mcpServerName = options?.appId
+        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+        : "Agent";
       const mcpActionEntryOptions: McpActionEntryOptions =
         options?.resolveMcpActionEntry
           ? { resolveActionEntry: options.resolveMcpActionEntry }
@@ -3144,11 +3152,10 @@ export function createAgentChatPlugin(
 
       if (mcpOptions.enabled) {
         // Mount MCP remote server — same action registry as A2A + agent chat
-        const { mountMCP } = await import("../mcp/server.js");
+        const { mountMCP, selectMcpDirectoryWidgetReadActions } =
+          await import("../mcp/server.js");
         mountMCP(nitroApp, {
-          name: options?.appId
-            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
-            : "Agent",
+          name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,
           description:
@@ -3161,6 +3168,10 @@ export function createAgentChatPlugin(
           icons: mcpOptions.icons,
           actions: externalActions,
           productionActions: externalFullActions,
+          widgetReadActions: selectMcpDirectoryWidgetReadActions(
+            mcpOptions.directoryProfile,
+            templateScriptsAll,
+          ),
           ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
@@ -3443,6 +3454,7 @@ export function createAgentChatPlugin(
         }
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
+          getOwnerContextFromEvent: resolveOwnerContext,
           getAuthUserIdFromEvent: async (event) =>
             (await resolveOwnerContext(event)).authUserId,
           getUserNameFromEvent,
@@ -3450,6 +3462,72 @@ export function createAgentChatPlugin(
           clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
+          mcpDirectoryWidgetReadActionArguments:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? Object.fromEntries(
+                  Object.entries(
+                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
+                  )
+                    .filter(
+                      ([name]) =>
+                        (mcpOptions.directoryProfile?.connectorCatalog.includes(
+                          name,
+                        ) ||
+                          mcpOptions.directoryProfile?.widgetReadPublicActions?.includes(
+                            name,
+                          ) ||
+                          mcpOptions.directoryProfile?.widgetReadAuthenticatedActions?.includes(
+                            name,
+                          ) ||
+                          mcpOptions.directoryProfile?.widgetReadPrivateActions?.includes(
+                            name,
+                          )) &&
+                        httpActions[name] &&
+                        (httpActions[name]?.readOnly === true ||
+                          mcpOptions.directoryProfile?.widgetReadOnlyActions?.includes(
+                            name,
+                          )),
+                    )
+                    .map(([name, args]) => [name, Object.keys(args)]),
+                )
+              : undefined,
+          mcpDirectoryWidgetReadActionSchemaArguments:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? Object.fromEntries(
+                  Object.entries(
+                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
+                  )
+                    .map(([name, args]) => [
+                      name,
+                      Object.entries(args)
+                        .filter(
+                          ([, argument]) =>
+                            typeof argument !== "string" &&
+                            argument.type === "actionSchema",
+                        )
+                        .map(([argumentName]) => argumentName),
+                    ])
+                    .filter(([, argumentNames]) => argumentNames.length > 0),
+                )
+              : undefined,
+          mcpDirectoryWidgetReadOnlyActions:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? mcpOptions.directoryProfile.widgetReadOnlyActions
+              : undefined,
+          mcpDirectoryWidgetReadPublicActions:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? mcpOptions.directoryProfile.widgetReadPublicActions
+              : undefined,
+          mcpDirectoryWidgetAppId:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? (options?.appId ?? mcpServerName)
+              : undefined,
+          mcpDirectoryWidgetResourceUri:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? getMcpDirectoryWidgetResourceUri(
+                  options?.appId ?? mcpServerName,
+                )
+              : undefined,
         });
       }
       // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
@@ -6941,7 +7019,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // run could clobber the assistant message the server just
               // appended (and vice versa).
               return await withThreadDataLock(threadId, async () => {
-                const body = await readBody(event);
+                const rawBody = await readH3Body(event);
+                if (
+                  !rawBody ||
+                  typeof rawBody !== "object" ||
+                  Array.isArray(rawBody)
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid request body" };
+                }
+                const body = rawBody as Record<string, unknown>;
                 const bodyIncludesScope = Boolean(
                   body &&
                   typeof body === "object" &&
@@ -6979,14 +7066,48 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
                 }
-                let newThreadData = body.threadData || thread.threadData;
-                let newMessageCount = body.messageCount ?? thread.messageCount;
+                const hasThreadDataField = Boolean(
+                  body &&
+                  typeof body === "object" &&
+                  Object.prototype.hasOwnProperty.call(body, "threadData"),
+                );
+                const incomingThreadData = body.threadData;
+                if (
+                  hasThreadDataField &&
+                  typeof incomingThreadData !== "string"
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid threadData JSON" };
+                }
+                // Empty threadData is the existing metadata-only save sentinel.
+                const hasThreadData =
+                  typeof incomingThreadData === "string" &&
+                  incomingThreadData.length > 0;
+                let newThreadData = hasThreadData
+                  ? incomingThreadData
+                  : thread.threadData;
+                const requestedMessageCount = body.messageCount;
+                if (
+                  Object.prototype.hasOwnProperty.call(body, "messageCount") &&
+                  (typeof requestedMessageCount !== "number" ||
+                    !Number.isSafeInteger(requestedMessageCount) ||
+                    requestedMessageCount < 0)
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid request body" };
+                }
+                let newMessageCount =
+                  typeof requestedMessageCount === "number"
+                    ? requestedMessageCount
+                    : thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;
                 const nextPreview =
                   typeof body.preview === "string"
                     ? body.preview
                     : thread.preview;
+                const annotationConflicts: ThreadAnnotationSnapshotConflict[] =
+                  [];
                 const preserveTitleOverride = (repo: unknown) => {
                   if (
                     repo &&
@@ -6999,14 +7120,52 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     if (meta.title) nextTitle = meta.title;
                   }
                 };
-                // Merge the incoming full-thread blob over the current SQL
-                // copy. Periodic saves can be stale relative to server-side
-                // run completion, and threadRuntime.export() does not carry
-                // queuedMessages.
-                if (body.threadData) {
+                let isSnapshotDelta = false;
+                let existing: unknown;
+                try {
+                  existing = JSON.parse(thread.threadData);
+                } catch {
+                  setResponseStatus(event, 500);
+                  return { error: "Stored thread data is invalid JSON" };
+                }
+                if (
+                  !existing ||
+                  typeof existing !== "object" ||
+                  Array.isArray(existing)
+                ) {
+                  setResponseStatus(event, 500);
+                  return { error: "Stored thread data is invalid JSON" };
+                }
+                // Merge the incoming snapshot delta over the current SQL copy.
+                // Let updateThreadData apply delta markers to each latest
+                // revision if its compare-and-swap needs to retry.
+                if (hasThreadData) {
+                  let incoming: unknown;
                   try {
-                    const existing = JSON.parse(thread.threadData);
-                    const incoming = JSON.parse(newThreadData);
+                    incoming = JSON.parse(incomingThreadData as string);
+                  } catch {
+                    setResponseStatus(event, 400);
+                    return { error: "Invalid threadData JSON" };
+                  }
+                  if (
+                    !incoming ||
+                    typeof incoming !== "object" ||
+                    Array.isArray(incoming)
+                  ) {
+                    setResponseStatus(event, 400);
+                    return { error: "Invalid threadData JSON" };
+                  }
+                  const incomingAgentKit = (incoming as Record<string, unknown>)
+                    .agentKit;
+                  isSnapshotDelta =
+                    incomingAgentKit !== null &&
+                    typeof incomingAgentKit === "object" &&
+                    !Array.isArray(incomingAgentKit) &&
+                    (incomingAgentKit as Record<string, unknown>)
+                      ._snapshotDelta === true;
+                  if (isSnapshotDelta) {
+                    preserveTitleOverride(existing);
+                  } else {
                     const merged = mergeThreadDataForClientSave(
                       existing,
                       incoming,
@@ -7016,23 +7175,26 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       newMessageCount = merged.messages.length;
                     }
                     preserveTitleOverride(merged);
-                  } catch {
-                    // Invalid JSON in either side — fall back to raw body blob.
                   }
                 } else {
-                  try {
-                    preserveTitleOverride(JSON.parse(newThreadData));
-                  } catch {
-                    // Invalid JSON — keep the title supplied by the client.
-                  }
+                  preserveTitleOverride(existing);
                 }
-                await updateThreadData(
+                const updated = await updateThreadData(
                   threadId,
                   newThreadData,
                   nextTitle,
                   nextPreview,
                   newMessageCount,
+                  {
+                    preserveCurrentTitleAndPreview: isSnapshotDelta,
+                    onAnnotationConflict: (conflict) =>
+                      annotationConflicts.push(conflict),
+                  },
                 );
+                if (!updated) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.
                 // A scoped thread cannot be retagged across resources here.
@@ -7049,7 +7211,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "editor",
                   { orgId },
                 );
-                return { ok: true, scope: saved?.scope ?? null };
+                return {
+                  ok: true,
+                  scope: saved?.scope ?? null,
+                  ...(annotationConflicts.length > 0
+                    ? { annotationConflicts }
+                    : {}),
+                };
               });
             }
 

@@ -294,13 +294,13 @@ describe("new deck generation flow", () => {
 
   it("keeps unreferenced decks coherent instead of inventing text-covering boxes", () => {
     expect(flow).toContain(
-      "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction",
+      "No design system or style reference was selected. Call `get-workspace-defaults`",
     );
     expect(flow).toContain(
-      "semantic --deck-* values on every fmd-slide wrapper",
+      "If no workspace default exists, choose a background family, text and surface roles, one accent, a type pairing, spacing, radius, and image treatment",
     );
     expect(flow).toContain(
-      "Keep the canvas and type system consistent across slides",
+      "record semantic --deck-* values on every fmd-slide wrapper and reuse them throughout",
     );
   });
 

@@ -1,15 +1,247 @@
 ---
 title: "Docker"
-description: "Localized pointer to the the Docker packaging guide."
+description: "किसी standalone Agent-Native ऐप को Docker container के रूप में deploy करें।"
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Docker
 
-[English Docker guide](/docs/docker) देखें। स्कैफ़ोल्ड `Dockerfile` नहीं बनाता;
-`docker build` चलाने से पहले उसमें दिया उदाहरण ऐप में कॉपी करें।
+Docker किसी Agent-Native ऐप और उसे चलाने के लिए ज़रूरी हर चीज़ को एक ही container
+image में package करता है। Image वही Node.js server चलाती है जो
+[Node.js guide](/docs/node-js) में बताया गया है, इसलिए यह आपके laptop, virtual
+machine, या containers चलाने वाले किसी भी host पर एक जैसा व्यवहार करती है।
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`node`.
+यह guide शुरुआत से एक standalone ऐप deploy करने के चरण बताती है। आप ऐप बनाएंगे,
+एक `Dockerfile` जोड़ेंगे, ऐप को production database और auth secret देंगे, database
+तैयार करेंगे, और फिर container को build करके run करेंगे।
+
+<Callout tone="info">
+
+Node.js `22.22+` आवश्यक है।
+
+</Callout>
+
+आपको उस machine पर Docker भी install करना होगा जो image को build और run करती
+है। इस guide के commands उसी server पर चलाएं जो container चलाएगा। Virtual
+machine के लिए, इसका मतलब आमतौर पर पहले SSH से उससे connect करना होता है।
+
+<a id="self-host-quickstart"></a>
+
+## चरण 1: ऐप बनाएं {#step-1-create-the-app}
+
+अपना नया standalone ऐप बनाएं। नीचे दिया गया उदाहरण Chat template से ऐप बनाता है,
+लेकिन आप किसी भी template से शुरू कर सकते हैं। ऐप के folder में जाएं और उसकी
+dependencies install करें। `corepack enable` वह `pnpm` version चालू करता है
+जिसकी ऐप को ज़रूरत है, इसलिए आपको `pnpm` खुद install करने की ज़रूरत नहीं है।
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+चाहें तो `my-app` को अपने ऐप के नाम से बदल दें। इस guide का बाकी हिस्सा मानता है
+कि आप ऐप के folder के अंदर हैं।
+
+<Callout tone="info">
+
+अगर ये commands peer dependency errors के साथ fail होते हैं, तो इसकी वजह आपके npx cache में किसी package की पुरानी copy हो सकती है। Cache साफ़ करने के लिए `npx clear-npx-cache` चलाएं, फिर commands दोबारा चलाएं।
+
+</Callout>
+
+## चरण 2: Dockerfile बनाएं {#step-2-create-dockerfile}
+
+नए ऐप में `Dockerfile` शामिल नहीं होती, इसलिए आपको इसे खुद जोड़ना होगा। आप एक
+`.dockerignore` file भी जोड़ते हैं, जो local files को image से बाहर रखती है। दोनों
+files ऐप के root folder में, `package.json` के बगल में बनाएं।
+
+### Dockerfile {#dockerfile}
+
+`Dockerfile` नाम की file बनाएं, बिना किसी file extension के, और उसमें यह copy
+करें:
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHON=/usr/bin/python3
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+COPY --from=build /app/.output .output
+
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+`Dockerfile` image को दो stages में build करती है:
+
+- **Build stage.** यह वे tools install करता है जिनकी कुछ dependencies को install
+  के दौरान compile होने के लिए ज़रूरत होती है (`python3`, `make`, और `g++`), ऐप की
+  dependencies install करता है, और ऐप को build करता है।
+- **Final stage.** यह एक साफ Node.js image से शुरू होता है और `.output` folder से
+  केवल तैयार server को copy करता है। इससे image छोटी रहती है और build tools व
+  source code पीछे छूट जाते हैं।
+
+Final image production mode में चलती है और port `3000` पर listen करती है।
+
+### Docker ignore file {#docker-ignore-file}
+
+`.dockerignore` नाम की file बनाएं और उसमें यह copy करें:
+
+```text filename=".dockerignore"
+node_modules
+.output
+.git
+.env
+.env.*
+data
+*.log
+```
+
+ये entries local dependencies, पुराने build output, Git history, `.env` files में
+मौजूद local secrets, `data` में मौजूद local development database, और log files को
+image से बाहर रखती हैं। Build stage नई dependencies install करता है और ऐप को
+शुरुआत से build करता है, इसलिए इनमें से किसी की ज़रूरत नहीं है। `.env` files को
+बाहर रखने से आपके secrets भी image में शामिल नहीं होते।
+
+## चरण 3: Environment secrets configure करें {#step-3-configure-environment-secrets}
+
+ऐप अपनी production settings environment variables से पढ़ता है:
+
+| Variable             | आवश्यक | उद्देश्य                                                       |
+| -------------------- | ------ | -------------------------------------------------------------- |
+| `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है              |
+| `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                     |
+| `BETTER_AUTH_URL`    | नहीं   | वह public address सेट करता है जिससे लोग आपके ऐप तक पहुंचते हैं |
+
+नीचे दिए गए exports से आगे के commands इस shell में काम करते हैं। Deploy करने
+से पहले, यही variables अपने host की project या service environment settings में
+save करें, ताकि restart या नए deploy के बाद भी container के पास वे मौजूद रहें।
+
+### Database URL {#database-url}
+
+Local development के दौरान, `DATABASE_URL` unset होने पर ऐप data को local
+database में store करता है। Deployed ऐप को एक असली PostgreSQL database चाहिए जो
+restarts के बीच अपना data बनाए रखे। Container को replace करने पर उसकी लिखी हुई
+सभी files खो जाती हैं, इसलिए database container के बाहर होना चाहिए। अपने
+provider से connection string copy करें और उसे export करें:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[Database provider guides](/docs/neon) बताती हैं कि हर provider के लिए connection
+string कहां मिलती है।
+
+<Callout tone="warning">
+
+एक persistent PostgreSQL provider चुनें: Neon, Supabase, Amazon RDS, आदि।
+
+</Callout>
+
+### Auth secret {#auth-secret}
+
+इसे एक बार generate करें और सभी deploys में इसे एक जैसा रखें।
+
+ऐप user sessions sign करने के लिए `BETTER_AUTH_SECRET` का उपयोग करता है। अगर यह
+बदलता है, तो हर signed-in user sign out हो जाता है। नीचे दिया गया command एक
+random value generate करता है:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Generate की गई value को किसी सुरक्षित जगह save करें, जैसे अपने host की secret
+settings या password manager में। हर बार deploy करते समय यही value इस्तेमाल करें।
+
+### Public URL {#public-url}
+
+वैकल्पिक। इसे तब सेट करें जब आप custom domain, reverse proxy, या ऐसा auth/OAuth
+flow इस्तेमाल करें जिसे fixed public origin चाहिए।
+
+`BETTER_AUTH_URL` वह public address है जिससे लोग आपके ऐप तक पहुंचते हैं। इसके
+बिना, ऐप हर incoming request से अपना address पता करता है। आमतौर पर यह ठीक रहता
+है, लेकिन जब ऐप किसी proxy या custom domain के पीछे होता है, तब sign-in links और
+OAuth redirects गलत जगह की ओर इशारा कर सकते हैं।
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## चरण 4: Migrate करें {#step-4-migrate}
+
+Migrations आपके database में वे tables बनाती और update करती हैं जिनकी ऐप को
+ज़रूरत है।
+
+इसे पहली visit से पहले host पर, production `DATABASE_URL` के against चलाएं।
+
+```bash
+pnpm migrate:production
+```
+
+यह command ऐप के folder से चलाएं, container के अंदर से नहीं। Image में केवल तैयार
+server होता है, इसलिए वह खुद migrations नहीं चला सकती। यह command पिछले चरण में
+export किए गए environment से `DATABASE_URL` पढ़ता है। ऐप upgrade करने के बाद, नया
+version start करने से पहले इसे फिर से चलाएं।
+
+## चरण 5: Deploy करें {#step-5-deploy}
+
+ऐप के folder से image build करें:
+
+```bash
+docker build -t my-agent-native-app .
+```
+
+`-t` flag image को `my-agent-native-app` नाम देता है। आप कोई भी नाम इस्तेमाल कर
+सकते हैं, और अगले command में वही नाम इस्तेमाल करें।
+
+Container run करें:
+
+```bash
+docker run --rm \
+  -p 3000:3000 \
+  -e DATABASE_URL \
+  -e BETTER_AUTH_SECRET \
+  my-agent-native-app
+```
+
+`-p 3000:3000` container के port `3000` को server के port `3000` पर उपलब्ध कराता
+है। हर `-e` flag उसी नाम का variable आपके shell से container में भेजता है। अगर
+आपने `BETTER_AUTH_URL` सेट किया है, तो command में `-e BETTER_AUTH_URL` भी जोड़ें।
+`--rm` container के रुकने पर उसे हटा देता है।
+
+Internet से ऐप तक पहुंचने के लिए, server के firewall में port `3000` खोलें, या
+अपने domain को HTTPS पर serve करने के लिए उसके आगे Nginx या Caddy जैसा reverse
+proxy लगाएं। फिर ऐप का public address खोलें और पहला account बनाएं।
+
+## Container को चालू रखें {#keep-the-container-running}
+
+ऊपर दिया गया `docker run` command आपके terminal में चलता है और terminal बंद करने
+पर रुक जाता है। ऐप को चालू रखने के लिए, container को restart policy के साथ
+background में start करें, ताकि crash या server restart के बाद Docker उसे फिर से
+start कर दे। इसके लिए `--rm` को `-d --restart unless-stopped` से बदलें। Containers
+चलाने वाले कई hosts restarts को आपके लिए खुद संभाल लेते हैं।
+
+## आगे क्या है {#whats-next}
+
+- [**Node.js**](/docs/node-js) - यही server बिना container के चलाएं
+- [**तैनाती: पर्यावरण चर**](/docs/deployment-environment-variables) - production settings की पूरी सूची
+- [**तैनाती**](/docs/deployment) - hosting targets और prerequisites की तुलना करें

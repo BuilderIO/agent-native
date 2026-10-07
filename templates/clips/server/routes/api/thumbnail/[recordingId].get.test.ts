@@ -251,7 +251,7 @@ describe("/api/thumbnail/:recordingId route", () => {
     mockGetDb.mockReturnValue(
       createDbWithRow(
         makeRow({
-          thumbnailUrl: "data:image/png;base64,aGVsbG8=",
+          thumbnailUrl: "data:image/png;charset=binary;base64,aGVsbG8=",
         }),
       ),
     );

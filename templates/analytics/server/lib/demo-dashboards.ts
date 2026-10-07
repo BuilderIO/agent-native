@@ -256,7 +256,12 @@ export async function ensureDemoDashboardsForUser(
       // SQL is the source of truth and collab state can seed lazily. Do not
       // hold first-open installation (and the whole app shell) behind a remote
       // collab read/write that may be slow or temporarily unavailable.
-      queueDashboardCollabSync(dashboardId, config, "agent");
+      void queueDashboardCollabSync(
+        dashboardId,
+        row.updatedAt,
+        () => getDashboard(dashboardId, privateCtx),
+        "agent",
+      );
       archivedAt = row.archivedAt;
       created = !existing;
     }

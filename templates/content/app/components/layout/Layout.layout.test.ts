@@ -16,7 +16,9 @@ describe("app layout", () => {
   it("exposes the sidebar width to editor content for responsive surfaces", () => {
     const source = readLayoutSource();
 
-    expect(source).toContain("const contentSidebarWidth = isCompactLayout");
+    expect(source).toMatch(
+      /contentSidebarWidth\s*=\s*openAiWidget\s*\|\|\s*isCompactLayout/,
+    );
     expect(source).toContain('"--content-sidebar-width"');
     expect(source).toContain("sidebarCollapsed");
   });
@@ -48,6 +50,13 @@ describe("app layout", () => {
 
   it("never closes the agent panel to make room for the page", () => {
     expect(readLayoutSource()).not.toContain("agent-panel:close");
+  });
+
+  it("keeps workspace-wide sidebar data out of scoped OpenAI widgets", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain("fullWidthSettings || openAiWidget ? null");
+    expect(source).toMatch(/contentSidebarWidth\s*=\s*openAiWidget/);
   });
 
   it("persists the desktop sidebar collapse preference through the shared app shell", () => {

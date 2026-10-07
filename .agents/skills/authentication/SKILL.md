@@ -44,10 +44,12 @@ by editing `better-auth-instance.ts` call sites. See
   replaces it.
 - `AuthPage` uses Toolkit's full-page `WaveBackground` for every auth view.
   The Agent-Native homepage hero and Calendar booking use the same renderer:
-  Calendar's animated FFT ocean wave with its WebGL fallback. Do not substitute
-  the older Starfield shader, a gradient, a signup-only strip, or a copied
-  renderer. `StarfieldBackground` is only a compatibility export for older
-  callers.
+  Calendar's animated FFT ocean wave. Keep the background empty while WebGPU
+  support is checked and when the ocean renderer is unavailable; never show a
+  WebGL or Starfield fallback. The homepage positions the wave inside its hero
+  section, and hosted auth pages lift it above the lower marketing copy. Do not
+  substitute a gradient, a signup-only strip, or a copied renderer.
+  `StarfieldBackground` is only a compatibility export for older callers.
 - Hosted marketing apps keep auth enabled at `/` so the public root response
   contains the full server-rendered sign-in page. Keep session decisions out of
   public SSR; `RequireSession` resolves signed-in app navigation in the client.
@@ -74,7 +76,7 @@ Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;
 advertising `offline_access` lets hosts such as ChatGPT retain refresh access.
 Refresh tokens are stored hashed and are not rotated: a refresh returns the
-same token and slides its 365-day expiry. MCP OAuth and connect tokens carry
+same token, with no fixed expiry. MCP OAuth and connect tokens carry
 the org chosen when they were issued, so `verifyAuth` and the token endpoint
 re-check live org membership on every use. A removed member gets a 401 or
 `invalid_grant`; a failed check answers a retryable 503. Offboarding revokes

@@ -625,7 +625,7 @@ describe("FirstRunOnboarding", () => {
       "Activating Builder.io free credits",
     );
     expect(document.body.textContent).toContain(
-      "Creating or reusing your Builder.io account",
+      "Creating your Builder.io account and activating free credits.",
     );
     expect(
       document.body.querySelector('[role="status"][aria-busy="true"]'),

@@ -259,29 +259,27 @@ export function Layout({ children }: LayoutProps) {
     if (shellLayout.sidebar !== "drawer") setMobileSidebarOpen(false);
   }, [shellLayout.sidebar]);
 
-  const mobileSidebarTrigger = isCompactLayout ? (
-    <Button
-      ref={sidebarTriggerRef}
-      type="button"
-      variant="ghost"
-      size="icon-lg"
-      aria-label={t("navigation.openSidebar")}
-      aria-expanded={mobileSidebarOpen}
-      aria-haspopup="dialog"
-      className="shrink-0 rounded-lg text-muted-foreground"
-      onClick={() => setMobileSidebarOpen(true)}
-    >
-      <IconMenu2 size={18} />
-    </Button>
-  ) : null;
-  const contentSidebarWidth = isCompactLayout
-    ? 0
-    : sidebarCollapsed
-      ? 48
-      : sidebarWidth;
+  const mobileSidebarTrigger =
+    isCompactLayout && !openAiWidget ? (
+      <Button
+        ref={sidebarTriggerRef}
+        type="button"
+        variant="ghost"
+        size="icon-lg"
+        aria-label={t("navigation.openSidebar")}
+        aria-expanded={mobileSidebarOpen}
+        aria-haspopup="dialog"
+        className="shrink-0 rounded-lg text-muted-foreground"
+        onClick={() => setMobileSidebarOpen(true)}
+      >
+        <IconMenu2 size={18} />
+      </Button>
+    ) : null;
+  const contentSidebarWidth =
+    openAiWidget || isCompactLayout ? 0 : sidebarCollapsed ? 48 : sidebarWidth;
 
   const sidebarSheet =
-    shellLayout.sidebar === "docked" ? null : (
+    shellLayout.sidebar === "docked" || openAiWidget ? null : (
       <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
         <SheetContent
           side="left"
@@ -326,7 +324,8 @@ export function Layout({ children }: LayoutProps) {
         {sidebarSheet}
         {isCompactLayout ? (
           <>
-            {showHeader ||
+            {openAiWidget ||
+            showHeader ||
             fullWidthSettings ||
             documentPageIdFromPathname(chromePathname) ||
             chromePathname.startsWith("/home") ? null : (
@@ -340,7 +339,7 @@ export function Layout({ children }: LayoutProps) {
               </button>
             )}
           </>
-        ) : fullWidthSettings ? null : (
+        ) : fullWidthSettings || openAiWidget ? null : (
           <div className="agent-layout-left-drawer flex shrink-0">
             <DocumentSidebar
               activeDocumentId={activeDocumentId}
@@ -385,7 +384,7 @@ export function Layout({ children }: LayoutProps) {
                   <Header sidebarTrigger={mobileSidebarTrigger} />
                 ) : null}
                 <InvitationBanner
-                  className={`${showHeader || fullWidthSettings ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
+                  className={`${showHeader || fullWidthSettings || openAiWidget ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
                 />
                 <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
                   {showPendingDocumentSkeleton && pendingDocumentId ? (

@@ -123,6 +123,8 @@ Im Tab „Gespräche“ sehen Sie aufgezeichnete Agentenläufe. Wählen Sie eine
 
 Die Erfassung von Tool-Argumenten, -Ergebnissen und vollständigen Fehlertexten ist standardmäßig deaktiviert. Aktivieren Sie in der `observability`-Konfiguration `captureToolArgs`, um Argumente zu speichern, und `captureToolResults`, um Ergebnisse und vollständige Fehlertexte zu speichern. Sensible Felder werden vor dem Speichern bereinigt. Ein fehlgeschlagenes Tool behält immer die auf eine begrenzte Länge gekürzte erste Zeile seines Fehlers, wobei Zugangsdaten, E-Mail-Adressen und lange undurchsichtige IDs bereinigt sind, damit Fehler auch bei deaktiviertem `captureToolResults` diagnostizierbar bleiben.
 
+Die Prompt-Erfassung ist standardmäßig deaktiviert. Setzen Sie `capturePrompts: true` in der `observability`-Konfiguration oder `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true`, um die Eingabe und Ausgabe jedes `llm_call`-Spans in dieser Detailansicht zu speichern. Der System-Prompt wird ausgeschlossen, strukturierte sensible Felder werden bereinigt und jede Seite ist auf 128 KiB begrenzt. Bereits gespeicherte Spans werden nicht nachträglich ergänzt.
+
 ### Menschliche Überprüfung {#review}
 
 Der Tab „Menschliche Überprüfung“ zeigt die Anfrage und Antwort jedes Laufs. Sie können Feedback erfassen und einen Entwurf für eine Anweisungsänderung zur menschlichen Prüfung speichern. Der Entwurf ändert Anweisungen nicht automatisch.

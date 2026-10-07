@@ -88,7 +88,7 @@ export default {
     visibilityPrivateOnly: "自分の",
     visibilitySharedOnly: "共有",
     visibilityAllDescription: "すべての項目を表示",
-    visibilityPrivateOnlyDescription: "自分だけに表示される項目のみ表示",
+    visibilityPrivateOnlyDescription: "自分が作成した項目を表示",
     visibilitySharedOnlyDescription: "組織共有と公開の項目を表示",
     hiddenAnalyses: "非表示の分析",
     shareWithOrg: "組織と共有",
@@ -1509,6 +1509,12 @@ export default {
       "このリプレイを再構築するためのスコープ付きチャンクです。プロバイダー URL は非公開のままです。",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "スクリーンショットを保存",
+    savingScreenshot: "スクリーンショットを保存中…",
+    screenshotDownloaded: "スクリーンショットをダウンロードしました",
+    screenshotSaveFailed: "スクリーンショットを保存できませんでした",
+    screenshotUnsupportedAssets:
+      "安全にキャプチャできない埋め込みメディアや画像があるため、スクリーンショットは保存されませんでした。",
     timeline: "イベントタイムライン",
     replayTimeline: "リプレイタイムライン",
     timelineDescription:

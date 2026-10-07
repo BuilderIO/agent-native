@@ -43,6 +43,13 @@ import {
 import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
+  EMAIL_AUTH_LINK_LANDING_PATH,
+  emailAuthLinkFields,
+  emailAuthLinkLandingPage,
+  emailAuthVerificationPath,
+  emailAuthVerificationUrl,
+} from "./email-auth-links.js";
+import {
   isEmbedCapabilityScope,
   revokeEmbedSessionsForOwners,
   requestHasEmbedAuthMarker,
@@ -107,7 +114,10 @@ import {
 import type { ResolvedRequiredAuthProvider } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
-import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../shared/auth-copy.js";
+import {
+  AUTH_SIGNUP_INVITE_ONLY_CODE,
+  resolveNativeAuthCopy,
+} from "../shared/auth-copy.js";
 import type {
   AuthPageProps,
   ResetPasswordPageProps,
@@ -5545,6 +5555,64 @@ async function mountBetterAuthRoutes(
         emailDomain: entry.email.split("@")[1] || "",
       });
       return { token: entry.token, email: entry.email };
+    }),
+  );
+
+  app.use(
+    EMAIL_AUTH_LINK_LANDING_PATH,
+    defineEventHandler(async (event) => {
+      const setupRequiredHtml = getDeploySettingsRequiredPage(
+        event,
+        getRequestPathAndSearch(event).rawPath,
+      );
+      if (setupRequiredHtml) return setupRequiredResponse(setupRequiredHtml);
+
+      const method = getMethod(event);
+      if (method !== "GET" && method !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+
+      const values =
+        method === "POST"
+          ? await readBody<Record<string, unknown>>(event)
+          : getQuery(event);
+      const verificationPath = emailAuthVerificationPath(values.kind);
+      const fields = emailAuthLinkFields(values);
+      const verificationURL = verificationPath
+        ? emailAuthVerificationUrl(getAppUrl(event, verificationPath), values)
+        : undefined;
+      if (!verificationURL || !fields) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid or expired email link." };
+      }
+
+      if (method === "POST") {
+        return new Response(null, {
+          status: 303,
+          headers: {
+            "cache-control": "no-store",
+            location: verificationURL.toString(),
+            "referrer-policy": "no-referrer",
+          },
+        });
+      }
+
+      const { locale, dir } = resolveLocaleFromRequest({
+        acceptLanguage: getHeader(event, "accept-language"),
+      });
+      const copy = resolveNativeAuthCopy(locale);
+      return emailAuthLinkLandingPage(
+        getAppUrl(event, EMAIL_AUTH_LINK_LANDING_PATH),
+        fields,
+        {
+          title: copy.emailLinkContinueTitle,
+          message: copy.emailLinkContinueMessage,
+          action: copy.emailLinkContinueAction,
+        },
+        locale,
+        dir,
+      );
     }),
   );
 

@@ -12,7 +12,6 @@ import {
   IconClipboardList,
   IconKey,
   IconPencil,
-  IconPlugConnected,
   IconHelpCircle,
   IconAlertCircle,
   IconLoader2,
@@ -42,6 +41,7 @@ import {
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
+import { BuilderBMark } from "./BuilderBMark.js";
 import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
 import {
   ComposerPlusMenu,
@@ -1400,9 +1400,9 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "z-ai/glm-5.2": "GLM 5.2",
   "openai/gpt-6-astra": "GPT-6 Astra",
   "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
-  "gpt-6-sol": "GPT-6 Sol",
+  "gpt-6.1-sol": "GPT-6.1 Sol",
   "gpt-6-luna": "GPT-6 Luna",
-  "openai/gpt-6-sol": "GPT-6 Sol",
+  "openai/gpt-6.1-sol": "GPT-6.1 Sol",
   "openai/gpt-6-luna": "GPT-6 Luna",
   "anthropic/claude-opus-5.5": "Claude Opus 5.5",
   "anthropic/claude-sonnet-5.5": "Claude Sonnet 5.5",
@@ -1991,7 +1991,9 @@ function ModelSelector({
     (selectedModelProviderGroups.length > 0 &&
       selectedModelProviderGroups.every((group) => !group.configured));
   const selectedModelName = selectedModelNeedsConnection
-    ? t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
+    ? showBuilderAction
+      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+      : t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
     : (selectedModelDisplayName ?? friendlyModelName(model, t));
   const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection
@@ -2341,7 +2343,14 @@ function ModelSelector({
                                 disabled={builderFlow.connecting}
                                 className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
                               >
-                                <IconPlugConnected className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                {builderFlow.connecting ? (
+                                  <IconLoader2
+                                    aria-hidden="true"
+                                    className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary"
+                                  />
+                                ) : (
+                                  <BuilderBMark className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                )}
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-[12px] font-medium text-foreground">
                                     {builderFlow.connecting

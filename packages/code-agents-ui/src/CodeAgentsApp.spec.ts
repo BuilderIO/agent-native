@@ -148,6 +148,9 @@ describe("CodeAgentsApp credential recovery", () => {
   it("shows the shared chooser before one-click activation or local sign-in", async () => {
     const flow = {
       connecting: false,
+      configured: false,
+      accountExists: false,
+      error: null,
       statusResolved: true,
       agentNativeProvisioningEnabled: true,
       start: vi.fn(),
@@ -156,7 +159,7 @@ describe("CodeAgentsApp credential recovery", () => {
     >["builderConnectFlow"];
     const connectExistingAccount = vi.fn();
     const openBuilder = vi.spyOn(window, "open");
-    act(() => {
+    const renderNotice = () =>
       root.render(
         React.createElement(
           TooltipProvider,
@@ -171,7 +174,7 @@ describe("CodeAgentsApp credential recovery", () => {
           }),
         ),
       );
-    });
+    act(renderNotice);
 
     const getTrigger = () =>
       Array.from(container.querySelectorAll("button")).find((button) =>
@@ -195,7 +198,19 @@ describe("CodeAgentsApp credential recovery", () => {
     expect(connectExistingAccount).not.toHaveBeenCalled();
     expect(openBuilder).not.toHaveBeenCalled();
 
+    act(() => {
+      flow.connecting = true;
+      renderNotice();
+    });
+    expect(document.body.querySelector('[role="status"]')).not.toBeNull();
+    act(() => {
+      flow.connecting = false;
+      flow.configured = true;
+      renderNotice();
+    });
+
     click(getTrigger()!);
+    await finishLazyLoad();
     const signIn = Array.from(document.body.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("I have a Builder.io account"),
     );
