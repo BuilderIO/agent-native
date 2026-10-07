@@ -14,6 +14,7 @@ import {
   isEmbedAuthActive,
   markEmbedMcpChatBridgeActive,
   isEmbedMcpChatBridgeActive,
+  isMcpDirectoryWidgetReadOnlyEmbed,
   readEmbedMcpChatBridgeFlagFromUrl,
 } from "./embed-auth.js";
 import { getFrameOrigin } from "./frame.js";
@@ -501,6 +502,19 @@ export function useIsMcpAppWidgetEmbed(): boolean {
   return useSyncExternalStore(
     () => () => {},
     isMcpAppWidgetEmbed,
+    () => false,
+  );
+}
+
+/**
+ * True for a directory widget, whose scoped session can only read its own
+ * resource. Apps skip application-state writes and save-failure surfaces there
+ * instead of showing errors for requests that can never land.
+ */
+export function useIsMcpDirectoryWidgetReadOnlyEmbed(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    isMcpDirectoryWidgetReadOnlyEmbed,
     () => false,
   );
 }

@@ -35,6 +35,15 @@ describe("EditorToolbar layout contract", () => {
     );
   });
 
+  it("hides the save status pill only inside a read-only directory widget", () => {
+    expect(editorToolbarSource).toContain(
+      "const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();",
+    );
+    expect(editorToolbarSource).toMatch(
+      /\{canEdit && !readOnlyWidget && \(\s*<SaveStatusIndicator/,
+    );
+  });
+
   it("leaves the contextual toolbar the full row segment instead of splitting it with a flex spacer", () => {
     expect(editorToolbarSource).toContain('<div className="w-2 shrink-0" />');
     expect(editorToolbarSource).not.toContain(

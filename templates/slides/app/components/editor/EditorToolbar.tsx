@@ -1,7 +1,10 @@
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
-import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
+import {
+  useIsMcpAppWidgetEmbed,
+  useIsMcpDirectoryWidgetReadOnlyEmbed,
+} from "@agent-native/core/client/mcp-app-host";
 import { reloadForClientCompatibilityMismatch } from "@agent-native/core/client/route-chunk-recovery";
 import {
   CreativeContextShareTab,
@@ -240,6 +243,9 @@ export default function EditorToolbar({
   // The host owns navigation and chat, so the widget drops the way back to the
   // deck list and the agent panel controls.
   const widgetEmbed = useIsMcpAppWidgetEmbed();
+  // A read-only widget session refuses every save, so an offline or failed-save
+  // pill would only restate that it is read-only.
+  const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
   const { resolveDeckContentConflict, retryDeckSave } = useDecks();
   const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
@@ -848,7 +854,7 @@ export default function EditorToolbar({
 
       {/* Save status — subtle "Saving…" / "Saved" / offline pill. Renders
           nothing when idle. Only meaningful for editors. */}
-      {canEdit && (
+      {canEdit && !readOnlyWidget && (
         <SaveStatusIndicator
           saving={saving}
           hasUnsavedChanges={deckHasUnsavedChanges}

@@ -6,6 +6,7 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { isMcpDirectoryWidgetReadCapabilityScope } from "../shared/embed-auth.js";
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import { MCP_APP_HOST_FILL_ATTRIBUTE } from "../shared/mcp-app-display.js";
 import {
@@ -13,6 +14,7 @@ import {
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
 import { frameworkRoutePrefix } from "./api-path.js";
+import { AgentNativeReadOnlySurfaceError } from "./api-surface.js";
 
 let installed = false;
 let memoryToken: string | null = null;
@@ -180,6 +182,67 @@ export function getEmbedAuthToken(): string | null {
   return memoryToken ?? storedToken(win);
 }
 
+function readEmbedTokenScope(token: string): string | undefined {
+  const payload = token.split(".")[0] ?? "";
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(
+      atob(base64 + "=".repeat((4 - (base64.length % 4)) % 4)),
+      (char) => char.charCodeAt(0),
+    );
+    const claims = JSON.parse(new TextDecoder().decode(bytes)) as {
+      scope?: unknown;
+    };
+    return typeof claims.scope === "string" ? claims.scope : undefined;
+    // coercion-ok: an unreadable token reads as a normal session; the server still enforces the real scope on every request.
+  } catch {
+    return undefined;
+  }
+}
+
+let readOnlyScopeCache: { token: string; readOnly: boolean } | null = null;
+
+/**
+ * True when this embed runs on a directory-widget read capability, which the
+ * server limits to the widget's own resource reads. The token's claims are
+ * only a UI hint (the signature is checked server-side), so this decides what
+ * not to attempt, never what is allowed.
+ */
+export function isMcpDirectoryWidgetReadOnlyEmbed(): boolean {
+  const token = getEmbedAuthToken();
+  if (!token) return false;
+  if (readOnlyScopeCache?.token !== token) {
+    readOnlyScopeCache = {
+      token,
+      readOnly: isMcpDirectoryWidgetReadCapabilityScope(
+        readEmbedTokenScope(token),
+      ),
+    };
+  }
+  return readOnlyScopeCache.readOnly;
+}
+
+let readOnlyRejectionFilterInstalled = false;
+
+// A read-only widget refuses every application-state call, so fire-and-forget
+// callers reject on purpose; that refusal is expected, not a console error.
+function installReadOnlyRejectionFilter(win: Window): void {
+  if (readOnlyRejectionFilterInstalled) return;
+  readOnlyRejectionFilterInstalled = true;
+  win.addEventListener("unhandledrejection", (event) => {
+    if (event.reason instanceof AgentNativeReadOnlySurfaceError) {
+      event.preventDefault();
+    }
+  });
+}
+
+/** Refuses an application-state call before it can reach the network. */
+export function refuseReadOnlyEmbedState(detail: string): never {
+  const win = browserWindow();
+  if (win) installReadOnlyRejectionFilter(win);
+  throw new AgentNativeReadOnlySurfaceError(detail);
+}
+
 export function isEmbedAuthActive(): boolean {
   const win = browserWindow();
   if (!win) return false;
@@ -299,6 +362,8 @@ export function _resetEmbedAuthForTests(): void {
   }
   installed = false;
   memoryToken = null;
+  readOnlyScopeCache = null;
+  readOnlyRejectionFilterInstalled = false;
   mcpChatBridgeActive = false;
   mcpChatBridgeScope = null;
   authFailureCache.clear();
@@ -384,6 +449,14 @@ function isAgentNativeRuntimePath(pathname: string): boolean {
       pathname === prefix ||
       pathname.endsWith(prefix) ||
       pathname.includes(`${prefix}/`),
+  );
+}
+
+function isApplicationStatePath(pathname: string): boolean {
+  return [FRAMEWORK_INTERNAL_ROUTE_PREFIX, frameworkRoutePrefix()].some(
+    (prefix) =>
+      pathname.endsWith(`${prefix}/application-state`) ||
+      pathname.includes(`${prefix}/application-state/`),
   );
 }
 
@@ -572,6 +645,15 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     input: RequestInfo | URL,
     init?: RequestInit,
   ) => {
+    // The typed helpers refuse first; this also covers hand-written fetches.
+    if (isMcpDirectoryWidgetReadOnlyEmbed() && sameOrigin(input, win)) {
+      const url = inputUrl(input, win);
+      if (url && isApplicationStatePath(url.pathname)) {
+        refuseReadOnlyEmbedState(
+          `${requestMethod(input, init)} ${url.pathname}`,
+        );
+      }
+    }
     const request = requestUrlAndKey(input, init, win);
     if (request?.shouldGuard) {
       const cached = getCachedAuthFailure(request.key);

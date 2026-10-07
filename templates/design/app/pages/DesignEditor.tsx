@@ -41,6 +41,7 @@ import {
   getEmbedAuthToken,
   getBuilderParentOrigin,
   isEmbedAuthActive,
+  isMcpDirectoryWidgetReadOnlyEmbed,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
@@ -4537,13 +4538,17 @@ function DesignEditor() {
   const fileSaveTimersRef = useRef<Record<string, number>>({});
   const postAuthSaveRef = useRef<string | null>(null);
 
+  // A directory widget's session is read-only, so a refused save is expected
+  // there and not a lost connection or a lost edit to warn about.
   const warnChangesWillRetry = useCallback(() => {
+    if (isMcpDirectoryWidgetReadOnlyEmbed()) return;
     toast.warning(t("visualEditor.changesSaveWhenReconnected"), {
       id: "design-save-outbox-warning",
     });
   }, [t]);
 
   const warnChangesDiscarded = useCallback(() => {
+    if (isMcpDirectoryWidgetReadOnlyEmbed()) return;
     toast.error(t("visualEditor.changesDiscarded"), {
       id: "design-save-outbox-discarded",
     });

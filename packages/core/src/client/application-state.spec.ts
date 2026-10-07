@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { AgentNativeReadOnlySurfaceError } from "./api-surface.js";
 import {
   compareAndSetClientAppState,
   deleteClientAppState,
@@ -9,6 +10,7 @@ import {
   setClientAppState,
   writeClientAppState,
 } from "./application-state.js";
+import { _resetEmbedAuthForTests } from "./embed-auth.js";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -456,5 +458,95 @@ describe("client application-state helpers", () => {
     await expect(writeClientAppState("selection primary", {})).rejects.toThrow(
       "Application state keys may only contain",
     );
+  });
+
+  describe("on a read-only directory widget session", () => {
+    function embedToken(scope?: string): string {
+      const payload = Buffer.from(
+        JSON.stringify({ ownerEmail: "user@example.test", scope }),
+      ).toString("base64url");
+      return `${payload}.signature`;
+    }
+
+    function stubEmbedWindow(token: string) {
+      vi.stubGlobal("window", {
+        location: {
+          pathname: "/design/d1",
+          href: `https://design.example.test/design/d1?embedded=1&__an_embed_token=${token}`,
+        },
+        addEventListener: vi.fn(),
+      });
+    }
+
+    const readCapability =
+      "capability:mcp-directory-widget-read:" +
+      encodeURIComponent(JSON.stringify({ version: 1 }));
+
+    afterEach(() => {
+      _resetEmbedAuthForTests();
+    });
+
+    it("refuses application-state reads and writes before any request", async () => {
+      stubEmbedWindow(embedToken(readCapability));
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        readClientAppStateMany(["navigation"]),
+      ).rejects.toBeInstanceOf(AgentNativeReadOnlySurfaceError);
+      await expect(readClientAppState("navigation")).rejects.toBeInstanceOf(
+        AgentNativeReadOnlySurfaceError,
+      );
+      await expect(
+        writeClientAppState("navigation", { view: "editor" }),
+      ).rejects.toBeInstanceOf(AgentNativeReadOnlySurfaceError);
+      await expect(
+        setClientAppState("navigation", null),
+      ).rejects.toBeInstanceOf(AgentNativeReadOnlySurfaceError);
+      await expect(
+        compareAndSetClientAppState("lock", null, { owner: "a" }),
+      ).rejects.toBeInstanceOf(AgentNativeReadOnlySurfaceError);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(window.addEventListener).toHaveBeenCalledWith(
+        "unhandledrejection",
+        expect.any(Function),
+      );
+    });
+
+    it("keeps full embed sessions and ordinary pages writing normally", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(async () => jsonResponse({ ok: true }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      stubEmbedWindow(embedToken(undefined));
+      await expect(
+        writeClientAppState("navigation", { view: "editor" }),
+      ).resolves.toEqual({ ok: true });
+
+      _resetEmbedAuthForTests();
+      stubEmbedWindow(embedToken("capability:other:{}"));
+      await expect(deleteClientAppState("navigation")).resolves.toBeUndefined();
+
+      _resetEmbedAuthForTests();
+      vi.stubGlobal("window", { location: { pathname: "/design/d1" } });
+      await expect(
+        writeClientAppState("navigation", { view: "editor" }),
+      ).resolves.toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("treats an unreadable token as a normal session", async () => {
+      stubEmbedWindow("not-a-token");
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(async () => jsonResponse({ ok: true }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        writeClientAppState("navigation", { view: "editor" }),
+      ).resolves.toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 });

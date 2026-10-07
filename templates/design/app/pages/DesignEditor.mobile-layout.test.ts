@@ -102,6 +102,24 @@ describe("Design editor mobile layout", () => {
     expect(editorSource).toContain("initialFitScreenId={\n");
   });
 
+  it("keeps save warnings out of a read-only directory widget but not other sessions", () => {
+    const warn = editorSource.slice(
+      editorSource.indexOf("const warnChangesWillRetry = useCallback"),
+      editorSource.indexOf("const journalOutboxEntry = useCallback"),
+    );
+
+    expect(warn).toContain(
+      'if (isMcpDirectoryWidgetReadOnlyEmbed()) return;\n    toast.warning(t("visualEditor.changesSaveWhenReconnected")',
+    );
+    expect(warn).toContain(
+      'if (isMcpDirectoryWidgetReadOnlyEmbed()) return;\n    toast.error(t("visualEditor.changesDiscarded")',
+    );
+    // Both toasts stay otherwise unconditional, so normal sessions still warn.
+    expect(warn.match(/isMcpDirectoryWidgetReadOnlyEmbed\(\)/g)).toHaveLength(
+      2,
+    );
+  });
+
   it("lets the compact workspace rail scroll on short screens", () => {
     expect(workspaceRailSource).toContain(
       "items-center overflow-y-auto overscroll-contain",

@@ -32,3 +32,18 @@ export class AgentNativeApiDisabledError extends Error {
 export function assertAgentNativeApiEnabled(detail: string): void {
   if (disabledReason) throw new AgentNativeApiDisabledError(detail);
 }
+
+/**
+ * A directory MCP widget runs on a read-only scoped session: the server refuses
+ * every application-state read and write for it. The client refuses first, so
+ * those calls never reach the network and a refusal is never mistaken for a
+ * dropped connection.
+ */
+export class AgentNativeReadOnlySurfaceError extends Error {
+  constructor(detail: string) {
+    super(
+      `agent-native application state is unavailable on a read-only widget session: ${detail}`,
+    );
+    this.name = "AgentNativeReadOnlySurfaceError";
+  }
+}

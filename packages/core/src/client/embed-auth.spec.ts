@@ -347,6 +347,58 @@ describe("embed auth client", () => {
     expect(headers.get(EMBED_TARGET_HEADER)).toBe("/inbox?embedded=1");
   });
 
+  describe("read-only directory widget sessions", () => {
+    const readCapability =
+      "capability:mcp-directory-widget-read:" +
+      encodeURIComponent(JSON.stringify({ version: 1 }));
+    const tokenWithScope = (scope?: string) =>
+      `${Buffer.from(JSON.stringify({ scope })).toString("base64url")}.signature`;
+
+    async function interceptedFetch(scope?: string) {
+      window.history.replaceState(null, "", "/design/d1?embedded=1");
+      sessionStorage.setItem(STORAGE_KEY, tokenWithScope(scope));
+      const originalFetch = vi.fn(async () => new Response("ok"));
+      Object.defineProperty(window, "fetch", {
+        configurable: true,
+        writable: true,
+        value: originalFetch,
+      });
+      const module = await loadEmbedAuth();
+      module.ensureEmbedAuthFetchInterceptor();
+      return { originalFetch, module };
+    }
+
+    it("refuses hand-written application-state requests without reaching the network", async () => {
+      const { originalFetch, module } = await interceptedFetch(readCapability);
+
+      expect(module.isMcpDirectoryWidgetReadOnlyEmbed()).toBe(true);
+      for (const [path, method] of [
+        ["/_agent-native/application-state/navigation", "PUT"],
+        ["/_agent-native/application-state/navigation", "DELETE"],
+        ["/_agent-native/application-state?keys=navigate", "GET"],
+        ["/design/_agent-native/application-state/__url__", "PUT"],
+      ] as const) {
+        await expect(window.fetch(path, { method })).rejects.toMatchObject({
+          name: "AgentNativeReadOnlySurfaceError",
+        });
+      }
+      expect(originalFetch).not.toHaveBeenCalled();
+
+      await window.fetch("/_agent-native/actions/get-design?id=d1");
+      expect(originalFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves application state reachable for full embed sessions", async () => {
+      const { originalFetch, module } = await interceptedFetch(undefined);
+
+      expect(module.isMcpDirectoryWidgetReadOnlyEmbed()).toBe(false);
+      await window.fetch("/_agent-native/application-state/navigation", {
+        method: "PUT",
+      });
+      expect(originalFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("uses query-token auth for safe framework GETs to avoid CORS preflights", async () => {
     window.history.replaceState(null, "", "/inbox?embedded=1");
     sessionStorage.setItem(STORAGE_KEY, "stored-token");

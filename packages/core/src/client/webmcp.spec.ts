@@ -10,6 +10,7 @@ vi.mock("@mcp-b/webmcp-polyfill", () => ({
 }));
 
 import { getBrowserTabId } from "./browser-tab-id.js";
+import { _resetEmbedAuthForTests } from "./embed-auth.js";
 import type { AgentNativeClientAction } from "./host-bridge.js";
 import {
   AgentNativeWebMcpUnsupportedError,
@@ -448,6 +449,44 @@ describe("automatic server action WebMCP registration", () => {
     expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
       "X-Agent-Native-Browser-Tab": expect.any(String),
     });
+  });
+
+  it("registers no server actions and requests no manifest on a read-only widget session", async () => {
+    const payload = btoa(
+      JSON.stringify({
+        scope:
+          "capability:mcp-directory-widget-read:" +
+          encodeURIComponent(JSON.stringify({ version: 1 })),
+      }),
+    )
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    window.history.replaceState(
+      null,
+      "",
+      `/design/d1?embedded=1&__an_embed_token=${payload}.signature`,
+    );
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const fetchMock = vi.fn();
+    try {
+      const registration = createAgentNativeServerActionWebMcpRegistration({
+        document: documentWithModelContext(modelContext),
+        fetch: fetchMock,
+      });
+      await registration.start();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(modelContext.registerTool).not.toHaveBeenCalled();
+    } finally {
+      _resetEmbedAuthForTests();
+      window.sessionStorage.clear();
+      window.history.replaceState(null, "", "/");
+    }
   });
 
   it("derives tools from the authenticated manifest and invokes the shared route", async () => {
