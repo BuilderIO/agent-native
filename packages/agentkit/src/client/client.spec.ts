@@ -21,7 +21,7 @@ import {
   AgentRunHandle,
   AgentKitRunSlotBusyError,
 } from "./client.js";
-import type { AgentThreadState } from "./state.js";
+import { hasActiveAgentRuns, type AgentThreadState } from "./state.js";
 
 function protocolEvent(
   sequence: number,
@@ -3246,6 +3246,90 @@ describe("AgentKitClient", () => {
     expect(thread.activeRunIds).toEqual(["run-1"]);
     await vi.waitFor(() => expect(cursors).toEqual([2]));
     await client.dispose();
+  });
+
+  it("keeps snapshot approval runs active when activeRunIds is missing", async () => {
+    const subscriptionStarted = Promise.withResolvers<void>();
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [],
+      approvals: [
+        {
+          request: { id: "approval-1", title: "Continue?" },
+          status: "pending",
+          runId: "run-approval",
+        },
+      ],
+    });
+    transport.subscribeToRun = async function* ({ signal }) {
+      subscriptionStarted.resolve();
+      await new Promise<void>((resolve) => {
+        signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    };
+    const client = new AgentKitClient({ transport });
+
+    try {
+      const thread = await client.loadThread("thread-1");
+
+      expect(thread.activeRunIds).toEqual(["run-approval"]);
+      expect(thread.approvalRunIds["approval-1"]).toBe("run-approval");
+      expect(thread.approvals["approval-1"]).toMatchObject({
+        title: "Continue?",
+      });
+      expect(hasActiveAgentRuns(thread)).toBe(true);
+      await subscriptionStarted.promise;
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  it("does not reactivate a completed run from a stale approval snapshot", async () => {
+    const transport = createTransport([]);
+    const getRun = vi.fn(async () => ({
+      id: "run-approval",
+      threadId: "thread-1",
+      status: "completed" as const,
+      lastSequence: 1,
+      completedAt: "2026-08-29T00:00:01.000Z",
+    }));
+    transport.getRun = getRun;
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [],
+      events: [
+        {
+          ...protocolEvent(1, {
+            type: "approval.requested",
+            request: { id: "approval-1", title: "Continue?" },
+          }),
+          runId: "run-approval",
+        },
+      ],
+      approvals: [
+        {
+          request: { id: "approval-1", title: "Continue?" },
+          status: "pending",
+          runId: "run-approval",
+        },
+      ],
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      const thread = await client.loadThread("thread-1");
+
+      expect(getRun).toHaveBeenCalledOnce();
+      expect(thread.activeRunIds).toEqual([]);
+      expect(hasActiveAgentRuns(thread)).toBe(false);
+    } finally {
+      await client.dispose();
+    }
   });
 
   it("resumes from the local cursor when server status is terminal", async () => {

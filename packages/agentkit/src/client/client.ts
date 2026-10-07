@@ -2254,15 +2254,24 @@ export class AgentKitClient implements AgentKitController {
         this.queuedMessageOverrides.delete(threadId);
       }
       const snapshotActiveRunIds = snapshot?.activeRunIds ?? [];
+      const snapshotApprovalRunIds = (snapshot?.approvals ?? [])
+        .filter(
+          (approval) =>
+            approval.status === "pending" && approval.runId !== undefined,
+        )
+        .map((approval) => approval.runId as RunId);
+      const runIdsToResolve = Array.from(
+        new Set([...snapshotActiveRunIds, ...snapshotApprovalRunIds]),
+      );
       const getRun = this.transport.getRun;
       const runIdsToRefresh = getRun
-        ? snapshotActiveRunIds.filter(
+        ? runIdsToResolve.filter(
             (runId) =>
               !this.isTerminalStatus(
                 runSnapshots.get(runId)?.status ?? "running",
               ),
           )
-        : snapshotActiveRunIds.filter((runId) => !runSnapshots.has(runId));
+        : runIdsToResolve.filter((runId) => !runSnapshots.has(runId));
       const activeRuns = runIdsToRefresh.length
         ? await Promise.all(
             runIdsToRefresh.map(async (runId) =>
@@ -4017,8 +4026,18 @@ export class AgentKitClient implements AgentKitController {
         entry.messageId,
       ]),
     );
+    const approvalRunIds =
+      snapshot.approvals === undefined
+        ? hydrated.approvalRunIds
+        : snapshotApprovalRunIds;
     const mergedRuns = this.mergeRuns(hydrated.runs, runs);
-    const currentActiveRunIds = activeRunIds.filter(
+    const currentActiveRunIds = Array.from(
+      new Set([
+        ...activeRunIds,
+        ...hydrated.activeRunIds,
+        ...Object.values(approvalRunIds),
+      ]),
+    ).filter(
       (runId) => !this.isTerminalStatus(mergedRuns[runId]?.status ?? "running"),
     );
     const projected: AgentThreadState = {
@@ -4055,10 +4074,7 @@ export class AgentKitClient implements AgentKitController {
         snapshot.approvals === undefined
           ? hydrated.approvals
           : snapshotApprovals,
-      approvalRunIds:
-        snapshot.approvals === undefined
-          ? hydrated.approvalRunIds
-          : snapshotApprovalRunIds,
+      approvalRunIds,
       connectionRequests: {
         ...hydrated.connectionRequests,
         ...snapshotConnectionRequests,
