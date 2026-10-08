@@ -594,7 +594,12 @@ export default defineEventHandler(async (event) =>
       });
       const caller = await resolveA2ACallerAuth({
         audience: canonicalA2AAudience(designTarget.url),
+        userIdentityOnly: true,
       });
+      const uploadToken = caller.apiKey;
+      if (!caller.userEmail || !uploadToken) {
+        badRequest("Analytics could not authenticate the Design upload", 503);
+      }
       let previousBoardContent = "";
       let designTargetUrl = designTarget.url;
       if (manifest.designId) {
@@ -620,83 +625,65 @@ export default defineEventHandler(async (event) =>
         selectedReplayCount: manifest.selectedReplayCount,
         screenshots: handoffScreenshots,
       };
-      const uploadTokens = [
-        caller.apiKey,
-        ...(caller.apiKeyFallbacks ?? []),
-      ].filter((token): token is string => Boolean(token));
-      if (uploadTokens.length === 0) {
-        badRequest("Analytics could not authenticate the Design upload", 401);
-      }
       const uploadUrl = designScreenshotUploadUrl(designTargetUrl);
       assertCredentialedA2AUrl(uploadUrl, true);
       let uploadResponse: Response | undefined;
       let uploadResponseBody: string | undefined;
-      for (const [tokenIndex, token] of uploadTokens.entries()) {
-        const controller = new AbortController();
-        let timeout: ReturnType<typeof setTimeout> | undefined;
-        const timeoutFailure = new Promise<never>((_, reject) => {
-          timeout = setTimeout(() => {
-            controller.abort();
-            reject(
-              createError({
-                statusCode: 504,
-                statusMessage: "Design screenshot upload timed out",
-              }),
-            );
-          }, DESIGN_UPLOAD_TIMEOUT_MS);
-        });
-        try {
-          const upload = await Promise.race([
-            (async () => {
-              const response = await ssrfSafeFetch(
-                uploadUrl,
-                {
-                  method: "POST",
-                  headers: {
-                    ...resolveVercelDeploymentProtectionHeaders(uploadUrl),
-                    Authorization: `Bearer ${token}`,
-                  },
-                  body: createDesignUploadForm(designManifest, screenshotBytes),
-                  signal: controller.signal,
-                },
-                {
-                  allowedPrivateOrigins: workspacePrivateOrigins(),
-                  followRedirects: false,
-                  maxRedirects: 0,
-                  requireDispatcher: true,
-                },
-              );
-              if (
-                response.status === 401 &&
-                tokenIndex < uploadTokens.length - 1
-              ) {
-                controller.abort();
-                void response.body?.cancel().catch(() => {});
-                return { response, body: "" };
-              }
-              return {
-                response,
-                body: await readDesignUploadResponseText(response),
-              };
-            })(),
-            timeoutFailure,
-          ]);
-          uploadResponse = upload.response;
-          uploadResponseBody = upload.body;
-        } catch (error) {
-          if (controller.signal.aborted) {
-            throw createError({
+      const controller = new AbortController();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const timeoutFailure = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(
+            createError({
               statusCode: 504,
-              statusMessage:
-                "Design screenshot upload timed out. It may have saved the storyboard; check Design before retrying.",
-              data: { saveOutcomeUnknown: true },
-            });
-          }
-          throw error;
-        } finally {
-          if (timeout) clearTimeout(timeout);
+              statusMessage: "Design screenshot upload timed out",
+            }),
+          );
+        }, DESIGN_UPLOAD_TIMEOUT_MS);
+      });
+      try {
+        const upload = await Promise.race([
+          (async () => {
+            const response = await ssrfSafeFetch(
+              uploadUrl,
+              {
+                method: "POST",
+                headers: {
+                  ...resolveVercelDeploymentProtectionHeaders(uploadUrl),
+                  Authorization: `Bearer ${uploadToken}`,
+                },
+                body: createDesignUploadForm(designManifest, screenshotBytes),
+                signal: controller.signal,
+              },
+              {
+                allowedPrivateOrigins: workspacePrivateOrigins(),
+                followRedirects: false,
+                maxRedirects: 0,
+                requireDispatcher: true,
+              },
+            );
+            return {
+              response,
+              body: await readDesignUploadResponseText(response),
+            };
+          })(),
+          timeoutFailure,
+        ]);
+        uploadResponse = upload.response;
+        uploadResponseBody = upload.body;
+      } catch (error) {
+        if (controller.signal.aborted) {
+          throw createError({
+            statusCode: 504,
+            statusMessage:
+              "Design screenshot upload timed out. It may have saved the storyboard; check Design before retrying.",
+            data: { saveOutcomeUnknown: true },
+          });
         }
-        if (uploadResponse.status !== 401) break;
+        throw error;
+      } finally {
+        if (timeout) clearTimeout(timeout);
       }
       if (!uploadResponse) {
         badRequest("Design screenshot upload did not return a response", 502);

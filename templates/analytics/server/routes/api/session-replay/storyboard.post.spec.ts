@@ -161,7 +161,10 @@ describe("POST /api/session-replay/storyboard", () => {
       eventCount: screenshot.eventCount,
     });
     mocks.resolveAgentInvocationTarget.mockResolvedValue({ url: designUrl });
-    mocks.resolveA2ACallerAuth.mockResolvedValue({ apiKey: "test-a2a-token" });
+    mocks.resolveA2ACallerAuth.mockResolvedValue({
+      apiKey: "test-a2a-token",
+      userEmail: "alice@example.test",
+    });
     mocks.invokeAgentAction.mockImplementation(async ({ input }: any) => {
       const callIndex = mocks.invokeAgentAction.mock.calls.length;
       const content =
@@ -264,6 +267,7 @@ describe("POST /api/session-replay/storyboard", () => {
     expect(mocks.canonicalA2AAudience).toHaveBeenCalledWith(`${designUrl}/`);
     expect(mocks.resolveA2ACallerAuth).toHaveBeenCalledWith({
       audience: designUrl,
+      userIdentityOnly: true,
     });
   });
 
@@ -368,35 +372,48 @@ describe("POST /api/session-replay/storyboard", () => {
     }
   });
 
-  it("tries the fallback token without reading a rejected response body", async () => {
+  it("does not retry a 401 with an organization-principal fallback token", async () => {
     mocks.resolveA2ACallerAuth.mockResolvedValueOnce({
       apiKey: "test-a2a-token",
       apiKeyFallbacks: ["fallback-a2a-token"],
+      userEmail: "alice@example.test",
     });
     mocks.ssrfSafeFetch.mockResolvedValueOnce(
-      new Response(new Uint8Array(64_001), { status: 401 }),
+      Response.json(
+        { statusMessage: "A user identity token is required" },
+        { status: 401 },
+      ),
     );
 
-    const result = await (handler as any)(makeEvent(makeFormData()));
-
-    expect(result.screenshotCount).toBe(1);
-    expect(mocks.ssrfSafeFetch).toHaveBeenCalledTimes(2);
-    expect(
-      new Headers(mocks.ssrfSafeFetch.mock.calls[0][1].headers).get(
-        "authorization",
-      ),
-    ).toBe("Bearer test-a2a-token");
-    expect(
-      new Headers(mocks.ssrfSafeFetch.mock.calls[1][1].headers).get(
-        "authorization",
-      ),
-    ).toBe("Bearer fallback-a2a-token");
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      statusMessage: "A user identity token is required",
+    });
+    expect(mocks.ssrfSafeFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves a Design authorization failure without trying the fallback token", async () => {
+  it("requires a user identity token before reading or writing Design", async () => {
+    mocks.resolveA2ACallerAuth.mockResolvedValueOnce({
+      userEmail: "alice@example.test",
+    });
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      statusMessage: "Analytics could not authenticate the Design upload",
+    });
+    expect(mocks.invokeAgentAction).not.toHaveBeenCalled();
+    expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves a Design authorization failure without retrying", async () => {
     mocks.resolveA2ACallerAuth.mockResolvedValueOnce({
       apiKey: "test-a2a-token",
       apiKeyFallbacks: ["fallback-a2a-token"],
+      userEmail: "alice@example.test",
     });
     mocks.ssrfSafeFetch.mockResolvedValueOnce(
       Response.json(

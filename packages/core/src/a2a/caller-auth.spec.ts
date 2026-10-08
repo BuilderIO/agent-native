@@ -118,6 +118,43 @@ describe("resolveA2ACallerAuth", () => {
     );
   });
 
+  it("only signs a user identity when requested", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+          userIdentityOnly: true,
+        });
+
+        expect(auth.apiKey).toBeTruthy();
+        expect(auth.apiKeyFallbacks).toBeUndefined();
+        await expect(
+          jose.jwtVerify(
+            auth.apiKey!,
+            new TextEncoder().encode("global-a2a-secret"),
+          ),
+        ).resolves.toMatchObject({
+          payload: {
+            sub: "alice+qa@agent-native.test",
+            aud: "https://peer.example.test",
+          },
+        });
+
+        delete process.env.A2A_SECRET;
+        const orgSecretOnly = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+          userIdentityOnly: true,
+        });
+
+        expect(orgSecretOnly.apiKey).toBeUndefined();
+        expect(orgSecretOnly.apiKeyFallbacks).toBeUndefined();
+      },
+    );
+  });
+
   it("does not mint an unscoped user token when the active org has no domain", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
     getOrgDomainMock.mockResolvedValueOnce(null);

@@ -24,6 +24,7 @@ export async function resolveA2ACallerAuth(options?: {
   expiresIn?: string | number;
   includeGoogleToken?: boolean;
   audience?: string | string[];
+  userIdentityOnly?: boolean;
 }): Promise<A2ACallerAuth> {
   const userEmail = getRequestUserEmail();
   const globalSecret = getGlobalA2ASecret();
@@ -64,7 +65,12 @@ export async function resolveA2ACallerAuth(options?: {
       }),
     );
   }
-  if (orgDomain && options?.audience && (orgSecret || globalSecret)) {
+  if (
+    !options?.userIdentityOnly &&
+    orgDomain &&
+    options?.audience &&
+    (orgSecret || globalSecret)
+  ) {
     addApiKeyAttempt(
       await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
         expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
