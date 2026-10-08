@@ -6184,6 +6184,7 @@ describe("server/auth", () => {
           )}`,
           "x-forwarded-proto": "https",
         },
+        "https://localhost",
       );
       const result = await registerHandler(event);
 
