@@ -19,6 +19,7 @@ let failNextDispatchStateRead = false;
 let failDispatchStateReadAt: number | null = null;
 let dispatchStateReadCount = 0;
 let reclaimAfterNextDispatchStateRead = false;
+let reclaimAfterNextReconciliationClaim = false;
 let completeAfterNextDispatchStateRead = false;
 let failParentCompletionReadFor: string | null = null;
 let rejectNextThreadDataUpdate = false;
@@ -89,9 +90,14 @@ const queueDb = {
           row.reconciliation_attempted_at <= attemptedBefore)
       ) {
         row.reconciliation_attempted_at = attemptedAt;
-        return affected(1);
+        const attempts = row.attempts;
+        if (reclaimAfterNextReconciliationClaim) {
+          reclaimAfterNextReconciliationClaim = false;
+          await queue.claimAgentTeamRun(String(taskId));
+        }
+        return { rows: [{ attempts }], rowsAffected: 1 };
       }
-      return affected(0);
+      return { rows: [], rowsAffected: 0 };
     }
     if (s.includes("SET status = 'running', attempts = attempts + 1")) {
       const [updatedAt, taskId, stuckCutoff] = args;
@@ -772,6 +778,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     failDispatchStateReadAt = null;
     dispatchStateReadCount = 0;
     reclaimAfterNextDispatchStateRead = false;
+    reclaimAfterNextReconciliationClaim = false;
     completeAfterNextDispatchStateRead = false;
     failParentCompletionReadFor = null;
     rejectNextThreadDataUpdate = false;
@@ -1796,6 +1803,36 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       body: { mode: "start" },
     });
     expect(appState.get("agent-task:t5-durable-sweep").status).toBe("running");
+    nowSpy.mockRestore();
+  });
+
+  it("does not fail a missing task after its queue row is reclaimed", async () => {
+    const now = Date.UTC(2026, 5, 2, 12, 0, 0);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    const taskId = "missing-task-reclaimed-during-sweep";
+    await queue.enqueueAgentTeamRun({
+      taskId,
+      threadId: "thread-missing-task",
+      runId: `run-task-${taskId}`,
+      ownerEmail: OWNER,
+      orgId: null,
+      payload: { description: "missing task", turnId: `run-task-${taskId}` },
+    });
+    const row = queueRows.find((candidate) => candidate.task_id === taskId);
+    if (!row) throw new Error("missing stale queue row");
+    row.updated_at = now - queue.RUN_DISPATCH_STUCK_AFTER_MS - 1;
+    reclaimAfterNextReconciliationClaim = true;
+
+    await expect(reconcileStaleAgentTeamRuns()).resolves.toEqual({
+      examined: 1,
+      failed: 0,
+    });
+    await expect(
+      queue.getAgentTeamRunDispatchState(taskId),
+    ).resolves.toMatchObject({
+      status: "running",
+      attempts: 1,
+    });
     nowSpy.mockRestore();
   });
 

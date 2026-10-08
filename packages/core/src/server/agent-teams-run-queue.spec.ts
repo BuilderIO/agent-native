@@ -69,9 +69,9 @@ const mockDb = {
           row.reconciliation_attempted_at <= attemptedBefore)
       ) {
         row.reconciliation_attempted_at = attemptedAt;
-        return affected(1);
+        return { rows: [{ attempts: row.attempts }], rowsAffected: 1 };
       }
-      return affected(0);
+      return { rows: [], rowsAffected: 0 };
     }
     if (s.includes("SET status = 'running', attempts = attempts + 1")) {
       const [updatedAt, taskId, stuckCutoff] = args;
@@ -552,10 +552,10 @@ describe("agent_team_run_queue", () => {
 
     await expect(
       queue.claimAgentTeamRunReconciliationAttempt("oldest", 50, 100, 200),
-    ).resolves.toBe(true);
+    ).resolves.toBe(0);
     await expect(
       queue.claimAgentTeamRunReconciliationAttempt("oldest", 50, 100, 201),
-    ).resolves.toBe(false);
+    ).resolves.toBeNull();
     await expect(
       queue.listStaleActiveAgentTeamRuns(50, 5, 100),
     ).resolves.toEqual([

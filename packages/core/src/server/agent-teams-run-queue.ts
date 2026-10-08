@@ -433,9 +433,9 @@ export async function claimAgentTeamRunReconciliationAttempt(
   updatedBefore: number,
   reconciliationAttemptedBefore: number,
   attemptedAt = Date.now(),
-): Promise<boolean> {
+): Promise<number | null> {
   await ensureTable();
-  const result = await getDbExec().execute({
+  const { rows } = await getDbExec().execute({
     sql: `UPDATE agent_team_run_queue
             SET reconciliation_attempted_at = ?
           WHERE task_id = ?
@@ -443,10 +443,12 @@ export async function claimAgentTeamRunReconciliationAttempt(
             AND BTRIM(owner_email) <> ''
             AND status IN ('queued', 'running')
             AND updated_at <= ?
-            AND (reconciliation_attempted_at IS NULL OR reconciliation_attempted_at <= ?)`,
+            AND (reconciliation_attempted_at IS NULL OR reconciliation_attempted_at <= ?)
+          RETURNING attempts`,
     args: [attemptedAt, taskId, updatedBefore, reconciliationAttemptedBefore],
   });
-  return getAffectedRowCount(result) > 0;
+  const claimed = rows[0];
+  return claimed ? Number(claimed.attempts) : null;
 }
 
 export async function getAgentTeamRunDispatchState(

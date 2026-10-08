@@ -1088,12 +1088,12 @@ export async function reconcileStaleAgentTeamRuns(
   );
   const outcomes = await Promise.allSettled(
     candidates.map(async (candidate) => {
-      const claimed = await claimAgentTeamRunReconciliationAttempt(
+      const claimedAttempts = await claimAgentTeamRunReconciliationAttempt(
         candidate.taskId,
         updatedBefore,
         reconciliationAttemptedBefore,
       );
-      if (!claimed) return false;
+      if (claimedAttempts === null) return false;
 
       try {
         await runWithRequestContext(
@@ -1106,7 +1106,11 @@ export async function reconcileStaleAgentTeamRuns(
             if (task) {
               await reconcileTaskWithRun(task, event);
             } else {
-              await completeAgentTeamRun(candidate.taskId, "failed");
+              await completeAgentTeamRun(
+                candidate.taskId,
+                "failed",
+                claimedAttempts,
+              );
             }
           },
         );
