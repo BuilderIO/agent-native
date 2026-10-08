@@ -301,6 +301,8 @@ const messages = {
     silenceWorking: "मौन हटाए जा रहे हैं…",
     silenceCompleted: "मौन हटाना पूरा हुआ",
     silenceFailed: "मौन हटाना विफल रहा",
+    silenceEditsUnreadable:
+      "सहेजे गए संपादन पढ़े नहीं जा सके, इसलिए मौन भाग नहीं हटाए गए।",
     generatePrSummary: "पीआर सारांश तैयार करें",
     generateSop: "SOP उत्पन्न करें",
     generateSopTooltip:
