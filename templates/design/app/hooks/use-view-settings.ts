@@ -22,12 +22,23 @@ export function useViewSettings({ enabled }: { enabled: boolean }) {
     staleTime: Number.POSITIVE_INFINITY,
     placeholderData: DEFAULT_VIEW_SETTINGS,
   });
+  const pendingSavesRef = useRef(0);
   const { mutate } = useActionMutation("update-view-settings", {
     method: "PUT",
     skipActionQueryInvalidation: true,
+    onSuccess: (saved) => {
+      // The server returns the full merged value, so a toggle made before the
+      // first read finished can't leave defaults cached over saved settings.
+      if (pendingSavesRef.current === 1) {
+        queryClient.setQueryData<ViewSettings>(VIEW_SETTINGS_QUERY_KEY, saved);
+      }
+    },
     onError: (error) => {
       console.warn("[design] could not save view settings", error);
       void query.refetch();
+    },
+    onSettled: () => {
+      pendingSavesRef.current -= 1;
     },
   });
 
@@ -63,6 +74,7 @@ export function useViewSettings({ enabled }: { enabled: boolean }) {
         ...current,
         ...patch,
       });
+      pendingSavesRef.current += 1;
       mutate(patch);
     },
     [enabled, mutate, queryClient],
