@@ -16,7 +16,7 @@ const FIXTURE = `<!doctype html>
            style="position:absolute;left:20px;top:120px;width:110px;height:80px;background:#3b82f6"></div>
       <div data-agent-native-node-id="box-b" data-agent-native-layer-name="Box B"
            style="position:absolute;left:170px;top:120px;width:110px;height:80px;background:#22c55e"></div>
-      <div data-agent-native-layer-name="Unnamed"
+      <div class="unnamed-target" data-agent-native-layer-name="Unnamed"
            style="position:absolute;left:20px;top:320px;width:200px;height:70px;background:#f59e0b"></div>
       <div data-agent-native-node-id="flat" data-agent-native-layer-name="Flat row"
            style="position:absolute;left:20px;top:440px;width:200px;height:0;overflow:visible">
@@ -133,37 +133,40 @@ test.describe("modifier-held marquee reachability", () => {
     );
 
     const names = () => selectedRows(page).allTextContents();
-    await expect.poll(async () => (await names()).join("|")).toContain("Box A");
-    await expect.poll(async () => (await names()).join("|")).toContain("Box B");
     await expect
-      .poll(async () => (await names()).join("|"))
-      .not.toContain("Wrapper");
-    expect(
-      (await names()).join("|"),
-      "a background drag inside a frame must rubber-band, not pick the frame up",
-    ).toContain("Box A");
+      .poll(async () => (await names()).sort())
+      .toEqual(["Box A", "Box B"]);
   });
 
   // oracle: none — checks modifier-held marquee reachability; native Figma behavior is unmeasured.
-  test("catches an element that has no id of its own", async ({ page }) => {
+  test("catches an element whose runtime node id is missing", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await gotoEditor(page, id);
     await expandAllLayers(page);
-    const target = (await page
+    const target = page
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .contentFrame()
-      .locator('div[style*="background:#f59e0b"]')
-      .first()
-      .boundingBox())!;
+      .locator('[data-agent-native-layer-name="Unnamed"]');
+    await target.evaluate((element) =>
+      element.removeAttribute("data-agent-native-node-id"),
+    );
+    expect(
+      await target.getAttribute("data-agent-native-node-id"),
+      "the runtime element must exercise the missing-id bridge path",
+    ).toBeNull();
+    const bounds = await target.boundingBox();
+    if (!bounds) throw new Error("unnamed target has no rendered bounds");
     const card = await screenCard(page);
     const px = await canvasZoom(page);
     await sweep(
       page,
-      { x: insideScreenX(card, target.x - 10 * px), y: target.y - 14 * px },
+      { x: insideScreenX(card, bounds.x - 10 * px), y: bounds.y - 14 * px },
       {
-        x: target.x + target.width + 10 * px,
-        y: target.y + target.height + 14 * px,
+        x: bounds.x + bounds.width + 10 * px,
+        y: bounds.y + bounds.height + 14 * px,
       },
     );
 
@@ -172,15 +175,7 @@ test.describe("modifier-held marquee reachability", () => {
         .allTextContents()
         .then((names) => names.join("|"));
     await expect.poll(swept).toContain("Unnamed");
-    await expect.poll(swept).not.toContain("Wrapper");
-    const names = await swept();
-    expect(
-      names,
-      "an id attribute is a persistence detail; a click selects this element, so a band must too",
-    ).toContain("Unnamed");
-    expect(names, "the enclosing wrapper is not the target").not.toContain(
-      "Wrapper",
-    );
+    await expect.poll(swept).toEqual("Unnamed");
   });
 
   // oracle: none — checks modifier-held marquee reachability; native Figma behavior is unmeasured.
