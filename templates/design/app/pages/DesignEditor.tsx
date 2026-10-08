@@ -12023,6 +12023,7 @@ function DesignEditor() {
     ) => {
       const run = () => {
         if (
+          isUserOriginatedSelectionIntent(intent) &&
           !(intent?.additive || intent?.shiftKey || shiftKeyHeldRef.current)
         ) {
           explicitOverviewScreenSelectionRef.current = [];
