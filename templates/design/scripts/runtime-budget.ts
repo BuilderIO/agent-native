@@ -9,7 +9,10 @@ import { parseArgs } from "node:util";
 
 import { chromium, type CDPSession, type Page } from "@playwright/test";
 
-import { readZoomUntilAvailable } from "./runtime-budget-zoom.ts";
+import {
+  expectedCanvasScaleAtZoomPercent,
+  readZoomUntilAvailable,
+} from "./runtime-budget-zoom.ts";
 
 type BudgetFile = {
   copies: number;
@@ -308,6 +311,17 @@ async function zoomTo(target: number): Promise<boolean> {
   // This benchmark measures camera-driven rendering and preview churn; wheel
   // forwarding is covered by parity-pan-zoom-mouse.spec.ts.
   const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
+  const currentZoomPercent = Number(
+    (await readout.textContent())?.replace("%", "").trim(),
+  );
+  // Overview zoom is normalized by board geometry, so compare the world
+  // transform with the current displayed zoom ratio instead of its raw value.
+  const expectedScale = expectedCanvasScaleAtZoomPercent(
+    await zoomOf(),
+    currentZoomPercent,
+    target,
+  );
+  if (expectedScale === null) return false;
   await readout.click();
   const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
   await zoomInput.fill(`${target}%`);
@@ -317,7 +331,7 @@ async function zoomTo(target: number): Promise<boolean> {
       const zoom = await zoomOf();
       const label = (await readout.textContent())?.trim();
       return zoom !== null &&
-        Math.round(zoom) === target &&
+        Math.abs(zoom - expectedScale) <= Math.max(0.5, expectedScale * 0.01) &&
         label === `${target}%`
         ? zoom
         : null;
