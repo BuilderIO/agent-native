@@ -141,7 +141,6 @@ export function authoredTargetPointForDrop(args: {
     !hasAnchor &&
     args.boardFileId &&
     args.targetScreenId === args.boardFileId &&
-    args.targetOutsideBoardRenderGeometry === true &&
     args.targetCanvasPoint
   ) {
     return args.targetCanvasPoint;
