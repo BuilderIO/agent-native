@@ -70,6 +70,10 @@ import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 import {
+  readFileUploadStatusProbe,
+  type FileUploadStatusProbe,
+} from "../../shared/file-upload-status";
+import {
   CLIPS_MEETINGS,
   CLIPS_WISPRFLOW,
   isLabEnabled,
@@ -502,9 +506,6 @@ function serverUrlForPendingUpload(
   return normalizedCurrent || normalizeServerUrl(upload.serverUrl || "");
 }
 
-type VideoStorageProbe = "configured" | "missing" | "unknown";
-type FileUploadStatusProbe = VideoStorageProbe | "reauthorization-required";
-
 const VIDEO_STORAGE_PROBE_TIMEOUT_MS = Math.max(10_000, 5000 * 4);
 
 async function fetchWithAbortTimeout(
@@ -539,37 +540,13 @@ async function hasConfiguredVideoStorage(
         },
         VIDEO_STORAGE_PROBE_TIMEOUT_MS,
       );
-      if (!res.ok) return "unknown";
-      // coercion-ok: an unparseable body maps to the typed "unknown" probe
-      // result, which callers treat as distinct from configured/missing.
-      const body = (await res.json().catch(() => null)) as {
-        configured?: boolean;
-        builderReauthorizationRequired?: boolean;
-      } | null;
-      if (!body) return "unknown";
-      if (body.configured) return "configured";
-      if (body.builderReauthorizationRequired) {
-        return "reauthorization-required";
-      }
-      return "missing";
+      return await readFileUploadStatusProbe(res);
     } catch {
-      return "unknown";
+      return "unavailable";
     }
   };
 
-  const uploadProbe = probeEndpoint("/_agent-native/file-upload/status");
-  const builderProbe = probeEndpoint("/_agent-native/builder/status");
-  const uploadResult = await uploadProbe;
-  if (uploadResult === "reauthorization-required") {
-    return "missing";
-  }
-
-  const results = [uploadResult, await builderProbe];
-  const probe = results.includes("configured")
-    ? "configured"
-    : results.includes("missing")
-      ? "missing"
-      : "unknown";
+  const probe = await probeEndpoint("/_agent-native/file-upload/status");
   if (probe === "configured" && account) {
     saveBool(videoStorageConfiguredKey(serverUrl, account), true);
   }
@@ -1317,10 +1294,8 @@ export function App({
     const probedIdentity = videoStorageIdentity;
     const probe = await hasConfiguredVideoStorage(serverUrl, signedInAs);
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
-    if (probe === "unknown") {
-      setVideoStorageStatus((prev) =>
-        prev === "configured" || prev === "missing" ? prev : "checking",
-      );
+    if (probe === "unavailable") {
+      setVideoStorageStatus("unavailable");
       return false;
     }
     setVideoStorageStatus(probe);
@@ -1341,7 +1316,9 @@ export function App({
     if (
       authStatus !== "authed" ||
       localRecordingMode !== "off" ||
-      (videoStorageStatus !== "missing" && videoStorageStatus !== "checking")
+      (videoStorageStatus !== "missing" &&
+        videoStorageStatus !== "checking" &&
+        videoStorageStatus !== "unavailable")
     ) {
       return;
     }
@@ -4809,7 +4786,7 @@ export function App({
         recordFirstError ? (
           <RecordFirstUploadsBanner
             count={recordFirstFiles.length + unclaimedRecordFirstFiles.length}
-            storageConnected={videoStorageStatus === "configured"}
+            storageStatus={videoStorageStatus}
             signedIn={!!signedInAs}
             uploading={recordFirstUploading}
             error={recordFirstError}
@@ -4826,6 +4803,7 @@ export function App({
                 includeUnclaimed: true,
               })
             }
+            onCheckStorage={() => void refreshVideoStorageStatus()}
             onForget={forgetRecordFirstFile}
           />
         ) : null}
@@ -5033,16 +5011,17 @@ const RECORD_FIRST_LIST_UNREADABLE =
 
 function RecordFirstUploadsBanner({
   count,
-  storageConnected,
+  storageStatus,
   signedIn,
   uploading,
   error,
   failedFiles,
   onUpload,
+  onCheckStorage,
   onForget,
 }: {
   count: number;
-  storageConnected: boolean;
+  storageStatus: VideoStorageStatus;
   signedIn: boolean;
   uploading: boolean;
   error: string | null;
@@ -5052,9 +5031,20 @@ function RecordFirstUploadsBanner({
     missing: boolean;
   }>;
   onUpload: () => void;
+  onCheckStorage: () => void;
   onForget: (path: string) => void;
 }) {
   const recordings = count === 1 ? "1 recording" : `${count} recordings`;
+  const storageCopy =
+    storageStatus === "configured"
+      ? "Saved in Movies/Clips. Upload them to get share links."
+      : storageStatus === "missing"
+        ? "Saved in Movies/Clips. Connect storage and they upload."
+        : storageStatus === "unavailable"
+          ? "Storage authorization could not be checked. Retry to check again; recordings remain in Movies/Clips."
+          : "Checking whether storage can upload clips.";
+  const checkingStorage =
+    storageStatus === "checking" || storageStatus === "unavailable";
   return (
     <>
       <div className="storage-flow-banner" role="status">
@@ -5068,10 +5058,8 @@ function RecordFirstUploadsBanner({
               : `${recordings} saved on this Mac, not uploaded`}
           </div>
           <div className="storage-flow-sub">
-            {error ??
-              (storageConnected
-                ? "Saved in Movies/Clips. Upload them to get share links."
-                : "Saved in Movies/Clips. Connect storage and they upload.")}
+            {error ? <div>{error}</div> : null}
+            <div>{storageCopy}</div>
           </div>
         </div>
         {count > 0 ? (
@@ -5080,10 +5068,16 @@ function RecordFirstUploadsBanner({
             className="storage-flow-connect"
             disabled={uploading || !signedIn}
             title={signedIn ? undefined : "Sign in to upload"}
-            onClick={onUpload}
+            onClick={checkingStorage ? onCheckStorage : onUpload}
           >
             <IconUpload size={14} stroke={2} />
-            {storageConnected ? "Upload now" : "Connect"}
+            {storageStatus === "configured"
+              ? "Upload now"
+              : storageStatus === "missing"
+                ? "Connect"
+                : storageStatus === "unavailable"
+                  ? "Retry"
+                  : "Check storage"}
           </button>
         ) : null}
       </div>

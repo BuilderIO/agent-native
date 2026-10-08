@@ -1490,9 +1490,15 @@ const messages = {
       "Não foi possível concluir a configuração do Builder.io. Tente novamente ou peça a um proprietário ou administrador para configurar o armazenamento.",
     builderStatusReadError:
       "Não foi possível verificar a conexão do Builder.io.",
+    builderUploadGrantMissing:
+      "O Builder.io está conectado para IA, mas esta conexão não pode enviar clipes. Reconecte o Builder.io com permissão de envio ou peça ajuda a um proprietário ou administrador.",
+    builderGrantAskAdmin:
+      "Peça a um proprietário ou administrador para conectar o Builder.io com permissão para enviar clipes.",
+    statusUnavailable:
+      "Não foi possível verificar se o armazenamento de vídeo está pronto.",
     checkingBuilderConnection: "Verificando a conexão com o Builder…",
     builderTimeout:
-      "Não houve resposta do Builder em 5 minutos. Tente novamente.",
+      "Não foi possível confirmar que o armazenamento do Builder.io está pronto. Tente novamente.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Aguardando Builder...",
     description:

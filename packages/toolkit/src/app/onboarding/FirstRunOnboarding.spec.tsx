@@ -502,7 +502,7 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.textContent,
-    ).toBe("Sign in with Builder.io account");
+    ).toBe("Use Builder.io");
   });
 
   it("keeps existing-account sign-in available when provisioning is unavailable", () => {

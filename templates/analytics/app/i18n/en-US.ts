@@ -1623,8 +1623,12 @@ export default {
     time: "Time",
     storageSetupTitle: "Connect replay storage",
     storageSetupDescription:
-      "Session replay recordings need storage before chunks can be saved. Use Builder.io for free-tier storage, or configure your own S3-compatible bucket.",
+      "Session replay recordings need an authorized file-upload provider. Builder.io can store them when its upload permission is granted, or you can configure your own S3-compatible bucket.",
     storageConnected: "Storage connected",
+    storageStatusUnavailable:
+      "Couldn't check replay storage status. Retry to see whether uploads are ready.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io is connected for AI and credits, but replay uploads need its separate storage permission.",
     connectBuilder: "Use Builder.io",
     configureS3: "Configure S3 storage",
     devtools: "Dev Tools",

@@ -1439,8 +1439,13 @@ const messages = {
     builderConnectErrorAskAdmin:
       "Builder.io सेटअप पूरा नहीं हो सका। फिर से कोशिश करें या किसी मालिक या एडमिन से स्टोरेज सेट अप करने को कहें।",
     builderStatusReadError: "Builder.io कनेक्शन की जांच नहीं हो सकी।",
+    builderUploadGrantMissing:
+      "Builder.io AI के लिए कनेक्ट है, लेकिन यह कनेक्शन क्लिप अपलोड नहीं कर सकता। अपलोड की अनुमति के साथ Builder.io को फिर से कनेक्ट करें, या किसी मालिक या एडमिन से मदद लें।",
+    builderGrantAskAdmin:
+      "किसी मालिक या एडमिन से क्लिप अपलोड की अनुमति के साथ Builder.io कनेक्ट करने को कहें।",
+    statusUnavailable: "वीडियो स्टोरेज की स्थिति जाँची नहीं जा सकी।",
     checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
-    builderTimeout: "5 मिनट में Builder से जवाब नहीं मिला। फिर कोशिश करें।",
+    builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
     description:

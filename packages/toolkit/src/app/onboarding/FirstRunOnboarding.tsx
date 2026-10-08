@@ -755,7 +755,7 @@ export function FirstRunOnboarding({
                       onClick={() => handleBuilder(true)}
                       disabled={connectFlow.connecting}
                     >
-                      {t("agentChat.setup.connectBuilder")}
+                      {t("agentChat.onboarding.builderCreateAndActivate")}
                     </button>
                   )}
                   <button

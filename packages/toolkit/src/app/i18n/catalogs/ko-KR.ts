@@ -124,7 +124,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderCreateAccount": "Builder.io 사용",
-  "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
+  "onboarding.builderSignInWithAccount": "Builder.io 사용",
   "onboarding.builderActivateDescription":
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
@@ -152,7 +152,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "서비스 약관",
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
-  "onboarding.builderExistingAccount": "Builder.io 계정이 있습니다",
+  "onboarding.builderExistingAccount": "Builder.io 사용",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":

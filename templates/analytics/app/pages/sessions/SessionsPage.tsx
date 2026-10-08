@@ -159,7 +159,8 @@ export function EmptySessionsState() {
   const t = useT();
   const storageStatus = useReplayStorageStatus();
   const showStorageHint =
-    !storageStatus.isLoading && storageStatus.data?.configured === false;
+    storageStatus.isError ||
+    (storageStatus.isSuccess && storageStatus.data?.configured === false);
   return (
     <div className="p-6 lg:p-8">
       {showStorageHint ? <ReplayStorageHint /> : null}
@@ -232,11 +233,11 @@ export function ReplayStorageHint({
     },
   });
 
-  const builderConnected = Boolean(
-    builderConnect.configured ||
-    builderStatus.status?.configured ||
-    storageStatus.data?.builderConfigured,
+  const builderAiConnected = Boolean(
+    builderConnect.configured || builderStatus.status?.configured,
   );
+  const storageConnected =
+    storageStatus.isSuccess && storageStatus.data?.configured === true;
   const builderStatusLoading =
     storageStatus.isLoading ||
     builderStatus.loading ||
@@ -275,6 +276,32 @@ export function ReplayStorageHint({
     }
   }
 
+  if (storageStatus.isError) {
+    return (
+      <div
+        role="alert"
+        aria-busy={storageStatus.isFetching || undefined}
+        className={cn(
+          "flex items-center justify-between gap-3 rounded-md border border-border bg-card p-4 text-sm",
+          !embedded && "mb-6",
+        )}
+      >
+        <span className="text-muted-foreground">
+          {t("sessions.storageStatusUnavailable")}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void storageStatus.refetch()}
+          disabled={storageStatus.isFetching}
+        >
+          {t("sidebar.retry")}
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <Collapsible open={s3Expanded} onOpenChange={setS3Expanded}>
       <div
@@ -294,7 +321,10 @@ export function ReplayStorageHint({
                   {t("sessions.storageSetupTitle")}
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {t("sessions.storageSetupDescription")}
+                  {builderAiConnected &&
+                  storageStatus.data?.builderUploadConfigured === false
+                    ? t("sessions.builderAiConnectedStorageNeedsGrant")
+                    : t("sessions.storageSetupDescription")}
                 </p>
               </div>
             </div>
@@ -308,15 +338,15 @@ export function ReplayStorageHint({
                 disabled={
                   builderConnect.connecting ||
                   builderStatusLoading ||
-                  builderConnected
+                  storageConnected
                 }
               >
                 {builderConnect.connecting ? (
                   <IconLoader2 className="h-4 w-4 animate-spin" />
-                ) : builderConnected ? (
+                ) : storageConnected ? (
                   <IconCheck className="h-4 w-4" />
                 ) : null}
-                {builderConnected
+                {storageConnected
                   ? t("sessions.storageConnected")
                   : t("sessions.connectBuilder")}
               </Button>

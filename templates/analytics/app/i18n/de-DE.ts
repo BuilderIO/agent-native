@@ -1582,8 +1582,12 @@ export default {
     time: "Zeit",
     storageSetupTitle: "Wiedergabe-Speicher verbinden",
     storageSetupDescription:
-      "Aufzeichnungen der Sitzungswiedergabe benötigen einen Speicher, bevor Chunks gesichert werden können. Nutzen Sie Builder.io für Speicher im kostenlosen Kontingent oder konfigurieren Sie Ihren eigenen S3-kompatiblen Bucket.",
+      "Sitzungswiedergaben benötigen einen autorisierten Anbieter für Datei-Uploads. Builder.io kann sie speichern, wenn die Upload-Berechtigung erteilt wurde; alternativ können Sie einen eigenen S3-kompatiblen Bucket einrichten.",
     storageConnected: "Speicher verbunden",
+    storageStatusUnavailable:
+      "Der Status des Wiedergabe-Speichers konnte nicht geprüft werden. Versuchen Sie es erneut, um die Upload-Bereitschaft zu prüfen.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io ist für KI und Credits verbunden, aber Wiedergabe-Uploads benötigen eine separate Speicherberechtigung.",
     connectBuilder: "Builder.io verwenden",
     configureS3: "S3-Speicher konfigurieren",
     devtools: "Dev-Tools",

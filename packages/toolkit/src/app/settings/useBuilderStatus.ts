@@ -1893,6 +1893,7 @@ export function useBuilderConnectFlow(
           ) {
             return;
           }
+          if (s) markStatusAvailable();
           if (
             (s && isBuilderConnectComplete(s, connectTargetRef.current)) ||
             isCurrentConnectError(s?.connectError, started)
@@ -1929,7 +1930,6 @@ export function useBuilderConnectFlow(
         return;
       }
       if (!s) return;
-      markStatusAvailable();
       if (!isBuilderConnectComplete(s, connectTargetRef.current)) {
         const connectError = isCurrentConnectError(s?.connectError, started)
           ? s?.connectError

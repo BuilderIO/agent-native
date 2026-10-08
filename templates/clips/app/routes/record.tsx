@@ -50,6 +50,7 @@ import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 
 import { LocalRecordingPreview } from "@/components/recorder/local-recording-preview";
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Kbd } from "@/components/ui/kbd";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
@@ -1140,6 +1141,9 @@ export default function RecordRoute() {
     [location.search],
   );
   const storageQuery = useVideoStorageStatus(!clipIntake);
+  const connectStorageRequested =
+    new URLSearchParams(location.search).get("connectStorage") === "1";
+  const pendingUploadFile = hasPendingUploadFile();
 
   const spaceIdFromUrl = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -1181,9 +1185,9 @@ export default function RecordRoute() {
   }, [clipIntake]);
   const storageConfigured: boolean | null = clipIntake
     ? true
-    : storageQuery.isLoading
+    : storageQuery.isLoading || storageQuery.isError
       ? null
-      : !!storageQuery.data?.configured;
+      : (storageQuery.data?.configured ?? null);
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
       queryClient.setQueryData<VideoStorageStatus>(
@@ -3688,12 +3692,19 @@ export default function RecordRoute() {
   const showStorageSetupFirst =
     !clipIntake &&
     storageConfigured === false &&
-    (hasPendingUploadFile() ||
-      new URLSearchParams(location.search).get("connectStorage") === "1");
+    (pendingUploadFile || connectStorageRequested);
   const canSkipStorageSetup =
+    !clipIntake && !pendingUploadFile && connectStorageRequested;
+  const showStorageStatusUnavailable =
     !clipIntake &&
-    !hasPendingUploadFile() &&
-    new URLSearchParams(location.search).get("connectStorage") === "1";
+    storageQuery.isError &&
+    (pendingUploadFile || connectStorageRequested);
+  const skipStorageSetup = () => {
+    const params = new URLSearchParams(location.search);
+    params.delete("connectStorage");
+    const search = params.toString();
+    void navigate(`/record${search ? `?${search}` : ""}`, { replace: true });
+  };
 
   return (
     <div className="relative min-h-[100dvh] overflow-x-clip bg-background text-foreground">
@@ -3730,23 +3741,31 @@ export default function RecordRoute() {
             <div className="min-w-0">
               {showStorageSetupFirst ? (
                 <StorageSetupCard
-                  onConfigured={() => markStorageConfigured()}
-                  onSkip={
-                    canSkipStorageSetup
-                      ? () => {
-                          const params = new URLSearchParams(location.search);
-                          params.delete("connectStorage");
-                          const search = params.toString();
-                          void navigate(
-                            `/record${search ? `?${search}` : ""}`,
-                            { replace: true },
-                          );
-                        }
-                      : undefined
-                  }
+                  onConfigured={() => {
+                    markStorageConfigured();
+                    void navigate("/home");
+                  }}
+                  onSkip={canSkipStorageSetup ? skipStorageSetup : undefined}
                   connectSource="clips_record_storage_setup_card"
                   connectFlow="record"
                 />
+              ) : showStorageStatusUnavailable ? (
+                <div className="flex flex-col gap-2">
+                  <StorageStatusRetry
+                    onRetry={() => void storageQuery.refetch()}
+                  />
+                  {canSkipStorageSetup ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="self-center text-muted-foreground"
+                      onClick={skipStorageSetup}
+                    >
+                      {t("agentChat.onboarding.skipForNow")}
+                    </Button>
+                  ) : null}
+                </div>
               ) : (
                 <PreRecordPanel
                   onStart={startFlow}

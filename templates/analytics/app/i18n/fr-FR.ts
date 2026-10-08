@@ -1588,8 +1588,12 @@ export default {
     time: "Heure",
     storageSetupTitle: "Connecter le stockage des relectures",
     storageSetupDescription:
-      "Les enregistrements de relecture de session nécessitent un espace de stockage avant de pouvoir sauvegarder les fragments. Utilisez Builder.io pour un stockage en formule gratuite, ou configurez votre propre bucket compatible S3.",
+      "Les relectures de session nécessitent un fournisseur autorisé pour l’envoi de fichiers. Builder.io peut les stocker lorsque son autorisation d’envoi est accordée, ou configurez votre propre bucket compatible S3.",
     storageConnected: "Stockage connecté",
+    storageStatusUnavailable:
+      "Impossible de vérifier l’état du stockage des relectures. Réessayez pour savoir si les envois sont prêts.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io est connecté pour l’IA et les crédits, mais les envois de relectures nécessitent une autorisation de stockage distincte.",
     connectBuilder: "Utiliser Builder.io",
     configureS3: "Configurer le stockage S3",
     devtools: "Outils de dev",

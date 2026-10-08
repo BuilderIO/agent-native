@@ -129,8 +129,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Ignorer pour l’instant",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
   "onboarding.builderCreateAccount": "Utiliser Builder.io",
-  "onboarding.builderSignInWithAccount":
-    "Se connecter avec un compte Builder.io",
+  "onboarding.builderSignInWithAccount": "Utiliser Builder.io",
   "onboarding.builderActivateDescription":
     "Créez ou réutilisez votre compte Builder.io et activez ses crédits gratuits en un clic.",
   "onboarding.builderActiveCredits":
@@ -160,7 +159,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Conditions d’utilisation",
   "onboarding.builderPrivacy": "Politique de confidentialité",
   "onboarding.builderConsentAnd": "et",
-  "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
+  "onboarding.builderExistingAccount": "Utiliser Builder.io",
   "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
   "onboarding.builderConnecting":
     "Configuration des crédits gratuits de Builder.io",

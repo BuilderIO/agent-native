@@ -1557,8 +1557,12 @@ export default {
     time: "時刻",
     storageSetupTitle: "リプレイストレージを接続",
     storageSetupDescription:
-      "セッションリプレイの録画を保存するには、まずストレージが必要です。Builder.io の無料枠ストレージを使うか、独自の S3 互換バケットを設定してください。",
+      "セッションリプレイには、認可されたファイルアップロード先が必要です。アップロード権限を付与すると Builder.io に保存できます。または独自の S3 互換バケットを設定してください。",
     storageConnected: "ストレージ接続済み",
+    storageStatusUnavailable:
+      "リプレイストレージの状態を確認できませんでした。アップロード可能か確認するには再試行してください。",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io は AI とクレジット用に接続されていますが、リプレイのアップロードには別途ストレージ権限が必要です。",
     connectBuilder: "Builder.io を使う",
     configureS3: "S3 ストレージを設定",
     devtools: "開発ツール",

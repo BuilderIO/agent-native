@@ -85,7 +85,7 @@ function flowState(overrides: Record<string, unknown> = {}) {
     statusReadSettledCount: 0,
     errorKind: null,
     hasFetchedStatus: true,
-    canConnect: { org: false, personal: false },
+    canConnect: { org: true, personal: false },
     error: null,
     ...overrides,
   };
@@ -207,6 +207,7 @@ describe("StorageSetupCard", () => {
     await act(async () => bodyButton(CREATE)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: true,
+      scope: "org",
     });
   });
 
@@ -236,6 +237,7 @@ describe("StorageSetupCard", () => {
     await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
+      scope: "org",
     });
   });
 
@@ -266,6 +268,7 @@ describe("StorageSetupCard", () => {
     await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
+      scope: "org",
     });
   });
 
@@ -302,6 +305,7 @@ describe("StorageSetupCard", () => {
     await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
+      scope: "org",
     });
   });
 
@@ -322,6 +326,7 @@ describe("StorageSetupCard", () => {
     await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
+      scope: "org",
     });
   });
 
@@ -343,6 +348,37 @@ describe("StorageSetupCard", () => {
     await act(async () => cancelButtons[0]?.click());
     expect(mocks.cancel).toHaveBeenCalledOnce();
     expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it("uses a personal Builder grant when an org grant cannot be connected", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ canConnect: { org: false, personal: true } }),
+    );
+    await renderCard();
+
+    await clickConnect();
+    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
+
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
+      provisionAccount: false,
+      scope: "personal",
+    });
+  });
+
+  it("asks an owner or admin when neither Builder grant can be connected", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ canConnect: { org: false, personal: false } }),
+    );
+    await renderCard();
+
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-testid="storage-setup-builder-primary"]',
+      )?.disabled,
+    ).toBe(true);
+    expect(container.textContent).toContain(
+      "storageSetup.builderGrantAskAdmin",
+    );
   });
 
   it("finishes storage setup if Builder connects after cancellation", async () => {
@@ -381,6 +417,102 @@ describe("StorageSetupCard", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onConfigured).toHaveBeenCalledOnce();
+  });
+
+  it("finishes setup when Builder upload authorization is ready", async () => {
+    const onConfigured = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        configured: true,
+        builderConfigured: true,
+        builderUploadConfigured: true,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await renderCard(onConfigured);
+    await createAndActivate();
+
+    const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
+      onConnected: () => void;
+    };
+    act(() => connectOptions.onConnected());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onConfigured).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("storageSetup.builderConnected");
+  });
+
+  it("stops on an AI-only Builder grant that still needs upload authorization", async () => {
+    const onConfigured = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        configured: false,
+        builderConfigured: true,
+        builderUploadConfigured: false,
+        builderReauthorizationRequired: true,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await renderCard(onConfigured);
+    await createAndActivate();
+
+    const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
+      onConnected: () => void;
+    };
+    act(() => connectOptions.onConnected());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onConfigured).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "storageSetup.builderUploadGrantMissing",
+    );
+    expect(container.textContent).not.toContain("storageSetup.builderTimeout");
+  });
+
+  it("shows unavailable status with Retry, then accepts a configured retry", async () => {
+    const onConfigured = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(
+        Response.json({
+          configured: true,
+          builderConfigured: true,
+          builderUploadConfigured: true,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    await renderCard(onConfigured);
+    await createAndActivate();
+
+    const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
+      onConnected: () => void;
+    };
+    act(() => connectOptions.onConnected());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("storageSetup.statusUnavailable");
+    expect(onConfigured).not.toHaveBeenCalled();
+    const retryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "meetingDetail.retry",
+    );
+    expect(retryButton).toBeDefined();
+    act(() => retryButton?.click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(onConfigured).toHaveBeenCalledOnce();
   });
 
@@ -440,6 +572,7 @@ describe("StorageSetupCard", () => {
       statusReadSettledCount: 2,
       errorKind: "status-read",
       hasFetchedStatus: true,
+      canConnect: { org: true, personal: false },
       error: "Couldn't read the Builder.io connections.",
     };
     mocks.useBuilderConnectFlow.mockReturnValue(flow);
@@ -496,6 +629,7 @@ describe("StorageSetupCard", () => {
       statusReadSettledCount: 1,
       errorKind: "launch",
       hasFetchedStatus: true,
+      canConnect: { org: true, personal: false },
       error: "No se pudo abrir Builder desde este host de chat.",
     });
 
@@ -526,7 +660,19 @@ describe("StorageSetupCard", () => {
     ).not.toBeNull();
   });
 
-  it("surfaces the timeout after repeated failed status responses", async () => {
+  it("surfaces the timeout while an available status stays unconfigured", async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            configured: false,
+            builderReauthorizationRequired: false,
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
     await renderCard();
     await createAndActivate();
 
@@ -539,6 +685,7 @@ describe("StorageSetupCard", () => {
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 2000);
     });
 
+    expect(fetchMock).toHaveBeenCalled();
     expect(container.textContent).toContain("storageSetup.builderTimeout");
     expect(container.querySelector("button[disabled]")).toBeNull();
   });

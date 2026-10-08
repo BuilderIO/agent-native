@@ -1396,8 +1396,13 @@ const messages = {
     builderConnectErrorAskAdmin:
       "Builder.io 设置未完成。请重试，或请所有者或管理员设置存储。",
     builderStatusReadError: "无法检查 Builder.io 连接。",
+    builderUploadGrantMissing:
+      "Builder.io 已连接 AI 服务，但此连接无法上传剪辑。请授予上传权限后重新连接 Builder.io，或向所有者或管理员寻求帮助。",
+    builderGrantAskAdmin:
+      "请所有者或管理员连接具有剪辑上传权限的 Builder.io 账户。",
+    statusUnavailable: "无法检查视频存储是否已就绪。",
     checkingBuilderConnection: "正在检查 Builder 连接…",
-    builderTimeout: "5 分钟内未收到 Builder 响应，请重试。",
+    builderTimeout: "无法确认 Builder.io 存储已就绪，请重试。",
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",
     description:

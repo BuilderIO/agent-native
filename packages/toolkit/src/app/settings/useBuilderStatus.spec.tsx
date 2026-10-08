@@ -1792,9 +1792,7 @@ describe("useBuilderConnectFlow", () => {
       document.querySelectorAll<HTMLButtonElement>(
         "[data-radix-popper-content-wrapper] button",
       ),
-    ).find((button) =>
-      button.textContent?.includes("I have a Builder.io account"),
-    );
+    ).find((button) => button.textContent?.includes("Use Builder.io"));
     expect(existingAccountAction).toBeDefined();
 
     await act(async () => existingAccountAction?.click());
@@ -2218,7 +2216,7 @@ describe("useBuilderConnectFlow", () => {
       .mockResolvedValueOnce(jsonResponse(incompleteStatus))
       .mockResolvedValueOnce(jsonResponse(incompleteStatus))
       .mockRejectedValueOnce(new Error("poll status unavailable"))
-      .mockResolvedValue(jsonResponse(incompleteStatus));
+      .mockImplementation(async () => jsonResponse(incompleteStatus));
 
     await act(async () => {
       root.render(<BuilderConnectProbe />);

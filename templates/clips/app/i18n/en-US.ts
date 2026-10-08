@@ -1393,8 +1393,14 @@ const messages = {
     builderConnectErrorAskAdmin:
       "Builder.io setup didn't finish. Try again, or ask an owner or admin to set up storage.",
     builderStatusReadError: "Couldn't check your Builder.io connection.",
+    builderUploadGrantMissing:
+      "Builder.io is connected for AI, but this connection can't upload clips. Reconnect Builder.io with upload access, or ask an owner or admin for help.",
+    builderGrantAskAdmin:
+      "Ask an owner or admin to connect Builder.io with clip upload access.",
+    statusUnavailable: "Couldn't check whether video storage is ready.",
     checkingBuilderConnection: "Checking Builder connection…",
-    builderTimeout: "Didn't hear back from Builder in 5 minutes. Try again.",
+    builderTimeout:
+      "Couldn't confirm that Builder.io storage is ready. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
     description:

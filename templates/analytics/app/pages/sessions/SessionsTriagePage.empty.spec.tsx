@@ -108,6 +108,7 @@ vi.mock("@/hooks/use-replay-storage-status", () => ({
   useReplayStorageStatus: () => ({
     data: { configured: mocks.configured },
     isLoading: false,
+    isSuccess: true,
     refetch: vi.fn(),
   }),
 }));

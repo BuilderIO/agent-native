@@ -1399,8 +1399,13 @@ const messages = {
     builderConnectErrorAskAdmin:
       "Builder.io 設定未完成。請再試一次，或請擁有者或管理員設定儲存空間。",
     builderStatusReadError: "無法檢查 Builder.io 連線。",
+    builderUploadGrantMissing:
+      "Builder.io 已連線 AI 服務，但此連線無法上傳片段。請授予上傳權限後重新連線 Builder.io，或向擁有者或管理員尋求協助。",
+    builderGrantAskAdmin:
+      "請擁有者或管理員連線具有片段上傳權限的 Builder.io 帳戶。",
+    statusUnavailable: "無法檢查影片儲存是否就緒。",
     checkingBuilderConnection: "正在檢查 Builder 連線…",
-    builderTimeout: "5 分鐘內未收到 Builder 回應，請重試。",
+    builderTimeout: "無法確認 Builder.io 儲存空間已就緒，請再試一次。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
     description:

@@ -1500,8 +1500,14 @@ const messages = {
     builderConnectErrorAskAdmin:
       "La configuration de Builder.io n’a pas abouti. Réessayez ou demandez à un propriétaire ou à un administrateur de configurer le stockage.",
     builderStatusReadError: "Impossible de vérifier la connexion à Builder.io.",
+    builderUploadGrantMissing:
+      "Builder.io est connecté pour l’IA, mais cette connexion ne peut pas envoyer de clips. Reconnectez Builder.io avec l’autorisation d’envoi, ou demandez de l’aide à un propriétaire ou à un administrateur.",
+    builderGrantAskAdmin:
+      "Demandez à un propriétaire ou à un administrateur de connecter Builder.io avec l’autorisation d’envoyer des clips.",
+    statusUnavailable: "Impossible de vérifier si le stockage vidéo est prêt.",
     checkingBuilderConnection: "Vérification de la connexion à Builder…",
-    builderTimeout: "Aucune réponse de Builder après 5 minutes. Réessayez.",
+    builderTimeout:
+      "Impossible de confirmer que le stockage Builder.io est prêt. Réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
     description:
