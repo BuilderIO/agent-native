@@ -5183,6 +5183,14 @@ export async function runNitroBuildPipeline(
   }
 }
 
+function removeServerSourceMaps(serverDir: string): number {
+  const sourceMaps = fs.globSync("**/*.map", { cwd: serverDir });
+  for (const sourceMap of sourceMaps) {
+    fs.rmSync(path.join(serverDir, sourceMap), { force: true });
+  }
+  return sourceMaps.length;
+}
+
 function resolveNitroClientDirectory(
   cwd: string,
   defaultClientDirectory: string,
@@ -5586,6 +5594,15 @@ export default bundle;
     cwd,
     includeImmutableAssetRouteRules: !isCloudflareModulePreset(preset),
   });
+
+  if (sentryServerSourceMapPlugins.length > 0) {
+    const removedSourceMaps = removeServerSourceMaps(
+      nitro.options.output.serverDir,
+    );
+    console.log(
+      `[deploy] Removed ${removedSourceMaps} uploaded Sentry server source map(s) before packaging.`,
+    );
+  }
 
   const drizzleMigrationFiles = copyDrizzleMigrationAssets(
     cwd,
