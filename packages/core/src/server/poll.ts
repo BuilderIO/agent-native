@@ -360,6 +360,8 @@ export type ChangeReadResult = {
   events: ChangeEvent[];
   cursor?: string;
   cursorLimited?: boolean;
+  /** Set when the read stopped at an event whose access check is unresolved. */
+  accessPending?: boolean;
 };
 
 export type AccessResolver = (
@@ -1218,6 +1220,7 @@ export class AppSyncState {
           version,
           events,
           cursorLimited: true,
+          accessPending: true,
           ...(cursor && lastCursor !== readCursor
             ? { cursor: encodeSyncCursor(lastCursor) }
             : {}),
@@ -1357,6 +1360,7 @@ export class AppSyncState {
             version: Math.max(since, event.version - 1),
             events,
             cursorLimited: true,
+            accessPending: true,
             ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
               ? { cursor: encodeSyncCursor(lastCursor) }
               : {}),
@@ -1410,14 +1414,19 @@ export class AppSyncState {
     useDurableEvents: boolean,
     cursor?: SyncCursor,
   ): Promise<ChangeReadResult> {
-    const result = await this.readCombinedChangesSinceForUser(
+    const first = await this.readCombinedChangesSinceForUser(
       since,
       userEmail,
       orgId,
       useDurableEvents,
       cursor,
     );
-    if (!result.cursorLimited || this.accessInFlight.size === 0) return result;
+    // Only an unresolved access check is worth waiting for; a row-limit
+    // truncation (also `cursorLimited`) is not blocked on one.
+    if (!first.accessPending || this.accessInFlight.size === 0) {
+      const { accessPending: _pending, ...result } = first;
+      return result;
+    }
     // A read stopped at an event whose access check had not finished. The
     // check is already running, so waiting for it here (bounded) delivers the
     // event now instead of one poll interval later.
@@ -1429,13 +1438,15 @@ export class AppSyncState {
       }),
     ]);
     clearTimeout(timer);
-    return this.readCombinedChangesSinceForUser(
-      since,
-      userEmail,
-      orgId,
-      useDurableEvents,
-      cursor,
-    );
+    const { accessPending: _pending, ...result } =
+      await this.readCombinedChangesSinceForUser(
+        since,
+        userEmail,
+        orgId,
+        useDurableEvents,
+        cursor,
+      );
+    return result;
   }
 
   private async readCombinedChangesSinceForUser(
@@ -1474,6 +1485,7 @@ export class AppSyncState {
     const events = Array.from(byIdentity.values()).sort((a, b) =>
       compareSyncCursors(cursorForEvent(a), cursorForEvent(b)),
     );
+    const accessPending = memory.accessPending || durable.accessPending;
     if (cursor) {
       const limitedCursors = [memory, durable]
         .filter((result) => result.cursorLimited)
@@ -1486,6 +1498,7 @@ export class AppSyncState {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
+          ...(accessPending ? { accessPending } : {}),
           events: events.filter(
             (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
           ),
@@ -1526,6 +1539,7 @@ export class AppSyncState {
             )
           : events,
       ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
+      ...(accessPending ? { accessPending } : {}),
     };
   }
 

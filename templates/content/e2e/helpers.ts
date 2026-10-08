@@ -295,6 +295,14 @@ async function classifySave(
   return { outcome: "written" };
 }
 
+export function isCollabPollQuery(params: URLSearchParams): boolean {
+  const since = params.get("since");
+  const cursor = params.has("cursor");
+  if (since !== null && cursor) return false;
+  if (since !== null) return Number(since) > 0;
+  return cursor;
+}
+
 function refuseRealtimeStream(route: Route) {
   const url = new URL(route.request().url());
   if (url.searchParams.get("poll_live") !== "1") return route.continue();
@@ -436,13 +444,10 @@ export class TabSet {
       this.savesInFlight++;
       this.sentAt.set(request, Date.now());
     }
-    // The shared transport sends both `since` and `cursor`; the collaboration
-    // poll sends only one of them.
-    if (
-      url.pathname === POLL_PATH &&
-      (url.searchParams.has("since") || url.searchParams.has("cursor")) &&
-      !(url.searchParams.has("since") && url.searchParams.has("cursor"))
-    ) {
+    // The shared transport sends both `since` and `cursor`, except its first
+    // poll (`since=0` alone); the collaboration poll sends only one of them,
+    // and never `since=0` once it holds a baseline.
+    if (url.pathname === POLL_PATH && isCollabPollQuery(url.searchParams)) {
       record.collabPollTimes.push(Date.now());
     }
   }

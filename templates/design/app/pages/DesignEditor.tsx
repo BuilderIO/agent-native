@@ -27090,7 +27090,9 @@ function DesignEditor() {
                     searchQuery={layersSearchQuery}
                     onScreenSelect={handleSidebarScreenSelect}
                     onScreenOverview={handleSidebarScreenOverview}
-                    onAddScreen={handleAddScreenAffordance}
+                    onAddScreen={
+                      canEditDesign ? handleAddScreenAffordance : undefined
+                    }
                     onSearchQueryChange={setLayersSearchQuery}
                     onExpandedIdsChange={setExpandedLayerIds}
                     onLeaveLayer={handleLayerLeave}
