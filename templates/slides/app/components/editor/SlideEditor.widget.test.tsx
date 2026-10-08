@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -159,6 +165,79 @@ describe("SlideEditor inside an MCP App widget", () => {
       stack.querySelector("[data-following-slide-id='slide-last']")!,
     );
     expect(onSelectFollowingSlide).toHaveBeenCalledWith("slide-last");
+  });
+
+  it("renders following slide previews only near the visible pane", async () => {
+    widget.embed = true;
+    const observedTargets: Element[] = [];
+    let observer: {
+      callback: IntersectionObserverCallback;
+      disconnect: () => void;
+      observe: (target: Element) => void;
+    } | null = null;
+    class TestIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) {
+        observer = {
+          callback,
+          disconnect: () => undefined,
+          observe: (target) => observedTargets.push(target),
+        };
+      }
+      disconnect() {}
+      observe(target: Element) {
+        if (target.hasAttribute("data-following-slide-id")) {
+          observedTargets.push(target);
+        }
+      }
+      unobserve() {}
+      takeRecords() {
+        return [];
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+
+    const largeDeck = [
+      slide,
+      ...Array.from({ length: 19 }, (_, index) => ({
+        ...slide,
+        id: `slide-${index}`,
+      })),
+    ] as Slide[];
+    const { container } = renderEditor(true, {
+      deckSlides: largeDeck,
+      onSelectFollowingSlide: vi.fn(),
+    });
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-following-slide-id]"),
+    );
+
+    expect(buttons).toHaveLength(19);
+    expect(observedTargets).toHaveLength(19);
+    expect(
+      buttons
+        .slice(0, 3)
+        .every((button) => button.querySelector(".slide-content")),
+    ).toBe(true);
+    expect(
+      buttons
+        .slice(3)
+        .every((button) => !button.querySelector(".slide-content")),
+    ).toBe(true);
+
+    const newlyVisible = buttons[12]!;
+    await act(async () => {
+      observer?.callback(
+        [
+          {
+            target: newlyVisible,
+            isIntersecting: true,
+          } as unknown as IntersectionObserverEntry,
+        ],
+        observer as unknown as IntersectionObserver,
+      );
+    });
+
+    expect(newlyVisible.querySelector(".slide-content")).not.toBeNull();
   });
 
   it("starts a newly selected slide at the top of the pane", () => {

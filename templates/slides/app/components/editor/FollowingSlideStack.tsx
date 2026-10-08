@@ -1,11 +1,14 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { type CSSProperties, memo } from "react";
+import { type CSSProperties, memo, useEffect, useRef, useState } from "react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
 
 import type { DesignSystemData } from "../../../shared/api";
+
+const EAGER_SLIDE_PREVIEW_COUNT = 3;
+const SLIDE_PREVIEW_ROOT_MARGIN = "800px 0px";
 
 const FollowingSlideButton = memo(function FollowingSlideButton({
   slide,
@@ -15,6 +18,7 @@ const FollowingSlideButton = memo(function FollowingSlideButton({
   aspectRatio,
   designSystem,
   onSelect,
+  showPreview,
 }: {
   slide: Slide;
   number: number;
@@ -23,6 +27,7 @@ const FollowingSlideButton = memo(function FollowingSlideButton({
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
   onSelect: (slideId: string) => void;
+  showPreview: boolean;
 }) {
   const t = useT();
   return (
@@ -34,17 +39,20 @@ const FollowingSlideButton = memo(function FollowingSlideButton({
       style={
         {
           "--following-slide-size": `${width}px ${height}px`,
+          height: `${height}px`,
         } as CSSProperties
       }
       // Offscreen slides skip layout and paint until they scroll near.
       className="block w-full shrink-0 cursor-pointer border-t border-border text-left [content-visibility:auto] [contain-intrinsic-size:var(--following-slide-size)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
-      <SlideRenderer
-        slide={slide}
-        aspectRatio={aspectRatio}
-        designSystem={designSystem}
-        className="pointer-events-none rounded-none!"
-      />
+      {showPreview ? (
+        <SlideRenderer
+          slide={slide}
+          aspectRatio={aspectRatio}
+          designSystem={designSystem}
+          className="pointer-events-none rounded-none!"
+        />
+      ) : null}
     </button>
   );
 });
@@ -68,13 +76,55 @@ export const FollowingSlideStack = memo(function FollowingSlideStack({
   designSystem?: DesignSystemData;
   onSelect: (slideId: string) => void;
 }) {
+  const stackRef = useRef<HTMLDivElement>(null);
+  const [nearbySlideIds, setNearbySlideIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const dims = getAspectRatioDims(aspectRatio);
   const height = Math.round((width * dims.height) / dims.width);
   const currentIndex = slides.findIndex((slide) => slide.id === afterSlideId);
+
+  useEffect(() => {
+    const stack = stackRef.current;
+    if (!stack || currentIndex < 0 || currentIndex === slides.length - 1)
+      return;
+
+    if (typeof IntersectionObserver === "undefined") {
+      setNearbySlideIds(
+        new Set(slides.slice(currentIndex + 1).map((slide) => slide.id)),
+      );
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setNearbySlideIds((current) => {
+          const next = new Set(current);
+          for (const entry of entries) {
+            const slideId = (entry.target as HTMLElement).dataset
+              .followingSlideId;
+            if (!slideId) continue;
+            if (entry.isIntersecting) next.add(slideId);
+            else next.delete(slideId);
+          }
+          return next;
+        });
+      },
+      { rootMargin: SLIDE_PREVIEW_ROOT_MARGIN },
+    );
+
+    for (const button of stack.querySelectorAll("[data-following-slide-id]")) {
+      observer.observe(button);
+    }
+
+    return () => observer.disconnect();
+  }, [currentIndex, slides]);
+
   if (currentIndex < 0 || currentIndex === slides.length - 1) return null;
 
   return (
     <div
+      ref={stackRef}
       data-following-slides="true"
       className="flex shrink-0 flex-col"
       style={{ width, maxWidth: width }}
@@ -89,6 +139,9 @@ export const FollowingSlideStack = memo(function FollowingSlideStack({
           aspectRatio={aspectRatio}
           designSystem={designSystem}
           onSelect={onSelect}
+          showPreview={
+            offset < EAGER_SLIDE_PREVIEW_COUNT || nearbySlideIds.has(slide.id)
+          }
         />
       ))}
     </div>
