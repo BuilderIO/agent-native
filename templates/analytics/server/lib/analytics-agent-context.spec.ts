@@ -585,13 +585,13 @@ describe("retrieveAnalyticsPromptReferences", () => {
       expect(result.jevPromptCandidates).toHaveLength(1);
     });
 
-    // An org past the catalog's row cap is truncated on every turn; a cap that
-    // read as a failure would put the unavailable-context note on all of them.
+    // Candidates from one capped source do not establish complete catalog
+    // coverage because a relevant reference can be outside the returned rows.
     it.each([
       ["dashboard", { dashboardSearchTruncated: true }],
       ["dictionary", { dictionarySearchTruncated: true }],
     ])(
-      "reports a truncated %s search as ok with hits and empty without",
+      "preserves hits but reports a truncated %s search as failed",
       async (_source, truncation) => {
         mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
           ...complete,
@@ -599,7 +599,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
           candidates: [candidates[0]],
         });
         const withHits = await retrieve();
-        expect(withHits.prefetchStatus).toBe("ok");
+        expect(withHits.prefetchStatus).toBe("failed");
         expect(withHits.jevPromptCandidates).toHaveLength(1);
 
         mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
@@ -607,7 +607,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
           ...truncation,
           candidates: [],
         });
-        expect((await retrieve()).prefetchStatus).toBe("empty");
+        expect((await retrieve()).prefetchStatus).toBe("failed");
       },
     );
   });
