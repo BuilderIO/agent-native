@@ -4424,6 +4424,129 @@ describe("rotated containing block basis", () => {
       canvas.remove();
     });
 
+    describe.each([
+      ["an unrotated block", "none", 0, 0.5],
+      ["a rotated, scaled block", "rotate(25deg) scale(0.8)", 25, 0.8],
+    ])(
+      "a leaf with its own transform in %s",
+      (_name, blockTransform, degrees, scale) => {
+        it.each([
+          [
+            "rotate(20deg)",
+            "0 0",
+            [Math.cos(Math.PI / 9), Math.sin(Math.PI / 9)],
+          ],
+          [
+            "rotate(20deg)",
+            "100% 0",
+            [Math.cos(Math.PI / 9), Math.sin(Math.PI / 9)],
+          ],
+          [
+            "rotate(20deg)",
+            "20% 80%",
+            [Math.cos(Math.PI / 9), Math.sin(Math.PI / 9)],
+          ],
+          ["matrix(1.4, 0, 0, 1.4, 0, 0)", "0 0", [1.4, 0]],
+          ["matrix(1.4, 0, 0, 1.4, 0, 0)", "100% 100%", [1.4, 0]],
+        ])(
+          "returns the layout box, not the transformed hull (%s about %s)",
+          (leafTransform, origin, [cos = 1, sin = 0]) => {
+            const { canvas, block, leaf } = mountPromotion(blockTransform);
+            leaf.style.transform = leafTransform;
+            leaf.style.transformOrigin = origin;
+            const radians = (degrees * Math.PI) / 180;
+            const basis = {
+              a: Math.cos(radians) * scale,
+              b: Math.sin(radians) * scale,
+              c: -Math.sin(radians) * scale,
+              d: Math.cos(radians) * scale,
+            };
+            const toScreen = (x: number, y: number) => ({
+              x: 300 + basis.a * x + basis.c * y,
+              y: 120 + basis.b * x + basis.d * y,
+            });
+            const local = { x: 40, y: 30, width: 100, height: 20 };
+            const [ox = 0, oy = 0] = origin
+              .split(" ")
+              .map((token, axis) =>
+                token.endsWith("%")
+                  ? (Number.parseFloat(token) / 100) *
+                    (axis ? local.height : local.width)
+                  : Number.parseFloat(token),
+              );
+            const corners = [
+              [0, 0],
+              [local.width, 0],
+              [0, local.height],
+              [local.width, local.height],
+            ].map(([x = 0, y = 0]) =>
+              toScreen(
+                local.x + ox + cos * (x - ox) - sin * (y - oy),
+                local.y + oy + sin * (x - ox) + cos * (y - oy),
+              ),
+            );
+            const left = Math.min(...corners.map((c) => c.x));
+            const top = Math.min(...corners.map((c) => c.y));
+            const hull = DOMRect.fromRect({
+              x: left,
+              y: top,
+              width: Math.max(...corners.map((c) => c.x)) - left,
+              height: Math.max(...corners.map((c) => c.y)) - top,
+            });
+            Object.defineProperty(leaf, "offsetWidth", { value: local.width });
+            Object.defineProperty(leaf, "offsetHeight", {
+              value: local.height,
+            });
+            const rectSpy = vi
+              .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+              .mockImplementation(function (this: HTMLElement) {
+                const x = Number.parseFloat(this.style.left || "0");
+                const y = Number.parseFloat(this.style.top || "0");
+                return DOMRect.fromRect(toScreen(x, y));
+              });
+
+            const box = clientRectToContainingBlockBox(
+              hull,
+              leaf,
+              block,
+              canvas,
+            );
+            rectSpy.mockRestore();
+
+            expect(box?.x).toBeCloseTo(local.x, 5);
+            expect(box?.y).toBeCloseTo(local.y, 5);
+            expect(box?.width).toBe(local.width);
+            expect(box?.height).toBe(local.height);
+            canvas.remove();
+          },
+        );
+      },
+    );
+
+    it("reports no box when the leaf's own transform is not a 2D matrix", () => {
+      const { canvas, block, leaf } = mountPromotion("none");
+      leaf.style.transform = "perspective(400px) rotateY(30deg)";
+      const rectSpy = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockImplementation(function (this: HTMLElement) {
+          return DOMRect.fromRect({
+            x: Number.parseFloat(this.style.left || "0"),
+            y: Number.parseFloat(this.style.top || "0"),
+          });
+        });
+
+      const box = clientRectToContainingBlockBox(
+        DOMRect.fromRect({ x: 0, y: 0, width: 10, height: 10 }),
+        leaf,
+        block,
+        canvas,
+      );
+      rectSpy.mockRestore();
+
+      expect(box).toBeNull();
+      canvas.remove();
+    });
+
     it("keeps the bounding-rect conversion for unrotated blocks", () => {
       const { canvas, block, leaf } = mountPromotion("scale(0.5)");
       Object.defineProperty(block, "offsetWidth", { value: 208 });

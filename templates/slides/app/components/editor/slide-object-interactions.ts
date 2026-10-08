@@ -635,12 +635,37 @@ export function clientPointToContainingBlockOffset(
 }
 
 /**
+ * How far the element's own transform carries its layout box centre, in its
+ * parent's coordinates. A transform-origin off the centre makes this non-zero
+ * even for a pure rotation. Null when the transform is not a readable 2D matrix.
+ */
+function ownTransformCentreShift(
+  element: HTMLElement,
+): { x: number; y: number } | null {
+  const width = element.offsetWidth;
+  const height = element.offsetHeight;
+  const { transform, transformOrigin } =
+    readSlideObjectTransformSnapshot(element);
+  const matrix = readSlideObjectTransformMatrix(
+    { x: 0, y: 0, width, height },
+    transform,
+  );
+  if (!matrix) return null;
+  const [a, b, c, d, tx, ty] = matrix;
+  const origin = transformOrigin.trim().split(/\s+/);
+  const x = width / 2 - transformOriginOffset(origin[0], width, "x");
+  const y = height / 2 - transformOriginOffset(origin[1], height, "y");
+  return { x: a * x + c * y + tx - x, y: b * x + d * y + ty - y };
+}
+
+/**
  * The left/top/width/height that reproduce `rect` (an element's client
  * bounding rect) once the element is absolute inside `containingBlock`. When
- * the element or an ancestor rotates or skews, the rect is only the hull of the
- * painted box, so its centre is mapped through the block's probed basis and
- * the size comes from the layout box. Null when the block has no invertible
- * mapping to the screen.
+ * the element or an ancestor transforms, the rect is only the hull of the
+ * painted box, so its centre is mapped through the block's probed basis, moved
+ * back by the element's own transform, and the size comes from the layout box.
+ * Null when the block has no invertible mapping to the screen or the element's
+ * transform cannot be read.
  */
 export function clientRectToContainingBlockBox(
   rect: DOMRect,
@@ -648,9 +673,14 @@ export function clientRectToContainingBlockBox(
   containingBlock: HTMLElement,
   slideCanvas: HTMLElement,
 ): { x: number; y: number; width: number; height: number } | null {
-  if (hasRotatedAncestor(element, slideCanvas)) {
+  const ownTransform = window.getComputedStyle(element).transform;
+  const hasOwnTransform = Boolean(ownTransform) && ownTransform !== "none";
+  if (hasOwnTransform || hasRotatedAncestor(element, slideCanvas)) {
     const frame = probeScreenFrame(containingBlock);
-    if (!frame) return null;
+    const shift = hasOwnTransform
+      ? ownTransformCentreShift(element)
+      : { x: 0, y: 0 };
+    if (!frame || !shift) return null;
     const local = screenDeltaToLocal(frame.basis, {
       x: rect.left + rect.width / 2 - frame.origin.x,
       y: rect.top + rect.height / 2 - frame.origin.y,
@@ -658,8 +688,8 @@ export function clientRectToContainingBlockBox(
     const width = element.offsetWidth;
     const height = element.offsetHeight;
     return {
-      x: local.x - width / 2,
-      y: local.y - height / 2,
+      x: local.x - shift.x - width / 2,
+      y: local.y - shift.y - height / 2,
       width,
       height,
     };
