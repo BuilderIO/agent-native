@@ -5600,7 +5600,7 @@ export default bundle;
       nitro.options.output.serverDir,
     );
     console.log(
-      `[deploy] Removed ${removedSourceMaps} uploaded Sentry server source map(s) before packaging.`,
+      `[deploy] Removed ${removedSourceMaps} server source map(s) from Nitro output before packaging.`,
     );
   }
 
