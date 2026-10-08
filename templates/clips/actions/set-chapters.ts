@@ -33,8 +33,6 @@ const StoredChapterSchema = z.object({
 
 const CutRangeSchema = z.object({ startMs: z.number(), endMs: z.number() });
 
-type Chapter = { startMs: number; title: string };
-
 /** A list passed as an array (agent) or a JSON-encoded string (CLI). */
 function parseList<T>(
   value: unknown,
