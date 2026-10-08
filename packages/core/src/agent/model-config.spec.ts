@@ -386,14 +386,17 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("gpt-5-1-codex-mini")).toBe(400_000);
     expect(getContextWindowForModel("gemini-3.5-flash")).toBe(1_048_576);
     expect(getContextWindowForModel("gemini-3.5-flash-lite")).toBe(1_048_576);
-    expect(getContextWindowForModel("gemini-3.1-flash-lite")).toBe(400_000);
-    expect(getContextWindowForModel("gemini-3.1-pro-preview")).toBe(400_000);
+    expect(getContextWindowForModel("gemini-3.1-flash-lite")).toBe(1_048_576);
+    expect(getContextWindowForModel("gemini-3.1-pro-preview")).toBe(1_048_576);
     expect(getContextWindowForModel("google/gemini-3.1-pro-preview")).toBe(
-      400_000,
+      1_048_576,
     );
-    expect(getContextWindowForModel("gemini-3-1-pro")).toBe(400_000);
+    expect(getContextWindowForModel("google/gemini-3.1-flash-lite")).toBe(
+      1_048_576,
+    );
+    expect(getContextWindowForModel("gemini-3-1-pro")).toBe(1_048_576);
     expect(getContextWindowForModel("gemini-3-5-flash")).toBe(1_048_576);
-    expect(getContextWindowForModel("gemini-3-1-flash-lite")).toBe(400_000);
+    expect(getContextWindowForModel("gemini-3-1-flash-lite")).toBe(1_048_576);
     expect(getContextWindowForModel("gemini-3-5-flash-lite")).toBe(1_048_576);
     expect(getContextWindowForModel("gemini-3-8-flash")).toBe(1_048_576);
     expect(getContextWindowForModel("google/gemini-2.5-flash")).toBe(1_048_576);
@@ -464,19 +467,24 @@ describe("getMaxOutputTokensForModel", () => {
     expect(getMaxOutputTokensForModel("openai/gpt-5.6-luna")).toBe(128_000);
   });
 
-  it("returns 40K for current Builder GPT-5 models and BYOK aliases", () => {
+  it("returns documented output limits for current GPT-5 models and BYOK aliases", () => {
     for (const model of [
       "gpt-5.5",
       "gpt-5.4",
       "gpt-5.4-mini",
-      "gpt-5.1-codex-mini",
       "gpt-5-5",
       "gpt-5-4",
       "gpt-5-4-mini",
-      "gpt-5-1-codex-mini",
       "openai/gpt-5.5",
       "openai/gpt-5.4",
       "openai/gpt-5.4-mini",
+    ]) {
+      expect(getMaxOutputTokensForModel(model)).toBe(128_000);
+    }
+
+    for (const model of [
+      "gpt-5.1-codex-mini",
+      "gpt-5-1-codex-mini",
       "openai/gpt-5.1-codex-mini",
     ]) {
       expect(getMaxOutputTokensForModel(model)).toBe(40_000);
