@@ -26,8 +26,8 @@ export const HIDDEN_HTML_ELEMENTS = new Set([
  * shift every offset after it.
  */
 const RAW_TEXT_CLOSE = new Map([
-  ["script", /<\/script/gi],
-  ["style", /<\/style/gi],
+  ["script", /<\/script(?=[\t\n\f\r />])/gi],
+  ["style", /<\/style(?=[\t\n\f\r />])/gi],
 ]);
 
 const TOKEN_RE =
@@ -138,16 +138,43 @@ export function tokenizeHtml(html: string): HtmlToken[] {
   return tokens;
 }
 
+/** A hidden element being skipped, with how many of its name are open. */
+export interface HiddenHtmlElement {
+  name: string;
+  depth: number;
+}
+
+/**
+ * The hidden element still open after `token`, or null once it closes. Only
+ * its own closing tag ends it, and a `<template>` can hold another, so each
+ * nested one of its name must close first.
+ */
+export function afterHiddenToken(
+  hidden: HiddenHtmlElement,
+  token: HtmlToken,
+): HiddenHtmlElement | null {
+  if (token.type === "open" && token.name === hidden.name) {
+    return token.selfClosing
+      ? hidden
+      : { name: hidden.name, depth: hidden.depth + 1 };
+  }
+  if (token.type === "close" && token.name === hidden.name) {
+    return hidden.depth > 1
+      ? { name: hidden.name, depth: hidden.depth - 1 }
+      : null;
+  }
+  return hidden;
+}
+
 /** The text a reader sees when the fragment renders. */
 export function htmlVisibleText(html: string): string {
   const parts: string[] = [];
-  // A hidden element ends at its own closing tag; tags inside it don't count.
-  let hidden: string | null = null;
+  let hidden: HiddenHtmlElement | null = null;
   for (const token of tokenizeHtml(html)) {
     if (hidden) {
-      if (token.type === "close" && token.name === hidden) hidden = null;
+      hidden = afterHiddenToken(hidden, token);
     } else if (token.type === "open" && HIDDEN_HTML_ELEMENTS.has(token.name)) {
-      if (!token.selfClosing) hidden = token.name;
+      if (!token.selfClosing) hidden = { name: token.name, depth: 1 };
     } else if (token.type === "text") {
       parts.push(token.text);
     } else if (token.type === "open" && token.name === "img") {

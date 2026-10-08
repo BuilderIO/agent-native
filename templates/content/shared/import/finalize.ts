@@ -212,7 +212,7 @@ function measureCoverage(
   if (draft.coverage.kind === "markdown") {
     sourceParts = draft.coverage.visible;
     accounted = draft.coverage.accounted;
-    landedParts.push(...visibleDocText(stored));
+    for (const text of visibleDocText(stored)) landedParts.push(text);
   } else {
     sourceParts = [nfmVisibleText(draft.coverage.source)];
     accounted = draft.coverage.accounted.map(nfmVisibleText);

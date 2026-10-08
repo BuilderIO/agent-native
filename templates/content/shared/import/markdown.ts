@@ -6,6 +6,7 @@ import type {
   List,
   ListItem,
   Nodes,
+  Parent,
   PhrasingContent,
   Root,
   RootContent,
@@ -21,13 +22,16 @@ import { parse as parseYaml } from "yaml";
 import {
   nfmToDoc,
   notionSpanAttrs,
+  pushAll,
   type PMDoc,
   type PMMark,
   type PMNode,
 } from "../nfm";
 import { legacyMarkdownToNfm } from "../notion-markdown";
 import {
+  afterHiddenToken,
   HIDDEN_HTML_ELEMENTS,
+  type HiddenHtmlElement,
   htmlVisibleText,
   tokenizeHtml,
   type HtmlToken,
@@ -242,7 +246,7 @@ interface HtmlStackEntry {
 interface InlineHtmlState {
   stack: HtmlStackEntry[];
   /** A hidden element ends at its own closing tag; nodes inside it don't show. */
-  hidden: string | null;
+  hidden: HiddenHtmlElement | null;
 }
 
 export interface ParseMarkdownImportInput {
@@ -330,14 +334,14 @@ export function titleFromFilename(sourcePath: string): string {
 }
 
 /**
- * Drops lines that open more block quotes and lists than `blocks()` converts.
- * The parser's time grows with the square of that depth, and its tree walks
- * overflow the stack, before the converter's own cap is ever reached.
+ * Drops lines that may open more block quotes and lists than `blocks()`
+ * converts. The parser's time grows with the square of that depth, and its
+ * tree walks overflow the stack, before the converter's own cap is reached.
  */
 function dropDeepContainerLines(body: string, notes: ImportNoteBag): string {
   let dropped = false;
   const lines = body.split("\n").map((line) => {
-    if (containerMarkerCount(line) <= MAX_BLOCK_NESTING) return line;
+    if (containerDepthBound(line) <= MAX_BLOCK_NESTING) return line;
     notes.add("unsupported-markdown", line);
     dropped = true;
     return "";
@@ -345,34 +349,43 @@ function dropDeepContainerLines(body: string, notes: ImportNoteBag): string {
   return dropped ? lines.join("\n") : body;
 }
 
-/** Counts the block quote and list markers that open a line. */
-function containerMarkerCount(line: string): number {
-  let count = 0;
+/**
+ * The deepest block quote or list a line can open. Each marker on it opens
+ * one, and each list it sits inside needs two columns of indentation before
+ * the marker: a list item's text starts at least two columns past its own
+ * marker, and only a line indented that far continues the item. A line with
+ * no marker opens nothing.
+ */
+function containerDepthBound(line: string): number {
+  let markers = 0;
+  let columns = 0;
+  let columnsBeforeMarker = 0;
   let index = 0;
   while (index < line.length) {
     const char = line[index];
     if (char === " " || char === "\t") {
-      index += 1;
-      continue;
-    }
-    if (char === ">") {
-      count += 1;
+      // A tab reaches the next multiple of four, so it is at most four.
+      columns += char === "\t" ? 4 : 1;
       index += 1;
       continue;
     }
     let end = index;
-    if (char === "-" || char === "*" || char === "+") {
+    if (char === ">") {
       end += 1;
+    } else if (char === "-" || char === "*" || char === "+") {
+      end += 1;
+      if (end < line.length && line[end] !== " " && line[end] !== "\t") break;
     } else {
       while (end - index < 9 && /[0-9]/.test(line[end] ?? "")) end += 1;
       if (end === index || (line[end] !== "." && line[end] !== ")")) break;
       end += 1;
+      if (end < line.length && line[end] !== " " && line[end] !== "\t") break;
     }
-    if (end < line.length && line[end] !== " " && line[end] !== "\t") break;
-    count += 1;
+    markers += 1;
+    columnsBeforeMarker = columns;
     index = end;
   }
-  return count;
+  return markers && markers + Math.floor(columnsBeforeMarker / 2);
 }
 
 function looksLikeNfm(body: string): boolean {
@@ -381,18 +394,72 @@ function looksLikeNfm(body: string): boolean {
   const outsideCode: string[] = [];
   let fence: string | null = null;
   for (const line of body.split("\n")) {
+    const run = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line);
     if (fence) {
-      if (line.startsWith(fence) && /^[ \t]*$/.test(line.slice(3))) {
-        fence = null;
-      }
-    } else if (line.startsWith("```") || line.startsWith("~~~")) {
-      fence = line.slice(0, 3);
+      // Only a run as long as the opener, of the same character, closes it.
+      if (run?.[1].startsWith(fence) && !run[2].trim()) fence = null;
+    } else if (run && !(run[1][0] === "`" && run[2].includes("`"))) {
+      fence = run[1];
     } else {
       outsideCode.push(line);
     }
   }
-  const text = outsideCode.join("\n");
+  const text = outsideCode
+    .join("\n")
+    .split(/(\n[ \t]*\n)/)
+    .map(withoutCodeSpans)
+    .join("");
   return NFM_SIGNALS.some((signal) => signal.test(text));
+}
+
+/**
+ * Blanks a paragraph's code spans, keeping its line breaks. A backtick run
+ * opens a span that the next run of the same length closes; a backslash
+ * before a run makes its first backtick text, which is how Content writes
+ * one.
+ */
+function withoutCodeSpans(paragraph: string): string {
+  const runs = Array.from(paragraph.matchAll(/`+/g), (match) => {
+    let backslashes = 0;
+    while (paragraph[match.index - backslashes - 1] === "\\") backslashes++;
+    return {
+      start: match.index,
+      end: match.index + match[0].length,
+      escaped: backslashes % 2 === 1,
+    };
+  });
+  // Runs of each length in order, read with a cursor that only moves forward,
+  // so each opener finds its closer without rescanning the paragraph.
+  const byLength = new Map<number, number[]>();
+  runs.forEach((run, index) => {
+    const length = run.end - run.start;
+    const same = byLength.get(length);
+    if (same) same.push(index);
+    else byLength.set(length, [index]);
+  });
+  const cursors = new Map<number, number>();
+  const parts: string[] = [];
+  let last = 0;
+  for (let index = 0; index < runs.length; index++) {
+    const run = runs[index];
+    const start = run.escaped ? run.start + 1 : run.start;
+    const length = run.end - start;
+    const candidates = byLength.get(length);
+    if (!candidates) continue;
+    let cursor = cursors.get(length) ?? 0;
+    while (cursor < candidates.length && candidates[cursor] <= index) cursor++;
+    cursors.set(length, cursor);
+    if (cursor === candidates.length) continue;
+    const close = runs[candidates[cursor]];
+    parts.push(
+      paragraph.slice(last, start),
+      paragraph.slice(start, close.end).replace(/[^\n]/g, " "),
+    );
+    last = close.end;
+    index = candidates[cursor];
+  }
+  parts.push(paragraph.slice(last));
+  return parts.join("");
 }
 
 interface FrontmatterFields {
@@ -659,7 +726,7 @@ class MarkdownConverter {
         }
         continue;
       }
-      out.push(...this.block(node));
+      pushAll(out, this.block(node));
     }
     return out;
   }
@@ -895,12 +962,12 @@ class MarkdownConverter {
     let end = nodes.length - 1;
     let after = "";
     if ("before" in closedInHead) {
-      children.push(...this.paragraphs(this.htmlFragment(head)));
+      pushAll(children, this.paragraphs(this.htmlFragment(head)));
       end = start;
       after = closedInHead.after;
     } else {
       if (head.trim()) {
-        children.push(...this.paragraphs(this.htmlFragment(head)));
+        pushAll(children, this.paragraphs(this.htmlFragment(head)));
       }
       let depth = closedInHead.depth;
       const inner: RootContent[] = [];
@@ -909,10 +976,11 @@ class MarkdownConverter {
         if (node.type === "html") {
           const closed = splitAtDetailsClose(node.value, depth);
           if ("before" in closed) {
-            children.push(...this.blocks(inner));
+            pushAll(children, this.blocks(inner));
             if (closed.before.trim()) {
-              children.push(
-                ...this.paragraphs(this.htmlFragment(closed.before)),
+              pushAll(
+                children,
+                this.paragraphs(this.htmlFragment(closed.before)),
               );
             }
             end = index;
@@ -925,7 +993,7 @@ class MarkdownConverter {
         }
         inner.push(node);
       }
-      if (depth > 0) children.push(...this.blocks(inner));
+      if (depth > 0) pushAll(children, this.blocks(inner));
     }
 
     return {
@@ -952,7 +1020,7 @@ class MarkdownConverter {
 
     for (const node of nodes) {
       if (html.hidden && node.type !== "html") {
-        this.accounted.push(...visibleTextOf(node));
+        pushAll(this.accounted, visibleTextOf(node));
         continue;
       }
       switch (node.type) {
@@ -960,13 +1028,13 @@ class MarkdownConverter {
           out.push(textNode(joinSoftBreaks(node.value), active()));
           break;
         case "emphasis":
-          out.push(...this.inline(node.children, [...active(), ITALIC]));
+          pushAll(out, this.inline(node.children, [...active(), ITALIC]));
           break;
         case "strong":
-          out.push(...this.inline(node.children, [...active(), BOLD]));
+          pushAll(out, this.inline(node.children, [...active(), BOLD]));
           break;
         case "delete":
-          out.push(...this.inline(node.children, [...active(), STRIKE]));
+          pushAll(out, this.inline(node.children, [...active(), STRIKE]));
           break;
         case "inlineCode":
           out.push(textNode(node.value, [...active(), CODE]));
@@ -1055,7 +1123,7 @@ class MarkdownConverter {
           break;
         }
         case "html":
-          out.push(...this.inlineHtml(node.value, html, active));
+          pushAll(out, this.inlineHtml(node.value, html, active));
           break;
         default: {
           const unknown = node as Nodes;
@@ -1077,11 +1145,8 @@ class MarkdownConverter {
     const { stack } = state;
     for (const token of tokenizeHtml(html)) {
       if (state.hidden) {
-        if (token.type === "close" && token.name === state.hidden) {
-          state.hidden = null;
-        } else if (token.type === "text") {
-          this.accounted.push(token.text);
-        }
+        if (token.type === "text") this.accounted.push(token.text);
+        state.hidden = afterHiddenToken(state.hidden, token);
         continue;
       }
       if (token.type === "text") {
@@ -1102,7 +1167,7 @@ class MarkdownConverter {
         this.notes.add("unsupported-markdown", `<${token.name}>`);
       } else if (HIDDEN_HTML_ELEMENTS.has(token.name)) {
         if (!token.selfClosing) {
-          state.hidden = token.name;
+          state.hidden = { name: token.name, depth: 1 };
           this.notes.add("hidden-html-dropped", `<${token.name}>`);
         }
       } else if (!token.selfClosing) {
@@ -1170,8 +1235,7 @@ class MarkdownConverter {
     const out: InlinePiece[] = [];
     const stack: HtmlStackEntry[] = [];
     const flattened = new Set<string>();
-    // A hidden element ends at its own closing tag; tags inside it don't count.
-    let hidden: string | null = null;
+    let hidden: HiddenHtmlElement | null = null;
     let preText: string[] | null = null;
     let preLanguage: string | null = null;
     const active = () =>
@@ -1179,7 +1243,7 @@ class MarkdownConverter {
 
     for (const token of tokenizeHtml(html)) {
       if (hidden) {
-        if (token.type === "close" && token.name === hidden) hidden = null;
+        hidden = afterHiddenToken(hidden, token);
         continue;
       }
       if (preText) {
@@ -1207,7 +1271,7 @@ class MarkdownConverter {
       }
       if (token.type === "open" && HIDDEN_HTML_ELEMENTS.has(token.name)) {
         if (!token.selfClosing) {
-          hidden = token.name;
+          hidden = { name: token.name, depth: 1 };
           this.notes.add("hidden-html-dropped", `<${token.name}>`);
         }
         continue;
@@ -1435,7 +1499,7 @@ function withCheckedUrls(
  * `tokenizeHtml` skips them, then the `<details>` tags outside them.
  */
 const DETAILS_TAG_RE =
-  /<!--[\s\S]*?(?:-->|$)|<![\s\S]*?(?:>|$)|<\?[\s\S]*?(?:\?>|$)|<(script|style)\b[^<>]*>[\s\S]*?(?:<\/\1|$)|<(\/?)details\b[^<>]*>/gi;
+  /<!--[\s\S]*?(?:-->|$)|<![\s\S]*?(?:>|$)|<\?[\s\S]*?(?:\?>|$)|<(script|style)\b[^<>]*>[\s\S]*?(?:<\/\1(?=[\t\n\f\r />])|$)|<(\/?)details\b[^<>]*>/gi;
 
 /**
  * Splits HTML at the `</details>` that closes the toggle open before it,
@@ -1633,7 +1697,66 @@ function indentContainerBodies(nfm: string, notes: ImportNoteBag): string {
 }
 
 function markdownParser() {
-  return unified().use(remarkParse).use(remarkGfm).use(remarkMath);
+  return unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(autolinkOneTextAtATime)
+    .use(remarkMath);
+}
+
+/**
+ * GFM's pass that links bare URLs and emails finds each text node's place by
+ * searching the children of its parent and of every ancestor, so a file with
+ * many blocks, or a block with many inline nodes, costs their square. The same
+ * pass runs here on one text node at a time, skipping links as GFM does.
+ */
+function autolinkOneTextAtATime(this: Processor) {
+  const extensions = this.data().fromMarkdownExtensions ?? [];
+  const transforms: Array<(tree: Root) => unknown> = [];
+  for (const extension of extensions.flat()) {
+    if (!extension.transforms?.length) continue;
+    transforms.push(...extension.transforms);
+    extension.transforms = [];
+  }
+  // That pass is remark-gfm's only transform. Another one, from an upgrade,
+  // may not be safe to run on a text node alone.
+  if (transforms.length !== 1) {
+    throw new Error(
+      `Expected remark-gfm to register one transform, found ${transforms.length}`,
+    );
+  }
+  const [autolink] = transforms;
+  extensions.push({
+    transforms: [
+      (root) => {
+        const pending: Nodes[] = [root];
+        for (let node = pending.pop(); node; node = pending.pop()) {
+          if (
+            !("children" in node) ||
+            node.type === "link" ||
+            node.type === "linkReference"
+          ) {
+            continue;
+          }
+          const children: Nodes[] = [];
+          let changed = false;
+          for (const child of node.children as Nodes[]) {
+            if (child.type !== "text") {
+              children.push(child);
+              pending.push(child);
+              continue;
+            }
+            const alone: Root = { type: "root", children: [child] };
+            autolink(alone);
+            changed ||=
+              alone.children.length !== 1 || alone.children[0] !== child;
+            pushAll(children, alone.children);
+          }
+          if (changed) (node as Parent).children = children as RootContent[];
+        }
+      },
+    ],
+  });
 }
 
 /** Reads emphasis, strikethrough, link, and footnote delimiters as text. */

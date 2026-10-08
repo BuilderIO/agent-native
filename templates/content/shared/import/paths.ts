@@ -34,8 +34,12 @@ export function classifyImportReference(
   const scheme = SCHEME_RE.exec(trimmed)?.[1]?.toLowerCase();
   if (scheme) {
     if (scheme === "data") {
-      const mediaType =
-        /^data:([^;,]+)/i.exec(trimmed)?.[1]?.toLowerCase() ?? "";
+      // Without the comma there is no payload, only a header.
+      const header = /^data:([^,]*),/i.exec(trimmed)?.[1];
+      if (header === undefined) {
+        return { kind: "unsupported", reference: trimmed };
+      }
+      const mediaType = header.split(";")[0]!.trim().toLowerCase();
       return { kind: "data-url", mediaType, url: trimmed };
     }
     // A Windows drive path (C:\notes\a.png) parses as a one-letter scheme.

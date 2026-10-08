@@ -930,4 +930,99 @@ ${"<span>".repeat(70)}deep
       ["__proto__", "kept"],
     ]);
   });
+
+  it("reports a list nested past the limit by its indentation", () => {
+    const nested = Array.from(
+      { length: 700 },
+      (_, depth) => `${"  ".repeat(depth)}- level ${depth}`,
+    ).join("\n");
+    const page = importMarkdown(`Before\n\n${nested}\n\nAfter`);
+
+    expect(page.dialect).toBe("markdown");
+    expect(noteKinds(page)).toContain("unsupported-markdown");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+    expect(textOf(page.doc)).toContain("level 62");
+    expect(textOf(page.doc)).not.toContain("level 64");
+    expect(textOf(page.doc)).toContain("After");
+  });
+
+  it.each([
+    [
+      "inside a longer code fence",
+      ["````md", "```", "<callout>Example</callout>", "```", "````"].join("\n"),
+    ],
+    ["in inline code", 'Write `<mention-page url="x"/>` to link a page.'],
+  ])("reads a file with Content tags only %s as Markdown", (_, text) => {
+    expect(importMarkdown(`# Notes\n\n${text}\n`).dialect).toBe("markdown");
+  });
+
+  it("reads Content Markdown with an escaped backtick as Content Markdown", () => {
+    const page = importMarkdown(
+      ["One \\` tick", "<callout>", "\tInside", "</callout>", "`code`"].join(
+        "\n",
+      ),
+    );
+
+    expect(page.dialect).toBe("nfm");
+  });
+
+  it("keeps everything inside a nested template hidden", () => {
+    const page = importMarkdown(
+      [
+        "<template><template>inner</template>outer secret</template>",
+        "",
+        "Visible <template><template>a</template>inline secret</template> text",
+      ].join("\n"),
+    );
+
+    expect(textOf(page.doc)).not.toContain("secret");
+    expect(textOf(page.doc)).toContain("Visible");
+    expect(textOf(page.doc)).toContain("text");
+    expect(noteKinds(page)).toContain("hidden-html-dropped");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
+  it("ends a script only at a closing tag with its exact name", () => {
+    const page = importMarkdown(
+      [
+        "<details><summary>One</summary>",
+        "<script>const a = '</scriptx>'; const b = '</details>';</script>",
+        "Inside one",
+        "</details>",
+        "",
+        "<div><script>a</scriptx><!--</script>shown</div>",
+      ].join("\n"),
+    );
+
+    expect(
+      page.doc.content.map((node) =>
+        node.type === "notionToggle"
+          ? `${node.attrs?.summary}: ${textOf(node).trim()}`
+          : textOf(node),
+      ),
+    ).toEqual(["One: Inside one", "shown"]);
+  });
+
+  it("reports an embedded image with no payload as missing", () => {
+    const asked: string[] = [];
+    const page = importMarkdown("![Logo](data:image/png)", {
+      mode: "preview",
+      resolvers: {
+        asset: (request) => {
+          asked.push(request.kind);
+          return { status: "available" };
+        },
+      },
+    });
+
+    expect(asked).toEqual([]);
+    expect(noteKinds(page)).toContain("asset-missing");
+  });
+
+  it("imports more blocks than fit in one function call's arguments", () => {
+    const page = importMarkdown(`<div>\n${"<p>a".repeat(200_000)}\n</div>`);
+
+    expect(page.doc.content.length).toBeGreaterThan(150_000);
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
 });
