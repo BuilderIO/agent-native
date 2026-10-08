@@ -1,7 +1,5 @@
-import {
-  CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS,
-  getClaudeModelOptionLabel,
-} from "@agent-native/core/agent/model-config";
+import { CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS } from "@agent-native/core/agent/model-config";
+import { getBuilderModelOptionLabel } from "@agent-native/core/agent/model-version";
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
@@ -1112,7 +1110,7 @@ The job will run automatically on the schedule. Make the instructions specific â
                       (option) => option.value === agentModel,
                     ) && (
                       <option value={agentModel}>
-                        {getClaudeModelOptionLabel(agentModel)}
+                        {getBuilderModelOptionLabel(agentModel)}
                       </option>
                     )}
                 </select>

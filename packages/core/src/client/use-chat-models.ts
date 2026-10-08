@@ -148,6 +148,9 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
   const builderConnected = builderResult.value?.configured === true;
   const currentEngineName = enginesData.current?.engine;
   const currentModel = enginesData.current?.model;
+  const currentEngine = enginesData.engines.find(
+    (engine) => engine.name === currentEngineName,
+  );
   const build = (engines: readonly ChatModelEngineEntry[]) =>
     buildChatModelGroups({
       engines,
@@ -161,11 +164,13 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
     .filter((group) => group.engine === currentEngineName)
     .flatMap((group) => group.models);
   const defaultModel = currentModel
-    ? (upgradeModelForProvider(
-        currentModel,
-        currentEngineModels,
-        currentEngineName ?? "",
-      ) ?? currentModel)
+    ? currentEngine?.preserveCustomModels
+      ? currentModel
+      : (upgradeModelForProvider(
+          currentModel,
+          currentEngineModels,
+          currentEngineName ?? "",
+        ) ?? currentModel)
     : DEFAULT_MODEL;
 
   return {

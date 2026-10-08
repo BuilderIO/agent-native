@@ -1,7 +1,5 @@
-import {
-  CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS,
-  getClaudeModelOptionLabel,
-} from "@agent-native/core/agent/model-config";
+import { CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS } from "@agent-native/core/agent/model-config";
+import { getBuilderModelOptionLabel } from "@agent-native/core/agent/model-version";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import type { Resource } from "@agent-native/core/client/resources/use-resources";
 import {
@@ -188,7 +186,7 @@ function FrontmatterBar({
                 (option) => option.value === model,
               ) && (
                 <option value={model}>
-                  {getClaudeModelOptionLabel(model)}
+                  {getBuilderModelOptionLabel(model)}
                 </option>
               )}
           </select>

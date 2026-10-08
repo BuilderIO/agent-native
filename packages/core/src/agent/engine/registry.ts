@@ -37,15 +37,7 @@ import {
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
-import {
-  BUILDER_CLAUDE_SONNET_MODEL_ID,
-  CLAUDE_SONNET_MODEL_ID,
-} from "../model-config.js";
-import {
-  findLatestSupportedVersionMatch,
-  isNewerVersionedModel,
-  upgradeModelForProvider,
-} from "../model-version.js";
+import { normalizeModelForEngine } from "../model-version.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   AI_SDK_ANTHROPIC_DEFAULT_BASE_URL,
@@ -218,64 +210,10 @@ export function isAgentEnginePackageInstalled(
   return packageNames.every(canResolvePackage);
 }
 
-export interface NormalizeModelOptions {
-  preserveCustomModels?: boolean;
-  acceptsCustomModels?: boolean;
-}
-
-export function normalizeModelForEngine(
-  engine: Pick<
-    AgentEngine,
-    | "name"
-    | "defaultModel"
-    | "supportedModels"
-    | "acceptsCustomModels"
-    | "preserveCustomModels"
-  >,
-  model: string | null | undefined,
-  options: NormalizeModelOptions = {},
-): string {
-  const candidate = typeof model === "string" ? model.trim() : "";
-  if (!candidate) return engine.defaultModel;
-
-  if (engine.preserveCustomModels || options.preserveCustomModels) {
-    return candidate;
-  }
-
-  const upgradedModel = upgradeModelForProvider(
-    candidate,
-    engine.supportedModels,
-    engine.name,
-  );
-  if (upgradedModel) return upgradedModel;
-
-  if (
-    candidate === "auto" ||
-    engine.supportedModels.includes(candidate) ||
-    engine.supportedModels.length === 0
-  ) {
-    return candidate;
-  }
-
-  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
-    return candidate === BUILDER_CLAUDE_SONNET_MODEL_ID &&
-      engine.supportedModels.includes(CLAUDE_SONNET_MODEL_ID)
-      ? CLAUDE_SONNET_MODEL_ID
-      : candidate;
-  }
-
-  const versionMatch = findLatestSupportedVersionMatch(
-    candidate,
-    engine.supportedModels,
-  );
-  if (versionMatch && isNewerVersionedModel(candidate, versionMatch)) {
-    return versionMatch;
-  }
-
-  if (versionMatch) return versionMatch;
-
-  return engine.defaultModel;
-}
+export {
+  normalizeModelForEngine,
+  type NormalizeModelOptions,
+} from "../model-version.js";
 
 type ModelResolvableEngine = Pick<
   AgentEngine,

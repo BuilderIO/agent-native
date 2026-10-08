@@ -151,7 +151,8 @@ describe("ResourceEditor markdown editing", () => {
       Array.from(modelPicker.options).some(
         (option) =>
           option.value === "claude-haiku-4-5-20251001" &&
-          option.textContent === "Claude Haiku 4.5",
+          option.textContent ===
+            "Claude Haiku 4.5 → Claude Haiku 5.5 · Builder",
       ),
     ).toBe(true);
     expect(
@@ -159,5 +160,30 @@ describe("ResourceEditor markdown editing", () => {
         (option) => option.value === "claude-haiku-5-5",
       ),
     ).toBe(true);
+  });
+
+  it("shows the Builder fallback for a saved model outside its catalog", () => {
+    act(() => {
+      root.render(
+        <ResourceEditor
+          resource={{
+            ...resource,
+            path: "agents/researcher.md",
+            content:
+              "---\nname: Researcher\nmodel: claude-fable-5\n---\n# Research\n",
+          }}
+          onSave={vi.fn()}
+          view="visual"
+        />,
+      );
+    });
+
+    const modelPicker = container.querySelector("select")!;
+    expect(modelPicker.value).toBe("claude-fable-5");
+    expect(
+      Array.from(modelPicker.options).find(
+        (option) => option.value === "claude-fable-5",
+      )?.textContent,
+    ).toBe("Claude Fable 5 → GPT-6 Luna · Builder");
   });
 });

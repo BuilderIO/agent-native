@@ -1,4 +1,10 @@
-import { BUILDER_MODEL_ALIASES } from "./model-config.js";
+import {
+  BUILDER_CLAUDE_SONNET_MODEL_ID,
+  BUILDER_MODEL_ALIASES,
+  BUILDER_MODEL_CONFIG,
+  CLAUDE_SONNET_MODEL_ID,
+  getClaudeModelOptionLabel,
+} from "./model-config.js";
 
 interface ParsedVersionedModelId {
   family: string;
@@ -7,6 +13,19 @@ interface ParsedVersionedModelId {
 }
 
 const UPGRADEABLE_GPT_TIERS = new Set(["-sol", "-terra", "-luna"]);
+
+export interface NormalizeModelOptions {
+  preserveCustomModels?: boolean;
+  acceptsCustomModels?: boolean;
+}
+
+interface ModelEngineConfig {
+  name: string;
+  defaultModel: string;
+  supportedModels: readonly string[];
+  acceptsCustomModels?: boolean;
+  preserveCustomModels?: boolean;
+}
 
 function parseVersionedModelId(model: string): ParsedVersionedModelId | null {
   const match =
@@ -113,4 +132,78 @@ export function upgradeModelForProvider(
       : undefined) ??
     upgradeModelToLatestSupportedVersion(candidate, supportedModels)
   );
+}
+
+export function normalizeModelForEngine(
+  engine: ModelEngineConfig,
+  model: string | null | undefined,
+  options: NormalizeModelOptions = {},
+): string {
+  const candidate = typeof model === "string" ? model.trim() : "";
+  if (!candidate) return engine.defaultModel;
+
+  if (engine.preserveCustomModels || options.preserveCustomModels) {
+    return candidate;
+  }
+
+  const upgradedModel = upgradeModelForProvider(
+    candidate,
+    engine.supportedModels,
+    engine.name,
+  );
+  if (upgradedModel) return upgradedModel;
+
+  if (
+    candidate === "auto" ||
+    engine.supportedModels.includes(candidate) ||
+    engine.supportedModels.length === 0
+  ) {
+    return candidate;
+  }
+
+  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
+    return candidate === BUILDER_CLAUDE_SONNET_MODEL_ID &&
+      engine.supportedModels.includes(CLAUDE_SONNET_MODEL_ID)
+      ? CLAUDE_SONNET_MODEL_ID
+      : candidate;
+  }
+
+  const versionMatch = findLatestSupportedVersionMatch(
+    candidate,
+    engine.supportedModels,
+  );
+  if (versionMatch && isNewerVersionedModel(candidate, versionMatch)) {
+    return versionMatch;
+  }
+
+  if (versionMatch) return versionMatch;
+
+  return engine.defaultModel;
+}
+
+function displayModelName(model: string): string {
+  const claudeLabel = getClaudeModelOptionLabel(model);
+  if (claudeLabel !== model) return claudeLabel;
+
+  const gpt = /^gpt-(\d+)(?:[.-](\d+))?(?:-(.+))?$/.exec(model);
+  if (!gpt) return model;
+
+  const version = gpt[2] ? `${gpt[1]}.${gpt[2]}` : gpt[1];
+  const tier = gpt[3]
+    ? ` ${gpt[3]
+        .split("-")
+        .map((part) => part[0].toUpperCase() + part.slice(1))
+        .join(" ")}`
+    : "";
+  return `GPT-${version}${tier}`;
+}
+
+export function getBuilderModelOptionLabel(model: string): string {
+  const effectiveModel = normalizeModelForEngine(
+    { name: "builder", ...BUILDER_MODEL_CONFIG },
+    model,
+  );
+  const effectiveLabel = displayModelName(effectiveModel);
+  if (effectiveModel === model) return effectiveLabel;
+  return `${displayModelName(model)} → ${effectiveLabel} · Builder`;
 }
