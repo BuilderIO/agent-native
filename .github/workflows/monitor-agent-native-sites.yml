@@ -578,9 +578,16 @@ jobs:
           ISSUE_TITLE="Agent-Native site availability failing"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           FAILING="$(grep '^FAIL[[:space:]]' /tmp/agent-native-site-availability.log || true)"
+          # Production root-document failures page from Grafana Synthetics
+          # ("Agent Native site unavailable" and its sustained variant), so
+          # they only reach the issue here. Asset failures ("HTTP <status>;
+          # <asset> ..."), beta and workspace hosts, and the Google checks
+          # below still page.
+          PAGEABLE="$(printf '%s\n' "$FAILING" | awk -F'\t' 'NF && !($2 == "production" && $4 !~ /^HTTP [0-9]+; /)')"
           GOOGLE_FAILING="$(grep -E '^(FAIL|INCONCLUSIVE)' /tmp/agent-native-google-credentials.log || true)"
           REDIRECT_FAILING="$(grep -E '^(FAIL|UNKNOWN|UNPROBEABLE)' /tmp/agent-native-google-redirects.log || true)"
           if [ -n "$GOOGLE_FAILING" ]; then
+            PAGEABLE="$(printf '%s\n%s' "$PAGEABLE" "$GOOGLE_FAILING" | sed '/^$/d')"
             if [ -n "$FAILING" ]; then
               FAILING="$(printf '%s\n%s' "$FAILING" "$GOOGLE_FAILING")"
             else
@@ -588,6 +595,7 @@ jobs:
             fi
           fi
           if [ -n "$REDIRECT_FAILING" ]; then
+            PAGEABLE="$(printf '%s\n%s' "$PAGEABLE" "$REDIRECT_FAILING" | sed '/^$/d')"
             if [ -n "$FAILING" ]; then
               FAILING="$(printf '%s\n%s' "$FAILING" "$REDIRECT_FAILING")"
             else
@@ -596,6 +604,7 @@ jobs:
           fi
           if [ -z "$FAILING" ]; then
             FAILING="(the monitor itself failed before producing per-host results)"
+            PAGEABLE="$FAILING"
           fi
           # Strip timings and status codes so repeated copies of one outage
           # keep one signature and do not bury the actionable issue.
@@ -605,6 +614,10 @@ jobs:
             "The five-minute public-host availability monitor is failing." "$FAILING" "$RUN_URL" "$SIGNATURE")"
 
           page_oncall() {
+            if [ -z "$PAGEABLE" ]; then
+              echo "Only production root-document failures, which Grafana Synthetics pages for; recording them in the issue without paging."
+              return 0
+            fi
             if [ -z "${PAGERDUTY_ROUTING_KEY:-}" ]; then
               echo "::warning::PAGERDUTY_ROUTING_KEY is not configured; GitHub issue fallback is active but no page was sent."
               return 0
