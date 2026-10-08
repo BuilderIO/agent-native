@@ -262,9 +262,13 @@ describe("recap agent failure summaries", () => {
   it("builds a combined recap failure diagnostic", () => {
     const diagnostic = buildRecapFailureDiagnostic({
       urlReason: "recap-url.txt was not created by the agent",
+      readbackReason: "get-visual-plan returned HTTP 403",
       failureSummary: "Tool create-visual-recap failed with 403 Forbidden",
     });
     expect(diagnostic).toContain("No plan URL:");
+    expect(diagnostic).toContain(
+      "Published recap readback failed: get-visual-plan returned HTTP 403",
+    );
     expect(diagnostic).toContain("Agent output:");
     expect(diagnostic).toContain("403 Forbidden");
   });
@@ -1587,6 +1591,25 @@ describe("recap comment body", () => {
     expect(body).not.toContain("<picture>");
   });
 
+  it("reports recap readback failure separately and skips the screenshot", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_READBACK_OK: "false",
+      RECAP_READBACK_REASON: "get-visual-plan returned HTTP 403",
+      RECAP_SHOT_OK: "false",
+      RECAP_SHOT_REASON: "screenshot should not have run",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+
+    expect(body).toContain("### Visual recap — readback failed");
+    expect(body).toContain("Screenshot capture was skipped");
+    expect(body).toContain("get-visual-plan returned HTTP 403");
+    expect(body).not.toContain("screenshot failed");
+    expect(body).not.toContain("screenshot should not have run");
+    expect(body).not.toContain("<picture>");
+  });
+
   it("drops a recap-image URL whose token is too short for the image route", () => {
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
@@ -2311,7 +2334,7 @@ describe("published recap readback workflow", () => {
       ({ name }) => name === "Complete visual recap check",
     );
     const match = step?.run?.match(
-      /SHOT_DIAGNOSTIC=\$\(SHOT_REASON="\$SHOT_REASON" node <<'NODE'\n([\s\S]*?)\nNODE/,
+      /FAILURE_DIAGNOSTIC=\$\(FAILURE_REASON="\$FAILURE_REASON" node <<'NODE'\n([\s\S]*?)\nNODE/,
     );
     if (!match) throw new Error(`${file} is missing its diagnostic sanitizer`);
     return match[1];
@@ -2341,11 +2364,11 @@ describe("published recap readback workflow", () => {
     return JSON.parse(writes[0]!);
   }
 
-  function executeShotDiagnostic(script: string, reason: string): string {
+  function executeFailureDiagnostic(script: string, reason: string): string {
     const writes: string[] = [];
     runInNewContext(script, {
       process: {
-        env: { SHOT_REASON: reason },
+        env: { FAILURE_REASON: reason },
         stdout: {
           write: (chunk: string) => {
             writes.push(chunk);
@@ -2421,29 +2444,40 @@ describe("published recap readback workflow", () => {
     });
   });
 
-  it("preserves a sanitized screenshot diagnostic in each CLI fallback", () => {
+  it("preserves sanitized readback and screenshot diagnostics in each fallback", () => {
     const scripts = workflowFiles.map(shotDiagnosticScript);
     expect(scripts[1]).toBe(scripts[0]);
     expect(scripts[2]).toBe(scripts[0]);
 
     for (const file of workflowFiles) {
       const workflow = readFileSync(path.join(repoRoot, file), "utf8");
+      expect(workflow).toContain('FAILURE_STAGE="readback"');
+      expect(workflow).toContain('FAILURE_STAGE="screenshot"');
       expect(workflow).toContain(
-        "output[summary]=The recap was published, but its screenshot failed: $SHOT_DIAGNOSTIC.",
+        'FAILURE_TITLE="Visual recap readback failed"',
       );
       expect(workflow).toContain(
-        "RECAP_CLI_HELP=$($RECAP_CLI recap check complete --help 2>/dev/null || true)",
+        'FAILURE_TITLE="Visual recap screenshot failed"',
       );
       expect(workflow).toContain(
-        'CLI_FAILURE_SUMMARY="Published recap screenshot failed: $SHOT_DIAGNOSTIC"',
+        "RECAP_CLI_HELP=$($RECAP_CLI recap help 2>/dev/null || true)",
       );
-      expect(workflow).toContain('CLI_SHOT_REASON="$SHOT_DIAGNOSTIC"');
+      expect(workflow).toContain('CLI_SHOT_OK="$SHOT_OK"');
+      expect(workflow).toContain('CLI_SHOT_OK="true"');
+      expect(workflow).toContain('--shot-ok "$CLI_SHOT_OK"');
+      expect(workflow).toContain(
+        'CLI_FAILURE_SUMMARY="Published recap $FAILURE_STAGE failed: $FAILURE_DIAGNOSTIC"',
+      );
+      expect(workflow).toContain('CLI_READBACK_REASON="$FAILURE_DIAGNOSTIC"');
+      expect(workflow).toContain('CLI_SHOT_REASON="$FAILURE_DIAGNOSTIC"');
+      expect(workflow).toContain('--readback-ok "$READBACK_OK"');
+      expect(workflow).toContain('--readback-reason "$CLI_READBACK_REASON"');
       expect(workflow).toContain('--shot-reason "$CLI_SHOT_REASON"');
       expect(workflow).toContain('--failure-summary "$CLI_FAILURE_SUMMARY"');
     }
 
     const token = "abcdefghijklmnopqrstuvwxyz+123456/==tail";
-    const diagnostic = executeShotDiagnostic(
+    const diagnostic = executeFailureDiagnostic(
       scripts[0]!,
       `get-visual-plan returned HTTP 403; Authorization: Bearer ${token}`,
     );
@@ -2453,7 +2487,7 @@ describe("published recap readback workflow", () => {
     expect(diagnostic.length).toBeLessThanOrEqual(400);
 
     const basicCredential = "dXNlcjpzZWNyZXQ=";
-    const basicDiagnostic = executeShotDiagnostic(
+    const basicDiagnostic = executeFailureDiagnostic(
       scripts[0]!,
       `Authorization: Basic ${basicCredential}`,
     );
@@ -3264,6 +3298,23 @@ describe("recap check — outcome mapper", () => {
     );
   });
 
+  it("reports recap readback failure without calling it a screenshot failure", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: false,
+      planUrl: `${app}/recaps/abc123`,
+      readbackOk: false,
+      readbackReason: "get-visual-plan returned HTTP 403",
+      screenshotOk: false,
+      shotReason: "screenshot capture was skipped",
+    });
+    expect(out.conclusion).toBe("failure");
+    expect(out.title).toBe("Visual recap readback failed");
+    expect(out.summary).toContain("Screenshot capture was skipped");
+    expect(out.text).toContain("get-visual-plan returned HTTP 403");
+    expect(out.text).not.toContain("Screenshot failed:");
+  });
+
   it("fails screenshot recaps when the workflow compatibility gate marks plan-ok false", () => {
     const out = recapCheckOutcome({
       ...base,
@@ -3345,6 +3396,95 @@ describe("recap check — outcome mapper", () => {
       expect(body.conclusion).toBe("failure");
       expect(body.output.title).toBe("Visual recap screenshot failed");
       expect(body.output.text).toContain("get-visual-plan returned HTTP 403");
+      expect(body.output.text).not.toContain("older PR Visual Recap workflow");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("keeps a legacy CLI readback failure out of the screenshot-failed state", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(textResponse("", 204));
+
+    try {
+      await runRecap([
+        "check",
+        "complete",
+        "--repo",
+        "BuilderIO/example",
+        "--token",
+        "fake-github-token",
+        "--check-run-id",
+        "123",
+        "--plan-ok",
+        "false",
+        "--plan-url",
+        `${app}/recaps/abc123`,
+        "--app-url",
+        app,
+        "--shot-ok",
+        "true",
+        "--failure-summary",
+        "Published recap readback failed: get-visual-plan returned HTTP 403. Screenshot capture was skipped",
+        "--workflow-url",
+        workflowUrl,
+      ]);
+
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+      expect(body.conclusion).toBe("neutral");
+      expect(body.output.title).toBe("Visual recap not generated");
+      expect(body.output.title).not.toContain("screenshot failed");
+      expect(body.output.text).toContain("Published recap readback failed");
+      expect(body.output.text).toContain("Screenshot capture was skipped");
+      expect(body.output.text).not.toContain("Screenshot failed:");
+      expect(body.output.title).not.toBe("Visual recap ready");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("keeps an unreadable recap distinct from a screenshot failure", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(textResponse("", 204));
+
+    try {
+      await runRecap([
+        "check",
+        "complete",
+        "--repo",
+        "BuilderIO/example",
+        "--token",
+        "fake-github-token",
+        "--check-run-id",
+        "123",
+        "--plan-ok",
+        "false",
+        "--plan-url",
+        `${app}/recaps/abc123`,
+        "--app-url",
+        app,
+        "--readback-ok",
+        "false",
+        "--readback-reason",
+        "get-visual-plan returned HTTP 403",
+        "--shot-ok",
+        "false",
+        "--shot-reason",
+        "screenshot should have been skipped",
+        "--workflow-url",
+        workflowUrl,
+      ]);
+
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+      expect(body.conclusion).toBe("failure");
+      expect(body.output.title).toBe("Visual recap readback failed");
+      expect(body.output.text).toContain("Screenshot capture was skipped");
+      expect(body.output.text).toContain("get-visual-plan returned HTTP 403");
+      expect(body.output.text).not.toContain(
+        "screenshot should have been skipped",
+      );
       expect(body.output.text).not.toContain("older PR Visual Recap workflow");
     } finally {
       fetchSpy.mockRestore();
@@ -3460,14 +3600,17 @@ describe("bundled PR visual recap workflow", () => {
       "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      'if [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
+      'if [ "$URL_OK" = "true" ] && [ "$READBACK_OK" != "true" ]; then',
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      'elif [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("gh api --method PATCH");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("-f conclusion=failure");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "SHOT_OK: ${{ steps.shot.outputs.shot_ok }}",
     );
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--shot-ok "$SHOT_OK"');
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--shot-ok "$CLI_SHOT_OK"');
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       '--shot-reason "$CLI_SHOT_REASON"',
     );
@@ -4245,14 +4388,17 @@ describe("reusable workflow file structure", () => {
       "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
     );
     expect(content).toContain(
-      'if [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
+      'if [ "$URL_OK" = "true" ] && [ "$READBACK_OK" != "true" ]; then',
+    );
+    expect(content).toContain(
+      'elif [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
     );
     expect(content).toContain("gh api --method PATCH");
     expect(content).toContain("-f conclusion=failure");
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
-    expect(content).toContain('--shot-ok "$SHOT_OK"');
+    expect(content).toContain('--shot-ok "$CLI_SHOT_OK"');
     expect(content).toContain('--shot-reason "$CLI_SHOT_REASON"');
     expect(content).toContain("[recap shot] ${label}");
     expect(content).toContain("const hasAllImages = shots.every");
@@ -4577,14 +4723,17 @@ describe("reusable vs copy workflow step-sequence parity", () => {
       "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
     );
     expect(content).toContain(
-      'if [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
+      'if [ "$URL_OK" = "true" ] && [ "$READBACK_OK" != "true" ]; then',
+    );
+    expect(content).toContain(
+      'elif [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
     );
     expect(content).toContain("gh api --method PATCH");
     expect(content).toContain("-f conclusion=failure");
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
-    expect(content).toContain('--shot-ok "$SHOT_OK"');
+    expect(content).toContain('--shot-ok "$CLI_SHOT_OK"');
     expect(content).toContain('--shot-reason "$CLI_SHOT_REASON"');
     expect(content).toContain("[recap shot] ${label}");
     expect(content).toContain("const hasAllImages = shots.every");

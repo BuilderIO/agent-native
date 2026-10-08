@@ -2328,6 +2328,29 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const fallbackImageUrl =
     env.RECAP_SHOT_OK === "false" ? undefined : lightImageUrl || darkImageUrl;
 
+  if (env.RECAP_READBACK_OK === "false") {
+    const diagnostic = buildRecapFailureDiagnostic({
+      readbackReason: (env.RECAP_READBACK_REASON || "").trim(),
+    });
+    lines.push("### Visual recap — readback failed");
+    lines.push("");
+    lines.push(
+      "The recap was published, but the configured PR service token could not verify it. Screenshot capture was skipped. Open the interactive recap directly:",
+    );
+    lines.push("");
+    lines.push(`**Open the [full interactive recap](${safeUrl})**`);
+    if (diagnostic) lines.push("", "Diagnostic:", "", diagnostic);
+    if (env.DIFF_HUGE === "true") {
+      lines.push(
+        "",
+        "_This PR has a large diff; the recap summarizes its main changes._",
+      );
+    }
+    if (markerPlanId) lines.push("", `<!-- plan-id: ${markerPlanId} -->`);
+    if (headMarker) lines.push("", headMarker);
+    return lines.join("\n");
+  }
+
   if (!fallbackImageUrl) {
     const diagnostic =
       sanitizeAgentFailureSummary((env.RECAP_SHOT_REASON || "").trim(), 500) ||
@@ -4115,15 +4138,22 @@ export function buildRecapFailureDiagnostic(input: {
   failureSummary?: string;
   urlReason?: string;
   shotReason?: string;
+  readbackReason?: string;
 }): string {
   const parts: string[] = [];
   const urlReason = sanitizeAgentFailureSummary(input.urlReason ?? "", 400);
+  const readbackReason = sanitizeAgentFailureSummary(
+    input.readbackReason ?? "",
+    400,
+  );
   const shotReason = sanitizeAgentFailureSummary(input.shotReason ?? "", 400);
   const failureSummary = sanitizeAgentFailureSummary(
     input.failureSummary ?? "",
     900,
   );
   if (urlReason) parts.push(`No plan URL: ${urlReason}`);
+  if (readbackReason)
+    parts.push(`Published recap readback failed: ${readbackReason}`);
   if (shotReason) parts.push(`Screenshot failed: ${shotReason}`);
   if (failureSummary) parts.push(`Agent output: ${failureSummary}`);
   return parts.join("\n\n");
@@ -4137,6 +4167,8 @@ export interface RecapCheckOutcomeInput {
   tiny: boolean;
   suppressed: boolean;
   suppressedJson: string;
+  readbackOk?: boolean;
+  readbackReason?: string;
   screenshotOk?: boolean;
   shotReason?: string;
   failureSummary?: string;
@@ -4162,13 +4194,23 @@ export function recapCheckOutcome(
   const diagnostic = buildRecapFailureDiagnostic({
     failureSummary: input.failureSummary,
     urlReason: input.urlReason,
-    shotReason: input.shotReason,
+    shotReason: input.readbackOk === false ? undefined : input.shotReason,
+    readbackReason: input.readbackReason,
   });
   let text = diagnostic ? `### Diagnostic\n\n${diagnostic}` : "";
   let detailsUrl = input.workflowUrl;
   const recapUrl = canonicalRecapUrl(input.planUrl, input.appUrl);
 
-  if (recapUrl && input.screenshotOk === false) {
+  if (recapUrl && input.readbackOk === false) {
+    detailsUrl = recapUrl;
+    conclusion = "failure";
+    title = "Visual recap readback failed";
+    summary =
+      "The recap was published, but the configured PR token could not verify it. Screenshot capture was skipped. This informational check does not block the PR.";
+    text = diagnostic
+      ? `**[Open visual recap](${recapUrl})**\n\n### Diagnostic\n\n${diagnostic}\n\nScreenshot capture was skipped.`
+      : `**[Open visual recap](${recapUrl})**\n\nScreenshot capture was skipped because published recap readback failed.`;
+  } else if (recapUrl && input.screenshotOk === false) {
     detailsUrl = recapUrl;
     conclusion = "failure";
     title = "Visual recap screenshot failed";
@@ -4289,6 +4331,9 @@ async function runCheckComplete(
   const screenshotOk = Object.hasOwn(args, "shot-ok")
     ? boolFlag(args, "shot-ok")
     : undefined;
+  const readbackOk = Object.hasOwn(args, "readback-ok")
+    ? boolFlag(args, "readback-ok")
+    : undefined;
   const huge = boolFlag(args, "huge");
   const tiny = boolFlag(args, "tiny");
   const suppressed = boolFlag(args, "suppressed");
@@ -4297,6 +4342,7 @@ async function runCheckComplete(
   let failureSummary = optionalArg(args, "failure-summary") ?? "";
   let urlReason = optionalArg(args, "url-reason") ?? "";
   const shotReason = optionalArg(args, "shot-reason") ?? "";
+  const readbackReason = optionalArg(args, "readback-reason") ?? "";
 
   const planUrl = optionalArg(args, "plan-url") ?? "";
   const publishedRecap = canonicalRecapUrl(planUrl, appUrl);
@@ -4305,7 +4351,7 @@ async function runCheckComplete(
     !planOk &&
     !tiny &&
     !suppressed &&
-    !(publishedRecap && screenshotOk === false)
+    !(publishedRecap && (readbackOk === false || screenshotOk === false))
   ) {
     if (!failureSummary) {
       failureSummary = summarizeLocalAgentFailure({
@@ -4332,6 +4378,8 @@ async function runCheckComplete(
     tiny,
     suppressed,
     suppressedJson: optionalArg(args, "suppressed-json") ?? "",
+    readbackOk,
+    readbackReason,
     screenshotOk,
     shotReason,
     failureSummary,
@@ -4674,7 +4722,7 @@ Usage:
     $GITHUB_OUTPUT (check_run_id). repo/sha/token default to GITHUB_REPOSITORY /
     HEAD_SHA / GH_TOKEN (or GITHUB_TOKEN). Best-effort: warns and exits 0 on any
     API error without emitting an id.
-  npx @agent-native/recap-cli@latest recap check complete --check-run-id <id> [--repo owner/name] [--token <github-token>] [--plan-ok <bool>] [--plan-url <url>] [--app-url <url>] [--shot-ok <bool>] [--shot-reason <text>] [--suppressed <bool>] [--suppressed-json <json>] [--huge <bool>] [--tiny <bool>] [--failure-summary <text>] [--url-reason <text>] [--workflow-url <url>]
+  npx @agent-native/recap-cli@latest recap check complete --check-run-id <id> [--repo owner/name] [--token <github-token>] [--plan-ok <bool>] [--plan-url <url>] [--app-url <url>] [--readback-ok <bool>] [--readback-reason <text>] [--shot-ok <bool>] [--shot-reason <text>] [--suppressed <bool>] [--suppressed-json <json>] [--huge <bool>] [--tiny <bool>] [--failure-summary <text>] [--url-reason <text>] [--workflow-url <url>]
     Mark the "Visual Recap" check run completed with a computed
     conclusion/title/summary/text/details_url (success when the agent published a
     plan whose URL validates against --app-url; neutral/skipped otherwise).
