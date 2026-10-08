@@ -266,6 +266,7 @@ export async function emitSignupEventForCreatedUser(
     : undefined;
   let attribution: Record<string, string> | undefined;
   let anonymousId: string | undefined;
+  let sessionId: string | undefined;
   try {
     const browser =
       (context?.request?.url?.includes("newUserCallbackURL")
@@ -276,6 +277,7 @@ export async function emitSignupEventForCreatedUser(
       signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
     attribution = browser?.attribution;
     anonymousId = browser?.anonymousId;
+    sessionId = browser?.sessionId;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
   }
@@ -308,6 +310,7 @@ export async function emitSignupEventForCreatedUser(
     name: user.name,
     attribution,
     anonymousId,
+    sessionId,
   });
 }
 
@@ -334,6 +337,7 @@ export async function trackSignupEvent({
   name,
   attribution,
   anonymousId,
+  sessionId,
 }: {
   authProvider: string;
   origin: SignupOrigin;
@@ -352,6 +356,7 @@ export async function trackSignupEvent({
    */
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
+  sessionId?: string;
 }): Promise<void> {
   identify(email, {
     email,
@@ -380,6 +385,7 @@ export async function trackSignupEvent({
       userId: email,
       authUserId,
       ...(anonymousId ? { anonymousId } : {}),
+      ...(sessionId ? { sessionId } : {}),
     },
   );
   await flushSignupTracking();

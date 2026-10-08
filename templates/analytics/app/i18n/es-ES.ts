@@ -1653,8 +1653,12 @@ export default {
       "Design no devolvió un resultado del guion gráfico.",
     storyboardTemporaryCleanupPending:
       "El guion gráfico se guardó, pero no se pudieron eliminar los archivos temporales de captura.",
+    storyboardTemporaryCleanupFailed:
+      "La limpieza de las capturas temporales sigue pendiente.",
     storyboardUnexpectedResponse:
       "La exportación de capturas devolvió una respuesta ilegible. Vuelve a intentarlo.",
+    storyboardSaveOutcomeUnknown:
+      "Es posible que Design haya guardado el guion gráfico. Comprueba Design antes de volver a intentarlo.",
     openStoryboard: "Abrir guion gráfico en Design",
     cancelStoryboardCapture: "Cancelar captura",
     captureToDesign: "Capturar y añadir a Design",

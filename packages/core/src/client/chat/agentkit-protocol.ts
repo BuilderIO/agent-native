@@ -439,6 +439,16 @@ function setRuntimeRunIdMetadata(
   else observability.runtimeRunId = runtimeRunId;
 }
 
+function setRuntimeTurnIdMetadata(
+  metadata: Record<string, unknown> | undefined,
+  runtimeTurnId: string | undefined,
+): void {
+  const observability = agentNativeMetadata(metadata)?.observability;
+  if (!observability) return;
+  if (runtimeTurnId === undefined) delete observability.turnId;
+  else observability.turnId = runtimeTurnId;
+}
+
 function objectReference(value: unknown): AgentObjectReference | undefined {
   const object = asRecord(value);
   if (
@@ -1791,7 +1801,7 @@ export function createAgentKitProtocolAdapter(
             ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
             runtimeId: runtime.id,
             sessionId: session.id,
-            turnId: turn.id,
+            ...(turn.id === undefined ? {} : { turnId: turn.id }),
             threadId,
             ...observability,
           },
@@ -1799,6 +1809,7 @@ export function createAgentKitProtocolAdapter(
       },
     );
     setRuntimeRunIdMetadata(runMetadata, turn.runId);
+    setRuntimeTurnIdMetadata(runMetadata, turn.id);
     const run: ProtocolRun = {
       runId,
       threadId,
@@ -3829,7 +3840,7 @@ export function createAgentKitProtocolAdapter(
                   : { runtimeRunId: nextTurn.runId }),
                 runtimeId: runtime.id,
                 sessionId: run.session.id,
-                turnId: nextTurn.id,
+                ...(nextTurn.id === undefined ? {} : { turnId: nextTurn.id }),
                 threadId: input.threadId,
                 interruptedRunId: run.runId,
               },
@@ -3837,6 +3848,7 @@ export function createAgentKitProtocolAdapter(
           },
         );
         setRuntimeRunIdMetadata(replacementMetadata, nextTurn.runId);
+        setRuntimeTurnIdMetadata(replacementMetadata, nextTurn.id);
         const replacementRun: ProtocolRun = {
           runId: nextRunId,
           threadId: input.threadId,

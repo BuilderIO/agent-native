@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./read-design-editor-source";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
@@ -92,7 +93,7 @@ describe("responsive Interact defaults", () => {
 });
 
 describe("responsive Interact wiring", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const editorSurface =
     source +
     readdirSync("app/pages/design-editor/commands")
@@ -257,7 +258,9 @@ describe("responsive Interact wiring", () => {
   it("keeps editor-shell editing paths inert while Interact owns the screen", () => {
     const hotkeys = source.slice(
       source.indexOf("useDesignHotkeys({"),
-      source.indexOf("const startRetryGeneration"),
+      source.indexOf(
+        "canEditSelectedLiveLayerRef.current = canEditSelectedLiveLayer;",
+      ),
     );
     expect(hotkeys).toContain("!responsiveInteractActive");
 
@@ -281,9 +284,10 @@ describe("responsive Interact wiring", () => {
   });
 
   it("keeps a way out of Interact into Edit/Annotate on the one canvas path", () => {
+    const barMountStart = source.indexOf("<ResponsiveInteractBar");
     const barMount = source.slice(
-      source.indexOf("<ResponsiveInteractBar"),
-      source.indexOf("onClose={handleExitResponsiveInteract}"),
+      barMountStart,
+      source.indexOf("onClose={handleExitResponsiveInteract}", barMountStart),
     );
     expect(barMount).toContain("onModeChange={(next) => {");
     expect(barMount).toContain("setRuntimeLayerSnapshotRequest(");

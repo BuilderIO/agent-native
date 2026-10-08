@@ -62,7 +62,7 @@ describe("MultiScreenCanvas geometry hydration camera", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           onPick={() => {}}
         />,
       );
@@ -115,9 +115,11 @@ describe("MultiScreenCanvas geometry hydration camera", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
-          geometryById={{
-            "screen-a": { x: 420, y: 280, width: 390, height: 844 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 420, y: 280, width: 390, height: 844 },
+            },
           }}
           onPick={() => {}}
         />,

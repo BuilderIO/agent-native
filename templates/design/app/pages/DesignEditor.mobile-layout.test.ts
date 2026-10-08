@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("Design editor mobile layout", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
   const layoutSource = readFileSync("app/components/layout/Layout.tsx", "utf8");
   const bottomToolbarSource = readFileSync(
     "app/components/design/editor/DesignBottomToolbar.tsx",
@@ -51,15 +53,13 @@ describe("Design editor mobile layout", () => {
     expect(editorSource).toContain(
       'className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"',
     );
-    expect(editorSource).toContain('activeLeftPanel === "agent" ? 320 : 220');
+    expect(editorSource).toContain("resolveLeftSidebarWidth(");
     const resizeSource = readFileSync(
       "app/pages/design-editor/commands/start-sidebar-resize.ts",
       "utf8",
     );
-    expect(resizeSource).toContain('activeLeftPanel === "agent"\n      ? 320');
-    expect(resizeSource).toContain(
-      'const minWidth = side === "left" ? leftPanelMinWidth : 240;',
-    );
+    expect(resizeSource).toContain("snapLeftSidebarDragWidth(");
+    expect(resizeSource).toContain("Math.min(390, Math.max(240,");
   });
 
   it("keeps the app shell in non-Builder embedded routes", () => {
@@ -99,7 +99,7 @@ describe("Design editor mobile layout", () => {
     expect(editorSource).toContain(
       "(widgetEmbed && minimalInspectorHasSelection)",
     );
-    expect(editorSource).toContain("initialFitScreenId={\n");
+    expect(editorSource).toContain("initialFitScreenId: widgetEmbed\n");
   });
 
   it("keeps save warnings out of a read-only directory widget but not other sessions", () => {

@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
 
+import { readDesignEditorSource } from "../read-design-editor-source";
 import {
   coalesceMarqueeSelectionHistory,
   runMarqueeSelectionCancellation,
@@ -42,20 +41,14 @@ describe("coalesceMarqueeSelectionHistory", () => {
   });
 
   it("forwards the bridge final marker into marquee history", () => {
-    const source = readFileSync(
-      new URL("../../DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     const start = source.indexOf("const handleScreenElementMarqueeSelect");
     const end = source.indexOf("const handleElementMarqueeSelect", start);
     expect(source.slice(start, end)).toContain("final: intent?.final === true");
   });
 
   it("restores the host element and layer selection when Escape cancels a marquee", () => {
-    const source = readFileSync(
-      new URL("../../DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     const start = source.indexOf(
       'if (intent.source === "marquee" && intent.cancelled)',
     );

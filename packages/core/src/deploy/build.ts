@@ -13,11 +13,13 @@ import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_BACKGROUND_PROCESSOR_A2A,
+  AGENT_BACKGROUND_PROCESSOR_AGENT_TEAM,
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_TEAM_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
@@ -84,6 +86,7 @@ import {
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
+import { createSentryServerSourceMapUploadPlugins } from "../vite/sentry-source-maps.js";
 import {
   cloneServerBundleForFunction,
   copyDir,
@@ -3908,6 +3911,7 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
 
   const processRunPath = JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH);
   const a2aProcessTaskPath = JSON.stringify("/_agent-native/a2a/_process-task");
+  const agentTeamProcessRunPath = JSON.stringify(AGENT_TEAM_PROCESS_RUN_PATH);
   const integrationProcessTaskPath = JSON.stringify(
     "/_agent-native/integrations/process-task",
   );
@@ -3915,6 +3919,9 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
     AGENT_BACKGROUND_PROCESSOR_FIELD,
   );
   const backgroundProcessorA2A = JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A);
+  const backgroundProcessorAgentTeam = JSON.stringify(
+    AGENT_BACKGROUND_PROCESSOR_AGENT_TEAM,
+  );
   const backgroundProcessorIntegration = JSON.stringify(
     AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
   );
@@ -3937,9 +3944,11 @@ globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 // The framework route the Nitro router dispatches to (the _process-run plugin).
 const PROCESS_RUN_PATH = ${processRunPath};
 const A2A_PROCESS_TASK_PATH = ${a2aProcessTaskPath};
+const AGENT_TEAM_PROCESS_RUN_PATH = ${agentTeamProcessRunPath};
 const INTEGRATION_PROCESS_TASK_PATH = ${integrationProcessTaskPath};
 const BACKGROUND_PROCESSOR_FIELD = ${backgroundProcessorField};
 const BACKGROUND_PROCESSOR_A2A = ${backgroundProcessorA2A};
+const BACKGROUND_PROCESSOR_AGENT_TEAM = ${backgroundProcessorAgentTeam};
 const BACKGROUND_PROCESSOR_INTEGRATION = ${backgroundProcessorIntegration};
 const BACKGROUND_PROCESSOR_ROUTE = ${backgroundProcessorRoute};
 const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${backgroundProcessorRouteField};
@@ -3951,6 +3960,11 @@ function processorPathFromBody(body) {
     const parsed = JSON.parse(body);
     if (parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
       return A2A_PROCESS_TASK_PATH;
+    }
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_AGENT_TEAM
+    ) {
+      return AGENT_TEAM_PROCESS_RUN_PATH;
     }
     if (
       parsed?.[BACKGROUND_PROCESSOR_FIELD] ===
@@ -5169,6 +5183,13 @@ export async function runNitroBuildPipeline(
   }
 }
 
+function removeServerSourceMaps(serverDir: string): void {
+  const sourceMaps = fs.globSync("**/*.map", { cwd: serverDir });
+  for (const sourceMap of sourceMaps) {
+    fs.rmSync(path.join(serverDir, sourceMap), { force: true });
+  }
+}
+
 function resolveNitroClientDirectory(
   cwd: string,
   defaultClientDirectory: string,
@@ -5462,6 +5483,8 @@ export default bundle;
   );
   const nitroServerCodeSplittingConfig =
     nitroServerCodeSplittingConfigForPreset(preset);
+  const sentryServerSourceMapPlugins =
+    await createSentryServerSourceMapUploadPlugins(nitroEnvironment);
   const nitroVirtual: Record<string, string | (() => string)> = {
     "virtual:agents-bundle": agentsBundleModuleSource,
   };
@@ -5491,6 +5514,14 @@ export default bundle;
     ...(isAwsLambdaPreset(preset) ? { awsLambda: { streaming: false } } : {}),
     baseURL: appBasePath || "/",
     minify: true,
+    ...(sentryServerSourceMapPlugins.length > 0
+      ? {
+          sourcemap: "hidden",
+          // Nitro strips sourcesContent by default; the maps never ship, so
+          // keep it for Sentry to show source context.
+          experimental: { sourcemapMinify: false },
+        }
+      : {}),
     serverDir: "./server",
     ignore: NITRO_RUNTIME_IGNORE_PATTERNS,
     alias: {
@@ -5526,6 +5557,7 @@ export default bundle;
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        ...sentryServerSourceMapPlugins,
         ...(enterpriseAuthAdaptersEnabled
           ? []
           : [createEnterpriseAuthAdapterStubPlugin(false)]),
@@ -5600,6 +5632,13 @@ export default bundle;
 
   if (isCloudflareModulePreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
+  }
+
+  if (sentryServerSourceMapPlugins.length > 0) {
+    removeServerSourceMaps(nitro.options.output.serverDir);
+    console.log(
+      "[deploy] Ensured Nitro server output is free of source maps before function packaging.",
+    );
   }
 
   if (preset === "netlify") {
