@@ -232,10 +232,12 @@ import {
   localSourceRevisionForSave,
   type PendingLocalSourceWrite,
 } from "./local-source-write-state";
+import { isEditorContentClean } from "./editor-clean";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
+  listPageDraftJournal,
   persistTitleBeforeSyncingPageDraftJournal,
   writePageDraftJournal,
 } from "./page-draft-journal";
@@ -6672,6 +6674,33 @@ function PageEditorSessionBody({
     [],
   );
 
+  const isEditorClean = useCallback(
+    (liveMarkdown: string) => {
+      const scope = journalScope();
+      let journalContents: string[] | null = [];
+      if (scope) {
+        try {
+          const { writerId: _writerId, ...documentScope } = scope;
+          journalContents = listPageDraftJournal(documentScope)
+            .filter((entry) => entry.recoveryStatus !== "retained_in_history")
+            .map((entry) => entry.snapshot.content);
+        } catch {
+          journalContents = null;
+        }
+      }
+      return isEditorContentClean({
+        liveMarkdown,
+        normalize: canonicalizeNfm,
+        saveQueued: saveTimeoutRef.current !== null,
+        saveInFlight: activeContentSavesRef.current > 0,
+        recoveryPending: reconcileRecoveryStateRef.current !== null,
+        journalContents,
+        suggesting: isSuggesting,
+      });
+    },
+    [isSuggesting, journalScope],
+  );
+
   const handleRemoteSnapshotChange = useCallback(
     (content: string) => {
       liveMarkdownRef.current = content;
@@ -8896,6 +8925,7 @@ function PageEditorSessionBody({
                                   ? handleRemoteSnapshotChange
                                   : undefined
                               }
+                              isEditorClean={isEditorClean}
                               collabContentRevision={
                                 isLocalFileDocument || isSuggesting
                                   ? null
