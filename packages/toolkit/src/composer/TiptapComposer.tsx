@@ -1603,13 +1603,12 @@ export function compactComposerModelName(
     .replace(/^Gemini\s+\d+(?:\.\d+)?\s*/i, "")
     .replace(/^Claude\s+/i, "")
     .replace(/^Qwen\s*\d*(?:\.\d+)?\s*/i, "")
-    .replace(/^DeepSeek\s+v?\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^(DeepSeek)\s+v?\d+(?:\.\d+)?/i, "$1")
     .replace(/^Z-AI\s*/i, "")
     .replace(/^Grok\s*/i, "")
     .replace(/\s+[a-z]*\d+(?:\.\d+)*$/i, "")
     .trim();
-  if (shortName) return shortName;
-  return /^deepseek-/i.test(model) ? "DeepSeek" : fullName;
+  return shortName || fullName;
 }
 
 export function compactComposerReasoningEffortLabel(

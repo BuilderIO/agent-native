@@ -159,6 +159,7 @@ describe("agent model config catalog", () => {
       "deepseek-v4-pro",
       "deepseek-v4-1-flash",
       "deepseek-v3-1",
+      "deepseek-v4-1-flash",
       "z-ai-glm-4-5",
       "z-ai-glm-5-1",
       "z-ai-glm-5-3-flash",
