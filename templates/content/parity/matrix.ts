@@ -101,6 +101,7 @@ export const parityMatrix: ParityRow[] = [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/database-setup.db.test.ts",
       "actions/database-setup-mcp.db.test.ts",
+      "actions/document-trash-mcp.db.test.ts",
       "actions/_local-file-documents.test.ts",
       "actions/rollback-created-slash-document.test.ts",
     ],
@@ -141,6 +142,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/list-content-trash.db.test.ts",
       "actions/content-trash-purge.db.test.ts",
+      "actions/document-trash-mcp.db.test.ts",
       "app/components/editor/trash-preview-content.test.ts",
       "app/hooks/content-action-refresh.trash.test.ts",
     ],

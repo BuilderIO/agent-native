@@ -352,6 +352,7 @@ export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
   destructiveHint: boolean;
   openWorldHint: boolean;
+  idempotentHint?: boolean;
 }
 
 interface DefineActionWithSchema<
@@ -690,11 +691,13 @@ export function defineAction(options: any) {
           !Array.isArray(options.mcpAnnotations) &&
           typeof options.mcpAnnotations.readOnlyHint === "boolean" &&
           typeof options.mcpAnnotations.destructiveHint === "boolean" &&
-          typeof options.mcpAnnotations.openWorldHint === "boolean"
+          typeof options.mcpAnnotations.openWorldHint === "boolean" &&
+          (options.mcpAnnotations.idempotentHint === undefined ||
+            typeof options.mcpAnnotations.idempotentHint === "boolean")
         ? options.mcpAnnotations
         : (() => {
             throw new TypeError(
-              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values.",
+              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values; idempotentHint is an optional boolean.",
             );
           })();
   const deferLoading: boolean | undefined =
