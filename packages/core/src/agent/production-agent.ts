@@ -148,11 +148,11 @@ import {
   drainAgentWarnings,
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
-import { clipHead } from "./clip-text.js";
 import {
   CONTINUE_UNAVAILABLE_CODE,
   type ContinueTrigger,
 } from "./auto-continue.js";
+import { clipHead } from "./clip-text.js";
 import {
   buildSystemManifestSections,
   readContextXraySystemSections,
