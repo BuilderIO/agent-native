@@ -1060,6 +1060,8 @@ export default {
         figmaPasteFailed: "Figma 貼上匯入失敗",
         uploadFailed: "檔案上傳失敗",
         invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
+        unsupportedFileType: "請選擇 .fig、.html 或 .htm 檔案。",
+        importBusy: "另一個匯入正在進行。請先完成或取消。",
         figFileTooLarge:
           "此 .fig 檔案太大 — 上傳上限為 {{max}} MB。請在 Figma 中將要匯入的畫框複製到新檔案，並匯出該檔案為 .fig，或改用「從 Figma 貼上」。",
       },
@@ -1071,7 +1073,16 @@ export default {
     generationStoppedCheckAgent: "生成在建立檔案前停止。請檢視代理訊息或重試。",
     notFound: "未找到設計",
     backToDesigns: "返回設計",
-    clickToRename: "點選重新命名",
+    fileMenu: {
+      pendingEditsBlocked: "複製前，請先套用或捨棄待處理的視覺編輯。",
+      designs: "設計",
+      rename: "重新命名",
+      duplicate: "複製",
+      versionHistory: "版本記錄",
+      import: "匯入…",
+      delete: "刪除",
+      deleteError: "無法刪除此設計",
+    },
     collaborators: "協作者",
     share: "分享",
     signUpToSave: "註冊",
@@ -1089,6 +1100,10 @@ export default {
       draw: "畫",
       interact: "Interact",
       screens: "螢幕",
+    },
+    topBar: {
+      modeDesign: "設計",
+      modeSwitch: "編輯器模式",
     },
     fileTabs: "檔案",
     tools: {
@@ -1360,6 +1375,10 @@ export default {
     keyboardShortcuts: {
       title: "鍵盤快速鍵",
       close: "關閉: 鍵盤快速鍵",
+      search: "搜尋",
+      searchLabel: "搜尋鍵盤快速鍵",
+      categoriesLabel: "快速鍵分類",
+      empty: "沒有符合「{{query}}」的快速鍵",
       codeContext: "程式碼",
       screenContext: "畫面",
       nudgeAmount: {
@@ -1392,11 +1411,6 @@ export default {
         leftBracket: "左方括號",
         rightBracket: "右方括號",
       },
-      descriptions: {
-        toggleUi: "立即按下以快速隱藏面板並專注於工作",
-        undo: "逐步回復最近的設計變更",
-        redo: "還原剛才復原的設計變更",
-      },
       categories: {
         essential: "基本",
         tools: "工具",
@@ -1428,6 +1442,7 @@ export default {
         showLayers: "圖層",
         showAssets: "資源",
         toggleUi: "檢視",
+        toggleMinimalUi: "精簡介面",
         toggleComments: "固定評論",
         zoomIn: "放大",
         zoomOut: "縮小",
@@ -1627,6 +1642,8 @@ export default {
     assetsNoImageUrl: "Assets 未回傳圖片 URL。",
     assetAdded: "新增資產",
     failedToUploadFile: "上傳檔案失敗",
+    imageAttachmentUnavailable:
+      "無法將此圖片準備為視覺輸入。請附加較小的 PNG、JPG、GIF 或 WebP 檔案。",
     attachmentsTooLarge:
       "這些附件太大。上傳總大小上限為 {{max}} MB — 請減少檔案數量或改用較小的檔案。",
     failedToSubmitPrompt: "無法提交提示",
@@ -2028,9 +2045,10 @@ export default {
     comingSoonTitle: "設計系統即將推出",
     waitlist: {
       join: "加入候補名單",
-      joining: "正在加入...",
-      joined: "你已加入候補名單",
-      error: "無法加入候補名單。請再試一次。",
+      joining: "正在加入…",
+      joined: "您已加入候補名單",
+      error: "無法加入候補名單。請重試。",
+      unavailable: "候補名單登記目前無法使用。請稍後再試。",
     },
     deleteError: "無法刪除設計系統",
     updateSuccess: "設計系統更新",

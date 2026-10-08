@@ -4,6 +4,7 @@ import {
   localizeKnownChatErrorText,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { BuilderBMark } from "@agent-native/core/client/builder-mark";
 import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
@@ -265,10 +266,13 @@ export function BuilderConnectCta({
                 <IconLoader2 size={10} className="animate-spin" />
                 {t("agentChat.common.waiting")}
               </>
-            ) : reconnect ? (
-              t("agentChat.recovery.reconnectBuilder")
             ) : (
-              t("agentChat.setup.connectBuilder")
+              <>
+                <BuilderBMark className="size-3.5" />
+                {reconnect
+                  ? t("agentChat.recovery.reconnectBuilder")
+                  : t("agentChat.setup.connectBuilder")}
+              </>
             )}
           </button>
         </DeferredBuilderConnectPopover>
@@ -519,9 +523,12 @@ export function RunErrorRecoveryCard({
   onFork,
   onDismiss,
   onProviderConnected,
+  continueError,
 }: {
   info: RunErrorInfo;
-  onContinue: () => void;
+  /** Absent when the stopped run can no longer be continued. */
+  onContinue?: () => void;
+  continueError?: string | null;
   onRetry: () => void;
   retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
@@ -797,7 +804,7 @@ export function RunErrorRecoveryCard({
             </button>
           </DeferredBuilderConnectPopover>
         )}
-        {canRecover && (
+        {canRecover && onContinue && (
           <button
             type="button"
             onClick={onContinue}
@@ -897,6 +904,11 @@ export function RunErrorRecoveryCard({
       )}
       {forkError && (
         <p className="mt-2 text-xs leading-relaxed text-red-500">{forkError}</p>
+      )}
+      {continueError && (
+        <p className="mt-2 text-xs leading-relaxed text-destructive">
+          {continueError}
+        </p>
       )}
     </div>
   );

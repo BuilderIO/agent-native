@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 
 import { DatabaseViewSkeleton } from "./database/DatabaseViewSkeleton";
 import {
+  DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
   DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME,
   DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
   DOCUMENT_EDITOR_TITLE_CLASS_NAME,
@@ -14,6 +15,7 @@ import {
   type DocumentEditorIconRow,
   type DocumentEditorShape,
 } from "./document-editor-layout";
+import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 // Before the app loads, the startup script marks <html> with the icon row and
 // shape the page last drew; "startup" draws from those marks, since storage is
@@ -24,6 +26,13 @@ const STARTUP_PAGE_COLUMN_CLASS_NAME =
   "[html[data-content-page-shape=database]_&]:hidden [html[data-content-page-shape=database-constrained]_&]:hidden";
 const STARTUP_DATABASE_COLUMN_CLASS_NAME =
   "hidden [html[data-content-page-shape=database]_&]:block [html[data-content-page-shape=database-constrained]_&]:block";
+
+// The server draws this skeleton as one document for every visitor, so it
+// cannot know it sits in an MCP App widget, where the host owns the page
+// chrome. The startup script marks <html> before first paint; a hook would
+// only answer after hydration, once the chrome had already painted.
+export const HIDDEN_IN_WIDGET_CLASS_NAME =
+  "[html[data-agent-native-mcp-widget]_&]:hidden";
 
 // The editor opens the review margin from DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH
 // of page width, measured on the box this one stands in for.
@@ -149,15 +158,22 @@ export function DocumentEditorSkeleton({
   title,
   iconRow = "add",
   shape = "page",
+  stalledLoad,
 }: {
   title?: string | null;
   iconRow?: DocumentEditorIconRow | "startup";
   shape?: DocumentEditorShape | "startup";
+  stalledLoad?: { stage: string; action: string };
 }) {
   const sidebarTrigger = useSidebarTrigger();
-  return (
+  const skeleton = (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+      <div
+        className={cn(
+          "flex h-12 shrink-0 items-center gap-3 border-b border-border px-4",
+          HIDDEN_IN_WIDGET_CLASS_NAME,
+        )}
+      >
         {sidebarTrigger}
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           <Skeleton className="h-6 w-6 rounded-md" />
@@ -169,7 +185,12 @@ export function DocumentEditorSkeleton({
           <Skeleton className="h-7 w-7 rounded-md" />
         </div>
       </div>
-      <div className="@container min-h-0 flex-1 overflow-hidden">
+      <div
+        className={cn(
+          "relative @container min-h-0 flex-1 overflow-hidden",
+          DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
+        )}
+      >
         {shape === "startup" ? (
           <>
             <PageColumn
@@ -198,5 +219,15 @@ export function DocumentEditorSkeleton({
         )}
       </div>
     </div>
+  );
+  return stalledLoad ? (
+    <WidgetLoadDiagnostic
+      active
+      stage={stalledLoad.stage}
+      action={stalledLoad.action}
+      fallback={skeleton}
+    />
+  ) : (
+    skeleton
   );
 }

@@ -3,6 +3,39 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-07
+
+### Added
+
+- Session replay screenshots can be copied directly into Design.
+
+### Fixed
+
+- Session replay screenshot export captures readable video frames and safe poster images.
+
+## 2026-10-06
+
+### Added
+
+- Save a screenshot of any visible moment in a session replay.
+- Save exact session replay screens as PNG screenshots.
+- Session replays can be saved as screenshots without the replay controls.
+
+### Improved
+
+- Agent dashboard edits are now checked against the live chart before they save, so the agent no longer reports a chart change that did not happen.
+
+### Fixed
+
+- Collaborators see a consistent dashboard after simultaneous edits
+- Dashboard edits stay in sync when simultaneous updates occur.
+- Dashboard filter "Mine" now lists every dashboard you own (including ones you've shared) and no longer includes installed demos or items shared with you
+- Return each dashboard mutation's own written value even when another update lands immediately afterward
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- Dashboard edits now report no change when the selected panels already match the requested values or order.
+- Dashboard mutation results now report only changes that were actually saved.
+- Refreshing a BigQuery dashboard panel now fetches current data.
+
 ## 2026-10-05
 
 ### Improved

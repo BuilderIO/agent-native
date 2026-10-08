@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+import { BUILDER_MODEL_CONFIG } from "../agent/model-config.js";
+
+// Typed against the Builder catalog: the classifier runs on the gateway, so a
+// retired id must break the build instead of every classification.
+const DEFAULT_INFERRED_SENTIMENT_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
+  "gpt-6-luna";
+
 export const observabilityConfig = z.object({
   release: z
     .string()
@@ -103,7 +110,11 @@ export const observabilityConfig = z.object({
   inferredSentimentSampleRate: z.number().min(0).max(1).optional().meta({
     doc: "Deterministic fraction of eligible user messages to classify, 0 to 1.",
   }),
-  inferredSentimentModel: z.string().min(1).default("gpt-5-6-luna").meta({
-    doc: "Model used by the managed sentiment classifier.",
-  }),
+  inferredSentimentModel: z
+    .string()
+    .min(1)
+    .default(DEFAULT_INFERRED_SENTIMENT_MODEL)
+    .meta({
+      doc: "Model used by the managed sentiment classifier.",
+    }),
 });

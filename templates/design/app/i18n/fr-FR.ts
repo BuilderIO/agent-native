@@ -947,6 +947,9 @@ export default {
         figmaPasteFailed: "Échec de l’import du collage Figma",
         uploadFailed: "Échec du téléversement",
         invalidFigFile: "Choisissez un fichier se terminant par .fig.",
+        unsupportedFileType: "Choisissez un fichier .fig, .html ou .htm.",
+        importBusy:
+          "Une autre importation est en cours. Terminez-la ou annulez-la d’abord.",
         figFileTooLarge:
           "Ce .fig est trop volumineux : les téléversements sont limités à {{max}} Mo. Dans Figma, copiez uniquement le frame souhaité dans un nouveau fichier et exportez ce fichier en .fig, ou utilisez Coller depuis Figma.",
       },
@@ -987,7 +990,17 @@ export default {
     saveTemplate: "Enregistrer le modèle",
     templateSaved: "Modèle enregistré dans la bibliothèque",
     templateSaveFailed: "Impossible d’enregistrer ce modèle",
-    clickToRename: "Cliquer pour renommer",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Appliquez ou annulez vos modifications visuelles en attente avant de dupliquer.",
+      designs: "Designs",
+      rename: "Renommer",
+      duplicate: "Dupliquer",
+      versionHistory: "Historique des versions",
+      import: "Importer…",
+      delete: "Supprimer",
+      deleteError: "Impossible de supprimer ce design",
+    },
     collaborators: "Collaborateurs",
     share: "Partager",
     signUpToSave: "S'inscrire",
@@ -1010,6 +1023,10 @@ export default {
       interact: "Interact",
       screens: "Écrans",
     },
+    topBar: {
+      modeDesign: "Conception",
+      modeSwitch: "Mode de l'éditeur",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1030,6 +1047,10 @@ export default {
     keyboardShortcuts: {
       title: "Raccourcis clavier",
       close: "Fermer: Raccourcis clavier",
+      search: "Rechercher",
+      searchLabel: "Rechercher des raccourcis clavier",
+      categoriesLabel: "Catégories de raccourcis",
+      empty: "Aucun raccourci ne correspond à « {{query}} »",
       codeContext: "Code",
       screenContext: "Écrans",
       nudgeAmount: {
@@ -1062,12 +1083,6 @@ export default {
         leftBracket: "Crochet gauche",
         rightBracket: "Crochet droit",
       },
-      descriptions: {
-        toggleUi:
-          "Appuyez maintenant pour masquer les panneaux et vous concentrer sur votre travail",
-        undo: "Revenez sur votre dernière modification de design",
-        redo: "Restaurez la modification de design que vous venez d’annuler",
-      },
       categories: {
         essential: "Essentiels",
         tools: "Outils",
@@ -1099,6 +1114,7 @@ export default {
         showLayers: "Calques",
         showAssets: "Ressources",
         toggleUi: "View",
+        toggleMinimalUi: "Interface minimale",
         toggleComments: "Épingler un commentaire",
         zoomIn: "Zoom avant",
         zoomOut: "Zoom arrière",
@@ -1609,6 +1625,8 @@ export default {
     assetAdded: "Actif ajouté",
     assetsNoImageUrl: "Assets n'a pas renvoyé d'URL d'image.",
     failedToUploadFile: "Échec du téléchargement du fichier",
+    imageAttachmentUnavailable:
+      "Impossible de préparer cette image comme référence visuelle. Joignez un fichier PNG, JPG, GIF ou WebP plus petit.",
     attachmentsTooLarge:
       "Ces pièces jointes sont trop volumineuses. Les téléversements sont limités à {{max}} Mo au total : joignez moins de fichiers ou des fichiers plus petits.",
     failedToSubmitPrompt: "Impossible d’envoyer le prompt",
@@ -2054,9 +2072,11 @@ export default {
     comingSoonTitle: "Les systèmes de conception arrivent bientôt",
     waitlist: {
       join: "Rejoindre la liste d’attente",
-      joining: "Inscription...",
+      joining: "Inscription…",
       joined: "Vous êtes sur la liste d’attente",
       error: "Impossible de rejoindre la liste d’attente. Réessayez.",
+      unavailable:
+        "Les inscriptions à la liste d’attente sont indisponibles pour le moment. Réessayez plus tard.",
     },
     deleteError: "Impossible de supprimer le système de conception",
     updateSuccess: "Système de conception mis à jour",

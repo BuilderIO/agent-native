@@ -123,6 +123,8 @@ Im Tab „Gespräche“ sehen Sie aufgezeichnete Agentenläufe. Wählen Sie eine
 
 Die Erfassung von Tool-Argumenten, -Ergebnissen und vollständigen Fehlertexten ist standardmäßig deaktiviert. Aktivieren Sie in der `observability`-Konfiguration `captureToolArgs`, um Argumente zu speichern, und `captureToolResults`, um Ergebnisse und vollständige Fehlertexte zu speichern. Sensible Felder werden vor dem Speichern bereinigt. Ein fehlgeschlagenes Tool behält immer die auf eine begrenzte Länge gekürzte erste Zeile seines Fehlers, wobei Zugangsdaten, E-Mail-Adressen und lange undurchsichtige IDs bereinigt sind, damit Fehler auch bei deaktiviertem `captureToolResults` diagnostizierbar bleiben.
 
+Die Prompt-Erfassung ist standardmäßig deaktiviert. Setzen Sie `capturePrompts: true` in der `observability`-Konfiguration oder `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true`, um die Eingabe und Ausgabe jedes `llm_call`-Spans in dieser Detailansicht zu speichern. Der System-Prompt wird ausgeschlossen, strukturierte sensible Felder werden bereinigt und jede Seite ist auf 128 KiB begrenzt. Bereits gespeicherte Spans werden nicht nachträglich ergänzt.
+
 ### Menschliche Überprüfung {#review}
 
 Der Tab „Menschliche Überprüfung“ zeigt die Anfrage und Antwort jedes Laufs. Sie können Feedback erfassen und einen Entwurf für eine Anweisungsänderung zur menschlichen Prüfung speichern. Der Entwurf ändert Anweisungen nicht automatisch.
@@ -358,6 +360,144 @@ Core erfasst zusätzlich Metriken, sobald der Host mit `registerObservabilityPro
 | `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
 
 Bei Metriken ist `gen_ai.tool.name` der Name einer Framework-Aktion oder `other`, und `gen_ai.request.model` ist die Modell-ID nur, wenn die Engine sie als unterstützt führt, andernfalls `_OTHER`. App-definierte Tools und vom Aufrufer übergebene Modell-IDs können daher keine unbegrenzte Anzahl von Serien erzeugen; Spans behalten die exakten Werte.
+
+`http.route` wird bei jeder Anfrage gesetzt und stammt aus einer geschlossenen Menge: dem Routen-Template eines Framework-Endpunkts (`/_agent-native/auth/session`, `/_agent-native/agent-chat/runs/:runId/events`), dem deklarierten Template einer Aktion, der eigenen Nitro-Dateiroute der App (`/api/clips/:id`) oder einem Sammelwert. Die Sammelwerte sind `/_agent-native/*`, `/mcp/*` und `/.well-known/*` für einen nicht aufgeführten Pfad in diesen Namensräumen, `/api/*` für jeden anderen API-Pfad, `static` für Dateianfragen, `page` für jedes andere `GET` oder `HEAD` und `other`. Ein roher Anfragepfad wird nie aufgezeichnet. Der Span `http.server` trägt denselben Wert.
+
+## Ein OpenTelemetry-Backend anbinden {#otel-provider}
+
+Core liefert kein OpenTelemetry-SDK und keinen Exporter mit. Eine App baut ihre eigenen SDK-Provider und übergibt sie mit `registerObservabilityProvider()` aus `@agent-native/core/server` an Core. Core gibt dann die [Spans](#otel) und [Metriken](#otel-metrics) von oben über sie aus, und der Exporter der App sendet sie an ein beliebiges OTLP-Backend.
+
+### `registerObservabilityProvider()` {#register-observability-provider}
+
+`registerObservabilityProvider()` nimmt ein Objekt mit zwei optionalen Feldern entgegen:
+
+- **tracerProvider**: ein Objekt mit `getTracer(name, version?)`. Core bezieht seinen Tracer von hier. Ohne ihn verwenden Spans den globalen Tracer von `@opentelemetry/api`.
+- **meterProvider**: ein Objekt mit `getMeter(name, version?)`. Metriken werden nur erfasst, wenn ein Meter-Provider registriert ist. Es gibt keinen globalen Fallback, ohne ihn ist also jede Metrik ein No-Op.
+
+Beide Provider können zusätzlich `forceFlush()` implementieren, das Core nach jeder Antwort aufruft (siehe [Flush auf Serverless](#otel-flush)). `BasicTracerProvider` und `MeterProvider` aus dem SDK erfüllen diese Formen bereits.
+
+```ts
+function registerObservabilityProvider(
+  provider: ObservabilityProvider,
+): () => void;
+
+interface ObservabilityProvider {
+  tracerProvider?: ObservabilityTracerProvider;
+  meterProvider?: ObservabilityMeterProvider;
+}
+
+interface ObservabilityTracerProvider {
+  getTracer(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+
+interface ObservabilityMeterProvider {
+  getMeter(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+```
+
+Ein späterer Aufruf ersetzt den früheren Provider. Die zurückgegebene Funktion hebt die Registrierung auf, sofern dieser Provider noch registriert ist. Spans benötigen außerdem `@opentelemetry/api` als installiertes Paket in der App. Fehlt es, schaltet Core das Tracing ab und protokolliert eine Warnung.
+
+### Flush auf Serverless {#otel-flush}
+
+Serverless-Funktionen werden zwischen Aufrufen eingefroren, daher feuert der Export-Timer eines SDK unter Umständen nie. Implementiert ein registrierter Provider `forceFlush()`, ruft Core es nach jeder Anfrage im Response-Hook auf und wartet darauf. Jeder Flush tritt gegen ein gemeinsames Timeout von 2 Sekunden an, sodass Telemetrie eine Antwort nie länger aufhält.
+
+Schlägt ein Flush fehl oder überschreitet er das Timeout, wartet Core nicht länger auf ihn und erhöht `agent_native.telemetry.flush_failures` um 1. Der nächste Flush exportiert diesen Zähler. Ein Export nach Timeout läuft weiter und kann trotzdem ankommen, sofern die Laufzeit den Prozess nicht vorher einfriert. Das `error.type` des Fehlschlags ist `timeout`, `suspended`, wenn die Laufzeit den Prozess mitten im Flush eingefroren hat, oder der Name des Fehlers.
+
+Auf einem langlebigen Server bedeutet ein Flush nach jeder Antwort einen Export pro Anfrage. Registrieren Sie die Provider dort ohne `forceFlush()` und überlassen Sie den Export den Timern des SDK. `isServerlessRuntime()` aus `@agent-native/core/server` unterscheidet die beiden Fälle. Es ist auf Netlify, Vercel, AWS Lambda und Cloudflare wahr.
+
+### Beispiel: OTLP über HTTP {#otel-example}
+
+Dieses Server-Plugin verbindet das OpenTelemetry-JS-SDK mit Core. Installieren Sie zuerst die SDK-Pakete:
+
+```bash
+pnpm add @opentelemetry/api @opentelemetry/context-async-hooks @opentelemetry/exporter-metrics-otlp-proto @opentelemetry/exporter-trace-otlp-proto @opentelemetry/resources @opentelemetry/sdk-metrics @opentelemetry/sdk-trace-base
+```
+
+```ts filename="server/plugins/otel.ts"
+import { randomUUID } from "node:crypto";
+
+import {
+  defineNitroPlugin,
+  isServerlessRuntime,
+  registerObservabilityProvider,
+} from "@agent-native/core/server";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import {
+  defaultResource,
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
+import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+
+export default defineNitroPlugin(() => {
+  if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
+
+  // Metric counters are cumulative and restart with each process, so each
+  // process needs its own series.
+  const resource = defaultResource()
+    .merge(resourceFromAttributes({ "service.instance.id": randomUUID() }))
+    .merge(detectResources({ detectors: [envDetector] }));
+
+  const meterProvider = new MeterProvider({
+    resource,
+    readers: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+        exportIntervalMillis: 60_000,
+      }),
+    ],
+  });
+
+  context.setGlobalContextManager(
+    new AsyncLocalStorageContextManager().enable(),
+  );
+  const tracerProvider = new BasicTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+  });
+
+  if (isServerlessRuntime()) {
+    registerObservabilityProvider({ meterProvider, tracerProvider });
+    return;
+  }
+  // Without forceFlush(), core leaves exporting to the SDK's own timers.
+  registerObservabilityProvider({
+    meterProvider: {
+      getMeter: (name, version) => meterProvider.getMeter(name, version),
+    },
+    tracerProvider: {
+      getTracer: (name, version) => tracerProvider.getTracer(name, version),
+    },
+  });
+});
+```
+
+Das Plugin tut nichts, solange `OTEL_EXPORTER_OTLP_ENDPOINT` nicht gesetzt ist. Den Rest seiner Konfiguration liest das SDK aus den Standard-Umgebungsvariablen von OpenTelemetry:
+
+| Variable                                          | Wirkung                                                                                    |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                     | Basis-URL des OTLP-Empfängers. Die Exporter hängen `/v1/traces` und `/v1/metrics` an.      |
+| `OTEL_EXPORTER_OTLP_HEADERS`                      | Header, die bei jedem Export gesendet werden, z. B. `Authorization=Bearer%20<token>`       |
+| `OTEL_SERVICE_NAME`                               | `service.name` auf jedem Span und jeder Metrik                                             |
+| `OTEL_RESOURCE_ATTRIBUTES`                        | Zusätzliche Ressourcenattribute, z. B. `deployment.environment.name=production`            |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | Trace-Sampling, z. B. `parentbased_traceidratio` und `0.1`. Metriken werden nie gesampelt. |
+
+Die `-proto`-Exporter senden OTLP über HTTP mit Protobuf. Richten Sie den Endpunkt daher auf den HTTP-Port des Empfängers (standardmäßig 4318), nicht auf seinen gRPC-Port. Spans enthalten keinen Prompt- oder Antworttext. Die `capture*`-Einstellungen unter [Konfiguration](#config) gelten für die SQL-Traces und PostHog, nicht für OTLP.
+
+[`packages/otel`](https://github.com/BuilderIO/agent-native/tree/main/packages/otel) im Repository enthält eine umfassendere Version dieses Plugins mit Endpunkten pro Signal und Exporter-Validierung. Das Paket ist nicht auf npm veröffentlicht. Beginnen Sie daher mit dem Plugin oben, statt es zu installieren.
 
 ## Fehlerberichterstattung (Sentry) {#sentry}
 

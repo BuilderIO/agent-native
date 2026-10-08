@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import {
+  MCP_APP_HOST_FILL_ATTRIBUTE,
+  MCP_APP_PANE_FILL_MAX_HEIGHT,
+  mcpAppHostFillsContainer,
+} from "../shared/mcp-app-display.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 
 describe("embedApp", () => {
@@ -36,6 +41,12 @@ describe("embedApp", () => {
     expect(html).toContain("bridge.toolInput");
     expect(html).toContain("bridge.toolOutput");
     expect(html).toContain("bridge.toolResponseMetadata");
+    expect(html).toContain('toolResponseMetadata["agent-native/openLink"]');
+    expect(html).toMatch(/record\.label \|\| openLink\.label \|\| record\.app/);
+    const syncSignature = html.match(
+      /signature = JSON\.stringify\(\[\s*toolInput,[\s\S]*?\]\);/,
+    );
+    expect(syncSignature?.[0]).toContain("openLinkLabel");
     expect(html).toContain("openAiBridge.callTool(startTool, args)");
     expect(html).toContain("openAiBridge.openExternal");
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
@@ -434,6 +445,28 @@ describe("embedApp", () => {
     expect(csp?.resourceDomains).not.toContain("https://esm.sh");
   });
 
+  it("renews directory widget sessions from saved tool output without embedStart metadata", () => {
+    const resource = embedApp({ title: "Directory widget" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({
+            actionName: "create-document",
+            appId: "content",
+            catalogMode: "directory",
+            startToolName: "create_embed_session",
+          })
+        : resource.html;
+
+    expect(html).toContain('data-start-tool="create_embed_session"');
+    expect(html).toContain('data-catalog-mode="directory"');
+    expect(html).toContain('toolResponseMetadata["agent-native/widgetSource"]');
+    expect(html).toContain("toolOutput: toolResultData");
+    expect(html).toContain(
+      "const result = await callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
+    );
+    expect(html).toContain("openStartUrl || openUrl");
+  });
+
   it("renders the shared MCP App document without trailing characters", () => {
     const resource = embedApp({ title: "MCP widget" });
     const html =
@@ -453,6 +486,403 @@ describe("embedApp", () => {
 
     expect(html).toContain("--agent-native-shell-height: 900px");
     expect(html).toContain("--agent-native-viewport-height: 856px");
+  });
+
+  describe("host-owned frame sizing", () => {
+    const htmlFor = (catalogMode?: "directory" | "app") => {
+      const resource = embedApp({ title: "Widget" });
+      return typeof resource.html === "function"
+        ? resource.html({
+            actionName: "open_app",
+            appId: "slides",
+            catalogMode,
+          })
+        : resource.html;
+    };
+
+    it("fills a host-owned frame with CSS and skips intrinsic height reports", () => {
+      const html = htmlFor("directory");
+      const attribute = `html[${MCP_APP_HOST_FILL_ATTRIBUTE}]`;
+
+      expect(html).toContain(`${attribute} .shell {`);
+      expect(html).toContain("height: 100vh; height: 100dvh;");
+      expect(html).toContain(`${attribute} .bar { display: none; }`);
+      expect(html).toContain("height: 100% !important");
+      expect(html).toContain("if (applyHostFillMode()) return;");
+      expect(html).toContain('appFrame.style.height = "";');
+    });
+
+    it("keeps one fill rule across the shell and the app document", () => {
+      const html = htmlFor("directory");
+      const source = html.match(
+        /function hostFillsContainer\(context\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      expect(source).toBeTruthy();
+      const objectValue = (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {};
+      const shellFill = new Function(
+        "objectValue",
+        `${source}; return hostFillsContainer;`,
+      )(objectValue) as (context: unknown) => boolean;
+
+      const cases: Array<[unknown, boolean]> = [
+        [undefined, false],
+        [{}, false],
+        [{ displayMode: "inline" }, false],
+        [
+          { displayMode: "inline", containerDimensions: { maxHeight: 360 } },
+          false,
+        ],
+        [{ displayMode: "fullscreen" }, true],
+        [{ displayMode: "pip" }, true],
+        [{ displayMode: "inline", containerDimensions: { height: 860 } }, true],
+        [{ containerDimensions: { height: 0 } }, false],
+        [{ containerDimensions: { height: "860" } }, false],
+        [{ containerDimensions: { height: Number.POSITIVE_INFINITY } }, false],
+      ];
+      for (const [context, expected] of cases) {
+        expect(shellFill(context), JSON.stringify(context)).toBe(expected);
+        expect(mcpAppHostFillsContainer(context), JSON.stringify(context)).toBe(
+          expected,
+        );
+      }
+    });
+
+    describe("a directory widget in a host pane that does not measure it", () => {
+      // The shell is a plain script in an HTML document, so the tests run the
+      // shell's own functions over a host context the way Codex shapes it.
+      const objectValue = (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {};
+      const finiteNumber = (value: unknown) =>
+        typeof value === "number" && Number.isFinite(value) && value > 0
+          ? value
+          : null;
+      const functionSource = (html: string, name: string) => {
+        const source = html.match(
+          new RegExp(
+            `    function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n    \\}\\n`,
+          ),
+        )?.[0];
+        expect(source, name).toBeTruthy();
+        return source as string;
+      };
+      const codexInline = {
+        displayMode: "inline",
+        availableDisplayModes: ["inline"],
+        containerDimensions: { maxHeight: 360, maxWidth: 568 },
+      };
+
+      function paneFillHeightFor(
+        html: string,
+        context: unknown,
+        screen: { availHeight?: unknown } | undefined,
+        defaultIntrinsicHeight = 680,
+      ) {
+        return new Function(
+          "objectValue",
+          "finiteNumber",
+          "window",
+          "defaultIntrinsicHeight",
+          "paneFillMaxHeight",
+          `${functionSource(html, "contextMaxHeight")}
+${functionSource(html, "paneFillHeight")}
+return paneFillHeight;`,
+        )(
+          objectValue,
+          finiteNumber,
+          { screen },
+          defaultIntrinsicHeight,
+          MCP_APP_PANE_FILL_MAX_HEIGHT,
+        )(context) as number;
+      }
+
+      it("reports the pane-filling height of the viewer's screen, never a content size", () => {
+        const html = htmlFor("directory");
+
+        // A Codex pane is taller than its 360px maxHeight hint and than the
+        // 680px the shell was configured with.
+        expect(paneFillHeightFor(html, codexInline, { availHeight: 860 })).toBe(
+          860,
+        );
+        expect(
+          paneFillHeightFor(html, codexInline, { availHeight: 1415 }),
+        ).toBe(1415);
+        // Reporting the content (a short document, a short deck) would be the
+        // 360px hint at most, which is what left the gray bar.
+        expect(
+          paneFillHeightFor(html, codexInline, { availHeight: 860 }),
+        ).toBeGreaterThan(codexInline.containerDimensions.maxHeight);
+      });
+
+      it("falls back to the configured height without a readable screen and caps a huge one", () => {
+        const html = htmlFor("directory");
+
+        expect(paneFillHeightFor(html, codexInline, undefined)).toBe(680);
+        expect(
+          paneFillHeightFor(html, codexInline, { availHeight: "tall" }),
+        ).toBe(680);
+        expect(
+          paneFillHeightFor(html, codexInline, { availHeight: 9000 }),
+        ).toBe(MCP_APP_PANE_FILL_MAX_HEIGHT);
+      });
+
+      it("does not push the frame past a pane shorter than the configured height", () => {
+        expect(
+          paneFillHeightFor(
+            htmlFor("directory"),
+            codexInline,
+            { availHeight: 860 },
+            900,
+          ),
+        ).toBe(860);
+      });
+
+      it("uses a host maxHeight larger than the screen", () => {
+        expect(
+          paneFillHeightFor(
+            htmlFor("directory"),
+            { containerDimensions: { maxHeight: 1200 } },
+            { availHeight: 800 },
+          ),
+        ).toBe(1200);
+      });
+
+      it("reports the pane height to the host instead of the app's content height", () => {
+        const html = htmlFor("directory");
+        const reported: Array<{ height: number }> = [];
+        const notifyHostHeight = new Function(
+          "fillsPane",
+          "applyHostFillMode",
+          "paneFillHeight",
+          "hostState",
+          "applyIntrinsicHeight",
+          "visibleIntrinsicHeight",
+          "openAiBridge",
+          "app",
+          "console",
+          `${functionSource(html, "notifyHostHeight")}; return notifyHostHeight;`,
+        )(
+          true,
+          () => false,
+          () => 860,
+          () => ({ context: codexInline }),
+          () => {
+            throw new Error("a directory widget must not size from content");
+          },
+          () => 300,
+          null,
+          {
+            sendSizeChanged: (size: { height: number }) => reported.push(size),
+          },
+          { warn: () => {} },
+        ) as () => void;
+
+        notifyHostHeight();
+        notifyHostHeight();
+
+        expect(reported).toEqual([{ height: 860 }, { height: 860 }]);
+      });
+
+      it("never reports a height while the host owns the frame", () => {
+        const reported: unknown[] = [];
+        const notifyHostHeight = new Function(
+          "fillsPane",
+          "applyHostFillMode",
+          "app",
+          `${functionSource(htmlFor("directory"), "notifyHostHeight")}; return notifyHostHeight;`,
+        )(true, () => true, {
+          sendSizeChanged: (size: unknown) => reported.push(size),
+        }) as () => void;
+
+        notifyHostHeight();
+
+        expect(reported).toEqual([]);
+      });
+
+      it("fills the frame with CSS from first paint, and leaves app mode content-sized", () => {
+        const attribute = `${MCP_APP_HOST_FILL_ATTRIBUTE}="1"`;
+
+        expect(htmlFor("directory")).toContain(`<html lang="en" ${attribute}>`);
+        expect(htmlFor("app")).toContain('<html lang="en">');
+        expect(htmlFor("app")).toContain("const fillsPane = false;");
+      });
+
+      it("tells the app the frame has a fixed height so it lifts its card clamp", () => {
+        const html = htmlFor("directory");
+        const hostStateForApp = new Function(
+          "objectValue",
+          "fillsPane",
+          "hostState",
+          "hostFillsContainer",
+          "paneFillHeight",
+          `${functionSource(html, "hostStateForApp")}; return hostStateForApp;`,
+        )(
+          objectValue,
+          true,
+          () => ({ context: codexInline, version: "codex" }),
+          mcpAppHostFillsContainer,
+          () => 860,
+        )() as { context: unknown; version: string };
+
+        expect(hostStateForApp.version).toBe("codex");
+        expect(hostStateForApp.context).toMatchObject({
+          displayMode: "inline",
+          containerDimensions: { maxHeight: 360, maxWidth: 568, height: 860 },
+        });
+        expect(mcpAppHostFillsContainer(hostStateForApp.context)).toBe(true);
+        expect(mcpAppHostFillsContainer(codexInline)).toBe(false);
+      });
+
+      describe("asking for fullscreen", () => {
+        function shellFullscreen(options: {
+          displayMode?: string;
+          modes: string[];
+          reject?: boolean;
+        }) {
+          const html = htmlFor("directory");
+          const requested: string[] = [];
+          const body = `${html.match(/    let fullscreenRequested = false;\n/)?.[0]}
+${functionSource(html, "requestFullscreenOnFirstInteraction")}
+return requestFullscreenOnFirstInteraction;`;
+          const request = new Function(
+            "fillsPane",
+            "hostState",
+            "supportedDisplayMode",
+            "requestHostDisplayMode",
+            "console",
+            body,
+          )(
+            true,
+            () => ({ context: { displayMode: options.displayMode } }),
+            (mode: string) => options.modes.includes(mode),
+            (mode: string) => {
+              requested.push(mode);
+              return options.reject
+                ? Promise.reject(new Error("refused"))
+                : Promise.resolve({});
+            },
+            { warn: () => {} },
+          ) as () => void;
+          return { request, requested };
+        }
+
+        it("asks once for fullscreen when the host offers it", () => {
+          const { request, requested } = shellFullscreen({
+            displayMode: "inline",
+            modes: ["inline", "fullscreen"],
+          });
+
+          request();
+          request();
+
+          expect(requested).toEqual(["fullscreen"]);
+        });
+
+        it("does not ask again after a host refuses", async () => {
+          const { request, requested } = shellFullscreen({
+            displayMode: "inline",
+            modes: ["inline", "fullscreen"],
+            reject: true,
+          });
+
+          request();
+          await Promise.resolve();
+          request();
+
+          expect(requested).toEqual(["fullscreen"]);
+        });
+
+        it("does not ask a host that only offers inline, or one already past inline", () => {
+          const inlineOnly = shellFullscreen({
+            displayMode: "inline",
+            modes: ["inline"],
+          });
+          inlineOnly.request();
+          const alreadyFullscreen = shellFullscreen({
+            displayMode: "fullscreen",
+            modes: ["inline", "fullscreen"],
+          });
+          alreadyFullscreen.request();
+
+          expect(inlineOnly.requested).toEqual([]);
+          expect(alreadyFullscreen.requested).toEqual([]);
+        });
+      });
+    });
+
+    it("merges partial host context without discarding initialization metadata", () => {
+      const html = htmlFor("directory");
+
+      expect(html).toContain(
+        "objectValue(nextHostContext.hostContext || nextHostContext.context || nextHostContext)",
+      );
+      expect(html).toContain("if (replace) hostContext = nextHostContext;");
+      expect(html).toContain(
+        "const merged = { ...hostContextFields, ...fields };",
+      );
+      expect(html).toContain(
+        "...objectValue(hostContextFields.containerDimensions)",
+      );
+      expect(html).toContain("setHostContext(params, false);");
+
+      const source = html.match(
+        /function setHostContext\(payload, replace\) \{[\s\S]*?\n      \}/,
+      )?.[0];
+      expect(source).toBeTruthy();
+      const objectValue = (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {};
+      const bridge = new Function(
+        "objectValue",
+        `let hostContext = {}; let hostContextFields = {}; ${source}; return {
+          update(payload, replace) { setHostContext(payload, replace); },
+          getContext() { return hostContextFields; },
+          getCapabilities() { return hostContext.capabilities || { tools: true, messaging: true }; },
+          getVersion() { return hostContext.protocolVersion || "mcp-apps-postmessage"; },
+        };`,
+      )(objectValue) as {
+        update(payload: unknown, replace: boolean): void;
+        getContext(): Record<string, unknown>;
+        getCapabilities(): Record<string, unknown>;
+        getVersion(): string;
+      };
+
+      bridge.update(
+        {
+          capabilities: { tools: { listChanged: true }, messaging: {} },
+          protocolVersion: "2026-01-26",
+          hostContext: {
+            displayMode: "inline",
+            containerDimensions: { height: 860 },
+          },
+        },
+        true,
+      );
+      expect(bridge.getCapabilities()).toEqual({
+        tools: { listChanged: true },
+        messaging: {},
+      });
+      expect(bridge.getVersion()).toBe("2026-01-26");
+
+      bridge.update(
+        { hostContext: { containerDimensions: { width: 420 } } },
+        false,
+      );
+      expect(bridge.getContext()).toMatchObject({
+        displayMode: "inline",
+        containerDimensions: { width: 420, height: 860 },
+      });
+      expect(bridge.getCapabilities()).toEqual({
+        tools: { listChanged: true },
+        messaging: {},
+      });
+      expect(bridge.getVersion()).toBe("2026-01-26");
+    });
   });
 
   it("provides a local MCP App payload fixture for renderer tests", async () => {

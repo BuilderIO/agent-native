@@ -3,10 +3,44 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-07
+
+### Added
+
+- Videos can be added to slides and played on click or automatically.
+
+### Improved
+
+- Long slide text-editing sessions can be undone without losing their earlier steps.
+
+### Fixed
+
+- A deck whose access is revoked while it is open now says access was lost, keeps your edits on screen, and recovers when access returns.
+- Forward Delete preserves styled bullet rows when joining paragraphs.
+- Markdown divider shortcuts and autocorrect replacements remain undoable while preserving slide text styling.
+- Pasted images stay inside their crop frame while uploads finish.
+- Right-click slide images to open the custom menu with arrange actions.
+- Slide image actions preserve argument text that starts with dashes
+- SVGs exported with a standard SVG 1.1 declaration now upload successfully
+- Two people typing in different text boxes on the same slide no longer lose one person's edits when saves collide repeatedly.
+- Underline styling stays consistent when formatting nested slide text.
+
 ## 2026-10-06
 
 ### Fixed
 
+- Deleting between slide paragraphs now preserves inline formatting
+- Reopening a ChatGPT Slides widget restores the saved deck editor without a second sign-in.
+- Fixed attached images missing from visual analysis.
+- Fixed returning to shared decks after completing an account prompt
+- Generated decks from ChatGPT open in the full Slides editor.
+- Google Slides exports open the created copy directly.
+- Keep one close control in Slides export error dialogs
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- Slides applies linked design systems to deck style references
+- Slides stop cleanly when generation reaches the requested slide count.
+- Slides uses a reference deck's linked system only when available and won't guess when the reference cannot be read.
+- The Recent tab restores immediately from the last known library state and stays visible while decks load.
 - Fixed home prompts silently doing nothing instead of starting a new deck.
 
 ## 2026-10-05
@@ -46,6 +80,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Opening a deck you no longer have access to no longer floods the app with repeated requests.
 - Markdown list shortcuts work when text inherits link formatting
 - Only one queued message action menu stays open at a time
 - Google Slides imports keep skipped slides and their images in the right place.

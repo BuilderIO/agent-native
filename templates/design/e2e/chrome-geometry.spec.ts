@@ -217,6 +217,12 @@ async function assertLayersChrome(page: Page): Promise<void> {
   expect((await readGeometry(icon)).height).toBe(
     FIGMA_REFERENCE.layers.row.icon,
   );
+  const indents = rowContent.locator("[data-layer-row-indent]");
+  for (let index = 0; index < (await indents.count()); index += 1) {
+    expect((await readGeometry(indents.nth(index))).width).toBe(
+      FIGMA_REFERENCE.layers.row.indent,
+    );
+  }
   const panelGeometry = await readGeometry(panel);
   const rowGeometry = await readGeometry(rowContent);
   expect(rowGeometry.x).toBeGreaterThanOrEqual(panelGeometry.x);
@@ -405,6 +411,35 @@ async function assertEmptyLayersState(page: Page): Promise<void> {
   ).toHaveCount(0);
 }
 
+async function dragLeftPanelBy(page: Page, deltaX: number): Promise<void> {
+  const separator = page.locator(
+    '[data-design-chrome-region="left-shell"] [role="separator"][aria-orientation="vertical"]',
+  );
+  const geometry = await readGeometry(separator);
+  const startX = geometry.x + geometry.width / 2;
+  const y = geometry.y + geometry.height / 2;
+  await page.mouse.move(startX, y);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, y, { steps: 8 });
+  await page.mouse.up();
+}
+
+async function assertLeftPanelWidth(page: Page): Promise<void> {
+  const leftPanel = page.locator(
+    '[data-design-chrome-region="left-shell"] > div[style*="width"]',
+  );
+  const width = async () =>
+    (await readGeometry(leftPanel, ["width"])).styles.width;
+  expect(await width()).toBe("240px");
+  await dragLeftPanelBy(page, 9);
+  await expect.poll(width).toBe("248px");
+  await dragLeftPanelBy(page, 1000);
+  await expect.poll(width).toBe("416px");
+  await dragLeftPanelBy(page, -1000);
+  await expect.poll(width).toBe("232px");
+}
+
+// oracle: none — the top bar assertions check its own 48px contract; Figma values live in chrome-geometry.reference.ts.
 test("keeps Design chrome geometry stable at compact and wide inspector widths", async ({
   page,
 }) => {
@@ -440,6 +475,32 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
     .first();
   const separatorGeometry = await readGeometry(separator);
   const currentPanelGeometry = await readGeometry(rightPanel);
+  const topBarGeometry = await readGeometry(
+    page.locator("[data-design-top-bar]"),
+  );
+  const leftShellGeometry = await readGeometry(
+    page.locator('[data-design-chrome-region="left-shell"]'),
+  );
+  const leftHeaderGeometry = await readGeometry(
+    page.locator('[data-design-chrome-region="left-header"]'),
+  );
+  const zoneGeometry = await readGeometry(
+    page.locator("[data-design-top-bar-inspector-zone]"),
+  );
+  // The 48px line runs over the canvas and inspector columns only; the rail
+  // and left panel share its top row.
+  expect(topBarGeometry.y).toBe(0);
+  expect(topBarGeometry.height).toBe(48);
+  expect(leftShellGeometry.y).toBe(0);
+  expect(leftHeaderGeometry.y).toBe(0);
+  expect(leftHeaderGeometry.height).toBe(48);
+  expect(topBarGeometry.x).toBe(leftShellGeometry.x + leftShellGeometry.width);
+  expect(currentPanelGeometry.y).toBe(topBarGeometry.height);
+  expect(zoneGeometry.x).toBeLessThanOrEqual(currentPanelGeometry.x + 1);
+  expect(zoneGeometry.x + zoneGeometry.width).toBeCloseTo(
+    topBarGeometry.x + topBarGeometry.width - 8,
+    0,
+  );
   const targetPanelWidth = 320;
   const dragStartX = separatorGeometry.x + separatorGeometry.width / 2;
   await page.mouse.move(
@@ -461,4 +522,5 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
   await assertLayersChrome(page);
   await assertAutoLayoutGeometry(page);
   await cdpScreenshot(page, WIDE_SCREENSHOT);
+  await assertLeftPanelWidth(page);
 });

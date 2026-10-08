@@ -193,11 +193,15 @@ async function recordTriggerSkip(
   resource: Resource,
   status: "skipped" | "error",
   reason: string | undefined,
+  errorCode?: string,
 ): Promise<void> {
   await recordTriggerExecutionOutcome(resource, {
     lastCheck: new Date().toISOString(),
     lastStatus: status,
     lastError: reason,
+    ...(status === "error" && errorCode !== undefined
+      ? { lastErrorCode: errorCode }
+      : {}),
   });
 }
 
@@ -205,7 +209,7 @@ async function recordTriggerExecutionOutcome(
   resource: Resource,
   outcome: Pick<
     TriggerFrontmatter,
-    "lastCheck" | "lastStatus" | "lastError" | "lastRun"
+    "lastCheck" | "lastStatus" | "lastError" | "lastErrorCode" | "lastRun"
   >,
   /**
    * `failure` advances the consecutive-failure streak and may pause the
@@ -987,6 +991,7 @@ async function dispatchQueuedAutomationEvent(
         resource,
         "error",
         "Could not verify the automation execution identity.",
+        "owner_unverifiable",
       );
       throw error;
     }
@@ -1012,7 +1017,12 @@ async function dispatchQueuedAutomationEvent(
         );
         return "completed";
       }
-      await recordTriggerSkip(resource, "skipped", resolved.reason);
+      await recordTriggerSkip(
+        resource,
+        "error",
+        resolved.reason,
+        resolved.code,
+      );
       return "completed";
     }
     if (!automationMatchesEventOwner(resolved.identity, queued.eventOwner)) {
@@ -1309,7 +1319,7 @@ async function dispatchAgentic(
       : undefined;
 
   try {
-    await runBackgroundAutomation(
+    const result = await runBackgroundAutomation(
       {
         automation,
         ownerEmail: jobUserEmail,
@@ -1340,10 +1350,10 @@ async function dispatchAgentic(
     );
 
     await recordTriggerExecutionOutcome(latest, {
-      lastStatus: "success",
-      lastError: undefined,
+      lastStatus: result.status,
+      lastError: result.status === "skipped" ? result.reason : undefined,
     });
-    console.log(`[triggers] "${triggerName}" completed successfully`);
+    console.log(`[triggers] "${triggerName}" ${result.status}`);
     return true;
   } catch (err) {
     const failure = classifyAutomationFailure(err);

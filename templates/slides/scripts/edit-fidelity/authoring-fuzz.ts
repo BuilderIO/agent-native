@@ -167,6 +167,11 @@ export function lineNavigationKeys(platform: string) {
     : { start: "Home", end: "End" };
 }
 
+export function isBrowserSessionPath(pathname: string) {
+  const basePath = "/_agent-native/browser-sessions";
+  return pathname === basePath || pathname.startsWith(`${basePath}/`);
+}
+
 export function authoringFuzzLineNavigationKeys(
   platform: string,
   override?: ReturnType<typeof lineNavigationKeys>,
@@ -576,7 +581,7 @@ export function createAuthoringFuzzPlan(
 }
 
 const MAX_FAILURE_LOG_OPERATIONS = 20;
-const MAX_FAILURE_MESSAGE_LENGTH = 1600;
+const MAX_FAILURE_MESSAGE_LENGTH = 3500;
 
 export function formatAuthoringFuzzFailure(
   seed: number,
@@ -617,6 +622,10 @@ export async function assertSlideIsScaled(page: Page, selector: string) {
   }
 }
 
+export function isConflictResourceConsoleError(message: string) {
+  return /\bstatus of 409\b/.test(message);
+}
+
 export async function runAuthoringFuzz(
   page: Page,
   options: AuthoringFuzzOptions,
@@ -639,13 +648,21 @@ export async function runAuthoringFuzz(
   let conflictResourceErrors = 0;
   const onConsole = (message: any) => {
     if (message.type() !== "error") return;
-    if (message.text().includes("status of 409 (Conflict)")) {
+    if (isConflictResourceConsoleError(message.text())) {
       conflictResourceErrors += 1;
       return;
     }
     pageErrors.push(message.text());
   };
-  const onPageError = (error: Error) => pageErrors.push(error.message);
+  const onPageError = (error: Error) =>
+    pageErrors.push(error.stack ?? error.message);
+  const onRequestFailed = (request: any) => {
+    const url = request.url();
+    if (!isBrowserSessionPath(new URL(url).pathname)) return;
+    pageErrors.push(
+      `browser-session request failed: ${url} (${request.failure()?.errorText ?? "unknown"})`,
+    );
+  };
   const onResponse = (response: any) => {
     if (
       response.status() !== 409 ||
@@ -668,6 +685,52 @@ export async function runAuthoringFuzz(
   page.on("console", onConsole);
   page.on("pageerror", onPageError);
   page.on("response", onResponse);
+  page.on("requestfailed", onRequestFailed);
+  await page.evaluate(() => {
+    const scope = window as Window & {
+      __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
+      __slidesAuthoringInputTraceInstalled?: boolean;
+    };
+    if (scope.__slidesAuthoringInputTraceInstalled) return;
+    const trace: Array<Record<string, unknown>> = [];
+    const record = (event: Event) => {
+      if (!(event instanceof InputEvent)) return;
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const root =
+        target instanceof Element
+          ? target.closest<HTMLElement>(
+              '[contenteditable="true"][data-editing-block="true"]',
+            )
+          : target.parentElement?.closest<HTMLElement>(
+              '[contenteditable="true"][data-editing-block="true"]',
+            );
+      if (!root) return;
+      const data = event.data;
+      const relevant =
+        event.inputType === "insertReplacementText" ||
+        data === null ||
+        data === "" ||
+        /[ \u00a0\-+*_~`\/]/u.test(data);
+      if (!relevant) return;
+      const lastCodePoint = data?.codePointAt(data.length - 1);
+      trace.push({
+        type: event.type,
+        inputType: event.inputType,
+        dataLength: data?.length ?? null,
+        lastCodePoint: lastCodePoint?.toString(16) ?? null,
+        cancelable: event.cancelable,
+        composing: event.isComposing,
+        trusted: event.isTrusted,
+        defaultPrevented: event.defaultPrevented,
+      });
+      if (trace.length > 100) trace.shift();
+    };
+    document.addEventListener("beforeinput", record, true);
+    document.addEventListener("input", record, true);
+    scope.__slidesAuthoringInputTraceInstalled = true;
+    scope.__slidesAuthoringInputTrace = trace;
+  });
 
   let activeIndex = -1;
   let activePhase = "setup";
@@ -678,7 +741,7 @@ export async function runAuthoringFuzz(
       throw new Error(
         `browser emitted ${pageErrors.length} console/page error(s): ${pageErrors
           .slice(0, 2)
-          .map((error) => error.replaceAll(/\s+/g, " ").slice(0, 300))
+          .map((error) => error.replaceAll(/\s+/g, " ").slice(0, 700))
           .join("; ")}`,
       );
   };
@@ -916,18 +979,21 @@ export async function runAuthoringFuzz(
   const snapshotEditorSiblings = async (
     phase: "capture" | "assert",
     operation: AuthoringFuzzOperation,
+    requireMerge = false,
   ) =>
     page.evaluate(
       ({
         selector,
         phase,
         operation,
+        requireMerge,
         operationIndex,
         styleProperties,
       }: {
         selector: string;
         phase: "capture" | "assert";
         operation: AuthoringFuzzOperation;
+        requireMerge: boolean;
         operationIndex: number;
         styleProperties: string[];
       }) => {
@@ -949,11 +1015,26 @@ export async function runAuthoringFuzz(
               attributeNames: string;
               contentSignature: string;
               childShape: string;
+              emptyInlineLink: boolean;
             }>;
+            targets: HTMLElement[];
+            merge?: {
+              direction: "backward" | "forward";
+              source: HTMLElement;
+              receiver: HTMLElement;
+              parent: Node;
+              receiverText: string;
+              sourceText: string;
+              sourceFormatting: Array<{ text: string; marks: string[] }>;
+              receiverFormatting: Array<{ text: string; marks: string[] }>;
+              receiverAttributes: string;
+              receiverStyles: Record<string, string>;
+            };
           };
         };
         const block =
           /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|DD|DIV|DL|DT|FIGCAPTION|FIGURE|FOOTER|H[1-6]|HEADER|LI|OL|P|PRE|SECTION|TABLE|TBODY|TD|TFOOT|TH|THEAD|TR|UL)$/;
+        const previous = scope.__authoringFuzzSiblingSnapshot;
         const range = selection.getRangeAt(0);
         const listShortcut =
           operation.kind === "shortcut" &&
@@ -1001,6 +1082,14 @@ export async function runAuthoringFuzz(
           }
         }
         if (!targets.length) targets.push(root);
+        if (
+          phase === "assert" &&
+          (operation.kind === "backspace-block-edge" ||
+            operation.kind === "delete-block-edge") &&
+          previous?.root === root
+        ) {
+          targets = previous.targets;
+        }
         const isTarget = (node: Node) =>
           targets.some(
             (target) =>
@@ -1020,7 +1109,9 @@ export async function runAuthoringFuzz(
           "text-decoration-color",
           "text-decoration-line",
           "text-decoration-style",
+          "text-decoration-thickness",
           "text-shadow",
+          "text-underline-offset",
           "vertical-align",
         ]);
         for (const target of targets) {
@@ -1050,6 +1141,105 @@ export async function runAuthoringFuzz(
             ]),
           ) as Record<string, string>;
         };
+        const authoredAttributes = (element: Element) =>
+          Array.from(element.attributes)
+            .map(({ name, value }) => `${name}=${value}`)
+            .sort()
+            .join("\n");
+        const visibleText = (value: string) =>
+          value.replaceAll(/[\u200b\ufeff]/g, "").replaceAll("\u00a0", " ");
+        const inlineFormatting = (
+          block: HTMLElement,
+          start = 0,
+          end = Number.POSITIVE_INFINITY,
+        ) => {
+          const runs: Array<{ text: string; marks: string[] }> = [];
+          const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+          let offset = 0;
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const text = node as Text;
+            const value = visibleText(text.data);
+            const from = Math.max(start, offset);
+            const to = Math.min(end, offset + value.length);
+            if (from < to) {
+              const marks: string[] = [];
+              for (
+                let current = text.parentElement;
+                current && current !== block;
+                current = current.parentElement
+              ) {
+                marks.unshift(
+                  `${current.tagName}:${authoredAttributes(current)}`,
+                );
+              }
+              const slice = value.slice(from - offset, to - offset);
+              const previousRun = runs.at(-1);
+              if (
+                previousRun &&
+                JSON.stringify(previousRun.marks) === JSON.stringify(marks)
+              ) {
+                previousRun.text += slice;
+              } else {
+                runs.push({ text: slice, marks });
+              }
+            }
+            offset += value.length;
+          }
+          return runs;
+        };
+        const merge =
+          phase === "capture"
+            ? (() => {
+                const direction: "backward" | "forward" | null =
+                  operation.kind === "backspace-block-edge"
+                    ? "backward"
+                    : operation.kind === "delete-block-edge"
+                      ? "forward"
+                      : null;
+                if (!direction) return undefined;
+                const receiver =
+                  direction === "backward"
+                    ? targets[0]?.previousElementSibling
+                    : targets[0];
+                const source =
+                  direction === "backward"
+                    ? targets[0]
+                    : receiver?.nextElementSibling;
+                return receiver instanceof HTMLElement &&
+                  source instanceof HTMLElement &&
+                  receiver !== root &&
+                  source !== root &&
+                  receiver.tagName === "P" &&
+                  source.tagName === "P" &&
+                  root.contains(receiver) &&
+                  root.contains(source) &&
+                  receiver.parentNode === source.parentNode
+                  ? {
+                      direction,
+                      source,
+                      receiver,
+                      parent: receiver.parentNode as Node,
+                      receiverText: receiver.textContent ?? "",
+                      sourceText: source.textContent ?? "",
+                      sourceFormatting: inlineFormatting(source),
+                      receiverFormatting: inlineFormatting(receiver),
+                      receiverAttributes: authoredAttributes(receiver),
+                      receiverStyles: styleValues(receiver),
+                    }
+                  : undefined;
+              })()
+            : previous?.merge;
+        const isEmptyInlineLink = (element: Element) =>
+          element.tagName === "A" &&
+          element.attributes.length === 0 &&
+          element.childNodes.length === 0 &&
+          !element.textContent &&
+          getComputedStyle(element).display === "inline" &&
+          ["::before", "::after"].every((pseudo) =>
+            ["none", "normal"].includes(
+              getComputedStyle(element, pseudo).content,
+            ),
+          );
         const changedStyleProperties = (
           element: Element,
           before: Record<string, string>,
@@ -1084,16 +1274,35 @@ export async function runAuthoringFuzz(
         const records: NonNullable<
           typeof scope.__authoringFuzzSiblingSnapshot
         >["records"] = [];
+        const isEditorInlineStyleSpan = (element: Element) =>
+          element.tagName === "SPAN" &&
+          element.getAttribute("data-slide-inline-style") === "true" &&
+          Array.from(element.attributes).every(
+            ({ name, value }) =>
+              name === "style" ||
+              (name === "data-slide-inline-style" && value === "true"),
+          ) &&
+          getComputedStyle(element).display === "inline" &&
+          ["::before", "::after"].every((pseudo) =>
+            ["none", "normal"].includes(
+              getComputedStyle(element, pseudo).content,
+            ),
+          ) &&
+          Array.from((element as HTMLElement).style).every((property) =>
+            textOnlyStyles.has(property),
+          );
         const contentSignature = (element: Element) =>
-          Array.from(element.childNodes, (child) =>
-            child instanceof Text
-              ? `#${child.data.length}:${child.data}`
-              : `@${child.nodeName}`,
-          ).join("");
-        const childShape = (element: Element) =>
-          Array.from(element.childNodes, (child) =>
-            child instanceof Text ? "#text" : `@${child.nodeName}`,
-          ).join("");
+          element.textContent ?? "";
+        const childShape = (element: Element) => {
+          const describe = (node: Node): string[] => {
+            if (node instanceof Text) return ["#text"];
+            if (node instanceof Element && isEditorInlineStyleSpan(node)) {
+              return Array.from(node.childNodes).flatMap(describe);
+            }
+            return [`@${node.nodeName}`];
+          };
+          return Array.from(element.childNodes).flatMap(describe).join("");
+        };
         const order = new Map(
           Array.from(root.querySelectorAll<Element>("*")).map(
             (element, index) => [element, index] as const,
@@ -1152,23 +1361,8 @@ export async function runAuthoringFuzz(
           }
         }
         const isEmptyAuthorStyleSpan = (element: Element): boolean =>
-          element.tagName === "SPAN" &&
-          element.getAttribute("data-slide-inline-style") === "true" &&
+          isEditorInlineStyleSpan(element) &&
           !element.textContent &&
-          Array.from(element.attributes).every(
-            ({ name, value }) =>
-              name === "style" ||
-              (name === "data-slide-inline-style" && value === "true"),
-          ) &&
-          getComputedStyle(element).display === "inline" &&
-          ["::before", "::after"].every((pseudo) =>
-            ["none", "normal"].includes(
-              getComputedStyle(element, pseudo).content,
-            ),
-          ) &&
-          Array.from((element as HTMLElement).style).every((property) =>
-            textOnlyStyles.has(property),
-          ) &&
           Array.from(element.children).every(isEmptyAuthorStyleSpan);
         for (const element of root.querySelectorAll<HTMLElement>("*")) {
           if (
@@ -1192,11 +1386,14 @@ export async function runAuthoringFuzz(
               .join(" "),
             contentSignature: contentSignature(element),
             childShape: childShape(element),
+            emptyInlineLink: isEmptyInlineLink(element),
           });
         }
         for (const text of siblingText) {
           const parent = text.parentElement;
-          if (!parent || isTarget(text) || !root.contains(text)) continue;
+          if (!parent || !text.data || isTarget(text) || !root.contains(text)) {
+            continue;
+          }
           records.push({
             node: text,
             parent,
@@ -1206,18 +1403,63 @@ export async function runAuthoringFuzz(
             attributeNames: "",
             contentSignature: text.data,
             childShape: "",
+            emptyInlineLink: false,
           });
         }
         if (phase === "capture") {
+          if (
+            requireMerge &&
+            (operation.kind === "backspace-block-edge" ||
+              operation.kind === "delete-block-edge") &&
+            !merge
+          ) {
+            throw new Error(
+              `block-edge ${operation.kind === "backspace-block-edge" ? "Backspace" : "Delete"} setup did not create adjacent paragraphs inside the editing root`,
+            );
+          }
+          if (
+            requireMerge &&
+            merge &&
+            (!merge.sourceText.trim() ||
+              !merge.sourceFormatting.some(
+                ({ text, marks }) => text.trim() && marks.length > 0,
+              ) ||
+              !merge.receiverText.trim() ||
+              !merge.receiverFormatting.some(
+                ({ text, marks }) => text.trim() && marks.length > 0,
+              ))
+          ) {
+            throw new Error(
+              "block-edge setup needs non-empty source and receiver paragraphs with inline formatting",
+            );
+          }
           scope.__authoringFuzzSiblingSnapshot = {
             root,
             records,
+            targets: [...targets],
+            merge,
           };
           return [];
         }
-        const baseline = scope.__authoringFuzzSiblingSnapshot;
+        const baseline = previous;
         if (!baseline) {
           throw new Error("editor sibling snapshot was not captured");
+        }
+        const failures: string[] = [];
+        const mergeAssertion =
+          baseline.merge &&
+          ((operation.kind === "backspace-block-edge" &&
+            baseline.merge.direction === "backward") ||
+            (operation.kind === "delete-block-edge" &&
+              baseline.merge.direction === "forward"))
+            ? baseline.merge
+            : undefined;
+        if (
+          (operation.kind === "backspace-block-edge" ||
+            operation.kind === "delete-block-edge") &&
+          !mergeAssertion
+        ) {
+          failures.push("block-edge operation did not capture its block pair");
         }
         const path = (node: Node) => {
           const parts: string[] = [];
@@ -1237,11 +1479,24 @@ export async function runAuthoringFuzz(
           return parts.join("/");
         };
         const targetPaths = targets.map(path).join(", ");
-        const failures: string[] = [];
         const equivalentReplacements = new Set<Element>();
         for (const record of baseline.records) {
           if (isTarget(record.node)) continue;
           if (!root.contains(record.node)) {
+            if (
+              mergeAssertion &&
+              (record.node === mergeAssertion.source ||
+                mergeAssertion.source.contains(record.node))
+            ) {
+              continue;
+            }
+            if (
+              mergeAssertion &&
+              mergeAssertion.receiver.contains(record.parent) &&
+              record.emptyInlineLink
+            ) {
+              continue;
+            }
             if (
               [...equivalentReplacements].some((node) =>
                 node.contains(record.node),
@@ -1272,6 +1527,21 @@ export async function runAuthoringFuzz(
           const parent = record.parent === baseline.root ? root : record.parent;
           const moved = record.node.parentNode !== parent;
           const newParent = record.node.parentNode;
+          const inlineWrapperRoot = (node: Node) => {
+            let current: Node | null = node;
+            while (
+              current instanceof Element &&
+              isEditorInlineStyleSpan(current)
+            ) {
+              current = current.parentNode;
+            }
+            return current;
+          };
+          const wrappedSiblingText =
+            record.node instanceof Text &&
+            newParent instanceof Element &&
+            isEditorInlineStyleSpan(newParent) &&
+            inlineWrapperRoot(newParent) === inlineWrapperRoot(parent);
           const promotedHeadingLine =
             operation.kind === "heading-enter" &&
             record.node instanceof HTMLElement &&
@@ -1287,6 +1557,7 @@ export async function runAuthoringFuzz(
             moved &&
             !(
               promotedHeadingLine ||
+              wrappedSiblingText ||
               (listShortcut &&
                 record.node instanceof Element &&
                 originalListRows.has(record.node) &&
@@ -1342,6 +1613,16 @@ export async function runAuthoringFuzz(
           )
             changes.push("authored attributes");
           if (
+            mergeAssertion &&
+            (mergeAssertion.receiver === record.node ||
+              mergeAssertion.receiver.contains(record.node))
+          ) {
+            const textIndex = changes.indexOf("text");
+            if (textIndex >= 0) changes.splice(textIndex, 1);
+            const structureIndex = changes.indexOf("child structure");
+            if (structureIndex >= 0) changes.splice(structureIndex, 1);
+          }
+          if (
             operation.kind === "empty-list-exit" &&
             record.node instanceof HTMLElement &&
             /^(OL|UL)$/.test(record.node.tagName) &&
@@ -1375,6 +1656,76 @@ export async function runAuthoringFuzz(
             );
           }
         }
+        if (mergeAssertion) {
+          const action =
+            mergeAssertion.direction === "backward" ? "Backspace" : "Delete";
+          const normalizeText = (value: string) =>
+            value.replaceAll(/[\u200b\ufeff]/g, "").replaceAll("\u00a0", " ");
+          if (
+            !root.contains(mergeAssertion.receiver) ||
+            mergeAssertion.receiver.parentNode !== mergeAssertion.parent
+          ) {
+            failures.push(`block-edge ${action} moved its receiving block`);
+          }
+          if (root.contains(mergeAssertion.source)) {
+            failures.push(
+              `block-edge ${action} left the merged block in place`,
+            );
+          }
+          const expectedText = normalizeText(
+            mergeAssertion.receiverText + mergeAssertion.sourceText,
+          );
+          const actualText = normalizeText(
+            mergeAssertion.receiver.textContent ?? "",
+          );
+          if (actualText !== expectedText) {
+            failures.push(
+              `block-edge ${mergeAssertion.direction === "backward" ? "Backspace" : "Delete"} changed the receiving text (${actualText.length} vs ${expectedText.length} characters; receiver=${normalizeText(mergeAssertion.receiverText).length}, source=${normalizeText(mergeAssertion.sourceText).length})`,
+            );
+          }
+          const receiverFormatting = inlineFormatting(
+            mergeAssertion.receiver,
+            visibleText(mergeAssertion.receiverText).length,
+            visibleText(mergeAssertion.receiverText).length +
+              visibleText(mergeAssertion.sourceText).length,
+          );
+          if (
+            JSON.stringify(receiverFormatting) !==
+            JSON.stringify(mergeAssertion.sourceFormatting)
+          ) {
+            failures.push(
+              `block-edge ${action} did not preserve source inline formatting (sourceRuns=${mergeAssertion.sourceFormatting.length}, mergedRuns=${receiverFormatting.length}, sourceMarks=${mergeAssertion.sourceFormatting.map(({ marks }) => marks.length).join(",")}, mergedMarks=${receiverFormatting.map(({ marks }) => marks.length).join(",")})`,
+            );
+          }
+          const receiverPrefixFormatting = inlineFormatting(
+            mergeAssertion.receiver,
+            0,
+            visibleText(mergeAssertion.receiverText).length,
+          );
+          if (
+            JSON.stringify(receiverPrefixFormatting) !==
+            JSON.stringify(mergeAssertion.receiverFormatting)
+          ) {
+            failures.push(
+              `block-edge ${action} did not preserve receiver inline formatting (receiverRuns=${mergeAssertion.receiverFormatting.length}, mergedRuns=${receiverPrefixFormatting.length}, receiverMarks=${mergeAssertion.receiverFormatting.map(({ marks }) => marks.length).join(",")}, mergedMarks=${receiverPrefixFormatting.map(({ marks }) => marks.length).join(",")})`,
+            );
+          }
+          const changedReceiverStyle = changedStyleProperties(
+            mergeAssertion.receiver,
+            mergeAssertion.receiverStyles,
+          );
+          if (
+            authoredAttributes(mergeAssertion.receiver) !==
+            mergeAssertion.receiverAttributes
+          ) {
+            failures.push(`block-edge ${action} changed receiver attributes`);
+          }
+          if (changedReceiverStyle.length) {
+            failures.push(
+              `block-edge ${action} changed receiver style (${changedReceiverStyle.slice(0, 6).join(", ")})`,
+            );
+          }
+        }
         const expectedOrder = baseline.records
           .filter(
             (
@@ -1382,7 +1733,10 @@ export async function runAuthoringFuzz(
             ): record is (typeof baseline.records)[number] & {
               node: Element;
               order: number;
-            } => record.node instanceof Element && record.order !== undefined,
+            } =>
+              record.node instanceof Element &&
+              record.order !== undefined &&
+              root.contains(record.node),
           )
           .sort((a, b) => a.order - b.order);
         const actualOrder = [...expectedOrder].sort((a, b) =>
@@ -1406,6 +1760,7 @@ export async function runAuthoringFuzz(
         selector: editorSelector,
         phase,
         operation,
+        requireMerge,
         operationIndex: activeIndex,
         styleProperties: AUTHORING_FUZZ_STYLE_PROPERTIES,
       },
@@ -1921,6 +2276,27 @@ export async function runAuthoringFuzz(
       slashCount(withTrigger.text) - 1
     )
       throw new Error(`${command} did not consume its slash query`);
+  };
+  const prepareParagraphPair = async (label: string) => {
+    await newPlainLine(label);
+    const headingCommand = await editor.evaluate((root: HTMLElement) => {
+      const selection = window.getSelection();
+      const anchor = selection?.anchorNode;
+      const element =
+        anchor instanceof HTMLElement ? anchor : anchor?.parentElement;
+      const block = element?.closest<HTMLElement>(
+        "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
+      );
+      return block?.tagName === "H2" ? "heading3" : "heading2";
+    });
+    await runSlashCommand(headingCommand);
+    await editor.press(lineEndKey);
+    await editor.press("Enter");
+    if (!(await plainLineState()).valid) {
+      throw new Error(
+        `${label} setup did not create a paragraph after a heading`,
+      );
+    }
   };
   const selectToken = async (token: string, edge?: "start" | "end") =>
     editor.evaluate(
@@ -2918,14 +3294,50 @@ export async function runAuthoringFuzz(
           await editor.press(lineStartKey);
           await editor.press("Enter");
           break;
-        case "backspace-block-edge":
+        case "backspace-block-edge": {
+          await prepareParagraphPair("block-edge Backspace");
+          const leftToken = `merge-left-${activeIndex}`;
+          const rightToken = `merge-right-${activeIndex}`;
+          await editor.press(`${modifier}+B`);
+          await typeText(leftToken);
+          await editor.press(`${modifier}+B`);
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+          if (!(await plainLineState()).valid) {
+            throw new Error(
+              "block-edge Backspace setup did not create a plain paragraph",
+            );
+          }
+          await editor.press(`${modifier}+B`);
+          await editor.press(`${modifier}+I`);
+          await typeText(rightToken);
+          await editor.press(`${modifier}+I`);
+          await editor.press(`${modifier}+B`);
+          await placeCaretAtToken(rightToken, "start");
+          await snapshotEditorSiblings("capture", operation, true);
           await editor.press(lineStartKey);
           await editor.press("Backspace");
           break;
-        case "delete-block-edge":
-          await editor.press(lineStartKey);
+        }
+        case "delete-block-edge": {
+          await prepareParagraphPair("block-edge Delete");
+          const leftToken = `delete-left-${activeIndex}`;
+          const rightToken = `delete-right-${activeIndex}`;
+          await editor.press(`${modifier}+B`);
+          await typeText(leftToken);
+          await editor.press(`${modifier}+B`);
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+          await editor.press(`${modifier}+B`);
+          await editor.press(`${modifier}+I`);
+          await typeText(rightToken);
+          await editor.press(`${modifier}+I`);
+          await editor.press(`${modifier}+B`);
+          await placeCaretAtToken(leftToken, "end");
+          await snapshotEditorSiblings("capture", operation, true);
           await editor.press("Delete");
           break;
+        }
         case "enter-list-edge":
           await createList("ul");
           {
@@ -3277,15 +3689,22 @@ export async function runAuthoringFuzz(
           break;
         }
         case "vertical-navigation": {
-          await newPlainLine("vertical navigation");
-          const firstLine = "x".repeat(24);
-          const secondLine = "x".repeat(16);
+          const firstLine = "x".repeat(4);
+          const secondLine = "x".repeat(3);
+          await runSlashCommand("heading2");
           await typeText(firstLine);
-          await editor.press("Shift+Enter");
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+          await runSlashCommand("heading2");
           await typeText(secondLine);
+          await editor.press("ArrowLeft");
+          await snapshotEditorSiblings("capture", operation);
           const before = await inspectSelection();
           const beforeRect = await editor.evaluate(
-            (root: HTMLElement, expected: string) => {
+            (
+              root: HTMLElement,
+              values: { firstLine: string; secondLine: string },
+            ) => {
               const selection = window.getSelection();
               const range = selection?.rangeCount
                 ? selection.getRangeAt(0)
@@ -3294,32 +3713,67 @@ export async function runAuthoringFuzz(
               const anchor = selection?.anchorNode;
               const element =
                 anchor instanceof HTMLElement ? anchor : anchor?.parentElement;
-              const block = element?.closest<HTMLElement>(
-                "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
+              const blockSelector = "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre";
+              const candidates = [
+                ...(root.matches(blockSelector) ? [root] : []),
+                ...Array.from(
+                  root.querySelectorAll<HTMLElement>(blockSelector),
+                ),
+              ];
+              const normalizeText = (value: string) =>
+                value.replaceAll(/[\u200b\ufeff\u00a0]/g, "");
+              const firstBlock = candidates.find(
+                (candidate) =>
+                  normalizeText(candidate.textContent ?? "") ===
+                  values.firstLine,
               );
-              const localText = (block?.textContent ?? root.textContent ?? "")
-                .replaceAll("\u200b", "")
-                .replaceAll("\ufeff", "")
-                .replaceAll("\u00a0", "");
+              const secondBlock = candidates.find(
+                (candidate) =>
+                  normalizeText(candidate.textContent ?? "") ===
+                  values.secondLine,
+              );
+              const block =
+                secondBlock ??
+                element?.closest<HTMLElement>(blockSelector) ??
+                root;
+              const localText = normalizeText(block.textContent ?? "");
               return {
                 focused: document.activeElement === root,
                 collapsed: selection?.isCollapsed ?? false,
                 blockTag: block?.tagName ?? root.tagName,
                 blockTextLength: localText.length,
-                blockTailMatches: localText.endsWith(expected),
+                blockTailMatches: localText.endsWith(values.secondLine),
+                separateBlocks:
+                  !!firstBlock && !!secondBlock && firstBlock !== secondBlock,
+                sameBlockTag:
+                  !!firstBlock &&
+                  !!secondBlock &&
+                  firstBlock.tagName === secondBlock.tagName,
+                firstBlockFound: !!firstBlock,
+                blockCandidates: candidates.map((candidate) => ({
+                  tag: candidate.tagName,
+                  textLength: normalizeText(candidate.textContent ?? "").length,
+                  isRoot: candidate === root,
+                  parent: candidate.parentElement?.tagName ?? null,
+                })),
                 x: rect?.x ?? null,
                 y: rect?.y ?? null,
                 height: rect?.height ?? 0,
               };
             },
-            secondLine,
+            { firstLine, secondLine },
           );
-          const lineStart = before.start - firstLine.length - secondLine.length;
+          const lineStart =
+            before.start - firstLine.length - secondLine.length + 1;
           if (
             !before.inside ||
             !before.collapsed ||
             !beforeRect.blockTailMatches ||
-            before.start !== lineStart + firstLine.length + secondLine.length ||
+            !beforeRect.separateBlocks ||
+            !beforeRect.sameBlockTag ||
+            !beforeRect.firstBlockFound ||
+            before.start !==
+              lineStart + firstLine.length + secondLine.length - 1 ||
             !beforeRect.focused ||
             !beforeRect.collapsed ||
             beforeRect.x === null ||
@@ -3366,10 +3820,25 @@ export async function runAuthoringFuzz(
             const rect = range?.getBoundingClientRect();
             return { x: rect?.x ?? null, y: rect?.y ?? null };
           });
+          const upBlockMatchesFirst = await editor.evaluate(
+            (root: HTMLElement, expected: string) => {
+              const anchor = window.getSelection()?.anchorNode;
+              const element =
+                anchor instanceof HTMLElement ? anchor : anchor?.parentElement;
+              const block = element?.closest<HTMLElement>(
+                "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
+              );
+              return (
+                block?.textContent?.replaceAll(/[\u200b\ufeff\u00a0]/g, "") ===
+                  expected && root.contains(block)
+              );
+            },
+            firstLine,
+          );
           if (
             !up.inside ||
             !up.collapsed ||
-            up.start !== lineStart + secondLine.length ||
+            !upBlockMatchesFirst ||
             beforeRect.x === null ||
             beforeRect.y === null ||
             upRect.x === null ||
@@ -3378,7 +3847,7 @@ export async function runAuthoringFuzz(
             upRect.y >= beforeRect.y
           ) {
             throw new Error(
-              `ArrowUp did not preserve the caret column (${before.start} at ${beforeRect.x},${beforeRect.y} to ${up.start} at ${upRect.x},${upRect.y})`,
+              `ArrowUp did not preserve the caret column (${before.start} at ${beforeRect.x},${beforeRect.y} to ${up.start} at ${upRect.x},${upRect.y}; in first block=${upBlockMatchesFirst})`,
             );
           }
           await editor.press("ArrowDown");
@@ -3570,7 +4039,8 @@ export async function runAuthoringFuzz(
         )
       ) {
         throw new Error(
-          `sibling block inside the editor moved or restyled: ${siblingChanges.slice(0, 5).join(", ")}`,
+          "sibling block inside the editor moved or restyled: " +
+            siblingChanges.slice(0, 5).join(", "),
         );
       }
       await assertOutsideUnchanged();
@@ -3587,8 +4057,17 @@ export async function runAuthoringFuzz(
       page.evaluate((selector: string) => {
         const root = document.querySelector(selector);
         const selection = window.getSelection();
+        const historyStats =
+          root instanceof HTMLElement
+            ? ((
+                root as HTMLElement & {
+                  __slidesInPlaceTextHistoryStats?: Record<string, unknown>;
+                }
+              ).__slidesInPlaceTextHistoryStats ?? null)
+            : null;
         return {
           html: root instanceof HTMLElement ? root.innerHTML : null,
+          historyStats,
           inside:
             root instanceof HTMLElement &&
             !!selection?.rangeCount &&
@@ -3782,16 +4261,43 @@ export async function runAuthoringFuzz(
     };
   } catch (error) {
     const prefix = replay();
+    let diagnostics:
+      | { status: "available"; value: Record<string, unknown> }
+      | { status: "unavailable"; error: string };
+    try {
+      const value = await page.evaluate((selector: string) => {
+        const root = document.querySelector(selector);
+        const scope = window as Window & {
+          __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
+        };
+        return {
+          historyStats:
+            root instanceof HTMLElement
+              ? ((
+                  root as HTMLElement & {
+                    __slidesInPlaceTextHistoryStats?: Record<string, unknown>;
+                  }
+                ).__slidesInPlaceTextHistoryStats ?? null)
+              : null,
+          recentInputEvents:
+            scope.__slidesAuthoringInputTrace?.slice(-12) ?? [],
+        };
+      }, editorSelector);
+      diagnostics = { status: "available", value };
+    } catch (diagnosticError) {
+      diagnostics = { status: "unavailable", error: String(diagnosticError) };
+    }
     throw formatAuthoringFuzzFailure(
       seed,
       activePhase,
       prefix,
-      String(error),
+      `${String(error)}\ndiagnostics: ${JSON.stringify(diagnostics)}`,
       options.browser,
     );
   } finally {
     page.off("console", onConsole);
     page.off("pageerror", onPageError);
     page.off("response", onResponse);
+    page.off("requestfailed", onRequestFailed);
   }
 }

@@ -971,7 +971,7 @@ describe("AgentKitChat", () => {
                 },
                 {
                   type: "text",
-                  text: "Also tell @Steve.",
+                  text: "Also tell @Steve about any @builder.io booking.",
                 },
                 {
                   type: "file",
@@ -1050,7 +1050,12 @@ describe("AgentKitChat", () => {
 
     expect(htmlWithComposer).toContain('aria-label="Edit message"');
     expect(htmlWithComposer).toContain('data-mention-label="latest run"');
-    expect(htmlWithComposer).toContain('data-mention-label="Steve"');
+    // Plain "@word" text is not a reference, so it stays literal text.
+    expect(htmlWithComposer).not.toContain('data-mention-label="Steve"');
+    expect(htmlWithComposer).not.toContain('data-mention-label="builder"');
+    expect(htmlWithComposer).toContain(
+      "Also tell @Steve about any @builder.io booking.",
+    );
     expect(htmlWithComposer).toContain('aria-label="Preview latest-run.png"');
     expect(htmlWithComposer).toContain("Pasted text");
     expect(htmlWithComposer).toContain("agentkit-file--pasted-text");
@@ -1801,4 +1806,103 @@ describe("AgentKitChat", () => {
       { error: failure, runId: "run-failure", threadId: "thread-1" },
     ]);
   });
+
+  it.each([
+    { label: "with no work", work: false },
+    { label: "after its last work", work: true },
+  ])(
+    "keeps a failed run's card in its own turn, above a newer turn ($label)",
+    async ({ work }) => {
+      const transport: AgentTransport = {
+        async startRun(input) {
+          return {
+            runId: input.messages.length === 1 ? "run-failed" : "run-next",
+          };
+        },
+        async *subscribeToRun({ runId }) {
+          const base = {
+            threadId: "thread-1",
+            runId,
+            occurredAt:
+              runId === "run-failed"
+                ? "2026-10-05T17:01:00.000Z"
+                : "2026-10-05T17:11:00.000Z",
+          };
+          yield { ...base, id: `${runId}-1`, sequence: 1, type: "run.started" };
+          if (runId === "run-failed") {
+            let sequence = 1;
+            if (work) {
+              yield {
+                ...base,
+                id: `${runId}-work`,
+                sequence: ++sequence,
+                type: "activity.started",
+                activity: {
+                  id: "activity-1",
+                  kind: "tool",
+                  label: "Charging the card",
+                  status: "running",
+                },
+              };
+            }
+            yield {
+              ...base,
+              id: `${runId}-failed`,
+              sequence: ++sequence,
+              type: "run.failed",
+              error: {
+                code: "stale_run",
+                message: "The agent stopped before it could finish.",
+                retryable: true,
+              },
+            };
+            return;
+          }
+          yield {
+            ...base,
+            id: `${runId}-reply`,
+            sequence: 2,
+            type: "message.completed",
+            message: {
+              id: "assistant-next",
+              role: "assistant",
+              parts: [{ type: "text", text: "Newer answer" }],
+            },
+          };
+          yield {
+            ...base,
+            id: `${runId}-done`,
+            sequence: 3,
+            type: "run.completed",
+          };
+        },
+        async cancelRun() {},
+      };
+      let clock = "2026-10-05T17:00:00.000Z";
+      const client = new AgentKitClient({ transport, now: () => clock });
+      await (
+        await client.sendMessage({ threadId: "thread-1", text: "First turn" })
+      ).completed;
+      clock = "2026-10-05T17:10:00.000Z";
+      await (
+        await client.sendMessage({ threadId: "thread-1", text: "Next turn" })
+      ).completed;
+
+      const html = renderToStaticMarkup(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitChat composer={false} />
+        </AgentKitProvider>,
+      );
+
+      const order = [
+        "First turn",
+        ...(work ? ["Charging the card"] : []),
+        'data-run-id="run-failed"',
+        "Next turn",
+        "Newer answer",
+      ].map((text) => html.indexOf(text));
+      expect(order.every((index) => index >= 0)).toBe(true);
+      expect(order).toEqual([...order].sort((left, right) => left - right));
+    },
+  );
 });

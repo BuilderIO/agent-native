@@ -44,6 +44,9 @@ vi.mock("@agent-native/core/org", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   captureRouteError: vi.fn(),
+  getForwardedRequestOrigin: (...args: unknown[]) =>
+    mockGetRequestURL(...args).origin,
+  getForwardedRequestURL: (...args: unknown[]) => mockGetRequestURL(...args),
   getSession: (...args: unknown[]) => mockGetSession(...args),
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
@@ -251,7 +254,7 @@ describe("/api/thumbnail/:recordingId route", () => {
     mockGetDb.mockReturnValue(
       createDbWithRow(
         makeRow({
-          thumbnailUrl: "data:image/png;base64,aGVsbG8=",
+          thumbnailUrl: "data:image/png;charset=binary;base64,aGVsbG8=",
         }),
       ),
     );

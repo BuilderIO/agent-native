@@ -1,7 +1,11 @@
-import type { AssistantChatHistoryVersion } from "@agent-native/core/client/agent-chat";
+import {
+  isOpenAiMcpAppHost,
+  type AssistantChatHistoryVersion,
+} from "@agent-native/core/client/agent-chat";
 import { isAssistantChatHistoryVersion } from "@agent-native/core/client/assistant-chat-history-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import {
   HeaderActionsProvider,
@@ -54,8 +58,11 @@ import {
   SIDEBAR_WIDTH_KEY,
 } from "./sidebar-preferences";
 import { SidebarTriggerContext } from "./sidebar-trigger";
-
-export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)";
+import {
+  ContentLayoutContext,
+  ContentUtilityRailContext,
+  useContentShellLayout,
+} from "./use-content-layout";
 
 // `/home` draws the page placeholder, with its own toolbar, until it opens the
 // landing page.
@@ -72,22 +79,6 @@ function loadSidebarWidth(): number {
   return DEFAULT_SIDEBAR_WIDTH;
 }
 
-function useIsCompactLayout() {
-  const [isNarrow, setIsNarrow] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      window.matchMedia(COMPACT_LAYOUT_QUERY).matches,
-  );
-  useEffect(() => {
-    const media = window.matchMedia(COMPACT_LAYOUT_QUERY);
-    const update = () => setIsNarrow(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-  return isNarrow;
-}
-
 export function documentPageIdFromPathname(pathname: string) {
   return pathname.match(/^\/page\/(.+)/)?.[1] ?? null;
 }
@@ -98,6 +89,8 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const openAiWidget = isOpenAiMcpAppHost();
+  const mcpAppWidgetEmbed = useIsMcpAppWidgetEmbed();
   const navigation = useNavigation();
   const pendingPathname = navigation.location?.pathname ?? null;
   const chromePathname = pendingPathname ?? location.pathname;
@@ -196,25 +189,53 @@ export function Layout({ children }: LayoutProps) {
       },
     };
   }, [documentScope, t]);
-  const isCompactLayout = useIsCompactLayout();
-  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
-    usePersistentSidebarCollapsed({
-      storageKey: SIDEBAR_COLLAPSED_KEY,
-      defaultCollapsed: false,
-    });
+  const {
+    collapsed: userSidebarCollapsed,
+    setCollapsed: setUserSidebarCollapsed,
+  } = usePersistentSidebarCollapsed({
+    storageKey: SIDEBAR_COLLAPSED_KEY,
+    defaultCollapsed: false,
+  });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const layoutShellRef = useRef<HTMLDivElement>(null);
   const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
   const openSearchAfterSidebarCloseRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+  // Space can narrow the sidebar past the user's choice; that is derived
+  // here and never written back to the saved preference.
+  const {
+    layout: shellLayout,
+    dockedSidebarMaxWidth,
+    canDockSidebar,
+    holdUtilityRail,
+  } = useContentShellLayout({
+    shellRef: layoutShellRef,
+    sidebar: { collapsed: userSidebarCollapsed, width: sidebarWidth },
+  });
+  const isCompactLayout = shellLayout.sidebar === "drawer";
+  const sidebarCollapsed = shellLayout.sidebar === "rail";
 
-  const handleSidebarResize = useCallback((width: number) => {
-    const clamped = Math.max(
-      MIN_SIDEBAR_WIDTH,
-      Math.min(MAX_SIDEBAR_WIDTH, width),
-    );
-    setSidebarWidth(clamped);
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(clamped));
-  }, []);
+  const handleSidebarResize = useCallback(
+    (width: number) => {
+      const clamped = Math.max(
+        MIN_SIDEBAR_WIDTH,
+        Math.min(MAX_SIDEBAR_WIDTH, dockedSidebarMaxWidth(), width),
+      );
+      setSidebarWidth(clamped);
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(clamped));
+    },
+    [dockedSidebarMaxWidth],
+  );
+
+  const toggleDockedSidebar = useCallback(() => {
+    if (!sidebarCollapsed) {
+      setUserSidebarCollapsed(true);
+    } else if (canDockSidebar()) {
+      setUserSidebarCollapsed(false);
+    } else {
+      setMobileSidebarOpen(true);
+    }
+  }, [canDockSidebar, setUserSidebarCollapsed, sidebarCollapsed]);
 
   const showHeader =
     !fullWidthSettings &&
@@ -237,77 +258,106 @@ export function Layout({ children }: LayoutProps) {
   }, [createPage]);
 
   useEffect(() => {
-    if (isCompactLayout) {
-      window.dispatchEvent(new Event("agent-panel:close"));
-    }
-  }, [isCompactLayout]);
-
-  useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.key]);
 
-  const mobileSidebarTrigger = isCompactLayout ? (
-    <Button
-      ref={sidebarTriggerRef}
-      type="button"
-      variant="ghost"
-      size="icon-lg"
-      aria-label={t("navigation.openSidebar")}
-      aria-expanded={mobileSidebarOpen}
-      aria-haspopup="dialog"
-      className="shrink-0 rounded-lg text-muted-foreground"
-      onClick={() => setMobileSidebarOpen(true)}
-    >
-      <IconMenu2 size={18} />
-    </Button>
-  ) : null;
-  const contentSidebarWidth = isCompactLayout
-    ? 0
-    : sidebarCollapsed
-      ? 48
-      : sidebarWidth;
+  useEffect(() => {
+    if (shellLayout.sidebar !== "drawer") setMobileSidebarOpen(false);
+  }, [shellLayout.sidebar]);
+
+  const mobileSidebarTrigger =
+    isCompactLayout && !openAiWidget ? (
+      <Button
+        ref={sidebarTriggerRef}
+        type="button"
+        variant="ghost"
+        size="icon-lg"
+        aria-label={t("navigation.openSidebar")}
+        aria-expanded={mobileSidebarOpen}
+        aria-haspopup="dialog"
+        className="shrink-0 rounded-lg text-muted-foreground"
+        onClick={() => setMobileSidebarOpen(true)}
+      >
+        <IconMenu2 size={18} />
+      </Button>
+    ) : null;
+  const contentSidebarWidth =
+    openAiWidget || isCompactLayout ? 0 : sidebarCollapsed ? 48 : sidebarWidth;
+
+  const sidebarSheet =
+    shellLayout.sidebar === "docked" || openAiWidget ? null : (
+      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+        <SheetContent
+          side="left"
+          showClose={false}
+          className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"
+          onCloseAutoFocus={(event) => {
+            if (openSearchAfterSidebarCloseRef.current) {
+              event.preventDefault();
+              openSearchAfterSidebarCloseRef.current = false;
+              openContentCommandMenu(sidebarTriggerRef.current ?? undefined);
+              return;
+            }
+            if (sidebarTriggerRef.current) {
+              event.preventDefault();
+              sidebarTriggerRef.current.focus();
+            }
+          }}
+        >
+          <SheetTitle className="sr-only">
+            {t("navigation.openSidebar")}
+          </SheetTitle>
+          <DocumentSidebar
+            activeDocumentId={activeDocumentId}
+            collapsed={false}
+            onToggleCollapsed={() => setMobileSidebarOpen(false)}
+            onNavigate={() => setMobileSidebarOpen(false)}
+            onOpenSearch={() => {
+              openSearchAfterSidebarCloseRef.current = true;
+              setMobileSidebarOpen(false);
+            }}
+          />
+        </SheetContent>
+      </Sheet>
+    );
+  // The MCP App host (ChatGPT, Codex, Claude) owns navigation and chat, so the
+  // widget gets no app chrome for any route.
+  if (mcpAppWidgetEmbed) {
+    return (
+      <HeaderActionsProvider>
+        <div className="agent-layout-shell flex h-dvh overflow-hidden bg-background">
+          <main
+            className="agent-native-app-main relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden"
+            style={{ "--content-sidebar-width": "0px" } as CSSProperties}
+          >
+            <SidebarTriggerContext.Provider value={null}>
+              {showPendingDocumentSkeleton && pendingDocumentId ? (
+                <DocumentEditorSkeleton
+                  title={pendingDocumentTitle}
+                  iconRow={readPageIconRowHint(pendingDocumentId)}
+                  shape={readPageShapeHint(pendingDocumentId)}
+                />
+              ) : (
+                children
+              )}
+            </SidebarTriggerContext.Provider>
+          </main>
+        </div>
+      </HeaderActionsProvider>
+    );
+  }
 
   return (
     <HeaderActionsProvider>
-      <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
+      <div
+        ref={layoutShellRef}
+        className="agent-layout-shell flex h-screen overflow-hidden bg-background"
+      >
+        {sidebarSheet}
         {isCompactLayout ? (
           <>
-            <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-              <SheetContent
-                side="left"
-                showClose={false}
-                className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"
-                onCloseAutoFocus={(event) => {
-                  if (openSearchAfterSidebarCloseRef.current) {
-                    event.preventDefault();
-                    openSearchAfterSidebarCloseRef.current = false;
-                    openContentCommandMenu(
-                      sidebarTriggerRef.current ?? undefined,
-                    );
-                    return;
-                  }
-                  if (sidebarTriggerRef.current) {
-                    event.preventDefault();
-                    sidebarTriggerRef.current.focus();
-                  }
-                }}
-              >
-                <SheetTitle className="sr-only">
-                  {t("navigation.openSidebar")}
-                </SheetTitle>
-                <DocumentSidebar
-                  activeDocumentId={activeDocumentId}
-                  collapsed={false}
-                  onToggleCollapsed={() => setMobileSidebarOpen(false)}
-                  onNavigate={() => setMobileSidebarOpen(false)}
-                  onOpenSearch={() => {
-                    openSearchAfterSidebarCloseRef.current = true;
-                    setMobileSidebarOpen(false);
-                  }}
-                />
-              </SheetContent>
-            </Sheet>
-            {showHeader ||
+            {openAiWidget ||
+            showHeader ||
             fullWidthSettings ||
             documentPageIdFromPathname(chromePathname) ||
             chromePathname.startsWith("/home") ? null : (
@@ -321,12 +371,12 @@ export function Layout({ children }: LayoutProps) {
               </button>
             )}
           </>
-        ) : fullWidthSettings ? null : (
+        ) : fullWidthSettings || openAiWidget ? null : (
           <div className="agent-layout-left-drawer flex shrink-0">
             <DocumentSidebar
               activeDocumentId={activeDocumentId}
               collapsed={sidebarCollapsed}
-              onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+              onToggleCollapsed={toggleDockedSidebar}
               width={sidebarWidth}
               minWidth={MIN_SIDEBAR_WIDTH}
               maxWidth={MAX_SIDEBAR_WIDTH}
@@ -336,6 +386,7 @@ export function Layout({ children }: LayoutProps) {
         )}
         <AgentSidebar
           position="right"
+          forceOverlay={shellLayout.agentPanel === "overlay"}
           defaultOpen={false}
           agentPageHref="/settings/agent"
           emptyStateText={t("chat.emptyState")}
@@ -351,32 +402,36 @@ export function Layout({ children }: LayoutProps) {
             creativeContextEnabled ? <CreativeContextComposerChip /> : undefined
           }
         >
-          <main
-            className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
-            style={
-              {
-                "--content-sidebar-width": `${contentSidebarWidth}px`,
-              } as CSSProperties
-            }
-          >
-            {showHeader ? (
-              <Header sidebarTrigger={mobileSidebarTrigger} />
-            ) : null}
-            <InvitationBanner
-              className={`${showHeader || fullWidthSettings ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
-            />
-            <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
-              {showPendingDocumentSkeleton && pendingDocumentId ? (
-                <DocumentEditorSkeleton
-                  title={pendingDocumentTitle}
-                  iconRow={readPageIconRowHint(pendingDocumentId)}
-                  shape={readPageShapeHint(pendingDocumentId)}
+          <ContentLayoutContext.Provider value={shellLayout}>
+            <ContentUtilityRailContext.Provider value={holdUtilityRail}>
+              <main
+                className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
+                style={
+                  {
+                    "--content-sidebar-width": `${contentSidebarWidth}px`,
+                  } as CSSProperties
+                }
+              >
+                {showHeader ? (
+                  <Header sidebarTrigger={mobileSidebarTrigger} />
+                ) : null}
+                <InvitationBanner
+                  className={`${showHeader || fullWidthSettings || openAiWidget ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
                 />
-              ) : (
-                children
-              )}
-            </SidebarTriggerContext.Provider>
-          </main>
+                <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
+                  {showPendingDocumentSkeleton && pendingDocumentId ? (
+                    <DocumentEditorSkeleton
+                      title={pendingDocumentTitle}
+                      iconRow={readPageIconRowHint(pendingDocumentId)}
+                      shape={readPageShapeHint(pendingDocumentId)}
+                    />
+                  ) : (
+                    children
+                  )}
+                </SidebarTriggerContext.Provider>
+              </main>
+            </ContentUtilityRailContext.Provider>
+          </ContentLayoutContext.Provider>
         </AgentSidebar>
       </div>
     </HeaderActionsProvider>

@@ -5,6 +5,7 @@ import {
   assertJobExecutionTargetFields,
   buildJobResourceContent,
   classifyJobResource,
+  droppedJobFrontmatterKeys,
   isRecoveredFactoryJob,
   jobBelongsToApp,
   recoveredFactoryOwnerOrgId,
@@ -350,5 +351,95 @@ Run the job.`),
     expect(recoveredFactoryOwnerOrgId({ orgId: "org-2" }, path, orgOwner)).toBe(
       null,
     );
+  });
+});
+
+describe("droppedJobFrontmatterKeys", () => {
+  const factoryJob = [
+    "---",
+    'schedule: "*/5 * * * *"',
+    "enabled: true",
+    "triggerType: schedule",
+    "orgId: org-1",
+    'lastRun: "2026-10-05T17:00:00.000Z"',
+    "lastStatus: success",
+    'nextRun: "2026-10-05T17:05:00.000Z"',
+    "source: slack",
+    "slackChannelId: C123",
+    "displayName: slack-feedback",
+    "promptVersion: 2",
+    "---",
+    "",
+    "Triage the channel.",
+  ].join("\n");
+
+  it("reports configuration a rewrite removed", () => {
+    const rewritten = [
+      "---",
+      'schedule: "*/5 * * * *"',
+      "enabled: true",
+      "orgId: org-1",
+      'lastRun: "2026-10-05T17:05:00.000Z"',
+      "lastStatus: running",
+      "---",
+      "",
+      "Triage the channel.",
+    ].join("\n");
+
+    expect(droppedJobFrontmatterKeys(factoryJob, rewritten)).toEqual([
+      "triggerType",
+      "source",
+      "slackChannelId",
+      "displayName",
+      "promptVersion",
+    ]);
+  });
+
+  it("does not count scheduler bookkeeping as lost configuration", () => {
+    const afterRun = patchJobFrontmatterFields(factoryJob, {
+      lastRun: undefined,
+      lastStatus: undefined,
+      nextRun: undefined,
+    });
+
+    expect(droppedJobFrontmatterKeys(factoryJob, afterRun)).toEqual([]);
+  });
+
+  it("reports nothing for an in-place patch of other fields", () => {
+    const patched = patchJobFrontmatterFields(factoryJob, {
+      enabled: false,
+      lastStatus: "running",
+    });
+
+    expect(droppedJobFrontmatterKeys(factoryJob, patched)).toEqual([]);
+  });
+
+  it("reports every configuration field when the frontmatter itself is gone", () => {
+    expect(droppedJobFrontmatterKeys(factoryJob, "Just a body.")).toEqual([
+      "schedule",
+      "enabled",
+      "triggerType",
+      "orgId",
+      "source",
+      "slackChannelId",
+      "displayName",
+      "promptVersion",
+    ]);
+  });
+
+  it("ignores a file that had no frontmatter to lose", () => {
+    expect(droppedJobFrontmatterKeys("A run log.", factoryJob)).toEqual([]);
+  });
+
+  it("reads CRLF frontmatter the same way", () => {
+    const crlf = factoryJob.replace(/\n/g, "\r\n");
+    const stripped = crlf
+      .split("\r\n")
+      .filter((line) => !line.startsWith("slackChannelId"))
+      .join("\r\n");
+
+    expect(droppedJobFrontmatterKeys(crlf, stripped)).toEqual([
+      "slackChannelId",
+    ]);
   });
 });

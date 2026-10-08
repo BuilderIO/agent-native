@@ -1470,6 +1470,19 @@ export default {
       "इस रीप्ले को फिर से बनाने के लिए उपयोग किए गए स्कोप्ड चंक। प्रदाता URL निजी रहते हैं।",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "स्क्रीनशॉट डाउनलोड करें",
+    savingScreenshot: "स्क्रीनशॉट सहेजा जा रहा है…",
+    screenshotDownloaded: "स्क्रीनशॉट डाउनलोड हो गया",
+    screenshotSaveFailed: "स्क्रीनशॉट सहेजा नहीं जा सका",
+    copyScreenshot: "Design में कॉपी करें",
+    copyingScreenshot: "स्क्रीनशॉट कॉपी हो रहा है…",
+    screenshotCopiedForDesign: "स्क्रीनशॉट कॉपी हो गया। इसे Design में पेस्ट करें।",
+    screenshotCopyFailed:
+      "स्क्रीनशॉट कॉपी नहीं हो सका। इसे डाउनलोड करके PNG को Design में अपलोड करें।",
+    screenshotCopyUnsupportedAssets:
+      "स्क्रीनशॉट कॉपी नहीं हुआ: इस क्षण में ऐसा मीडिया या छवियाँ हैं जिन्हें सुरक्षित रूप से कैप्चर नहीं किया जा सकता। रीप्ले में कोई दूसरा क्षण आज़माएँ।",
+    screenshotUnsupportedAssets:
+      "स्क्रीनशॉट सहेजा नहीं गया: कुछ एम्बेड किए गए मीडिया या छवियों को सुरक्षित रूप से कैप्चर नहीं किया जा सका।",
     timeline: "इवेंट टाइमलाइन",
     replayTimeline: "रीप्ले टाइमलाइन",
     timelineDescription: "{{total}} में से {{count}} उपयोगी इवेंट दिखाए जा रहे हैं।",
@@ -1503,8 +1516,12 @@ export default {
     time: "समय",
     storageSetupTitle: "रीप्ले स्टोरेज कनेक्ट करें",
     storageSetupDescription:
-      "चंक्स सेव करने से पहले सेशन रीप्ले रिकॉर्डिंग के लिए स्टोरेज ज़रूरी है। फ्री-टियर स्टोरेज के लिए Builder.io इस्तेमाल करें, या अपना खुद का S3-संगत बकेट कॉन्फ़िगर करें।",
+      "सेशन रीप्ले के लिए फ़ाइल अपलोड का अधिकृत प्रदाता चाहिए। अपलोड की अनुमति मिलने पर Builder.io इन्हें स्टोर कर सकता है, या अपना S3-संगत बकेट कॉन्फ़िगर करें।",
     storageConnected: "स्टोरेज कनेक्ट हो गया",
+    storageStatusUnavailable:
+      "रीप्ले स्टोरेज की स्थिति जाँची नहीं जा सकी। अपलोड तैयार हैं या नहीं, यह देखने के लिए फिर से प्रयास करें।",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io AI और क्रेडिट के लिए कनेक्ट है, लेकिन रीप्ले अपलोड के लिए अलग स्टोरेज अनुमति चाहिए।",
     connectBuilder: "Builder.io इस्तेमाल करें",
     configureS3: "S3 स्टोरेज कॉन्फ़िगर करें",
     devtools: "डेव टूल्स",
@@ -1535,6 +1552,53 @@ export default {
     devtoolsNoNetwork: "इस सत्र में कोई नेटवर्क गतिविधि कैप्चर नहीं हुई।",
     devtoolsNoConsoleMatches: "मौजूदा फ़िल्टर से मेल खाने वाला कोई कंसोल संदेश नहीं है।",
     devtoolsNoNetworkMatches: "मौजूदा फ़िल्टर से मेल खाने वाला कोई अनुरोध नहीं है।",
+    storyboardSelectionCoverage:
+      "{{total}} रीप्ले सेशन में से {{selected}} चुने गए ({{percent}})।",
+    storyboardSelectHint: "स्टोरीबोर्ड बनाने के लिए अधिकतम 3 सेशन चुनें।",
+    clearStoryboardSelection: "चयन हटाएँ",
+    createStoryboard: "स्टोरीबोर्ड बनाएँ",
+    selectReplayForStoryboard: "स्टोरीबोर्ड के लिए रीप्ले {{id}} चुनें",
+    storyboardDesignId: "Design ID (वैकल्पिक)",
+    storyboardTitle: "स्टोरीबोर्ड का शीर्षक",
+    storyboardDefaultTitle: "सेशन रीप्ले स्टोरीबोर्ड",
+    storyboardTimestamps: "टाइमस्टैम्प (अधिकतम 3, कॉमा से अलग)",
+    storyboardReplayPreview: "रीप्ले पूर्वावलोकन",
+    storyboardStartingCapture: "ब्राउज़र कैप्चर चयनकर्ता में यह Analytics टैब चुनें।",
+    storyboardLoadingReplay: "रीप्ले {{replayId}} लोड हो रहा है…",
+    storyboardCapturingFrame:
+      "{{current}} / {{total}} कैप्चर हो रहा है · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "स्क्रीनशॉट Design को भेजे जा रहे हैं…",
+    storyboardComplete: "{{screenshots}} स्क्रीनशॉट Design में जोड़े गए।",
+    storyboardTimestampError: "mm:ss, hh:mm:ss या mm:ss.mmm का उपयोग करें।",
+    storyboardTimestampRequired:
+      "हर चुने गए रीप्ले के लिए कम से कम एक टाइमस्टैम्प दर्ज करें।",
+    storyboardTimestampLimit: "हर रीप्ले के लिए अधिकतम 3 टाइमस्टैम्प चुनें।",
+    storyboardDuplicateTimestamp: "डुप्लिकेट टाइमस्टैम्प हटाएँ।",
+    storyboardScreenshotLimit: "अधिकतम 9 स्क्रीनशॉट चुनें।",
+    storyboardReplayLimit: "अधिकतम 3 सेशन रीप्ले चुनें।",
+    storyboardCaptureFailed: "स्क्रीनशॉट कैप्चर नहीं हो सका।",
+    storyboardCanceled: "कैप्चर रद्द किया गया।",
+    storyboardReplayIncomplete:
+      "रीप्ले {{replayId}} में अनुपलब्ध इवेंट हैं; एक्सपोर्ट रोक दिया गया।",
+    storyboardViewportUnavailable: "रिकॉर्ड किए गए व्यूपोर्ट के आयाम उपलब्ध नहीं हैं।",
+    storyboardTimestampOutOfRange:
+      "टाइमस्टैम्प रीप्ले {{replayId}} की अवधि से बाहर है।",
+    storyboardScreenshotTooLarge: "एक स्क्रीनशॉट 5 MB की सीमा से बड़ा है।",
+    storyboardBatchTooLarge: "स्क्रीनशॉट बैच 20 MB की सीमा से बड़ा है।",
+    storyboardRouteUnavailable:
+      "{{timestamp}} पर रीप्ले {{replayId}} का रूट उपलब्ध नहीं है।",
+    storyboardNoDesignResponse: "Design ने स्टोरीबोर्ड का परिणाम नहीं लौटाया।",
+    storyboardTemporaryCleanupPending:
+      "स्टोरीबोर्ड सहेजा गया, लेकिन अस्थायी स्क्रीनशॉट फ़ाइलें हटाई नहीं जा सकीं।",
+    storyboardTemporaryCleanupFailed: "अस्थायी स्क्रीनशॉट की सफ़ाई अभी भी लंबित है।",
+    storyboardUnexpectedResponse:
+      "स्क्रीनशॉट निर्यात से अपठनीय प्रतिक्रिया मिली। फिर से प्रयास करें।",
+    storyboardSaveOutcomeUnknown:
+      "Design ने स्टोरीबोर्ड सहेजा हो सकता है। दोबारा कोशिश करने से पहले Design देखें।",
+    openStoryboard: "Design में स्टोरीबोर्ड खोलें",
+    cancelStoryboardCapture: "कैप्चर रद्द करें",
+    captureToDesign: "कैप्चर करके Design में जोड़ें",
+    storyboardSelectAnalyticsTab: "ब्राउज़र कैप्चर चयनकर्ता में यह Analytics टैब चुनें।",
   },
   catalog: {
     description: "स्रोत-नियंत्रित डैशबोर्ड आपके कार्यक्षेत्र में स्थापित करने के लिए तैयार हैं।",

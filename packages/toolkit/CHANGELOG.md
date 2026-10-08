@@ -1,5 +1,43 @@
 # @agent-native/toolkit
 
+## 0.204.0
+
+### Patch Changes
+
+- c8bbbd4: Clarify Builder setup choices in the shared first-run onboarding flow.
+- 4ba5ea5: Render action chat UI in the AgentSidebar conversation.
+- Release all public npm packages with a patch version bump.
+- 4c1d77f: Open the "Connect storage to upload files" popover only after the composer's Add context menu finishes closing, anchored to the + button, so it no longer slides across the screen and disappears.
+- Updated dependencies
+- Updated dependencies [bed3b01]
+  - @agent-native/agentkit@0.204.0
+
+## 0.203.1
+
+### Patch Changes
+
+- b717c70: Move AgentKit usage below message actions and round credits to one decimal place.
+- Release all public npm packages with a patch version bump.
+- 2842af8: Keep failed spawned-agent cards visually neutral in chat.
+- Updated dependencies
+  - @agent-native/agentkit@0.203.1
+
+## 0.203.0
+
+### Patch Changes
+
+- 8944abb: Accept SVG files in agent chat again, as reference attachments. A dropped file that can't be added now shows a short, wrapping error naming the file instead of a clipped list of accepted types, and prompt composers without their own error surface show the rejection inline instead of ignoring the file.
+- 6b0f888: Show per-run provider or Builder credit costs in chat, and keep historical usage without billing metadata unclassified across usage dashboards.
+- d317d31: Keep model choices current and show the Builder.io included-services count immediately.
+- Release all public npm packages with a patch version bump.
+- 6f748b3: Keep ocean renderer tuning and color modules out of the signup hydration entry chunk.
+- de755c7: Keep signup wave backgrounds empty until the ocean is ready and position them clear of the marketing copy.
+- Updated dependencies [3d573d7]
+- Updated dependencies
+- Updated dependencies [3d573d7]
+- Updated dependencies [4738d38]
+  - @agent-native/agentkit@0.203.0
+
 ## 0.202.0
 
 ### Minor Changes
@@ -1055,26 +1093,5 @@
 ### Patch Changes
 
 - 8afb252: Allow newly created empty collaborative editors to persist their first real user edit after the shared document finishes loading.
-
-## 0.10.5
-
-### Patch Changes
-
-- 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
-- 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
-- 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
-
-## 0.10.4
-
-### Patch Changes
-
-- 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
-  inside blocks created through the shared slash-command menu.
-
-## 0.10.3
-
-### Patch Changes
-
-- 180b41d: Preserve native pointer, keyboard, accessibility, and ref props when legacy Toolkit buttons are composed as menu triggers.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

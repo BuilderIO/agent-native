@@ -1059,6 +1059,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "{{stage}}を待機しています。リクエスト: {{action}}。",
+    widgetDocumentLoadStage: "保存済みページの本文",
+    widgetDraftCheckStage: "ページ下書きの復元",
+    widgetEditorInitStage: "リッチテキストエディターの初期化",
     iconPickerIcons: "アイコン",
     iconPickerEmoji: "絵文字",
     iconPickerRecent: "最近",

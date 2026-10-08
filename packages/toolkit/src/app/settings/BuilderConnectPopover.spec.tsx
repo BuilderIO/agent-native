@@ -193,9 +193,11 @@ describe("BuilderConnectPopover", () => {
       connecting: false,
       start: vi.fn(),
       retry,
-      statusResolved: false,
-      statusReadSettledCount: 1,
+      statusResolved: true,
+      statusReadSettledCount: 2,
+      errorKind: "status-read",
       agentNativeProvisioningEnabled: false,
+      error: "Couldn't reach Builder to check your account. Retrying.",
     };
 
     render(
@@ -216,6 +218,7 @@ describe("BuilderConnectPopover", () => {
     expect(consent?.textContent).toContain(
       "Couldn't read the Builder.io connections.",
     );
+    expect(consent?.textContent).not.toContain("Retrying.");
     expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
     click(
       [...(consent?.querySelectorAll("button") ?? [])].find(
@@ -227,6 +230,46 @@ describe("BuilderConnectPopover", () => {
       consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
         ?.disabled,
     ).toBe(true);
+  });
+
+  it("shows a connection error after an earlier status read failure", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry: vi.fn(() => true),
+      statusResolved: false,
+      statusReadSettledCount: 1,
+      errorKind: "connection" as const,
+      agentNativeProvisioningEnabled: true,
+      error: "Couldn't create your Builder account. Try again.",
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
+        trigger(),
+      ),
+    );
+    click(connectButton());
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.textContent).toContain(
+      "Couldn't create your Builder account. Try again.",
+    );
+    expect(consent?.textContent).not.toContain(
+      "Couldn't read the Builder.io connections.",
+    );
+    expect(
+      [...(consent?.querySelectorAll("button") ?? [])].some(
+        (button) => button.textContent === "Retry",
+      ),
+    ).toBe(false);
   });
 
   it("allows an explicit one-click handler for a custom flow", () => {
@@ -297,29 +340,33 @@ describe("BuilderConnectPopover", () => {
     expect(open).not.toHaveBeenCalled();
   });
 
-  it("keeps both choices and one-click creation when an account already exists", () => {
+  it("keeps the chooser busy during activation and available after it finishes", () => {
     const onConnect = vi.fn();
     const flow = {
       connecting: false,
+      configured: false,
+      error: null,
       start: vi.fn(),
       statusResolved: true,
       agentNativeProvisioningEnabled: true,
       accountExists: true,
     };
+    const renderPopover = () =>
+      render(
+        React.createElement(
+          BuilderConnectPopover,
+          {
+            flow,
+            onConnect,
+            contentTestId: "consent",
+            primaryTestId: "create",
+            secondaryTestId: "sign-in",
+          },
+          trigger(),
+        ),
+      );
 
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        {
-          flow,
-          onConnect,
-          contentTestId: "consent",
-          primaryTestId: "create",
-          secondaryTestId: "sign-in",
-        },
-        trigger(),
-      ),
-    );
+    renderPopover();
     click(connectButton());
 
     const consent = document.querySelector("[data-testid='consent']");
@@ -341,7 +388,17 @@ describe("BuilderConnectPopover", () => {
 
     click(consent?.querySelector("[data-testid='create']") as HTMLElement);
     expect(onConnect).toHaveBeenLastCalledWith(true);
-    click(connectButton());
+    flow.connecting = true;
+    renderPopover();
+    expect(document.body.querySelector('[role="status"]')).not.toBeNull();
+    expect(
+      document.querySelector<HTMLButtonElement>("[data-testid='sign-in']")
+        ?.disabled,
+    ).toBe(true);
+
+    flow.connecting = false;
+    flow.configured = true;
+    renderPopover();
     click(
       document.querySelector(
         "[data-testid='consent'] [data-testid='sign-in']",
@@ -440,7 +497,7 @@ describe("BuilderConnectPopover", () => {
     ).toEqual([
       "Included free",
       "60 monthly Agent Credits",
-      "+ 8 more services",
+      "LLM credits + 8 more services",
     ]);
     click(servicesToggle!);
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");

@@ -32,6 +32,7 @@ jobs:
       build: ${{ steps.scope.outputs.build }}
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
+      builder_code_starter_scaffold: ${{ steps.scope.outputs.builder_code_starter_scaffold }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
       ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
@@ -40,6 +41,7 @@ jobs:
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
+      design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
@@ -69,6 +71,7 @@ jobs:
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_PR_TITLE: ${{ github.event.pull_request.title }}
         run: node --experimental-strip-types scripts/ci-change-scope.ts
 
       # Full planning only reads manifests and counts files. Targeted planning
@@ -101,7 +104,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.lint == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -174,6 +177,10 @@ jobs:
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
+
+      - name: Build core declarations before dependent typechecks
+        if: needs.change-scope.outputs.full == 'true' || contains(needs.change-scope.outputs.test_workspace_filters, '{packages/core}')
+        run: pnpm --filter @agent-native/core run build
 
       - name: Typecheck affected workspaces
         env:
@@ -413,11 +420,48 @@ jobs:
           exit "$status"
 
   design-canvas-interaction-acceptance:
-    name: Design canvas interaction acceptance
+    name: Design canvas interaction acceptance (${{ matrix.shard }})
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 9
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          [
+            inspector-1a,
+            inspector-1b,
+            inspector-2,
+            inspector-3a,
+            inspector-3b,
+            inspector-4a,
+            inspector-4b,
+            drag-1a,
+            drag-1b,
+            drag-2a,
+            drag-2b,
+            position-1a,
+            position-1b,
+            position-2a,
+            position-2b,
+            position-3,
+            changed-1,
+            changed-2,
+            changed-3,
+            changed-4,
+            changed-5,
+            changed-6,
+            changed-7,
+            changed-8,
+            changed-9,
+            changed-10,
+            changed-11,
+            changed-12,
+            screen-history-1,
+            screen-history-2,
+            screen-history-3,
+          ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -435,28 +479,223 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --only-shell --with-deps chromium
+        run: pnpm exec playwright install --only-shell chromium
 
-      - name: Run focused Design canvas interaction cases
+      - name: Run focused Screen selection history regressions
+        if: startsWith(matrix.shard, 'screen-history-')
         working-directory: templates/design
+        timeout-minutes: 4
         env:
-          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}
+          E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
+          case "${{ matrix.shard }}" in
+            screen-history-1)
+              grep='undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry'
+              ;;
+            screen-history-2)
+              grep='a newer layer selection survives failed Screen deletion settlement|Shift-marquee adds a hit Screen to the existing Delete selection|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'
+              ;;
+            screen-history-3)
+              grep='deleting a selected child layer keeps its owning Screen|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen'
+              ;;
+            *)
+              echo "::error::Unknown Screen-history shard: ${{ matrix.shard }}"
+              exit 2
+              ;;
+          esac
           pnpm exec playwright test \
-            e2e/drag-and-drop.reparenting-rules.spec.ts \
-            e2e/drag-and-drop.auto-layout-parity.spec.ts \
-            e2e/cross-screen-auto-layout-parity.spec.ts \
-            e2e/drag-out-of-screen-to-board.spec.ts \
-            e2e/parity-drag-reparent.spec.ts \
-            e2e/corner-radius-handle-drag.spec.ts \
-            e2e/parity-vector-endpoints.spec.ts \
-            e2e/responsive-overview-regressions.spec.ts \
-            e2e/parity-report-interactions.spec.ts \
-            e2e/parity-oversized-nested.spec.ts \
-            e2e/parity-alt-drag-duplicate.spec.ts \
-            e2e/z-order-parity.spec.ts \
-            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|a layer dragged below the rendered Screen card moves to the board|a drag released inside rendered Hug overflow stays in its source Screen|a held screen child dropped beyond the rendered board window persists at that canvas point|overview screen creation and duplicate undo/redo keep screens selected and visible|cross-axis oversized drop rejects nested insertion despite main-axis fit|width-only oversized drop previews the outer fallback insertion slot|oversized drop from nested plain frames previews and lands in nearest fitting ancestor|oversized drop leaves a fitting static section without a valid ancestor|report path: board frame drops directly into a nested screen frame and survives undo/redo|report path: held board text drop into a nested frame shows guide and ghost, preserves z-order, and reloads|report path: a board layer crossing a nested frame lands directly above it in the outer frame|moves an absolute child into empty parent space directly after its exited frame|Figma G8 multi-selection preserves native order, painted order, and one-step undo|Figma G9 Bring to Front reorders an auto-layout child and undo restores it" \
+            e2e/parity-selection-history-delete-screen.spec.ts \
+            --grep "$grep" \
             --workers=1
+
+      - name: Run changed Design E2E specs
+        if: startsWith(matrix.shard, 'changed-')
+        working-directory: templates/design
+        timeout-minutes: 4
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+        run: |
+          set -euo pipefail
+          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
+          node -e '
+            const paths = JSON.parse(process.env.DESIGN_CANVAS_E2E_SPECS || "[]");
+            if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !path.startsWith("templates/design/e2e/"))) {
+              throw new Error("Invalid changed Design E2E spec list");
+            }
+            process.stdout.write(paths.map((path) => path.replace(/^templates\/design\//, "")).join(String.fromCharCode(0)));
+          ' > "$changed_specs_file"
+          mapfile -d '' -t changed_specs < "$changed_specs_file"
+          existing_changed_specs=()
+          for spec in "${changed_specs[@]}"; do
+            if [[ -f "$spec" ]]; then
+              existing_changed_specs+=("$spec")
+            fi
+          done
+          if ((${#existing_changed_specs[@]} == 0)); then
+            echo "No changed Design E2E specs to run."
+            exit 0
+          fi
+          changed_shard="${{ matrix.shard }}"
+          changed_shard="${changed_shard#changed-}"
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/12"
+
+      - name: Run focused Design regression cases
+        if: ${{ !startsWith(matrix.shard, 'screen-history-') && !startsWith(matrix.shard, 'changed-') }}
+        working-directory: templates/design
+        timeout-minutes: 4
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+        run: |
+          set -euo pipefail
+          # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
+          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
+          node -e '
+            const paths = JSON.parse(process.env.DESIGN_CANVAS_E2E_SPECS || "[]");
+            if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !path.startsWith("templates/design/e2e/"))) {
+              throw new Error("Invalid changed Design E2E spec list");
+            }
+            process.stdout.write(paths.map((path) => path.replace(/^templates\/design\//, "")).join(String.fromCharCode(0)));
+          ' > "$changed_specs_file"
+          mapfile -d '' -t changed_specs < "$changed_specs_file"
+          existing_changed_specs=()
+          for spec in "${changed_specs[@]}"; do
+            if [[ -f "$spec" ]]; then
+              existing_changed_specs+=("$spec")
+            fi
+          done
+          case "${{ matrix.shard }}" in
+            inspector-1a)
+              fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:508 \
+                e2e/canvas-invariants.spec.ts:1286 \
+                e2e/inspector-styles.spec.ts:176 \
+              )
+              ;;
+            inspector-1b)
+              fixed_specs=( \
+                e2e/inspector-styles.spec.ts:238 \
+                e2e/inspector-styles.spec.ts:314 \
+              )
+              ;;
+            inspector-2)
+              fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:383 \
+                e2e/canvas-invariants.spec.ts:538 \
+                e2e/inspector-styles.spec.ts:452 \
+                e2e/inspector-styles.spec.ts:610 \
+                e2e/inspector-styles.spec.ts:737 \
+              )
+              ;;
+            inspector-3a)
+              fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:1170 \
+                e2e/inspector-styles.spec.ts:833 \
+                e2e/inspector-styles.spec.ts:999 \
+              )
+              ;;
+            inspector-3b)
+              fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:1320 \
+                e2e/inspector-styles.spec.ts:880 \
+              )
+              ;;
+            inspector-4a)
+              fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:553 \
+                e2e/inspector-styles.spec.ts:541 \
+                e2e/inspector-styles.spec.ts:667 \
+              )
+              ;;
+            inspector-4b)
+              fixed_specs=( \
+                e2e/inspector-styles.spec.ts:798 \
+                e2e/inspector-styles.spec.ts:426 \
+              )
+              ;;
+            drag-1a)
+              fixed_specs=( \
+                e2e/corner-radius-handle-drag.spec.ts:239 \
+                e2e/overview-wheel-zoom.spec.ts:185 \
+              )
+              ;;
+            drag-1b)
+              fixed_specs=( \
+                e2e/drag-and-drop.drag-feedback.spec.ts:24 \
+                e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
+              )
+              ;;
+            drag-2a)
+              fixed_specs=( \
+                e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
+                e2e/parity-alt-drag-duplicate.spec.ts:1293 \
+                e2e/parity-selection.spec.ts:313 \
+              )
+              ;;
+            drag-2b)
+              fixed_specs=( \
+                e2e/parity-selection.spec.ts:451 \
+                e2e/parity-selection.spec.ts:572 \
+              )
+              ;;
+            position-1a)
+              fixed_specs=( \
+                e2e/pasted-svg-image-inspector.spec.ts:656 \
+                e2e/pasted-svg-image-inspector.spec.ts:693 \
+                e2e/position-alignment.spec.ts:361 \
+              )
+              ;;
+            position-1b)
+              fixed_specs=( \
+                e2e/position-alignment.spec.ts:431 \
+                e2e/position-alignment.spec.ts:509 \
+              )
+              ;;
+            position-2a)
+              fixed_specs=( \
+                e2e/position-alignment.spec.ts:292 \
+                e2e/position-alignment.spec.ts:570 \
+              )
+              ;;
+            position-2b)
+              fixed_specs=( \
+                e2e/position-alignment.spec.ts:615 \
+                e2e/position-alignment.spec.ts:661 \
+              )
+              ;;
+            position-3)
+              fixed_specs=( \
+                e2e/position-alignment.spec.ts:312 \
+                e2e/position-alignment.spec.ts:708 \
+                e2e/position-alignment.spec.ts:740 \
+                e2e/position-alignment.spec.ts:780 \
+              )
+              ;;
+            *)
+              echo "::error::Unknown Design interaction shard: ${{ matrix.shard }}"
+              exit 1
+              ;;
+          esac
+          focused_specs=()
+          for selector in "${fixed_specs[@]}"; do
+            spec="${selector%%:*}"
+            changed=false
+            for changed_spec in "${existing_changed_specs[@]}"; do
+              if [[ "$spec" == "$changed_spec" ]]; then
+                changed=true
+                break
+              fi
+            done
+            if [[ "$changed" == "false" ]]; then
+              focused_specs+=("$selector")
+            fi
+          done
+          if ((${#focused_specs[@]} == 0)); then
+            echo "All fixed regression cases are included in the changed-spec shard."
+            exit 0
+          fi
+          pnpm exec playwright test "${focused_specs[@]}" --workers=1
 
   fast-tests:
     name: Fast tests
@@ -661,7 +900,10 @@ jobs:
         working-directory: templates/content
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
-            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            -c e2e/playwright.config.ts \
+            e2e/two-tab-convergence.spec.ts \
+            e2e/chatgpt-widget-body-paint.spec.ts \
+            --workers=1 \
             --grep-invert @known-loss --output test-results/required
         env:
           CONTENT_E2E_SERVE_BUILD: "1"
@@ -777,14 +1019,38 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Check chat typing while slide text editing remains active
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
-
       - name: Check platform-aware line-edge caret navigation in slide text
         working-directory: templates/slides
         timeout-minutes: 10
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform linux
+
+  slides-chat-typing-e2e:
+    name: Slides chat typing during slide editing
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Check chat typing while slide text editing remains active
+        working-directory: templates/slides
+        timeout-minutes: 20
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 
   slides-macos-caret-qa:
     name: Slides caret navigation in macOS
@@ -892,7 +1158,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       DATABASE_URL: postgresql://postgres@127.0.0.1:5432/agent_native_build
     services:
@@ -1073,6 +1339,17 @@ jobs:
           pnpm --filter @agent-native/core exec vitest run
           src/cli/create-e2e.spec.ts
           -t "pnpm install, pnpm typecheck, and pnpm action hello all succeed"
+
+      - name: Builder Code starter — materialize + pnpm install + typecheck
+        if: needs.change-scope.outputs.builder_code_starter_scaffold == 'true'
+        env:
+          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
+        run: |
+          out="$(mktemp -d)/app"
+          node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" template materialize --template builder-code-starter --name app --out "$out"
+          cd "$out"
+          pnpm install
+          pnpm typecheck
 
       - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
         env:

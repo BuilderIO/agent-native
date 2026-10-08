@@ -939,6 +939,9 @@ export default {
         figmaPasteFailed: "Falha ao importar colagem do Figma",
         uploadFailed: "Falha no upload do arquivo",
         invalidFigFile: "Escolha um arquivo que termine em .fig.",
+        unsupportedFileType: "Escolha um arquivo .fig, .html ou .htm.",
+        importBusy:
+          "Outra importação está em andamento. Conclua ou cancele-a primeiro.",
         figFileTooLarge:
           "Esse .fig é grande demais — os envios são limitados a {{max}} MB. No Figma, copie apenas o frame desejado para um novo arquivo e exporte esse arquivo como .fig, ou use Colar do Figma.",
       },
@@ -978,7 +981,17 @@ export default {
     saveTemplate: "Salvar modelo",
     templateSaved: "Modelo salvo na biblioteca",
     templateSaveFailed: "Não foi possível salvar este modelo",
-    clickToRename: "Clique para renomear",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Aplique ou descarte suas edições visuais pendentes antes de duplicar.",
+      designs: "Designs",
+      rename: "Renomear",
+      duplicate: "Duplicar",
+      versionHistory: "Histórico de versões",
+      import: "Importar…",
+      delete: "Excluir",
+      deleteError: "Não foi possível excluir este design",
+    },
     collaborators: "Colaboradores",
     share: "Compartilhar",
     signUpToSave: "Criar conta",
@@ -1000,6 +1013,10 @@ export default {
       interact: "Interact",
       screens: "Telas",
     },
+    topBar: {
+      modeDesign: "Design",
+      modeSwitch: "Modo do editor",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1020,6 +1037,10 @@ export default {
     keyboardShortcuts: {
       title: "Atalhos de teclado",
       close: "Fechar: Atalhos de teclado",
+      search: "Pesquisar",
+      searchLabel: "Pesquisar atalhos de teclado",
+      categoriesLabel: "Categorias de atalhos",
+      empty: "Nenhum atalho corresponde a “{{query}}”",
       codeContext: "Código",
       screenContext: "Telas",
       nudgeAmount: {
@@ -1052,12 +1073,6 @@ export default {
         leftBracket: "Colchete esquerdo",
         rightBracket: "Colchete direito",
       },
-      descriptions: {
-        toggleUi:
-          "Pressione agora para ocultar os painéis e focar no seu trabalho",
-        undo: "Desfaça a alteração de design mais recente",
-        redo: "Restaure a alteração de design que você acabou de desfazer",
-      },
       categories: {
         essential: "Essenciais",
         tools: "Ferramentas",
@@ -1089,6 +1104,7 @@ export default {
         showLayers: "Camadas",
         showAssets: "Recursos",
         toggleUi: "View",
+        toggleMinimalUi: "Interface mínima",
         toggleComments: "Fixar comentário",
         zoomIn: "Aumentar zoom",
         zoomOut: "Diminuir zoom",
@@ -1593,6 +1609,8 @@ export default {
     assetAdded: "Recurso adicionado",
     assetsNoImageUrl: "Assets não retornou uma URL de imagem.",
     failedToUploadFile: "Falha ao carregar o arquivo",
+    imageAttachmentUnavailable:
+      "Não foi possível preparar esta imagem como referência visual. Anexe um arquivo PNG, JPG, GIF ou WebP menor.",
     attachmentsTooLarge:
       "Esses anexos são grandes demais. Os envios são limitados a {{max}} MB no total — anexe menos arquivos ou arquivos menores.",
     failedToSubmitPrompt: "Não foi possível enviar o prompt",
@@ -2035,9 +2053,11 @@ export default {
     comingSoonTitle: "Os sistemas de design chegarão em breve",
     waitlist: {
       join: "Entrar na lista de espera",
-      joining: "Entrando...",
-      joined: "Você está na lista de espera",
+      joining: "Entrando…",
+      joined: "Você entrou na lista de espera",
       error: "Não foi possível entrar na lista de espera. Tente novamente.",
+      unavailable:
+        "A inscrição na lista de espera não está disponível agora. Tente novamente mais tarde.",
     },
     deleteError: "Não foi possível excluir o sistema de design",
     updateSuccess: "Sistema de design atualizado",

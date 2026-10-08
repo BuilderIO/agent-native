@@ -43,7 +43,7 @@ npx @agent-native/core@latest connect https://clips.agent-native.com \
 
 Copiez le jeton affiché directement dans le gestionnaire de secrets côté serveur de votre produit. Le jeton appartient à l'organisation, si bien qu'il continue de fonctionner si la personne qui l'a créé quitte l'organisation ou révoque ses jetons personnels. Il n'est jamais écrit dans une configuration client locale. Utilisez un nom de service différent pour chaque intégration afin qu'un appelant puisse être révoqué sans casser un autre.
 
-`--ttl-days` accepte de 1 à 365 jours et vaut 365 par défaut. Le jeton agit comme un membre de l'organisation. Il ne peut pas créer ni révoquer d'autres jetons de service, ni modifier les paramètres de l'organisation.
+`--ttl-days` accepte de 1 à 3650 jours et vaut 365 par défaut. Le jeton agit comme un membre de l'organisation. Il ne peut pas créer ni révoquer d'autres jetons de service, ni modifier les paramètres de l'organisation.
 
 ## Demander une URL d'admission
 

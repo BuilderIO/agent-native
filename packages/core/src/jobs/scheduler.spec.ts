@@ -251,6 +251,17 @@ Summarize the inbox.`,
           threadId,
           status: "running",
           abort,
+          events: [
+            {
+              seq: 0,
+              event: {
+                type: "tool_done",
+                tool: "send-notification",
+                result: "Sent",
+                completedSideEffect: true,
+              },
+            },
+          ],
         };
         void Promise.resolve().then(async () => {
           try {
@@ -717,8 +728,14 @@ createdBy: __shared__
 Run the second job.`,
       },
     ]);
-    runAgentLoopWrapperMock.mockImplementation(async () => {
+    runAgentLoopWrapperMock.mockImplementation(async (opts) => {
       runCount += 1;
+      opts.send({
+        type: "tool_done",
+        tool: "send-notification",
+        result: "Sent",
+        completedSideEffect: true,
+      });
       if (runCount === 1) await firstRunGate;
       return {
         inputTokens: 100,
@@ -1047,7 +1064,7 @@ Run job ${index}.`,
 
     expect(
       resourcePutMock.mock.calls.filter((call) =>
-        String(call[2]).includes("lastStatus: skipped"),
+        String(call[2]).includes("lastStatus: error"),
       ),
     ).toHaveLength(66);
   });
@@ -1140,11 +1157,13 @@ Import action items.`,
       .sort();
 
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "template-job-action",
       "tool-search",
     ]);
     expect(firstRequestToolNames).not.toContain("list-integration-memory");
     expect(availableToolNames).toEqual([
+      "automation-no-op",
       "list-integration-memory",
       "template-job-action",
       "tool-search",
@@ -1190,6 +1209,7 @@ Import action items.`,
       .sort();
 
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "manage-jobs",
       "manage-progress",
       "template-job-action",
@@ -1229,6 +1249,7 @@ Import action items.`,
       .map((tool: { name: string }) => tool.name)
       .sort();
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "other-framework-action",
       "template-job-action",
     ]);
@@ -1732,7 +1753,8 @@ schedule: "* * * * *"
 nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: ghost@agent-native.test
-lastStatus: skipped
+lastStatus: error
+lastErrorCode: owner_missing
 lastError: "user \\"ghost@agent-native.test\\" no longer exists"
 lastCheck: "${new Date(Date.now() - 60_000).toISOString()}"
 ---
@@ -1769,7 +1791,8 @@ schedule: "* * * * *"
 nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: ghost@agent-native.test
-lastStatus: skipped
+lastStatus: error
+lastErrorCode: owner_missing
 lastError: "user \\"ghost@agent-native.test\\" no longer exists"
 ${offset === undefined ? "" : `lastCheck: "${new Date(Date.now() + offset).toISOString()}"`}
 ---
@@ -1786,7 +1809,7 @@ Do some work.`,
       });
 
       expect(runAgentLoopMock).not.toHaveBeenCalled();
-      expect(result.status).toBe("skipped");
+      expect(result.status).toBe("error");
       expect(resourcePutMock).toHaveBeenCalledTimes(writes);
       if (writes > 0) {
         const content: string = resourcePutMock.mock.calls[0][2];

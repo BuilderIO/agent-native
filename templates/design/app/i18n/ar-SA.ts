@@ -923,6 +923,8 @@ export default {
         figmaPasteFailed: "فشل استيراد لصق Figma",
         uploadFailed: "فشل رفع الملف",
         invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
+        unsupportedFileType: "اختر ملف ‎.fig‎ أو ‎.html‎ أو ‎.htm‎.",
+        importBusy: "هناك استيراد آخر قيد التنفيذ. أنهِه أو ألغِه أولاً.",
         figFileTooLarge:
           "ملف ‎.fig‎ كبير جدًا — الحد الأقصى للرفع {{max}} ميغابايت. في Figma، انسخ الإطار المطلوب فقط إلى ملف جديد وصدّر ذلك الملف بصيغة ‎.fig‎، أو استخدم اللصق من Figma.",
       },
@@ -960,7 +962,17 @@ export default {
     saveTemplate: "حفظ القالب",
     templateSaved: "تم حفظ القالب في المكتبة",
     templateSaveFailed: "تعذر حفظ هذا القالب",
-    clickToRename: "انقر لإعادة التسمية",
+    fileMenu: {
+      pendingEditsBlocked:
+        "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
+      designs: "التصاميم",
+      rename: "إعادة التسمية",
+      duplicate: "تكرار",
+      versionHistory: "سجل الإصدارات",
+      import: "استيراد…",
+      delete: "حذف",
+      deleteError: "تعذّر حذف هذا التصميم",
+    },
     collaborators: "المتعاونون",
     share: "مشاركة",
     signUpToSave: "سجل",
@@ -980,6 +992,10 @@ export default {
       draw: "يرسم",
       interact: "Interact",
       screens: "الشاشات",
+    },
+    topBar: {
+      modeDesign: "التصميم",
+      modeSwitch: "وضع المحرر",
     },
     fileTabs: "Files",
     tools: {
@@ -1001,6 +1017,10 @@ export default {
     keyboardShortcuts: {
       title: "اختصارات لوحة المفاتيح",
       close: "يغلق: اختصارات لوحة المفاتيح",
+      search: "بحث",
+      searchLabel: "البحث في اختصارات لوحة المفاتيح",
+      categoriesLabel: "فئات الاختصارات",
+      empty: "لا توجد اختصارات تطابق “{{query}}”",
       codeContext: "الكود",
       screenContext: "الشاشات",
       nudgeAmount: {
@@ -1033,11 +1053,6 @@ export default {
         leftBracket: "القوس المربع الأيسر",
         rightBracket: "القوس المربع الأيمن",
       },
-      descriptions: {
-        toggleUi: "اضغطه الآن لإخفاء اللوحات بسرعة والتركيز على عملك",
-        undo: "تراجع عن أحدث تغيير في التصميم",
-        redo: "استعد تغيير التصميم الذي تراجعت عنه للتو",
-      },
       categories: {
         essential: "أساسي",
         tools: "الأدوات",
@@ -1069,6 +1084,7 @@ export default {
         showLayers: "الطبقات",
         showAssets: "الأصول",
         toggleUi: "View",
+        toggleMinimalUi: "واجهة مبسطة",
         toggleComments: "تثبيت تعليق",
         zoomIn: "تكبير",
         zoomOut: "تصغير",
@@ -1557,6 +1573,8 @@ export default {
     assetAdded: "تمت إضافة الأصول",
     assetsNoImageUrl: "لم تُرجع Assets عنوان URL للصورة.",
     failedToUploadFile: "فشل تحميل الملف",
+    imageAttachmentUnavailable:
+      "تعذّر تجهيز هذه الصورة كمدخل مرئي. أرفق ملف PNG أو JPG أو GIF أو WebP أصغر.",
     attachmentsTooLarge:
       "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
     failedToSubmitPrompt: "تعذر إرسال المطالبة",
@@ -1986,9 +2004,10 @@ export default {
     comingSoonTitle: "أنظمة التصميم قريبًا",
     waitlist: {
       join: "انضم إلى قائمة الانتظار",
-      joining: "جارٍ الانضمام...",
-      joined: "أنت على قائمة الانتظار",
-      error: "تعذّر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
+      joining: "جارٍ الانضمام…",
+      joined: "أُضيفت إلى قائمة الانتظار",
+      error: "تعذّر الانضمام إلى قائمة الانتظار. يُرجى المحاولة مجددًا.",
+      unavailable: "التسجيل في قائمة الانتظار غير متاح الآن. يُرجى المحاولة لاحقًا.",
     },
     deleteError: "لا يمكن حذف نظام التصميم",
     updateSuccess: "تم تحديث نظام التصميم",

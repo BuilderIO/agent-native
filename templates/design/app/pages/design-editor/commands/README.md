@@ -1,8 +1,8 @@
 # Editor commands
 
-Editor _behavior_ lives here, not in `DesignEditor.tsx`. Each module exports one
-`run<Name>(args, ...)` function; `DesignEditor.tsx` holds only the `useCallback`
-that gathers `args` and calls it.
+Editor _behavior_ lives here, not in the editor's hooks. Each module exports one
+`run<Name>(args, ...)` function; the `../domains/use-editor-*.ts` hook holds only
+the `useCallback` that gathers `args` and calls it.
 
 **To change what an editor action does, edit the module — not the call site.**
 
@@ -12,8 +12,8 @@ state + refs + effects + handlers together), and the flat `../*.ts` helpers
 (`../history.ts`, `../selection-state.ts`, `../pending-edits.ts`,
 `../editor-state.ts`, …).
 
-Many specs assert against these files directly rather than against
-`DesignEditor.tsx`, via a `commandSource("<file>.ts")` helper. Moving code out of
+Many specs assert against these files directly rather than against the editor
+source, via a `commandSource("<file>.ts")` helper. Moving code out of
 a module breaks those — re-point the spec in the same commit.
 
 ## History

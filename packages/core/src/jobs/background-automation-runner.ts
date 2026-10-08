@@ -39,6 +39,10 @@ import {
   releaseBackgroundRunBeforeStart,
 } from "../agent/run-store.js";
 import {
+  buildCurrentTimeUserContext,
+  buildRuntimeContextPrompt,
+} from "../agent/runtime-context.js";
+import {
   buildAssistantMessage,
   buildUserMessage,
   extractThreadMeta,
@@ -65,6 +69,7 @@ import {
 } from "../chat-threads/store.js";
 import { withDbExec, type DbExec } from "../db/client.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
+import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
@@ -80,6 +85,10 @@ import {
   type RequestContext,
 } from "../server/request-context.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
+import automationNoOpAction, {
+  AUTOMATION_NO_OP_TOOL,
+  automationNoOpSchema,
+} from "./actions/automation-no-op.js";
 import {
   applyAutomationFailure,
   automationOwnerKind,
@@ -91,6 +100,7 @@ import {
   withDeliveryNote,
   type AutomationFailure,
 } from "./automation-outcome.js";
+import { effectiveTimezone } from "./cron.js";
 import {
   deliveryNoteForEvents,
   automationHistoryOwner,
@@ -173,10 +183,13 @@ export interface BackgroundAutomationRunOptions {
   eventId?: string;
 }
 
-export interface BackgroundAutomationRunResult {
+interface BackgroundAutomationRunOutput {
   responseText: string;
   runId: string;
 }
+
+export type BackgroundAutomationRunResult = BackgroundAutomationRunOutput &
+  ({ status: "success" } | { status: "skipped"; reason: string });
 
 /**
  * `owner_missing` is permanent (the user or membership is gone);
@@ -666,8 +679,8 @@ export async function runBackgroundAutomation(
   }
   await recordRunOutcome(
     historyId,
-    "success",
-    undefined,
+    result.status,
+    result.status === "skipped" ? result.reason : undefined,
     undefined,
     true,
     Boolean(options.historyId),
@@ -798,7 +811,7 @@ async function persistBackgroundAutomationTurn(input: {
 
 async function recordRunOutcome(
   historyId: string | null,
-  status: "success" | "error",
+  status: "success" | "error" | "skipped",
   error?: string,
   errorCode?: string,
   notify = true,
@@ -831,6 +844,69 @@ async function recordRunOutcome(
         "background_automation_history_write_failed",
       );
   }
+}
+
+async function confirmAutomationWork(
+  automation: BackgroundAutomationContext,
+  ownerEmail: string,
+  run: ActiveRun,
+  responseText: string,
+  actions: Record<string, ActionEntry>,
+  noOpReason: string | undefined,
+): Promise<{ status: "success" } | { status: "skipped"; reason: string }> {
+  const events = run.events ?? [];
+  const hasConfirmedAction = events.some(
+    ({ event }) =>
+      event.type === "tool_done" &&
+      !event.isError &&
+      event.completedSideEffect === true &&
+      actions[event.tool]?.confirmsAutomationWork !== false,
+  );
+  const lastFailedTool = [...events]
+    .reverse()
+    .find(({ event }) => event.type === "tool_done" && event.isError);
+  if (noOpReason && !hasConfirmedAction && !lastFailedTool) {
+    return { status: "skipped", reason: noOpReason };
+  }
+  const { deliveryPlatform, deliveryDestination } = automation.meta;
+  if (
+    (!noOpReason || hasConfirmedAction) &&
+    deliveryPlatform &&
+    deliveryDestination &&
+    responseText.trim()
+  ) {
+    const { getDefaultAdapter } =
+      await import("../integrations/adapters/index.js");
+    const adapter = getDefaultAdapter(deliveryPlatform);
+    if (!adapter?.sendMessageToTarget) {
+      throw new BackgroundAutomationRunError(
+        `Automation delivery is not supported for ${deliveryPlatform}`,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    }
+    await adapter.sendMessageToTarget(
+      adapter.formatAgentResponse(responseText),
+      {
+        destination: deliveryDestination,
+        threadRef: automation.meta.deliveryThreadRef ?? null,
+        tenantId: automation.meta.deliveryTenantId,
+      },
+    );
+    return { status: "success" };
+  }
+  if (hasConfirmedAction) return { status: "success" };
+
+  const messages = await automationOutcomeMessagesForUser(ownerEmail);
+  const detail =
+    lastFailedTool?.event.type === "tool_done"
+      ? lastFailedTool.event.result
+      : undefined;
+  throw new BackgroundAutomationRunError(
+    `${deliveryPlatform && deliveryDestination ? messages.emptyDelivery : messages.noWork}${detail ? ` ${detail}` : ""}`,
+    lastFailedTool?.event.type === "tool_done"
+      ? (lastFailedTool.event.errorCode ?? "automation_no_confirmed_work")
+      : "automation_no_confirmed_work",
+  );
 }
 
 /**
@@ -947,7 +1023,41 @@ async function executeBackgroundAutomation(
     },
     async () => {
       assertHardDeadline(options.hardDeadlineAt);
-      const baseActions = await deps.getActions(automation);
+      let noOpReason: string | undefined;
+      const messages = await automationOutcomeMessagesForUser(ownerEmail);
+      const baseActions: Record<string, ActionEntry> = {
+        ...(await deps.getActions(automation)),
+        [AUTOMATION_NO_OP_TOOL]: {
+          ...automationNoOpAction,
+          agentTool: true,
+          confirmsAutomationWork: false,
+          tool: {
+            ...automationNoOpAction.tool,
+            description: messages.noOpInstruction,
+            parameters: {
+              ...automationNoOpAction.tool.parameters,
+              type: "object",
+              properties: {
+                ...automationNoOpAction.tool.parameters?.properties,
+                reason: {
+                  ...(automationNoOpAction.tool.parameters?.properties
+                    ?.reason as Record<string, unknown>),
+                  type: "string",
+                  description: messages.noOpReason,
+                },
+              },
+            },
+          },
+          run: async (args, ctx) => {
+            const result = await automationNoOpAction.run(
+              automationNoOpSchema.parse(args),
+              ctx,
+            );
+            noOpReason = result.reason;
+            return result;
+          },
+        },
+      };
       assertHardDeadline(options.hardDeadlineAt);
       assertRequestedMcpToolsAvailable(automation, baseActions);
 
@@ -958,6 +1068,12 @@ async function executeBackgroundAutomation(
             ...(automation.meta.mcpTools ?? []),
           ])
         : undefined;
+      if (
+        initialToolNames &&
+        !initialToolNames.includes(AUTOMATION_NO_OP_TOOL)
+      ) {
+        initialToolNames.push(AUTOMATION_NO_OP_TOOL);
+      }
       const actions = initialToolNames
         ? attachToolSearch({ ...baseActions })
         : baseActions;
@@ -978,7 +1094,7 @@ async function executeBackgroundAutomation(
         deps,
       );
       assertHardDeadline(options.hardDeadlineAt);
-      const systemPrompt = await deps.getSystemPrompt(ownerEmail);
+      const systemPrompt = `${await deps.getSystemPrompt(ownerEmail)}\n\n${messages.noOpInstruction}`;
       assertHardDeadline(options.hardDeadlineAt);
       const thread = options.resume
         ? await getThread(options.resume.threadId)
@@ -993,9 +1109,13 @@ async function executeBackgroundAutomation(
       assertHardDeadline(options.hardDeadlineAt);
       const runId = createRunId(options.runIdPrefix);
       const turnId = options.resume?.turnId ?? runId;
-      let executionPrompt = prompt;
-      let messages: EngineMessage[] = [
-        { role: "user", content: [{ type: "text", text: prompt }] },
+      const runtimeContext = {
+        now: new Date(),
+        timezone: effectiveTimezone(automation.meta.timezone),
+      };
+      let executionPrompt = prompt + buildCurrentTimeUserContext(runtimeContext);
+      let engineMessages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: executionPrompt }] },
       ];
       if (options.resume) {
         const saved = JSON.parse(
@@ -1050,7 +1170,7 @@ async function executeBackgroundAutomation(
           "run_timeout",
           journalNote ? { journalNote } : {},
         );
-        messages = resumed;
+        engineMessages = resumed;
       }
       assertHardDeadline(options.hardDeadlineAt);
 
@@ -1064,6 +1184,9 @@ async function executeBackgroundAutomation(
         current: Awaited<ReturnType<typeof runAgentLoop>> | null;
       } = { current: null };
       let responseText = "";
+      let outcome:
+        | Awaited<ReturnType<typeof confirmAutomationWork>>
+        | undefined;
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
       let hardTimedOut = false;
 
@@ -1142,10 +1265,11 @@ async function executeBackgroundAutomation(
             const loopOpts = {
               engine,
               model,
-              systemPrompt,
+              systemPrompt:
+                systemPrompt + buildRuntimeContextPrompt(runtimeContext),
               tools,
               availableTools,
-              messages,
+              messages: engineMessages,
               actions,
               send,
               signal,
@@ -1208,12 +1332,34 @@ async function executeBackgroundAutomation(
               clearTimeout(hardAbortTimer);
               hardAbortTimer = null;
             }
-            const persistFailure = backgroundAutomationPersistFailure({
+            let persistFailure = backgroundAutomationPersistFailure({
               run,
               hardTimedOut,
               hardTimeoutMs,
             });
             try {
+              responseText = collectFinalResponseTextFromAgentEvents(
+                (run.events ?? []).map((entry) => entry.event),
+                { fallbackToPreToolText: false },
+              );
+              if (!persistFailure && run.status === "completed") {
+                try {
+                  outcome = await confirmAutomationWork(
+                    automation,
+                    ownerEmail,
+                    run,
+                    responseText,
+                    actions,
+                    noOpReason,
+                  );
+                } catch (error) {
+                  const failure = classifyAutomationFailure(error);
+                  persistFailure = {
+                    message: failure.message,
+                    errorCode: failure.code,
+                  };
+                }
+              }
               await persistBackgroundAutomationTurn({
                 threadId: thread.id,
                 threadTitle,
@@ -1227,6 +1373,11 @@ async function executeBackgroundAutomation(
             }
             if (hardTimedOut) return;
             if (persistFailure) {
+              run.continuationTerminalEvent = {
+                type: "error",
+                error: persistFailure.message,
+                errorCode: persistFailure.errorCode,
+              };
               reject(
                 new BackgroundAutomationRunError(
                   persistFailure.message,
@@ -1246,9 +1397,6 @@ async function executeBackgroundAutomation(
               );
               return;
             }
-            responseText = collectFinalResponseTextFromAgentEvents(
-              (run.events ?? []).map((entry) => entry.event),
-            );
             resolve();
           },
           {
@@ -1320,31 +1468,13 @@ async function executeBackgroundAutomation(
         }
       }
 
-      if (
-        responseText.trim() &&
-        automation.meta.deliveryPlatform &&
-        automation.meta.deliveryDestination
-      ) {
-        const { getDefaultAdapter } =
-          await import("../integrations/adapters/index.js");
-        const adapter = getDefaultAdapter(automation.meta.deliveryPlatform);
-        if (!adapter?.sendMessageToTarget) {
-          throw new BackgroundAutomationRunError(
-            `Automation delivery is not supported for ${automation.meta.deliveryPlatform}`,
-            CONFIG_INVALID_ERROR_CODE,
-          );
-        }
-        await adapter.sendMessageToTarget(
-          adapter.formatAgentResponse(responseText),
-          {
-            destination: automation.meta.deliveryDestination,
-            threadRef: automation.meta.deliveryThreadRef ?? null,
-            tenantId: automation.meta.deliveryTenantId,
-          },
+      if (!outcome) {
+        throw new BackgroundAutomationRunError(
+          messages.noWork,
+          "automation_no_confirmed_work",
         );
       }
-
-      return { responseText, runId };
+      return { ...outcome, responseText, runId };
     },
   );
 }

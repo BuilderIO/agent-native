@@ -8,6 +8,7 @@ const messages = {
       providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
     },
     common: { retry: "Reintentar" },
+    onboarding: { skipForNow: "Omitir por ahora" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -217,6 +218,7 @@ const messages = {
   recordingPage: {
     back: "Atrás",
     done: "Listo",
+    backToClip: "Volver al clip",
     untitledClip: "Clip sin título",
     recordingNotFound: "Grabación no encontrada",
     noAccess: "Es posible que no tengas acceso a este clip.",
@@ -1368,6 +1370,11 @@ const messages = {
     burningRedactionsPercent:
       "Aplicando las difuminaciones al vídeo… {{percent}} %",
     editFailed: "No se ha podido guardar ese cambio",
+    refreshFailed:
+      "No se pudieron cargar los cambios más recientes. Vuelve a intentarlo antes de editar.",
+    autoSaveHint: "Los cambios se guardan automáticamente en este clip",
+    savingChanges: "Guardando cambios…",
+    changesSaved: "Cambios guardados en este clip",
     nothingToRedo: "Nada que rehacer",
   },
   transcriptEditor: {
@@ -1494,15 +1501,25 @@ const messages = {
     builderConnectPopupError:
       "No se pudo abrir Builder.io. Si esta aplicación está integrada en un chat, ábrela en una pestaña del navegador; de lo contrario, inténtalo de nuevo.",
     builderConnectError:
-      "No se pudo configurar Builder.io. Inténtalo de nuevo o contacta con el soporte.",
+      "No se pudo completar la configuración de Builder.io. Inténtalo de nuevo o elige almacenamiento compatible con S3.",
+    builderConnectErrorAskAdmin:
+      "No se pudo completar la configuración de Builder.io. Inténtalo de nuevo o pide a un propietario o administrador que configure el almacenamiento.",
+    builderStatusReadError:
+      "El estado de la conexión no está disponible. Vuelve a intentarlo para comprobarlo.",
+    builderUploadGrantMissing:
+      "Builder.io está conectado para IA, pero esta conexión no puede subir clips. Vuelve a conectar Builder.io con permiso para subir archivos o pide ayuda a un propietario o administrador.",
+    builderGrantAskAdmin:
+      "Pide a un propietario o administrador que conecte Builder.io con permiso para subir clips.",
+    statusUnavailable:
+      "No se pudo comprobar si el almacenamiento de vídeo está listo.",
     checkingBuilderConnection: "Comprobando la conexión con Builder…",
     builderTimeout:
-      "No hubo respuesta de Builder en 5 minutos. Inténtalo de nuevo.",
+      "No se pudo confirmar que el almacenamiento de Builder.io esté listo. Inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
     description:
       "Guarda los vídeos grabados con Builder.io o con almacenamiento compatible con S3. Builder.io incluye alojamiento gratuito y créditos de IA.",
-    createBuilderAccount: "Crear cuenta de Builder.io",
+    createBuilderAccount: "Usar Builder.io",
     signInWithBuilderAccount: "Iniciar sesión con una cuenta de Builder.io",
     free: "Gratis",
     whyPrompt: "¿Por qué veo esto?",
@@ -1854,6 +1871,9 @@ const messages = {
     storageConnectedUploading:
       "Almacenamiento conectado. Subiendo tu grabación…",
     downloadCopy: "Descargar una copia",
+    localRecordingPreview: "Vista previa de la grabación local",
+    localPreviewUnavailable:
+      "La vista previa local no está disponible. Aún puedes descargar una copia.",
     localRecordingOpenElsewhere:
       "Esa grabación sigue abierta en otra pestaña de Clips.",
     uploadWaitingForConnection:

@@ -69,7 +69,7 @@ describe("atomic automation firing marker", () => {
         };
         emitter.on("resources", onChange);
         let historyId!: string;
-        let notify: (() => void) | undefined;
+        let notify: (() => Promise<void>) | undefined;
         try {
           const admission = startAutomationRun(
             { owner, path, automation },
@@ -100,8 +100,8 @@ describe("atomic automation firing marker", () => {
                   notify = written.notify;
                   expect(events).toHaveLength(0);
                 }),
-              afterCommit: () => {
-                notify?.();
+              afterCommit: async () => {
+                await notify?.();
                 if (mode === "notification failed")
                   throw new Error("notification unavailable");
               },

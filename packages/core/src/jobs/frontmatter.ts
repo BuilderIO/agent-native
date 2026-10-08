@@ -642,6 +642,54 @@ export type JobExecutionFrontmatterPatch = {
   remoteAdvanceSchedule?: boolean;
 };
 
+export const JOB_EXECUTION_FRONTMATTER_KEYS: ReadonlySet<string> = new Set<
+  keyof JobExecutionFrontmatterPatch
+>([
+  "lastRun",
+  "lastCheck",
+  "lastStatus",
+  "lastError",
+  "lastErrorCode",
+  "consecutiveFailures",
+  "lastFailedEventId",
+  "pausedReason",
+  "pausedAt",
+  "nextRun",
+  "remoteRequestId",
+  "remoteCommandId",
+  "remoteRunId",
+  "remoteAutomationRunId",
+  "remoteAdvanceSchedule",
+]);
+
+const FRONTMATTER_KEY_RE = /^([A-Za-z][A-Za-z0-9_]*):/;
+
+function frontmatterKeys(content: string): Set<string> {
+  const keys = new Set<string>();
+  const match = content.match(FRONTMATTER_RE);
+  if (!match) return keys;
+  for (const line of match[1].split(/\r?\n/)) {
+    const key = FRONTMATTER_KEY_RE.exec(line)?.[1];
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * Frontmatter keys present in `before` and gone from `after`, ignoring the
+ * execution bookkeeping a run adds and clears. A job whose file loses its
+ * editor-owned fields still schedules and runs, so nothing else notices.
+ */
+export function droppedJobFrontmatterKeys(
+  before: string,
+  after: string,
+): string[] {
+  const kept = frontmatterKeys(after);
+  return [...frontmatterKeys(before)].filter(
+    (key) => !kept.has(key) && !JOB_EXECUTION_FRONTMATTER_KEYS.has(key),
+  );
+}
+
 function jobFrontmatterBounds(content: string): {
   newline: string;
   opener: string;

@@ -58,6 +58,7 @@ const threadId = "analytics-thread-1";
 function thread(
   messages: unknown[],
   updatedAt = Date.now() - ANALYTICS_MEMORY_CAPTURE_IDLE_MS - 1_000,
+  orgId: string | null = null,
 ) {
   const last = messages[messages.length - 1] as
     | { message?: { id?: string }; id?: string }
@@ -67,15 +68,22 @@ function thread(
     ownerEmail: owner,
     source: { appId: "analytics" },
     updatedAt,
-    orgId: "org-1",
+    orgId,
     threadData: JSON.stringify({ headId, messages }),
   };
 }
 
 function setupSweep(
-  job = {
+  job: {
+    owner_email: string;
+    org_id: string | null;
+    thread_id: string;
+    attempt_count: number | string;
+    lease_token: string;
+    ready_at: number | string;
+  } = {
     owner_email: owner,
-    org_id: "org-1",
+    org_id: null,
     thread_id: threadId,
     attempt_count: 1,
     lease_token: "job-lease",
@@ -104,11 +112,11 @@ describe("Analytics async memory capture", () => {
     vi.clearAllMocks();
   });
 
-  it("queues only the owner, thread, and org, then waits for the thread to go idle", async () => {
+  it("queues only personal threads, then waits for the thread to go idle", async () => {
     execute.mockResolvedValue({ rows: [], rowsAffected: 1 });
 
     await expect(
-      enqueueAnalyticsMemoryCapture({ owner, orgId: "org-1", threadId }),
+      enqueueAnalyticsMemoryCapture({ owner, orgId: null, threadId }),
     ).resolves.toBe(true);
 
     const [query] = execute.mock.calls[0] as [{ sql: string; args: unknown[] }];
@@ -117,28 +125,26 @@ describe("Analytics async memory capture", () => {
     expect(query.sql).toContain("org_id IS NOT DISTINCT FROM $3");
     expect(query.sql).toContain("source_app_id = 'analytics'");
     expect(query.sql).toContain("ON CONFLICT (owner_email, thread_id)");
-    expect(query.args.slice(0, 3)).toEqual([owner, threadId, "org-1"]);
+    expect(query.args.slice(0, 3)).toEqual([owner, threadId, null]);
     expect(query.args[3]).toBeGreaterThan(query.args[4] as number);
     expect(JSON.stringify(query.args)).not.toContain("Remember that");
     expect(getThread).not.toHaveBeenCalled();
   });
 
-  it("does not enqueue a thread under a different persisted org", async () => {
-    execute.mockResolvedValue({ rows: [], rowsAffected: 0 });
-
+  it("does not enqueue automatic capture for an organization thread", async () => {
     await expect(
       enqueueAnalyticsMemoryCapture({ owner, orgId: "org-1", threadId }),
     ).resolves.toBe(false);
 
-    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
     expect(getThread).not.toHaveBeenCalled();
   });
 
-  it("does not enqueue another owner's thread", async () => {
+  it("does not enqueue another owner's personal thread", async () => {
     execute.mockResolvedValue({ rows: [], rowsAffected: 0 });
 
     await expect(
-      enqueueAnalyticsMemoryCapture({ owner, orgId: "org-1", threadId }),
+      enqueueAnalyticsMemoryCapture({ owner, orgId: null, threadId }),
     ).resolves.toBe(false);
 
     expect(execute).toHaveBeenCalledTimes(1);
@@ -205,7 +211,7 @@ describe("Analytics async memory capture", () => {
     await runAnalyticsMemoryCaptureSweep();
 
     expect(runWithRequestContext).toHaveBeenCalledWith(
-      { userEmail: owner, run: { owner }, orgId: "org-1" },
+      { userEmail: owner, run: { owner }, orgScope: "personal" },
       expect.any(Function),
     );
     expect(saveMemory).toHaveBeenCalledTimes(1);
@@ -219,7 +225,7 @@ describe("Analytics async memory capture", () => {
       "--content",
       "For future Analytics work: BigQuery uses STRING instead of TEXT for casts.",
       "--scope",
-      "current-org",
+      "personal",
       "--quiet",
       "true",
     ]);
@@ -230,7 +236,7 @@ describe("Analytics async memory capture", () => {
     expect(guardQueries[0]?.args).toEqual([
       threadId,
       owner,
-      "org-1",
+      null,
       storedThread.updatedAt,
     ]);
     expect(guardQueries[1]?.sql).toContain(
@@ -240,7 +246,7 @@ describe("Analytics async memory capture", () => {
     expect(guardQueries[1]?.args).toEqual([
       owner,
       threadId,
-      "org-1",
+      null,
       "job-lease",
       0,
     ]);
@@ -248,6 +254,88 @@ describe("Analytics async memory capture", () => {
       status: "saved",
       candidate_count: 1,
       saved_count: 1,
+    });
+  });
+
+  it("skips legacy organization jobs instead of writing their content to personal memory", async () => {
+    setupSweep({
+      owner_email: owner,
+      org_id: "org-1",
+      thread_id: threadId,
+      attempt_count: 1,
+      lease_token: "job-lease",
+      ready_at: 0,
+    });
+
+    await runAnalyticsMemoryCaptureSweep();
+
+    expect(getThread).not.toHaveBeenCalled();
+    expect(saveMemory).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining(
+          "DELETE FROM analytics_memory_capture_queue",
+        ),
+        args: [owner, threadId, "job-lease"],
+      }),
+    );
+    expect(track).toHaveBeenCalledWith("analytics_memory_capture", {
+      status: "skipped",
+      candidate_count: 0,
+      saved_count: 0,
+    });
+  });
+
+  it("captures explicit preferences and syntax corrections from personal threads", async () => {
+    setupSweep();
+    getThread.mockResolvedValue(
+      thread([
+        {
+          message: {
+            id: "preference-1",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Please remember that I prefer concise summaries with the date range first.",
+              },
+            ],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "portable-correction-1",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Correction: BigQuery uses STRING instead of TEXT for casts.",
+              },
+            ],
+          },
+          parentId: "preference-1",
+        },
+      ]),
+    );
+
+    await runAnalyticsMemoryCaptureSweep();
+
+    expect(saveMemory).toHaveBeenCalledTimes(1);
+    expect(saveMemory.mock.calls[0]?.[0]).toContain(
+      "For future Analytics work: I prefer concise summaries with the date range first.",
+    );
+    expect(saveMemory.mock.calls[0]?.[1]?.additionalEntries).toMatchObject([
+      {
+        content:
+          "For future Analytics work: BigQuery uses STRING instead of TEXT for casts.",
+      },
+    ]);
+    expect(saveMemory.mock.calls[0]?.[1]?.additionalEntries).toHaveLength(1);
+    expect(track).toHaveBeenCalledWith("analytics_memory_capture", {
+      status: "saved",
+      candidate_count: 2,
+      saved_count: 2,
     });
   });
 
@@ -327,7 +415,7 @@ describe("Analytics async memory capture", () => {
           content: [
             {
               type: "text",
-              text: "Remember that BigQuery uses STRING instead of TEXT for casts.",
+              text: "Please remember that I prefer concise summaries with the date range first.",
             },
           ],
         },
@@ -339,7 +427,7 @@ describe("Analytics async memory capture", () => {
           content: [
             {
               type: "text",
-              text: "Correction: Postgres uses ILIKE for case-insensitive matching.",
+              text: "Correction: I want one chart per metric in Analytics answers.",
             },
           ],
         },
@@ -379,7 +467,7 @@ describe("Analytics async memory capture", () => {
     expect(guardQueries[0]?.args).toEqual([
       threadId,
       owner,
-      "org-1",
+      null,
       readUpdatedAt,
     ]);
     expect(
@@ -409,7 +497,7 @@ describe("Analytics async memory capture", () => {
           content: [
             {
               type: "text",
-              text: "Remember that BigQuery uses STRING instead of TEXT for casts.",
+              text: "Please remember that I prefer concise summaries with the date range first.",
             },
           ],
         },
@@ -426,7 +514,7 @@ describe("Analytics async memory capture", () => {
       },
     );
     saveMemory.mockImplementationOnce(async (_args, options) => {
-      await enqueueAnalyticsMemoryCapture({ owner, orgId: "org-1", threadId });
+      await enqueueAnalyticsMemoryCapture({ owner, orgId: null, threadId });
       await options?.beforeWrite?.({ execute: guardExecute });
     });
 
@@ -450,7 +538,7 @@ describe("Analytics async memory capture", () => {
     expect(guardQueries[1]?.args).toEqual([
       owner,
       threadId,
-      "org-1",
+      null,
       "job-lease",
       0,
     ]);

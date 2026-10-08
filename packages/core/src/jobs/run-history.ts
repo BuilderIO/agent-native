@@ -30,7 +30,7 @@ registerEvent({
     orgId: z.string().nullable(),
     runId: z.string().nullable(),
     threadId: z.string().nullable(),
-    status: z.enum(["success", "error", "interrupted"]),
+    status: z.enum(["success", "error", "interrupted", "skipped"]),
     error: z.string().nullable(),
     errorCode: z.string().nullable(),
     durationMs: z.number().nullable(),
@@ -41,7 +41,8 @@ export type AutomationRunStatus =
   | "running"
   | "success"
   | "error"
-  | "interrupted";
+  | "interrupted"
+  | "skipped";
 
 export interface AutomationRun {
   id: string;
@@ -336,7 +337,7 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
 
 export interface StartAutomationRunOptions {
   afterInsert?: (tx: DbExec, historyId: string) => Promise<void>;
-  afterCommit?: () => void;
+  afterCommit?: () => void | Promise<void>;
 }
 
 export async function startAutomationRun(
@@ -378,7 +379,7 @@ export async function startAutomationRun(
     await insert(client);
   }
   try {
-    options.afterCommit?.();
+    await options.afterCommit?.();
   } catch (error) {
     console.warn(
       "[automations] Firing committed, but its notification failed:",
@@ -838,7 +839,7 @@ export async function finishAutomationRun(
   const row = existing.rows?.[0] as Record<string, unknown> | undefined;
   const finishedAt = Date.now();
   const shouldQueueFailureAlert =
-    status !== "success" &&
+    (status === "error" || status === "interrupted") &&
     options.notify !== false &&
     Boolean(row?.notification_email);
   const claimGuard = options.expectedClaimedAt !== undefined;
@@ -852,7 +853,9 @@ export async function finishAutomationRun(
       status,
       finishedAt,
       error?.slice(0, MAX_ERROR_LENGTH) ?? null,
-      errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+      status === "skipped"
+        ? null
+        : (errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null),
       shouldQueueFailureAlert ? "evaluating" : null,
       shouldQueueFailureAlert ? finishedAt : null,
       id,
@@ -883,7 +886,10 @@ export async function finishAutomationRun(
         threadId: row.thread_id == null ? null : stringifyValue(row.thread_id),
         status,
         error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
-        errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+        errorCode:
+          status === "skipped"
+            ? null
+            : (errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null),
         durationMs:
           startedAt === null ? null : Math.max(0, finishedAt - startedAt),
       },

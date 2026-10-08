@@ -8,6 +8,7 @@ const messages = {
       providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
     },
     common: { retry: "Réessayer" },
+    onboarding: { skipForNow: "Ignorer pour l’instant" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -219,6 +220,7 @@ const messages = {
   recordingPage: {
     back: "Dos",
     done: "Terminé",
+    backToClip: "Retour au clip",
     untitledClip: "Extrait sans titre",
     recordingNotFound: "Enregistrement introuvable",
     noAccess: "Vous n’aurez peut-être pas accès à ce clip.",
@@ -1370,6 +1372,12 @@ const messages = {
     burningRedactionsPercent:
       "Application des masquages à la vidéo… {{percent}} %",
     editFailed: "Impossible d'enregistrer cette modification",
+    refreshFailed:
+      "Impossible de charger les dernières modifications. Réessayez avant de modifier le clip.",
+    autoSaveHint:
+      "Les modifications sont enregistrées automatiquement sur ce clip",
+    savingChanges: "Enregistrement des modifications…",
+    changesSaved: "Modifications enregistrées sur ce clip",
     nothingToRedo: "Rien à rétablir",
   },
   transcriptEditor: {
@@ -1495,14 +1503,24 @@ const messages = {
     builderConnectPopupError:
       "Impossible d’ouvrir Builder.io. Si cette application est intégrée à une conversation, ouvrez-la dans un onglet de navigateur ; sinon, réessayez.",
     builderConnectError:
-      "Impossible de configurer Builder.io. Réessayez ou contactez l’assistance.",
+      "La configuration de Builder.io n’a pas abouti. Réessayez ou choisissez un stockage compatible avec S3.",
+    builderConnectErrorAskAdmin:
+      "La configuration de Builder.io n’a pas abouti. Réessayez ou demandez à un propriétaire ou à un administrateur de configurer le stockage.",
+    builderStatusReadError:
+      "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
+    builderUploadGrantMissing:
+      "Builder.io est connecté pour l’IA, mais cette connexion ne peut pas envoyer de clips. Reconnectez Builder.io avec l’autorisation d’envoi, ou demandez de l’aide à un propriétaire ou à un administrateur.",
+    builderGrantAskAdmin:
+      "Demandez à un propriétaire ou à un administrateur de connecter Builder.io avec l’autorisation d’envoyer des clips.",
+    statusUnavailable: "Impossible de vérifier si le stockage vidéo est prêt.",
     checkingBuilderConnection: "Vérification de la connexion à Builder…",
-    builderTimeout: "Aucune réponse de Builder après 5 minutes. Réessayez.",
+    builderTimeout:
+      "Impossible de confirmer que le stockage Builder.io est prêt. Réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
     description:
       "Stockez les vidéos enregistrées avec Builder.io ou un stockage compatible S3. Builder.io inclut un hébergement gratuit et des crédits d'IA.",
-    createBuilderAccount: "Créer un compte Builder.io",
+    createBuilderAccount: "Utiliser Builder.io",
     signInWithBuilderAccount: "Se connecter avec un compte Builder.io",
     free: "Gratuit",
     whyPrompt: "Pourquoi vois-je ceci ?",
@@ -1861,6 +1879,9 @@ const messages = {
     storageConnectedUploading:
       "Stockage connecté. Envoi de votre enregistrement…",
     downloadCopy: "Télécharger une copie",
+    localRecordingPreview: "Aperçu de l’enregistrement local",
+    localPreviewUnavailable:
+      "Cet aperçu local n’est pas disponible. Vous pouvez quand même télécharger une copie.",
     localRecordingOpenElsewhere:
       "Cet enregistrement est encore ouvert dans un autre onglet Clips.",
     uploadWaitingForConnection:

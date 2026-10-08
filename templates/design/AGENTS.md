@@ -10,11 +10,13 @@ Read relevant guides before deeper work:
 - `.agents/skills/design-templates/SKILL.md` — when reusing existing Design work.
 - `.agents/skills/responsive-breakpoints/SKILL.md` — for breakpoint editing.
 - `.agents/skills/design-systems/SKILL.md` — for tokens, brand extraction, or Figma.
+- `.agents/skills/design-figma-parity/SKILL.md` — for evidence rules on measured Figma behavior claims.
 - `.agents/skills/creative-context/SKILL.md` — for cross-app sources and governed context.
 - `.agents/skills/design-review-feedback/SKILL.md` — for persisted review comments.
 - `.agents/skills/export-handoff/SKILL.md` — for exports and coding handoffs.
 - `.agents/skills/full-app-build/SKILL.md` — for fusion-backed app builds.
 - `.agents/skills/shader-fills/SKILL.md` — for GLSL fills/effects.
+- `.agents/skills/journey-storyboards/SKILL.md` — for onboarding-journey storyboards.
 
 `.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
 `.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
@@ -39,6 +41,8 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 | `open-visual-edit` | Open localhost screens |
 | `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set collaboration opt-in |
 | `add-localhost-screens` / `update-screen-source` | Add screens; change source mode |
+| `add-session-replay-screenshots-to-board` | Add private Analytics replay screenshots to a Design board |
+| `create-journey-canvas` | Draw a journey storyboard from a tree and frames |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |

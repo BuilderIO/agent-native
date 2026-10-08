@@ -941,6 +941,9 @@ export default {
         figmaPasteFailed: "Error al importar el pegado de Figma",
         uploadFailed: "Error al subir el archivo",
         invalidFigFile: "Elige un archivo que termine en .fig.",
+        unsupportedFileType: "Elige un archivo .fig, .html o .htm.",
+        importBusy:
+          "Hay otra importación en curso. Termínala o cancélala primero.",
         figFileTooLarge:
           "Ese .fig es demasiado grande: las subidas están limitadas a {{max}} MB. En Figma, copia solo el frame que quieras a un archivo nuevo y exporta ese archivo como .fig, o usa Pegar desde Figma.",
       },
@@ -980,7 +983,17 @@ export default {
     saveTemplate: "Guardar plantilla",
     templateSaved: "Plantilla guardada en la biblioteca",
     templateSaveFailed: "No se pudo guardar esta plantilla",
-    clickToRename: "Haz clic para cambiar el nombre",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Aplica o descarta tus ediciones visuales pendientes antes de duplicar.",
+      designs: "Diseños",
+      rename: "Renombrar",
+      duplicate: "Duplicar",
+      versionHistory: "Historial de versiones",
+      import: "Importar…",
+      delete: "Eliminar",
+      deleteError: "No se pudo eliminar este diseño",
+    },
     collaborators: "Colaboradores",
     share: "Compartir",
     signUpToSave: "Registrarse",
@@ -1002,6 +1015,10 @@ export default {
       interact: "Interact",
       screens: "Pantallas",
     },
+    topBar: {
+      modeDesign: "Diseño",
+      modeSwitch: "Modo del editor",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1022,6 +1039,10 @@ export default {
     keyboardShortcuts: {
       title: "Atajos de teclado",
       close: "Cerca: Atajos de teclado",
+      search: "Buscar",
+      searchLabel: "Buscar atajos de teclado",
+      categoriesLabel: "Categorías de atajos",
+      empty: "Ningún atajo coincide con «{{query}}»",
       codeContext: "Código",
       screenContext: "Pantallas",
       nudgeAmount: {
@@ -1054,12 +1075,6 @@ export default {
         leftBracket: "Corchete izquierdo",
         rightBracket: "Corchete derecho",
       },
-      descriptions: {
-        toggleUi:
-          "Púlsalo ahora para ocultar los paneles y concentrarte en tu trabajo",
-        undo: "Retrocede por el cambio de diseño más reciente",
-        redo: "Restaura el cambio de diseño que acabas de deshacer",
-      },
       categories: {
         essential: "Esenciales",
         tools: "Herramientas",
@@ -1091,6 +1106,7 @@ export default {
         showLayers: "Capas",
         showAssets: "Recursos",
         toggleUi: "View",
+        toggleMinimalUi: "Interfaz mínima",
         toggleComments: "Fijar comentario",
         zoomIn: "Acercar",
         zoomOut: "Alejar",
@@ -1595,6 +1611,8 @@ export default {
     assetAdded: "Activo agregado",
     assetsNoImageUrl: "Assets no devolvió una URL de imagen.",
     failedToUploadFile: "No se pudo cargar el archivo",
+    imageAttachmentUnavailable:
+      "No se pudo preparar esta imagen como referencia visual. Adjunta un archivo PNG, JPG, GIF o WebP más pequeño.",
     attachmentsTooLarge:
       "Esos adjuntos son demasiado grandes. Las subidas están limitadas a {{max}} MB en total: adjunta menos archivos o más pequeños.",
     failedToSubmitPrompt: "No se pudo enviar el prompt",
@@ -2039,10 +2057,11 @@ export default {
     comingSoonTitle: "Los sistemas de diseño estarán disponibles pronto",
     waitlist: {
       join: "Unirme a la lista de espera",
-      joining: "Uniéndome...",
-      joined: "Ya estás en la lista de espera",
-      error:
-        "No se pudo completar tu registro en la lista de espera. Inténtalo de nuevo.",
+      joining: "Uniéndome…",
+      joined: "Estás en la lista de espera",
+      error: "No se pudo añadirte a la lista de espera. Inténtalo de nuevo.",
+      unavailable:
+        "La inscripción en la lista de espera no está disponible ahora. Inténtalo más tarde.",
     },
     deleteError: "No se pudo eliminar el sistema de diseño",
     updateSuccess: "Sistema de diseño actualizado.",

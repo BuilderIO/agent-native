@@ -541,6 +541,7 @@ async function processRecurringJobsWithLease(
             candidate.body,
             now,
             identity.reason,
+            identity.code,
           );
           continue;
         }
@@ -786,6 +787,7 @@ async function recordIdentityFailure(
   body: string,
   now: Date,
   reason: string,
+  errorCode = "owner_unverifiable",
   historyId?: string,
 ): Promise<JobExecutionResult> {
   const jobName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
@@ -796,21 +798,34 @@ async function recordIdentityFailure(
   const alreadyRecorded =
     meta.lastError === reason && hasRecentIdentityFailure(meta, now);
   meta.lastCheck = now.toISOString();
-  meta.lastStatus = "skipped";
+  meta.lastStatus = "error";
   meta.lastError = reason;
-  if (!alreadyRecorded) await updateResource(resource, meta, body);
+  meta.lastErrorCode = errorCode;
+  if (!alreadyRecorded)
+    await updateResource(resource, meta, body, { lastErrorCode: errorCode });
   if (historyId) {
     await finishAutomationRun(
       historyId,
       "error",
       `Automation did not run: ${reason}. No delivery was confirmed.`,
+      errorCode,
     );
   }
-  return { status: "skipped", error: reason };
+  return { status: "error", error: reason };
 }
 
 function hasRecentIdentityFailure(meta: JobFrontmatter, now: Date): boolean {
-  if (meta.lastStatus !== "skipped" || !meta.lastCheck || !meta.lastError) {
+  if (
+    meta.lastStatus !== "error" ||
+    !meta.lastErrorCode ||
+    ![
+      OWNER_MISSING_ERROR_CODE,
+      CONFIG_INVALID_ERROR_CODE,
+      "owner_unverifiable",
+    ].includes(meta.lastErrorCode) ||
+    !meta.lastCheck ||
+    !meta.lastError
+  ) {
     return false;
   }
   const lastCheckMs = Date.parse(meta.lastCheck);
@@ -1098,6 +1113,7 @@ async function executeJob(
       body,
       now,
       identity.reason,
+      identity.code,
       options.historyId,
     );
   }
@@ -1141,7 +1157,7 @@ async function executeJob(
   if (!historyId && !meta.executionHostId) {
     await ensureResourcesTable();
     const conflict = Symbol("automation firing marker conflict");
-    let notifyMarker: (() => void) | undefined;
+    let notifyMarker: (() => Promise<void>) | undefined;
     try {
       historyId = await startBackgroundAutomationHistory(
         jobContext,
@@ -1171,7 +1187,7 @@ async function executeJob(
             }),
           afterCommit: () => {
             Object.assign(meta, runningMeta);
-            notifyMarker?.();
+            return notifyMarker?.();
           },
         },
       );
@@ -1343,14 +1359,18 @@ async function executeJob(
 
     await recordExecutionOutcome(resource, {
       lastRun: meta.lastRun,
-      lastStatus: "success",
-      lastError: undefined,
+      lastStatus: result.status,
+      lastError: result.status === "skipped" ? result.reason : undefined,
       advanceSchedule: options.advanceSchedule,
       expectedLastRun: meta.lastRun,
       expectedHistoryId: meta.lastHistoryId,
     });
-    console.log(`[recurring-jobs] Job "${jobName}" completed.`);
-    return { status: "success", runId: result.runId };
+    console.log(`[recurring-jobs] Job "${jobName}" ${result.status}.`);
+    return {
+      status: result.status,
+      runId: result.runId,
+      ...(result.status === "skipped" ? { error: result.reason } : {}),
+    };
   } catch (err) {
     const failure = classifyAutomationFailure(err);
     if (err instanceof AutomationSchedulerLeaseLostError) throw err;
@@ -1431,7 +1451,7 @@ async function updateResource(
   meta: JobFrontmatter,
   _body: string,
   extra: JobFrontmatterPatch = {},
-  transaction?: { tx: DbExec; deferNotification: (notify: () => void) => void },
+  transaction?: { tx: DbExec; deferNotification: (notify: () => Promise<void>) => void },
 ): Promise<boolean> {
   const content = patchJobFrontmatterFields(resource.content, {
     lastRun: meta.lastRun,

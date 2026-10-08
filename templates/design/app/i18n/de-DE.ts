@@ -944,6 +944,9 @@ export default {
         figmaPasteFailed: "Figma-Einfügeimport fehlgeschlagen",
         uploadFailed: "Dateiupload fehlgeschlagen",
         invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
+        unsupportedFileType: "Wähle eine .fig-, .html- oder .htm-Datei.",
+        importBusy:
+          "Ein anderer Import läuft gerade. Schließe ihn ab oder brich ihn ab.",
         figFileTooLarge:
           "Diese .fig-Datei ist zu groß – Uploads sind auf {{max}} MB begrenzt. Kopiere in Figma nur den gewünschten Frame in eine neue Datei und exportiere diese als .fig, oder nutze „Aus Figma einfügen“.",
       },
@@ -985,7 +988,17 @@ export default {
     saveTemplate: "Vorlage speichern",
     templateSaved: "Vorlage in der Bibliothek gespeichert",
     templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
-    clickToRename: "Zum Umbenennen klicken",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Wende deine ausstehenden visuellen Änderungen an oder verwirf sie, bevor du dupliziert.",
+      designs: "Designs",
+      rename: "Umbenennen",
+      duplicate: "Duplizieren",
+      versionHistory: "Versionsverlauf",
+      import: "Importieren…",
+      delete: "Löschen",
+      deleteError: "Dieses Design konnte nicht gelöscht werden",
+    },
     collaborators: "Mitwirkende",
     share: "Teilen",
     signUpToSave: "Registrieren",
@@ -1008,6 +1021,10 @@ export default {
       interact: "Interact",
       screens: "Bildschirme",
     },
+    topBar: {
+      modeDesign: "Design",
+      modeSwitch: "Editor-Modus",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1028,6 +1045,10 @@ export default {
     keyboardShortcuts: {
       title: "Tastenkürzel",
       close: "Schließen: Tastenkürzel",
+      search: "Suchen",
+      searchLabel: "Tastenkürzel suchen",
+      categoriesLabel: "Kategorien der Tastenkürzel",
+      empty: "Keine Tastenkürzel passen zu „{{query}}“",
       codeContext: "Code",
       screenContext: "Screens",
       nudgeAmount: {
@@ -1060,12 +1081,6 @@ export default {
         leftBracket: "Linke eckige Klammer",
         rightBracket: "Rechte eckige Klammer",
       },
-      descriptions: {
-        toggleUi:
-          "Drücke jetzt, um die Bereiche auszublenden und dich auf deine Arbeit zu konzentrieren",
-        undo: "Mache die letzte Designänderung rückgängig",
-        redo: "Stelle die soeben rückgängig gemachte Designänderung wieder her",
-      },
       categories: {
         essential: "Grundlagen",
         tools: "Werkzeuge",
@@ -1097,6 +1112,7 @@ export default {
         showLayers: "Ebenen",
         showAssets: "Ressourcen",
         toggleUi: "View",
+        toggleMinimalUi: "Minimale Oberfläche",
         toggleComments: "Kommentar anheften",
         zoomIn: "Vergrößern",
         zoomOut: "Verkleinern",
@@ -1611,6 +1627,8 @@ export default {
     assetAdded: "Asset hinzugefügt",
     assetsNoImageUrl: "Assets hat keine Bild-URL zurückgegeben.",
     failedToUploadFile: "Datei konnte nicht hochgeladen werden",
+    imageAttachmentUnavailable:
+      "Dieses Bild konnte nicht als visuelle Eingabe vorbereitet werden. Füge eine kleinere PNG-, JPG-, GIF- oder WebP-Datei an.",
     attachmentsTooLarge:
       "Diese Anhänge sind zu groß. Uploads sind auf insgesamt {{max}} MB begrenzt – hänge weniger oder kleinere Dateien an.",
     failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
@@ -2060,11 +2078,13 @@ export default {
   designSystems: {
     comingSoonTitle: "Designsysteme kommen bald",
     waitlist: {
-      join: "Zur Warteliste",
-      joining: "Wird hinzugefügt...",
-      joined: "Du stehst auf der Warteliste",
+      join: "Warteliste beitreten",
+      joining: "Wird eingetragen…",
+      joined: "Sie stehen auf der Warteliste",
       error:
-        "Du konntest nicht zur Warteliste hinzugefügt werden. Bitte versuche es erneut.",
+        "Sie konnten nicht zur Warteliste hinzugefügt werden. Bitte versuchen Sie es erneut.",
+      unavailable:
+        "Die Anmeldung zur Warteliste ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
     },
     deleteError: "Das Designsystem konnte nicht gelöscht werden",
     updateSuccess: "Designsystem aktualisiert",

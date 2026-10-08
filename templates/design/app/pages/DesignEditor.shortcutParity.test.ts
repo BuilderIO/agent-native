@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor Figma navigation shortcut wiring", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
   const rootSource = readFileSync("app/root.tsx", "utf8");
   const layersSource = readFileSync(
     "app/components/design/LayersPanel.tsx",
@@ -40,6 +42,7 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     );
   });
 
+  // oracle: none — this checks application event wiring, not measured Figma behavior.
   it("exposes Show/Hide UI through the command menu", () => {
     expect(rootSource).toContain("onSelect={requestDesignUiToggle}");
     expect(rootSource).toContain(
@@ -51,6 +54,7 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     expect(editorSource).toContain("openCommandMenu();");
   });
 
+  // oracle: none — this checks app toolbar wiring, not measured Figma behavior.
   it("projects the active move-group sub-tool through the toolbar", () => {
     expect(bottomToolbarSource).toContain(
       "label: t(activeMoveGroupTool.labelKey)",
@@ -64,17 +68,25 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     );
   });
 
+  // oracle: none — this checks editor wiring, not a measured Figma behavior.
   it("keeps support files out of the visual screen layer list and Cmd+A", () => {
+    const selectAllFrames = editorSource.slice(
+      editorSource.indexOf("const handleSelectAllFrames = useCallback"),
+      editorSource.indexOf("const shouldHandleEditorHotkey"),
+    );
     expect(editorSource).toContain(
       "new Set(overviewScreens.map((screen) => screen.id))",
     );
     expect(editorSource).toContain(
       ".filter((file) => visualScreenFileIds.has(file.id))",
     );
-    expect(editorSource).toContain(
-      "setOverviewSelectedScreenIds(overviewScreens.map((screen) => screen.id))",
+    expect(selectAllFrames).toContain(
+      "const selectedScreenIds = overviewScreens.map((screen) => screen.id);",
     );
-    expect(editorSource).not.toContain(
+    expect(selectAllFrames).toContain(
+      "setOverviewSelectedScreenIds(selectedScreenIds);",
+    );
+    expect(selectAllFrames).not.toContain(
       "setOverviewSelectedScreenIds(files.map((file) => file.id))",
     );
   });
