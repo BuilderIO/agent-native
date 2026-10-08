@@ -117,4 +117,72 @@ describe("mixed script entry Plan-mode effects", () => {
     expect(classify(engines, { action: "list" })).toBe("read");
     expect(classify(engines, { action: "set" })).toBe("write");
   });
+
+  it("requires fresh approval for shared resource mutations", async () => {
+    const resources = (await createResourceScriptEntries()).resources;
+    const requiresApproval = resources.needsApproval;
+    expect(typeof requiresApproval).toBe("function");
+    if (typeof requiresApproval !== "function") {
+      throw new Error("Missing shared-resource approval gate");
+    }
+
+    expect(
+      await requiresApproval({ action: "write", path: "LEARNINGS.md" }),
+    ).toBe(true);
+    expect(
+      await requiresApproval({
+        action: "write",
+        path: "memory/project.md",
+        scope: "shared",
+      }),
+    ).toBe(true);
+    expect(
+      await requiresApproval({
+        action: "delete",
+        path: "memory/project.md",
+        scope: "shared",
+      }),
+    ).toBe(true);
+    expect(
+      await requiresApproval({
+        action: "promote",
+        path: "memory/project.md",
+        scope: "shared",
+      }),
+    ).toBe(true);
+    expect(
+      await requiresApproval({
+        action: "write",
+        path: "LEARNINGS.md",
+        scope: "personal",
+      }),
+    ).toBe(false);
+    expect(
+      await requiresApproval({
+        action: "read",
+        path: "LEARNINGS.md",
+        scope: "shared",
+      }),
+    ).toBe(false);
+    expect(resources.allowPersistentApproval).toBe(false);
+  });
+
+  it("requires fresh approval for organization-wide save-memory writes", async () => {
+    const entries = await createResourceScriptEntries();
+    const saveMemory = entries["save-memory"];
+    const requiresApproval = saveMemory.needsApproval;
+    expect(typeof requiresApproval).toBe("function");
+    if (typeof requiresApproval !== "function") {
+      throw new Error("Missing organization-memory approval gate");
+    }
+
+    expect(await requiresApproval({ scope: "current-org" })).toBe(true);
+    expect(await requiresApproval({ scope: "personal" })).toBe(false);
+    expect(await requiresApproval({})).toBe(false);
+    expect(saveMemory.allowPersistentApproval).toBe(false);
+    expect(saveMemory.tool.parameters.properties.scope.enum).toEqual([
+      "personal",
+      "current-org",
+    ]);
+  });
 });
