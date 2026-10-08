@@ -147,6 +147,7 @@ import {
   SLIDE_SHAPE_LABEL_KEYS,
   type SlideShapeType,
 } from "./EditorActionCluster";
+import { hasInlineHeight } from "./fit-text-object";
 import { FollowingSlideStack } from "./FollowingSlideStack";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
@@ -795,16 +796,13 @@ function applyDescendantTextStyle(
 
 // The in-place layout reservation keeps an edited in-flow block at its
 // pre-edit offsetHeight while the text grows, so its outline reads the content
-// height. A fixed-height object keeps its authored frame, like a shape.
+// height. A fixed-height block keeps its authored frame, like a shape, whether
+// or not it is positioned: overflowing text must not stretch the outline over
+// its neighbours.
 function readEditedFrameOptions(
   element: HTMLElement,
 ): { contentHeight: "scroll" } | undefined {
-  const inlineHeight = element.style.getPropertyValue("height").trim();
-  const isFixedFreeform =
-    window.getComputedStyle(element).position === "absolute" &&
-    inlineHeight !== "" &&
-    inlineHeight !== "auto";
-  return isFixedFreeform ? undefined : { contentHeight: "scroll" };
+  return hasInlineHeight(element) ? undefined : { contentHeight: "scroll" };
 }
 
 function buildStyleSnapshot(

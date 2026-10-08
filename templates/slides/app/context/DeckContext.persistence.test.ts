@@ -1644,6 +1644,170 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it("collapses queued same-slide content patches in an idle keepalive flush and keeps distinct slides separate", async () => {
+    window.history.pushState({}, "", "/deck/flush-idle-collapse-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "flush-idle-collapse-deck",
+      title: "Idle keepalive collapse",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before one", notes: "", layout: "title" },
+        { id: "slide-2", content: "Before two", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "One first",
+      });
+      result.current.updateSlide(initial.id, "slide-2", {
+        content: "Two only",
+      });
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "One second",
+      });
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "One latest",
+      });
+      flushPendingSaves();
+    });
+
+    const keepalivePatches = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck") &&
+        init?.keepalive === true,
+    );
+    expect(keepalivePatches).toHaveLength(1);
+    const operations = actionCallBody(keepalivePatches[0]?.[1])
+      .operations as Array<{
+      slideId: string;
+      fields: Partial<Slide>;
+      baseContentHash?: string;
+    }>;
+    expect(operations).toHaveLength(2);
+    expect(operations.find((op) => op.slideId === "slide-1")).toMatchObject({
+      fields: { content: "One latest" },
+      baseContentHash: hashSlideContent("Before one"),
+    });
+    expect(operations.find((op) => op.slideId === "slide-2")).toMatchObject({
+      fields: { content: "Two only" },
+      baseContentHash: hashSlideContent("Before two"),
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+  });
+
+  it("collapses same-slide patches queued behind a verified full replacement in a keepalive flush", async () => {
+    window.history.pushState({}, "", "/deck/flush-verified-replace-collapse");
+    const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
+      deferredPatch: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "flush-verified-replace-collapse",
+      title: "Verified replacement keepalive collapse",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before one", notes: "", layout: "title" },
+        { id: "slide-2", content: "Before two", notes: "", layout: "title" },
+        { id: "slide-3", content: "Before three", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-2",
+        { content: "Active edit" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      flushPendingSaves();
+    });
+    act(() => {
+      result.current.setDeckSlides(
+        initial.id,
+        [
+          { ...initial.slides[0]!, content: "Replaced one" },
+          initial.slides[1]!,
+          initial.slides[2]!,
+        ],
+        { persistence: "immediate" },
+      );
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "One first",
+      });
+      result.current.updateSlide(initial.id, "slide-3", {
+        content: "Three only",
+      });
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "One latest",
+      });
+    });
+    resolveDeferredPatch(409, "slide_content_stale");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const keepaliveSaves = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
+        init?.keepalive === true,
+    );
+    expect(keepaliveSaves).toHaveLength(1);
+    const trailingPatches = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck") &&
+        init?.keepalive === true &&
+        (actionCallBody(init).operations as Array<{ slideId: string }>).some(
+          (op) => op.slideId === "slide-1",
+        ),
+    );
+    expect(trailingPatches).toHaveLength(1);
+    const operations = actionCallBody(trailingPatches[0]?.[1])
+      .operations as Array<{
+      slideId: string;
+      fields: Partial<Slide>;
+      baseContentHash?: string;
+    }>;
+    expect(operations).toHaveLength(2);
+    expect(operations.find((op) => op.slideId === "slide-1")).toMatchObject({
+      fields: { content: "One latest" },
+      baseContentHash: hashSlideContent("Replaced one"),
+    });
+    expect(operations.find((op) => op.slideId === "slide-3")).toMatchObject({
+      fields: { content: "Three only" },
+      baseContentHash: hashSlideContent("Before three"),
+    });
+  });
+
   it("requeues a failed keepalive flush for a normal retry", async () => {
     window.history.pushState({}, "", "/deck/flush-retry-deck");
     const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
