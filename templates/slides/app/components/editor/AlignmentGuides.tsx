@@ -32,8 +32,8 @@ export function AlignmentGuides({
     position: "fixed",
     pointerEvents: "none",
     zIndex: 70,
-    backgroundColor: "hsl(var(--destructive))",
-    boxShadow: "0 0 0 1px hsl(var(--destructive) / 0.2)",
+    // guard:allow-raw-color — Google Slides guides are literal #ff0000, theme-independent (interaction-oracle.md 9.2)
+    backgroundColor: "#ff0000",
   };
 
   return createPortal(

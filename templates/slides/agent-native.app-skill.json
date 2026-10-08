@@ -43,6 +43,11 @@
       "exportAs": "slide-editing"
     },
     {
+      "path": ".agents/skills/apply-slide-comments",
+      "visibility": "both",
+      "exportAs": "apply-slide-comments"
+    },
+    {
       "path": ".agents/skills/deck-management",
       "visibility": "internal"
     },

@@ -70,12 +70,8 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     });
     return { rows: [], rowsAffected: 1 };
   }
-  if (/^SELECT revoked_at FROM mcp_connect_tokens WHERE jti = \?/i.test(sql)) {
-    const t = tokens.find((r) => r.jti === args[0]);
-    return { rows: t ? [{ revoked_at: t.revoked_at }] : [], rowsAffected: 0 };
-  }
   if (
-    /^SELECT org_id, owner_email, kind FROM mcp_connect_tokens WHERE jti = \?/i.test(
+    /^SELECT org_id, owner_email, kind, revoked_at FROM mcp_connect_tokens WHERE jti = \?/i.test(
       sql,
     )
   ) {
@@ -86,7 +82,14 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     const t = tokens.find((r) => r.jti === args[0]);
     return {
       rows: t
-        ? [{ org_id: t.org_id, owner_email: t.owner_email, kind: t.kind }]
+        ? [
+            {
+              org_id: t.org_id,
+              owner_email: t.owner_email,
+              kind: t.kind,
+              revoked_at: t.revoked_at,
+            },
+          ]
         : [],
       rowsAffected: 0,
     };
@@ -361,35 +364,25 @@ describe("connect-store", () => {
       },
     );
 
-    it("isJtiRevoked is false for an active token and true after revoke", async () => {
+    it("reports a revoked token as revoked, not found", async () => {
       await store.recordMintedToken({ jti: "j", ownerEmail: "a@example.com" });
-      expect(await store.isJtiRevoked("j")).toBe(false);
+      expect(await store.lookupConnectTokenOrg("j")).toMatchObject({
+        status: "found",
+      });
       const id = tokens[0].id;
       expect(await store.revokeToken("a@example.com", id)).toBe(true);
-      expect(await store.isJtiRevoked("j")).toBe(true);
+      expect(await store.lookupConnectTokenOrg("j")).toEqual({
+        status: "revoked",
+      });
     });
 
-    it("isJtiRevoked is false for an unknown jti", async () => {
-      expect(await store.isJtiRevoked("nope")).toBe(false);
-    });
-
-    it("isJtiRevoked throws instead of answering 'not revoked' when the store can't be read", async () => {
+    it("reports a revoked token's unreadable row as unavailable, not missing", async () => {
       await store.recordMintedToken({ jti: "j", ownerEmail: "a@example.com" });
       await store.revokeToken("a@example.com", tokens[0].id);
-      getDbExecMock.mockImplementation(() => ({
-        execute: async (input: string | { sql: string; args?: unknown[] }) => {
-          const sql = typeof input === "string" ? input : input.sql;
-          if (/SELECT revoked_at FROM mcp_connect_tokens/.test(sql)) {
-            throw new Error("db down");
-          }
-          return exec(input);
-        },
-      }));
-      try {
-        await expect(store.isJtiRevoked("j")).rejects.toThrow("db down");
-      } finally {
-        getDbExecMock.mockImplementation(() => ({ execute: exec }));
-      }
+      failNextOrgLookup = true;
+      expect(await store.lookupConnectTokenOrg("j")).toEqual({
+        status: "unavailable",
+      });
     });
 
     it("looks up the org bound to a token and distinguishes missing rows", async () => {
@@ -612,10 +605,14 @@ describe("connect-store", () => {
       });
 
       expect(await store.revokeOrgServiceToken("org-2", id)).toBe(false);
-      expect(await store.isJtiRevoked("jti-svc")).toBe(false);
+      expect(await store.lookupConnectTokenOrg("jti-svc")).toMatchObject({
+        status: "found",
+      });
 
       expect(await store.revokeOrgServiceToken("org-1", id)).toBe(true);
-      expect(await store.isJtiRevoked("jti-svc")).toBe(true);
+      expect(await store.lookupConnectTokenOrg("jti-svc")).toEqual({
+        status: "revoked",
+      });
 
       const first = tokens[0].revoked_at;
       expect(await store.revokeOrgServiceToken("org-1", id)).toBe(false);
@@ -640,10 +637,18 @@ describe("connect-store", () => {
       await store.revokeOrgServiceToken("org-1", already);
 
       expect(await store.revokeServiceTokensByName("org-1", "ci")).toBe(2);
-      expect(await store.isJtiRevoked("a1")).toBe(true);
-      expect(await store.isJtiRevoked("a2")).toBe(true);
-      expect(await store.isJtiRevoked("b1")).toBe(false);
-      expect(await store.isJtiRevoked("c1")).toBe(false);
+      expect(await store.lookupConnectTokenOrg("a1")).toMatchObject({
+        status: "revoked",
+      });
+      expect(await store.lookupConnectTokenOrg("a2")).toMatchObject({
+        status: "revoked",
+      });
+      expect(await store.lookupConnectTokenOrg("b1")).toMatchObject({
+        status: "found",
+      });
+      expect(await store.lookupConnectTokenOrg("c1")).toMatchObject({
+        status: "found",
+      });
       expect(await store.revokeServiceTokensByName("org-1", "ci")).toBe(0);
     });
 

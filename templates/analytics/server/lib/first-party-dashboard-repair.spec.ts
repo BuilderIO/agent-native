@@ -692,6 +692,26 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(customized.changed).toBe(false);
   });
 
+  it("repairs a saved setup-choice panel with the previous Builder label", () => {
+    const panel = requiredFirstPartyPanel("onboarding-setup-choice");
+    const previousSql = panel.sql.replace(
+      "'Use Builder.io' AS method_label",
+      "'Create Builder.io account' AS method_label",
+    );
+    const repaired = repairCanonicalFirstPartyDashboardQueries({
+      panels: [{ ...panel, sql: scopeFirstPartyPanelSql(previousSql) }],
+    });
+
+    expect(previousSql).not.toBe(panel.sql);
+    expect(repaired.changed).toBe(true);
+    expect((repaired.config.panels as Array<{ sql: string }>)[0]?.sql).toBe(
+      scopeFirstPartyPanelSql(panel.sql),
+    );
+    expect(
+      repairCanonicalFirstPartyDashboardQueries(repaired.config).changed,
+    ).toBe(false);
+  });
+
   it("upgrades the content/chat retention panel to the paid/untagged split and adds chat readiness once", () => {
     const retention = requiredFirstPartyPanel("retention-over-time");
     const chatReadiness = requiredFirstPartyPanel("chat-readiness-by-app");

@@ -1401,8 +1401,33 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "pi-cli": "Pi",
   "opencode-cli": "OpenCode",
   "claude-fable-5": "Claude Fable 5",
+  "claude-fable-5-1": "Claude Fable 5.1",
+  "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
+  "deepseek-v3-1": "DeepSeek v3.1",
+  "z-ai-glm-4-5": "Z-AI GLM 4.5",
+  "z-ai-glm-5-1": "Z-AI GLM 5.1",
+  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
+  "grok-code-fast": "Grok Code Fast",
+  "x-ai/grok-build-0.1": "Grok Build 0.1",
+  "gpt-6-1-sol": "GPT-6.1 Sol",
+  "gemini-3-1-pro": "Gemini 3.1 Pro",
+  "gemini-3-8-flash": "Gemini 3.8 Flash",
+  "google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+  "google/gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "google/gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
+  "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
+  "deepseek/deepseek-chat-v3.1": "DeepSeek v3.1",
+  "z-ai/glm-4.5": "Z-AI GLM 4.5",
+  "z-ai/glm-5.1": "Z-AI GLM 5.1",
+  "z-ai/glm-5.3-flash": "Z-AI GLM 5.3 Flash",
+  "x-ai/grok-4.7": "Grok 4.7",
+  "qwen/qwen3-coder": "Qwen3 Coder",
+  "moonshotai/kimi-k2.5": "Kimi K2.5",
   "z-ai/glm-5.2": "GLM 5.2",
   "openai/gpt-6-astra": "GPT-6 Astra",
   "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
@@ -1428,13 +1453,6 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "claude-haiku-4-5": "Claude Haiku 4.5",
   "gemini-3-5-flash-lite": "Gemini 3.5 Flash-Lite",
   "gemini-3-1-flash-lite": "Gemini 3.1 Flash-Lite",
-  "grok-code-fast": "Grok Code Fast",
-  "qwen3-coder": "Qwen3 Coder",
-  "deepseek-v3-1": "DeepSeek v3.1",
-  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
-  "z-ai-glm-4-5": "Z-AI GLM 4.5",
-  "z-ai-glm-5-1": "Z-AI GLM 5.1",
-  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
 };
 
 const LOCAL_RUNTIME_ENGINES = new Set([
@@ -1531,11 +1549,15 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
       }) ?? "Default model"
     );
   }
-  if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
+  const friendlyName = Object.hasOwn(FRIENDLY_MODEL_NAMES, model)
+    ? FRIENDLY_MODEL_NAMES[model]
+    : undefined;
+  if (friendlyName !== undefined) return friendlyName;
   const normalizedModel = model.replace(/^(?:anthropic|openai|google)\//, "");
   // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD].
-  const claude = normalizedModel.match(
-    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
+  const undatedModel = normalizedModel.replace(/-\d{8,}$/, "");
+  const claude = undatedModel.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
@@ -1582,6 +1604,7 @@ export function compactComposerModelName(
 ): string {
   const fullName = friendlyModelName(model, t);
   if (model === "auto" || LOCAL_RUNTIME_ENGINES.has(model)) return fullName;
+  if (/^DeepSeek\b/i.test(fullName)) return fullName;
   const shortName = fullName
     .replace(/^GPT-\d+(?:\.\d+)?\s*/i, "")
     .replace(/^Gemini\s+\d+(?:\.\d+)?\s*/i, "")
@@ -1993,6 +2016,30 @@ function ModelSelector({
   const selectedModelDisplayName = selectedModelProviderGroups
     .map((group) => group.modelDisplayNames?.[model])
     .find((displayName) => typeof displayName === "string");
+  const selectedModelProviderGroup =
+    selectedModelProviderGroups.find(
+      (group) => group.engine === selectedEngine,
+    ) ?? selectedModelProviderGroups[0];
+  const selectedModelFriendlyName =
+    selectedModelDisplayName ?? friendlyModelName(model, t);
+  const selectedModelHasDuplicateName =
+    selectedModelProviderGroup !== undefined &&
+    modelProviderGroups.some(
+      (group) =>
+        group.engine !== selectedModelProviderGroup.engine &&
+        group.models.some(
+          (candidate) =>
+            (group.modelDisplayNames?.[candidate] ??
+              friendlyModelName(candidate, t)) === selectedModelFriendlyName,
+        ),
+    );
+  const selectedModelProviderLabel = selectedModelProviderGroup?.label.replace(
+    / · Builder\.io$/i,
+    "",
+  );
+  const selectedModelDisplayLabel = selectedModelHasDuplicateName
+    ? `${selectedModelFriendlyName} · ${selectedModelProviderLabel}`
+    : selectedModelFriendlyName;
   const selectedModelNeedsConnection =
     onlyConnectPathAvailable ||
     (selectedModelProviderGroups.length > 0 &&
@@ -2001,11 +2048,13 @@ function ModelSelector({
     ? showBuilderAction
       ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
       : t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
-    : (selectedModelDisplayName ?? friendlyModelName(model, t));
+    : selectedModelDisplayLabel;
   const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection
     ? selectedModelLabel
-    : (selectedModelDisplayName ?? compactComposerModelName(model, t));
+    : selectedModelHasDuplicateName
+      ? selectedModelDisplayLabel
+      : (selectedModelDisplayName ?? compactComposerModelName(model, t));
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2498,10 +2547,15 @@ function ModelSelector({
                     {hasConfiguredProvider &&
                       !onlyConnectPathAvailable &&
                       visibleProviderGroups.map((group, groupIndex) => {
-                        const models =
+                        const latestModels =
                           group.engine === "chatgpt-subscription"
                             ? group.models
                             : latestModelsOnly(group.models);
+                        const models = group.models.filter(
+                          (candidate) =>
+                            latestModels.includes(candidate) ||
+                            candidate === model,
+                        );
                         const showProviderLabels =
                           visibleProviderGroups.length > 1;
                         const isLocalRuntime =

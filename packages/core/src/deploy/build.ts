@@ -5183,6 +5183,13 @@ export async function runNitroBuildPipeline(
   }
 }
 
+function removeServerSourceMaps(serverDir: string): void {
+  const sourceMaps = fs.globSync("**/*.map", { cwd: serverDir });
+  for (const sourceMap of sourceMaps) {
+    fs.rmSync(path.join(serverDir, sourceMap), { force: true });
+  }
+}
+
 function resolveNitroClientDirectory(
   cwd: string,
   defaultClientDirectory: string,
@@ -5625,6 +5632,13 @@ export default bundle;
 
   if (isCloudflareModulePreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
+  }
+
+  if (sentryServerSourceMapPlugins.length > 0) {
+    removeServerSourceMaps(nitro.options.output.serverDir);
+    console.log(
+      "[deploy] Ensured Nitro server output is free of source maps before function packaging.",
+    );
   }
 
   if (preset === "netlify") {

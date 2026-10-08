@@ -34,5 +34,10 @@ describe("AlignmentGuides", () => {
     expect(horizontal?.style.left).toBe("10px");
     expect(horizontal?.style.top).toBe("40px");
     expect(horizontal?.style.width).toBe("200px");
+    expect(horizontal?.style.height).toBe("1px");
+    for (const line of [vertical, horizontal]) {
+      expect(line?.style.backgroundColor).toBe("#ff0000");
+      expect(line?.style.boxShadow).toBe("");
+    }
   });
 });

@@ -2,7 +2,6 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import type {
   CalendarEvent,
   CalendarEventDraft,
@@ -11,6 +10,7 @@ import type {
 import { getWeekStartsOn } from "@shared/calendar-week";
 import { isCalendarEventOrganizer } from "@shared/event-permissions";
 import {
+  IconCalendarDot,
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
@@ -51,6 +51,7 @@ import { TimezoneSwitchDialog } from "@/components/calendar/TimezoneSwitchDialog
 import { WeekView } from "@/components/calendar/WeekView";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import type { ViewMode } from "@/components/layout/AppLayout";
+import { HeaderActions } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -2076,7 +2077,17 @@ export default function CalendarView({
                     size="sm"
                     className="gap-1 px-2 text-sm font-semibold sm:px-2.5"
                   >
-                    {viewModeLabels[viewMode]}
+                    {/* Phones have no room for a separate date label next to
+                        the header actions, so the date names the view menu. */}
+                    <span className="whitespace-nowrap sm:hidden">
+                      {headerLabel}
+                      <span className="sr-only">
+                        , {viewModeLabels[viewMode]}
+                      </span>
+                    </span>
+                    <span className="hidden sm:inline">
+                      {viewModeLabels[viewMode]}
+                    </span>
                     <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -2189,9 +2200,13 @@ export default function CalendarView({
                     variant="outline"
                     size="sm"
                     onClick={handleToday}
-                    className="h-7 px-2 text-xs font-medium sm:px-2.5"
+                    aria-label={t("calendarView.today")}
+                    className="h-7 px-1.5 text-xs font-medium sm:px-2.5"
                   >
-                    {t("calendarView.today")}
+                    <IconCalendarDot className="size-4 sm:hidden" />
+                    <span className="hidden sm:inline">
+                      {t("calendarView.today")}
+                    </span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -2222,7 +2237,7 @@ export default function CalendarView({
                 <IconChevronRight className="h-4 w-4" />
               </Button>
 
-              <span className="ml-0.5 min-w-0 flex-1 truncate whitespace-nowrap text-center text-xs font-semibold sm:ml-1 sm:text-sm">
+              <span className="ml-1 hidden min-w-0 flex-1 truncate whitespace-nowrap text-center text-sm font-semibold sm:block">
                 {headerLabel}
               </span>
 
@@ -2295,7 +2310,7 @@ export default function CalendarView({
                 locationSuggestions={locationSuggestions}
               />
               <AccountAvatars />
-              <AgentToggleButton />
+              <HeaderActions />
             </div>
           </div>
 
@@ -2537,7 +2552,7 @@ function AccountAvatars() {
       <TooltipTrigger asChild>
         <Link
           to={buildSettingsRoute("app", "calendars")}
-          className="flex items-center hover:opacity-90 ml-1"
+          className="ml-1 hidden items-center hover:opacity-90 sm:flex"
           aria-label={t("calendarView.manageAccounts")}
         >
           <div className="flex items-center">

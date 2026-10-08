@@ -1309,7 +1309,7 @@ const ONBOARDING_SETUP_CHOICE_SQL = `${ONBOARDING_EVENTS_CTE}, choice_viewers AS
   FROM attempts
   GROUP BY method_id
 ), method_list AS (
-  SELECT 'builder_create_account' AS method_id, 'Create Builder.io account' AS method_label
+  SELECT 'builder_create_account' AS method_id, 'Use Builder.io' AS method_label
   UNION ALL SELECT 'builder_sign_in', 'Sign in with Builder.io account'
   UNION ALL SELECT 'custom_keys', 'Configure custom keys'
 )
