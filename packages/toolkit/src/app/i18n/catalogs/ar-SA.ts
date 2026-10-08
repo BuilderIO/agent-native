@@ -2228,7 +2228,8 @@ const messages: ToolkitAgentChatTranslation = {
     "يؤثر هذا على كل من في {{org}} ممن لم يربطوا حساباتهم الخاصة.",
   "settingsShell.builder.disconnectFailed": "تعذّر قطع اتصال Builder.io.",
   "settingsShell.builder.disconnectTitle": "هل تريد قطع اتصال Builder.io؟",
-  "settingsShell.builder.grantsFailed": "تعذّر التحقق من اتصال Builder.io.",
+  "settingsShell.builder.grantsFailed":
+    "حالة الاتصال غير متاحة. أعد المحاولة للتحقق مرة أخرى.",
   "settingsShell.builder.setupStartFailed":
     "تعذّر بدء إعداد Builder.io. حدّث هذه الصفحة وحاول مرة أخرى.",
   "settingsShell.builder.setupHostFailed":
@@ -2649,7 +2650,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "الوصول إلى النماذج وأتمتة المتصفح وتخزين الملفات وهوية مساحة العمل. تتوفر خطة مجانية.",
   "settingsShell.integrations.builderStatusFailed":
-    "تعذّر التحقق من اتصال Builder.io.",
+    "حالة الاتصال غير متاحة. أعد المحاولة للتحقق مرة أخرى.",
   "settingsShell.integrations.category.analytics": "التحليلات",
   "settingsShell.integrations.category.design": "التصميم",
   "settingsShell.integrations.category.engineering": "الهندسة",

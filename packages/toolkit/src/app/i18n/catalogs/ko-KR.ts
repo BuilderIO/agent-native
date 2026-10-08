@@ -2044,7 +2044,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io 연결을 해제하지 못했습니다.",
   "settingsShell.builder.disconnectTitle": "Builder.io 연결을 해제할까요?",
   "settingsShell.builder.grantsFailed":
-    "Builder.io 연결을 확인하지 못했습니다.",
+    "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
   "settingsShell.builder.setupStartFailed":
     "Builder.io 설정을 시작할 수 없습니다. 이 페이지를 새로고침한 후 다시 시도하세요.",
   "settingsShell.builder.setupHostFailed":
@@ -2472,7 +2472,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "모델 액세스, 브라우저 자동화, 파일 스토리지, 워크스페이스 ID. 무료 요금제가 있습니다.",
   "settingsShell.integrations.builderStatusFailed":
-    "Builder.io 연결을 확인하지 못했습니다.",
+    "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
   "settingsShell.integrations.category.analytics": "분석",
   "settingsShell.integrations.category.design": "디자인",
   "settingsShell.integrations.category.engineering": "엔지니어링",

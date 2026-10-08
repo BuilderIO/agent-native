@@ -2209,7 +2209,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Não foi possível desconectar o Builder.io.",
   "settingsShell.builder.disconnectTitle": "Desconectar o Builder.io?",
   "settingsShell.builder.grantsFailed":
-    "Não foi possível verificar a conexão com o Builder.io.",
+    "O status da conexão está indisponível. Tente novamente para verificar.",
   "settingsShell.builder.setupStartFailed":
     "Não foi possível iniciar a configuração do Builder.io. Atualize esta página e tente novamente.",
   "settingsShell.builder.setupHostFailed":
@@ -2658,7 +2658,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Acesso a modelos, automação de navegador, armazenamento de arquivos e identidade do workspace. Plano gratuito disponível.",
   "settingsShell.integrations.builderStatusFailed":
-    "Não foi possível verificar a conexão do Builder.io.",
+    "O status da conexão está indisponível. Tente novamente para verificar.",
   "settingsShell.integrations.category.analytics": "Análise",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Engenharia",

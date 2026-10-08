@@ -1924,7 +1924,8 @@ const messages: ToolkitAgentChatTranslation = {
     "这会影响 {{org}} 中所有未连接自己账号的人。",
   "settingsShell.builder.disconnectFailed": "无法断开 Builder.io。",
   "settingsShell.builder.disconnectTitle": "断开 Builder.io？",
-  "settingsShell.builder.grantsFailed": "无法检查 Builder.io 连接。",
+  "settingsShell.builder.grantsFailed":
+    "连接状态暂时不可用。请重试以再次检查。",
   "settingsShell.builder.setupStartFailed":
     "无法启动 Builder.io 设置。请刷新此页面后重试。",
   "settingsShell.builder.setupHostFailed":
@@ -2290,7 +2291,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "模型访问、浏览器自动化、文件存储和工作区身份。提供免费套餐。",
   "settingsShell.integrations.builderStatusFailed":
-    "无法检查 Builder.io 连接。",
+    "连接状态暂时不可用。请重试以再次检查。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "设计",
   "settingsShell.integrations.category.engineering": "工程",

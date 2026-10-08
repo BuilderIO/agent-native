@@ -2081,7 +2081,7 @@ const messages = {
   "settingsShell.builder.disconnectFailed": "Couldn't disconnect Builder.io.",
   "settingsShell.builder.disconnectTitle": "Disconnect Builder.io?",
   "settingsShell.builder.grantsFailed":
-    "Couldn't check your Builder.io connection.",
+    "Connection status is unavailable. Retry to check again.",
   "settingsShell.builder.setupStartFailed":
     "Couldn't start Builder.io setup. Refresh this page and try again.",
   "settingsShell.builder.setupHostFailed":
@@ -2525,7 +2525,7 @@ const messages = {
   "settingsShell.integrations.builderDescription":
     "Model access, browser automation, file storage, and workspace identity. Free tier available.",
   "settingsShell.integrations.builderStatusFailed":
-    "Couldn't check the Builder.io connection.",
+    "Connection status is unavailable. Retry to check again.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Engineering",

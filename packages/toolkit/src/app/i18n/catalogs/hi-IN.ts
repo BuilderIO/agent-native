@@ -2047,7 +2047,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed":
     "Builder.io को डिस्कनेक्ट नहीं किया जा सका।",
   "settingsShell.builder.disconnectTitle": "Builder.io डिस्कनेक्ट करें?",
-  "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन की जांच नहीं हो सकी।",
+  "settingsShell.builder.grantsFailed":
+    "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
   "settingsShell.builder.setupStartFailed":
     "Builder.io सेटअप शुरू नहीं हो सका। इस पेज को रीफ़्रेश करके फिर कोशिश करें।",
   "settingsShell.builder.setupHostFailed":
@@ -2464,7 +2465,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "मॉडल एक्सेस, ब्राउज़र ऑटोमेशन, फ़ाइल स्टोरेज और वर्कस्पेस पहचान। फ़्री टियर उपलब्ध है।",
   "settingsShell.integrations.builderStatusFailed":
-    "Builder.io कनेक्शन जाँचा नहीं जा सका।",
+    "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
   "settingsShell.integrations.category.analytics": "एनालिटिक्स",
   "settingsShell.integrations.category.design": "डिज़ाइन",
   "settingsShell.integrations.category.engineering": "इंजीनियरिंग",

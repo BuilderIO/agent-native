@@ -1934,7 +1934,8 @@ const messages: ToolkitAgentChatTranslation = {
     "這會影響 {{org}} 中所有未連結自己帳戶的人。",
   "settingsShell.builder.disconnectFailed": "無法中斷 Builder.io 的連結。",
   "settingsShell.builder.disconnectTitle": "要中斷 Builder.io 的連結嗎？",
-  "settingsShell.builder.grantsFailed": "無法檢查 Builder.io 連線。",
+  "settingsShell.builder.grantsFailed":
+    "連線狀態目前無法確認。請重試以再次檢查。",
   "settingsShell.builder.setupStartFailed":
     "無法啟動 Builder.io 設定。請重新整理此頁面後再試一次。",
   "settingsShell.builder.setupHostFailed":
@@ -2301,7 +2302,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "模型存取、瀏覽器自動化、檔案儲存和工作區身分。提供免費方案。",
   "settingsShell.integrations.builderStatusFailed":
-    "無法確認 Builder.io 連結。",
+    "連線狀態目前無法確認。請重試以再次檢查。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "設計",
   "settingsShell.integrations.category.engineering": "工程",
