@@ -7,6 +7,7 @@ import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
 import { orgMembers } from "../org/schema.js";
 import { organizations } from "../org/schema.js";
+import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   getRequestAuthCapability,
   getRequestContext,
@@ -101,6 +102,21 @@ async function isOrgMember(
   email: string,
   ctx: AccessContext,
 ): Promise<boolean> {
+  const requestContext = getRequestContext();
+  const verifiedServiceIdentity = requestContext?.verifiedServiceIdentity;
+  if (
+    normalizeEmailForAccess(requestContext?.userEmail) === email &&
+    normalizeEmailForAccess(verifiedServiceIdentity?.userEmail) === email &&
+    implicitServiceOrgRole({
+      email: verifiedServiceIdentity?.userEmail,
+      orgId: memberOrgId,
+      requestOrgId: requestContext?.orgId,
+    }) &&
+    verifiedServiceIdentity?.orgId === memberOrgId
+  ) {
+    return true;
+  }
+
   const db = reg.getDb() as any;
   let rows: Array<{ id: string }>;
   try {

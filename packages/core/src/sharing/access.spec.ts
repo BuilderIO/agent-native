@@ -653,6 +653,80 @@ describe("shareable resource access helpers", () => {
     });
   });
 
+  it("grants read-only org visibility to a service identity scoped to the same request org", async () => {
+    const serviceEmail = `svc-pr-recap@service.${orgId}`;
+    await insertDoc({
+      id: "doc-org-service-member",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: serviceEmail,
+        orgId,
+        verifiedServiceIdentity: { userEmail: serviceEmail, orgId },
+      },
+      async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-org-service-member"),
+        ).resolves.toMatchObject({ role: "viewer" });
+        await expect(
+          assertAccess(resourceType, "doc-org-service-member", "editor"),
+        ).rejects.toBeInstanceOf(ForbiddenError);
+      },
+    );
+  });
+
+  it("requires verified service-token provenance when the service-shaped email matches the org", async () => {
+    const serviceEmail = `svc-pr-recap@service.${orgId}`;
+    await insertDoc({
+      id: "doc-org-service-without-request-org",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+
+    await runWithRequestContext(
+      { userEmail: serviceEmail, orgId },
+      async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-org-service-without-request-org"),
+        ).resolves.toBe(null);
+      },
+    );
+
+    await runWithRequestContext({ userEmail: serviceEmail }, async () => {
+      await expect(
+        resolveAccess(resourceType, "doc-org-service-without-request-org", {
+          userEmail: serviceEmail,
+          orgId,
+        }),
+      ).resolves.toBe(null);
+    });
+  });
+
+  it("denies org visibility to a service identity scoped to a different request org", async () => {
+    const serviceEmail = `svc-pr-recap@service.${otherOrgId}`;
+    await insertDoc({
+      id: "doc-org-service-cross-org",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: serviceEmail,
+        orgId: otherOrgId,
+        verifiedServiceIdentity: { userEmail: serviceEmail, orgId: otherOrgId },
+      },
+      async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-org-service-cross-org"),
+        ).resolves.toBe(null);
+      },
+    );
+  });
+
   it("keeps direct user shares working in a transaction without org_members", async () => {
     await insertDoc({
       id: "doc-org-direct-share-without-members",

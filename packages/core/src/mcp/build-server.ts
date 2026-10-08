@@ -3979,12 +3979,22 @@ export async function verifyAuth(
         return { authed: false };
       }
       const orgId = orgIdFromConnectTokenResolution(orgResolution);
+      const storedConnectToken =
+        orgResolution.status === "found"
+          ? orgResolution
+          : orgResolution.status === "claimed"
+            ? orgResolution.storedConnectToken
+            : undefined;
       const admitted = await admitIssuedCredential(
         {
           authed: true,
           identity: {
             userEmail: oauthIdentity.userEmail,
-            identityAssurance: "user",
+            identityAssurance:
+              oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID &&
+              storedConnectToken?.kind === "service"
+                ? "service"
+                : "user",
             ...(orgId !== undefined ? { orgId } : {}),
             orgDomain: oauthIdentity.orgDomain,
             oauthScopes: oauthIdentity.scopes,
