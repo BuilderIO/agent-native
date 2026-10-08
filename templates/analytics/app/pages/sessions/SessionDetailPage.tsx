@@ -84,13 +84,10 @@ import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
 import {
   buildReplayViewportTimeline,
   INCREMENTAL_SOURCE,
-  normalizeReplayDimensions,
   normalizeReplayEvents,
   replayAvailabilityErrorKey,
   replayInitialViewportDimensions,
-  replayRouteAtOffset,
   replayStartedAt,
-  replayViewportDimensions,
   replayViewportDimensionsAtTime,
   REPLAY_OVERLAY_STYLE_RULES,
   RRWEB_EVENT_TYPE,

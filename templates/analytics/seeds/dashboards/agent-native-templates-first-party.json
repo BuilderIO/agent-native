@@ -594,12 +594,7 @@
           "seriesKey": "period",
           "valueKey": "rate"
         },
-        "colors": [
-          "#10b981",
-          "#f59e0b",
-          "#64748b",
-          "#8b5cf6"
-        ],
+        "colors": ["#10b981", "#f59e0b", "#64748b", "#8b5cf6"],
         "description": "Trailing 7-day cohorts returning on a later day with content created or a chat message, overall and 1-7d split by signup channel: paid (cpc/ppc/paid, an ad click id, or vector_source) vs untagged. A point appears once its return window has fully elapsed (7 days for 1-7d, 14 days for 7-14d), so the newest days are blank rather than zero."
       }
     },
@@ -1165,10 +1160,7 @@
           "valueKey": "responses"
         },
         "stacked": true,
-        "colors": [
-          "#10b981",
-          "#ef4444"
-        ],
+        "colors": ["#10b981", "#ef4444"],
         "description": "Explicit thumbs-up and thumbs-down responses grouped by the model that generated the rated response."
       }
     },
@@ -1183,11 +1175,7 @@
         "xKey": "sentiment",
         "yKey": "messages",
         "yFormatter": "number",
-        "colors": [
-          "#10b981",
-          "#94a3b8",
-          "#ef4444"
-        ],
+        "colors": ["#10b981", "#94a3b8", "#ef4444"],
         "description": "Optional LLM-inferred positive, neutral, and negative message classifications over the last 30 days. This is separate from explicit thumbs feedback."
       }
     }

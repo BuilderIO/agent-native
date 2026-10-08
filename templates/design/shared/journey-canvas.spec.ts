@@ -259,6 +259,38 @@ describe("planJourneyCanvas", () => {
     ]);
   });
 
+  it("keeps concatenated journey roots grouped in their input order", () => {
+    const raw = rawInput();
+    const roots = [
+      {
+        root: node("Clips", null, 600),
+        child: node("Clips > next", "Clips", 550),
+      },
+      {
+        root: node("Design", null, 800),
+        child: node("Design > next", "Design", 700),
+      },
+      {
+        root: node("Slides", null, 1000),
+        child: node("Slides > next", "Slides", 900),
+      },
+    ];
+    raw.tree.nodes = roots.flatMap(({ root, child }) => [root, child]);
+    raw.frames = roots.flatMap(({ root, child }) => [
+      frame(root.key, 0),
+      frame(child.key, 0),
+    ]);
+
+    const { screens } = plan(raw);
+    const y = (key: string) =>
+      screens.find((screen) => screen.nodeKey === key)!.frame.y;
+
+    expect(y("Clips")).toBeLessThan(y("Design"));
+    expect(y("Clips > next")).toBeLessThan(y("Design"));
+    expect(y("Design")).toBeLessThan(y("Slides"));
+    expect(y("Design > next")).toBeLessThan(y("Slides"));
+  });
+
   it("never drops a frame passed for an other node: it is rejected without examples and drawn as a card with them", () => {
     const withOther = (examples: ReturnType<typeof example>[]) => {
       const raw = rawInput();

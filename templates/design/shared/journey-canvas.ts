@@ -517,10 +517,9 @@ export function planJourneyCanvas(
     return null;
   };
 
-  const rank = (entry: Rendered) => (entry.kind === "stub" ? 1 : 0);
-  const ordered = [...rendered.values()].sort(
-    (a, b) => rank(a) - rank(b) || b.node.n - a.node.n || a.index - b.index,
-  );
+  // Analytics already returns roots and siblings in presentation order. Keep
+  // that order so concatenated app journeys stay grouped on the canvas.
+  const ordered = [...rendered.values()];
 
   const layoutNodes: JourneyLayoutNode[] = [];
   const dropoffOf = new Map<string, JourneyNode>();
