@@ -1,5 +1,6 @@
 import type { AgentApprovalRequest } from "@agent-native/agentkit/protocol";
 import { useT } from "@agent-native/core/client/i18n";
+import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import { IconShieldCheck } from "@tabler/icons-react";
 
 import { AgentApprovalPrompt } from "../../agentkit/react/components.js";
@@ -160,6 +161,7 @@ function SimpleToolApproval({
       />
       {resolution.error ? (
         <p
+          {...SESSION_REPLAY_MASK_PROPS}
           role="alert"
           className="agentkit-command-error block px-3 pb-3 text-xs"
         >

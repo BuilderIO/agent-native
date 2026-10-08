@@ -1079,6 +1079,93 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
+  it("masks the default composer's send and attachment errors", async () => {
+    const transport: AgentTransport = {
+      capabilities: { uploads: true },
+      async startRun() {
+        throw new Error("Jane Doe's notes are locked");
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const composerError = (text: string) =>
+      [...container.querySelectorAll(".agentkit-composer-error span")].find(
+        (span) => span.textContent?.includes(text),
+      );
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-errors">
+            <AgentKitChat
+              composerProps={{
+                initialText: "Summarize my notes",
+                modelStatusChecksEnabled: false,
+              }}
+            />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      const drop = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, "dataTransfer", {
+        value: {
+          types: ["Files"],
+          files: [
+            new File(["zip"], "Jane Doe taxes.zip", {
+              type: "application/zip",
+            }),
+          ],
+          dropEffect: "none",
+        },
+      });
+      await act(async () => {
+        container.querySelector(".agentkit-chat")?.dispatchEvent(drop);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        composerError("Jane Doe taxes.zip")?.hasAttribute(
+          SESSION_REPLAY_MASK_ATTRIBUTE,
+        ),
+      ).toBe(true);
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-agent-composer-slot="send-button"]',
+          )
+          ?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        composerError("Jane Doe's notes are locked")?.hasAttribute(
+          SESSION_REPLAY_MASK_ATTRIBUTE,
+        ),
+      ).toBe(true);
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it("disables transcript file drops when the host disables uploads", async () => {
     const transport: AgentTransport = {
       capabilities: { uploads: true },

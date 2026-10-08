@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import {
   AGENT_NATIVE_EMBED_MESSAGE_TYPES,
   AGENT_NATIVE_EMBED_PROTOCOL,
@@ -409,7 +410,7 @@ export function McpAppRenderer({
           <div className="agent-mcp-app__error" role="alert">
             <div className="agent-mcp-app__error-box">
               <IconAlertTriangle size={15} />
-              <span>{error}</span>
+              <span {...SESSION_REPLAY_MASK_PROPS}>{error}</span>
             </div>
           </div>
         )}
@@ -454,7 +455,7 @@ export function McpAppRenderer({
         <div className="agent-mcp-app__error" role="alert">
           <div className="agent-mcp-app__error-box">
             <IconAlertTriangle size={15} />
-            <span>{error}</span>
+            <span {...SESSION_REPLAY_MASK_PROPS}>{error}</span>
             {externalOpenUrl && !readOnly && (
               <button
                 type="button"

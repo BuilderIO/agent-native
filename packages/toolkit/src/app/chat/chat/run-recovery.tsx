@@ -278,7 +278,10 @@ export function BuilderConnectCta({
           </button>
         </DeferredBuilderConnectPopover>
         {error && (
-          <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end">
+          <p
+            {...SESSION_REPLAY_MASK_PROPS}
+            className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end"
+          >
             {error}
           </p>
         )}
@@ -319,7 +322,14 @@ export function BuilderConnectCta({
         <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[220px]">
           {t("agentChat.setup.freeCredits")}
         </p>
-        {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
+        {error && (
+          <p
+            {...SESSION_REPLAY_MASK_PROPS}
+            className="mt-1 text-[10px] text-destructive"
+          >
+            {error}
+          </p>
+        )}
       </div>
       <DeferredBuilderConnectPopover flow={flow}>
         <button
@@ -902,12 +912,20 @@ export function RunErrorRecoveryCard({
         </div>
       </div>
       {shouldShowBuilderReconnect && builderReconnect.error && (
-        <p className="mt-2 text-xs leading-relaxed text-red-500">
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 text-xs leading-relaxed text-red-500"
+        >
           {builderReconnect.error}
         </p>
       )}
       {forkError && (
-        <p className="mt-2 text-xs leading-relaxed text-red-500">{forkError}</p>
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 text-xs leading-relaxed text-red-500"
+        >
+          {forkError}
+        </p>
       )}
     </div>
   );
@@ -1101,7 +1119,14 @@ export function LoopLimitContinueCard({
           {t("agentChat.limit.ownerOnly")}
         </p>
       )}
-      {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}
+      {error && (
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 text-[11px] text-destructive"
+        >
+          {error}
+        </p>
+      )}
     </div>
   );
 }

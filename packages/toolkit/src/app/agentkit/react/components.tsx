@@ -2351,7 +2351,11 @@ export function AgentApprovalPrompt({
         )}
       </div>
       {resolution.error ? (
-        <p className="agentkit-command-error" role="alert">
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {resolution.error.message}
         </p>
       ) : null}
@@ -2472,7 +2476,7 @@ export function AgentConnectionRequestCard({
       {resolution.error ? (
         <div className="agentkit-command-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{resolution.error.message}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{resolution.error.message}</span>
         </div>
       ) : null}
     </Surface>
@@ -2521,7 +2525,11 @@ function AgentWidgetActionButton({
         {action.label}
       </ActionButton>
       {invocation.error ? (
-        <span className="agentkit-command-error" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {invocation.error.message}
         </span>
       ) : null}
@@ -3688,7 +3696,11 @@ export function AgentMessageActions({
         </>
       )}
       {actionError ? (
-        <span className="agentkit-command-error" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {actionError.message}
         </span>
       ) : null}
@@ -4618,13 +4630,13 @@ export function AgentKitComposer({
       {command.error ? (
         <div className="agentkit-composer-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{command.error.message}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{command.error.message}</span>
         </div>
       ) : null}
       {attachmentError ? (
         <div className="agentkit-composer-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{attachmentError}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{attachmentError}</span>
         </div>
       ) : null}
     </div>

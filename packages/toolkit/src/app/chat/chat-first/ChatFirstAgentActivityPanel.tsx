@@ -2,6 +2,7 @@ import type {
   ChatFirstAgentActivity,
   ChatFirstAgentActivityStatus,
 } from "@agent-native/core/client/chat-first-state";
+import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { cn } from "@agent-native/toolkit/utils";
 import {
@@ -111,7 +112,7 @@ export function ChatFirstAgentActivityPanel({
           data-chat-first-agents-error
         >
           <IconAlertCircle size={15} aria-hidden="true" />
-          <span>{error}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{error}</span>
           {onRefresh ? (
             <button
               type="button"
