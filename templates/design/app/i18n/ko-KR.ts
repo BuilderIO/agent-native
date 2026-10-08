@@ -929,6 +929,9 @@ export default {
         figmaPasteFailed: "Figma 붙여넣기 가져오기 실패",
         uploadFailed: "파일 업로드 실패",
         invalidFigFile: ".fig로 끝나는 파일을 선택하세요.",
+        unsupportedFileType: ".fig, .html 또는 .htm 파일을 선택하세요.",
+        importBusy:
+          "다른 가져오기가 진행 중입니다. 먼저 완료하거나 취소하세요.",
         figFileTooLarge:
           "이 .fig 파일은 너무 큽니다. 업로드는 {{max}}MB까지 지원됩니다. Figma에서 원하는 프레임만 새 파일로 복사한 뒤 그 파일을 .fig로 내보내거나, 'Figma에서 붙여넣기'를 사용하세요.",
       },
@@ -968,7 +971,17 @@ export default {
     saveTemplate: "템플릿 저장",
     templateSaved: "템플릿을 라이브러리에 저장했습니다",
     templateSaveFailed: "이 템플릿을 저장할 수 없습니다",
-    clickToRename: "클릭하여 이름 바꾸기",
+    fileMenu: {
+      pendingEditsBlocked:
+        "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",
+      designs: "디자인",
+      rename: "이름 바꾸기",
+      duplicate: "복제",
+      versionHistory: "버전 기록",
+      import: "가져오기…",
+      delete: "삭제",
+      deleteError: "이 디자인을 삭제할 수 없습니다",
+    },
     collaborators: "공동 작업자",
     share: "공유",
     signUpToSave: "가입",
@@ -990,6 +1003,10 @@ export default {
       interact: "Interact",
       screens: "화면",
     },
+    topBar: {
+      modeDesign: "디자인",
+      modeSwitch: "편집기 모드",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1010,6 +1027,10 @@ export default {
     keyboardShortcuts: {
       title: "키보드 단축키",
       close: "닫다: 키보드 단축키",
+      search: "검색",
+      searchLabel: "키보드 단축키 검색",
+      categoriesLabel: "단축키 카테고리",
+      empty: "“{{query}}”와(과) 일치하는 단축키가 없습니다",
       codeContext: "코드",
       screenContext: "화면",
       nudgeAmount: {
@@ -1042,11 +1063,6 @@ export default {
         leftBracket: "왼쪽 대괄호",
         rightBracket: "오른쪽 대괄호",
       },
-      descriptions: {
-        toggleUi: "지금 눌러 패널을 빠르게 숨기고 작업에 집중하세요",
-        undo: "가장 최근 디자인 변경을 되돌립니다",
-        redo: "방금 실행 취소한 디자인 변경을 복원합니다",
-      },
       categories: {
         essential: "필수",
         tools: "도구",
@@ -1078,6 +1094,7 @@ export default {
         showLayers: "레이어",
         showAssets: "에셋",
         toggleUi: "View",
+        toggleMinimalUi: "최소 UI",
         toggleComments: "댓글 고정",
         zoomIn: "확대",
         zoomOut: "축소",
@@ -1575,6 +1592,8 @@ export default {
     assetAdded: "자산이 추가됨",
     assetsNoImageUrl: "Assets에서 이미지 URL을 반환하지 않았습니다.",
     failedToUploadFile: "파일을 업로드하지 못했습니다.",
+    imageAttachmentUnavailable:
+      "이 이미지를 시각 입력으로 준비하지 못했습니다. 더 작은 PNG, JPG, GIF 또는 WebP 파일을 첨부하세요.",
     attachmentsTooLarge:
       "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
     failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
@@ -2004,6 +2023,15 @@ export default {
       "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
   },
   designSystems: {
+    comingSoonTitle: "디자인 시스템이 곧 제공됩니다",
+    waitlist: {
+      join: "대기 목록 등록",
+      joining: "등록 중…",
+      joined: "대기 목록에 등록되었습니다",
+      error: "대기 목록에 등록할 수 없습니다. 다시 시도해 주세요.",
+      unavailable:
+        "대기 목록 등록을 지금 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
+    },
     deleteError: "디자인 시스템을 삭제할 수 없습니다.",
     updateSuccess: "디자인 시스템 업데이트",
     updateError: "디자인 시스템을 업데이트할 수 없습니다.",

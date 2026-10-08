@@ -201,7 +201,8 @@
         "sonner",
         "tailwind-merge"
       ],
-      "verification": ["pnpm typecheck"]
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/use-action"]
     },
     {
       "id": "toolkit/app-chat",
@@ -473,6 +474,7 @@
         "@agent-native/core/agent/actions/manage-service-providers",
         "@agent-native/core/agent/chatgpt-subscription-contract",
         "@agent-native/core/agent/engine/provider-env-vars",
+        "@agent-native/core/agent/model-version",
         "@agent-native/core/audit/types",
         "@agent-native/core/cli/templates-meta",
         "@agent-native/core/client/agent-chat",
@@ -481,6 +483,7 @@
         "@agent-native/core/client/agent-provider-catalog",
         "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
+        "@agent-native/core/client/app-config",
         "@agent-native/core/client/app-model-default",
         "@agent-native/core/client/application-state",
         "@agent-native/core/client/auth/change-email",
@@ -517,6 +520,7 @@
         "@agent-native/core/localization/shared",
         "@agent-native/core/navigation",
         "@agent-native/core/navigation/settings-redirects",
+        "@agent-native/core/onboarding/app-profile-data",
         "@agent-native/core/onboarding/types",
         "@agent-native/core/onboarding/workspace-services",
         "@agent-native/core/org/permissions",
@@ -646,7 +650,8 @@
         "@tanstack/react-query",
         "next-themes",
         "react",
-        "react-router"
+        "react-router",
+        "sonner"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -662,6 +667,7 @@
         "@agent-native/core/client/webmcp",
         "@agent-native/core/notifications/types",
         "@agent-native/core/shared/document-title",
+        "@agent-native/core/shared/mcp-app-widget-embed",
         "@agent-native/core/shared/ssr-beta-redirect",
         "@agent-native/core/shared/ssr-session-bootstrap"
       ]
@@ -689,6 +695,7 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/auth/auth-page-helpers",
         "@agent-native/core/client/oauth-popup",
@@ -1192,6 +1199,7 @@
         "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-label",
         "@radix-ui/react-popover",
+        "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
@@ -1248,6 +1256,7 @@
         "@agent-native/core/shared/app-status",
         "@agent-native/core/shared/environment-lanes",
         "@agent-native/core/shared/loading-labels",
+        "@agent-native/core/shared/mcp-app-widget-embed",
         "@agent-native/core/shared/runtime-config"
       ]
     },
@@ -1312,7 +1321,12 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app/transcription"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["@agent-native/core", "@tabler/icons-react", "react"],
+      "dependencies": [
+        "@agent-native/core",
+        "@tabler/icons-react",
+        "react",
+        "sonner"
+      ],
       "verification": ["pnpm typecheck"],
       "protectedImports": ["@agent-native/core/client/i18n"]
     },

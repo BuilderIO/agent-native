@@ -97,6 +97,7 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
     configured: false,
     connecting: false,
     hasFetchedStatus: true,
+    canConnect: { org: true, personal: true },
   }),
   useBuilderStatus: () => ({
     status: { configured: false },
@@ -108,6 +109,7 @@ vi.mock("@/hooks/use-replay-storage-status", () => ({
   useReplayStorageStatus: () => ({
     data: { configured: mocks.configured },
     isLoading: false,
+    isSuccess: true,
     refetch: vi.fn(),
   }),
 }));

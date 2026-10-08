@@ -235,6 +235,7 @@ function makePeerReconcileHarness(initialContent = "original body") {
     baseAware = false,
     requestInitialSeed,
     quietSeedEditability,
+    isEditorClean,
   }: {
     value?: string;
     revision?: string | null;
@@ -248,6 +249,7 @@ function makePeerReconcileHarness(initialContent = "original body") {
     baseAware?: boolean;
     requestInitialSeed?: () => Promise<Uint8Array>;
     quietSeedEditability?: boolean;
+    isEditorClean?: (liveMarkdown: string) => boolean;
   }) {
     editor = useEditor({
       extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
@@ -264,6 +266,7 @@ function makePeerReconcileHarness(initialContent = "original body") {
       requestCollabSync,
       requestInitialSeed,
       quietSeedEditability,
+      isEditorClean,
       initialAppliedUpdatedAt: null,
       editable: true,
       parseValue: baseAware ? undefined : false,
@@ -2942,5 +2945,180 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
 
     expect(getEditorMarkdown(captured.editor!)).toBe("# updated externally");
+  });
+  describe("skipping the peer settle wait", () => {
+    const savedBody = "original body";
+    const snapshot = {
+      value: "agent edited body",
+      revision: "revision-2",
+      updatedAt: "2024-01-01T00:00:02.000Z",
+    };
+    async function openWithPeer(
+      isEditorClean: ((liveMarkdown: string) => boolean) | undefined,
+    ) {
+      const harness = makePeerReconcileHarness(savedBody);
+      const props = { isEditorClean };
+      act(() => root.render(React.createElement(harness.Harness, props)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      return { harness, props };
+    }
+    const adoptSnapshot = (
+      harness: ReturnType<typeof makePeerReconcileHarness>,
+      props: object,
+    ) =>
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, { ...props, ...snapshot }),
+        ),
+      );
+    // The host vouches for its own queues only; the hook compares the doc.
+    const hostClean = () => true;
+
+    it("adopts at once when the host reports the document clean", async () => {
+      vi.useFakeTimers();
+      const isEditorClean = vi.fn(hostClean);
+      const { harness, props } = await openWithPeer(isEditorClean);
+      try {
+        adoptSnapshot(harness, props);
+        await act(async () => vi.advanceTimersByTimeAsync(300));
+        expect(harness.markdown()).toBe(snapshot.value);
+        expect(isEditorClean).toHaveBeenCalledWith(savedBody);
+      } finally {
+        harness.dispose();
+      }
+    });
+
+    it("keeps the wait while the host has a save or recovery draft pending", async () => {
+      vi.useFakeTimers();
+      const { harness, props } = await openWithPeer(() => false);
+      try {
+        adoptSnapshot(harness, props);
+        await act(async () => vi.advanceTimersByTimeAsync(2000));
+        expect(harness.markdown()).toBe(savedBody);
+        await act(async () => vi.advanceTimersByTimeAsync(1000));
+        expect(harness.markdown()).toBe(snapshot.value);
+      } finally {
+        harness.dispose();
+      }
+    });
+
+    it("keeps the settle wait when the host does not say clean", async () => {
+      vi.useFakeTimers();
+      const { harness, props } = await openWithPeer(undefined);
+      try {
+        adoptSnapshot(harness, props);
+        await act(async () => vi.advanceTimersByTimeAsync(2000));
+        expect(harness.markdown()).toBe(savedBody);
+        await act(async () => vi.advanceTimersByTimeAsync(1000));
+        expect(harness.markdown()).toBe(snapshot.value);
+      } finally {
+        harness.dispose();
+      }
+    });
+
+    it("keeps the wait while the doc holds unsaved local text (Keep Mine recovery draft)", async () => {
+      vi.useFakeTimers();
+      const { harness, props } = await openWithPeer(hostClean);
+      try {
+        // Typed locally, never saved: the recovery draft is the only copy, and
+        // a host that vouches clean cannot override what the doc itself holds.
+        act(() => {
+          harness.editor().commands.setContent(`${savedBody} unsaved`, {
+            emitUpdate: false,
+          });
+        });
+        adoptSnapshot(harness, props);
+        await act(async () => vi.advanceTimersByTimeAsync(2000));
+        expect(harness.markdown()).toBe(`${savedBody} unsaved`);
+      } finally {
+        harness.dispose();
+      }
+    });
+
+    it("keeps the wait while a peer's typing sits in the doc ahead of its save", async () => {
+      vi.useFakeTimers();
+      const { harness, props } = await openWithPeer(hostClean);
+      const peerDoc = new Y.Doc();
+      Y.applyUpdate(peerDoc, Y.encodeStateAsUpdate(harness.ydoc));
+      const peerEditor = new CoreEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: peerDoc,
+        }),
+      });
+      try {
+        const stateVector = Y.encodeStateVector(harness.ydoc);
+        peerEditor.commands.insertContentAt(1, "Peer typing ");
+        act(() => {
+          Y.applyUpdate(
+            harness.ydoc,
+            Y.encodeStateAsUpdate(peerDoc, stateVector),
+            "remote",
+          );
+        });
+        adoptSnapshot(harness, props);
+        await act(async () => vi.advanceTimersByTimeAsync(2000));
+        expect(harness.markdown()).toBe(`Peer typing ${savedBody}`);
+      } finally {
+        peerEditor.destroy();
+        peerDoc.destroy();
+        harness.dispose();
+      }
+    });
+
+    it("keeps a peer's typing that lands after the snapshot was adopted at once", async () => {
+      vi.useFakeTimers();
+      const { harness, props } = await openWithPeer(hostClean);
+      const peerDoc = new Y.Doc();
+      Y.applyUpdate(peerDoc, Y.encodeStateAsUpdate(harness.ydoc));
+      const peerEditor = new CoreEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: peerDoc,
+        }),
+      });
+      try {
+        const stateVector = Y.encodeStateVector(harness.ydoc);
+        // Typed inside the paragraph the snapshot rewrites; still in flight.
+        peerEditor.commands.insertContentAt(10, "Peer typing ");
+        adoptSnapshot(harness, props);
+        await act(async () => vi.advanceTimersByTimeAsync(300));
+        expect(harness.markdown()).toBe(snapshot.value);
+        act(() => {
+          Y.applyUpdate(
+            harness.ydoc,
+            Y.encodeStateAsUpdate(peerDoc, stateVector),
+            "remote",
+          );
+        });
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        expect(harness.markdown()).toBe("agent edited Peer typing body");
+      } finally {
+        peerEditor.destroy();
+        peerDoc.destroy();
+        harness.dispose();
+      }
+    });
+
+    it("never adopts a snapshot older than the clean doc it lags", async () => {
+      vi.useFakeTimers();
+      const { harness, props } = await openWithPeer(hostClean);
+      try {
+        act(() =>
+          root.render(
+            React.createElement(harness.Harness, {
+              ...props,
+              value: "lagging body",
+              revision: "revision-0",
+              updatedAt: "2023-12-31T00:00:00.000Z",
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(10_000));
+        expect(harness.markdown()).toBe(savedBody);
+      } finally {
+        harness.dispose();
+      }
+    });
   });
 });

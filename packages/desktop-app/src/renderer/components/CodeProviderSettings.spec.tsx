@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { builderConnectFlow } = vi.hoisted(() => ({
   builderConnectFlow: {
     connecting: false,
+    configured: false,
+    accountExists: false,
+    error: null as string | null,
     statusResolved: true,
     agentNativeProvisioningEnabled: true,
     start: vi.fn(),
@@ -56,6 +59,10 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  builderConnectFlow.connecting = false;
+  builderConnectFlow.configured = false;
+  builderConnectFlow.accountExists = false;
+  builderConnectFlow.error = null;
   builderConnectFlow.start.mockClear();
 });
 
@@ -90,8 +97,7 @@ describe("CodeProviderSettings Builder setup", () => {
       },
     });
     const openBuilder = vi.spyOn(window, "open");
-
-    act(() => {
+    const renderSettings = () =>
       root.render(
         React.createElement(
           TooltipProvider,
@@ -102,7 +108,8 @@ describe("CodeProviderSettings Builder setup", () => {
           }),
         ),
       );
-    });
+
+    act(renderSettings);
 
     const getTrigger = () =>
       Array.from(container.querySelectorAll("button")).find((button) =>
@@ -132,7 +139,23 @@ describe("CodeProviderSettings Builder setup", () => {
     });
     expect(openBuilder).not.toHaveBeenCalled();
 
+    act(() => {
+      builderConnectFlow.connecting = true;
+      renderSettings();
+    });
+    expect(document.body.querySelector('[role="status"]')).not.toBeNull();
+    act(() => {
+      builderConnectFlow.connecting = false;
+      builderConnectFlow.configured = true;
+      renderSettings();
+    });
+
     click(getTrigger()!);
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain(
+        "I have a Builder.io account",
+      );
+    });
     const signIn = Array.from(document.body.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("I have a Builder.io account"),
     );

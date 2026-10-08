@@ -5,7 +5,7 @@ import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
 
 export default defineAction({
   description:
-    "Get personal, workspace, or owner-authorized app adoption metrics for Dispatch, including LLM usage, spend or Builder.io credit spend, active users, tracked app actions, app attribution, prompt previews, and recent activity. Workspace results also include monthlyByUser credit rows and workspaceAppCreationsByUserMonth rows from the shared token_usage and Dispatch audit tables. App scope is aggregate-only and returns daily/weekly active users plus tracked action counts for the selected app.",
+    "Get personal, workspace, or owner-authorized app adoption metrics for Dispatch, including LLM usage, spend or Builder.io credit spend, active users, tracked app actions, app attribution, prompt previews, and recent activity. billing.unit is unknown when historical usage lacks engine metadata or mixes billing sources; monthlyByUser credits are null in that case. Workspace results also include monthlyByUser credit rows and workspaceAppCreationsByUserMonth rows from the shared token_usage and Dispatch audit tables. App scope is aggregate-only and returns daily/weekly active users plus tracked action counts for the selected app.",
   schema: z.object({
     sinceDays: z.coerce
       .number()

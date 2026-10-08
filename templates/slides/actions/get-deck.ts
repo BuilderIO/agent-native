@@ -451,11 +451,14 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const { row, data, slides } = await loadDeckWithUniqueSlideIds(
-      deckId,
-      args.reviewPreview,
-      args.reviewOrgId,
-    );
+    const { row, data, slides } =
+      ctx?.caller === "mcp-widget"
+        ? await readDeck(deckId)
+        : await loadDeckWithUniqueSlideIds(
+            deckId,
+            args.reviewPreview,
+            args.reviewOrgId,
+          );
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -505,9 +508,16 @@ export default defineAction({
       slides.map((slide: any) => slide.id),
     );
     const linkedDesignSystemId = resolveDeckDesignSystemId(row, data);
+    const designSystemReader =
+      ctx?.caller === "mcp-widget"
+        ? {
+            run: (args: { id: string; compact?: "true" | "false" }) =>
+              getDesignSystem.run(args, ctx),
+          }
+        : getDesignSystem;
     const designSystem = await loadAgentDesignSystemContext(
       linkedDesignSystemId,
-      getDesignSystem,
+      designSystemReader,
     );
     const { deckStyle, representativeSlideId } = summarizeDeckStyle(
       slides as any,

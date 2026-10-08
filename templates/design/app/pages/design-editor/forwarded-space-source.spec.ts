@@ -7,27 +7,31 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./read-design-editor-source";
+
 const requireFromDesign = createRequire(
   path.resolve(process.cwd(), "package.json"),
 );
 const { chromium } = requireFromDesign("@playwright/test");
 const { transformSync } = requireFromDesign("esbuild");
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SOURCE =
-  process.env.SPACE_DESIGN_EDITOR_SOURCE ||
-  path.resolve(HERE, "../DesignEditor.tsx");
+const SOURCE_OVERRIDE = process.env.SPACE_DESIGN_EDITOR_SOURCE;
 const TOOL_STATE = path.join(HERE, "tool-state.ts");
 const START = "const handleWindowKeyDown = (event: KeyboardEvent) => {";
 const END = 'window.addEventListener("keydown", handleWindowKeyDown';
 const HELPER_START = "export function resolveSpaceForwardTransition(";
 const HELPER_END = "export function isSingleScreenAnnotationTool";
 
-function extractHandlers(sourcePath: string): string {
-  const source = readFileSync(sourcePath, "utf8");
+function extractHandlers(): string {
+  const source = SOURCE_OVERRIDE
+    ? readFileSync(SOURCE_OVERRIDE, "utf8")
+    : readDesignEditorSource();
   const start = source.indexOf(START);
   const end = source.indexOf(END, start);
   if (start < 0 || end < 0)
-    throw new Error(`Space handlers not found in ${sourcePath}`);
+    throw new Error(
+      `Space handlers not found in ${SOURCE_OVERRIDE ?? "DesignEditor"}`,
+    );
   return transformSync(source.slice(start, end), { loader: "tsx" }).code;
 }
 
@@ -55,7 +59,7 @@ describe("DesignEditor Space source handler", () => {
   let transitionHelper: (...args: unknown[]) => unknown;
 
   beforeAll(async () => {
-    handlerSource = extractHandlers(SOURCE);
+    handlerSource = extractHandlers();
     transitionHelper = loadTransitionHelper(TOOL_STATE);
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage();
@@ -110,6 +114,7 @@ describe("DesignEditor Space source handler", () => {
         const broadcastSpaceHeldToIframes = (held: boolean) =>
           broadcasts.push(held);
         const isDesignHotkeyEditableTarget = () => false;
+        const isKeyboardShortcutsDialogTarget = () => false;
         const rowButton = document.createElement("button");
         rowButton.setAttribute("data-layer-row-button", "");
         document.body.append(rowButton);
@@ -134,6 +139,7 @@ describe("DesignEditor Space source handler", () => {
           "broadcastSpaceHeldToIframes",
           "isDesignHotkeyEditableTarget",
           "isNativeKeyboardActivationTarget",
+          "isKeyboardShortcutsDialogTarget",
           `${handlerSource}\nreturn { handleWindowKeyDown, handleWindowKeyUp, handleWindowBlur };`,
         )(
           window,
@@ -148,6 +154,7 @@ describe("DesignEditor Space source handler", () => {
           broadcastSpaceHeldToIframes,
           isDesignHotkeyEditableTarget,
           isNativeKeyboardActivationTarget,
+          isKeyboardShortcutsDialogTarget,
         );
         window.addEventListener("keydown", handlers.handleWindowKeyDown, {
           capture: true,

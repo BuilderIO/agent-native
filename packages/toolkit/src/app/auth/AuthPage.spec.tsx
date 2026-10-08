@@ -275,11 +275,12 @@ describe("AuthPage", () => {
     );
     expect(html).toContain(">Learn more</a>");
     expect(html).toContain('class="oss-badge"');
-    expect(html).toContain('data-agent-native-wave="true"');
+    expect(html).not.toContain('data-agent-native-wave="true"');
+    expect(html).not.toContain('class="auth-wave-background"');
     expect(html).not.toContain("data-agent-native-marketing-background");
   });
 
-  it("renders one full-page WebGL wave on login and signup", () => {
+  it("keeps the auth background empty in server HTML for login and signup", () => {
     const props = propsFromHtml(
       getOnboardingHtml({ requestHost: "slides.agent-native.com" }),
     );
@@ -288,8 +289,9 @@ describe("AuthPage", () => {
       const html = renderToString(
         <AuthPage {...props} initialView={initialView} />,
       );
-      expect(html.match(/data-agent-native-wave="true"/g)).toHaveLength(1);
-      expect(html).toContain('class="auth-wave-background"');
+      expect(html).not.toContain('data-agent-native-wave="true"');
+      expect(html).not.toContain('class="auth-wave-background"');
+      expect(html).not.toContain('data-agent-native-auth-fallback="true"');
       expect(html).not.toContain("auth-marketing-signup-wave");
     }
   });

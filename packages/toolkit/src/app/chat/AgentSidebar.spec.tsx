@@ -105,6 +105,7 @@ function renderSidebar(
   disableChatShortcut = false,
   enabled = true,
   screenRefreshEnabled = true,
+  forceOverlay = false,
 ) {
   const render = (nextEnabled: boolean) => {
     flushSync(() => {
@@ -114,6 +115,7 @@ function renderSidebar(
             defaultOpen={defaultOpen}
             disableChatShortcut={disableChatShortcut}
             enabled={nextEnabled}
+            forceOverlay={forceOverlay}
             position={position}
             screenRefreshEnabled={screenRefreshEnabled}
           >
@@ -258,6 +260,20 @@ describe("AgentSidebar panel", () => {
     expect(composer?.disabled).toBe(false);
     composer!.value = "hello";
     expect(composer?.value).toBe("hello");
+  });
+
+  it("can overlay the agent panel above the mobile breakpoint", () => {
+    renderSidebar(true, "right", false, true, true, true);
+
+    const panel = container?.querySelector<HTMLElement>(
+      ".agent-sidebar-panel[data-agent-sidebar-state='open']",
+    );
+    expect(panel?.dataset.agentSidebarLayout).toBe("overlay");
+    expect(panel?.style.position).toBe("fixed");
+    expect(container?.querySelector(".agent-sidebar-backdrop")).toBeTruthy();
+    expect(
+      container?.querySelector("[data-agent-sidebar-main-state='closed']"),
+    ).toBeTruthy();
   });
 
   it("opens from the global shortcut with the composer available", async () => {

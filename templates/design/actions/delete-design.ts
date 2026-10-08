@@ -19,7 +19,7 @@ export default defineAction({
   run: async ({ id }) => {
     await assertAccess("design", id, "admin");
 
-    const snapshotBlobHandles = await withDesignSourceMutationTransaction(
+    const privateBlobHandles = await withDesignSourceMutationTransaction(
       id,
       async (tx) => {
         const snapshots = await tx
@@ -29,11 +29,22 @@ export default defineAction({
           .from(schema.designVisualEditSnapshots)
           .where(eq(schema.designVisualEditSnapshots.designId, id))
           .for("update");
+        const screenshots = await tx
+          .select({
+            blobHandle: schema.designBoardReplayScreenshots.blobHandle,
+          })
+          .from(schema.designBoardReplayScreenshots)
+          .where(eq(schema.designBoardReplayScreenshots.designId, id))
+          .for("update");
 
-        await queueVisualEditSnapshotBlobCleanupInTransaction(
-          tx,
-          snapshots.map((snapshot) => snapshot.blobHandle),
-        );
+        await queueVisualEditSnapshotBlobCleanupInTransaction(tx, [
+          ...snapshots.map((snapshot) => snapshot.blobHandle),
+          ...screenshots.map((screenshot) => screenshot.blobHandle),
+        ]);
+
+        await tx
+          .delete(schema.designBoardReplayScreenshots)
+          .where(eq(schema.designBoardReplayScreenshots.designId, id));
 
         await tx
           .delete(schema.designVisualEditPending)
@@ -72,10 +83,13 @@ export default defineAction({
           .where(eq(schema.designVersions.designId, id));
 
         await tx.delete(schema.designs).where(eq(schema.designs.id, id));
-        return snapshots.map((snapshot) => snapshot.blobHandle);
+        return [
+          ...snapshots.map((snapshot) => snapshot.blobHandle),
+          ...screenshots.map((screenshot) => screenshot.blobHandle),
+        ];
       },
     );
-    await deleteVisualEditSnapshotBlobs(snapshotBlobHandles);
+    await deleteVisualEditSnapshotBlobs(privateBlobHandles);
 
     return { id, deleted: true };
   },

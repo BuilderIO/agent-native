@@ -8,6 +8,7 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
@@ -160,6 +161,11 @@ import {
   videoUploadErrorMessage,
 } from "./image-upload";
 import { LinkHoverPreview } from "./LinkHoverPreview";
+import {
+  LIVE_BODY_PARITY_QUIET_MS,
+  measureLiveBodyParity,
+  reportLiveBodyParity,
+} from "./live-body-parity";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import {
   resolveSuggestionPresentationRange,
@@ -168,6 +174,7 @@ import {
 import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
 import { ContentTableView } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 function compareDocumentBodyRevisions(
   first: string,
@@ -1565,17 +1572,21 @@ interface VisualEditorProps {
     serverRevision: string;
   }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
+  isEditorClean?: (liveMarkdown: string) => boolean;
   onChange: (markdown: string) => void;
   onSaveContent?: (
     markdown: string,
   ) => EditorDraftSaveResult | Promise<EditorDraftSaveResult>;
   onEscape?: () => void;
   ydoc?: YDoc | null;
+  /** Shadow mode: compare saves with the body built from the live copy. */
+  observeLiveBody?: boolean;
   collabSynced?: boolean;
   awareness?: Awareness | null;
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
   suggesting?: boolean;
+  widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
@@ -3000,15 +3011,18 @@ export function VisualEditor({
   requestCollabSync,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
+  isEditorClean,
   onChange,
   onSaveContent,
   onEscape,
   ydoc,
+  observeLiveBody = false,
   collabSynced = true,
   awareness,
   user,
   editable = true,
   suggesting = false,
+  widgetLoadDiagnosticsActive = false,
   localFileMode = false,
   localFilePath,
   referenceDepth,
@@ -3041,6 +3055,9 @@ export function VisualEditor({
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
+  const widgetDiagnosticsActive =
+    widgetBridgeActive || widgetLoadDiagnosticsActive;
   const fileUploadStatus = useFileUploadStatus();
   const fileStorageState: "configured" | "missing" | "unknown" =
     fileUploadStatus.isError
@@ -3072,6 +3089,39 @@ export function VisualEditor({
   );
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const liveBodyObserverRef = useRef<{ documentId: string; ydoc: YDoc } | null>(
+    null,
+  );
+  liveBodyObserverRef.current =
+    observeLiveBody && ydoc && documentId ? { documentId, ydoc } : null;
+  const liveBodyParityTimerRef = useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
+  const scheduleLiveBodyParity = useCallback((editorToMeasure: CoreEditor) => {
+    const observer = liveBodyObserverRef.current;
+    if (!observer) return;
+    clearTimeout(liveBodyParityTimerRef.current);
+    liveBodyParityTimerRef.current = setTimeout(() => {
+      // Serialize and read the live copy in the same tick: anything later
+      // compares two different states.
+      let saved: string | null;
+      try {
+        saved = serializeEditorDraftForPersistence(editorToMeasure);
+      } catch (error) {
+        console.warn(
+          "[content] could not serialize the body to compare",
+          error,
+        );
+        return;
+      }
+      if (saved === null) return;
+      reportLiveBodyParity(
+        observer.documentId,
+        measureLiveBodyParity(observer.ydoc, saved),
+      );
+    }, LIVE_BODY_PARITY_QUIET_MS);
+  }, []);
+  useEffect(() => () => clearTimeout(liveBodyParityTimerRef.current), []);
   const onSaveContentRef = useRef(onSaveContent);
   onSaveContentRef.current = onSaveContent;
   const onActivateThreadRef = useRef(onActivateThread);
@@ -3320,6 +3370,7 @@ export function VisualEditor({
           return options?.strict === true
             ? ("failed" as const)
             : ("unchanged" as const);
+        scheduleLiveBodyParity(editorToPersist);
         const normalized = options?.markdown ?? serialized;
         if (localFileMode && normalized === content)
           return "unchanged" as const;
@@ -3350,7 +3401,7 @@ export function VisualEditor({
         return "failed" as const;
       }
     },
-    [content, localFileMode, t],
+    [content, localFileMode, scheduleLiveBodyParity, t],
   );
   onMediaSourceCommittedRef.current = async (editorToPersist, transaction) => {
     if (suggestingRef.current) return;
@@ -4064,6 +4115,7 @@ export function VisualEditor({
     requestCollabSync,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
+    isEditorClean,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
     onInitialSeedError,
@@ -4515,13 +4567,21 @@ export function VisualEditor({
   }, [editor]);
 
   if (!editor) {
-    return (
+    const skeleton = (
       <div className="flex flex-col gap-3 px-8 py-6 animate-pulse">
         <div className="h-4 w-2/3 rounded bg-muted" />
         <div className="h-4 w-full rounded bg-muted" />
         <div className="h-4 w-5/6 rounded bg-muted" />
         <div className="h-4 w-3/4 rounded bg-muted" />
       </div>
+    );
+    return (
+      <WidgetLoadDiagnostic
+        active={widgetDiagnosticsActive}
+        stage={t("editor.widgetEditorInitStage")}
+        action="VisualEditor.useEditor"
+        fallback={skeleton}
+      />
     );
   }
 

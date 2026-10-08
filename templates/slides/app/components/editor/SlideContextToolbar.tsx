@@ -28,6 +28,7 @@ import {
   IconGridDots,
   IconItalic,
   IconMessageCircle,
+  IconVideo,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -56,16 +57,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { VideoPlaybackSettings } from "@/lib/slide-video";
 import { cn, shortcutLabel } from "@/lib/utils";
 
 import type { SlideListKind } from "./list-editing";
@@ -165,6 +169,8 @@ export function SlideContextToolbar({
   canUngroup = false,
   onAlignObjects,
   onDistributeObjects,
+  videoPlayback,
+  onVideoPlaybackChange,
   zoomControls,
 }: {
   snapshot: SlideStyleSnapshot | null;
@@ -189,6 +195,8 @@ export function SlideContextToolbar({
   canUngroup?: boolean;
   onAlignObjects?: (alignment: SlideObjectAlignment) => void;
   onDistributeObjects?: (distribution: SlideObjectDistribution) => void;
+  videoPlayback?: VideoPlaybackSettings | null;
+  onVideoPlaybackChange?: (settings: VideoPlaybackSettings) => void;
   zoomControls?: {
     value: number;
     onZoomOut: () => void;
@@ -256,6 +264,7 @@ export function SlideContextToolbar({
   const slideBackground = backgroundCssValue(background);
   const hasMultiObjectSelection = objectSelectionCount >= 2;
   const canDistributeObjects = objectSelectionCount >= 3;
+  const isVideoSelection = snapshot?.tagName?.toLowerCase() === "video";
 
   return (
     <div
@@ -316,6 +325,53 @@ export function SlideContextToolbar({
           </Tooltip>
           <div className={TOOLBAR_DIVIDER} />
         </>
+      )}
+      {isVideoSelection && videoPlayback && onVideoPlaybackChange && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={MENU_BUTTON_CLASS}
+              aria-label={t("editorToolbar.videoPlayback")}
+            >
+              <IconVideo className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className="w-56"
+            {...inlineEditSurfaceProps}
+          >
+            <div className="grid gap-3">
+              <p className="text-xs font-medium">
+                {t("editorToolbar.videoPlayback")}
+              </p>
+              <Label className="flex items-center justify-between gap-4">
+                <span>{t("editorToolbar.autoplayVideo")}</span>
+                <Switch
+                  checked={videoPlayback.mode === "autoplay"}
+                  onCheckedChange={(checked) =>
+                    onVideoPlaybackChange({
+                      ...videoPlayback,
+                      mode: checked ? "autoplay" : "click",
+                    })
+                  }
+                />
+              </Label>
+              <Label className="flex items-center justify-between gap-4">
+                <span>{t("editorToolbar.loopVideo")}</span>
+                <Switch
+                  checked={videoPlayback.loop}
+                  onCheckedChange={(loop) =>
+                    onVideoPlaybackChange({ ...videoPlayback, loop })
+                  }
+                />
+              </Label>
+            </div>
+          </PopoverContent>
+        </Popover>
       )}
       {(canGroup || canUngroup) && (
         <>

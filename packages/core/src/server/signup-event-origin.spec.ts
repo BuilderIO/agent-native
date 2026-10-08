@@ -6,14 +6,14 @@ import { encodeMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 const tracked: Array<{
   name: string;
   properties: Record<string, unknown>;
-  source?: { userId?: string; anonymousId?: string };
+  source?: { userId?: string; anonymousId?: string; sessionId?: string };
 }> = [];
 
 vi.mock("../tracking/index.js", () => ({
   track: (
     name: string,
     properties: Record<string, unknown>,
-    source?: { userId?: string; anonymousId?: string },
+    source?: { userId?: string; anonymousId?: string; sessionId?: string },
   ) => {
     tracked.push({ name, properties, source });
   },
@@ -73,7 +73,7 @@ describe("emitSignupEventForCreatedUser", () => {
   it("emits an attributed signup for a browser that reached an endpoint", async () => {
     await emitSignupEventForCreatedUser(USER, {
       headers: headersWithCookie(
-        `an_aid=anon_browser_1; ${firstTouchCookie({
+        `an_aid=anon_browser_1; an_sid=session_browser_1; ${firstTouchCookie({
           utm_source: "google",
           utm_campaign: "launch",
           landing_path: "/",
@@ -84,6 +84,7 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked).toHaveLength(1);
     expect(tracked[0].name).toBe("signup");
     expect(tracked[0].source?.anonymousId).toBe("anon_browser_1");
+    expect(tracked[0].source?.sessionId).toBe("session_browser_1");
     expect(tracked[0].properties).toMatchObject({
       auth_provider: "better-auth",
       signup_origin: "browser_signup",
@@ -152,6 +153,7 @@ describe("emitSignupEventForCreatedUser", () => {
       {
         attribution: { referral_source: "external", utm_source: "newsletter" },
         anonymousId: "anon_magic_1",
+        sessionId: "session_magic_1",
       },
       getAuthSecret(),
     );
@@ -169,6 +171,7 @@ describe("emitSignupEventForCreatedUser", () => {
     });
 
     expect(tracked[0].source?.anonymousId).toBe("anon_magic_1");
+    expect(tracked[0].source?.sessionId).toBe("session_magic_1");
     expect(tracked[0].properties).toMatchObject({ utm_source: "newsletter" });
     expect(persisted).toEqual([
       {

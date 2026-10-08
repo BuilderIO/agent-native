@@ -245,6 +245,61 @@ test("responsive frames select and edit directly with explicit scope persistence
   }
 });
 
+test("exact-size generation preserves its canvas dimensions without mobile frames", async ({
+  page,
+  request,
+}) => {
+  const { designId, fileIds } = await createDesign(request);
+  const [fileId] = fileIds;
+  try {
+    await configureResponsiveDesign(request, designId, fileIds);
+    await action(request, "generate-design", {
+      designId,
+      prompt: "Create an email ad at exactly 300x250 pixels",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content:
+            '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main>Email ad</main></body></html>',
+        },
+      ],
+      canvasFrames: [
+        { filename: "index.html", x: 0, y: 0, width: 1440, height: 900 },
+      ],
+    });
+
+    const data = await designData(request, designId);
+    expect(data.canvasFrames[fileId!]).toMatchObject({
+      width: 300,
+      height: 250,
+    });
+    expect(data.screenMetadata[fileId!]).toMatchObject({
+      width: 300,
+      height: 250,
+      breakpointWidths: [],
+      heightPinned: true,
+      heightMode: "fixed",
+    });
+    expect(data.breakpointSet.breakpoints).toHaveLength(2);
+
+    await gotoEditor(page, designId);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+    await expect(
+      page.locator(`iframe[data-screen-iframe-id="${fileId}"]`),
+    ).toBeVisible();
+    const card = page.locator(`[data-frame-id="${fileId}"] [data-screen-card]`);
+    await expect(card).toBeVisible();
+    const bounds = await card.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.width / bounds!.height).toBeCloseTo(300 / 250, 2);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
 test("persists tall breakpoint content before server-side row placement", async ({
   page,
   request,

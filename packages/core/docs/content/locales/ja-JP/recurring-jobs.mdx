@@ -139,14 +139,25 @@ Summarize overnight emails.`,
 
 ## スケジューラの実行方法 {#how-scheduler-runs}
 
-スケジューラは、インプロセスで実行されるフレームワーク プラグイン (内部 `processRecurringJobs()` ルーチン) です。サーバーが実行されている場所に関係なく、エージェント チャット プラグイン内で `setInterval` が 60 秒ごとに起動します (起動遅延は 10 秒)。
+スケジューラ (内部の `processRecurringJobs()` ルーチン) は、ティックごとに実行時刻を迎えたジョブを見つけて実行します。ティックを起動するものは、アプリの実行場所によって異なります。
 
-<Diagram id="doc-block-5yulet" title={"スケジューラの 1 つのティック"} summary={"60 秒ごとに、スケジューラは期限が切れたジョブを見つけ、それぞれを新しいエージェント スレッドとして実行し、結果をジョブ ファイルに書き込みます。"}>
+| ホスト                                                           | ティックを起動するもの                                  | 要件と制限                                                                                                         |
+| ---------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 長時間稼働するサーバー (Node.js、Docker、Fly、Render、VPS)       | 起動の 10 秒後から 60 秒ごとに動くプロセス内タイマー    | プロセスが稼働している間は実行されます。                                                                           |
+| [Netlify](/docs/netlify)                                         | ビルドが出力するスケジュール function (毎分)            | 公開済みのデプロイのみ。Deploy Previews やブランチデプロイでは実行されません。ビルドには `A2A_SECRET` が必要です。 |
+| [Vercel](/docs/vercel#vercel-scheduled-work)                     | ビルドが追加する Vercel cron job (デフォルトでは毎分)   | 本番デプロイのみ。`CRON_SECRET` が必要です。Hobby プロジェクトでは最大で 1 日 1 回しか実行できません。             |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-scheduled-work) | ビルドが `wrangler.json` に追加する Cron Trigger (毎分) | Worker シークレットとして `A2A_SECRET` が必要です。                                                                |
+| AWS Lambda                                                       | なし                                                    | スケジュールされた自動化は起動しません。                                                                           |
+| ローカル開発                                                     | オプトインしない限りなし                                | 下のコールアウトを参照してください。                                                                               |
+
+Netlify、Vercel、Cloudflare では、同じティックでイベントトリガーの自動化のキューも処理し、function が途中で打ち切られた実行をクリーンアップし、Mail のスヌーズや送信予約などのアプリのスイープも実行します。トリガーのないサーバーレスデプロイでは、これらはいずれも行われません。イベントトリガーの自動化はキューで待ち続け、中断された実行は止まったままになります。Webhook トリガーの自動化と **Run now** は個別にディスパッチされるため、引き続き動作します。デプロイでスケジュールを起動できない場合は、**Automations** ページにその旨と理由が表示されます。
+
+<Diagram id="doc-block-5yulet" title={"スケジューラの 1 つのティック"} summary={"ティックごとに、スケジューラは実行時刻を迎えたジョブを見つけ、イベント自動化と同じバックグラウンド実行ライフサイクルに送ります。"}>
 
 ```html
 <div class="sched">
   <div class="diagram-box accent">
-    <code>setInterval</code> &bull; 60s &#8635;
+    スケジューラのティック &bull; 毎分 &#8635;
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-card">
@@ -205,14 +216,26 @@ Summarize overnight emails.`,
 
 <Callout id="doc-block-j6yn07" tone="risk">
 
-**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+**ウォームなインスタンスはスケジュールを実行しません。** サーバーレスホストはプロセス内タイマーを開始しないため、keep-alive ping を送ってもジョブは起動しません。ジョブを起動するのは上の表にあるプラットフォームのトリガーだけです。AWS Lambda ではまだ何もジョブを起動しないため、スケジュールされた自動化は長時間稼働するホスト (Fly、Render、VPS) で実行してください。
+
+</Callout>
+
+<Callout id="doc-block-rj2" tone="warning">
+
+**ローカル開発ではデフォルトで無効です。** `NODE_ENV` が `development` または `test` の場合、あるいはアプリの URL が `localhost` / `127.0.0.1` / `*.localhost` を指している場合 (ほとんどのローカル開発環境が該当します)、スケジューラの `setInterval` ループは開始されません。それでもローカルでスケジューラを実行するには、`AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` を設定してください。どのホストでもスケジュールされたジョブを無効にするには、次に説明する `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1` を使用します。
+
+</Callout>
+
+<Callout id="doc-block-rj3" tone="warning">
+
+**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` は 2 つのスコープで読み取られます。** Netlify、Vercel、Cloudflare では **ビルド** 環境で決まります。プラットフォームのトリガーはイベント自動化のキュー処理と実行のクリーンアップのために起動し続けますが、スイッチを有効にしたビルドでは、デプロイ先の環境の設定に関係なく、スケジュールされたジョブがスキップされます。長時間稼働するサーバーでは、**ランタイム** 環境がプロセス内タイマーを制御します。ホストが読み取る側の環境に設定してください。ビルドはその判断を記録するため、**Automations** ページでは、実際には守られない次回実行日時を表示する代わりに、スケジュールが実行されないことを示せます。
 
 </Callout>
 
 ## ジョブのデバッグ {#debugging}
 
 - **Settings › Automations** でオートメーションの詳細を開くか、エージェント リソースで `jobs/<name>.md` を確認します。フロントマターには `lastRun`、`lastStatus`、`lastError`、`nextRun` が表示されます。
-- **待たずにテストしてください:** **Settings › Automations** で **Run now** をクリックするか、エージェントに実行を依頼します (`manage-automations` の `action=run-now`)。ジョブのプロンプトが実際の副作用を伴ってすぐに実行され、`nextRun` は変わりません。例外は、フレームワークが一時停止したジョブです。実行が成功するとジョブが再び有効になり、`nextRun` が再計算されます。Run now はスケジューラを必要としないため、`AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` なしでも localhost で動作します。
+- **待たずにテストしてください:** **Settings › Automations** で **Run now** をクリックするか、エージェントに実行を依頼します (`manage-automations` の `action=run-now`)。ジョブのプロンプトが実際の副作用を伴ってすぐに実行され、`nextRun` は変わりません。例外は、フレームワークが一時停止したジョブです。実行が成功するとジョブが再び有効になり、`nextRun` が再計算されます。Run now はスケジューラのティックを待たないため、`AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` なしの localhost や、スケジューラのトリガーのないホストでも動作します。
 - **一時停止します:** `enabled: false` を反転します。ファイルはそのまま残り、実行が停止するだけです。
 
 ## エージェント ツール {#agent-tool}
@@ -232,7 +255,7 @@ Summarize overnight emails.`,
 
 定期的なジョブと `@agent-native/scheduling` を混同しないでください:
 
-- **定期的なジョブ (このページ)** — cron でスケジュールされた _プロンプト_ エージェントがバックグラウンドで実行されます。フレームワークレベル。エージェント リソースに住んでいます。あらゆるエージェントネイティブ アプリ上で実行されます。
+- **定期的なジョブ (このページ)** — cron でスケジュールされた _プロンプト_ エージェントがバックグラウンドで実行されます。フレームワークレベル。エージェント リソースに住んでいます。スケジューラのあるすべてのホストで起動します ([スケジューラの実行方法](#how-scheduler-runs) を参照)。
 - **`@agent-native/scheduling`** — カレンダー/予約機能 (イベント タイプ、空き状況ウィンドウ、予約) を構築するための再利用可能なドメイン パッケージ。 `calendar` テンプレートとカスタム スケジュール サーフェスを強化します。
 
 定期的なジョブとは、「エージェントを独自に動作させるにはどうすればよいか?」というものです。スケジュール パッケージは、「カレンダー アプリをどうやって構築するか?」です。さまざまな懸念。

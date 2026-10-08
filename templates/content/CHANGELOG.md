@@ -3,6 +3,44 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-07
+
+### Fixed
+
+- ChatGPT widgets identify a stalled Content editor instead of keeping its body skeleton onscreen.
+- ChatGPT widgets open document content without a cookie session
+- Content documents now open in ChatGPT widgets with their full body
+- Text two people type at the same spot now reaches the saved page for both of them, so readers and agents see it
+- ChatGPT widget previews show saved document bodies without a Content session.
+- Documents opened in ChatGPT show their saved content right away.
+- ChatGPT widgets show saved document bodies in read-only mode without a Content session.
+- Fixed Content pages that opened to an error in ChatGPT widgets
+
+## 2026-10-06
+
+### Added
+
+- External agents can now move a page and its sub-pages to recoverable Trash, list Trash, and restore it through Content's MCP tools.
+
+### Improved
+
+- ChatGPT can open Content document and database editors in the existing workspace, and document links use the right label.
+
+### Fixed
+
+- Connecting Notion no longer leaves its used authorization code in the address bar.
+- Documents and databases opened from ChatGPT load in the Content editor without a separate sign-in.
+- ChatGPT Content widgets load database views correctly.
+- Reopening a ChatGPT Content widget restores the editor for its saved document or collection.
+- Content preserves collaborator renames when a save is delayed
+- Filtered collection views work after you reopen the ChatGPT app.
+- Generated documents from ChatGPT open in the full Content editor.
+- Keep adopted collaborator titles when recovering an unsaved page
+- Keep collaborator title recovery aligned across rapid renames and local journal failures
+- Page recovery keeps local title edits when a collaborator renames the page.
+- Preserve the editor's authored base until external edits reach the editor, and hold database saves when collaboration delivery is pending
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
 ## 2026-10-05
 
 ### Improved

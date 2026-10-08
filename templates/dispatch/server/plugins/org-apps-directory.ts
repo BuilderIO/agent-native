@@ -57,14 +57,13 @@ import {
   isSoleOrgDomain,
   resolveOrgByDomain,
 } from "@agent-native/core/org";
-import { getH3App, runWithRequestContext } from "@agent-native/core/server";
-import { discoverOrgDirectoryAgents } from "@agent-native/core/server/agent-discovery";
 import {
-  defineEventHandler,
-  getMethod,
-  getRequestHeader,
-  getRequestURL,
-} from "h3";
+  getForwardedRequestURL,
+  getH3App,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import { discoverOrgDirectoryAgents } from "@agent-native/core/server/agent-discovery";
+import { defineEventHandler, getMethod, getRequestHeader } from "h3";
 import type { H3Event } from "h3";
 
 import {
@@ -119,7 +118,9 @@ export const orgAppsHandler = defineEventHandler(
 
     const verified = await verifyA2ABearerToken({
       token,
-      expectedAudience: canonicalA2AAudience(getRequestURL(event).toString()),
+      expectedAudience: canonicalA2AAudience(
+        getForwardedRequestURL(event).toString(),
+      ),
       resolveOrgSecretByDomain: (domain) => getA2ASecretByDomain(domain),
       resolveSoleOrgGlobalSecretByDomain: async (domain) => {
         if (!(await isSoleOrgDomain(domain))) return null;

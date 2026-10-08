@@ -4,8 +4,10 @@ import path from "path";
 import { isMap, parseDocument } from "yaml";
 
 import {
-  DEFAULT_WORKSPACE_SKILLS,
+  BUILDER_CODE_STARTER_LOCAL_SKILLS,
+  FACTORY_TEMPLATE_LOCAL_SKILLS,
   FRAMEWORK_TEMPLATE_SHARED_SKILLS,
+  WORKSPACE_SKILLS,
 } from "./workspace-skill-policy.js";
 
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
@@ -202,15 +204,40 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       exportName: "defaultAuthPlugin",
     });
     writeInheritedChatAgentChatPlugin(appDir, workspaceCoreName, opts.appName);
+  } else if (opts.templateName === "builder-code-starter") {
+    // The starter keeps its own agent-chat plugin (guard, prompt), but the
+    // appId it inherits from Chat must become this app's.
+    renameInheritedChatAppId(appDir, opts.appName);
   }
 }
+
+function renameInheritedChatAppId(appDir: string, appId: string): void {
+  const pluginPath = path.join(appDir, "server", "plugins", "agent-chat.ts");
+  if (!fs.existsSync(pluginPath)) return;
+  const content = fs.readFileSync(pluginPath, "utf-8");
+  const next = content.replace(
+    /(\bappId:\s*)(["'])chat\2/,
+    (_match, prefix: string, quote: string) =>
+      `${prefix}${quote}${appId}${quote}`,
+  );
+  if (next !== content) fs.writeFileSync(pluginPath, next);
+}
+
+// Skills a template ships as its own; workspace linking must not prune them.
+const TEMPLATE_LOCAL_SKILLS: Record<string, readonly string[]> = {
+  factory: FACTORY_TEMPLATE_LOCAL_SKILLS,
+  "builder-code-starter": BUILDER_CODE_STARTER_LOCAL_SKILLS,
+};
 
 function linkInheritedWorkspaceSkills(opts: WorkspacifyOptions): void {
   const workspaceSkillsDir = path.join(opts.workspaceRoot, ".agents", "skills");
   if (!fs.existsSync(workspaceSkillsDir)) return;
 
-  removeCopiedFrameworkSkills(opts.appDir, { allowUnverified: true });
-  linkDefaultWorkspaceSkills(opts.appDir, opts.workspaceRoot);
+  removeCopiedFrameworkSkills(opts.appDir, {
+    allowUnverified: true,
+    preserveLocalSkills: TEMPLATE_LOCAL_SKILLS[opts.templateName ?? ""] ?? [],
+  });
+  linkWorkspaceSkills(opts.appDir, opts.workspaceRoot);
 }
 
 function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
@@ -252,14 +279,20 @@ function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
 
 export function removeCopiedFrameworkSkills(
   appDir: string,
-  options: { workspaceRoot?: string; allowUnverified?: boolean } = {},
+  options: {
+    workspaceRoot?: string;
+    allowUnverified?: boolean;
+    preserveLocalSkills?: readonly string[];
+  } = {},
 ): string[] {
   const appSkillsDir = path.join(appDir, ".agents", "skills");
   const workspaceSkillsDir = options.workspaceRoot
     ? path.join(options.workspaceRoot, ".agents", "skills")
     : undefined;
   const preserved: string[] = [];
+  const preserveLocalSkills = new Set(options.preserveLocalSkills ?? []);
   for (const skill of FRAMEWORK_TEMPLATE_SHARED_SKILLS) {
+    if (preserveLocalSkills.has(skill)) continue;
     const localPath = path.join(appSkillsDir, skill);
     const stat = fs.lstatSync(localPath, { throwIfNoEntry: false });
     if (!stat || stat.isSymbolicLink()) continue;
@@ -279,9 +312,10 @@ export function removeCopiedFrameworkSkills(
   return preserved;
 }
 
-export function linkDefaultWorkspaceSkills(
+export function linkWorkspaceSkills(
   appDir: string,
   workspaceRoot: string,
+  selectedSkills: readonly string[] = WORKSPACE_SKILLS,
 ): string[] {
   const appSkillsDir = path.join(appDir, ".agents", "skills");
   const workspaceSkillsDir = path.join(workspaceRoot, ".agents", "skills");
@@ -289,7 +323,7 @@ export function linkDefaultWorkspaceSkills(
 
   fs.mkdirSync(appSkillsDir, { recursive: true });
   const preserved: string[] = [];
-  for (const skill of DEFAULT_WORKSPACE_SKILLS) {
+  for (const skill of selectedSkills) {
     const inheritedPath = path.join(workspaceSkillsDir, skill);
     if (!fs.existsSync(inheritedPath)) continue;
 

@@ -3,6 +3,27 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-07
+
+### Improved
+
+- Builder.io setup choices now say “Use Builder.io”.
+
+### Fixed
+
+- Clips sizes Settings and recording views correctly while a recording is active.
+- Clarify Builder storage setup choices and retry guidance
+
+## 2026-10-06
+
+### Fixed
+
+- Fixed arrow-key selection in comment mentions
+- Fixed attached images missing from visual analysis.
+- Fixed clips freezing when you hit play while the recording was still being optimized
+- Fixed returning to shared clips after email verification
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
 ## 2026-10-05
 
 ### Improved

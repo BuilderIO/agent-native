@@ -3,10 +3,38 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-06
+## 2026-10-07
+
+### Improved
+
+- A collaborator's edits refresh only the design data they change, so the editor does far fewer background requests while others work.
+- Keyboard shortcuts now open in a dialog with search and a category list, replacing the bottom drawer.
 
 ### Fixed
 
+- Fixed Position controls for fixed elements after scrolling the canvas.
+- Fixed Position readouts inside transformed containers and kept selected vector layers aligned to their shape bounds
+- Waitlist signups work from the Make Real and Design Systems flows.
+- Design keeps frame-relative positions and selections stable when moving or pasting layers.
+- Position values stay aligned with selected layers in layouts with body margins.
+
+## 2026-10-06
+
+### Added
+
+- Design Systems now offers a waitlist for early access to its workflows.
+
+### Improved
+
+- Design systems now show a coming-soon waitlist while existing systems remain visible.
+
+### Fixed
+
+- Reopening a ChatGPT Design widget restores the full editor for its saved design.
+- Fixed attached images missing from visual analysis.
+- Reference screenshots guide every design generation path.
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- The Recent tab stays visible while designs load and opens immediately when designs were present last time.
 - Dragging a selected nested frame now moves the frame and saves its new position
 
 ## 2026-10-05
@@ -17,6 +45,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Design keeps exact-size screens at their requested dimensions without adding mobile views
 - Agent links copied from a design are shorter, so Claude can fetch them without hitting its URL length limit.
 - Dropping a layer after crossing a nested frame places it in front of that frame.
 - Fixed layer placement after dragging across nested frames

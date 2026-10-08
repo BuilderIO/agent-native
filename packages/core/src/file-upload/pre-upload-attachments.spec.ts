@@ -6,6 +6,7 @@ import {
   preUploadImageAttachments,
   isFileUploadProviderConfigured,
 } from "./pre-upload-attachments.js";
+import { JPEG_BASE64 } from "./test-image-fixtures.js";
 
 const uploadFileMock = vi.hoisted(() => vi.fn());
 const getActiveProviderMock = vi.hoisted(() => vi.fn());
@@ -86,6 +87,82 @@ describe("preUploadAttachments", () => {
     expect((att as any).url).toBe("https://cdn.example.com/photo.png");
     expect(result.injectedText).toContain("chat-image-attachment");
     expect(result.injectedText).toContain("https://cdn.example.com/photo.png");
+  });
+
+  it("keeps inline image data when the client serialized it in url", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/photo.png",
+      provider: "builder",
+    });
+
+    const dataUrl =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVQI12NgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==";
+    const att = makeImageAtt({ data: undefined, url: dataUrl });
+    const result = await preUploadImageAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.any(Uint8Array),
+        filename: "photo.png",
+        mimeType: "image/png",
+      }),
+    );
+    expect(att.data).toBe(dataUrl);
+    expect(att.url).toBe("https://cdn.example.com/photo.png");
+    expect(result.uploaded).toHaveLength(1);
+  });
+
+  it("canonicalizes image/jpg before uploading a vision attachment", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/photo.jpg",
+      provider: "builder",
+    });
+
+    const att = makeImageAtt({
+      name: "photo.jpg",
+      contentType: "image/jpg",
+      data: `data:image/jpg;base64,${JPEG_BASE64}`,
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({ mimeType: "image/jpeg" }),
+    );
+    expect(result.uploaded[0]?.contentType).toBe("image/jpeg");
+    expect(att.data).toBe(`data:image/jpg;base64,${JPEG_BASE64}`);
+  });
+
+  it("recovers parameterized inline image data URLs from the URL field", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/photo.jpg",
+      provider: "builder",
+    });
+
+    const att = makeImageAtt({
+      name: "photo.jpg",
+      contentType: "image/jpg",
+      data: undefined,
+      url: `data:IMAGE/JPG;charset=binary;base64,${JPEG_BASE64}`,
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({ mimeType: "image/jpeg" }),
+    );
+    expect(att.data).toBe(
+      `data:IMAGE/JPG;charset=binary;base64,${JPEG_BASE64}`,
+    );
+    expect(att.url).toBe("https://cdn.example.com/photo.jpg");
+    expect(result.uploaded[0]?.contentType).toBe("image/jpeg");
   });
 
   it("uses the serialized data URL MIME type when it differs from the original file type", async () => {

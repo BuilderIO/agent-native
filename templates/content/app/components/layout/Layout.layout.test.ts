@@ -16,24 +16,65 @@ describe("app layout", () => {
   it("exposes the sidebar width to editor content for responsive surfaces", () => {
     const source = readLayoutSource();
 
-    expect(source).toContain("const contentSidebarWidth = isCompactLayout");
+    expect(source).toMatch(
+      /contentSidebarWidth\s*=\s*openAiWidget\s*\|\|\s*isCompactLayout/,
+    );
     expect(source).toContain('"--content-sidebar-width"');
     expect(source).toContain("sidebarCollapsed");
   });
 
-  it("uses overlay navigation through compact widths and settles it on route commit", () => {
+  it("sizes the sidebar from the shared width budget and settles overlay navigation on route commit", () => {
     const source = readLayoutSource();
 
+    expect(source).toContain("useContentShellLayout({");
     expect(source).toContain(
-      'export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)"',
+      'const isCompactLayout = shellLayout.sidebar === "drawer"',
     );
-    expect(source).toContain("const isCompactLayout = useIsCompactLayout()");
+    expect(source).toContain(
+      'const sidebarCollapsed = shellLayout.sidebar === "rail"',
+    );
+    expect(source).toContain(
+      "<ContentLayoutContext.Provider value={shellLayout}>",
+    );
     expect(source).toContain("{isCompactLayout ? (");
     expect(source).toContain("}, [location.key])");
+    expect(source).toContain(
+      'if (shellLayout.sidebar !== "drawer") setMobileSidebarOpen(false)',
+    );
     expect(source).toContain(
       'className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"',
     );
     expect(source).not.toContain("md:hidden");
+    expect(source).not.toContain("matchMedia");
+  });
+
+  it("never closes the agent panel to make room for the page", () => {
+    expect(readLayoutSource()).not.toContain("agent-panel:close");
+  });
+
+  it("renders only the page inside an MCP App widget, with no sidebar, header, or agent panel", () => {
+    const source = readLayoutSource();
+    const start = source.indexOf("if (mcpAppWidgetEmbed) {");
+    const widgetBranch = source.slice(
+      start,
+      source.indexOf("\n  return (", start),
+    );
+
+    expect(source).toContain("useIsMcpAppWidgetEmbed()");
+    expect(widgetBranch).toContain("agent-layout-shell");
+    expect(widgetBranch).toContain(
+      "SidebarTriggerContext.Provider value={null}",
+    );
+    expect(widgetBranch).not.toMatch(
+      /DocumentSidebar|AgentSidebar|<Header\b|InvitationBanner|IconMenu2/,
+    );
+  });
+
+  it("keeps workspace-wide sidebar data out of scoped OpenAI widgets", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain("fullWidthSettings || openAiWidget ? null");
+    expect(source).toMatch(/contentSidebarWidth\s*=\s*openAiWidget/);
   });
 
   it("persists the desktop sidebar collapse preference through the shared app shell", () => {

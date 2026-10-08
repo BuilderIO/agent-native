@@ -1,26 +1,27 @@
 ---
 title: "Access & Authorization"
-description: "Who can call an action: exposure flags (agentTool, mcpTool, toolCallable), ctx-based scoping, accessFilter/assertAccess, and the authorize guard."
+description: "Who can call an action: exposure flags (agentTool, mcpTool, toolCallable), the declarative access option, ctx-based scoping, accessFilter/assertAccess, and the authorize guard."
 ---
 
 # Access & Authorization
 
-Six settings decide who can call an action: the agent, the frontend, an extension, an outside API caller, or nobody without a human's approval first. Most actions never need to touch any of these, since the defaults already fit normal UI-and-agent use.
+Seven settings decide who can call an action: the agent, the frontend, an extension, an outside API caller, or nobody without a human's approval first. Most actions never need to touch any of these, since the defaults already fit normal UI-and-agent use.
 
 ### Exposure flags {#exposure-flags}
 
-All six default to the permissive value — `mcpTool` by inheriting `agentTool` — so you only set one when you need to tighten a specific surface. The table below is a quick summary. The sections after it add the one detail each flag needs.
+All seven default to the permissive value — `mcpTool` by inheriting `agentTool` — so you only set one when you need to tighten a specific surface. The table below is a quick summary. The sections after it add the one detail each flag needs.
 
-| Flag            | Default       | Restrictive value → who can still call                                      | Typical use                                                          |
-| --------------- | ------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `agentTool`     | `true`        | `false` → UI, HTTP, and CLI only (hidden from the model, MCP, and A2A)      | UI-only or programmatic actions that shouldn't take up a tool slot   |
-| `mcpTool`       | `agentTool`   | `false` → your own app's agent only (hidden from MCP and A2A)               | Actions that need an in-app screen or session on the other end       |
-| `toolCallable`  | `true`        | `false` → everything **except** the sandboxed extension iframe bridge (403) | Sensitive account or org changes (delete account, change membership) |
-| `publicAgent`   | off (private) | `{ expose: true }` → adds the action to **public** MCP/A2A/OpenAPI surfaces | Safe read or ingest tools that don't require authentication          |
-| `needsApproval` | `false`       | `true` → the agent **pauses**, and a human must approve the specific call   | Consequential side effects (send email, charge a card, delete)       |
-| `authorize`     | none          | a guard function → only callers it accepts, on **every** surface            | Operations restricted to a role (per-app RBAC, admin-only ops)       |
+| Flag            | Default       | Restrictive value → who can still call                                           | Typical use                                                          |
+| --------------- | ------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `agentTool`     | `true`        | `false` → UI, HTTP, and CLI only (hidden from the model, MCP, and A2A)           | UI-only or programmatic actions that shouldn't take up a tool slot   |
+| `mcpTool`       | `agentTool`   | `false` → your own app's agent only (hidden from MCP and A2A)                    | Actions that need an in-app screen or session on the other end       |
+| `toolCallable`  | `true`        | `false` → everything **except** the sandboxed extension iframe bridge (403)      | Sensitive account or org changes (delete account, change membership) |
+| `publicAgent`   | off (private) | `{ expose: true }` → adds the action to **public** MCP/A2A/OpenAPI surfaces      | Safe read or ingest tools that don't require authentication          |
+| `needsApproval` | `false`       | `true` → the agent **pauses**, and a human must approve the specific call        | Consequential side effects (send email, charge a card, delete)       |
+| `access`        | none          | a declared policy → only callers holding the role it names, on **every** surface | Actions that read or change one shared resource (edit a form)        |
+| `authorize`     | none          | a guard function → only callers it accepts, on **every** surface                 | Operations restricted to a role (per-app RBAC, admin-only ops)       |
 
-These flags are independent, with one exception: an undeclared `mcpTool` inherits `agentTool`. `agentTool` controls what the model sees, see [Hide from the model](#agent-tool) below. `mcpTool` narrows that to outside agents only, see [Hide from external agents](#mcp-tool) below. `toolCallable` controls only the extension iframe, see [Block extension iframes](#tool-callable) below. `publicAgent` adds an opt-in public surface, and a public web route never implies public tool exposure, see [Expose to public agents](#public-agent) below. `needsApproval` gates execution after the call is already made, see [Require human approval](#needs-approval) below. `authorize` decides whether this caller may run the action at all, on every dispatch path, before `run()` is entered, see [Restrict callers by role](#authorize) below.
+These flags are independent, with one exception: an undeclared `mcpTool` inherits `agentTool`. `agentTool` controls what the model sees, see [Hide from the model](#agent-tool) below. `mcpTool` narrows that to outside agents only, see [Hide from external agents](#mcp-tool) below. `toolCallable` controls only the extension iframe, see [Block extension iframes](#tool-callable) below. `publicAgent` adds an opt-in public surface, and a public web route never implies public tool exposure, see [Expose to public agents](#public-agent) below. `needsApproval` gates execution after the call is already made, see [Require human approval](#needs-approval) below. `access` declares the role the caller must hold on a resource, checked on every dispatch path before `run()` is entered, see [Require access to a resource](#access) below. `authorize` decides whether this caller may run the action at all, on every dispatch path, before `run()` is entered, see [Restrict callers by role](#authorize) below.
 
 ## Hide from the model {#agent-tool}
 
@@ -258,6 +259,48 @@ On `approval_required`, the chat UI renders an **Approve / Deny** affordance on 
 
 The Mail template's `send-email` action is the canonical use of this gate in the framework, and it is intentionally rare. It sets `needsApproval: true` so the agent can draft and queue emails freely. It can never actually send a message without a human approving that specific send.
 
+## Require access to a resource {#access}
+
+`access` declares what a caller must hold before an action runs. It is data on the definition, not code inside `run()`. Its most common form names a shared resource and the minimum role on it. The Forms template's `update-form` action uses it so only an editor of a form can change that form:
+
+```ts
+// actions/update-form.ts
+export default defineAction({
+  description: "Update an existing form.",
+  access: {
+    scope: "resource",
+    resource: { type: "form", idFrom: "id", level: "editor" },
+  },
+  schema: z.object({
+    id: z.string(),
+    title: z.string().optional(),
+  }),
+  run: async (args) => {
+    /* ...update the form... */
+  },
+});
+```
+
+`resource` takes three fields:
+
+- **type**: the name the resource was registered under with `registerShareableResource()`, like `"form"` or `"deck"`. See [Sharing](/docs/sharing#building).
+- **idFrom**: the input field that holds the resource's id. A dotted path like `"target.formId"` reads a nested field. If the value is missing or not a non-empty string, the call is denied.
+- **level**: the minimum role the caller needs, one of `"viewer"`, `"commenter"`, `"editor"`, `"admin"`, or `"owner"`. It defaults to `"viewer"`.
+
+Like `authorize`, the check wraps `run()` itself, so the UI, HTTP callers, the in-app agent, MCP clients, A2A callers, and the CLI all pass the same check before the body runs. It resolves the caller's role the same way `assertAccess()` does, so ownership, shares, and visibility all count. A caller below `level` gets a 403 such as `Requires editor access to form <id>.` A resource that doesn't exist gets the same 403.
+
+Use `access` when one input field names the one resource the action touches. Use `assertAccess()` inside `run()` when the id comes from somewhere else, like a row you load first, or when one call touches several resources. List queries have no single id to check, so they use `accessFilter()`. See [Access control in actions](#access-control) below. The [doctor](/docs/doctor) check `resource-action-access` accepts either a declared `access` or an `assertAccess()` call.
+
+### Organization and app scopes {#access-scopes}
+
+The other fields check membership instead of a single resource. Every field you set must pass.
+
+- **`scope: "org"`**: the caller must be an active member of their current organization.
+- **`scope: "app"`**: the caller must be signed in, and the workspace must have made this app available to them.
+- **`permission`**: a permission key from this app's `defineAppRoles()` `permissions` map. The caller must hold an app role that grants it. It runs the `scope: "app"` check first.
+
+`scope: "app"` and `permission` read the workspace's app registry, so they suit apps deployed as part of a workspace. In a standalone app, guard an app permission with `authorize` and `requirePermission()` instead, as shown in [App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac). That guard also rejects an undeclared permission key when the module loads. `access.permission` only denies it at request time.
+
 ## Restrict callers by role {#authorize}
 
 `authorize` answers one specific question: **may this caller run this operation at all?** Give it a guard function, and it runs before `run()` on every caller: agent tool, HTTP, frontend, MCP, A2A, and CLI.
@@ -296,10 +339,10 @@ The guard wraps `run()` itself, instead of attaching to some other part of the a
 The wrappers compose in this order:
 
 ```text
-validate input -> authorize -> run -> validate output -> audit
+validate input -> access -> authorize -> run -> validate output -> audit
 ```
 
-Authorization sits _inside_ input validation, so a guard that inspects `args` gets the same parsed, type-checked value that `run()` receives, not whatever raw shape the caller sent. Auditing is outermost, so a denial is still recorded.
+Authorization sits _inside_ input validation, so a guard that inspects `args` gets the same parsed, type-checked value that `run()` receives, not whatever raw shape the caller sent. `access` reads `idFrom` from that same parsed value. Auditing is outermost, so an audited action still records a denial. Read-only actions aren't audited by default, see [Audit logging](#audit) below.
 
 `requireAny()` fails at definition time, not at request time. Calling it with no roles, or with a role outside the declared list, throws as soon as the module loads. That way a mistake, like `authorize: coachAccess.requireAny()` with a dropped argument, breaks right where it happened, instead of showing up later as an unexplained 403.
 
@@ -352,17 +395,20 @@ export default defineAction({
 });
 ```
 
+When the id comes straight from the input, as `id` does here, a declared [`access`](#access) policy runs the same check from the action definition.
+
 A create action calls neither helper. It only needs to stamp `ownerEmail` (and `orgId`) from the request context when inserting the new row, since there's no existing row yet to check access against. See [Sharing](/docs/sharing#building) for the full registration and create pattern, and [Run Context](/docs/actions-run-context) for the full shape of the `ctx` second argument used above.
 
-The three mechanisms are not interchangeable:
+The four mechanisms are not interchangeable:
 
-| Mechanism                         | Question it answers                                  | Applies to                       |
-| --------------------------------- | ---------------------------------------------------- | -------------------------------- |
-| `authorize`                       | May this caller perform the operation at all?        | All six dispatch sites           |
-| `needsApproval`                   | Should a human approve this specific permitted call? | The agent loop only              |
-| `accessFilter()`/`assertAccess()` | Which rows may this permitted caller see or write?   | Inside `run()`, per query or row |
+| Mechanism                         | Question it answers                                   | Applies to                       |
+| --------------------------------- | ----------------------------------------------------- | -------------------------------- |
+| `access`                          | Does the caller hold the declared role or membership? | All six dispatch sites           |
+| `authorize`                       | May this caller perform the operation at all?         | All six dispatch sites           |
+| `needsApproval`                   | Should a human approve this specific permitted call?  | The agent loop only              |
+| `accessFilter()`/`assertAccess()` | Which rows may this permitted caller see or write?    | Inside `run()`, per query or row |
 
-A restricted write action typically needs both `authorize` and `assertAccess()`. The first keeps non-coaches out of the operation. The second keeps a coach out of another org's plan. `needsApproval` is a separate axis. It never restricts who may call, only whether the agent may proceed unattended.
+A restricted write action typically needs both `authorize` and a row check. The first keeps non-coaches out of the operation. The second keeps a coach out of another org's plan. The row check is `assertAccess()`, or `access` when the row's id is an input field. `needsApproval` is a separate axis. It never restricts who may call, only whether the agent may proceed unattended.
 
 `coachAccess` above comes from `defineAppRoles()`, the per-app role overlay on org membership. See [Organizations, Teams & Permissions → App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac) for the role model and its guarantees.
 

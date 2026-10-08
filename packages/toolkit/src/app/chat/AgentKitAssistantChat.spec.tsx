@@ -52,6 +52,7 @@ const chatMocks = vi.hoisted(() => ({
   reasoningProps: null as any,
   thinkingDisplay: null as any,
   requestComposerFocus: vi.fn(),
+  persistThreadSnapshot: vi.fn(async () => undefined),
   readiness: { canChat: true, missing: false, state: "configured" },
   fetchProviderState: vi.fn(async () => chatMocks.readiness.state),
   fileUploadStatus: {
@@ -239,7 +240,10 @@ vi.mock("../agentkit/react/index.js", async () => {
         : {
             threadId: chatMocks.threadId,
             requestComposerFocus: chatMocks.requestComposerFocus,
-            controller: { getThread: () => chatMocks.readThread() },
+            controller: {
+              getThread: () => chatMocks.readThread(),
+              persistThreadSnapshot: chatMocks.persistThreadSnapshot,
+            },
           },
     useAgentKitControl: () =>
       chatMocks.useRealChat ? useAgentKitControl() : chatMocks.control,
@@ -632,6 +636,7 @@ import {
   readClientAppState,
 } from "@agent-native/core/client/application-state";
 
+import { AgentKitActionWidget } from "./agentkit-chat/action-widget.js";
 import {
   AgentKitAssistantChat,
   type AgentKitAssistantChatProps,
@@ -755,6 +760,7 @@ beforeEach(() => {
   chatMocks.reasoningProps = null;
   chatMocks.thinkingDisplay = null;
   chatMocks.requestComposerFocus.mockReset();
+  chatMocks.persistThreadSnapshot.mockReset().mockResolvedValue(undefined);
   chatMocks.readiness = {
     canChat: true,
     missing: false,
@@ -810,6 +816,12 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("uses the action widget renderer for action chat UI output", async () => {
+    await mount(baseProps());
+
+    expect(chatMocks.rootProps.slots.widget).toBe(AgentKitActionWidget);
+  });
+
   it("asks for a title on the engine and model the first prompt was sent with", async () => {
     const onGenerateTitle = vi.fn();
     const props = baseProps({ onGenerateTitle });
@@ -834,6 +846,63 @@ describe("AgentKitAssistantChat host behavior", () => {
       chatMocks.threadId,
       "Write forty lines",
       { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+    );
+  });
+
+  it("uses a sanitized first-message fallback when the thread title is blank", async () => {
+    const savedSnapshots = vi.fn();
+    const message = {
+      id: "message-user-title-fallback",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [
+        {
+          type: "text",
+          text: 'Summarize @[the sprint|resource:123]\n<context data-agentkit-context-encoding="entities-v1">Private context</context>',
+        },
+      ],
+    };
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: {
+        id: chatMocks.threadId,
+        title: "",
+        createdAt: message.createdAt,
+        updatedAt: message.createdAt,
+      },
+      messages: [message],
+      events: [],
+      activeRunIds: [],
+      runs: {},
+      approvals: {},
+      approvalRunIds: {},
+      connectionRequests: {},
+      connectionRequestRunIds: {},
+      tools: {},
+      activities: {},
+      queuedMessages: [],
+      tasks: {},
+      taskGroups: {},
+      widgets: {},
+      widgetMessageIds: {},
+      annotations: {},
+      annotationMessageIds: {},
+      agents: {},
+      agentInteractions: [],
+      artifacts: [],
+    };
+
+    const props = baseProps({
+      onSaveThread: savedSnapshots,
+      runtime: {} as never,
+    });
+    await mount(props);
+    await act(async () => root.render(null));
+
+    expect(savedSnapshots).toHaveBeenCalledWith(
+      chatMocks.threadId,
+      expect.objectContaining({ title: "Summarize @the sprint" }),
     );
   });
 
@@ -885,6 +954,38 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "agentChat.status.thinking",
     );
+    expect(
+      container.querySelector("[data-agentkit-active-run-id-copy]"),
+    ).toBeNull();
+  });
+
+  it("shows and copies the active run ID as soon as it becomes available", async () => {
+    const props = baseProps();
+    await mount(props);
+
+    expect(
+      container.querySelector("[data-agentkit-active-run-id-copy]"),
+    ).toBeNull();
+
+    chatMocks.thread = { ...chatMocks.thread, activeRunIds: ["run-active"] };
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+
+    const copyRequestIdButton = container.querySelector(
+      '[data-agentkit-active-run-id-copy] button[aria-label="agentChat.message.copyRequestId"]',
+    );
+    expect(copyRequestIdButton).toBeTruthy();
+
+    await act(async () => {
+      copyRequestIdButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(chatMocks.writeClipboardText).toHaveBeenCalledWith("run-active");
+    expect(
+      container.querySelector(
+        '[data-agentkit-active-run-id-copy] button[aria-label="agentChat.common.copied"]',
+      ),
+    ).toBeTruthy();
   });
 
   it("does not duplicate Thinking after the run becomes active", async () => {
@@ -4003,11 +4104,18 @@ describe("AgentKitAssistantChat host behavior", () => {
       createdAt: "2026-09-26T12:00:01.000Z",
       parts: [{ type: "text", text: "Assistant answer survives handoff" }],
     };
+    const followupUserMessage = {
+      id: "handoff-followup-user-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-09-26T12:00:02.000Z",
+      parts: [{ type: "text", text: "Save after handoff" }],
+    };
     chatMocks.threadId = threadId;
     chatMocks.thread = {
       thread: {
         id: threadId,
-        title: "Handoff thread",
+        title: "",
         createdAt: message.createdAt,
         updatedAt: message.createdAt,
       },
@@ -4044,7 +4152,13 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     await act(async () => root.render(null));
     expect(savedSnapshots).toHaveBeenCalledOnce();
-
+    expect(savedSnapshots).toHaveBeenCalledWith(
+      threadId,
+      expect.objectContaining({
+        title: "Keep this transcript visible",
+        titleSource: "fallback",
+      }),
+    );
     const fetch = vi.fn(async () => new Response(null, { status: 404 }));
     const runtime = {
       id: "handoff-test",
@@ -4080,23 +4194,23 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.createTransport.mockImplementation((options: any) =>
       createAgentNativeAgentKitTransport({ ...options, runtime, fetch }),
     );
-    await act(async () => {
-      root.render(
-        <AgentKitAssistantChat
-          {...baseProps({
-            threadId,
-            browserTabId,
-            isNewThread: false,
-            onSaveThread: savedSnapshots,
-            centerComposerWhenEmpty: true,
-            suggestionPlacement: "context-chips",
-            homeIntroSlot: <h1>What should we do?</h1>,
-            afterComposerSlot: <div data-testid="home-app-grid" />,
-            suggestions: ["Explore my apps"],
-          })}
-        />,
-      );
+    const restoredProps = baseProps({
+      threadId,
+      browserTabId,
+      isNewThread: false,
+      onSaveThread: savedSnapshots,
+      centerComposerWhenEmpty: true,
+      suggestionPlacement: "context-chips",
+      homeIntroSlot: <h1>What should we do?</h1>,
+      afterComposerSlot: <div data-testid="home-app-grid" />,
+      suggestions: ["Explore my apps"],
     });
+    const restoredRef = createRef<any>();
+    await act(async () =>
+      root.render(
+        <AgentKitAssistantChat {...restoredProps} ref={restoredRef} />,
+      ),
+    );
 
     expect(container.textContent).toContain("Keep this transcript visible");
     expect(container.textContent).toContain(
@@ -4110,6 +4224,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     const handoff = await chatMocks.rootProps.transport.getThreadSnapshot({
       threadId,
     });
+    expect(handoff).toMatchObject({
+      title: "Keep this transcript visible",
+      titleSource: "fallback",
+    });
     expect(handoff.messages[0].parts).toContainEqual({
       type: "text",
       text: "Keep this transcript visible",
@@ -4119,6 +4237,22 @@ describe("AgentKitAssistantChat host behavior", () => {
       text: "Assistant answer survives handoff",
     });
     expect(fetch).not.toHaveBeenCalled();
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: handoff,
+      messages: [...handoff.messages, followupUserMessage],
+    };
+    await act(async () =>
+      root.render(
+        <AgentKitAssistantChat {...restoredProps} ref={restoredRef} />,
+      ),
+    );
+    const restoredSurfaceSnapshot = restoredRef.current?.exportThreadSnapshot();
+    expect(restoredSurfaceSnapshot).toMatchObject({
+      title: "Keep this transcript visible",
+      titleSource: "fallback",
+    });
   });
 
   it("keeps transient thread-restore errors retryable without clearing the tab", async () => {
@@ -4860,6 +4994,38 @@ describe("AgentKitAssistantChat host behavior", () => {
       ),
     ).toBe(true);
     window.removeEventListener("agentNative.chatRunning", onRunning);
+  });
+
+  it("persists changed custom-transport snapshots through the protocol save", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi.fn();
+    const message = {
+      id: "custom-user-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [{ type: "text", text: "Save this message" }],
+    };
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: null,
+      messages: [message],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ createTransport, onSaveThread })}
+        />,
+      );
+    });
+    await flush();
+
+    expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledWith("thread-1", [
+      expect.objectContaining({ id: "custom-user-message" }),
+    ]);
+    expect(onSaveThread).toHaveBeenCalledOnce();
   });
 
   it("shows an expired-session card and emits the session-expired event", async () => {

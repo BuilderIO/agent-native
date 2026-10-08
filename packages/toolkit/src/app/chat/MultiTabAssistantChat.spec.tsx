@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
+  type MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
 
 afterEach(() => {
@@ -84,6 +85,25 @@ const assistantChatMockState = vi.hoisted(() => ({
   onRetryModelList: undefined as (() => void) | undefined,
   onSlashCommand: undefined as ((command: string) => void) | undefined,
   onForkedThread: undefined as ((threadId: string) => void) | undefined,
+  onGenerateTitle: undefined as
+    | ((
+        threadId: string,
+        message: string,
+        selection: { engine?: string; model?: string },
+      ) => void)
+    | undefined,
+  onSaveThread: undefined as
+    | ((
+        threadId: string,
+        data: {
+          threadData: string;
+          title: string;
+          preview: string;
+          messageCount: number;
+          titleSource?: "fallback";
+        },
+      ) => void)
+    | undefined,
   branchNavigation: undefined as
     | {
         index: number;
@@ -339,6 +359,8 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         onRetryModelList?: () => void;
         onSlashCommand?: (command: string) => void;
         onForkedThread?: (threadId: string) => void;
+        onGenerateTitle?: typeof assistantChatMockState.onGenerateTitle;
+        onSaveThread?: typeof assistantChatMockState.onSaveThread;
         branchNavigation?: typeof assistantChatMockState.branchNavigation;
       };
       assistantChatMockState.onThreadRestoreNotFound =
@@ -346,6 +368,8 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
       assistantChatMockState.onRetryModelList = props.onRetryModelList;
       assistantChatMockState.onSlashCommand = props.onSlashCommand;
       assistantChatMockState.onForkedThread = props.onForkedThread;
+      assistantChatMockState.onGenerateTitle = props.onGenerateTitle;
+      assistantChatMockState.onSaveThread = props.onSaveThread;
       assistantChatMockState.branchNavigation = props.branchNavigation;
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -399,6 +423,8 @@ function resetThreadMocks() {
   assistantChatMockState.onRetryModelList = undefined;
   assistantChatMockState.onSlashCommand = undefined;
   assistantChatMockState.onForkedThread = undefined;
+  assistantChatMockState.onGenerateTitle = undefined;
+  assistantChatMockState.onSaveThread = undefined;
   assistantChatMockState.branchNavigation = undefined;
   threadMocks.activeThreadId = "thread-1";
   threadMocks.evictedThreadIds = [];
@@ -499,6 +525,96 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("keeps thread saves metadata-only for built-in, runtime, and custom transports", async () => {
+    const snapshot = {
+      threadData: JSON.stringify({ messages: [{ id: "message-1" }] }),
+      title: "Saved chat",
+      preview: "Latest request",
+      messageCount: 1,
+      titleSource: "fallback" as const,
+    };
+    window.history.replaceState(null, "", "/");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat storageKey="bridge-test" threadUrlSync />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+
+    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
+      ...snapshot,
+      threadData: "",
+    });
+    expect(window.location.search).toBe("?thread=thread-1");
+
+    const createTransport = (() => ({}) as never) as NonNullable<
+      MultiTabAssistantChatProps["createTransport"]
+    >;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync
+          createTransport={createTransport}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+
+    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
+      ...snapshot,
+      threadData: "",
+    });
+    expect(window.location.search).toBe("?thread=thread-1");
+
+    const runtime = {} as NonNullable<MultiTabAssistantChatProps["runtime"]>;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync
+          runtime={runtime}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+
+    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
+      ...snapshot,
+      threadData: "",
+    });
+    expect(window.location.search).toBe("?thread=thread-1");
+  });
+
+  it("persists a sanitized prompt title when title generation is unavailable", async () => {
+    threadMocks.generateTitle.mockResolvedValueOnce(null);
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="title-fallback" />);
+      await Promise.resolve();
+    });
+
+    const message =
+      'Summarize @[the sprint|resource:123]\n<context data-agentkit-context-encoding="entities-v1">Private context</context>';
+    await act(async () => {
+      assistantChatMockState.onGenerateTitle?.("thread-1", message, {});
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.saveThreadData).toHaveBeenCalledWith("thread-1", {
+      threadData: "",
+      title: "Summarize @the sprint",
+      preview: message.slice(0, 120),
+      titleSource: "fallback",
+    });
   });
 
   it("prefills the active composer without submitting when submit is false", () => {

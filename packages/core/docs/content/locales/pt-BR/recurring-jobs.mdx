@@ -139,14 +139,32 @@ Summarize overnight emails.`,
 
 ## Como o agendador é executado {#how-scheduler-runs}
 
-O agendador é um plugin de estrutura (a rotina interna `processRecurringJobs()`) que é executado no processo: um `setInterval` é acionado a cada 60 segundos (com um atraso de inicialização de 10 segundos) dentro do plugin de chat do agente, onde quer que o servidor esteja em execução.
+A cada tick, o agendador (a rotina interna `processRecurringJobs()`) encontra os trabalhos vencidos e os executa. O que dispara o tick depende de onde o app é executado:
 
-<Diagram id="doc-block-16bw537" title="Um tick do agendador" summary={"A cada 60 segundos, o agendador encontra tarefas vencidas, executa cada uma delas como um novo encadeamento de agente e grava o resultado de volta no arquivo de tarefas."}>
+| Host                                                              | O que dispara o tick                                                                       | Requisitos e limites                                                                                                    |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Servidor de longa duração (Node.js, Docker, Fly, Render, uma VPS) | Um temporizador em processo a cada 60 segundos, começando 10 segundos após a inicialização | Funciona enquanto o processo estiver ativo.                                                                             |
+| [Netlify](/docs/netlify)                                          | Uma função agendada emitida pelo build, a cada minuto                                      | Somente implantações publicadas, nunca Deploy Previews ou implantações de branch. O build precisa de `A2A_SECRET`.      |
+| [Vercel](/docs/vercel#vercel-scheduled-work)                      | Um cron job da Vercel adicionado pelo build, a cada minuto por padrão                      | Somente a implantação de produção. Precisa de `CRON_SECRET`. Projetos Hobby podem executá-lo no máximo uma vez por dia. |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-scheduled-work)  | Um Cron Trigger que o build adiciona ao `wrangler.json`, a cada minuto                     | Precisa de `A2A_SECRET` como segredo do Worker.                                                                         |
+| AWS Lambda                                                        | Nada                                                                                       | Automações agendadas não são disparadas.                                                                                |
+| Desenvolvimento local                                             | Nada, a menos que você opte por ativar                                                     | Veja o aviso abaixo.                                                                                                    |
+
+Na Netlify, na Vercel e no Cloudflare, o mesmo tick também esvazia a fila de
+automações acionadas por eventos, limpa execuções cuja função foi interrompida e
+executa varreduras de apps, como o adiamento e o envio programado do Mail. Uma
+implantação serverless sem gatilho não recebe nada disso: automações acionadas
+por eventos ficam esperando na fila e execuções interrompidas continuam travadas.
+Automações acionadas por webhook e o **Run now** são despachados por conta
+própria, então continuam funcionando. Quando uma implantação não consegue
+disparar agendamentos, a página **Automations** avisa e informa o motivo.
+
+<Diagram id="doc-block-16bw537" title="Um tick do agendador" summary={"A cada tick, o agendador encontra os trabalhos vencidos e os envia pelo mesmo ciclo de vida de execução em segundo plano das automações por evento."}>
 
 ```html
 <div class="sched">
   <div class="diagram-box accent">
-    <code>setInterval</code> &bull; 60s &#8635;
+    tick do agendador &bull; a cada minuto &#8635;
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-card">
@@ -205,14 +223,26 @@ O agendador é um plugin de estrutura (a rotina interna `processRecurringJobs()`
 
 <Callout id="doc-block-j6yn07" tone="risk">
 
-**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+**Uma instância aquecida não executa agendamentos.** Hosts serverless nunca iniciam o temporizador em processo, então pings de keep-alive não fazem os trabalhos dispararem. Só o gatilho da plataforma na tabela acima faz isso. No AWS Lambda, nada os dispara ainda, então execute automações agendadas em um host de longa duração (Fly, Render, uma VPS).
+
+</Callout>
+
+<Callout id="doc-block-rj2" tone="warning">
+
+**Desativado por padrão no desenvolvimento local.** O loop `setInterval` do agendador nunca inicia quando `NODE_ENV` é `development` ou `test`, ou quando a URL do app aponta para `localhost` / `127.0.0.1` / `*.localhost` — o que cobre a maioria das configurações de desenvolvimento local. Defina `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` para executar o agendador localmente mesmo assim. Para desligar os trabalhos agendados em qualquer host, use `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1`, descrito a seguir.
+
+</Callout>
+
+<Callout id="doc-block-rj3" tone="warning">
+
+**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` é lido em dois escopos.** Na Netlify, na Vercel e no Cloudflare, quem decide é o ambiente de **build**: o gatilho da plataforma continua disparando para esvaziar a fila de automações por evento e limpar execuções, mas um build com a chave ligada pula os trabalhos agendados, independentemente do que diga o ambiente implantado. Em um servidor de longa duração, o ambiente de **runtime** controla o temporizador em processo. Defina-o onde o seu host o lê. O build registra sua decisão, então a página **Automations** pode dizer que os agendamentos nunca serão executados, em vez de mostrar uma data de próxima execução que nada vai cumprir.
 
 </Callout>
 
 ## Depurando um trabalho {#debugging}
 
 - Abra os detalhes da automação em **Settings › Automations**, ou abra `jobs/<name>.md` na área de trabalho — o frontmatter mostra `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Teste sem esperar:** clique em **Run now** em **Settings › Automations**, ou peça ao agente para executá-lo (`manage-automations` com `action=run-now`). O prompt do trabalho é executado imediatamente com seus efeitos colaterais reais, e `nextRun` não muda. A exceção é um trabalho que o framework pausou: uma execução bem-sucedida o reativa e recalcula `nextRun`. Run now não precisa do agendador, então também funciona em localhost sem `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
+- **Teste sem esperar:** clique em **Run now** em **Settings › Automations**, ou peça ao agente para executá-lo (`manage-automations` com `action=run-now`). O prompt do trabalho é executado imediatamente com seus efeitos colaterais reais, e `nextRun` não muda. A exceção é um trabalho que o framework pausou: uma execução bem-sucedida o reativa e recalcula `nextRun`. Run now não espera um tick do agendador, então também funciona em localhost sem `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` e em hosts sem gatilho do agendador.
 - **Pause:** vire `enabled: false`. O arquivo permanece no mesmo lugar, apenas para de ser executado.
 
 ## Ferramenta de agente {#agent-tool}
@@ -232,7 +262,7 @@ Uma única ferramenta `manage-jobs` é registrada em cada modelo. O parâmetro `
 
 Não confunda trabalhos recorrentes com `@agent-native/scheduling`:
 
-- **Trabalhos recorrentes (esta página)** — _prompts_ agendados em cron que o agente executa em segundo plano. Nível de estrutura. Mora no recursos do agente. Funciona em qualquer aplicativo nativo do agente.
+- **Trabalhos recorrentes (esta página)** — _prompts_ agendados em cron que o agente executa em segundo plano. Nível de estrutura. Mora no recursos do agente. Dispara em qualquer host com um agendador (veja [Como o agendador é executado](#how-scheduler-runs)).
 - **`@agent-native/scheduling`** — um pacote de domínio reutilizável para criar recursos de calendário/reserva (tipos de eventos, janelas de disponibilidade, reservas). Ativa o modelo `calendar` e superfícies de agendamento personalizadas.
 
 Trabalhos recorrentes são "como faço para o agente agir por conta própria?" O pacote de agendamento é "como faço para construir um aplicativo de calendário?" Preocupações diferentes.

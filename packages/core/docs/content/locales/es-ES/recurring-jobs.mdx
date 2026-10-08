@@ -139,14 +139,33 @@ Summarize overnight emails.`,
 
 ## Cómo se ejecuta el programador {#how-scheduler-runs}
 
-El programador es un complemento de marco (la rutina interna `processRecurringJobs()`) que se ejecuta durante el proceso: un `setInterval` se activa cada 60 segundos (con un retraso de inicio de 10 segundos) dentro del complemento de chat del agente, dondequiera que se esté ejecutando el servidor.
+En cada tic, el programador (la rutina interna `processRecurringJobs()`) encuentra los trabajos pendientes y los ejecuta. Lo que dispara el tic depende de dónde se ejecute la aplicación:
 
-<Diagram id="doc-block-74tj97" title="Un tic del programador" summary={"Cada 60 segundos, el programador encuentra los trabajos vencidos, ejecuta cada uno como un hilo de agente nuevo y escribe el resultado en el archivo del trabajo."}>
+| Entorno                                                           | Qué dispara el tic                                                                      | Requisitos y límites                                                                                                            |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Servidor de larga duración (Node.js, Docker, Fly, Render, un VPS) | Un temporizador en proceso cada 60 segundos, que arranca 10 segundos después del inicio | Se ejecuta mientras el proceso está activo.                                                                                     |
+| [Netlify](/docs/netlify)                                          | Una función programada que emite la compilación, cada minuto                            | Solo implementaciones publicadas, nunca Deploy Previews ni implementaciones de rama. La compilación necesita `A2A_SECRET`.      |
+| [Vercel](/docs/vercel#vercel-scheduled-work)                      | Un trabajo cron de Vercel que añade la compilación, cada minuto de forma predeterminada | Solo la implementación de producción. Necesita `CRON_SECRET`. Los proyectos Hobby pueden ejecutarlo como máximo una vez al día. |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-scheduled-work)  | Un Cron Trigger que la compilación añade a `wrangler.json`, cada minuto                 | Necesita `A2A_SECRET` como secreto del Worker.                                                                                  |
+| AWS Lambda                                                        | Nada                                                                                    | Las automatizaciones programadas no se disparan.                                                                                |
+| Desarrollo local                                                  | Nada, salvo que lo actives                                                              | Consulta el aviso de abajo.                                                                                                     |
+
+En Netlify, Vercel y Cloudflare, el mismo tic también vacía la cola de
+automatizaciones activadas por eventos, limpia las ejecuciones cuya función se
+cortó y ejecuta barridos de la aplicación, como posponer y programar el envío en
+Mail. Una implementación serverless sin disparador no obtiene nada de eso: las
+automatizaciones activadas por eventos esperan en la cola y las ejecuciones
+interrumpidas se quedan atascadas. Las automatizaciones activadas por webhook y
+**Run now** se despachan por su cuenta, así que siguen funcionando. Cuando una
+implementación no puede disparar programaciones, la página **Automations** lo
+indica y nombra el motivo.
+
+<Diagram id="doc-block-74tj97" title="Un tic del programador" summary={"En cada tic, el programador encuentra los trabajos pendientes y luego los envía por el mismo ciclo de vida de ejecución en segundo plano que las automatizaciones por eventos."}>
 
 ```html
 <div class="sched">
   <div class="diagram-box accent">
-    <code>setInterval</code> &bull; 60s &#8635;
+    tic del programador &bull; cada minuto &#8635;
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-card">
@@ -205,14 +224,26 @@ El programador es un complemento de marco (la rutina interna `processRecurringJo
 
 <Callout id="doc-block-j6yn07" tone="risk">
 
-**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+**Una instancia caliente no ejecuta programaciones.** Los hosts serverless nunca inician el temporizador en proceso, así que los pings de keep-alive no hacen que los trabajos se disparen. Solo lo hace el disparador de la plataforma de la tabla anterior. En AWS Lambda todavía nada los dispara, así que ejecuta las automatizaciones programadas en un host de larga duración (Fly, Render, un VPS).
+
+</Callout>
+
+<Callout id="doc-block-rj2" tone="warning">
+
+**Desactivado de forma predeterminada en desarrollo local.** El bucle `setInterval` del programador nunca se inicia cuando `NODE_ENV` es `development` o `test`, o cuando la URL de la aplicación apunta a `localhost` / `127.0.0.1` / `*.localhost`, lo que cubre la mayoría de las configuraciones de desarrollo local. Establece `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` para ejecutar el programador localmente de todos modos. Para desactivar los trabajos programados en cualquier host, usa `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1`, que se describe a continuación.
+
+</Callout>
+
+<Callout id="doc-block-rj3" tone="warning">
+
+**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` se lee en dos ámbitos.** En Netlify, Vercel y Cloudflare decide el entorno de **compilación**: el disparador de la plataforma sigue activándose para vaciar las automatizaciones por eventos y limpiar ejecuciones, pero una compilación con el interruptor activado omite los trabajos programados, diga lo que diga el entorno implementado. En un servidor de larga duración, el entorno de **ejecución** controla el temporizador en proceso. Establécelo donde tu host lo lea. La compilación registra su decisión, de modo que la página **Automations** puede indicar que las programaciones nunca se ejecutarán en lugar de mostrar una fecha de próxima ejecución que nada respetará.
 
 </Callout>
 
 ## Depurar un trabajo {#debugging}
 
 - Abra los detalles de la automatización en **Settings › Automations**, o abra `jobs/<name>.md` en el Recursos del Agente; el frontmatter muestra `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Pruébalo sin esperar:** haga clic en **Run now** en **Settings › Automations**, o pida al agente que lo ejecute (`manage-automations` con `action=run-now`). El mensaje del trabajo se ejecuta de inmediato con sus efectos secundarios reales, y `nextRun` no cambia. La excepción es un trabajo que el framework pausó: una ejecución exitosa lo vuelve a activar y recalcula `nextRun`. Run now no necesita el programador, así que también funciona en localhost sin `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
+- **Pruébalo sin esperar:** haga clic en **Run now** en **Settings › Automations**, o pida al agente que lo ejecute (`manage-automations` con `action=run-now`). El mensaje del trabajo se ejecuta de inmediato con sus efectos secundarios reales, y `nextRun` no cambia. La excepción es un trabajo que el framework pausó: una ejecución exitosa lo vuelve a activar y recalcula `nextRun`. Run now no espera a un tic del programador, así que también funciona en localhost sin `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` y en hosts sin disparador del programador.
 - **Pausa:** voltea `enabled: false`. El archivo permanece ahí, simplemente deja de ejecutarse.
 
 ## Herramienta de agente {#agent-tool}
@@ -232,7 +263,7 @@ Se registra una única herramienta `manage-jobs` en cada plantilla. El parámetr
 
 No confunda trabajos recurrentes con `@agent-native/scheduling`:
 
-- **Trabajos recurrentes (esta página)**: _avisos_ programados cron que el agente ejecuta en segundo plano. Nivel de marco. Vive en el Recursos del Agente. Se ejecuta en cualquier aplicación nativa del agente.
+- **Trabajos recurrentes (esta página)**: _avisos_ programados cron que el agente ejecuta en segundo plano. Nivel de marco. Vive en el Recursos del Agente. Se dispara en cualquier host con un programador (consulta [Cómo se ejecuta el programador](#how-scheduler-runs)).
 - **`@agent-native/scheduling`**: un paquete de dominio reutilizable para crear funciones de calendario/reservas (tipos de eventos, períodos de disponibilidad, reservas). Impulsa la plantilla `calendar` y las superficies de programación personalizadas.
 
 Los trabajos recurrentes son "¿cómo hago para que el agente actúe por sí solo?" El paquete de programación es "¿cómo creo una aplicación de calendario?" Diferentes preocupaciones.

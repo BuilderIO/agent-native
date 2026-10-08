@@ -91,7 +91,7 @@ export default {
     visibilitySharedOnly: "Partagé",
     visibilityAllDescription: "Afficher tous les éléments",
     visibilityPrivateOnlyDescription:
-      "Afficher uniquement les éléments visibles pour vous",
+      "Afficher les éléments que vous avez créés",
     visibilitySharedOnlyDescription:
       "Afficher les éléments partagés avec l’organisation et publics",
     hiddenAnalyses: "Analyses masquées",
@@ -1539,6 +1539,19 @@ export default {
       "Fragments à accès contrôlé utilisés pour reconstruire cette relecture. Les URL du fournisseur restent privées.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Télécharger la capture",
+    savingScreenshot: "Enregistrement de la capture…",
+    screenshotDownloaded: "Capture téléchargée",
+    screenshotSaveFailed: "Impossible d’enregistrer la capture",
+    copyScreenshot: "Copier dans Design",
+    copyingScreenshot: "Copie de la capture…",
+    screenshotCopiedForDesign: "Capture copiée. Collez-la dans Design.",
+    screenshotCopyFailed:
+      "Impossible de copier la capture. Téléchargez-la puis importez le PNG dans Design.",
+    screenshotCopyUnsupportedAssets:
+      "Capture non copiée : ce moment contient des médias ou des images qui ne peuvent pas être capturés en toute sécurité. Essayez un autre moment de la relecture.",
+    screenshotUnsupportedAssets:
+      "Capture non enregistrée : certains médias intégrés ou images ne peuvent pas être capturés en toute sécurité.",
     timeline: "Chronologie des événements",
     replayTimeline: "Chronologie de relecture",
     timelineDescription:
@@ -1575,8 +1588,12 @@ export default {
     time: "Heure",
     storageSetupTitle: "Connecter le stockage des relectures",
     storageSetupDescription:
-      "Les enregistrements de relecture de session nécessitent un espace de stockage avant de pouvoir sauvegarder les fragments. Utilisez Builder.io pour un stockage en formule gratuite, ou configurez votre propre bucket compatible S3.",
+      "Les relectures de session nécessitent un fournisseur autorisé pour l’envoi de fichiers. Builder.io peut les stocker lorsque son autorisation d’envoi est accordée, ou configurez votre propre bucket compatible S3.",
     storageConnected: "Stockage connecté",
+    storageStatusUnavailable:
+      "Impossible de vérifier l’état du stockage des relectures. Réessayez pour savoir si les envois sont prêts.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io est connecté pour l’IA et les crédits, mais les envois de relectures nécessitent une autorisation de stockage distincte.",
     connectBuilder: "Utiliser Builder.io",
     configureS3: "Configurer le stockage S3",
     devtools: "Outils de dev",
@@ -1611,6 +1628,61 @@ export default {
       "Aucun message de console ne correspond aux filtres actuels.",
     devtoolsNoNetworkMatches:
       "Aucune requête ne correspond aux filtres actuels.",
+    storyboardSelectionCoverage:
+      "{{selected}} sessions de relecture sélectionnées sur {{total}} ({{percent}}).",
+    storyboardSelectHint:
+      "Sélectionnez jusqu’à 3 sessions pour créer un storyboard.",
+    clearStoryboardSelection: "Effacer la sélection",
+    createStoryboard: "Créer un storyboard",
+    selectReplayForStoryboard:
+      "Sélectionner la relecture {{id}} pour le storyboard",
+    storyboardDesignId: "ID Design (facultatif)",
+    storyboardTitle: "Titre du storyboard",
+    storyboardDefaultTitle: "Storyboard de relecture de session",
+    storyboardTimestamps: "Horodatages (3 maximum, séparés par des virgules)",
+    storyboardReplayPreview: "Aperçu de la relecture",
+    storyboardStartingCapture:
+      "Sélectionnez cet onglet Analytics dans le sélecteur de capture du navigateur.",
+    storyboardLoadingReplay: "Chargement de la relecture {{replayId}}…",
+    storyboardCapturingFrame:
+      "Capture de {{current}} sur {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "Envoi des captures à Design…",
+    storyboardComplete: "{{screenshots}} captures ont été ajoutées à Design.",
+    storyboardTimestampError: "Utilisez mm:ss, hh:mm:ss ou mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "Saisissez au moins un horodatage pour chaque relecture sélectionnée.",
+    storyboardTimestampLimit:
+      "Choisissez au maximum 3 horodatages par relecture.",
+    storyboardDuplicateTimestamp: "Supprimez les horodatages en double.",
+    storyboardScreenshotLimit: "Choisissez au maximum 9 captures.",
+    storyboardReplayLimit: "Sélectionnez jusqu’à 3 sessions de relecture.",
+    storyboardCaptureFailed: "La capture d’écran a échoué.",
+    storyboardCanceled: "La capture a été annulée.",
+    storyboardReplayIncomplete:
+      "La relecture {{replayId}} contient des événements indisponibles ; l’export a été arrêté.",
+    storyboardViewportUnavailable:
+      "Les dimensions de fenêtre enregistrées sont indisponibles.",
+    storyboardTimestampOutOfRange:
+      "L’horodatage dépasse la durée de la relecture {{replayId}}.",
+    storyboardScreenshotTooLarge: "Une capture dépasse la limite de 5 Mo.",
+    storyboardBatchTooLarge: "Le lot de captures dépasse la limite de 20 Mo.",
+    storyboardRouteUnavailable:
+      "La route à {{timestamp}} est indisponible pour la relecture {{replayId}}.",
+    storyboardNoDesignResponse:
+      "Design n’a renvoyé aucun résultat de storyboard.",
+    storyboardTemporaryCleanupPending:
+      "Le storyboard a été enregistré, mais les captures temporaires n’ont pas pu être supprimées.",
+    storyboardTemporaryCleanupFailed:
+      "Le nettoyage des captures temporaires est toujours en attente.",
+    storyboardUnexpectedResponse:
+      "L’export des captures a renvoyé une réponse illisible. Réessayez.",
+    storyboardSaveOutcomeUnknown:
+      "Design a peut-être enregistré le storyboard. Vérifiez Design avant de réessayer.",
+    openStoryboard: "Ouvrir le storyboard dans Design",
+    cancelStoryboardCapture: "Annuler la capture",
+    captureToDesign: "Capturer et ajouter à Design",
+    storyboardSelectAnalyticsTab:
+      "Sélectionnez cet onglet Analytics dans le sélecteur de capture du navigateur.",
   },
   catalog: {
     description:

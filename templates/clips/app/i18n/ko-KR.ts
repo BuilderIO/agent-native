@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
     common: { retry: "다시 시도" },
+    onboarding: { skipForNow: "지금 건너뛰기" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -212,6 +213,7 @@ const messages = {
   recordingPage: {
     back: "뒤쪽에",
     done: "완료",
+    backToClip: "클립으로 돌아가기",
     untitledClip: "제목 없는 클립",
     recordingNotFound: "녹화를 찾을 수 없습니다",
     noAccess: "이 클립에 액세스할 수 없을 수도 있습니다.",
@@ -1330,6 +1332,11 @@ const messages = {
     burningRedactions: "가림 처리를 영상에 적용하는 중…",
     burningRedactionsPercent: "가림 처리를 영상에 적용하는 중… {{percent}}%",
     editFailed: "해당 편집을 저장하지 못했습니다",
+    refreshFailed:
+      "최신 편집 내용을 불러오지 못했습니다. 편집을 계속하기 전에 다시 시도하세요.",
+    autoSaveHint: "수정 내용이 이 클립에 자동 저장됩니다",
+    savingChanges: "변경사항 저장 중…",
+    changesSaved: "변경사항이 이 클립에 저장되었습니다",
     nothingToRedo: "다시 실행할 작업이 없습니다",
   },
   transcriptEditor: {
@@ -1367,6 +1374,14 @@ const messages = {
     agentTitle: "대화에 참여하려면 무료 Clips 계정을 만드세요",
     genericTitle: "계속하려면 무료 Clips 계정을 만드세요",
     description: "완료하면 이 클립으로 돌아옵니다.",
+    verificationPendingTitle: "이메일을 인증하세요",
+    verificationPendingCopy:
+      "{{email}}(으)로 인증 이메일을 보냈습니다. 이메일을 열어 계정 생성을 완료하고 이 클립으로 돌아오세요.",
+    resendVerification: "인증 이메일 다시 보내기",
+    resendingVerification: "인증 이메일 보내는 중...",
+    verificationEmailResent: "새 인증 이메일을 보냈습니다.",
+    verificationEmailFailed:
+      "인증 이메일을 다시 보내지 못했습니다. 다시 시도하거나 이메일 링크로 로그인하세요.",
     passwordsMismatch: "비밀번호가 일치하지 않습니다.",
     commentIntent: "댓글을 작성",
     reactIntent: "반응을 추가",
@@ -1445,14 +1460,24 @@ const messages = {
     builderConnectPopupError:
       "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 다시 시도하세요.",
     builderConnectError:
-      "Builder.io를 설정하지 못했습니다. 다시 시도하거나 지원팀에 문의해 주세요.",
+      "Builder.io 설정을 완료하지 못했습니다. 다시 시도하거나 S3 호환 스토리지를 선택하세요.",
+    builderConnectErrorAskAdmin:
+      "Builder.io 설정을 완료하지 못했습니다. 다시 시도하거나 소유자나 관리자에게 스토리지 설정을 요청하세요.",
+    builderStatusReadError:
+      "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
+    builderUploadGrantMissing:
+      "Builder.io가 AI용으로 연결되어 있지만 이 연결로는 클립을 업로드할 수 없습니다. 업로드 권한을 부여해 Builder.io를 다시 연결하거나 소유자 또는 관리자에게 도움을 요청하세요.",
+    builderGrantAskAdmin:
+      "소유자 또는 관리자에게 클립 업로드 권한으로 Builder.io를 연결해 달라고 요청하세요.",
+    statusUnavailable: "비디오 저장소 상태를 확인할 수 없습니다.",
     checkingBuilderConnection: "Builder 연결을 확인하는 중…",
-    builderTimeout: "5분 동안 Builder 응답이 없습니다. 다시 시도하세요.",
+    builderTimeout:
+      "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
     description:
       "녹화한 동영상을 Builder.io 또는 S3 호환 스토리지에 저장하세요. Builder.io에는 무료 호스팅과 AI 크레딧이 포함되어 있습니다.",
-    createBuilderAccount: "Builder.io 계정 만들기",
+    createBuilderAccount: "Builder.io 사용",
     signInWithBuilderAccount: "Builder.io 계정으로 로그인",
     free: "무료",
     whyPrompt: "왜 이 화면이 보이나요?",
@@ -1802,6 +1827,9 @@ const messages = {
     pendingStorageDescription: "스토리지를 연결하면 Clips가 바로 업로드합니다.",
     storageConnectedUploading: "저장소가 연결되었습니다. 녹화를 업로드하는 중…",
     downloadCopy: "사본 다운로드",
+    localRecordingPreview: "로컬 녹화 미리보기",
+    localPreviewUnavailable:
+      "로컬 미리보기를 사용할 수 없습니다. 사본은 다운로드할 수 있습니다.",
     localRecordingOpenElsewhere:
       "이 녹화는 아직 다른 Clips 탭에서 열려 있습니다.",
     uploadWaitingForConnection:
