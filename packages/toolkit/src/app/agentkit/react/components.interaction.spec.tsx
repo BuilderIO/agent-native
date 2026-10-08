@@ -43,7 +43,7 @@ vi.mock("../../../design-system/index.js", async (importOriginal) => {
   };
 });
 
-import { AgentKitClient } from "@agent-native/agentkit/client";
+import { AgentKitClient as AgentKitClientImplementation } from "@agent-native/agentkit/client";
 import type { AgentTransport } from "@agent-native/agentkit/protocol";
 import {
   SESSION_REPLAY_BLOCK_ATTRIBUTE,
@@ -51,13 +51,56 @@ import {
 } from "@agent-native/core/client/session-replay-privacy";
 
 import { getComposerDraftKey } from "../../../composer/draft-key.js";
+import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
 import {
   AgentActivityItem,
   AgentInteractionItem,
-  AgentKitChat,
+  AgentKitChat as AgentKitChatImplementation,
   AgentMessageActions,
 } from "./components.js";
 import { AgentKitProvider } from "./context.js";
+
+class AgentKitClient extends AgentKitClientImplementation {
+  constructor(
+    options: ConstructorParameters<typeof AgentKitClientImplementation>[0],
+  ) {
+    super({ ...options, aiSetupReadiness: "not-applicable" });
+  }
+}
+
+type TestProviderStatus = "configured" | "unknown" | "missing" | "unavailable";
+
+type AgentKitChatTestProps = Parameters<
+  typeof AgentKitChatImplementation
+>[0] & {
+  testProviderStatus?: TestProviderStatus;
+  fetchTestProviderStatus?: () => Promise<TestProviderStatus>;
+};
+
+function AgentKitChat({
+  testProviderStatus = "configured",
+  fetchTestProviderStatus,
+  ...props
+}: AgentKitChatTestProps) {
+  return (
+    <ComposerRuntimeAdaptersProvider
+      adapters={{
+        models: {
+          useAgentEngineConfigured: () => ({
+            missing: testProviderStatus === "missing",
+            state: testProviderStatus,
+          }),
+          fetchAgentEngineConfiguredState: async () =>
+            fetchTestProviderStatus
+              ? fetchTestProviderStatus()
+              : testProviderStatus,
+        },
+      }}
+    >
+      <AgentKitChatImplementation {...props} />
+    </ComposerRuntimeAdaptersProvider>
+  );
+}
 
 describe("AgentActivityItem replay privacy", () => {
   it.each(["failed", "completed"] as const)(
@@ -246,8 +289,8 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
-  it("announces async preflight when the transcript slot is custom", async () => {
-    const preflight = Promise.withResolvers<boolean>();
+  it("keeps provider verification progress on the send button", async () => {
+    const preflight = Promise.withResolvers<TestProviderStatus>();
     const client = new AgentKitClient({
       transport: {
         async startRun() {
@@ -283,11 +326,12 @@ describe("AgentKitChat interactions", () => {
             }}
           >
             <AgentKitChat
+              testProviderStatus="unknown"
+              fetchTestProviderStatus={() => preflight.promise}
               composerProps={{
                 composerRef,
                 autoFocus: false,
                 modelStatusChecksEnabled: false,
-                onBeforeSubmit: () => preflight.promise,
                 voiceEnabled: false,
               }}
             />
@@ -308,23 +352,23 @@ describe("AgentKitChat interactions", () => {
       });
 
       expect(editor.textContent).toBe("");
-      expect(container.querySelector('[role="status"]')?.textContent).toBe(
-        "Thinking",
-      );
       expect(send.disabled).toBe(true);
-      expect(send.getAttribute("aria-busy")).toBeNull();
-      expect(send.querySelector(".animate-spin")).toBeNull();
+      expect(send.getAttribute("aria-busy")).toBe("true");
+      expect(send.querySelector(".animate-spin")).not.toBeNull();
+      expect(container.querySelector('[role="status"]')).toBeNull();
 
       await act(async () => {
-        preflight.resolve(false);
+        preflight.resolve("configured");
         await preflight.promise;
       });
 
-      expect(editor.textContent).toBe("Check this message");
-      expect(send.disabled).toBe(false);
-      expect(container.querySelector('[role="status"]')).toBeNull();
+      expect(
+        container.querySelector('[data-role="user"]')?.textContent,
+      ).toContain("Check this message");
+      expect(send.getAttribute("aria-busy")).toBeNull();
+      expect(send.querySelector(".animate-spin")).toBeNull();
     } finally {
-      preflight.resolve(false);
+      preflight.resolve("configured");
       await act(async () => root.unmount());
       await client.shutdown();
       container.remove();

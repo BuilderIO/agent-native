@@ -713,12 +713,40 @@ function agentKitReadyCallbackViolation(
         ts.forEachChild(conditionNode, inspectCondition);
       };
       inspectCondition(node.expression);
+      const isExplicitNotApplicableCheck = (condition: ts.Node) => {
+        let found = false;
+        const find = (candidate: ts.Node) => {
+          if (
+            ts.isBinaryExpression(candidate) &&
+            candidate.operatorToken.kind ===
+              ts.SyntaxKind.EqualsEqualsEqualsToken &&
+            ts.isPropertyAccessExpression(candidate.left) &&
+            candidate.left.name.text === "aiSetupReadiness" &&
+            ts.isStringLiteral(candidate.right) &&
+            candidate.right.text === "not-applicable"
+          ) {
+            found = true;
+          }
+          ts.forEachChild(candidate, find);
+        };
+        find(condition);
+        return found;
+      };
       const inspectForBareReturn = (branch: ts.Statement) => {
         if (ts.isReturnStatement(branch)) {
           silentlyReturnsWhenMissing = true;
         }
         ts.forEachChild(branch, (child) => {
-          if (ts.isStatement(child)) inspectForBareReturn(child);
+          if (ts.isIfStatement(child)) {
+            if (!isExplicitNotApplicableCheck(child.expression)) {
+              inspectForBareReturn(child.thenStatement);
+              if (child.elseStatement) {
+                inspectForBareReturn(child.elseStatement);
+              }
+            }
+          } else if (ts.isStatement(child)) {
+            inspectForBareReturn(child);
+          }
         });
       };
       if (checksCallback) inspectForBareReturn(node.thenStatement);

@@ -27,7 +27,7 @@ import {
   MAX_SUBSCRIBE_FAILURES,
   RUN_UNVERIFIED_MESSAGE,
 } from "./run-outcome.js";
-import { createAgentNativeChatRuntime } from "./runtime.js";
+import { createAgentNativeChatRuntime as createAgentNativeChatRuntimeImplementation } from "./runtime.js";
 import type {
   AgentChatRuntime,
   AgentChatRuntimeEvent,
@@ -35,6 +35,21 @@ import type {
   AgentChatRuntimeTurnInput,
   ServerRunState,
 } from "./runtime.js";
+
+function createAgentNativeChatRuntime(
+  options?: Parameters<typeof createAgentNativeChatRuntimeImplementation>[0],
+) {
+  const fetchImpl = options?.fetch ?? fetch;
+  return createAgentNativeChatRuntimeImplementation({
+    ...options,
+    fetch: (async (input, init) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return Response.json({ configured: true, chatEligible: true });
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch,
+  });
+}
 
 async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];

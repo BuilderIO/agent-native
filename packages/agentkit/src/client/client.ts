@@ -82,6 +82,12 @@ interface TerminalRunCatchUp {
 export interface AgentKitClientOptions {
   transport: AgentTransport;
   /**
+   * Defaults to required so user-started dispatches fail closed when a
+   * transport cannot validate provider readiness. Use `not-applicable` only
+   * for transports whose readiness is owned elsewhere or has no shared setup.
+   */
+  aiSetupReadiness?: "required" | "not-applicable";
+  /**
    * Borrowed transports are never disposed by the client and are the safe
    * default for shared application services. Choose `owned` only when this
    * client created the transport exclusively for its own lifecycle.
@@ -2053,6 +2059,9 @@ export class AgentKitClient implements AgentKitController {
     report: AgentStreamIntegrityReport,
   ) => void;
   private readonly upload: AgentKitUploadDriver;
+  private readonly aiSetupReadiness: NonNullable<
+    AgentKitClientOptions["aiSetupReadiness"]
+  >;
   private readonly ownsTransport: boolean;
   private readonly retainActiveRunsOnThreadRelease: boolean;
   private readonly listeners = new Set<AgentKitListener>();
@@ -2093,6 +2102,7 @@ export class AgentKitClient implements AgentKitController {
 
   public constructor(options: AgentKitClientOptions) {
     this.transport = options.transport;
+    this.aiSetupReadiness = options.aiSetupReadiness ?? "required";
     this.ownsTransport = options.transportOwnership === "owned";
     this.retainActiveRunsOnThreadRelease =
       options.retainActiveRunsOnThreadRelease ?? false;
@@ -2631,6 +2641,7 @@ export class AgentKitClient implements AgentKitController {
     this.assertActive();
     const assertReady = this.transport.assertAiSetupReady;
     if (!assertReady) {
+      if (this.aiSetupReadiness === "not-applicable") return;
       throw new AgentKitOperationError("AI setup readiness validation");
     }
     const requestContext = this.createRequestContext(context);

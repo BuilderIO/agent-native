@@ -210,6 +210,24 @@ describe("AgentKitClient", () => {
     expect(startRun).not.toHaveBeenCalled();
   });
 
+  it("allows transports without shared AI setup only with an explicit opt-out", async () => {
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      assertAiSetupReady: undefined,
+      startRun,
+    };
+    const client = new AgentKitClientImplementation({
+      transport,
+      aiSetupReadiness: "not-applicable",
+    });
+
+    await client.sendMessage({ threadId: "thread-1", text: "Continue" });
+
+    expect(startRun).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
   it("bounds nested tool-history values before serializing them", async () => {
     const messages = await assistantPartsAfterToolHistory({
       toolInput: { nested: { text: "x".repeat(1024 * 1024) } },

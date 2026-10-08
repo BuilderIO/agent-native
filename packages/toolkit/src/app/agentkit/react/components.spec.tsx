@@ -29,6 +29,7 @@ import {
 } from "./components.js";
 import {
   AgentKitProvider,
+  useAgentKit,
   type AgentRunFailureRenderProps,
 } from "./context.js";
 import { AgentKitRoot } from "./root.js";
@@ -251,6 +252,35 @@ describe("AgentKitChat", () => {
     );
 
     expect(html).toContain('data-product-surface="true"');
+  });
+
+  it("forwards an explicit no-shared-readiness setting to custom transports", async () => {
+    let controller: ReturnType<typeof useAgentKit>["controller"] | undefined;
+    function ControllerProbe() {
+      controller = useAgentKit().controller;
+      return null;
+    }
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+    };
+
+    renderToStaticMarkup(
+      <AgentKitRoot
+        transport={transport}
+        clientOptions={{ aiSetupReadiness: "not-applicable" }}
+        threadId="thread-1"
+        load="manual"
+      >
+        <ControllerProbe />
+      </AgentKitRoot>,
+    );
+
+    if (!controller) throw new Error("AgentKitRoot did not create a client.");
+    await expect(controller.assertAiSetupReady()).resolves.toBeUndefined();
   });
 
   it("renders agent-authored suggestions only after the runtime publishes them", async () => {

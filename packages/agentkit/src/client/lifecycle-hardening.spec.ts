@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentEvent, AgentTransport } from "../protocol/index.js";
-import { AgentKitClient } from "./client.js";
+import { AgentKitClient as AgentKitClientImplementation } from "./client.js";
+
+class AgentKitClient extends AgentKitClientImplementation {
+  constructor(
+    options: ConstructorParameters<typeof AgentKitClientImplementation>[0],
+  ) {
+    super({ ...options, aiSetupReadiness: "not-applicable" });
+  }
+}
 
 function event(sequence: number, value: Record<string, unknown>): AgentEvent {
   return {

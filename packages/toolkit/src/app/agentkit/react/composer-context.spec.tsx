@@ -66,6 +66,7 @@ function transport() {
     startRun: vi
       .fn<AgentTransport["startRun"]>()
       .mockResolvedValue({ runId: "run-1" }),
+    async assertAiSetupReady() {},
     async *subscribeToRun() {},
     async cancelRun() {},
     queueMessage: vi

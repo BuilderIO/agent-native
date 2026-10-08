@@ -239,6 +239,15 @@ test("requires readiness before controller send, queue append, and continue disp
 }`;
   assert.deepEqual(violations(file, gated), []);
 
+  const explicitOptOut = gated.replace(
+    'if (!assertReady) throw new Error("missing readiness callback");',
+    `if (!assertReady) {
+      if (this.aiSetupReadiness === "not-applicable") return;
+      throw new Error("missing readiness callback");
+    }`,
+  );
+  assert.deepEqual(violations(file, explicitOptOut), []);
+
   const ungated = gated.replaceAll(
     "    await this.assertAiSetupReady();\n",
     "",

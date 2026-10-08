@@ -479,7 +479,7 @@ describe("shared default action preservation", () => {
     adapters.models = {
       useAgentEngineConfigured: () => ({ missing: true, state: "missing" }),
     };
-    await mount({ modelStatusChecksEnabled: true });
+    await mount({ requireAgentEngine: true });
     expect(useOrg).not.toHaveBeenCalled();
     expect(useCreateMcpServer).not.toHaveBeenCalled();
   });

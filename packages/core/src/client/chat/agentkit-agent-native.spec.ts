@@ -10,7 +10,7 @@ import {
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
 import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
-import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
+import { createAgentNativeAgentKitTransport as createAgentNativeAgentKitTransportImplementation } from "./agentkit-agent-native.js";
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./agentkit-protocol.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
 import {
@@ -30,6 +30,23 @@ function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
     headers: { "content-type": "application/json" },
+  });
+}
+
+function createAgentNativeAgentKitTransport(
+  options: Parameters<
+    typeof createAgentNativeAgentKitTransportImplementation
+  >[0],
+) {
+  const fetchImpl = options.fetch ?? fetch;
+  return createAgentNativeAgentKitTransportImplementation({
+    ...options,
+    fetch: (async (input, init) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return json({ configured: true, chatEligible: true });
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch,
   });
 }
 
