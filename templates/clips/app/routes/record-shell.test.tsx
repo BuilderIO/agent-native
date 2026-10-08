@@ -14,6 +14,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
 
 import {
+  isStorageStatusUnavailable,
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
@@ -81,12 +82,61 @@ describe("record route lifecycle shell", () => {
     expect(
       shouldShowFirstRunStorageSetup({
         storageConfigured: false,
+        storageStatusUnavailable: false,
         dismissal: "not-dismissed",
         hasPendingUpload: false,
         isClipIntake: false,
         connectStorageRequested: false,
       }),
     ).toBe(true);
+  });
+
+  it("offers the first-run choice and Skip when storage status is unavailable", () => {
+    const storageConfigured = null;
+    const storageStatusUnavailable = isStorageStatusUnavailable({
+      storageConfigured,
+      readFailed: true,
+    });
+    const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
+      storageConfigured,
+      storageStatusUnavailable,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    });
+
+    expect(firstRunStorageSetup).toBe(true);
+    expect(
+      shouldAllowSkippingStorageSetup({
+        firstRunStorageSetup,
+        firstRunStorageSetupIntent: false,
+        connectStorageRequested: false,
+        hasPendingUpload: false,
+        isClipIntake: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps cached configured storage out of first-run setup after a refetch error", () => {
+    const storageConfigured = true;
+
+    expect(
+      isStorageStatusUnavailable({
+        storageConfigured,
+        readFailed: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured,
+        storageStatusUnavailable: true,
+        dismissal: "not-dismissed",
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(false);
   });
 
   it("preserves first-run setup intent while storage status refreshes", () => {
@@ -150,6 +200,15 @@ describe("record route lifecycle shell", () => {
   it.each([
     {
       storageConfigured: true,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: null,
+      storageStatusUnavailable: false,
       dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
@@ -157,6 +216,7 @@ describe("record route lifecycle shell", () => {
     },
     {
       storageConfigured: false,
+      storageStatusUnavailable: false,
       dismissal: "dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
@@ -164,6 +224,7 @@ describe("record route lifecycle shell", () => {
     },
     {
       storageConfigured: false,
+      storageStatusUnavailable: false,
       dismissal: "not-dismissed",
       hasPendingUpload: true,
       isClipIntake: false,
@@ -171,6 +232,7 @@ describe("record route lifecycle shell", () => {
     },
     {
       storageConfigured: false,
+      storageStatusUnavailable: false,
       dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: true,
@@ -178,6 +240,7 @@ describe("record route lifecycle shell", () => {
     },
     {
       storageConfigured: false,
+      storageStatusUnavailable: false,
       dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,

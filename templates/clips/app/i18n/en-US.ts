@@ -1392,7 +1392,8 @@ const messages = {
       "Builder.io setup didn't finish. Try again, or choose S3-compatible storage.",
     builderConnectErrorAskAdmin:
       "Builder.io setup didn't finish. Try again, or ask an owner or admin to set up storage.",
-    builderStatusReadError: "Couldn't check your Builder.io connection.",
+    builderStatusReadError:
+      "Connection status is unavailable. Retry to check again.",
     builderUploadGrantMissing:
       "Builder.io is connected for AI, but this connection can't upload clips. Reconnect Builder.io with upload access, or ask an owner or admin for help.",
     builderGrantAskAdmin:
