@@ -539,6 +539,30 @@ describe("Markdown import", () => {
     expect(page.content).toBe("Body");
   });
 
+  it("numbers footnotes in reading order, including ones cited by a footnote", () => {
+    const page = importMarkdown(
+      [
+        "First.[^b] Second.[^a]",
+        "",
+        "[^a]: Alpha cites.[^c]",
+        "[^b]: Beta.",
+        "[^c]: Gamma.",
+        "[^d]: Unused.",
+      ].join("\n"),
+    );
+
+    expect(page.content).toBe(
+      [
+        "First.\\[1\\] Second.\\[2\\]",
+        "---",
+        "1. Beta.",
+        "2. Alpha cites.\\[3\\]",
+        "3. Gamma.",
+        "4. Unused.",
+      ].join("\n"),
+    );
+  });
+
   it("keeps a footnote reference with no definition as written", () => {
     const page = importMarkdown("A claim.[^missing]");
 

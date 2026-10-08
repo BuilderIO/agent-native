@@ -450,11 +450,10 @@ class MarkdownConverter {
     for (const child of root.children) {
       if (child.type !== "footnoteDefinition") assign(child);
     }
-    for (let index = 0; index < this.footnoteNumbers.size; index++) {
-      const id = [...this.footnoteNumbers.entries()].find(
-        ([, number]) => number === index + 1,
-      )?.[0];
-      const definition = id ? this.footnotes.get(id) : undefined;
+    // Map iteration also visits ids numbered during the loop, so footnotes
+    // referenced only from another footnote's definition are numbered too.
+    for (const id of this.footnoteNumbers.keys()) {
+      const definition = this.footnotes.get(id);
       if (definition) assign(definition);
     }
     for (const id of this.footnotes.keys()) {
