@@ -1014,7 +1014,7 @@ jobs:
   slides-authoring-fuzz-soak:
     name: Slides authoring soak (${{ matrix.browser }}, batch from seed ${{ matrix.seed_start }})
     needs: change-scope
-    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
+    if: needs.change-scope.outputs.slides_authoring_fuzz_soak == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:

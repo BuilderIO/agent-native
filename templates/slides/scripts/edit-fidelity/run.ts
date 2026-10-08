@@ -783,10 +783,18 @@ async function settle(page: Page) {
     // paints the fallback). A failed font request can also leave it pending.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const pendingStylesheetCount = () =>
-      Array.from(
+    const stylesheetState = () => {
+      const links = Array.from(
         document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
-      ).filter((link) => !link.sheet).length;
+      );
+      const failed = links.filter(
+        (link) => link.dataset.editFidelityLoadError === "true",
+      );
+      const pending = links.filter(
+        (link) => !link.sheet && !failed.includes(link),
+      );
+      return { failed, pending };
+    };
     // Imported-font stylesheets are appended by a passive effect after render.
     await frame();
     let ready = false;
@@ -796,8 +804,17 @@ async function settle(page: Page) {
         new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
       await frame();
+      const stylesheets = stylesheetState();
+      if (stylesheets.failed.length > 0) {
+        return {
+          settled: false,
+          fonts: document.fonts.status,
+          pendingStylesheets: stylesheets.pending.length,
+          failedStylesheets: stylesheets.failed.map((link) => link.href),
+        };
+      }
       if (
-        pendingStylesheetCount() === 0 &&
+        stylesheets.pending.length === 0 &&
         document.fonts.status === "loaded"
       ) {
         ready = true;
@@ -809,7 +826,8 @@ async function settle(page: Page) {
       return {
         settled: false,
         fonts: document.fonts.status,
-        pendingStylesheets: pendingStylesheetCount(),
+        pendingStylesheets: stylesheetState().pending.length,
+        failedStylesheets: [],
       };
     }
     // Only the main canvas: sidebar thumbnails are lazy and may never load.
@@ -837,12 +855,13 @@ async function settle(page: Page) {
     return {
       settled: true,
       fonts: document.fonts.status,
-      pendingStylesheets: pendingStylesheetCount(),
+      pendingStylesheets: stylesheetState().pending.length,
+      failedStylesheets: [],
     };
   }, MASK_CSS);
   if (!settleState.settled) {
     throw new CouldNotRun(
-      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending stylesheets: ${settleState.pendingStylesheets})`,
+      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
     );
   }
   // Autofit measures after paint; give it one more beat.
@@ -4778,7 +4797,7 @@ async function runAuthoringCorpusQa(
 }
 
 async function runAuthoringFuzzQa(
-  page: Page,
+  createPage: () => Promise<Page>,
   base: string,
   cases: CorpusCase[],
   firstSeed: number,
@@ -4806,7 +4825,7 @@ async function runAuthoringFuzzQa(
 
   const selectorFor = (slideId: string) =>
     `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
-  const canonicalMarkup = async (html: string) =>
+  const canonicalMarkup = async (page: Page, html: string) =>
     JSON.stringify(
       await page.evaluate(
         (value: string) => window.__editFidelity.canonical(value),
@@ -4818,6 +4837,7 @@ async function runAuthoringFuzzQa(
     return index === null ? null : profiles[index];
   };
   const sourceTarget = async (
+    page: Page,
     slideId: string,
     source: CorpusAuthoringSource | null,
   ) => {
@@ -4911,8 +4931,6 @@ async function runAuthoringFuzzQa(
     return targets.find((target) => target.index === hint?.index);
   };
 
-  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
-  await ensureSignedIn(page);
   const problems: string[] = [];
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   const exercisedProfiles = new Set<string>();
@@ -4921,16 +4939,21 @@ async function runAuthoringFuzzQa(
     const seed = firstSeed + round;
     const profile = profileFor(seed);
     exercisedProfiles.add(profile?.kind ?? "synthetic");
-    await page.setViewportSize(
-      profile?.kind === "scaled"
-        ? { width: 850, height: 650 }
-        : { width: 1600, height: 1000 },
-    );
     const slideId = `authoring-fuzz-${round}`;
+    let page: Page | null = null;
     let deckId: string | null = null;
     let authoringSucceeded = false;
     try {
-      const created = await action(page, "create-deck", {
+      const activePage = await createPage();
+      page = activePage;
+      await activePage.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+      await ensureSignedIn(activePage);
+      await activePage.setViewportSize(
+        profile?.kind === "scaled"
+          ? { width: 850, height: 650 }
+          : { width: 1600, height: 1000 },
+      );
+      const created = await action(activePage, "create-deck", {
         title: `[edit-fidelity] authoring fuzz ${seed}`,
         ...(profile?.corpusCase.aspectRatio
           ? { aspectRatio: profile.corpusCase.aspectRatio }
@@ -4946,9 +4969,9 @@ async function runAuthoringFuzzQa(
         ],
       });
       deckId = String(created.id ?? created.deckId);
-      await openSlide(page, base, deckId, 0, slideId);
+      await openSlide(activePage, base, deckId, 0, slideId);
       if (profile?.kind === "scaled") {
-        const scale = await page
+        const scale = await activePage
           .locator(canvasSelector(slideId))
           .evaluate((element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
@@ -4962,17 +4985,19 @@ async function runAuthoringFuzzQa(
           );
         }
       }
-      const target = await sourceTarget(slideId, profile);
+      const target = await sourceTarget(activePage, slideId, profile);
       if (!target) throw new Error("no target matched the authoring profile");
       const editorSelector = selectorFor(slideId);
       const rootSelector = `${canvasSelector(slideId)} .slide-content`;
-      const originalSlideHtml = await page.locator(rootSelector).innerHTML();
-      if (!(await enterEdit(page, slideId, target.point, []))) {
+      const originalSlideHtml = await activePage
+        .locator(rootSelector)
+        .innerHTML();
+      if (!(await enterEdit(activePage, slideId, target.point, []))) {
         throw new Error("could not enter in-place text editing");
       }
-      const originalHtml = await page.locator(editorSelector).innerHTML();
-      const slideHtml = () => page.locator(rootSelector).innerHTML();
-      const result = await runAuthoringFuzz(page, {
+      const originalHtml = await activePage.locator(editorSelector).innerHTML();
+      const slideHtml = () => activePage.locator(rootSelector).innerHTML();
+      const result = await runAuthoringFuzz(activePage, {
         seed,
         steps,
         editorSelector,
@@ -4986,18 +5011,18 @@ async function runAuthoringFuzzQa(
         browser: browserName as "chromium" | "webkit" | "firefox",
         lineKeys: { start: lineStartKey, end: lineEndKey },
         finishAndReload: async (): Promise<AuthoringFuzzPersistence> => {
-          if (!(await exitEdit(page, slideId, "escape"))) {
+          if (!(await exitEdit(activePage, slideId, "escape"))) {
             throw new Error("Escape did not leave in-place text editing");
           }
           const liveHtml = await slideHtml();
           const stored = await settleSaved(
-            page,
+            activePage,
             deckId!,
             slideId,
             () => 0,
             2500,
           );
-          await openSlide(page, base, deckId!, 0, slideId);
+          await openSlide(activePage, base, deckId!, 0, slideId);
           const reloadedHtml = await slideHtml();
           return canonicalizeAuthoringFuzzPersistence(
             {
@@ -5006,7 +5031,7 @@ async function runAuthoringFuzzQa(
               savedHtml: stored,
               reloadedHtml,
             },
-            canonicalMarkup,
+            (html) => canonicalMarkup(activePage, html),
           );
         },
       });
@@ -5033,13 +5058,13 @@ async function runAuthoringFuzzQa(
           cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
         }
       };
-      if (deckId && authoringSucceeded) {
+      if (page && deckId && authoringSucceeded) {
         page.on("console", onConsole);
         page.on("pageerror", onPageError);
         page.on("response", onResponse);
       }
       try {
-        if (deckId) {
+        if (page && deckId) {
           try {
             if ((await editorState(page, slideId)).editing) {
               await exitEdit(page, slideId, "escape");
@@ -5073,10 +5098,19 @@ async function runAuthoringFuzzQa(
           }
         }
       } finally {
-        if (deckId && authoringSucceeded) {
+        if (page && deckId && authoringSucceeded) {
           page.off("console", onConsole);
           page.off("pageerror", onPageError);
           page.off("response", onResponse);
+        }
+      }
+      if (page && !page.isClosed()) {
+        try {
+          await page.close();
+        } catch (error) {
+          cleanupErrors.push(
+            `could not close authoring page: ${String(error)}`,
+          );
         }
       }
       if (cleanupErrors.length) {
@@ -6416,6 +6450,22 @@ async function main() {
     });
     // The local app can still be compiling when a new page first opens /home.
     context.setDefaultNavigationTimeout(120_000);
+    // Observe link failures before the app starts injecting slide stylesheets.
+    await context.addInitScript(() => {
+      window.addEventListener(
+        "error",
+        (event) => {
+          const target = event.target;
+          if (
+            target instanceof HTMLLinkElement &&
+            target.relList.contains("stylesheet")
+          ) {
+            target.dataset.editFidelityLoadError = "true";
+          }
+        },
+        true,
+      );
+    });
     const navigatorPlatform =
       lineKeyPlatform === "darwin"
         ? "MacIntel"
@@ -6519,16 +6569,14 @@ async function main() {
     }
 
     if (authoringFuzzOnly) {
-      const page = await context.newPage();
       const problems = await runAuthoringFuzzQa(
-        page,
+        () => context.newPage(),
         base,
         cases,
         fuzzSeed,
         fuzzSteps,
         fuzzSeeds,
       );
-      await page.close();
       if (problems.length) {
         console.error(
           `[edit-fidelity] authoring fuzz completed with ${problems.length} failed seed or cleanup check(s); details are printed above`,

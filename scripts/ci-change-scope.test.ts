@@ -147,6 +147,7 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.checks.slides_chat_e2e, true, path);
     assert.equal(scope.checks.slides_authoring_e2e, true, path);
+    assert.equal(scope.checks.slides_authoring_fuzz_soak, true, path);
   }
 
   const agentkit = classifyChangedPaths([
@@ -154,6 +155,7 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
   ]);
   assert.equal(agentkit.checks.slides_chat_e2e, true);
   assert.equal(agentkit.checks.slides_authoring_e2e, false);
+  assert.equal(agentkit.checks.slides_authoring_fuzz_soak, false);
 
   for (const path of [
     "templates/content/app/routes/index.tsx",
@@ -163,11 +165,13 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.checks.slides_chat_e2e, false, path);
     assert.equal(scope.checks.slides_authoring_e2e, false, path);
+    assert.equal(scope.checks.slides_authoring_fuzz_soak, false, path);
   }
 
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
   assert.equal(full.checks.slides_chat_e2e, true);
   assert.equal(full.checks.slides_authoring_e2e, true);
+  assert.equal(full.checks.slides_authoring_fuzz_soak, true);
 });
 
 test("fails closed for empty and unknown root change sets", () => {
