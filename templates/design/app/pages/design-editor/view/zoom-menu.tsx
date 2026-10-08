@@ -214,6 +214,7 @@ export function renderZoomMenu({
         <ZoomMenuRow
           label={"Snap to pixel grid" /* i18n-ignore */}
           checked={snapToPixelGrid}
+          disabled={viewMode !== "overview"}
           onSelect={() => toggleViewSetting("snapToPixelGrid")}
         />
         <ZoomMenuRow
