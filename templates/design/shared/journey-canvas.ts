@@ -17,7 +17,6 @@ import {
   layoutJourney,
   type JourneyLayoutNode,
   type PlacedEdge,
-  type PlacedNode,
   type Point,
 } from "./journey-layout.js";
 import { annotateScreenHtmlForPersist } from "./screen-annotation.js";

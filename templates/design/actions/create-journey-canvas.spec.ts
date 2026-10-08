@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => {
     generatedId: 0,
     data: {} as Record<string, unknown>,
     boardContent: "",
+    lockedBoardContent: null as string | null,
+    landedSelects: [] as unknown[][],
     selectQueue: [] as unknown[][],
     inserts: [] as Array<{ table: string; rows: Array<Record<string, any>> }>,
     deletes: [] as Array<{ table: string; where: unknown }>,
@@ -225,6 +227,8 @@ beforeEach(() => {
   state.generatedId = 0;
   state.data = {};
   state.boardContent = emptyBoardHtml();
+  state.lockedBoardContent = null;
+  state.landedSelects = [];
   state.selectQueue = [];
   state.inserts = [];
   state.deletes = [];
@@ -244,14 +248,21 @@ beforeEach(() => {
     id,
   }));
   mocks.migrateBoard.mockResolvedValue({ boardFileId: BOARD_FILE.id });
+  // The first select reads the board; later ones are the post-failure "did it land" checks.
+  let dbSelects = 0;
   mocks.getDb.mockImplementation(() => ({
-    select: () => mocks.chain([{ ...BOARD_FILE, content: state.boardContent }]),
+    select: () =>
+      dbSelects++ === 0
+        ? mocks.chain([{ ...BOARD_FILE, content: state.boardContent }])
+        : mocks.chain(state.landedSelects.shift() ?? []),
   }));
-  mocks.readLiveSourceFile.mockImplementation(async () => ({
-    content: state.boardContent,
-    versionHash: "v1",
-    source: "stored",
-  }));
+  mocks.readLiveSourceFile.mockImplementation(
+    async (file: { content: string }) => ({
+      content: file.content,
+      versionHash: "v1",
+      source: "stored",
+    }),
+  );
   mocks.getProvider.mockResolvedValue({ id: "private-provider" });
   mocks.resolveAttachment.mockResolvedValue({
     status: "ok",
@@ -265,13 +276,20 @@ beforeEach(() => {
   }));
   mocks.deletePrivateBlob.mockResolvedValue({ deleted: true });
   mocks.hasCollabState.mockResolvedValue(false);
+  mocks.applyText.mockReset();
+  mocks.seedFromText.mockReset();
   mocks.mutateDesignData.mockImplementation(
     async (options: Record<string, any>) => {
       state.mutateOptions.push(options);
       const next = options.mutate(state.data, {
         updatedAt: "2026-10-08T10:00:00.000Z",
       });
-      const files = [{ id: BOARD_FILE.id, content: state.boardContent }];
+      const files = [
+        {
+          id: BOARD_FILE.id,
+          content: state.lockedBoardContent ?? state.boardContent,
+        },
+      ];
       const updates = options.mutateFiles?.(state.data, next, { files }) ?? [];
       for (const update of updates) state.boardWrites.push(update);
       await options.mutateInTransaction?.(mocks.tx, state.data, next, {});
@@ -295,6 +313,7 @@ describe("create-journey-canvas run", () => {
     );
 
     expect(Object.keys(result).sort()).toEqual([
+      "collabSyncPending",
       "designId",
       "frameCount",
       "nodeCount",
@@ -306,6 +325,7 @@ describe("create-journey-canvas run", () => {
       nodeCount: 2,
       frameCount: 2,
       skippedNodes: [],
+      collabSyncPending: [],
       url: "https://design.example.test/open?designId=generated-1",
     });
     expect(mocks.createDesign).toHaveBeenCalledWith(
@@ -521,6 +541,56 @@ describe("create-journey-canvas run", () => {
     expect(() => validateBase(mocks.state.boardContent)).not.toThrow();
     expect(() => validateBase("edited since")).toThrow(/changed/);
   });
+
+  it("updates a screen's live document in place instead of skipping it, and seeds only unseeded ones", async () => {
+    mocks.hasCollabState.mockImplementation(
+      async (docId: string) => docId !== "board-1",
+    );
+    const result = await action.run(
+      parsed(
+        rawInput([frame("a", { imageUrl: "https://img.example.test/a.png" })]),
+      ),
+      {} as any,
+    );
+    const screenId = mocks.state.inserts.find(
+      (entry) => entry.table === "designFiles",
+    )!.rows[0]!.id;
+    expect(mocks.applyText).toHaveBeenCalledWith(
+      screenId,
+      expect.stringContaining("<html"),
+      "content",
+      "agent",
+    );
+    expect(mocks.seedFromText).toHaveBeenCalledTimes(1);
+    expect(mocks.seedFromText.mock.calls[0]![0]).toBe("board-1");
+    expect(result.collabSyncPending).toEqual([]);
+  });
+
+  it("reports the files whose live documents could not be updated instead of returning a clean success", async () => {
+    mocks.seedFromText.mockImplementation(async (docId: string) => {
+      if (docId !== "board-1") throw new Error("yjs unavailable");
+    });
+    mocks.applyText.mockRejectedValue(new Error("yjs unavailable"));
+    mocks.hasCollabState.mockImplementation(
+      async (docId: string) => docId === "board-1",
+    );
+    const result = await action.run(
+      parsed(
+        rawInput([
+          frame("a", { imageUrl: "https://img.example.test/a.png" }),
+          frame("b", { imageUrl: "https://img.example.test/b.png" }),
+        ]),
+      ),
+      {} as any,
+    );
+    const screenIds = mocks.state.inserts
+      .find((entry) => entry.table === "designFiles")!
+      .rows.map((row) => row.id);
+    expect(result.collabSyncPending.sort()).toEqual(
+      ["board-1", ...screenIds].sort(),
+    );
+    expect(result.designId).toBe("generated-1");
+  });
 });
 
 describe("create-journey-canvas exposure", () => {
@@ -529,8 +599,9 @@ describe("create-journey-canvas exposure", () => {
     expect((action as any).mcpAnnotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: false,
-      idempotentHint: true,
     });
+    // Without designId every call creates a new design, so a retry is not a no-op.
+    expect((action as any).mcpAnnotations.idempotentHint).not.toBe(true);
     expect((action as any).requiresAuth).toBe(true);
     expect((action as any).agentTool).not.toBe(false);
   });
@@ -618,6 +689,139 @@ describe("create-journey-canvas failures", () => {
       expect.anything(),
     );
     expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the design and the blobs when the mutation rejects after its screenshot rows landed", async () => {
+    const handle = {
+      id: "blob-kept",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.putPrivateBlob.mockResolvedValueOnce(handle);
+    mocks.state.landedSelects = [[{ blobHandle: JSON.stringify(handle) }]];
+    mocks.mutateDesignData.mockRejectedValueOnce(
+      new Error("Design not found after commit"),
+    );
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toThrow("not found after commit");
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("keeps a newly created design whose screens landed even when no blobs were stored", async () => {
+    mocks.state.landedSelects = [[{ id: "jc_landed" }]];
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("not applied"));
+    await expect(
+      action.run(
+        parsed(
+          rawInput([
+            frame("a", { imageUrl: "https://img.example.test/a.png" }),
+          ]),
+        ),
+        {} as any,
+      ),
+    ).rejects.toThrow("not applied");
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+  });
+
+  it("keeps everything when it cannot tell whether the write landed", async () => {
+    let selects = 0;
+    mocks.getDb.mockImplementation(() => ({
+      select: () => {
+        if (selects++ === 0) {
+          return mocks.chain([
+            { ...BOARD_FILE, content: mocks.state.boardContent },
+          ]);
+        }
+        throw new Error("db unavailable");
+      },
+    }));
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("ambiguous"));
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toThrow("ambiguous");
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("refuses to overwrite a board whose stored content changed after it was read, and cleans up", async () => {
+    mocks.state.lockedBoardContent = `${mocks.state.boardContent}<!-- edited -->`;
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "journey_board_changed",
+      statusCode: 409,
+    });
+    expect(mocks.deleteDesign).toHaveBeenCalledWith(
+      { id: "generated-1" },
+      expect.anything(),
+    );
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.state.inserts).toEqual([]);
+  });
+
+  it("refuses to overwrite a board whose live collaboration content changed after it was read", async () => {
+    mocks.readLiveSourceFile
+      .mockResolvedValueOnce({
+        content: mocks.state.boardContent,
+        versionHash: "v1",
+        source: "collab",
+      })
+      .mockResolvedValueOnce({
+        content: `${mocks.state.boardContent}<!-- typed -->`,
+        versionHash: "v2",
+        source: "collab",
+      });
+    await expect(
+      action.run(
+        parsed(
+          rawInput([
+            frame("a", { imageUrl: "https://img.example.test/a.png" }),
+          ]),
+        ),
+        {} as any,
+      ),
+    ).rejects.toMatchObject({ errorCode: "journey_board_changed" });
+    expect(mocks.applyText).not.toHaveBeenCalled();
+    expect(mocks.seedFromText).not.toHaveBeenCalled();
+  });
+
+  it("never queues deletion of the blobs it is committing when a retried attempt finds its own rows", async () => {
+    const handle = {
+      id: "blob-own",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.putPrivateBlob.mockResolvedValueOnce(handle);
+    mocks.state.selectQueue = [
+      [],
+      [
+        { id: "jcs_x", blobHandle: JSON.stringify(handle) },
+        { id: "jcs_old", blobHandle: '{"id":"old-blob"}' },
+      ],
+    ];
+    await action.run(
+      parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+      {} as any,
+    );
+    expect(mocks.queueCleanup).toHaveBeenCalledWith(mocks.tx, [
+      '{"id":"old-blob"}',
+    ]);
+    expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledWith([
+      '{"id":"old-blob"}',
+    ]);
   });
 
   it("rejects non-image attachment bytes", async () => {

@@ -84,7 +84,8 @@ export default defineAction({
     "Create or refresh an onboarding-journey storyboard on a Design canvas in one call: a left-to-right tree of step cards with real session screenshots, arrows between them, a percent label on every fork, and a stub for each drop-off. " +
     "Pass the journey tree from Analytics `get-onboarding-journey` as `tree` and one captured frame per example as `frames` ({ nodeKey, exampleIndex, width, height, capturedAt } plus exactly one of `imageUrl` (https only; data: URLs are rejected) or `attachmentRef` (a personal private attachment, copied into Design's private blob storage and served only to people who can view the design)). " +
     "Cards are sized from each frame's real aspect ratio; extra examples (up to `maxExamplesPerNode`, default 3) stack behind the front card. A step with no frame is left off and listed in `skippedNodes` unless `includeScreenshotless` is true. " +
-    "Omit `designId` to create a new design; pass one to replace the storyboard this action drew earlier in that design (only its own screens and board objects are replaced, everything else on the canvas is left alone). Returns { designId, url, nodeCount, frameCount, skippedNodes }.",
+    "Omit `designId` to create a new design; pass one to replace the storyboard this action drew earlier in that design (only its own screens and board objects are replaced, everything else on the canvas is left alone). " +
+    "Returns { designId, url, nodeCount, frameCount, skippedNodes, collabSyncPending }; `collabSyncPending` lists file ids that are saved but whose open editors could not be updated live (empty when all synced), so tell the user to reload the design when it is not empty.",
   requiresAuth: true,
   maxBodyBytes: 4 * 1024 * 1024,
   schema: createJourneyCanvasInputSchema,
@@ -93,7 +94,6 @@ export default defineAction({
     readOnlyHint: false,
     destructiveHint: false,
     openWorldHint: false,
-    idempotentHint: true,
   },
   run: async (input, context) => {
     const requesterEmail = getRequestUserEmail();
@@ -133,7 +133,7 @@ export default defineAction({
 
     const stored = new Map<string, StoredReplayScreenshotBlob>();
     let createdDesignId: string | undefined;
-    let committed = false;
+    let mutationStarted = false;
     try {
       const blobOwnerEmail =
         existingAccess?.resource.ownerEmail ?? requesterEmail;
@@ -217,8 +217,13 @@ export default defineAction({
 
       let origin = { x: 0, y: 0 };
       let nextBoardContent = liveBoard.content;
+      let lockedBoardContent = liveBoard.content;
       let removedBlobHandles: string[] = [];
+      const ownBlobHandles = new Set(
+        [...stored.values()].map((blob) => JSON.stringify(blob.blobHandle)),
+      );
       const now = new Date().toISOString();
+      mutationStarted = true;
       await mutateDesignData({
         designId,
         lockSourceMutation: true,
@@ -271,12 +276,14 @@ export default defineAction({
           };
         },
         mutateFiles: (_current, _next, { files }) => {
-          if (!files.some((file) => file.id === boardFile.id)) {
+          const lockedBoard = files.find((file) => file.id === boardFile.id);
+          if (!lockedBoard) {
             // guard:allow-bare-error — invariant: the board file was just read from this design.
             throw new Error(
               "The Design board file disappeared before the write.",
             );
           }
+          lockedBoardContent = lockedBoard.content;
           nextBoardContent = replaceJourneyBoardObjects(
             liveBoard.content,
             plan.boardFragments(origin),
@@ -284,6 +291,18 @@ export default defineAction({
           return [{ fileId: boardFile.id, content: nextBoardContent }];
         },
         mutateInTransaction: async (tx) => {
+          // The replacement board was built from the pre-lock read; an edit
+          // committed since then would be lost, so refuse instead of writing.
+          const lockedLive = await readLiveSourceFile({
+            ...boardFile,
+            content: lockedBoardContent,
+          } as SourceWorkspaceFile);
+          if (lockedLive.content !== liveBoard.content) {
+            fail(
+              "The Design board changed while the journey was being drawn. Nothing was written; run the action again.",
+              { errorCode: "journey_board_changed", statusCode: 409 },
+            );
+          }
           const staleFiles = await tx
             .select({ id: schema.designFiles.id })
             .from(schema.designFiles)
@@ -312,7 +331,10 @@ export default defineAction({
                 ),
               ),
             );
-          removedBlobHandles = staleRows.map((row) => row.blobHandle);
+          // A retried attempt finds this run's own rows; their blobs stay.
+          removedBlobHandles = staleRows
+            .map((row) => row.blobHandle)
+            .filter((handle) => !ownBlobHandles.has(handle));
           await queueVisualEditSnapshotBlobCleanupInTransaction(
             tx,
             removedBlobHandles,
@@ -393,9 +415,8 @@ export default defineAction({
           });
         },
       });
-      committed = true;
 
-      await reconcileCollaboration({
+      const collabSyncPending = await reconcileCollaboration({
         boardFileId: boardFile.id,
         previousBoardContent: liveBoard.content,
         nextBoardContent,
@@ -418,9 +439,19 @@ export default defineAction({
         nodeCount: plan.nodeCount,
         frameCount: plan.frameCount,
         skippedNodes: plan.skippedNodes,
+        collabSyncPending,
       };
     } catch (error) {
-      if (!committed) {
+      const mayHaveLanded =
+        mutationStarted &&
+        (await writeMayHaveLanded({
+          designId,
+          isNewDesign: Boolean(createdDesignId),
+          blobHandles: [...stored.values()].map((blob) =>
+            JSON.stringify(blob.blobHandle),
+          ),
+        }));
+      if (!mayHaveLanded) {
         if (createdDesignId) {
           try {
             await deleteDesign.run({ id: createdDesignId }, context);
@@ -449,16 +480,69 @@ export default defineAction({
 });
 
 /**
+ * `mutateDesignData` can reject after its transaction committed, and deleting
+ * the design or blobs then would break rows that reference them. When the
+ * database cannot answer, assume the write landed.
+ */
+async function writeMayHaveLanded(args: {
+  designId: string;
+  isNewDesign: boolean;
+  blobHandles: readonly string[];
+}): Promise<boolean> {
+  try {
+    await assertAccess("design", args.designId, "editor");
+    const db = getDb();
+    if (args.blobHandles.length) {
+      const rows = await db
+        .select({ blobHandle: schema.designBoardReplayScreenshots.blobHandle })
+        .from(schema.designBoardReplayScreenshots)
+        .where(
+          and(
+            eq(schema.designBoardReplayScreenshots.designId, args.designId),
+            like(
+              schema.designBoardReplayScreenshots.id,
+              likePrefix(JOURNEY_REPLAY_ROW_PREFIX),
+            ),
+          ),
+        );
+      if (rows.some((row) => args.blobHandles.includes(row.blobHandle))) {
+        return true;
+      }
+    }
+    if (!args.isNewDesign) return false;
+    const files = await db
+      .select({ id: schema.designFiles.id })
+      .from(schema.designFiles)
+      .where(
+        and(
+          eq(schema.designFiles.designId, args.designId),
+          like(schema.designFiles.id, likePrefix(JOURNEY_FILE_ID_PREFIX)),
+        ),
+      )
+      .limit(1);
+    return files.length > 0;
+  } catch (error) {
+    console.warn(
+      "[design-journey-canvas] Could not tell whether the write landed; keeping the design and screenshots:",
+      error,
+    );
+    return true;
+  }
+}
+
+/**
  * The SQL rows are already committed; this brings the live Yjs documents in
- * line with them. A failure here is logged, never thrown: the storyboard is
- * saved and the editor reseeds an unseeded document from SQL on open.
+ * line with them. A failure here is logged and returned as the file ids still
+ * pending, never thrown: the storyboard is saved and the editor reseeds an
+ * unseeded document from SQL on open.
  */
 async function reconcileCollaboration(args: {
   boardFileId: string;
   previousBoardContent: string;
   nextBoardContent: string;
   screens: readonly { fileId: string; html: string }[];
-}): Promise<void> {
+}): Promise<string[]> {
+  const pending: string[] = [];
   try {
     if (await hasCollabState(args.boardFileId)) {
       await applyText(
@@ -481,6 +565,7 @@ async function reconcileCollaboration(args: {
       await seedFromText(args.boardFileId, args.nextBoardContent);
     }
   } catch (error) {
+    pending.push(args.boardFileId);
     console.warn(
       "[design-journey-canvas] Board saved but collaboration reconcile is pending:",
       error,
@@ -488,15 +573,25 @@ async function reconcileCollaboration(args: {
   }
   for (const batch of chunks(args.screens, UPLOAD_CONCURRENCY)) {
     const results = await Promise.allSettled(
-      batch.map((screen) => seedFromText(screen.fileId, screen.html)),
+      // Refresh reuses screen ids, and seedFromText skips a document that
+      // already has state, so a live document must be updated in place.
+      batch.map(async (screen) => {
+        if (await hasCollabState(screen.fileId)) {
+          await applyText(screen.fileId, screen.html, "content", "agent");
+        } else {
+          await seedFromText(screen.fileId, screen.html);
+        }
+      }),
     );
-    for (const result of results) {
+    results.forEach((result, index) => {
       if (result.status === "rejected") {
+        pending.push(batch[index]!.fileId);
         console.warn(
-          "[design-journey-canvas] Screen saved but collaboration seed is pending:",
+          "[design-journey-canvas] Screen saved but collaboration sync is pending:",
           result.reason,
         );
       }
-    }
+    });
   }
+  return pending;
 }
