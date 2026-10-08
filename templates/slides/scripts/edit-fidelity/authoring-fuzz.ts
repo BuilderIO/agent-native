@@ -206,6 +206,17 @@ export function authoringFuzzProfileIndex(seed: number): number | null {
   return (seed / 2 - 1) % 6;
 }
 
+export function findAuthoringFuzzScratchDeckId(
+  decks: Array<{ id?: string; title?: string }>,
+  title: string,
+): string | null {
+  return (
+    decks.find(
+      (deck) => deck.title === title && typeof deck.id === "string" && deck.id,
+    )?.id ?? null
+  );
+}
+
 export function outsideAuthoringChangesFor(
   before: OutsideSnapshot,
   after: OutsideSnapshot,

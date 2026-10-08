@@ -10,6 +10,7 @@ import {
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
+  findAuthoringFuzzScratchDeckId,
   formatAuthoringFuzzFailure,
   isConflictResourceConsoleError,
   isBrowserSessionPath,
@@ -80,6 +81,29 @@ it("classifies fuzz action transport failures as could-not-run", () => {
   ).not.toThrow();
 });
 
+it("classifies raw Playwright target failures as could-not-run", () => {
+  const targetError = new Error(
+    "Protocol error (Runtime.callFunctionOn): Target closed",
+  );
+  let caught: unknown;
+  try {
+    rethrowIfHarnessUnavailable(targetError);
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toBeInstanceOf(CouldNotRun);
+  expect(caught).toMatchObject({
+    message: `Playwright target transport failed: ${String(targetError)}`,
+  });
+  expect(() =>
+    rethrowIfHarnessUnavailable(new Error("canvas not found")),
+  ).not.toThrow();
+  expect(() =>
+    rethrowIfHarnessUnavailable(new Error("Timeout 45000ms exceeded")),
+  ).not.toThrow();
+});
+
 it("classifies authoring sign-in transport failures as setup errors", async () => {
   await expect(
     runSetupAsCouldNotRun("could not sign in authoring fuzz page", async () => {
@@ -127,7 +151,7 @@ it("classifies authoring action transport failures without masking HTTP errors",
   ).rejects.toBe(unexpectedError);
 });
 
-it("recognizes Playwright action evaluation transport failures only", () => {
+it("recognizes Playwright target transport failures only", () => {
   expect(
     isPlaywrightTargetTransportFailure(
       new Error(
@@ -166,6 +190,25 @@ it("requires a markdown shortcut to add its result markup", () => {
   expect(() => assertShortcutMarkupAdded("bullet", 1, 1)).toThrow(
     "markdown shortcut did not produce bullet",
   );
+});
+
+it("recovers only the exact authoring fuzz scratch deck", () => {
+  const title = "[edit-fidelity] authoring fuzz 1 unique-run-id";
+  expect(
+    findAuthoringFuzzScratchDeckId(
+      [
+        { id: "older", title: `${title} retry` },
+        { id: "scratch", title },
+      ],
+      title,
+    ),
+  ).toBe("scratch");
+  expect(
+    findAuthoringFuzzScratchDeckId(
+      [{ id: "older", title: `${title} retry` }],
+      title,
+    ),
+  ).toBeNull();
 });
 
 it("recognizes resource conflicts with or without browser status text", () => {

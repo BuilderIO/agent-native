@@ -1,11 +1,5 @@
-/**
- * Real-browser edit-fidelity harness for the Slides editor: clicking into
- * text, typing, pressing Enter or just leaving an edit must not change any
- * styling or layout of the slide. See README.md.
- *
- * Exit codes: 0 pass, 1 regression against baseline.json, 2 could not run.
- */
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -30,6 +24,7 @@ import {
   assertAuthoringPersistence,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
+  findAuthoringFuzzScratchDeckId,
   lineNavigationKeys,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
@@ -80,6 +75,13 @@ import {
   runSetupAsCouldNotRun,
 } from "./run-outcomes.ts";
 
+/**
+ * Real-browser edit-fidelity harness for the Slides editor: clicking into
+ * text, typing, pressing Enter or just leaving an edit must not change any
+ * styling or layout of the slide. See README.md.
+ *
+ * Exit codes: 0 pass, 1 regression against baseline.json, 2 could not run.
+ */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCENARIOS = [
   "noop",
@@ -5020,6 +5022,8 @@ async function runAuthoringFuzzQa(
     let page: Page | null = null;
     let deckId: string | null = null;
     let authoringSucceeded = false;
+    let createAttempted = false;
+    const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
     try {
       const activePage = await runSetupAsCouldNotRun(
         "could not create authoring fuzz page",
@@ -5043,9 +5047,10 @@ async function runAuthoringFuzzQa(
       );
       const created = await runSetupActionAsCouldNotRun(
         "could not create authoring fuzz deck",
-        () =>
-          action(activePage, "create-deck", {
-            title: `[edit-fidelity] authoring fuzz ${seed}`,
+        () => {
+          createAttempted = true;
+          return action(activePage, "create-deck", {
+            title: scratchTitle,
             ...(profile?.corpusCase.aspectRatio
               ? { aspectRatio: profile.corpusCase.aspectRatio }
               : {}),
@@ -5060,7 +5065,8 @@ async function runAuthoringFuzzQa(
                   : {}),
               },
             ],
-          }),
+          });
+        },
       );
       deckId = String(created.id ?? created.deckId);
       await openSlide(activePage, base, deckId, 0, slideId, {
@@ -5178,6 +5184,31 @@ async function runAuthoringFuzzQa(
         page.on("response", onResponse);
       }
       try {
+        if (page && createAttempted && !deckId) {
+          try {
+            const result = await action<{
+              decks?: Array<{ id?: string; title?: string }>;
+            }>(
+              page,
+              "list-decks",
+              {
+                createdBy: "me",
+                search: scratchTitle,
+                light: "true",
+                limit: "10",
+              },
+              "GET",
+            );
+            deckId = findAuthoringFuzzScratchDeckId(
+              result.decks ?? [],
+              scratchTitle,
+            );
+          } catch (error) {
+            cleanupErrors.push(
+              `could not find scratch deck after ambiguous creation: ${String(error)}`,
+            );
+          }
+        }
         if (page && deckId) {
           try {
             if ((await editorState(page, slideId)).editing) {

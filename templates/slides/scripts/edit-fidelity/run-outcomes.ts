@@ -43,4 +43,9 @@ export function rethrowIfHarnessUnavailable(error: unknown): void {
       `authoring action transport failed: ${String(error)}`,
     );
   }
+  if (isPlaywrightTargetTransportFailure(error)) {
+    throw new CouldNotRun(
+      `Playwright target transport failed: ${String(error)}`,
+    );
+  }
 }
