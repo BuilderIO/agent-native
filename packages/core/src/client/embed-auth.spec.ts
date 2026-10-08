@@ -386,7 +386,6 @@ describe("embed auth client", () => {
       ["/_agent-native/application-state/navigation", "DELETE"],
       ["/_agent-native/application-state?keys=navigate", "GET"],
       ["/design/_agent-native/application-state/__url__", "PUT"],
-      ["/_agent-native/webmcp/manifest", "GET"],
     ] as const;
 
     it("answers refused framework requests locally with the server's 401", async () => {
@@ -406,6 +405,23 @@ describe("embed auth client", () => {
 
       await window.fetch("/_agent-native/actions/get-design?id=d1");
       expect(originalFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("lets the server expose public WebMCP tools to read-only widgets", async () => {
+      const manifest = [{ name: "get-design", readOnly: true }];
+      const { originalFetch } = await interceptedFetch(readCapability, {
+        upstream: async () =>
+          new Response(JSON.stringify(manifest), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+      });
+
+      const response = await window.fetch("/_agent-native/webmcp/manifest");
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual(manifest);
+      expect(originalFetch).toHaveBeenCalledOnce();
     });
 
     it("hands consumers the same failure the server's 401 produces", async () => {
