@@ -27,16 +27,6 @@ import {
   startReplayCompositorCapture,
   type ReplayCompositorCapture,
 } from "./session-replay-screenshot";
-import {
-  buildReplayViewportTimeline,
-  fetchSessionReplayPlayback,
-  normalizeReplayEvents,
-  replayAvailabilityErrorKey,
-  replayInitialViewportDimensions,
-  replayRouteAtOffset,
-  replayViewportDimensionsAtTime,
-  REPLAY_OVERLAY_STYLE_RULES,
-} from "./SessionDetailPage";
 
 const MAX_REPLAYS = 3;
 const MAX_TIMESTAMPS_PER_REPLAY = 3;
@@ -264,6 +254,7 @@ export function SessionReplayStoryboardExportDialog({
       let frameNumber = 0;
       await import("@rrweb/replay/dist/style.css");
       const { Replayer } = await import("@rrweb/replay");
+      const replayPlayback = await import("./SessionDetailPage");
       const stageRoot = stageRootRef.current;
       if (!stageRoot) throw new Error(t("sessions.storyboardCaptureFailed"));
 
@@ -275,7 +266,9 @@ export function SessionReplayStoryboardExportDialog({
             replayId: target.recording.id,
           }),
         );
-        const playback = await fetchSessionReplayPlayback(target.recording.id);
+        const playback = await replayPlayback.fetchSessionReplayPlayback(
+          target.recording.id,
+        );
         if (
           !playback.isComplete ||
           playback.unavailableChunks > 0 ||
@@ -287,18 +280,21 @@ export function SessionReplayStoryboardExportDialog({
             }),
           );
         }
-        const events = normalizeReplayEvents(
+        const events = replayPlayback.normalizeReplayEvents(
           playback.chunks.flatMap((chunk) => chunk.events),
         );
-        const unavailableReason = replayAvailabilityErrorKey(events);
+        const unavailableReason =
+          replayPlayback.replayAvailabilityErrorKey(events);
         if (unavailableReason) {
           throw new Error(t(`sessions.${unavailableReason}`));
         }
-        const initialDimensions = replayInitialViewportDimensions(events);
+        const initialDimensions =
+          replayPlayback.replayInitialViewportDimensions(events);
         if (!initialDimensions) {
           throw new Error(t("sessions.storyboardViewportUnavailable"));
         }
-        const viewportTimeline = buildReplayViewportTimeline(events);
+        const viewportTimeline =
+          replayPlayback.buildReplayViewportTimeline(events);
         stageRoot.innerHTML = "";
         updateStage(initialDimensions.width, initialDimensions.height);
         const replayer = new Replayer(events as any[], {
@@ -309,7 +305,7 @@ export function SessionReplayStoryboardExportDialog({
           showDebug: false,
           mouseTail: false,
           triggerFocus: true,
-          insertStyleRules: REPLAY_OVERLAY_STYLE_RULES,
+          insertStyleRules: replayPlayback.REPLAY_OVERLAY_STYLE_RULES,
         });
         replayer.iframe?.setAttribute?.("referrerpolicy", "no-referrer");
         replayerRef.current = replayer;
@@ -343,8 +339,10 @@ export function SessionReplayStoryboardExportDialog({
             throw new Error(t("sessions.storyboardCanceled"));
           }
           const dimensions =
-            replayViewportDimensionsAtTime(viewportTimeline, offsetMs) ??
-            initialDimensions;
+            replayPlayback.replayViewportDimensionsAtTime(
+              viewportTimeline,
+              offsetMs,
+            ) ?? initialDimensions;
           replayer.pause(offsetMs);
           (
             replayer as unknown as {
@@ -373,7 +371,7 @@ export function SessionReplayStoryboardExportDialog({
           if (blob.size > MAX_SCREENSHOT_BYTES) {
             throw new Error(t("sessions.storyboardScreenshotTooLarge"));
           }
-          const route = replayRouteAtOffset(events, offsetMs);
+          const route = replayPlayback.replayRouteAtOffset(events, offsetMs);
           if (!route) {
             throw new Error(
               t("sessions.storyboardRouteUnavailable", {
