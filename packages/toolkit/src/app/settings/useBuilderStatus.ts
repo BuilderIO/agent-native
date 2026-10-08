@@ -722,9 +722,15 @@ export async function requestBuilderAccountActivation({
   signal?: AbortSignal;
 }): Promise<BuilderAccountActivationResult> {
   const origin = getCallbackOrigin() || window.location.origin;
+  const { app, template } = inferBuilderConnectTrackingIdentity({});
   const url = withBuilderConnectTrackingParams(
     new URL(agentNativePath("/_agent-native/builder/provision"), origin).href,
-    { source, flow },
+    {
+      source,
+      flow,
+      app: app ?? undefined,
+      template: template ?? undefined,
+    },
   );
   let response: Response;
   try {

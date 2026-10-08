@@ -292,6 +292,7 @@ describe("useBuilderStatus", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    Reflect.deleteProperty(window.location, "hostname");
     vi.unstubAllGlobals();
   });
 
@@ -776,6 +777,10 @@ describe("useBuilderConnectFlow", () => {
 
     for (const host of ["desktop", "embedded", "browser"] as const) {
       it(`creates the account with one request and no popup (${host})`, async () => {
+        Object.defineProperty(window.location, "hostname", {
+          configurable: true,
+          value: "agent-native-clips.agent-native.com",
+        });
         setUserAgent(
           host === "desktop"
             ? "Mozilla/5.0 AgentNativeDesktop/1.0"
@@ -808,6 +813,12 @@ describe("useBuilderConnectFlow", () => {
         });
         expect(posts[0]!.url.searchParams.get("agentNativeFlow")).toBe(
           "connect_llm",
+        );
+        expect(posts[0]!.url.searchParams.get("agentNativeApp")).toBe(
+          "agent-native-clips",
+        );
+        expect(posts[0]!.url.searchParams.get("agentNativeTemplate")).toBe(
+          "clips",
         );
         expect(container.textContent).toContain("configured idle resolved");
         expect(onConnected).toHaveBeenCalledOnce();
