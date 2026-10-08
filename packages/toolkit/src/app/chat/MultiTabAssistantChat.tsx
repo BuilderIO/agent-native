@@ -1316,9 +1316,11 @@ export function MultiTabAssistantChat({
           }
         : null;
     onActiveModelEngineChange(
-      engineName
-        ? (discoveredModelEngines[engineName] ?? hostModelEngine)
-        : null,
+      hostManagedModels
+        ? hostModelEngine
+        : engineName
+          ? (discoveredModelEngines[engineName] ?? null)
+          : null,
     );
   }, [
     activeThreadId,

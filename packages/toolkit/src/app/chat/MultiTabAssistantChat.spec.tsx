@@ -1124,7 +1124,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     const storageKey = "host-catalog-test";
     window.localStorage.setItem(
       chatModelSelectionStorageKey(storageKey),
-      JSON.stringify({ model: "host-model", engine: "host" }),
+      JSON.stringify({ model: "host-model", engine: "anthropic" }),
     );
     let activeEngine: {
       name: string;
@@ -1139,10 +1139,31 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       localRoot.render(
         <MultiTabAssistantChat
           storageKey={storageKey}
+          onActiveModelEngineChange={(engine) => {
+            activeEngine = engine;
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(activeEngine).toMatchObject({
+      name: "anthropic",
+      supportedModels: ["claude-sonnet-5"],
+    });
+
+    await act(async () => {
+      localRoot.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
           availableModels={[
             {
-              engine: "host",
-              label: "Host",
+              engine: "anthropic",
+              label: "Host Anthropic",
               models: ["host-model", "host-model-2"],
               configured: true,
             },
@@ -1152,8 +1173,6 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
           }}
         />,
       );
-    });
-    await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -1162,9 +1181,9 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       el
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-model-catalog"),
-    ).toBe("host:true");
+    ).toBe("anthropic:true");
     expect(activeEngine).toMatchObject({
-      name: "host",
+      name: "anthropic",
       defaultModel: "host-model",
       supportedModels: ["host-model", "host-model-2"],
       selectableModels: ["host-model", "host-model-2"],
