@@ -2852,6 +2852,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Le repli du déploiement est disponible. Utilisez votre propre compte Builder.io pour le remplacer.",
   "settingsInfra.builderStorageHint":
     "Le stockage objet conserve les fichiers envoyés et permet de réutiliser leurs URL tout au long du fil. Utilisez Builder.io ou le compartiment compatible S3 ci-dessous.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io est connecté, mais ne peut pas encore stocker les fichiers importés. Reconnectez-le pour autoriser les imports, ou configurez un bucket ci-dessous.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Impossible de vérifier l'accès de Builder.io aux imports. Réessayez ou configurez un bucket ci-dessous.",
+  "settingsInfra.reconnectBuilderUploads": "Autoriser les imports",
   "settingsInfra.builderUnknown":
     "Impossible de vérifier la connexion Builder.io.",
   "settingsInfra.manage": "Gérer",

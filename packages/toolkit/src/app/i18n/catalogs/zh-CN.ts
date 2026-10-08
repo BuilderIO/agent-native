@@ -2432,6 +2432,11 @@ const messages: ToolkitAgentChatTranslation = {
     "可使用部署备用方案。使用自己的 Builder.io 账户即可覆盖它。",
   "settingsInfra.builderStorageHint":
     "对象存储可持久保存上传文件，并让 URL 在整个对话中重复使用。请使用下方的 Builder.io 或兼容 S3 的存储桶。",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io 已连接，但目前无法存储上传的文件。重新连接以授予上传权限，或在下方配置存储桶。",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "无法验证 Builder.io 的上传权限。请重试或在下方配置存储桶。",
+  "settingsInfra.reconnectBuilderUploads": "授予上传权限",
   "settingsInfra.builderUnknown": "无法检查 Builder.io 连接。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "连接",

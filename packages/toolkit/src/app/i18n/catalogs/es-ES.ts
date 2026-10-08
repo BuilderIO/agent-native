@@ -2823,6 +2823,11 @@ const messages: ToolkitAgentChatTranslation = {
     "El respaldo de la implementación está disponible. Usa tu propia cuenta de Builder.io para sustituirlo.",
   "settingsInfra.builderStorageHint":
     "El almacenamiento de objetos conserva los archivos subidos y permite reutilizar sus URL en todo el hilo. Usa Builder.io o el bucket compatible con S3 de abajo.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io está conectado, pero todavía no puede guardar archivos subidos. Vuelve a autorizarlo para permitir las cargas o configura un bucket abajo.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "No se pudo comprobar el acceso de carga de Builder.io. Vuelve a intentarlo o configura un bucket abajo.",
+  "settingsInfra.reconnectBuilderUploads": "Conceder acceso de carga",
   "settingsInfra.builderUnknown":
     "No se pudo comprobar la conexión con Builder.io.",
   "settingsInfra.manage": "Gestionar",

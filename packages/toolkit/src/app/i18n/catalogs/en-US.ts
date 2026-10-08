@@ -2678,6 +2678,11 @@ const messages = {
     "Deployment fallback is available. Use your own Builder.io account to override it.",
   "settingsInfra.builderStorageHint":
     "Object storage keeps uploaded files durable and their URLs reusable throughout the thread. Use Builder.io or an S3-compatible bucket below.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io is connected, but it can't store uploaded files yet. Reconnect it for upload access, or configure a bucket below.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Couldn't verify Builder.io upload access. Retry or configure a bucket below.",
+  "settingsInfra.reconnectBuilderUploads": "Grant upload access",
   "settingsInfra.builderUnknown": "Couldn't check the Builder.io connection.",
   "settingsInfra.manage": "Manage",
   "settingsInfra.connect": "Connect",

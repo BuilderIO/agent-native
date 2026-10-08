@@ -2670,6 +2670,11 @@ const messages: ToolkitAgentChatTranslation = {
     "デプロイのフォールバックを利用できます。上書きするには、ご自身の Builder.io アカウントを使用してください。",
   "settingsInfra.builderStorageHint":
     "オブジェクトストレージはアップロードしたファイルを保持し、スレッド全体で URL を再利用できるようにします。以下では Builder.io または S3 互換バケットを使用してください。",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io は接続されていますが、まだアップロードしたファイルを保存できません。アップロード権限を付与するため再接続するか、下でバケットを設定してください。",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Builder.io のアップロード権限を確認できませんでした。再試行するか、下でバケットを設定してください。",
+  "settingsInfra.reconnectBuilderUploads": "アップロード権限を付与",
   "settingsInfra.builderUnknown": "Builder.io の接続を確認できませんでした。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "接続",

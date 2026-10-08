@@ -2615,6 +2615,11 @@ const messages: ToolkitAgentChatTranslation = {
     "डिप्लॉयमेंट फ़ॉलबैक उपलब्ध है। इसे बदलने के लिए अपने Builder.io खाते का उपयोग करें।",
   "settingsInfra.builderStorageHint":
     "ऑब्जेक्ट स्टोरेज अपलोड की गई फ़ाइलों को सुरक्षित रखता है और पूरे थ्रेड में उनके URL फिर से इस्तेमाल करने देता है। नीचे Builder.io या S3-संगत बकेट का उपयोग करें।",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io कनेक्ट है, लेकिन अभी अपलोड की गई फ़ाइलें संग्रहीत नहीं कर सकता। अपलोड की अनुमति देने के लिए इसे फिर से जोड़ें, या नीचे बकेट सेट करें।",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Builder.io की अपलोड अनुमति की पुष्टि नहीं हो सकी। फिर कोशिश करें या नीचे बकेट सेट करें।",
+  "settingsInfra.reconnectBuilderUploads": "अपलोड एक्सेस दें",
   "settingsInfra.builderUnknown": "Builder.io कनेक्शन जाँचा नहीं जा सका।",
   "settingsInfra.manage": "प्रबंधित करें",
   "settingsInfra.connect": "कनेक्ट करें",

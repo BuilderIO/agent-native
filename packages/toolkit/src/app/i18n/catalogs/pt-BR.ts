@@ -2815,6 +2815,11 @@ const messages: ToolkitAgentChatTranslation = {
     "O fallback da implantação está disponível. Use sua própria conta do Builder.io para substituí-lo.",
   "settingsInfra.builderStorageHint":
     "O armazenamento de objetos mantém os arquivos enviados e permite reutilizar seus URLs em toda a conversa. Use o Builder.io ou o bucket compatível com S3 abaixo.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io está conectado, mas ainda não pode armazenar arquivos enviados. Reconecte para conceder acesso a uploads ou configure um bucket abaixo.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Não foi possível verificar o acesso de upload do Builder.io. Tente novamente ou configure um bucket abaixo.",
+  "settingsInfra.reconnectBuilderUploads": "Conceder acesso a uploads",
   "settingsInfra.builderUnknown":
     "Não foi possível verificar a conexão com o Builder.io.",
   "settingsInfra.manage": "Gerenciar",

@@ -2443,6 +2443,11 @@ const messages: ToolkitAgentChatTranslation = {
     "可使用部署備援設定。使用您自己的 Builder.io 帳戶即可覆寫。",
   "settingsInfra.builderStorageHint":
     "物件儲存空間會保留上傳檔案，並讓網址在整個對話中重複使用。請使用下方的 Builder.io 或相容 S3 的儲存貯體。",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io 已連線，但目前無法儲存上傳的檔案。重新連線以授予上傳權限，或在下方設定儲存貯體。",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "無法確認 Builder.io 的上傳權限。請重試或在下方設定儲存貯體。",
+  "settingsInfra.reconnectBuilderUploads": "授予上傳權限",
   "settingsInfra.builderUnknown": "無法檢查 Builder.io 連線。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "連線",

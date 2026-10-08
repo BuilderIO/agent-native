@@ -2796,6 +2796,11 @@ const messages: ToolkitAgentChatTranslation = {
     "الرجوع إلى إعدادات النشر متاح. استخدم حساب Builder.io الخاص بك لتجاوزه.",
   "settingsInfra.builderStorageHint":
     "يحافظ تخزين الكائنات على الملفات المرفوعة ويجعل عناوين URL الخاصة بها قابلة لإعادة الاستخدام خلال المحادثة. استخدم Builder.io أو حاوية متوافقة مع S3 أدناه.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io متصل، لكنه لا يستطيع تخزين الملفات المرفوعة بعد. أعد توصيله لمنحه صلاحية الرفع، أو أعد إعداد حاوية أدناه.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "تعذّر التحقق من صلاحية Builder.io لرفع الملفات. أعد المحاولة أو أعد إعداد حاوية أدناه.",
+  "settingsInfra.reconnectBuilderUploads": "منح صلاحية الرفع",
   "settingsInfra.builderUnknown": "تعذّر التحقق من اتصال Builder.io.",
   "settingsInfra.manage": "إدارة",
   "settingsInfra.connect": "توصيل",
