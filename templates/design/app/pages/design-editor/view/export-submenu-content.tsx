@@ -1,13 +1,4 @@
 import {
-  IconArchive,
-  IconCode,
-  IconDownload,
-  IconFileExport,
-  IconFileStack,
-  IconPhoto,
-} from "@tabler/icons-react";
-
-import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuSubContent,
@@ -56,35 +47,30 @@ export function ExportSubmenuContent({
         onClick={handleDownloadHtml}
         disabled={!activeFile || exportHtmlMutation.isPending}
       >
-        <IconCode className="mr-2 h-4 w-4" />
         {t("designEditor.downloadHtml")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadPng()}
         disabled={!activeFile || pngExporting}
       >
-        <IconPhoto className="mr-2 h-4 w-4" />
         {t("designEditor.downloadPng")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadSvg()}
         disabled={!activeFile || svgExporting}
       >
-        <IconCode className="mr-2 h-4 w-4" />
         {t("designEditor.downloadSvg")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadFigmaSvg()}
         disabled={!activeFile || figmaSvgExporting}
       >
-        <IconFileExport className="mr-2 h-4 w-4" />
         {t("designEditor.downloadFigmaSvg")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={handleDownloadZip}
         disabled={!activeFile || exportZipMutation.isPending}
       >
-        <IconArchive className="mr-2 h-4 w-4" />
         {t("designEditor.downloadZip")}
       </DropdownMenuItem>
       {viewMode === "overview" && overviewScreens.length >= 2 ? (
@@ -92,7 +78,6 @@ export function ExportSubmenuContent({
           onClick={() => void handleDownloadAllScreensPdf()}
           disabled={pngExporting}
         >
-          <IconFileStack className="mr-2 h-4 w-4" />
           {t("designEditor.downloadPdfAllScreens")}
         </DropdownMenuItem>
       ) : null}
@@ -101,7 +86,6 @@ export function ExportSubmenuContent({
         onClick={handleCopyCodingHandoff}
         disabled={!activeFile || codingHandoffLoading}
       >
-        <IconDownload className="mr-2 h-4 w-4" />
         {t("designEditor.copyCodingHandoff")}
       </DropdownMenuItem>
     </DropdownMenuSubContent>
