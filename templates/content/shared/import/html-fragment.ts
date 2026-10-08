@@ -1,3 +1,5 @@
+import { decodeNamedCharacterReference } from "decode-named-character-reference";
+
 export type HtmlToken =
   | {
       type: "open";
@@ -35,44 +37,6 @@ const TOKEN_RE =
 const ATTR_RE =
   /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-  copy: "©",
-  reg: "®",
-  trade: "™",
-  hellip: "…",
-  mdash: "—",
-  ndash: "–",
-  lsquo: "‘",
-  rsquo: "’",
-  ldquo: "“",
-  rdquo: "”",
-  laquo: "«",
-  raquo: "»",
-  middot: "·",
-  bull: "•",
-  times: "×",
-  divide: "÷",
-  deg: "°",
-  plusmn: "±",
-  para: "¶",
-  sect: "§",
-  euro: "€",
-  pound: "£",
-  yen: "¥",
-  cent: "¢",
-  larr: "←",
-  rarr: "→",
-  uarr: "↑",
-  darr: "↓",
-  check: "✓",
-};
-
 export function decodeHtmlEntities(text: string): string {
   return text.replace(
     /&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]*);/gi,
@@ -86,7 +50,7 @@ export function decodeHtmlEntities(text: string): string {
           ? String.fromCodePoint(code)
           : match;
       }
-      return NAMED_ENTITIES[entity.toLowerCase()] ?? match;
+      return decodeNamedCharacterReference(entity) || match;
     },
   );
 }

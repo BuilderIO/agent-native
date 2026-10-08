@@ -1,3 +1,5 @@
+import { decodeHtmlEntities } from "./html-fragment";
+
 const SCHEME_RE = /^([a-z][a-z0-9+.-]*):/i;
 const SAFE_LINK_SCHEMES = new Set(["http", "https", "mailto", "tel"]);
 const MARKDOWN_FILE_RE = /\.(md|markdown|mdx)$/i;
@@ -17,6 +19,21 @@ export type ImportReference =
  * relative paths against the file's own folder inside the import.
  */
 export function classifyImportReference(
+  sourcePath: string,
+  reference: string,
+): ImportReference {
+  const classified = classifyWrittenReference(sourcePath, reference);
+  // Content Markdown keeps character references in a link as written, and an
+  // HTML page decodes them, so `java&#x09;script:` would run as `javascript:`.
+  const decoded = decodeHtmlEntities(reference);
+  if (decoded === reference) return classified;
+  const decodedKind = classifyWrittenReference(sourcePath, decoded).kind;
+  return decodedKind === "unsupported" || decodedKind === "data-url"
+    ? { kind: "unsupported", reference: reference.trim() }
+    : classified;
+}
+
+function classifyWrittenReference(
   sourcePath: string,
   reference: string,
 ): ImportReference {

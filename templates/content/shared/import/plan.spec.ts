@@ -27,6 +27,7 @@ describe("Import planning", () => {
     expect(importFileKind("export.zip")).toBe("unsupported");
     expect(importFileKind("report.docx")).toBe("unsupported");
     expect(importFileKind("README")).toBe("unsupported");
+    expect(importFileKind("notes.constructor")).toBe("unsupported");
   });
 
   it("previews picked images as available and asks for each upload once", () => {

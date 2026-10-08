@@ -129,30 +129,33 @@ const HIGHLIGHT: PMMark = {
   },
 };
 
-/** HTML elements Content renders the same way. */
-const HTML_MARKS: Record<string, PMMark> = {
-  b: BOLD,
-  strong: BOLD,
-  i: ITALIC,
-  em: ITALIC,
-  cite: ITALIC,
-  dfn: ITALIC,
-  u: UNDERLINE,
-  ins: UNDERLINE,
-  s: STRIKE,
-  del: STRIKE,
-  strike: STRIKE,
-  code: CODE,
-  mark: HIGHLIGHT,
-};
+/**
+ * HTML elements Content renders the same way. Tables keyed by names from the
+ * file are Maps: an object would answer `<constructor>` with its prototype's.
+ */
+const HTML_MARKS = new Map<string, PMMark>([
+  ["b", BOLD],
+  ["strong", BOLD],
+  ["i", ITALIC],
+  ["em", ITALIC],
+  ["cite", ITALIC],
+  ["dfn", ITALIC],
+  ["u", UNDERLINE],
+  ["ins", UNDERLINE],
+  ["s", STRIKE],
+  ["del", STRIKE],
+  ["strike", STRIKE],
+  ["code", CODE],
+  ["mark", HIGHLIGHT],
+]);
 
 /** HTML elements that arrive with the nearest Content formatting. */
-const CONVERTED_HTML_MARKS: Record<string, PMMark> = {
-  kbd: CODE,
-  samp: CODE,
-  tt: CODE,
-  var: ITALIC,
-};
+const CONVERTED_HTML_MARKS = new Map<string, PMMark>([
+  ["kbd", CODE],
+  ["samp", CODE],
+  ["tt", CODE],
+  ["var", ITALIC],
+]);
 
 /** HTML elements that start a new paragraph when a block is flattened. */
 const HTML_BLOCK_BREAKS = new Set([
@@ -1207,7 +1210,7 @@ class MarkdownConverter {
       if (!href) return null;
       return this.linkMark(href, token.attrs.title ?? null);
     }
-    const mark = HTML_MARKS[token.name];
+    const mark = HTML_MARKS.get(token.name);
     if (mark) return mark;
     if (token.name === "span") {
       // Content's own color and underline spans, which other Markdown may hold.
@@ -1216,7 +1219,7 @@ class MarkdownConverter {
         return { type: "notionSpan", attrs };
       }
     }
-    const converted = CONVERTED_HTML_MARKS[token.name];
+    const converted = CONVERTED_HTML_MARKS.get(token.name);
     if (converted) {
       this.notes.add("html-formatting-converted", `<${token.name}>`);
       return converted;
@@ -1284,8 +1287,8 @@ class MarkdownConverter {
       }
       if (
         !FAITHFUL_HTML_TAGS.has(token.name) &&
-        !HTML_MARKS[token.name] &&
-        !CONVERTED_HTML_MARKS[token.name]
+        !HTML_MARKS.has(token.name) &&
+        !CONVERTED_HTML_MARKS.has(token.name)
       ) {
         flattened.add(token.name);
       }

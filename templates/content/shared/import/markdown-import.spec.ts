@@ -952,6 +952,12 @@ ${"<span>".repeat(70)}deep
       ["````md", "```", "<callout>Example</callout>", "```", "````"].join("\n"),
     ],
     ["in inline code", 'Write `<mention-page url="x"/>` to link a page.'],
+    [
+      "in a fence inside a list item",
+      ["- Example:", "", "  ```", "  <callout>Example</callout>", "  ```"].join(
+        "\n",
+      ),
+    ],
   ])("reads a file with Content tags only %s as Markdown", (_, text) => {
     expect(importMarkdown(`# Notes\n\n${text}\n`).dialect).toBe("markdown");
   });
@@ -1024,5 +1030,73 @@ ${"<span>".repeat(70)}deep
 
     expect(page.doc.content.length).toBeGreaterThan(150_000);
     expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
+  it("reads HTML tags and references named like object properties as text", () => {
+    const page = importMarkdown(
+      "<p><constructor>Plain</constructor> &constructor; &toString; done</p>",
+    );
+
+    expect(textOf(page.doc)).toContain("Plain &constructor; &toString; done");
+    expect(
+      nodesOfType(page.doc, "text").flatMap((node) => node.marks ?? []),
+    ).toEqual([]);
+    expectEditorAccepts(page);
+  });
+
+  it("decodes every named character reference HTML does", () => {
+    const page = importMarkdown(
+      "<p>caf&eacute; na&iuml;ve &hearts; &AMP; &bogus;</p>",
+    );
+
+    expect(textOf(page.doc)).toContain("café naïve ♥ & &bogus;");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
+  it.each([
+    [
+      "Content Markdown",
+      [
+        "<callout>",
+        "\t[Tab](java&#x09;script:alert(1)) and [Named](java&Tab;script:alert(2))",
+        "</callout>",
+      ].join("\n"),
+    ],
+    [
+      "an HTML link",
+      '<a href="java&Tab;script:alert(1)">Named</a> and <a href="java&NewLine;script:alert(2)">Line</a>',
+    ],
+  ])(
+    "drops a link from %s whose scheme hides behind character references",
+    (_, text) => {
+      const page = importMarkdown(text);
+
+      expect(
+        nodesOfType(page.doc, "text").flatMap((node) => node.marks ?? []),
+      ).toEqual([]);
+      expect(page.content).not.toMatch(/script:alert/);
+      expect(noteKinds(page)).toContain("link-removed");
+    },
+  );
+
+  it("keeps the section a link to another imported file names", () => {
+    const page = importMarkdown(
+      "See [install](guide.md#installation), [top](guide.md#), and [all](./guide.md).",
+      {
+        resolvers: {
+          link: (path) => (path === "notes/guide.md" ? "/page/guide123" : null),
+        },
+      },
+    );
+
+    expect(
+      nodesOfType(page.doc, "text").flatMap((node) =>
+        (node.marks ?? []).map((mark) => mark.attrs?.href),
+      ),
+    ).toEqual([
+      "/page/guide123#installation",
+      "/page/guide123",
+      "/page/guide123",
+    ]);
   });
 });

@@ -106,7 +106,7 @@ export function finalizeMarkdownImport(
     const { reference } = slot;
     if (reference.kind === "relative" && isMarkdownFilePath(reference.path)) {
       const href = resolvers.link?.(reference.path) ?? null;
-      if (href) return href;
+      if (href) return href + linkFragment(slot.written);
       notes.add("link-target-not-imported", slotLabel(slot));
       return slot.written;
     }
@@ -165,6 +165,12 @@ export function finalizeMarkdownImport(
     assets,
     report: { status, notes: noteList, coverage },
   };
+}
+
+/** The `#section` a link names, which the page it now points at keeps. */
+function linkFragment(written: string): string {
+  const hash = written.indexOf("#");
+  return hash === -1 || hash === written.length - 1 ? "" : written.slice(hash);
 }
 
 function slotLabel(slot: ImportReferenceSlot): string {

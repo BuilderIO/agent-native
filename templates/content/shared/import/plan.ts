@@ -13,15 +13,15 @@ export const MAX_IMPORT_IMAGE_BYTES = 10 * 1024 * 1024;
 /** The editor's full-body snapshot limit; a larger page could not be saved. */
 export const MAX_IMPORT_PAGE_CHARACTERS = 500_000;
 
-const IMAGE_MEDIA_TYPES: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  avif: "image/avif",
-  svg: "image/svg+xml",
-};
+const IMAGE_MEDIA_TYPES = new Map([
+  ["png", "image/png"],
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["gif", "image/gif"],
+  ["webp", "image/webp"],
+  ["avif", "image/avif"],
+  ["svg", "image/svg+xml"],
+]);
 
 export type ImportFileKind = "markdown" | "image" | "unsupported";
 
@@ -69,12 +69,12 @@ export function importFileKind(path: string): ImportFileKind {
 
 /** Image types a page can show, as stored by the editor upload path. */
 export function isImportImageMediaType(mediaType: string): boolean {
-  return Object.values(IMAGE_MEDIA_TYPES).includes(mediaType.toLowerCase());
+  return [...IMAGE_MEDIA_TYPES.values()].includes(mediaType.toLowerCase());
 }
 
 export function importImageMediaType(path: string): string | null {
   const format = importFileFormat(path);
-  return format ? (IMAGE_MEDIA_TYPES[format] ?? null) : null;
+  return format ? (IMAGE_MEDIA_TYPES.get(format) ?? null) : null;
 }
 
 /** A `data:` URL's payload, or null when it has no comma to start one. */

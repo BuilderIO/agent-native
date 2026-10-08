@@ -5746,6 +5746,9 @@ importers:
       ai:
         specifier: ^7.0.84
         version: 7.0.84(zod@4.4.3)
+      decode-named-character-reference:
+        specifier: ^1.3.0
+        version: 1.3.0
       diff-match-patch:
         specifier: ^1.0.5
         version: 1.0.5
