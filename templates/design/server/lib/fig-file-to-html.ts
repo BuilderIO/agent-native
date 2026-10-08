@@ -1074,7 +1074,10 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
   if (p.type?.startsWith("GRADIENT") && Array.isArray(p.stops)) {
     const box = node.size ? { width: node.size.x, height: node.size.y } : null;
     const kind = p.type.slice("GRADIENT_".length) as
-      "LINEAR" | "RADIAL" | "ANGULAR" | "DIAMOND";
+      | "LINEAR"
+      | "RADIAL"
+      | "ANGULAR"
+      | "DIAMOND";
     const geometry =
       p.transform && box
         ? gradientGeometryFromTransform(kind, p.transform, box)
@@ -2594,7 +2597,10 @@ function gradientSvgFill(
   if (stops.length === 0) return null;
   const firstStop = () => solidSvgFill(stops[0]!.color, paint.opacity);
   const kind = paint.type!.slice("GRADIENT_".length) as
-    "LINEAR" | "RADIAL" | "ANGULAR" | "DIAMOND";
+    | "LINEAR"
+    | "RADIAL"
+    | "ANGULAR"
+    | "DIAMOND";
   if (kind === "ANGULAR") {
     recordApproximation(
       node,

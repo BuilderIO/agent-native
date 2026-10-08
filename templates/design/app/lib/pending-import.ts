@@ -27,3 +27,14 @@ export function claimPendingDesignImport(id: string) {
 export function clearPendingDesignImport(id: string) {
   pendingImports.delete(id);
 }
+
+// Drops imports whose editor never claimed them; returns whether any import
+// is still running so callers know if the shared loading toast is stale.
+export function discardUnclaimedPendingDesignImports(): boolean {
+  let running = false;
+  for (const [id, entry] of pendingImports) {
+    if (entry.started) running = true;
+    else pendingImports.delete(id);
+  }
+  return running;
+}

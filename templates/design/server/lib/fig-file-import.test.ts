@@ -237,6 +237,22 @@ describe("bounded .fig decoding", () => {
     });
   });
 
+  it("caps each chunk by the remaining aggregate inflate budget", () => {
+    const fig = encodedHelloFig([Buffer.alloc(64 * 1024)]);
+    const limits = {
+      ...SERVER_FIG_LIMITS,
+      inflatedBytes: 4 * 1024,
+      inflatedChunkBytes: 1024 * 1024,
+    };
+
+    expect(() => decodeFig(fig, { limits })).toThrow(
+      /Decompressed .fig data is too large \(max 0 MB\)/,
+    );
+    expect(decodeFig(fig, { limits: SERVER_FIG_LIMITS }).document).toEqual({
+      hello: "world",
+    });
+  });
+
   it("keeps stored zip entries as views outside the inflate budget", () => {
     const image = Buffer.concat([
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),

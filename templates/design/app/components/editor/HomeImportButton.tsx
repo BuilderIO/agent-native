@@ -6,7 +6,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { openAgentSettings } from "@agent-native/toolkit/app/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import { IconChevronDown, IconUpload } from "@tabler/icons-react";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -29,6 +29,7 @@ import { validateFigUploadFile } from "@/lib/design-file-upload";
 import { importResultNotification } from "@/lib/design-import";
 import { FIGMA_ACCESS_TOKEN_SECRET_KEY } from "@/lib/figma-connection";
 import {
+  discardUnclaimedPendingDesignImports,
   FIG_IMPORT_TOAST_ID,
   setPendingDesignImport,
 } from "@/lib/pending-import";
@@ -48,6 +49,11 @@ export function HomeImportButton() {
   const openLinkAfterMenu = useRef(false);
   const urlId = useId();
   const valid = Boolean(parseFigmaFileKey(url));
+  useEffect(() => {
+    if (!discardUnclaimedPendingDesignImports()) {
+      toast.dismiss(FIG_IMPORT_TOAST_ID);
+    }
+  }, []);
   const changeOpen = (next: boolean) => {
     if (!pending.current) setOpen(next);
   };

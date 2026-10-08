@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   readPendingDesignImport,
   clearPendingDesignImport,
+  claimPendingDesignImport,
+  FIG_IMPORT_TOAST_ID,
+  setPendingDesignImport,
 } from "@/lib/pending-import";
 
 import { HomeImportButton } from "./HomeImportButton";
@@ -19,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   warning: vi.fn(),
   error: vi.fn(),
   loading: vi.fn(),
+  dismiss: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: (name: string) => ({
@@ -43,6 +47,7 @@ vi.mock("sonner", () => ({
     warning: mocks.warning,
     error: mocks.error,
     loading: mocks.loading,
+    dismiss: mocks.dismiss,
   },
 }));
 vi.mock("@/lib/figma-connection", () => ({
@@ -136,6 +141,28 @@ afterEach(async () => {
 });
 
 describe("home Figma import", () => {
+  it("clears a handoff toast the editor never claimed, but not a running import", async () => {
+    const file = new File(["fig"], "Stale.fig");
+    setPendingDesignImport("file-design", { kind: "file", file });
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    mocks.dismiss.mockClear();
+    await act(async () => root.render(<HomeImportButton />));
+
+    expect(mocks.dismiss).toHaveBeenCalledWith(FIG_IMPORT_TOAST_ID);
+    expect(readPendingDesignImport("file-design")).toBeUndefined();
+
+    setPendingDesignImport("file-design", { kind: "file", file });
+    claimPendingDesignImport("file-design");
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    mocks.dismiss.mockClear();
+    await act(async () => root.render(<HomeImportButton />));
+
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    expect(readPendingDesignImport("file-design")?.file).toBe(file);
+  });
+
   it("opens import options from the whole button before launching the .fig picker", async () => {
     const input =
       document.querySelector<HTMLInputElement>('input[type="file"]')!;

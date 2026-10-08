@@ -224,13 +224,23 @@ export function decodeKiwiContainer(
     }
     const compressed = file.subarray(offset, offset + length);
     offset += length;
-    const decompressed = decompressChunk(compressed, limits.inflatedChunkBytes);
-    decompressedBytes += decompressed.length;
-    if (decompressedBytes > limits.inflatedBytes) {
-      throw new Error(
-        `Decompressed .fig data is too large (max ${mb(limits.inflatedBytes)} MB).`,
-      );
+    const remaining = limits.inflatedBytes - decompressedBytes;
+    const chunkCap = Math.min(limits.inflatedChunkBytes, remaining);
+    let decompressed: Uint8Array;
+    try {
+      decompressed = decompressChunk(compressed, chunkCap);
+    } catch (error) {
+      if (
+        chunkCap < limits.inflatedChunkBytes &&
+        /too large/i.test(String(error))
+      ) {
+        throw new Error(
+          `Decompressed .fig data is too large (max ${mb(limits.inflatedBytes)} MB).`,
+        );
+      }
+      throw error;
     }
+    decompressedBytes += decompressed.length;
     chunks.push(decompressed);
   }
   if (chunks.length < 2) {
