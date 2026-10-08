@@ -444,9 +444,29 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
   const topBarGeometry = await readGeometry(
     page.locator("[data-design-top-bar]"),
   );
+  const leftShellGeometry = await readGeometry(
+    page.locator('[data-design-chrome-region="left-shell"]'),
+  );
+  const leftHeaderGeometry = await readGeometry(
+    page.locator('[data-design-chrome-region="left-header"]'),
+  );
+  const zoneGeometry = await readGeometry(
+    page.locator("[data-design-top-bar-inspector-zone]"),
+  );
+  // The 48px line runs over the canvas and inspector columns only; the rail
+  // and left panel share its top row.
   expect(topBarGeometry.y).toBe(0);
   expect(topBarGeometry.height).toBe(48);
+  expect(leftShellGeometry.y).toBe(0);
+  expect(leftHeaderGeometry.y).toBe(0);
+  expect(leftHeaderGeometry.height).toBe(48);
+  expect(topBarGeometry.x).toBe(leftShellGeometry.x + leftShellGeometry.width);
   expect(currentPanelGeometry.y).toBe(topBarGeometry.height);
+  expect(zoneGeometry.x).toBeLessThanOrEqual(currentPanelGeometry.x + 1);
+  expect(zoneGeometry.x + zoneGeometry.width).toBeCloseTo(
+    topBarGeometry.x + topBarGeometry.width - 8,
+    0,
+  );
   const targetPanelWidth = 320;
   const dragStartX = separatorGeometry.x + separatorGeometry.width / 2;
   await page.mouse.move(

@@ -299,6 +299,12 @@ test("top bar is 48px and keeps Share, presence and zoom inside the bar", async 
   if (!barBox) throw new Error("missing top bar box");
   expect(barBox.y).toBe(0);
   expect(barBox.height).toBe(48);
+  const leftShellBox = await page
+    .locator('[data-design-chrome-region="left-shell"]')
+    .boundingBox();
+  if (!leftShellBox) throw new Error("missing left shell box");
+  expect(leftShellBox.y).toBe(0);
+  expect(barBox.x).toBe(leftShellBox.x + leftShellBox.width);
 
   await expect(
     page.getByRole("button", { name: "Add to Context" }),

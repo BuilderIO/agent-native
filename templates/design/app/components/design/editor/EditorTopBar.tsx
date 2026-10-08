@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import type { EditorMode } from "@/pages/design-editor/types";
@@ -28,6 +28,9 @@ export function EditorTopBar({
   zoomControl,
   presence,
   actions,
+  leftInset,
+  narrowLeftInset,
+  inspectorWidth,
 }: {
   mode: EditorMode;
   onModeChange: (mode: EditorMode) => void;
@@ -38,6 +41,12 @@ export function EditorTopBar({
   zoomControl?: ReactNode;
   presence?: ReactNode;
   actions?: ReactNode;
+  /** Width of the rail plus open left panel; the bar starts at the canvas column. */
+  leftInset: number;
+  /** Left inset below `md`, where the left panel overlays the canvas. */
+  narrowLeftInset: number;
+  /** Docked inspector width; presence and actions span it. Omit when it is hidden. */
+  inspectorWidth?: number;
 }) {
   const t = useT();
   const visibleModes = EDITOR_TOP_BAR_MODES.filter((entry) =>
@@ -47,7 +56,14 @@ export function EditorTopBar({
     <div
       data-design-top-bar
       data-design-chrome-region="top-bar"
-      className="relative z-[80] grid h-12 shrink-0 grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] items-center gap-2 overflow-hidden border-b border-border bg-[var(--design-editor-panel-bg)] p-2"
+      style={
+        {
+          "--top-bar-left": `${leftInset}px`,
+          "--top-bar-left-narrow": `${narrowLeftInset}px`,
+          "--top-bar-inspector": `${inspectorWidth ?? 0}px`,
+        } as CSSProperties
+      }
+      className="absolute left-[var(--top-bar-left-narrow)] right-0 top-0 z-[60] grid h-12 grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] items-center gap-1 overflow-hidden border-b border-border bg-[var(--design-editor-panel-bg)] p-2 transition-[left] duration-150 ease-out motion-reduce:transition-none sm:gap-2 md:left-[var(--top-bar-left)]"
     >
       <div className="flex min-w-0 items-center">
         {visibleModes.length > 0 ? (
@@ -67,7 +83,7 @@ export function EditorTopBar({
                   aria-pressed={active}
                   onClick={() => onModeChange(entry.mode)}
                   className={cn(
-                    "flex h-5 cursor-pointer items-center rounded-md px-2 text-xs font-medium leading-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex h-5 cursor-pointer items-center rounded-md px-1.5 text-xs font-medium leading-4 sm:px-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     active
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
@@ -92,14 +108,25 @@ export function EditorTopBar({
             {zoomControl}
           </div>
         ) : null}
-        {presence ? (
-          <div className="hidden shrink-0 items-center sm:flex">{presence}</div>
-        ) : null}
-        {actions ? (
-          <div className="flex min-w-0 shrink-0 items-center gap-2">
-            {actions}
-          </div>
-        ) : null}
+        <div
+          data-design-top-bar-inspector-zone
+          className={cn(
+            "flex min-w-0 shrink-0 items-center justify-end gap-3",
+            inspectorWidth !== undefined &&
+              "lg:min-w-[calc(var(--top-bar-inspector)-8px)]",
+          )}
+        >
+          {presence ? (
+            <div className="hidden shrink-0 items-center lg:flex">
+              {presence}
+            </div>
+          ) : null}
+          {actions ? (
+            <div className="flex min-w-0 shrink-0 items-center gap-2">
+              {actions}
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );

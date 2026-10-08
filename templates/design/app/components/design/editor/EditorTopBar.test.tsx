@@ -21,7 +21,13 @@ async function renderBar(
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <EditorTopBar mode="edit" onModeChange={onModeChange} {...props} />,
+      <EditorTopBar
+        mode="edit"
+        onModeChange={onModeChange}
+        leftInset={344}
+        narrowLeftInset={64}
+        {...props}
+      />,
     );
   });
   return {
@@ -84,7 +90,7 @@ describe("EditorTopBar", () => {
     await unmount();
   });
 
-  it("is one 48px row on a three-column grid that sheds zoom and presence on phones", async () => {
+  it("is one 48px row on a three-column grid that sheds zoom and presence on narrow screens", async () => {
     const { host, unmount } = await renderBar({
       zoomControl: <button data-slot="zoom">67%</button>,
       presence: <span data-slot="presence" />,
@@ -96,12 +102,45 @@ describe("EditorTopBar", () => {
         "grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)]",
       ),
     ).toBe(true);
-    for (const slot of ["zoom", "presence"]) {
+    expect(bar?.style.getPropertyValue("--top-bar-left")).toBe("344px");
+    expect(bar?.style.getPropertyValue("--top-bar-left-narrow")).toBe("64px");
+    expect(bar?.classList.contains("md:left-[var(--top-bar-left)]")).toBe(true);
+    for (const [slot, breakpoint] of [
+      ["zoom", "sm:flex"],
+      ["presence", "lg:flex"],
+    ]) {
       const wrapper = bar?.querySelector(`[data-slot=${slot}]`)?.parentElement;
       expect(wrapper?.classList.contains("hidden")).toBe(true);
-      expect(wrapper?.classList.contains("sm:flex")).toBe(true);
+      expect(wrapper?.classList.contains(breakpoint!)).toBe(true);
     }
     await unmount();
+  });
+
+  it("spans the inspector width with presence and actions only when it is docked", async () => {
+    const docked = await renderBar({
+      inspectorWidth: 240,
+      actions: <button data-slot="share">Share</button>,
+    });
+    const zone = docked.host.querySelector<HTMLElement>(
+      "[data-design-top-bar-inspector-zone]",
+    );
+    expect(
+      docked.host
+        .querySelector<HTMLElement>("[data-design-top-bar]")
+        ?.style.getPropertyValue("--top-bar-inspector"),
+    ).toBe("240px");
+    expect(
+      zone?.classList.contains("lg:min-w-[calc(var(--top-bar-inspector)-8px)]"),
+    ).toBe(true);
+    await docked.unmount();
+
+    const hidden = await renderBar({});
+    expect(
+      hidden.host
+        .querySelector("[data-design-top-bar-inspector-zone]")
+        ?.classList.contains("lg:min-w-[calc(var(--top-bar-inspector)-8px)]"),
+    ).toBe(false);
+    await hidden.unmount();
   });
 
   it("renders the right-hand slots and an empty centre zone", async () => {

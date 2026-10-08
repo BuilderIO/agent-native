@@ -1254,6 +1254,7 @@ type RequestDesignAccessResult = {
 // first overview camera render — before any layout effect could measure the
 // DOM — already accounts for it; see chromeInsetLeft below.
 const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
+const TOP_BAR_HEIGHT_PX = 48;
 
 const NO_SELECTORS: string[] = [];
 const NO_SELECTOR_GROUPS: string[][] = [];
@@ -27042,21 +27043,6 @@ function DesignEditor() {
       className="relative flex h-full flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]"
     >
       {id ? <VisualEditWebMcp getPrompt={visualEditPromptResult} /> : null}
-      {/* ── Render: top bar ── */}
-      {topBarVisible ? (
-        <EditorTopBar
-          mode={mode}
-          onModeChange={handleTopBarModeChange}
-          modes={topBarShowsModes ? undefined : []}
-          zoomControl={
-            topBarControlsVisible && !responsiveInteractActive
-              ? renderZoomControl("topbar")
-              : null
-          }
-          presence={topBarControlsVisible ? presenceControl : null}
-          actions={topBarControlsVisible ? topBarActions : null}
-        />
-      ) : null}
       {/* ── Render: Builder embed preview ── */}
       {isBuilderDesignEmbed && builderPreviewUrl && (
         <div className="absolute inset-0 z-50 flex flex-col bg-[var(--design-editor-canvas-bg)]">
@@ -27087,7 +27073,30 @@ function DesignEditor() {
         </div>
       )}
       {/* ── Render: main canvas area ── */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div
+        className="flex-1 flex overflow-hidden relative"
+        style={topBarVisible ? { paddingTop: TOP_BAR_HEIGHT_PX } : undefined}
+      >
+        {/* ── Render: top bar (canvas + inspector columns) ── */}
+        {topBarVisible ? (
+          <EditorTopBar
+            mode={mode}
+            onModeChange={handleTopBarModeChange}
+            modes={topBarShowsModes ? undefined : []}
+            zoomControl={
+              topBarControlsVisible && !responsiveInteractActive
+                ? renderZoomControl("topbar")
+                : null
+            }
+            presence={topBarControlsVisible ? presenceControl : null}
+            actions={topBarControlsVisible ? topBarActions : null}
+            leftInset={chromeInsetLeft}
+            narrowLeftInset={
+              leftSidebarVisible ? DESIGN_CHROME_RAIL_WIDTH_PX : 0
+            }
+            inspectorWidth={rightSidebarVisible ? rightSidebarWidth : undefined}
+          />
+        ) : null}
         {leftSidebarVisible ? (
           <div
             data-design-chrome-region="left-shell"
@@ -27127,7 +27136,10 @@ function DesignEditor() {
               >
                 <div
                   data-design-chrome-region="left-header"
-                  className="flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]"
+                  className={cn(
+                    "flex shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]",
+                    topBarVisible ? "h-12" : "h-[var(--design-section-height)]",
+                  )}
                 >
                   {projectTitleControl}
                   {minimalUiToggle}
@@ -27402,7 +27414,10 @@ function DesignEditor() {
             row rather than a second floating control. Not needed for the
             floating (minimal-UI) bar: minimal UI hides this rail entirely. */}
         {responsiveInteractActive && !minimalUi ? (
-          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3">
+          <div
+            className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3"
+            style={topBarVisible ? { top: TOP_BAR_HEIGHT_PX } : undefined}
+          >
             <ResponsiveInteractExitButton
               onClose={handleExitResponsiveInteract}
               className="pointer-events-auto"
@@ -28764,7 +28779,16 @@ function DesignEditor() {
             ref={rightSidebarContentRef}
             data-design-chrome-region="right-panel"
             className={rightInspectorPanelClassName(minimalUi)}
-            style={{ width: rightSidebarWidth }}
+            style={
+              topBarVisible && !minimalUi
+                ? {
+                    width: rightSidebarWidth,
+                    top: TOP_BAR_HEIGHT_PX,
+                    bottom: 0,
+                    height: "auto",
+                  }
+                : { width: rightSidebarWidth }
+            }
           >
             <div
               role="separator"

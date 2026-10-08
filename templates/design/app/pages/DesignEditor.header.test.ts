@@ -40,7 +40,7 @@ describe("Design editor header", () => {
     expect(editorSource).toContain(
       "const topBarVisible =\n    !embedded && !isVisualEditSurface && !minimalUi && !uiHidden;",
     );
-    expect(editorSource).toContain("{topBarVisible ? (\n        <EditorTopBar");
+    expect(editorSource).toMatch(/\{topBarVisible \? \(\s*<EditorTopBar/);
   });
 
   it("keeps the moved controls in minimal UI's own right bar", () => {
