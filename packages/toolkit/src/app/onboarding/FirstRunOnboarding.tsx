@@ -302,6 +302,7 @@ export function FirstRunOnboarding({
   const completionAttemptRef = useRef<{
     screen: FirstRunScreen | null;
     extensionIndex: number;
+    redirect: string | null;
   } | null>(null);
   const completionInFlightRef = useRef(false);
   const completionRedirectRef = useRef<string | null>(null);
@@ -336,12 +337,14 @@ export function FirstRunOnboarding({
     async (
       completedScreen: FirstRunScreen | null,
       completedExtensionIndex = extensionIndex,
+      retryRedirect: string | null = completionRedirectRef.current,
     ) => {
-      const redirect = completionRedirectRef.current;
       completionRedirectRef.current = null;
-      completionAttemptRef.current = completedScreen
-        ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
-        : { screen: null, extensionIndex: completedExtensionIndex };
+      completionAttemptRef.current = {
+        screen: completedScreen,
+        extensionIndex: completedExtensionIndex,
+        redirect: retryRedirect,
+      };
       completionInFlightRef.current = true;
       try {
         await completeFirstRun();
@@ -350,8 +353,8 @@ export function FirstRunOnboarding({
         }
         onboardingTerminalRef.current = true;
         completionAttemptRef.current = null;
-        if (redirect) {
-          navigate(redirect, { replace: true });
+        if (retryRedirect) {
+          navigate(retryRedirect, { replace: true });
         }
         return true;
       } catch {
@@ -511,6 +514,7 @@ export function FirstRunOnboarding({
     void finishOnboarding(
       attempt?.screen ?? null,
       attempt?.extensionIndex ?? extensionIndex,
+      attempt?.redirect ?? null,
     );
   }, [extensionIndex, finishOnboarding]);
   const completionErrorProps = {

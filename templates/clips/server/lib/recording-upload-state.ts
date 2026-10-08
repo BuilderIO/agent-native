@@ -78,6 +78,29 @@ export function recordingUploadStateForAttempt(params: {
   return nextState;
 }
 
+export function recordingUploadStateForAttemptIfCurrent(params: {
+  state: unknown;
+  attempt: RecordingUploadAttempt;
+  browserSessionId: string;
+}): Record<string, unknown> | null {
+  const { state, attempt } = params;
+  const record = recordingUploadStateRecord(state);
+  const matchesAttempt = recordingUploadStateMatchesAttempt(state, attempt);
+  const isInitialUploadState =
+    record?.recordingId === attempt.recordingId &&
+    record.status === "uploading" &&
+    record.uploadAttemptId == null &&
+    record.uploadGenerationId == null;
+  if (
+    state !== null &&
+    state !== undefined &&
+    (!record || (!matchesAttempt && !isInitialUploadState))
+  ) {
+    return null;
+  }
+  return recordingUploadStateForAttempt(params);
+}
+
 function escapeLike(value: string): string {
   return value.replace(/[!%_]/g, (match) => `!${match}`);
 }

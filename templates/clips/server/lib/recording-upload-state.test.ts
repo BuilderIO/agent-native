@@ -13,6 +13,7 @@ import {
   listRecordingChunkKeys,
   recordingChunkIndexFromKey,
   recordingUploadBrowserSessionId,
+  recordingUploadStateForAttemptIfCurrent,
   recordingUploadStateForAttempt,
   sumRecordingChunkBytes,
   validateRecordingChunkKeys,
@@ -88,6 +89,26 @@ describe("recording upload state helpers", () => {
         browserSessionId: "another-session",
       }),
     ).toEqual(attributed);
+  });
+
+  it("refuses to attribute a replacement upload state to a stale attempt", () => {
+    expect(
+      recordingUploadStateForAttemptIfCurrent({
+        state: {
+          recordingId: "rec_1",
+          status: "uploading",
+          uploadAttemptId: "attempt-2",
+          uploadGenerationId: "generation-2",
+          browserSessionId: "replacement-session",
+        },
+        attempt: {
+          recordingId: "rec_1",
+          uploadAttemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+        },
+        browserSessionId: "stale-session",
+      }),
+    ).toBeNull();
   });
 
   it("lists chunk keys without selecting base64 chunk values", async () => {

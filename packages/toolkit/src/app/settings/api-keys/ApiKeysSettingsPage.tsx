@@ -30,6 +30,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLocation } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -92,6 +93,12 @@ function useSecretKeyHash(): string | null {
  */
 export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
   const t = useT();
+  const location = useLocation();
+  const trackingFlow =
+    (location.state as { providerSetupTrackingFlow?: string } | null)
+      ?.providerSetupTrackingFlow === "chat_setup"
+      ? "chat_setup"
+      : "settings";
   const org = useOrg();
   const listing = useActionQuery<ApiKeysListing>("list-api-keys" as never);
   const [valueDialog, setValueDialog] = useState<KeyValueDialogMode | null>(
@@ -262,7 +269,7 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
       ) : null}
       <ProviderDialog
         open={provider !== null}
-        trackingFlow="settings"
+        trackingFlow={trackingFlow}
         onOpenChange={(open) => {
           if (!open) setProvider(null);
         }}

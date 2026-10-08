@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import englishMessages from "../../i18n/catalogs/en-US.js";
@@ -324,6 +325,7 @@ describe("ModelSettingsPage", () => {
     };
     state.builder = builderFlow();
     state.header = null;
+    dialogProps.last = null;
     queryClient = new QueryClient();
     state.loop = { ...state.loop, canUpdate: true };
     callActionMock.mockReset();
@@ -343,20 +345,32 @@ describe("ModelSettingsPage", () => {
     vi.unstubAllGlobals();
   });
 
-  async function render() {
+  async function render(locationState?: unknown) {
     await act(async () => {
       root.render(
-        <QueryClientProvider client={queryClient}>
-          <ModelSettingsPage
-            pageId="model"
-            sub={null}
-            context={{} as never}
-            bridge={{} as never}
-          />
-        </QueryClientProvider>,
+        <MemoryRouter
+          initialEntries={[
+            { pathname: "/settings/model", state: locationState },
+          ]}
+        >
+          <QueryClientProvider client={queryClient}>
+            <ModelSettingsPage
+              pageId="model"
+              sub={null}
+              context={{} as never}
+              bridge={{} as never}
+            />
+          </QueryClientProvider>
+        </MemoryRouter>,
       );
     });
   }
+
+  it("uses chat setup attribution for a ProviderDialog reached from chat", async () => {
+    await render({ providerSetupTrackingFlow: "chat_setup" });
+
+    expect(dialogProps.last).toMatchObject({ trackingFlow: "chat_setup" });
+  });
 
   it("shows members organization providers read-only and their own as manageable", async () => {
     state.listing = listing(

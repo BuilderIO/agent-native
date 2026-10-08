@@ -43,6 +43,7 @@ import {
 import { IconCpu, IconLock, IconPlus } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useLocation } from "react-router";
 
 import { ErrorRow, SettingsEmpty } from "../../resources/index.js";
 import { DeferredBuilderConnectPopover } from "../deferred-builder-connect-popover.js";
@@ -156,6 +157,12 @@ function useChatGPTModels(
  */
 export default function ModelSettingsPage(_props: SettingsPageProps) {
   const t = useT();
+  const location = useLocation();
+  const trackingFlow =
+    (location.state as { providerSetupTrackingFlow?: string } | null)
+      ?.providerSetupTrackingFlow === "chat_setup"
+      ? "chat_setup"
+      : "settings";
   const org = useOrg();
   const listing = useActionQuery<ModelProvidersListing>(
     "list-model-providers" as never,
@@ -295,7 +302,7 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
       </div>
       <ProviderDialog
         open={dialog !== null}
-        trackingFlow="settings"
+        trackingFlow={trackingFlow}
         onOpenChange={(open) => {
           if (!open) setDialog(null);
         }}

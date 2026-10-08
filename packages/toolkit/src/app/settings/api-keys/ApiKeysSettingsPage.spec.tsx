@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import englishMessages from "../../i18n/catalogs/en-US.js";
@@ -212,20 +213,35 @@ describe("ApiKeysSettingsPage", () => {
     vi.unstubAllGlobals();
   });
 
-  async function render(labs: Record<string, boolean> = {}) {
+  async function render(
+    labs: Record<string, boolean> = {},
+    locationState?: unknown,
+  ) {
     await act(async () => {
       root.render(
-        <QueryClientProvider client={new QueryClient()}>
-          <ApiKeysSettingsPage
-            pageId="api-keys"
-            sub={null}
-            context={{ labs } as never}
-            bridge={{} as never}
-          />
-        </QueryClientProvider>,
+        <MemoryRouter
+          initialEntries={[
+            { pathname: "/settings/keys", state: locationState },
+          ]}
+        >
+          <QueryClientProvider client={new QueryClient()}>
+            <ApiKeysSettingsPage
+              pageId="api-keys"
+              sub={null}
+              context={{ labs } as never}
+              bridge={{} as never}
+            />
+          </QueryClientProvider>
+        </MemoryRouter>,
       );
     });
   }
+
+  it("uses chat setup attribution for a ProviderDialog reached from chat", async () => {
+    await render({}, { providerSetupTrackingFlow: "chat_setup" });
+
+    expect(state.providerDialog).toMatchObject({ trackingFlow: "chat_setup" });
+  });
 
   async function renderHeader() {
     const header = document.createElement("div");

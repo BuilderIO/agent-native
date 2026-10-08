@@ -2,7 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clipboardMock = vi.hoisted(() => ({
@@ -12,6 +12,13 @@ const setupTelemetryMock = vi.hoisted(() => vi.fn());
 const builderConnectMock = vi.hoisted(() => ({
   onConnect: undefined as ((provisionAccount: boolean) => void) | undefined,
 }));
+
+function SetupTrackingFlowProbe() {
+  const { state } = useLocation();
+  const trackingFlow = (state as { providerSetupTrackingFlow?: string } | null)
+    ?.providerSetupTrackingFlow;
+  return <div data-testid="setup-tracking-flow">{trackingFlow}</div>;
+}
 const builderFlowMock = vi.hoisted(() => ({
   onConnected: undefined as
     | ((state: { orgName: string | null }) => void | Promise<void>)
@@ -912,6 +919,46 @@ describe("run recovery surfaces", () => {
     );
     expect(customKeysLink?.textContent).toBe("Custom keys");
     expect(container.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it("passes chat setup attribution through the Custom keys link", async () => {
+    featureFlagMock.state = { status: "ready", enabled: false };
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/ask",
+          element: (
+            <AgentNativeI18nProvider
+              initialLocale="en-US"
+              initialPreference="en-US"
+              persistPreference={false}
+            >
+              <BuilderSetupContent />
+            </AgentNativeI18nProvider>
+          ),
+        },
+        { path: "/settings/keys", element: <SetupTrackingFlowProbe /> },
+      ],
+      { initialEntries: ["/ask"] },
+    );
+
+    await act(async () => {
+      root.render(<RouterProvider router={router} />);
+    });
+    const customKeysLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/settings/keys"]',
+    );
+    expect(customKeysLink).not.toBeNull();
+
+    await act(async () => {
+      customKeysLink?.click();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="setup-tracking-flow"]')
+        ?.textContent,
+    ).toBe("chat_setup");
   });
 
   it("links custom keys to the Model page with the settings redesign on", async () => {

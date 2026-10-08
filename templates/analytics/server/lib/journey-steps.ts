@@ -186,19 +186,31 @@ export function buildSessionSteps(
   rows: readonly JourneyEventRow[],
 ): JourneyStep[] {
   const ordered = [...rows].sort((a, b) => {
-    if (a.tsMs !== b.tsMs) return a.tsMs - b.tsMs;
-    if (
-      a.stepIndex !== null &&
-      b.stepIndex !== null &&
-      a.flow === b.flow &&
-      ONBOARDING_STEP_EVENT_NAMES.has(a.eventName) &&
-      ONBOARDING_STEP_EVENT_NAMES.has(b.eventName) &&
-      a.stepIndex !== b.stepIndex
-    ) {
-      return a.stepIndex - b.stepIndex;
-    }
+    const aRank = TIE_RANK[a.eventName] ?? 99;
+    const bRank = TIE_RANK[b.eventName] ?? 99;
+    const aIsOnboardingStep = ONBOARDING_STEP_EVENT_NAMES.has(a.eventName);
+    const bIsOnboardingStep = ONBOARDING_STEP_EVENT_NAMES.has(b.eventName);
+    const aPositionRank = aIsOnboardingStep
+      ? TIE_RANK.onboarding_step_viewed
+      : aRank;
+    const bPositionRank = bIsOnboardingStep
+      ? TIE_RANK.onboarding_step_viewed
+      : bRank;
+    const aFlow = aIsOnboardingStep ? (a.flow ?? "") : "";
+    const bFlow = bIsOnboardingStep ? (b.flow ?? "") : "";
+    const aStepIndex = aIsOnboardingStep
+      ? (a.stepIndex ?? Number.MAX_SAFE_INTEGER)
+      : Number.MIN_SAFE_INTEGER;
+    const bStepIndex = bIsOnboardingStep
+      ? (b.stepIndex ?? Number.MAX_SAFE_INTEGER)
+      : Number.MIN_SAFE_INTEGER;
+
     return (
-      (TIE_RANK[a.eventName] ?? 99) - (TIE_RANK[b.eventName] ?? 99) ||
+      a.tsMs - b.tsMs ||
+      aPositionRank - bPositionRank ||
+      (aFlow < bFlow ? -1 : aFlow > bFlow ? 1 : 0) ||
+      aStepIndex - bStepIndex ||
+      aRank - bRank ||
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
     );
   });

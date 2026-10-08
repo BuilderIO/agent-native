@@ -522,6 +522,7 @@ export function BuilderSetupContent({
           <BuilderConnectCta variant="compact" onConnected={onConnected} />
           <Link
             to={buildSettingsRoute(redesign.enabled ? "model" : "keys")}
+            state={{ providerSetupTrackingFlow: "chat_setup" }}
             onClick={() =>
               trackSetupFunnelEvent(
                 "integration_method_clicked",

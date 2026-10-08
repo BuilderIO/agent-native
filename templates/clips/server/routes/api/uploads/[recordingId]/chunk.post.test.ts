@@ -1391,6 +1391,16 @@ describe("/api/uploads/:recordingId/chunk route", () => {
   });
 
   it("fails the recording when cumulative bytes exceed the upload ceiling", async () => {
+    mockAppState.set(UPLOAD_KEY, {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: null,
+      uploadGenerationId: null,
+      browserSessionId: "original-session",
+    });
+    mockGetHeader.mockImplementation((_, name) =>
+      name === "x-agent-native-session-id" ? "current-session" : undefined,
+    );
     mockAppState.set(`${CHUNK_PREFIX}000000`, {
       recordingId: "rec-1",
       index: 0,
@@ -1422,6 +1432,14 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         failureReason: RECORDING_TOO_LARGE_REASON,
         bytesReceived: MAX_UPLOAD_BYTES + 5,
         maxBytes: MAX_UPLOAD_BYTES,
+      }),
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.objectContaining({ failure_code: "recording_too_large" }),
+      expect.objectContaining({
+        userId: "owner@example.com",
+        sessionId: "original-session",
       }),
     );
     expect(chunkKeys()).toEqual([]);
@@ -1477,13 +1495,53 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     mockGetHeader.mockImplementation((_, name) =>
       name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
     );
-    mockGetResumableSession.mockResolvedValue({
-      providerId: "s3",
-      sessionId: "sess-1",
-      meta: { objectKey: "clips/rec-1.webm" },
-      bytesUploaded: 100,
-      lastCommittedIndex: 2,
+    const initialUploadState = {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+      progress: 25,
+      chunksReceived: 1,
+    };
+    mockAppState.set(UPLOAD_KEY, initialUploadState);
+    mockGetResumableSession.mockImplementationOnce(async () => {
+      mockAppState.set(UPLOAD_KEY, {
+        ...initialUploadState,
+        status: "processing",
+        progress: 75,
+        chunksReceived: 3,
+      });
+      return {
+        providerId: "s3",
+        sessionId: "sess-1",
+        meta: { objectKey: "clips/rec-1.webm" },
+        bytesUploaded: 100,
+        lastCommittedIndex: 2,
+      };
     });
+    let simulatedCasRace = false;
+    mockCompareAndSetAppState.mockImplementation(
+      async (
+        key: string,
+        expected: Record<string, unknown>,
+        next: Record<string, unknown>,
+      ) => {
+        if (!simulatedCasRace && key === UPLOAD_KEY) {
+          simulatedCasRace = true;
+          const current = mockAppState.get(key);
+          mockAppState.set(key, {
+            ...current,
+            progress: 88,
+            chunksReceived: 4,
+            concurrentUpdate: true,
+          });
+        }
+        const current = mockAppState.get(key) ?? null;
+        if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+        mockAppState.set(key, next);
+        return true;
+      },
+    );
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
     setRequest({
       query: {
@@ -1539,8 +1597,12 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         uploadAttemptId: "attempt-1",
         uploadGenerationId: "generation-1",
         browserSessionId: "browser-session-1",
+        progress: 88,
+        chunksReceived: 4,
+        concurrentUpdate: true,
       }),
     );
+    expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(2);
     expect(mockFinalizeRun).not.toHaveBeenCalled();
   });
 

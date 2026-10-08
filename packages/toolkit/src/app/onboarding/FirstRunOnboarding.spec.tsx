@@ -1693,6 +1693,56 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
+  it("does not reuse a failed skip redirect for manual setup completion", async () => {
+    mocks.completeFirstRun
+      .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
+      .mockResolvedValueOnce(undefined);
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "clips",
+        appName: "Clips",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-setup-skip']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/settings/model");
+  });
+
   it("preserves the completed step when first-run completion succeeds on retry", async () => {
     let completionResult: boolean | void;
     mocks.completeFirstRun
@@ -2058,7 +2108,7 @@ describe("FirstRunOnboarding", () => {
     ).toBeNull();
   });
 
-  it("clears a skip redirect after a failed diverted completion", async () => {
+  it("preserves a skip redirect when the diverted completion is retried", async () => {
     mocks.completeFirstRun
       .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
       .mockResolvedValueOnce(undefined);
@@ -2117,6 +2167,9 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
-    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(mocks.navigate).toHaveBeenCalledOnce();
+    expect(mocks.navigate).toHaveBeenCalledWith("/record", {
+      replace: true,
+    });
   });
 });

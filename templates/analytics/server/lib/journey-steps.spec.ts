@@ -235,6 +235,46 @@ describe("buildSessionSteps", () => {
     ]);
   });
 
+  it("uses a total order for indexed steps across onboarding flows", () => {
+    const rows = [
+      row("onboarding_step_viewed", 100, {
+        id: "z-first-flow-step-1",
+        flow: "first_run",
+        stepId: "first",
+        stepIndex: 1,
+      }),
+      row("onboarding_step_skipped", 100, {
+        id: "b-first-flow-skip",
+        flow: "first_run",
+        stepId: "first",
+        stepIndex: 1,
+      }),
+      row("onboarding_step_viewed", 100, {
+        id: "a-first-flow-step-2",
+        flow: "first_run",
+        stepId: "second",
+        stepIndex: 2,
+      }),
+      row("onboarding_step_viewed", 100, {
+        id: "m-second-flow-step-1",
+        flow: "chat_setup",
+        stepId: "other",
+        stepIndex: 1,
+      }),
+    ];
+    const expected = [
+      "step:other",
+      "step:first",
+      "onboarding:step_skipped",
+      "step:second",
+    ];
+
+    expect(buildSessionSteps(rows).map((step) => step.key)).toEqual(expected);
+    expect(
+      buildSessionSteps([...rows].reverse()).map((step) => step.key),
+    ).toEqual(expected);
+  });
+
   it("collapses consecutive repeats into the first and keeps its timestamp", () => {
     const steps = buildSessionSteps([
       row("pageview", 100, { path: "/home" }),

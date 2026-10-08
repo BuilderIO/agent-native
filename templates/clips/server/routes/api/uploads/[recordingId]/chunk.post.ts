@@ -32,6 +32,7 @@ import {
   deleteRecordingChunks,
   recordingUploadBrowserSessionId,
   recordingUploadStateForAttempt,
+  recordingUploadStateForAttemptIfCurrent,
   sumRecordingChunkBytes,
 } from "../../../../lib/recording-upload-state.js";
 import {
@@ -63,6 +64,35 @@ const RETRY_OWNERSHIP_HEARTBEAT_MS = 10 * 1000;
 function browserSessionIdFromRequest(event: H3Event): string | undefined {
   const value = getHeader(event, "x-agent-native-session-id")?.trim();
   return value && /^[!-~]{1,127}$/.test(value) ? value : undefined;
+}
+
+async function persistRecordingUploadSession(params: {
+  key: string;
+  attempt: {
+    recordingId: string;
+    uploadAttemptId: string | null;
+    uploadGenerationId: string | null;
+  };
+  browserSessionId: string;
+}): Promise<boolean> {
+  let currentState = await readAppState(params.key);
+  for (let retry = 0; retry < 3; retry += 1) {
+    const nextState = recordingUploadStateForAttemptIfCurrent({
+      state: currentState,
+      attempt: params.attempt,
+      browserSessionId: params.browserSessionId,
+    });
+    if (!nextState) return false;
+    const expectedState =
+      currentState && typeof currentState === "object"
+        ? (currentState as Record<string, unknown>)
+        : null;
+    if (await compareAndSetAppState(params.key, expectedState, nextState)) {
+      return true;
+    }
+    currentState = await readAppState(params.key);
+  }
+  return false;
 }
 
 async function relayWithRetryOwnershipHeartbeat<T>(
@@ -180,6 +210,7 @@ function trackUploadBlockingFailure(
   attemptId: string | null,
   recordingPlatform: string | null,
   properties: Record<string, unknown>,
+  browserSessionId?: string,
 ): void {
   try {
     track(
@@ -197,7 +228,7 @@ function trackUploadBlockingFailure(
         failure_code: properties.failure_code ?? properties.failure_type,
         ...properties,
       },
-      recordingTrackingSource(ownerEmail),
+      recordingTrackingSource(ownerEmail, browserSessionId),
     );
   } catch {
     // Best-effort analytics must never change upload behavior.
@@ -474,13 +505,6 @@ export async function handleRecordingChunk(
       uploadAttemptId: attemptId,
       uploadGenerationId,
     };
-    const uploadStateAtRequest = browserSessionId
-      ? recordingUploadStateForAttempt({
-          state: await readAppState(uploadStateKey),
-          attempt: uploadAttempt,
-          browserSessionId,
-        })
-      : null;
 
     const resumableSession = await getResumableSession(
       recordingId,
@@ -492,8 +516,20 @@ export async function handleRecordingChunk(
       );
     }
     if (resumableSession) {
-      if (uploadStateAtRequest) {
-        await writeAppState(uploadStateKey, uploadStateAtRequest);
+      if (
+        browserSessionId &&
+        !(await persistRecordingUploadSession({
+          key: uploadStateKey,
+          attempt: uploadAttempt,
+          browserSessionId,
+        }))
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error: "A newer upload retry is already active.",
+          staleAttempt: true,
+        };
       }
       return handleResumableChunk(
         event,
@@ -507,6 +543,7 @@ export async function handleRecordingChunk(
         attemptId,
         uploadGenerationId,
         existing.recordingPlatform,
+        browserSessionId,
       );
     }
 
@@ -527,29 +564,27 @@ export async function handleRecordingChunk(
         };
       }
       const now = new Date().toISOString();
+      const uploadStateBeforeFailure = await readAppState(uploadStateKey);
+      const failureSessionId =
+        recordingUploadBrowserSessionId(
+          uploadStateBeforeFailure,
+          uploadAttempt,
+        ) ?? browserSessionId;
+      const storedUploadState = failureSessionId
+        ? recordingUploadStateForAttempt({
+            state: uploadStateBeforeFailure,
+            attempt: uploadAttempt,
+            browserSessionId: failureSessionId,
+          })
+        : null;
       trackRecordingFailure({
         recordingId,
         userId: ownerEmail,
         uploadAttemptId: attemptId,
         platform: existing.recordingPlatform,
         failureCode: "storage_setup_required",
-        browserSessionId,
+        browserSessionId: failureSessionId,
       });
-      const storedUploadState =
-        uploadStateAtRequest ??
-        (await readAppState(uploadStateKey).then((state) => {
-          const sessionId = recordingUploadBrowserSessionId(
-            state,
-            uploadAttempt,
-          );
-          return sessionId
-            ? recordingUploadStateForAttempt({
-                state,
-                attempt: uploadAttempt,
-                browserSessionId: sessionId,
-              })
-            : null;
-        }));
       await writeAppState(`recording-upload-${recordingId}`, {
         ...(storedUploadState ?? {}),
         recordingId,
@@ -636,7 +671,7 @@ export async function handleRecordingChunk(
         uploadAttemptId: attemptId,
         platform: existing.recordingPlatform,
         failureCode: "recording_too_large",
-        browserSessionId,
+        browserSessionId: uploadSessionId,
       });
       await writeAppState(`recording-upload-${recordingId}`, {
         ...(uploadStateAttribution ?? {}),
@@ -960,6 +995,16 @@ export async function handleRecordingChunk(
         if (failed.length !== 1) {
           throw err;
         }
+        const failedUploadStateRaw = await readAppState(
+          `recording-upload-${recordingId}`,
+        );
+        const failedUploadState =
+          failedUploadStateRaw && typeof failedUploadStateRaw === "object"
+            ? (failedUploadStateRaw as Record<string, unknown>)
+            : {};
+        const failureSessionId =
+          recordingUploadBrowserSessionId(failedUploadState, uploadAttempt) ??
+          uploadSessionId;
         trackUploadBlockingFailure(
           ownerEmail,
           recordingId,
@@ -971,6 +1016,7 @@ export async function handleRecordingChunk(
             failure_type: classifyTrackingFailure(err),
             upload_mode: "buffered",
           },
+          failureSessionId,
         );
         trackRecordingFailure({
           recordingId,
@@ -978,14 +1024,8 @@ export async function handleRecordingChunk(
           uploadAttemptId: attemptId,
           platform: existing.recordingPlatform,
           failureCode: "finalize_failed",
+          browserSessionId: failureSessionId,
         });
-        const failedUploadStateRaw = await readAppState(
-          `recording-upload-${recordingId}`,
-        ).catch(() => null);
-        const failedUploadState =
-          failedUploadStateRaw && typeof failedUploadStateRaw === "object"
-            ? (failedUploadStateRaw as Record<string, unknown>)
-            : {};
         await writeAppState(`recording-upload-${recordingId}`, {
           ...failedUploadState,
           recordingId,
@@ -1046,6 +1086,7 @@ async function handleResumableChunk(
   attemptId: string | null,
   uploadGenerationId: string | null,
   recordingPlatform: string | null,
+  browserSessionId?: string,
 ) {
   const uploadProvider = await resolveResumableUploadProvider(
     session.providerId,
@@ -1552,6 +1593,19 @@ async function handleResumableChunk(
         recordingPlatform: schema.recordings.recordingPlatform,
       });
     if (failed.length !== 1) throw err;
+    const failedUploadStateRaw = await readAppState(
+      `recording-upload-${recordingId}`,
+    );
+    const failedUploadState =
+      failedUploadStateRaw && typeof failedUploadStateRaw === "object"
+        ? (failedUploadStateRaw as Record<string, unknown>)
+        : {};
+    const failureSessionId =
+      recordingUploadBrowserSessionId(failedUploadState, {
+        recordingId,
+        uploadAttemptId: attemptId,
+        uploadGenerationId,
+      }) ?? browserSessionId;
     trackUploadBlockingFailure(
       ownerEmail,
       recordingId,
@@ -1563,6 +1617,7 @@ async function handleResumableChunk(
         failure_type: classifyTrackingFailure(err),
         upload_mode: "resumable",
       },
+      failureSessionId,
     );
     trackRecordingFailure({
       recordingId,
@@ -1570,14 +1625,8 @@ async function handleResumableChunk(
       uploadAttemptId: failed[0]?.uploadAttemptId,
       platform: failed[0]?.recordingPlatform,
       failureCode: "finalize_failed",
+      browserSessionId: failureSessionId,
     });
-    const failedUploadStateRaw = await readAppState(
-      `recording-upload-${recordingId}`,
-    ).catch(() => null);
-    const failedUploadState =
-      failedUploadStateRaw && typeof failedUploadStateRaw === "object"
-        ? (failedUploadStateRaw as Record<string, unknown>)
-        : {};
     if (
       failedUploadState.aborted !== true &&
       failedUploadState.failureCode !== "user_cancelled"
