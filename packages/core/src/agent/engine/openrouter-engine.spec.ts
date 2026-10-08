@@ -73,6 +73,7 @@ describe("OpenRouter builtin engine", () => {
       apiKey: "or-test-key",
       appName: "My App",
       appUrl: "https://myapp.example",
+      fetch: expect.any(Function),
     });
     expect(providerCallable).toHaveBeenCalledWith(
       "anthropic/claude-sonnet-4.5",

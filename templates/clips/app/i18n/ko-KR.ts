@@ -213,6 +213,7 @@ const messages = {
   recordingPage: {
     back: "뒤쪽에",
     done: "완료",
+    backToClip: "클립으로 돌아가기",
     untitledClip: "제목 없는 클립",
     recordingNotFound: "녹화를 찾을 수 없습니다",
     noAccess: "이 클립에 액세스할 수 없을 수도 있습니다.",
@@ -1331,6 +1332,11 @@ const messages = {
     burningRedactions: "가림 처리를 영상에 적용하는 중…",
     burningRedactionsPercent: "가림 처리를 영상에 적용하는 중… {{percent}}%",
     editFailed: "해당 편집을 저장하지 못했습니다",
+    refreshFailed:
+      "최신 편집 내용을 불러오지 못했습니다. 편집을 계속하기 전에 다시 시도하세요.",
+    autoSaveHint: "수정 내용이 이 클립에 자동 저장됩니다",
+    savingChanges: "변경사항 저장 중…",
+    changesSaved: "변경사항이 이 클립에 저장되었습니다",
     nothingToRedo: "다시 실행할 작업이 없습니다",
   },
   transcriptEditor: {

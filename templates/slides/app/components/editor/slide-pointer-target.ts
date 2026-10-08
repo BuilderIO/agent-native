@@ -12,6 +12,7 @@ import {
   isSmartGroup,
   isTextLeaf,
   isTransparentLayoutWrapper,
+  paintsFill,
   resolveSlideTextSelectionTarget,
 } from "./slide-text-targets";
 
@@ -20,6 +21,29 @@ export const SLIDE_POINTER_EDGE_SLOP = 5;
 
 const TEXT_BOUNDS_SLOP = 1;
 const TEXT_BOX_SELECTOR = ".fmd-text-box[data-slide-object-id]";
+const OUTLINE_HIT_SELECTOR = '.fmd-text-box, hr, [data-slide-shape="line"]';
+const AREA_HIT_SELECTOR =
+  "img, picture, video, canvas, iframe, embed, object, table, .fmd-img-placeholder";
+
+/**
+ * Google Slides hit-tests text boxes, unfilled shapes and lines by their
+ * outline, which leaves a grab band around them; shapes with a fill, images
+ * and tables are hit-tested by area and have none. Lines are drawn as filled
+ * strips, so they are recognised by kind rather than by paint.
+ */
+function hasEdgeSlop(element: HTMLElement): boolean {
+  if (
+    !["absolute", "fixed"].includes(window.getComputedStyle(element).position)
+  ) {
+    return false;
+  }
+  if (element.matches(OUTLINE_HIT_SELECTOR)) return true;
+  return (
+    !element.matches(AREA_HIT_SELECTOR) &&
+    !element.querySelector(AREA_HIT_SELECTOR) &&
+    !paintsFill(element)
+  );
+}
 
 type PointerRect = Pick<DOMRect, "left" | "top" | "right" | "bottom">;
 
@@ -288,7 +312,12 @@ export function resolveSlidePointerTarget(
     return { object: element, hit: "body", textRoot: null };
   };
 
-  const edgeSlopObject = (): HTMLElement | null => {
+  /**
+   * The press resolved as if it landed on the nearest member with slop, so a
+   * group member answers with its group (or itself once drilled into) exactly
+   * as a direct hit on it would.
+   */
+  const edgeSlopHit = (): ObjectHit | null => {
     let nearest: HTMLElement | null = null;
     let nearestDistance = Infinity;
     for (const candidate of Array.from(
@@ -296,7 +325,7 @@ export function resolveSlidePointerTarget(
     )) {
       if (
         isSlideObjectGroup(candidate) ||
-        candidate.closest(".fmd-slide-group, .fmd-layout-spacer")
+        candidate.closest(".fmd-layout-spacer")
       ) {
         continue;
       }
@@ -308,16 +337,14 @@ export function resolveSlidePointerTarget(
         (dx === 0 && dy === 0) ||
         distance > SLIDE_POINTER_EDGE_SLOP ||
         distance > nearestDistance ||
-        !["absolute", "fixed"].includes(
-          window.getComputedStyle(candidate).position,
-        )
+        !hasEdgeSlop(candidate)
       ) {
         continue;
       }
       nearest = candidate;
       nearestDistance = distance;
     }
-    return nearest;
+    return nearest && hitForElement(nearest);
   };
 
   const stack: Element[] = input.stack?.length ? [...input.stack] : [];
@@ -351,11 +378,8 @@ export function resolveSlidePointerTarget(
     found = hitForElement(element);
     if (found) break;
   }
-  if (!found) {
-    const nearby = edgeSlopObject();
-    if (!nearby) return { kind: "whitespace", cursor: "default" };
-    found = { object: nearby, hit: "body", textRoot: null };
-  }
+  found ??= edgeSlopHit();
+  if (!found) return { kind: "whitespace", cursor: "default" };
 
   const additive = Boolean(
     modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey,

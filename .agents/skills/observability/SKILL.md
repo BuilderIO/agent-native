@@ -53,7 +53,7 @@ export default defineAppConfig({
     evalSampleRate: 0.05, // 5% of runs get LLM-as-judge eval
     inferredSentimentEnabled: false,
     inferredSentimentSampleRate: 0,
-    inferredSentimentModel: "gpt-5-6-luna",
+    inferredSentimentModel: "gpt-6-luna",
   },
 });
 ```
@@ -110,7 +110,7 @@ true, so nobody has to ask the reporter for an example:
 
 Self-hosted apps default to no inferred sentiment. First-party apps hosted on
 `agent-native.com` automatically classify 100% of eligible user replies with
-`gpt-5-6-luna`; an explicit stored `inferredSentimentEnabled: false` remains an
+`gpt-6-luna`; an explicit stored `inferredSentimentEnabled: false` remains an
 opt-out. Deployment overrides are `AGENT_NATIVE_INFERRED_SENTIMENT=on|off`,
 `AGENT_NATIVE_INFERRED_SENTIMENT_SAMPLE_RATE=0..1`, and
 `AGENT_NATIVE_INFERRED_SENTIMENT_MODEL=<model>`; `off` is always the emergency
@@ -136,11 +136,17 @@ Successful classifications emit a content-free `$ai_sentiment` tracking event:
 No raw message, prompt, or response text is persisted or tracked.
 
 A classification that cannot complete emits `$ai_sentiment_failed` with the same
-identity properties and a coarse `reason`: `engine_unavailable`, `timeout`,
-`parse_failed`, or `empty`. It never carries content, so a drop in
-`$ai_sentiment` is a count to read, not a silence to guess at. The run's own
-engine classifies when it serves the classifier model; otherwise the hosted
-Builder engine does.
+identity properties and a coarse `reason`: `engine_unavailable`,
+`model_unsupported`, `timeout`, `parse_failed`, or `empty`. It never carries
+content, so a drop in `$ai_sentiment` is a count to read, not a silence to
+guess at. The run's own engine classifies when it serves the classifier model;
+otherwise the hosted Builder engine does. `model_unsupported` means the engine
+is up but refuses the configured classifier model: its catalog does not list it
+(the default is typed against the Builder catalog in `model-config.ts`, so a
+retired id fails the build), or the call fails with a model-rejection
+`errorCode` (`builder_model_unauthorized`, `model_not_found`,
+`not_found_error`). It is a configuration error to fix, never an outage to
+retry; any other failed call stays `engine_unavailable`.
 
 ### 2. Feedback
 

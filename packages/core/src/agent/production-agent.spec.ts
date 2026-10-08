@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   AgentActionStopError,
@@ -11342,6 +11343,91 @@ describe("runAgentLoop", () => {
           "Connect Slack to continue. Ask a workspace admin to grant this app access to the existing connection.",
       },
     ]);
+  });
+
+  it("lets the model correct an invented optional value by omitting it", async () => {
+    const execute = vi.fn(
+      async (_args: { from: string; accountEmails?: string[] }) => ({
+        events: [],
+      }),
+    );
+    const action = defineAction({
+      description: "List events",
+      schema: z.object({
+        from: z.string(),
+        accountEmails: z.array(z.string().email()).optional(),
+      }),
+      readOnly: true,
+      run: execute,
+    });
+    let attempts = 0;
+    const seenMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenMessages.push(structuredClone(opts.messages));
+        attempts += 1;
+        if (attempts <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: `call-${attempts}`,
+                name: "list-events",
+                input:
+                  attempts === 1
+                    ? { from: "2026-10-06", accountEmails: ["invalid-email"] }
+                    : { from: "2026-10-06" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools({ "list-events": action }),
+      messages: [{ role: "user", content: [{ type: "text", text: "list" }] }],
+      actions: { "list-events": action },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+    const failure = seenMessages[1]
+      .flatMap((message) => message.content)
+      .find((part) => part.type === "tool-result");
+    expect(failure).toMatchObject({
+      type: "tool-result",
+      isError: true,
+      toolCallId: "call-1",
+    });
+    if (failure?.type !== "tool-result")
+      throw new Error("Missing validation feedback");
+    expect(failure.content).toContain("accountEmails.0");
+    expect(failure.content).toContain("accountEmails?");
+    expect(failure.content).toContain("? = optional");
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0][0]).toEqual({ from: "2026-10-06" });
+    expect(attempts).toBe(3);
   });
 
   it("tells the model the expected signature when raw-schema validation rejects a write", async () => {

@@ -62,11 +62,21 @@ export function StorageSetupCard({
   const [retryingBuilderStatus, setRetryingBuilderStatus] = useState(false);
   const retryingBuilderStatusAtCountRef = useRef<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const configuredTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
   const visibilityHandlerRef = useRef<(() => void) | null>(null);
   const connectRequestedRef = useRef(false);
   const connectIntentExpiresAtRef = useRef<number | null>(null);
+
+  const clearConfiguredTimeout = useCallback(() => {
+    if (configuredTimeoutRef.current !== null) {
+      clearTimeout(configuredTimeoutRef.current);
+      configuredTimeoutRef.current = null;
+    }
+  }, []);
 
   const stopVisibilityHandler = useCallback(() => {
     if (visibilityHandlerRef.current) {
@@ -79,6 +89,7 @@ export function StorageSetupCard({
   }, []);
 
   const startFileUploadPoll = useCallback(() => {
+    clearConfiguredTimeout();
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
@@ -135,7 +146,11 @@ export function StorageSetupCard({
           stop();
           setConnecting(false);
           setConnected(true);
-          setTimeout(() => void onConfigured(), 800);
+          clearConfiguredTimeout();
+          configuredTimeoutRef.current = setTimeout(() => {
+            configuredTimeoutRef.current = null;
+            if (mountedRef.current) void onConfigured();
+          }, 800);
         } else if (status.state === "unavailable") {
           stop();
           setConnecting(false);
@@ -162,7 +177,7 @@ export function StorageSetupCard({
       if (!document.hidden) void tick();
     };
     document.addEventListener("visibilitychange", visibilityHandlerRef.current);
-  }, [onConfigured, stopVisibilityHandler, t]);
+  }, [clearConfiguredTimeout, onConfigured, stopVisibilityHandler, t]);
 
   const handleBuilderConnected = useCallback(() => {
     if (!connectRequestedRef.current) return;
@@ -232,6 +247,10 @@ export function StorageSetupCard({
       Date.now() + CANCELLED_SETUP_RECOVERY_MS;
     builderConnect.cancel();
   }, [builderConnect.cancel]);
+  const handleSkip = useCallback(() => {
+    clearConfiguredTimeout();
+    onSkip?.();
+  }, [clearConfiguredTimeout, onSkip]);
   const builderConnectErrorMessage = builderConnect.error
     ? builderConnect.errorKind === "launch"
       ? t("storageSetup.builderConnectPopupError")
@@ -250,13 +269,14 @@ export function StorageSetupCard({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      clearConfiguredTimeout();
       if (pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
       stopVisibilityHandler();
     };
-  }, [stopVisibilityHandler]);
+  }, [clearConfiguredTimeout, stopVisibilityHandler]);
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
@@ -307,9 +327,6 @@ export function StorageSetupCard({
                 {t("settings.s3Title")}
               </a>
             </Button>
-            <p className="text-center text-xs text-muted-foreground">
-              AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
-            </p>
           </>
         ) : null}
         {!connected && !storageSetupHref ? (
@@ -382,7 +399,7 @@ export function StorageSetupCard({
           variant="ghost"
           size="sm"
           className="self-center text-muted-foreground"
-          onClick={onSkip}
+          onClick={handleSkip}
         >
           {t("agentChat.onboarding.skipForNow")}
         </Button>

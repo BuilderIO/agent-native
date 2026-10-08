@@ -10,6 +10,7 @@ import {
   parseCookieHeader,
   SIGNUP_ATTRIBUTION_HEADER_NAME,
   readAnalyticsAnonymousId,
+  readAnalyticsSessionId,
   readFirstTouchAttribution,
   readLastTouchAttribution,
   signupAttributionContextFromCookieHeader,
@@ -319,6 +320,28 @@ describe("signupAttributionContextFromCookieHeader", () => {
     expect(
       signupAttributionContextFromCookieHeader("an_aid=has%20space"),
     ).toBeUndefined();
+    expect(
+      signupAttributionContextFromCookieHeader("an_sid=has%20space"),
+    ).toBeUndefined();
+  });
+
+  it("uses the session id only with an established signup context", () => {
+    expect(readAnalyticsSessionId("an_sid=session%2Fsignup-1")).toBe(
+      "session/signup-1",
+    );
+    expect(readAnalyticsSessionId("an_sid=%E0%A4%A")).toBeUndefined();
+    expect(readAnalyticsSessionId(`an_sid=${"x".repeat(128)}`)).toBeUndefined();
+    expect(
+      signupAttributionContextFromCookieHeader("an_sid=session-1"),
+    ).toBeUndefined();
+    expect(
+      signupAttributionContextFromCookieHeader(
+        `${ftCookie({ landing_path: "/" })}; an_sid=session-1`,
+      ),
+    ).toEqual({
+      attribution: { referral_source: "direct", first_touch_path: "/" },
+      sessionId: "session-1",
+    });
   });
 
   it("reports no browser context rather than direct attribution", () => {
@@ -332,11 +355,12 @@ describe("signupAttributionContextFromCookieHeader", () => {
   it("still reports direct for a real visitor carrying no campaign", () => {
     expect(
       signupAttributionContextFromCookieHeader(
-        `${ftCookie({ landing_path: "/" })}; an_aid=anon_1`,
+        `${ftCookie({ landing_path: "/" })}; an_aid=anon_1; an_sid=session-1`,
       ),
     ).toEqual({
       attribution: { referral_source: "direct", first_touch_path: "/" },
       anonymousId: "anon_1",
+      sessionId: "session-1",
     });
   });
 });
@@ -346,6 +370,7 @@ describe("signup attribution request handoff", () => {
     const context = {
       attribution: { referral_source: "clip_share", utm_campaign: "launch" },
       anonymousId: "anon_signup_1",
+      sessionId: "session_signup_1",
     };
     const headers = addSignupAttributionHeader(
       { cookie: "an_aid=wrong-client-value" },

@@ -493,7 +493,8 @@ describe("LayersPanel collapse layers", () => {
 });
 
 describe("LayersPanel row hierarchy", () => {
-  it("renders compact Figma-like density with one flex indent per level", async () => {
+  // oracle: none — checks the Layers panel row classes; no parity oracle entry is recorded for the Figma 2385-4942 measurements yet.
+  it("renders 32px rows with one 24px flex indent per level", async () => {
     expect([0, 1, 2, 7].map(layerRowIndentCount)).toEqual([1, 2, 3, 8]);
 
     const host = document.createElement("div");
@@ -531,7 +532,7 @@ describe("LayersPanel row hierarchy", () => {
     const panel = host.querySelector<HTMLElement>("[data-layers-panel]");
     expect(panel).not.toBeNull();
     expect(panel?.className).toContain("[--design-icon-size:12px]");
-    expect(panel?.className).toContain("[--design-row-height:24px]");
+    expect(panel?.className).not.toContain("--design-row-height");
     expect(panel?.className).toContain("text-[11px]");
 
     const rows = Array.from(
@@ -594,9 +595,17 @@ describe("LayersPanel row hierarchy", () => {
       ":scope > [data-layer-row-indents] > [data-layer-row-indent]",
     );
     expect(
-      Array.from(nestedIndents, (indent) => indent.classList.contains("w-3")),
-    ).toEqual([true, true, false]);
-    expect(nestedIndents[2]?.classList.contains("w-5")).toBe(true);
+      Array.from(nestedIndents, (indent) => indent.classList.contains("w-6")),
+    ).toEqual([true, true, true]);
+    expect(
+      Array.from(nestedIndents, (indent) =>
+        indent.classList.contains("justify-start"),
+      ),
+    ).toEqual([false, false, true]);
+    expect(rows.every((row) => row.classList.contains("pl-2.5"))).toBe(true);
+    expect(
+      rows.every((row) => row.classList.contains("[--design-icon-size:16px]")),
+    ).toBe(true);
 
     expect(
       Array.from(

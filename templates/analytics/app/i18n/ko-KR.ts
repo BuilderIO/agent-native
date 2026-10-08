@@ -1607,8 +1607,12 @@ export default {
       "Design에서 스토리보드 결과를 반환하지 않았습니다.",
     storyboardTemporaryCleanupPending:
       "스토리보드는 저장했지만 임시 스크린샷 파일을 삭제하지 못했습니다.",
+    storyboardTemporaryCleanupFailed:
+      "임시 스크린샷 정리가 아직 대기 중입니다.",
     storyboardUnexpectedResponse:
       "스크린샷 내보내기에서 읽을 수 없는 응답을 받았습니다. 다시 시도해 주세요.",
+    storyboardSaveOutcomeUnknown:
+      "Design에 스토리보드가 저장되었을 수 있습니다. 다시 시도하기 전에 Design을 확인하세요.",
     openStoryboard: "Design에서 스토리보드 열기",
     cancelStoryboardCapture: "캡처 취소",
     captureToDesign: "캡처하여 Design에 추가",

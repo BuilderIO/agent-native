@@ -33,7 +33,8 @@ export function shouldCheckpointAgentContent(args: {
 
 /**
  * TIE-BREAK: decides whether polled DB content should be adopted into the
- * live editor during the file-content reconcile effect (DesignEditor.tsx).
+ * live editor during the file-content reconcile effect
+ * (effects/adopt-db-file-content.ts).
  * Callers only reach this decision once BOTH of the effect's own
  * "already reflecting this exact content" early-returns have already ruled
  * out `dbContent` matching what's currently rendered — so every call here

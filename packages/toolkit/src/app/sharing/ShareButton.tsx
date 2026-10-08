@@ -80,6 +80,8 @@ export interface ShareButtonProps {
   shareUrl?: string;
   /** Use a bottom sheet for the share surface below the small-screen breakpoint. */
   mobileSheet?: boolean;
+  /** Open the share surface without rendering a trigger button. */
+  hideTrigger?: boolean;
   /** Override the optional temporary agent-context link label. */
   agentShareLabel?: string;
   /** Resource-specific agent actions shown in the Clips-style sharing tabs. */
@@ -347,7 +349,7 @@ export function ShareButton(props: ShareButtonProps) {
   if (isSmallScreen) {
     return (
       <Sheet open={controller.open} onOpenChange={controller.handleOpenChange}>
-        {props.quickCopy ? (
+        {props.hideTrigger ? null : props.quickCopy ? (
           <JoinedShareControl
             trigger={<SheetTrigger asChild>{trigger}</SheetTrigger>}
             copyLabel={props.quickCopy.label}
@@ -378,7 +380,11 @@ export function ShareButton(props: ShareButtonProps) {
   }
   return (
     <Popover open={controller.open} onOpenChange={controller.handleOpenChange}>
-      {props.quickCopy ? (
+      {props.hideTrigger ? (
+        <PopoverAnchor asChild>
+          <span aria-hidden="true" className="fixed end-4 top-16 size-px" />
+        </PopoverAnchor>
+      ) : props.quickCopy ? (
         <PopoverAnchor asChild>
           <JoinedShareControl
             trigger={<PopoverTrigger asChild>{trigger}</PopoverTrigger>}

@@ -1,8 +1,13 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import {
   ATTACHMENT_REF_MAX_CHARS,
   deletePrivateBlob,
-  getActivePrivateBlobProviderForRequest,
+  isPrivateBlobConfiguredForRequest,
   putPrivateBlob,
   resolveAttachment,
   type PrivateBlobHandle,
@@ -16,7 +21,12 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  attachmentFailureMessage,
+  detectImageMimeType,
+} from "../server/lib/replay-screenshot-blobs.js";
+import {
   deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanup,
   queueVisualEditSnapshotBlobCleanupInTransaction,
 } from "../server/lib/visual-edit-snapshot-blobs.js";
 import {
@@ -113,42 +123,14 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function detectImageMimeType(
-  data: Uint8Array,
-): UploadedScreenshot["mimeType"] | null {
-  if (
-    data.byteLength >= 8 &&
-    data[0] === 0x89 &&
-    data[1] === 0x50 &&
-    data[2] === 0x4e &&
-    data[3] === 0x47 &&
-    data[4] === 0x0d &&
-    data[5] === 0x0a &&
-    data[6] === 0x1a &&
-    data[7] === 0x0a
-  ) {
-    return "image/png";
-  }
-  if (
-    data.byteLength >= 3 &&
-    data[0] === 0xff &&
-    data[1] === 0xd8 &&
-    data[2] === 0xff
-  ) {
-    return "image/jpeg";
-  }
-  if (
-    data.byteLength >= 12 &&
-    String.fromCharCode(...data.subarray(0, 4)) === "RIFF" &&
-    String.fromCharCode(...data.subarray(8, 12)) === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
-
 function screenshotLabel(screenshot: ScreenshotInput): string {
   return `${screenshot.app} · ${screenshot.route} · replay ${screenshot.replayId} · ${screenshot.capturedAt} · +${screenshot.offsetMs} ms · ${screenshot.eventCount} events · ${screenshot.viewportWidth}×${screenshot.viewportHeight}`;
+}
+
+function screenshotCaption(screenshot: ScreenshotInput): string {
+  const date = screenshot.capturedAt.slice(0, 10);
+  const seconds = (screenshot.offsetMs / 1_000).toFixed(1).replace(/\.0$/, "");
+  return `${screenshot.app} · ${screenshot.route} · ${date} · +${seconds}s`;
 }
 
 function maxBoardBottom(html: string): number {
@@ -172,16 +154,49 @@ function screenshotMarkup(
   screenshots: readonly UploadedScreenshot[],
   initialTop: number,
 ): string {
-  let top = initialTop;
+  const columnCount = 3;
+  const columnWidth = 420;
+  const rowGap = 80;
+  const renderSize = (screenshot: ScreenshotInput) => {
+    const scale = Math.min(
+      1,
+      360 / screenshot.viewportWidth,
+      640 / screenshot.viewportHeight,
+    );
+    return {
+      width: Math.max(1, Math.round(screenshot.viewportWidth * scale)),
+      height: Math.max(1, Math.round(screenshot.viewportHeight * scale)),
+    };
+  };
+  const rowHeights = Array.from(
+    { length: Math.ceil(screenshots.length / columnCount) },
+    (_, row) =>
+      Math.max(
+        ...screenshots
+          .slice(row * columnCount, (row + 1) * columnCount)
+          .map(({ screenshot }) => renderSize(screenshot).height),
+      ) + 56,
+  );
+  const rowTops = rowHeights.map((_, row) =>
+    rowHeights
+      .slice(0, row)
+      .reduce((total, height) => total + height + rowGap, initialTop),
+  );
+
   return screenshots
-    .map(({ id, screenshot }) => {
+    .map(({ id, screenshot }, index) => {
       const label = screenshotLabel(screenshot);
+      const captionText = screenshotCaption(screenshot);
       const labelNodeId = `${id}-label`;
       const layerName = `Replay ${screenshot.replayId}`;
-      const imageTop = top + 48;
-      const image = `<img data-agent-native-node-id="${id}" data-agent-native-layer-name="${escapeHtml(layerName)}" data-an-primitive="image" data-session-replay-id="${escapeHtml(screenshot.replayId)}" data-session-replay-captured-at="${escapeHtml(screenshot.capturedAt)}" data-session-replay-app="${escapeHtml(screenshot.app)}" data-session-replay-route="${escapeHtml(screenshot.route)}" data-session-replay-offset-ms="${screenshot.offsetMs}" data-session-replay-event-count="${screenshot.eventCount}" alt="${escapeHtml(label)}" title="${escapeHtml(label)}" width="${screenshot.viewportWidth}" height="${screenshot.viewportHeight}" loading="lazy" decoding="async" src="/api/design-board-replay-screenshots/${id}" style="position:absolute;left:0px;top:${imageTop}px;width:${screenshot.viewportWidth}px;height:${screenshot.viewportHeight}px;object-fit:contain" />`;
-      const caption = `<div data-agent-native-node-id="${labelNodeId}" data-agent-native-layer-name="${escapeHtml(layerName)} label" data-an-primitive="text" title="${escapeHtml(label)}" style="position:absolute;left:0px;top:${top}px;width:${screenshot.viewportWidth}px;height:40px;overflow:hidden;white-space:pre-wrap;font:12px/18px sans-serif;color:inherit">${escapeHtml(label)}</div>`;
-      top = imageTop + screenshot.viewportHeight + 64;
+      const size = renderSize(screenshot);
+      const column = index % columnCount;
+      const row = Math.floor(index / columnCount);
+      const left = column * columnWidth;
+      const captionTop = rowTops[row]!;
+      const imageTop = captionTop + 48;
+      const image = `<img data-agent-native-node-id="${id}" data-agent-native-layer-name="${escapeHtml(layerName)}" data-an-primitive="image" data-session-replay-id="${escapeHtml(screenshot.replayId)}" data-session-replay-captured-at="${escapeHtml(screenshot.capturedAt)}" data-session-replay-app="${escapeHtml(screenshot.app)}" data-session-replay-route="${escapeHtml(screenshot.route)}" data-session-replay-offset-ms="${screenshot.offsetMs}" data-session-replay-event-count="${screenshot.eventCount}" data-session-replay-viewport-width="${screenshot.viewportWidth}" data-session-replay-viewport-height="${screenshot.viewportHeight}" alt="${escapeHtml(label)}" title="${escapeHtml(label)}" width="${size.width}" height="${size.height}" loading="lazy" decoding="async" src="/api/design-board-replay-screenshots/${id}" style="position:absolute;left:${left}px;top:${imageTop}px;width:${size.width}px;height:${size.height}px;object-fit:contain" />`;
+      const caption = `<div data-agent-native-node-id="${labelNodeId}" data-agent-native-layer-name="${escapeHtml(layerName)} label" data-an-primitive="text" title="${escapeHtml(label)}" style="position:absolute;left:${left}px;top:${captionTop}px;width:360px;height:40px;overflow:hidden;white-space:pre-wrap;font:12px/18px sans-serif;color:inherit">${escapeHtml(captionText)}</div>`;
       return `${caption}\n${image}`;
     })
     .join("\n");
@@ -198,8 +213,9 @@ function appendToBoard(html: string, markup: string): string {
 
 async function cleanupUploadedScreenshots(
   handles: readonly PrivateBlobHandle[],
-): Promise<void> {
-  if (handles.length === 0) return;
+): Promise<{ pending: boolean; failed: boolean; unknown: boolean }> {
+  const complete = { pending: false, failed: false, unknown: false };
+  if (handles.length === 0) return complete;
   const pendingHandles = (
     await Promise.all(
       handles.map(async (handle) => {
@@ -212,19 +228,66 @@ async function cleanupUploadedScreenshots(
       }),
     )
   ).filter((handle): handle is PrivateBlobHandle => handle !== null);
-  if (pendingHandles.length === 0) return;
+  if (pendingHandles.length === 0) return complete;
   try {
-    await deleteVisualEditSnapshotBlobs(
+    const pending = await deleteVisualEditSnapshotBlobs(
       pendingHandles.map((handle) => JSON.stringify(handle)),
     );
+    return { pending, failed: false, unknown: false };
   } catch (error) {
     console.warn(
       "[design-replay-screenshots] Private blob cleanup remains pending:",
       error,
     );
-    await Promise.allSettled(
-      pendingHandles.map((handle) => deletePrivateBlob(handle)),
-    );
+    const remainingHandles = (
+      await Promise.all(
+        pendingHandles.map(async (handle) => {
+          try {
+            const result = await deletePrivateBlob(handle);
+            return result.deleted ? null : handle;
+          } catch {
+            return handle;
+          }
+        }),
+      )
+    ).filter((handle): handle is PrivateBlobHandle => handle !== null);
+    if (!remainingHandles.length) return complete;
+    try {
+      await queueVisualEditSnapshotBlobCleanup(
+        remainingHandles.map((handle) => JSON.stringify(handle)),
+      );
+      return { pending: true, failed: false, unknown: false };
+    } catch (queueError) {
+      console.warn(
+        "[design-replay-screenshots] Could not queue screenshot cleanup for retry:",
+        queueError,
+      );
+      try {
+        const values = [
+          ...new Set(remainingHandles.map((handle) => JSON.stringify(handle))),
+        ];
+        const table = schema.designVisualEditSnapshotBlobCleanup;
+        const queued = await getDb()
+          .select({ blobHandle: table.blobHandle })
+          .from(table)
+          .where(inArray(table.blobHandle, values))
+          .limit(values.length);
+        const queuedHandles = new Set(
+          queued.map(({ blobHandle }) => blobHandle),
+        );
+        return {
+          pending: queuedHandles.size > 0,
+          failed: queuedHandles.size < values.length,
+          unknown: false,
+        };
+      } catch (readError) {
+        console.warn(
+          "[design-replay-screenshots] Could not verify queued screenshot cleanup:",
+          readError,
+        );
+        return { pending: false, failed: false, unknown: true };
+      }
+    }
   }
 }
 
@@ -286,19 +349,61 @@ async function rollbackBoardWrite(write: BoardWrite): Promise<void> {
   });
 }
 
-function attachmentFailureMessage(status: string): string {
-  if (status === "forbiddenScope") {
-    return "Screenshot attachments must be personal files owned by the current user.";
-  }
-  if (status === "storageUnavailable") {
-    return "The screenshot attachment storage is unavailable. Retry with the same attachment reference.";
-  }
-  return "A screenshot attachment is missing, expired, or invalid. Reattach it and retry.";
+function actionFailureWithRollbackState(
+  error: unknown,
+  state: {
+    cleanupFailed?: true;
+    cleanupPending?: true;
+    cleanupUnknown?: true;
+    saveOutcomeUnknown?: true;
+  },
+): ActionContractError {
+  const failure =
+    error && typeof error === "object"
+      ? (error as {
+          data?: unknown;
+          details?: unknown;
+          errorCode?: unknown;
+          message?: unknown;
+          statusCode?: unknown;
+          statusMessage?: unknown;
+        })
+      : {};
+  const existingDetails = isActionContractError(error)
+    ? (error.details ?? {})
+    : failure.data && typeof failure.data === "object"
+      ? (failure.data as Record<string, unknown>)
+      : failure.details && typeof failure.details === "object"
+        ? (failure.details as Record<string, unknown>)
+        : {};
+  const wrapped = new ActionContractError(
+    typeof failure.statusMessage === "string"
+      ? failure.statusMessage
+      : typeof failure.message === "string"
+        ? failure.message
+        : "Design screenshot action failed",
+    {
+      errorCode: isActionContractError(error)
+        ? error.errorCode
+        : typeof failure.errorCode === "string"
+          ? failure.errorCode
+          : "action_failed",
+      statusCode:
+        typeof failure.statusCode === "number"
+          ? failure.statusCode
+          : isActionContractError(error)
+            ? error.statusCode
+            : 500,
+      details: { ...existingDetails, ...state },
+    },
+  );
+  Object.defineProperty(wrapped, "cause", { value: error, configurable: true });
+  return wrapped;
 }
 
 export default defineAction({
   description:
-    "Add up to nine private Analytics session-replay screenshots to a Design board. Each image is copied into the active private blob provider, while replay metadata is stored separately and the board HTML references only authenticated image routes. Pass a Design ID to append to an existing board, or omit it to create a Design.",
+    "Add up to nine private Analytics session-replay screenshots to a Design board. Each image is copied to configured private storage, including the encrypted upload fallback when available. Replay metadata is stored separately, and board HTML references only authenticated image routes. Pass a Design ID to append to an existing board, or omit it to create a Design.",
   requiresAuth: true,
   maxBodyBytes: MAX_SCREENSHOTS * (ATTACHMENT_REF_MAX_CHARS + 3_200) + 16_384,
   schema: inputSchema,
@@ -321,10 +426,9 @@ export default defineAction({
       : undefined;
     const blobOwnerEmail =
       initialDesignAccess?.resource.ownerEmail ?? ownerEmail;
-    const provider = await getActivePrivateBlobProviderForRequest();
-    if (!provider) {
+    if (!(await isPrivateBlobConfiguredForRequest())) {
       fail(
-        "Design requires a configured private blob provider for replay screenshots.",
+        "Design requires configured private storage for replay screenshots.",
         {
           errorCode: "private_blob_provider_required",
           statusCode: 503,
@@ -333,6 +437,7 @@ export default defineAction({
     }
 
     const uploaded: UploadedScreenshot[] = [];
+    let storageProviderId: string | undefined;
     let totalBytes = 0;
     let createdDesignId: string | undefined;
     let screenshotMetadataInsertAttempted = false;
@@ -407,15 +512,36 @@ export default defineAction({
           );
         }
         uploaded.push({ id, screenshot, blobHandle, mimeType, sizeBytes });
-        if (blobHandle.provider !== provider.id || blobHandle.opaque !== true) {
+        const usesPublicUploadFallback =
+          blobHandle.id.startsWith("public-upload:v1:") ||
+          blobHandle.provider.startsWith("public-upload:");
+        const validHandle =
+          blobHandle.opaque === true &&
+          (usesPublicUploadFallback
+            ? blobHandle.id.startsWith("public-upload:v1:") &&
+              blobHandle.provider.startsWith("public-upload:") &&
+              blobHandle.encrypted === true
+            : !blobHandle.id.startsWith("public-upload:v1:") &&
+              !blobHandle.provider.startsWith("public-upload:"));
+        if (!validHandle) {
           fail(
-            "Replay screenshots must be stored by the active private blob provider.",
+            "Replay screenshots must use an opaque private storage handle.",
             {
               errorCode: "private_blob_provider_mismatch",
               statusCode: 503,
             },
           );
         }
+        if (storageProviderId && blobHandle.provider !== storageProviderId) {
+          fail(
+            "Replay screenshots in one batch must use the same private storage provider.",
+            {
+              errorCode: "private_blob_provider_mismatch",
+              statusCode: 503,
+            },
+          );
+        }
+        storageProviderId = blobHandle.provider;
       }
 
       if (!requestedDesignId) {
@@ -531,6 +657,10 @@ export default defineAction({
       let screenshotMetadataRollbackCommitted =
         !screenshotMetadataInsertAttempted;
       let rollbackQueuedBlobHandles: string[] = [];
+      let cleanupPending = false;
+      let cleanupFailed = false;
+      let cleanupUnknown = false;
+      let saveOutcomeUnknown = false;
 
       if (uploaded.length && screenshotMetadataInsertAttempted) {
         try {
@@ -557,16 +687,21 @@ export default defineAction({
               "[design-replay-screenshots] Screenshot metadata rollback retry failed:",
               retryError,
             );
+            cleanupUnknown = true;
+            saveOutcomeUnknown = true;
           }
         }
         if (
           screenshotMetadataRollbackCommitted &&
-          requestedDesignId &&
           rollbackQueuedBlobHandles.length > 0
         ) {
           try {
-            await deleteVisualEditSnapshotBlobs(rollbackQueuedBlobHandles);
+            cleanupPending =
+              (await deleteVisualEditSnapshotBlobs(
+                rollbackQueuedBlobHandles,
+              )) || cleanupPending;
           } catch (cleanupError) {
+            cleanupPending = true;
             console.warn(
               "[design-replay-screenshots] Queued screenshot cleanup remains pending:",
               cleanupError,
@@ -596,10 +731,16 @@ export default defineAction({
               .where(eq(schema.designs.id, createdDesignId))
               .limit(1);
             createdDesignDeleted = !remainingDesign;
+            if (remainingDesign) saveOutcomeUnknown = true;
             if (remainingDesign && rollbackQueuedBlobHandles.length > 0) {
-              await deleteVisualEditSnapshotBlobs(rollbackQueuedBlobHandles);
+              cleanupPending =
+                (await deleteVisualEditSnapshotBlobs(
+                  rollbackQueuedBlobHandles,
+                )) || cleanupPending;
             }
           } catch (cleanupError) {
+            saveOutcomeUnknown = true;
+            if (rollbackQueuedBlobHandles.length > 0) cleanupPending = true;
             console.warn(
               "[design-replay-screenshots] Could not verify newly created Design cleanup:",
               cleanupError,
@@ -607,10 +748,15 @@ export default defineAction({
           }
         }
       }
+      if (createdDesignId && !screenshotMetadataRollbackCommitted) {
+        cleanupUnknown = true;
+        saveOutcomeUnknown = true;
+      }
       if (boardWrite && !createdDesignDeleted) {
         try {
           await rollbackBoardWrite(boardWrite);
         } catch (rollbackError) {
+          saveOutcomeUnknown = true;
           console.warn(
             "[design-replay-screenshots] Board rollback failed after screenshot persistence failed:",
             rollbackError,
@@ -618,9 +764,33 @@ export default defineAction({
         }
       }
       if (uploaded.length && !screenshotMetadataInsertAttempted) {
-        await cleanupUploadedScreenshots(
-          uploaded.map(({ blobHandle }) => blobHandle),
-        );
+        try {
+          const cleanupState = await cleanupUploadedScreenshots(
+            uploaded.map(({ blobHandle }) => blobHandle),
+          );
+          cleanupPending = cleanupState.pending || cleanupPending;
+          cleanupFailed = cleanupState.failed || cleanupFailed;
+          cleanupUnknown = cleanupState.unknown || cleanupUnknown;
+        } catch (cleanupError) {
+          cleanupUnknown = true;
+          console.warn(
+            "[design-replay-screenshots] Uploaded screenshot cleanup could not be confirmed:",
+            cleanupError,
+          );
+        }
+      }
+      if (
+        cleanupPending ||
+        cleanupFailed ||
+        cleanupUnknown ||
+        saveOutcomeUnknown
+      ) {
+        throw actionFailureWithRollbackState(error, {
+          ...(cleanupFailed ? { cleanupFailed: true as const } : {}),
+          ...(cleanupPending ? { cleanupPending: true as const } : {}),
+          ...(cleanupUnknown ? { cleanupUnknown: true as const } : {}),
+          ...(saveOutcomeUnknown ? { saveOutcomeUnknown: true as const } : {}),
+        });
       }
       throw error;
     }

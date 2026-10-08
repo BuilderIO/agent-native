@@ -8,10 +8,16 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
-import { IconInfoCircle } from "@tabler/icons-react";
+import {
+  IconArrowLeft,
+  IconCheck,
+  IconInfoCircle,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -52,6 +58,18 @@ async function writeAppStateClient(key: string, value: unknown): Promise<void> {
 }
 
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
+import {
+  beginEditorSave,
+  beginRecordingEditorOperation,
+  createEditorSaveLedger,
+  enqueueRecordingEditorSave,
+  finishEditorSave,
+  isLatestEditorSave,
+  refreshAfterRecordingEditorSaves,
+  removeEditorHistoryEntry,
+  type EditSaveKind,
+  type EditorSaveStatus,
+} from "@/lib/editor-save-status";
 import { withMediaVersion } from "@/lib/media-url";
 import {
   parsePlaybackSpeed,
@@ -108,6 +126,7 @@ import { Waveform } from "./waveform";
 
 export interface EditorLayoutProps {
   recordingId: string;
+  onBack: () => void;
   className?: string;
 }
 
@@ -283,7 +302,11 @@ function getWaveformMediaUrl({
   return `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}`;
 }
 
-export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
+export function EditorLayout({
+  recordingId,
+  onBack,
+  className,
+}: EditorLayoutProps) {
   const t = useT();
   const videoStorageStatus = useVideoStorageStatus();
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
@@ -303,6 +326,9 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const playerDataQuery = useActionQuery("get-recording-player-data", {
     recordingId,
   });
+  const [resumeState, setResumeState] = useState<"ready" | "waiting" | "error">(
+    "waiting",
+  );
 
   const playerData: any = playerDataQuery.data;
   const recording: any = playerData?.recording;
@@ -342,6 +368,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   );
   const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
   const [burning, setBurning] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<EditorSaveStatus>("ready");
+  const editSaveLedgerRef = useRef(createEditorSaveLedger());
   const burnStorageCheckInFlightRef = useRef(false);
   const burnToastRef = useRef<string | number | null>(null);
   const undoStackRef = useRef<EditSnapshot[]>([]);
@@ -803,6 +831,24 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   ]);
 
   const setTrims = useActionMutation("set-recording-trims");
+  const beginEditSave = useCallback((kind: EditSaveKind) => {
+    const generation = beginEditorSave(editSaveLedgerRef.current, kind);
+    setSaveStatus("saving");
+    return generation;
+  }, []);
+  const finishEditSave = useCallback(
+    (kind: EditSaveKind, generation: number, succeeded: boolean) => {
+      setSaveStatus(
+        finishEditorSave(
+          editSaveLedgerRef.current,
+          kind,
+          generation,
+          succeeded,
+        ),
+      );
+    },
+    [],
+  );
 
   const pushHistory = useCallback((snapshot: EditSnapshot) => {
     undoStackRef.current = [...undoStackRef.current, snapshot].slice(
@@ -812,8 +858,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     setHistory({ undo: undoStackRef.current.length, redo: 0 });
   }, []);
 
-  const dropNewestHistory = useCallback(() => {
-    undoStackRef.current = undoStackRef.current.slice(0, -1);
+  const discardHistory = useCallback((snapshot: EditSnapshot) => {
+    const remaining = removeEditorHistoryEntry(undoStackRef.current, snapshot);
+    if (remaining === undoStackRef.current) return;
+    undoStackRef.current = remaining;
     setHistory({
       undo: undoStackRef.current.length,
       redo: redoStackRef.current.length,
@@ -822,26 +870,41 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const commitEdits = useCallback(
     async (next: EditsJson, options?: { record?: boolean }) => {
+      if (resumeState !== "ready") return false;
       const record = options?.record ?? true;
-      if (record) pushHistory(snapshotOf(savedEdits));
+      const historyEntry = record ? snapshotOf(savedEdits) : null;
+      if (historyEntry) pushHistory(historyEntry);
       setPendingTrims(next.trims);
+      const saveGeneration = beginEditSave("trims");
+      let succeeded = false;
       try {
-        await setTrims.mutateAsync({ recordingId, trims: next.trims });
-        await playerDataQuery.refetch();
+        await enqueueRecordingEditorSave(recordingId, "trims", async () => {
+          await setTrims.mutateAsync({ recordingId, trims: next.trims });
+          await playerDataQuery.refetch();
+        });
+        succeeded = true;
         return true;
       } catch (err: any) {
-        if (record) dropNewestHistory();
+        if (historyEntry) discardHistory(historyEntry);
         toast.error(err?.message ?? t("editorLayout.editFailed"));
         return false;
       } finally {
-        setPendingTrims(null);
+        finishEditSave("trims", saveGeneration, succeeded);
+        if (
+          isLatestEditorSave(editSaveLedgerRef.current, "trims", saveGeneration)
+        ) {
+          setPendingTrims(null);
+        }
       }
     },
     [
-      dropNewestHistory,
+      beginEditSave,
+      discardHistory,
+      finishEditSave,
       playerDataQuery,
       pushHistory,
       recordingId,
+      resumeState,
       savedEdits,
       setTrims,
       t,
@@ -853,6 +916,24 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const [burnPercent, setBurnPercent] = useState(0);
   const refetchPlayerDataRef = useRef(playerDataQuery.refetch);
   refetchPlayerDataRef.current = playerDataQuery.refetch;
+
+  useEffect(() => {
+    if (resumeState !== "waiting") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await refreshAfterRecordingEditorSaves(recordingId, () =>
+          refetchPlayerDataRef.current({ throwOnError: true }),
+        );
+        if (!cancelled) setResumeState("ready");
+      } catch {
+        if (!cancelled) setResumeState("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recordingId, resumeState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -959,28 +1040,47 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const writeOverlays = useCallback(
     async (overlays: unknown[], record: boolean) => {
-      if (record) pushHistory(snapshotOf(savedEdits));
+      if (resumeState !== "ready") return false;
+      const historyEntry = record ? snapshotOf(savedEdits) : null;
+      if (historyEntry) pushHistory(historyEntry);
       setPendingOverlays(overlays);
+      const saveGeneration = beginEditSave("overlays");
+      let succeeded = false;
       try {
-        await setOverlays.mutateAsync({
-          recordingId,
-          overlays: overlays as Record<string, unknown>[],
+        await enqueueRecordingEditorSave(recordingId, "overlays", async () => {
+          await setOverlays.mutateAsync({
+            recordingId,
+            overlays: overlays as Record<string, unknown>[],
+          });
+          await playerDataQuery.refetch();
         });
-        await playerDataQuery.refetch();
+        succeeded = true;
         return true;
       } catch (err: any) {
-        if (record) dropNewestHistory();
+        if (historyEntry) discardHistory(historyEntry);
         toast.error(err?.message ?? t("editorLayout.editFailed"));
         return false;
       } finally {
-        setPendingOverlays(null);
+        finishEditSave("overlays", saveGeneration, succeeded);
+        if (
+          isLatestEditorSave(
+            editSaveLedgerRef.current,
+            "overlays",
+            saveGeneration,
+          )
+        ) {
+          setPendingOverlays(null);
+        }
       }
     },
     [
-      dropNewestHistory,
+      beginEditSave,
+      discardHistory,
+      finishEditSave,
       playerDataQuery,
       pushHistory,
       recordingId,
+      resumeState,
       savedEdits,
       setOverlays,
       t,
@@ -1076,6 +1176,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   );
 
   const burnIn = useCallback(async () => {
+    if (resumeState !== "ready") return;
     if (burning || burnStorageCheckInFlightRef.current) return;
     burnStorageCheckInFlightRef.current = true;
     try {
@@ -1115,7 +1216,14 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       });
       burnToastRef.current = null;
     }
-  }, [burnRedactions, burning, recordingId, t, videoStorageStatus.refetch]);
+  }, [
+    burnRedactions,
+    burning,
+    recordingId,
+    resumeState,
+    t,
+    videoStorageStatus.refetch,
+  ]);
 
   useEffect(() => {
     if (!burning || !burnToastRef.current) return;
@@ -1129,6 +1237,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const stepHistory = useCallback(
     async (direction: "undo" | "redo") => {
+      if (resumeState !== "ready") return;
       const from =
         direction === "undo" ? undoStackRef.current : redoStackRef.current;
       if (!from.length) {
@@ -1139,35 +1248,40 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         );
         return;
       }
-      const target = from[from.length - 1];
-      const rest = from.slice(0, -1);
-      const current = snapshotOf(savedEdits);
+      const finishOperation = beginRecordingEditorOperation(recordingId);
+      try {
+        const target = from[from.length - 1];
+        const rest = from.slice(0, -1);
+        const current = snapshotOf(savedEdits);
 
-      let saved = true;
-      if (!sameList(target.trims, current.trims)) {
-        saved = await commitEdits(
-          { ...savedEdits, trims: target.trims },
-          { record: false },
-        );
-      }
-      if (saved && !sameList(target.overlays, current.overlays)) {
-        saved = await writeOverlays(target.overlays, false);
-      }
-      if (!saved) return;
+        let saved = true;
+        if (!sameList(target.trims, current.trims)) {
+          saved = await commitEdits(
+            { ...savedEdits, trims: target.trims },
+            { record: false },
+          );
+        }
+        if (saved && !sameList(target.overlays, current.overlays)) {
+          saved = await writeOverlays(target.overlays, false);
+        }
+        if (!saved) return;
 
-      if (direction === "undo") {
-        undoStackRef.current = rest;
-        redoStackRef.current = [...redoStackRef.current, current];
-      } else {
-        redoStackRef.current = rest;
-        undoStackRef.current = [...undoStackRef.current, current];
+        if (direction === "undo") {
+          undoStackRef.current = rest;
+          redoStackRef.current = [...redoStackRef.current, current];
+        } else {
+          redoStackRef.current = rest;
+          undoStackRef.current = [...undoStackRef.current, current];
+        }
+        setHistory({
+          undo: undoStackRef.current.length,
+          redo: redoStackRef.current.length,
+        });
+      } finally {
+        finishOperation();
       }
-      setHistory({
-        undo: undoStackRef.current.length,
-        redo: redoStackRef.current.length,
-      });
     },
-    [commitEdits, savedEdits, t, writeOverlays],
+    [commitEdits, recordingId, resumeState, savedEdits, t, writeOverlays],
   );
 
   const callTrim = useCallback(
@@ -1216,6 +1330,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (resumeState !== "ready") return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName.toLowerCase();
       const editable =
@@ -1275,9 +1390,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     selection,
     splitAtPlayhead,
     stepHistory,
+    resumeState,
   ]);
 
-  if (playerDataQuery.isLoading) {
+  if (playerDataQuery.isLoading || resumeState === "waiting") {
     return (
       <div
         aria-busy="true"
@@ -1286,6 +1402,12 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           className,
         )}
       >
+        <div className="flex h-9 shrink-0 items-center border-b border-border px-3">
+          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+            <IconArrowLeft className="size-4" aria-hidden="true" />
+            {t("recordingPage.backToClip")}
+          </Button>
+        </div>
         <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
             <div
@@ -1317,10 +1439,38 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       </div>
     );
   }
+  if (resumeState === "error") {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+        <div className="flex h-9 shrink-0 items-center border-b border-border px-3">
+          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+            <IconArrowLeft className="size-4" aria-hidden="true" />
+            {t("recordingPage.backToClip")}
+          </Button>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
+          <p role="alert" className="text-sm text-destructive">
+            {t("editorLayout.refreshFailed")}
+          </p>
+          <Button type="button" onClick={() => setResumeState("waiting")}>
+            {t("agentChat.common.retry")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
   if (!recording) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">
-        {t("editorLayout.recordingNotFound")}
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+        <div className="flex h-9 shrink-0 items-center border-b border-border px-3">
+          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+            <IconArrowLeft className="size-4" aria-hidden="true" />
+            {t("recordingPage.backToClip")}
+          </Button>
+        </div>
+        <div className="p-6 text-sm text-muted-foreground">
+          {t("editorLayout.recordingNotFound")}
+        </div>
       </div>
     );
   }
@@ -1332,6 +1482,47 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         className,
       )}
     >
+      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={saveStatus === "saving"}
+          onClick={onBack}
+        >
+          <IconArrowLeft className="size-4" aria-hidden="true" />
+          {t("recordingPage.backToClip")}
+        </Button>
+        <span
+          role="status"
+          aria-live="polite"
+          className={cn(
+            "flex min-w-0 items-center gap-1.5 truncate text-xs",
+            saveStatus === "error"
+              ? "text-destructive"
+              : "text-muted-foreground",
+          )}
+        >
+          {saveStatus === "saving" ? (
+            <>
+              <IconLoader2
+                className="size-3.5 shrink-0 animate-spin"
+                aria-hidden="true"
+              />
+              {t("editorLayout.savingChanges")}
+            </>
+          ) : saveStatus === "saved" ? (
+            <>
+              <IconCheck className="size-3.5 shrink-0" aria-hidden="true" />
+              {t("editorLayout.changesSaved")}
+            </>
+          ) : saveStatus === "error" ? (
+            t("editorLayout.editFailed")
+          ) : (
+            t("editorLayout.autoSaveHint")
+          )}
+        </span>
+      </div>
       {/* Preview + transcript + chapters sidebar */}
       <div
         className={cn(

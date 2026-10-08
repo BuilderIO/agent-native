@@ -1627,7 +1627,10 @@ export default {
       "回放 {{replayId}} 在 {{timestamp}} 時的路由無法使用。",
     storyboardNoDesignResponse: "Design 未傳回故事板結果。",
     storyboardTemporaryCleanupPending: "故事板已儲存，但無法刪除暫存截圖檔案。",
+    storyboardTemporaryCleanupFailed: "暫存截圖清理仍在等待處理。",
     storyboardUnexpectedResponse: "截圖匯出傳回了無法讀取的回應。請重試。",
+    storyboardSaveOutcomeUnknown:
+      "Design 可能已儲存故事板。重試前請先檢查 Design。",
     openStoryboard: "在 Design 中開啟故事板",
     cancelStoryboardCapture: "取消擷取",
     captureToDesign: "擷取並新增至 Design",
