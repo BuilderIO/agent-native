@@ -193,6 +193,32 @@ describe("POST /api/session-replay-storyboard", () => {
     expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
   });
 
+  it("preserves the oversized-request error when body cancellation fails", async () => {
+    const reader = {
+      cancel: vi
+        .fn()
+        .mockRejectedValue(new Error("stream cancellation failed")),
+      read: vi.fn().mockResolvedValue({
+        done: false,
+        value: new Uint8Array(21 * 1024 * 1024),
+      }),
+      releaseLock: vi.fn(),
+    };
+    const event = {
+      req: {
+        body: { getReader: () => reader },
+        headers: new Headers({ authorization: "Bearer test-a2a-token" }),
+      },
+    };
+
+    await expect((handler as any)(event)).rejects.toMatchObject({
+      statusCode: 413,
+      statusMessage: "Screenshot export request is too large",
+    });
+    expect(reader.cancel).toHaveBeenCalledTimes(1);
+    expect(reader.releaseLock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects pixels whose dimensions differ from replay metadata", async () => {
     await expect(
       (handler as any)(makeEvent(makeFormData(3))),

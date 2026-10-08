@@ -77,8 +77,12 @@ async function readBoundedMultipartFormData(
         });
         try {
           await reader.cancel(error);
-        } catch {
-          // The oversized request is rejected even when cancellation fails.
+        } catch (cancelError) {
+          throw createError({
+            statusCode: 413,
+            statusMessage: "Screenshot export request is too large",
+            cause: cancelError,
+          });
         }
         throw error;
       }
