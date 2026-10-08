@@ -18,22 +18,39 @@ import {
   runAuthoringFuzz,
 } from "./authoring-fuzz.ts";
 import type { Snapshot } from "./lib/in-page.ts";
-import { CouldNotRun, rethrowIfCouldNotRun } from "./run-outcomes.ts";
+import {
+  CouldNotRun,
+  rethrowIfCouldNotRun,
+  runSetupAsCouldNotRun,
+} from "./run-outcomes.ts";
 
-it("preserves could-not-run outcomes through per-seed error handling", () => {
-  const setupError = new CouldNotRun("sign-in request timed out");
+it("keeps authoring page setup errors out of seed regression results", async () => {
+  const browserError = new Error("Target crashed");
   let caught: unknown;
 
   try {
-    rethrowIfCouldNotRun(setupError);
+    await runSetupAsCouldNotRun(
+      "could not create authoring fuzz page",
+      async () => {
+        throw browserError;
+      },
+    );
   } catch (error) {
     caught = error;
   }
 
-  expect(caught).toBe(setupError);
-  expect(() =>
-    rethrowIfCouldNotRun(new Error("authoring assertion failed")),
-  ).not.toThrow();
+  expect(caught).toBeInstanceOf(CouldNotRun);
+  expect(caught).toMatchObject({
+    message: "could not create authoring fuzz page: Error: Target crashed",
+  });
+  expect(() => rethrowIfCouldNotRun(caught)).toThrow(caught);
+
+  const setupError = new CouldNotRun("sign-in request timed out");
+  await expect(
+    runSetupAsCouldNotRun("could not create authoring fuzz page", async () => {
+      throw setupError;
+    }),
+  ).rejects.toBe(setupError);
 });
 
 it("requires a markdown shortcut to add its result markup", () => {

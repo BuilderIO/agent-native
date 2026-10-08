@@ -71,7 +71,11 @@ import {
 } from "./lib/metrics.ts";
 import { isRetryableInfraError } from "./retry-infra.ts";
 import { readValueOption } from "./run-options.ts";
-import { CouldNotRun, rethrowIfCouldNotRun } from "./run-outcomes.ts";
+import {
+  CouldNotRun,
+  rethrowIfCouldNotRun,
+  runSetupAsCouldNotRun,
+} from "./run-outcomes.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCENARIOS = [
@@ -4944,9 +4948,16 @@ async function runAuthoringFuzzQa(
     let deckId: string | null = null;
     let authoringSucceeded = false;
     try {
-      const activePage = await createPage();
+      const activePage = await runSetupAsCouldNotRun(
+        "could not create authoring fuzz page",
+        createPage,
+      );
       page = activePage;
-      await activePage.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+      await runSetupAsCouldNotRun(
+        "could not navigate to authoring fuzz setup page",
+        () =>
+          activePage.goto(`${base}/home`, { waitUntil: "domcontentloaded" }),
+      );
       await ensureSignedIn(activePage);
       await activePage.setViewportSize(
         profile?.kind === "scaled"
