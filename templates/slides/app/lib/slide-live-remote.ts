@@ -136,11 +136,8 @@ export function applyRemoteHtmlUnderEdit(
           }
         }
       } else if (name === "class") {
-        const have = new Set(live.classList);
-        const before = new Set((prev ?? "").split(/\s+/).filter(Boolean));
-        const after = new Set((next ?? "").split(/\s+/).filter(Boolean));
-        for (const token of before) {
-          if (!have.has(token)) return "unsupported";
+        for (const token of (prev ?? "").split(/\s+/).filter(Boolean)) {
+          if (!live.classList.contains(token)) return "unsupported";
         }
       } else if (live.getAttribute(name) !== prev) {
         return "unsupported";
