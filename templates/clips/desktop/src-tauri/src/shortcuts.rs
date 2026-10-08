@@ -127,6 +127,26 @@ fn lock_escape() -> std::sync::MutexGuard<'static, ()> {
 
 fn claim_escape(app: &AppHandle, label: &str) {
     let _escape = lock_escape();
+    register_escape(app, label);
+}
+
+fn release_escape_if_unowned(app: &AppHandle) {
+    let _escape = lock_escape();
+    unregister_escape_if_unowned(app);
+}
+
+/// Follows `owner_flag` as it is under the lock, not as it was when the caller
+/// stored it: workers can run out of order.
+fn sync_escape_with_flag(app: &AppHandle, owner_flag: &AtomicBool, label: &str) {
+    let _escape = lock_escape();
+    if owner_flag.load(Ordering::SeqCst) {
+        register_escape(app, label);
+    } else {
+        unregister_escape_if_unowned(app);
+    }
+}
+
+fn register_escape(app: &AppHandle, label: &str) {
     let shortcut = escape_shortcut();
     let gs = app.global_shortcut();
     if !gs.is_registered(shortcut) {
@@ -136,8 +156,7 @@ fn claim_escape(app: &AppHandle, label: &str) {
     }
 }
 
-fn release_escape_if_unowned(app: &AppHandle) {
-    let _escape = lock_escape();
+fn unregister_escape_if_unowned(app: &AppHandle) {
     if POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
         || COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
         || DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
@@ -581,13 +600,7 @@ pub(crate) fn set_monitor_picker_escape(app: &AppHandle, active: bool) {
     MONITOR_PICKER_ESCAPE_ACTIVE.store(active, Ordering::SeqCst);
     let app = app.clone();
     thread::spawn(move || {
-        // Workers can run out of order, so act on the flag as it is now, not
-        // the value this call captured.
-        if MONITOR_PICKER_ESCAPE_ACTIVE.load(Ordering::SeqCst) {
-            claim_escape(&app, "monitor picker");
-        } else {
-            release_escape_if_unowned(&app);
-        }
+        sync_escape_with_flag(&app, &MONITOR_PICKER_ESCAPE_ACTIVE, "monitor picker");
     });
 }
 
@@ -605,11 +618,7 @@ pub fn set_dictation_escape_active(app: AppHandle, active: bool) -> Result<(), S
 fn sync_dictation_escape_shortcut(app: AppHandle, active: bool) {
     DICTATION_ESCAPE_SHORTCUT_ACTIVE.store(active, Ordering::SeqCst);
     thread::spawn(move || {
-        if active {
-            claim_escape(&app, "dictation-cancel");
-        } else {
-            release_escape_if_unowned(&app);
-        }
+        sync_escape_with_flag(&app, &DICTATION_ESCAPE_SHORTCUT_ACTIVE, "dictation-cancel");
     });
 }
 
