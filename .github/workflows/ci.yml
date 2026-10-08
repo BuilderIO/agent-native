@@ -554,7 +554,6 @@ jobs:
               fixed_specs=( \
                 e2e/pasted-svg-image-inspector.spec.ts:656 \
                 e2e/pasted-svg-image-inspector.spec.ts:693 \
-                e2e/position-alignment.spec.ts:361 \
                 e2e/position-alignment.spec.ts:431 \
                 e2e/position-alignment.spec.ts:509 \
               )
@@ -570,6 +569,7 @@ jobs:
             position-3)
               fixed_specs=( \
                 e2e/position-alignment.spec.ts:312 \
+                e2e/position-alignment.spec.ts:361 \
                 e2e/position-alignment.spec.ts:708 \
                 e2e/position-alignment.spec.ts:740 \
                 e2e/position-alignment.spec.ts:780 \
