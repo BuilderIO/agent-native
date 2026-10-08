@@ -243,16 +243,18 @@ export default { plugins: agentNative() };
     // build dir's unresolved path, so the dir must be real, not a symlink into
     // the workspace (or through /var -> /private/var): otherwise the worker's
     // imports miss whenever the two depths differ, which is always in CI. Link
-    // only the packages.
+    // only directory entries: pnpm's root metadata files are not needed for
+    // package resolution, and file symlinks can require privileges on Windows.
     const workspaceModules = path.join(workspaceRoot, "node_modules");
     fs.mkdirSync(path.join(testRoot, "node_modules"));
     for (const entry of fs.readdirSync(workspaceModules)) {
       if (entry === ".nitro" || entry === ".vite") continue;
       const target = fs.realpathSync(path.join(workspaceModules, entry));
+      if (!fs.statSync(target).isDirectory()) continue;
       fs.symlinkSync(
         target,
         path.join(testRoot, "node_modules", entry),
-        fs.statSync(target).isDirectory() ? "junction" : "file",
+        "junction",
       );
     }
     fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=before\n");
