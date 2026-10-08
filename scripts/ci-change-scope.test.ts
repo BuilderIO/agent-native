@@ -748,7 +748,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/overview-wheel-zoom.spec.ts",
-      184,
+      185,
       "the zoom percentage input updates the overview canvas scale",
     ],
     [
