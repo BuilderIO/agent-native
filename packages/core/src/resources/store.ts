@@ -2624,26 +2624,29 @@ export async function resourceEffectiveContext(
 
 /**
  * A cheap change detector for everything `resourceListAllOwners(pathPrefix)`
- * reads: any insert, update, delete or snapshot restore changes it. The SUMs
- * cover a restore that writes back an older `updated_at` (which MAX misses)
- * and an edit landing in the same millisecond as the previous write.
+ * reads: any insert, update, delete, move or snapshot restore of a SQL row
+ * changes it, including a same-size edit in the same millisecond, because the
+ * digest covers each row's content. Only the digest leaves the database.
+ * Local workspace files are tracked by path and modification time.
  */
 export async function resourceFingerprintAllOwners(
   pathPrefix: string,
 ): Promise<string> {
   await ensureTable();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT COUNT(*) AS row_count, MAX(updated_at) AS max_updated_at, SUM(updated_at) AS sum_updated_at, SUM(size) AS sum_size FROM resources WHERE path LIKE ? ESCAPE '!'`,
+    sql: `SELECT COUNT(*) AS row_count, md5(COALESCE(string_agg(id || '|' || owner || '|' || path || '|' || updated_at::text || '|' || md5(COALESCE(content, '')), ',' ORDER BY id), '')) AS digest FROM resources WHERE path LIKE ? ESCAPE '!'`,
     args: [prefixLike(pathPrefix)],
   });
   const row = rows[0];
-  if (!row) throw new Error("Resource fingerprint query returned no row.");
+  if (!row?.digest) {
+    throw new Error("Resource fingerprint query returned no digest.");
+  }
   const local = (await localWorkspaceResourceMetas(pathPrefix))
     .map((resource) => `${resource.path}@${resource.updatedAt}`)
     .sort()
     .join("|");
   const localHash = crypto.createHash("sha1").update(local).digest("hex");
-  return `${row.row_count}:${row.max_updated_at ?? ""}:${row.sum_updated_at ?? ""}:${row.sum_size ?? ""}:${localHash}`;
+  return `${row.row_count}:${row.digest}:${localHash}`;
 }
 
 export async function resourceListAllOwners(

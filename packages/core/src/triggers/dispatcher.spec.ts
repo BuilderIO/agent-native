@@ -843,6 +843,52 @@ Respond to the concurrent event.`,
     }
   });
 
+  it("does not reuse a scan that began while the fingerprint read was running", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveFingerprint!: (value: string) => void;
+    resourceFingerprintAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFingerprint = resolve;
+        }),
+    );
+    const answer = hasEventAutomation("test.event.fired");
+    await vi.waitFor(() =>
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    let resolveConcurrentScan!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveConcurrentScan = resolve;
+        }),
+    );
+    // This scan reads jobs/ before the automation is written; the fingerprint
+    // read that is still running sees the write.
+    const concurrentEvent = busEventHandler("unrelated.event")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "concurrent-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+    resolveFingerprint("after-define");
+    resolveConcurrentScan([]);
+    await concurrentEvent;
+
+    await expect(answer).resolves.toBe(true);
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+  });
+
   it("starts a new full read after a changed fingerprint instead of reusing one that began earlier", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     await initTriggerDispatcher({

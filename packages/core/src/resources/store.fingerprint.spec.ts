@@ -118,6 +118,20 @@ describe("resourceFingerprintAllOwners", () => {
     );
   });
 
+  it("changes on a same-size edit in the same millisecond", async () => {
+    const { resourceFingerprintAllOwners, resourcePut } =
+      await import("./store.js");
+    vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    const prefix = `jobs/same-ms-${Math.random().toString(36).slice(2)}/`;
+    const owner = "alice+same-ms@agent-native.test";
+    await resourcePut(owner, `${prefix}a.md`, "enabled: false");
+    const before = await resourceFingerprintAllOwners(prefix);
+
+    await resourcePut(owner, `${prefix}a.md`, "enabled: truee");
+
+    expect(await resourceFingerprintAllOwners(prefix)).not.toBe(before);
+  });
+
   it("does not change when nothing was written", async () => {
     const { resourceFingerprintAllOwners, resourcePut } =
       await import("./store.js");

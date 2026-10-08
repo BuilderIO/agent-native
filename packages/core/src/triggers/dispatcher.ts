@@ -762,8 +762,10 @@ async function scanStartedAfter(seq: number): Promise<Resource[]> {
 async function readCurrentEventAutomationNames(): Promise<Set<string>> {
   for (;;) {
     const generation = _eventAutomationGeneration;
-    const scansBefore = _eventAutomationScanCount;
     const fingerprint = await resourceFingerprintAllOwners("jobs/");
+    // Counted after the read returns: a scan that began while it was running
+    // may have read jobs/ before a write the fingerprint already includes.
+    const scansBefore = _eventAutomationScanCount;
     if (generation !== _eventAutomationGeneration) continue;
     const cached = _eventAutomationNames;
     if (cached?.fingerprint === fingerprint) {
