@@ -3,13 +3,11 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import enUSMessages from "../i18n/en-US";
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
 
 describe("DesignEditor pending live edits", () => {
   it("keeps the Apply split button minimal", () => {
-    const source = readFileSync(
-      new URL("./DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     const toolbarStart = source.indexOf(
       "data-design-pending-visual-style-toolbar",
     );
@@ -36,10 +34,7 @@ describe("DesignEditor pending live edits", () => {
   });
 
   it("clears the pending state after Apply and explicit discard", () => {
-    const source = readFileSync(
-      new URL("./DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     const applyHandler = readFileSync(
       new URL(
         "./design-editor/commands/apply-pending-visual-styles-with-agent.ts",
@@ -57,10 +52,7 @@ describe("DesignEditor pending live edits", () => {
   });
 
   it("keeps Escape in the preview menu from reaching editor hotkeys", () => {
-    const source = readFileSync(
-      new URL("./DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     const menu = source.slice(
       source.indexOf("data-design-pending-visual-style-toolbar"),
       source.indexOf(
@@ -74,10 +66,7 @@ describe("DesignEditor pending live edits", () => {
   });
 
   it("keeps visual-edit sessions on copy unless a host agent can receive the handoff", () => {
-    const source = readFileSync(
-      new URL("./DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     expect(source).toContain("data-design-public-agent-empty-state");
     expect(source).toContain("canApplyPendingVisualEditsWithAgent");
     expect(source).toContain(
@@ -90,19 +79,13 @@ describe("DesignEditor pending live edits", () => {
   });
 
   it("publishes the handoff for agents that do not have the Design tab", () => {
-    const source = readFileSync(
-      new URL("./DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     expect(source).toContain("runPublishVisualEditPending({");
     expect(source).toContain("pendingVisualStylePrompt");
   });
 
   it("only publishes the durable handoff from an editor session", () => {
-    const source = readFileSync(
-      new URL("./DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     const publishCallIndex = source.indexOf("runPublishVisualEditPending({");
     expect(publishCallIndex).toBeGreaterThan(-1);
     const depsStart = source.indexOf(".then(publish);", publishCallIndex);
@@ -116,10 +99,7 @@ describe("DesignEditor pending live edits", () => {
   });
 
   it("uses the shared guard for frame entry and close path for re-clicking the focused screen", () => {
-    const source = readFileSync(
-      new URL("./DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     const handlerStart = source.indexOf(
       "const handleOverviewFrameAction = useCallback(",
     );
@@ -158,10 +138,7 @@ describe("DesignEditor pending live edits", () => {
   });
 
   it("shows the existing recovery toolbar whenever the Interact guard blocks", () => {
-    const source = readFileSync(
-      new URL("./DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     expect(source).toMatch(
       /onPendingVisualEditsBlocked: \(\) =>\s+setPendingVisualEditRecoveryVisible\(true\)/,
     );
