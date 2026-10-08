@@ -2604,6 +2604,9 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain("Didn't hear back from Builder");
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("connection");
   });
 
   it("clears a stale status-read error after a readable incomplete callback status", async () => {

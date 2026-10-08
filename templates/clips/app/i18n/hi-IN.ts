@@ -1318,6 +1318,7 @@ const messages = {
     burningRedactionsPercent:
       "रिडैक्शन को वीडियो में रेंडर किया जा रहा है… {{percent}}%",
     editFailed: "यह बदलाव सहेजा नहीं जा सका",
+    refreshFailed: "नवीनतम बदलाव लोड नहीं हो पाए। संपादन से पहले फिर से कोशिश करें।",
     autoSaveHint: "बदलाव इस क्लिप में अपने आप सहेजे जाते हैं",
     savingChanges: "बदलाव सहेजे जा रहे हैं…",
     changesSaved: "बदलाव इस क्लिप में सहेज दिए गए",

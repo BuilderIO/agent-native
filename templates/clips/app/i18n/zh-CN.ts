@@ -1281,6 +1281,7 @@ const messages = {
     burningRedactions: "正在将遮挡渲染进视频…",
     burningRedactionsPercent: "正在将遮挡渲染进视频… {{percent}}%",
     editFailed: "无法保存该编辑",
+    refreshFailed: "无法加载最新编辑内容。请重试后再进行编辑。",
     autoSaveHint: "编辑内容会自动保存到此剪辑",
     savingChanges: "正在保存更改…",
     changesSaved: "更改已保存到此剪辑",

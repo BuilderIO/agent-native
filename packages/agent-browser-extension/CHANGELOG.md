@@ -1,5 +1,61 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.322
+
+### Patch Changes
+
+- Updated dependencies [b7e32e4]
+- Updated dependencies [e7416e0]
+- Updated dependencies [4f42efa]
+- Updated dependencies [b7e32e4]
+- Updated dependencies [ab41d2b]
+- Updated dependencies [afc1fed]
+- Updated dependencies [a881977]
+- Updated dependencies [cbc151c]
+- Updated dependencies [de66ff4]
+- Updated dependencies [d9ab440]
+- Updated dependencies [1341328]
+- Updated dependencies [fc06d55]
+- Updated dependencies [e16da0c]
+- Updated dependencies [947f911]
+- Updated dependencies [b7e32e4]
+- Updated dependencies [e453592]
+- Updated dependencies [fc06d55]
+- Updated dependencies [b49b511]
+- Updated dependencies [ae5aed6]
+- Updated dependencies [79892cb]
+- Updated dependencies [b119a3d]
+- Updated dependencies [6f32f61]
+- Updated dependencies [b119a3d]
+- Updated dependencies [1b1d976]
+- Updated dependencies [8ab4068]
+- Updated dependencies
+- Updated dependencies [76d00e9]
+- Updated dependencies [5c5e00e]
+- Updated dependencies [0733f04]
+- Updated dependencies [ae5aed6]
+- Updated dependencies [e453592]
+- Updated dependencies [99e3425]
+- Updated dependencies [fc06d55]
+- Updated dependencies [4bccb4c]
+- Updated dependencies [5c5e00e]
+- Updated dependencies [ae5aed6]
+- Updated dependencies [37ae12f]
+- Updated dependencies [8418b84]
+- Updated dependencies [cc79bd1]
+- Updated dependencies [dfc1d2c]
+- Updated dependencies [e453592]
+- Updated dependencies [9e00e7b]
+- Updated dependencies [4f42efa]
+- Updated dependencies [ae5aed6]
+- Updated dependencies [b7e32e4]
+- Updated dependencies [004f2a9]
+- Updated dependencies [8318b23]
+- Updated dependencies [5c5e00e]
+- Updated dependencies [ae5aed6]
+- Updated dependencies [ae5aed6]
+  - @agent-native/core@0.205.0
+
 ## 0.1.321
 
 ### Patch Changes
@@ -1981,12 +2037,5 @@
 
 - Updated dependencies [c50b009]
   - @agent-native/core@0.166.0
-
-## 0.1.222
-
-### Patch Changes
-
-- Updated dependencies [8d56ed2]
-  - @agent-native/core@0.165.5
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

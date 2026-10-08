@@ -34,15 +34,24 @@ function parsePrivateBlobHandle(value: string): PrivateBlobHandle {
     !("id" in parsed) ||
     typeof parsed.id !== "string" ||
     !parsed.id ||
-    parsed.id.startsWith(PUBLIC_UPLOAD_HANDLE_PREFIX) ||
     !("provider" in parsed) ||
     typeof parsed.provider !== "string" ||
     !parsed.provider ||
-    parsed.provider.startsWith("public-upload:") ||
     !("opaque" in parsed) ||
     parsed.opaque !== true ||
     !("encrypted" in parsed) ||
     typeof parsed.encrypted !== "boolean"
+  ) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: "Screenshot not found",
+    });
+  }
+  const fallbackId = parsed.id.startsWith(PUBLIC_UPLOAD_HANDLE_PREFIX);
+  const fallbackProvider = parsed.provider.startsWith("public-upload:");
+  if (
+    (fallbackId || fallbackProvider) &&
+    !(fallbackId && fallbackProvider && parsed.encrypted === true)
   ) {
     throw createError({
       statusCode: 404,

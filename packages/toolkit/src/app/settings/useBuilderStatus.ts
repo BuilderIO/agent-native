@@ -1812,7 +1812,7 @@ export function useBuilderConnectFlow(
         if (s) {
           setError(
             "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
-            "launch",
+            "connection",
           );
         }
       }

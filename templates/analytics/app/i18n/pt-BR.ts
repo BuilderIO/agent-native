@@ -1646,8 +1646,12 @@ export default {
       "O Design não retornou um resultado do storyboard.",
     storyboardTemporaryCleanupPending:
       "O storyboard foi salvo, mas não foi possível remover os arquivos temporários de captura.",
+    storyboardTemporaryCleanupFailed:
+      "A limpeza das capturas temporárias ainda está pendente.",
     storyboardUnexpectedResponse:
       "A exportação das capturas retornou uma resposta ilegível. Tente novamente.",
+    storyboardSaveOutcomeUnknown:
+      "O Design pode ter salvo o storyboard. Verifique o Design antes de tentar novamente.",
     openStoryboard: "Abrir storyboard no Design",
     cancelStoryboardCapture: "Cancelar captura",
     captureToDesign: "Capturar e adicionar ao Design",

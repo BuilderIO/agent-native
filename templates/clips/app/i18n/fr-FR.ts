@@ -1372,6 +1372,8 @@ const messages = {
     burningRedactionsPercent:
       "Application des masquages à la vidéo… {{percent}} %",
     editFailed: "Impossible d'enregistrer cette modification",
+    refreshFailed:
+      "Impossible de charger les dernières modifications. Réessayez avant de modifier le clip.",
     autoSaveHint:
       "Les modifications sont enregistrées automatiquement sur ce clip",
     savingChanges: "Enregistrement des modifications…",
