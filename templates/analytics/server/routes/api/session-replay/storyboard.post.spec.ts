@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   deleteAttachment: vi.fn(),
-  getActivePrivateBlobProviderForRequest: vi.fn(),
+  isPrivateBlobConfiguredForRequest: vi.fn(),
   getSessionReplaySummary: vi.fn(),
   invokeAgent: vi.fn(),
   invokeAgentAction: vi.fn(),
@@ -30,8 +30,7 @@ vi.mock("@agent-native/core/a2a", () => ({
 vi.mock("@agent-native/core/private-blob", () => ({
   ATTACHMENT_REF_MAX_CHARS: 2_048,
   deleteAttachment: mocks.deleteAttachment,
-  getActivePrivateBlobProviderForRequest:
-    mocks.getActivePrivateBlobProviderForRequest,
+  isPrivateBlobConfiguredForRequest: mocks.isPrivateBlobConfiguredForRequest,
   isPrivateBlobError: () => false,
   mintAttachmentRef: mocks.mintAttachmentRef,
 }));
@@ -127,9 +126,7 @@ describe("POST /api/session-replay/storyboard", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     confirmationBoardContent = matchingBoardContent();
-    mocks.getActivePrivateBlobProviderForRequest.mockResolvedValue({
-      id: "private-provider",
-    });
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(true);
     mocks.getSessionReplaySummary.mockResolvedValue({
       id: screenshot.recordingId,
       app: "clips",
@@ -200,6 +197,31 @@ describe("POST /api/session-replay/storyboard", () => {
       }),
     );
     expect(mocks.invokeAgentAction).toHaveBeenCalledTimes(4);
+  });
+
+  it("accepts the encrypted file-upload fallback for private screenshot storage", async () => {
+    mocks.mintAttachmentRef.mockResolvedValue({
+      status: "ok",
+      ref: "private-attachment-ref",
+      handle: { provider: "public-upload:s3", opaque: true, encrypted: true },
+    });
+
+    const result = await (handler as any)(makeEvent(multipartBody()));
+
+    expect(result.screenshotCount).toBe(1);
+  });
+
+  it("rejects screenshot export when neither private storage path is configured", async () => {
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(false);
+
+    await expect(
+      (handler as any)(makeEvent(multipartBody())),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      statusMessage:
+        "Private screenshot storage is not configured for Analytics",
+    });
+    expect(mocks.readMultipartFormData).not.toHaveBeenCalled();
   });
 
   it("reports a timed-out mutation as successful only when read-back proves the write", async () => {

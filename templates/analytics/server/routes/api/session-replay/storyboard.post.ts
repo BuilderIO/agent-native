@@ -6,7 +6,7 @@ import {
 import {
   ATTACHMENT_REF_MAX_CHARS,
   deleteAttachment,
-  getActivePrivateBlobProviderForRequest,
+  isPrivateBlobConfiguredForRequest,
   isPrivateBlobError,
   mintAttachmentRef,
 } from "@agent-native/core/private-blob";
@@ -448,6 +448,7 @@ function designBoardUrl(baseUrl: string, designId: string): string {
 export default defineEventHandler(async (event) =>
   runApiHandlerWithContext(event, async (ctx) => {
     const mintedRefs: string[] = [];
+    let storageProviderId: string | undefined;
     let cleanupPending = false;
     let responseBody:
       | {
@@ -459,8 +460,7 @@ export default defineEventHandler(async (event) =>
         }
       | undefined;
     try {
-      const provider = await getActivePrivateBlobProviderForRequest();
-      if (!provider) {
+      if (!(await isPrivateBlobConfiguredForRequest())) {
         badRequest(
           "Private screenshot storage is not configured for Analytics",
           503,
@@ -571,12 +571,13 @@ export default defineEventHandler(async (event) =>
         if (minted.ref.length > ATTACHMENT_REF_MAX_CHARS) {
           badRequest("Screenshot handoff reference is too large", 413);
         }
-        if (
-          minted.handle.provider !== provider.id ||
-          minted.handle.opaque !== true
-        ) {
+        if (minted.handle.opaque !== true) {
           badRequest("Private screenshot storage provider changed", 503);
         }
+        if (storageProviderId && minted.handle.provider !== storageProviderId) {
+          badRequest("Private screenshot storage provider changed", 503);
+        }
+        storageProviderId = minted.handle.provider;
         handoffScreenshots.push({
           attachmentRef: minted.ref,
           replayId: recording.id,
