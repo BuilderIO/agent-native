@@ -26,6 +26,7 @@ import {
   type ChunkedUploadSession,
 } from "../lib/chunked-upload-session.js";
 import { isHostedSlidesRuntime } from "../lib/tenant-files.js";
+import { MAX_VIDEO_ASSET_FILE_SIZE, uploadVideoAsset } from "./assets.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
@@ -46,6 +47,7 @@ interface StartBody {
   filename?: unknown;
   mimetype?: unknown;
   declaredSize?: unknown;
+  uploadType?: unknown;
 }
 
 async function deleteChunk(handle: ChunkedUploadSession["chunks"][string]) {
@@ -125,7 +127,7 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
 
   return withSlidesRequestContext(
     event,
-    async () => {
+    async ({ orgId }) => {
       if (!isHostedSlidesRuntime()) {
         return { uploadMode: "multipart" as const };
       }
@@ -140,6 +142,7 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
           ? body.mimetype.trim()
           : "application/octet-stream";
       const declaredSize = Number(body?.declaredSize);
+      const uploadType = body?.uploadType ?? "reference";
       if (!filename) {
         setResponseStatus(event, 400);
         return { error: "filename is required" };
@@ -148,17 +151,34 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
         setResponseStatus(event, 400);
         return { error: "declaredSize must be a positive integer" };
       }
-      const limit = maxReferenceFileBytes(filename);
+      if (uploadType !== "reference" && uploadType !== "video") {
+        setResponseStatus(event, 400);
+        return { error: "Unsupported upload type" };
+      }
+      if (uploadType === "video" && !/\.(mp4|webm)$/i.test(filename)) {
+        setResponseStatus(event, 400);
+        return { error: "Only MP4 and WebM videos are allowed" };
+      }
+      const limit =
+        uploadType === "video"
+          ? MAX_VIDEO_ASSET_FILE_SIZE
+          : maxReferenceFileBytes(filename);
       if (declaredSize > limit) {
         setResponseStatus(event, 413);
         return {
-          error: `File too large (max ${Math.round(limit / 1024 / 1024)} MB)`,
+          error:
+            uploadType === "video"
+              ? "Video too large (max 50 MB)"
+              : `File too large (max ${Math.round(limit / 1024 / 1024)} MB)`,
         };
       }
 
       const sessionId = nanoid();
       const now = Date.now();
       await createChunkedUploadSession(sessionId, {
+        uploadType,
+        ownerEmail: authContext.email,
+        orgId: orgId ?? null,
         filename,
         mimeType: mimetype,
         declaredSize,
@@ -199,6 +219,14 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         setResponseStatus(event, 404);
         return { error: "Upload session not found or expired" };
       }
+      if (
+        (session.ownerEmail && session.ownerEmail !== email) ||
+        (session.ownerEmail && (session.orgId ?? null) !== (orgId ?? null)) ||
+        (session.uploadType === "video" && !session.ownerEmail)
+      ) {
+        setResponseStatus(event, 403);
+        return { error: "Upload session belongs to another user" };
+      }
       if (Date.parse(session.expiresAt) <= Date.now()) {
         await discardSession(sessionId, session);
         setResponseStatus(event, 410);
@@ -235,7 +263,10 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         0,
       );
       const nextSize = receivedBefore - previousSize + contentLength;
-      const fileLimit = maxReferenceFileBytes(session.filename);
+      const fileLimit =
+        session.uploadType === "video"
+          ? MAX_VIDEO_ASSET_FILE_SIZE
+          : maxReferenceFileBytes(session.filename);
       if (nextSize > session.declaredSize || nextSize > fileLimit) {
         await discardSession(sessionId, session);
         setResponseStatus(event, 413);
@@ -307,13 +338,21 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         if (combined.byteLength !== session.declaredSize) {
           throw new Error("Assembled upload size does not match declaredSize");
         }
-        result = await saveUploadedReferenceFile({
-          email,
-          orgId,
-          originalName: session.filename,
-          data: combined,
-          type: session.mimeType,
-        });
+        result =
+          session.uploadType === "video"
+            ? await uploadVideoAsset({
+                email,
+                orgId,
+                originalName: session.filename,
+                data: combined,
+              })
+            : await saveUploadedReferenceFile({
+                email,
+                orgId,
+                originalName: session.filename,
+                data: combined,
+                type: session.mimeType,
+              });
       } catch (err) {
         await discardSession(sessionId, session);
         const statusCode =
@@ -325,7 +364,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
       }
 
       await cleanupCommittedSession(sessionId, session);
-      return [result];
+      return session.uploadType === "video" ? result : [result];
     },
     authContext,
   );

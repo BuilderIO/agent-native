@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   readRawBody: vi.fn(),
   saveFile: vi.fn(),
   setStatus: vi.fn(),
+  resolveAuth: vi.fn(),
+  uploadVideoAsset: vi.fn(),
 }));
 
 vi.mock("h3", () => ({
@@ -50,10 +52,7 @@ vi.mock("../lib/chunked-upload-session.js", () => ({
 }));
 
 vi.mock("./request-auth-context.js", () => ({
-  resolveSlidesRequestAuth: vi.fn(async () => ({
-    ok: true,
-    context: { email: "owner@example.com", orgId: "org-1" },
-  })),
+  resolveSlidesRequestAuth: (...args: unknown[]) => mocks.resolveAuth(...args),
   withSlidesRequestContext: vi.fn(
     async (
       _event: unknown,
@@ -67,10 +66,18 @@ vi.mock("./uploads.js", () => ({
   saveUploadedReferenceFile: (...args: unknown[]) => mocks.saveFile(...args),
 }));
 
+vi.mock("./assets.js", () => ({
+  MAX_VIDEO_ASSET_FILE_SIZE: 50 * 1024 * 1024,
+  uploadVideoAsset: (...args: unknown[]) => mocks.uploadVideoAsset(...args),
+}));
+
 import { startChunkedUpload, uploadChunkedChunk } from "./uploads-chunked";
 
 function session(overrides: Record<string, unknown> = {}) {
   return {
+    uploadType: "reference",
+    ownerEmail: "owner@example.com",
+    orgId: "org-1",
     filename: "deck.pptx",
     mimeType:
       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -88,6 +95,10 @@ describe("chunked reference uploads", () => {
     vi.clearAllMocks();
     mocks.getRouterParam.mockReturnValue("session-1");
     mocks.isHosted.mockReturnValue(true);
+    mocks.resolveAuth.mockResolvedValue({
+      ok: true,
+      context: { email: "owner@example.com", orgId: "org-1" },
+    });
     mocks.listSessions.mockResolvedValue([]);
     mocks.readBody.mockResolvedValue({
       filename: "deck.pptx",
@@ -109,6 +120,12 @@ describe("chunked reference uploads", () => {
       data: new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
     });
     mocks.saveFile.mockResolvedValue({ path: "slides-upload:v1:final" });
+    mocks.uploadVideoAsset.mockResolvedValue({
+      url: "https://media.example.com/clip.mp4",
+      filename: "clip.mp4",
+      type: "video/mp4",
+      size: 4,
+    });
     mocks.deleteBlob.mockResolvedValue({
       deleted: true,
       provider: "public-upload:builder",
@@ -150,6 +167,45 @@ describe("chunked reference uploads", () => {
       maxChunkBytes: 4 * 1024 * 1024,
     });
     expect(mocks.createSession).toHaveBeenCalled();
+  });
+
+  it("starts a bounded video upload session with the requesting owner", async () => {
+    mocks.readBody.mockResolvedValue({
+      filename: "clip.mp4",
+      mimetype: "video/mp4",
+      declaredSize: 5_566_718,
+      uploadType: "video",
+    });
+
+    await expect(startChunkedUpload({} as never)).resolves.toEqual({
+      sessionId: expect.any(String),
+      maxChunkBytes: 4 * 1024 * 1024,
+    });
+    expect(mocks.createSession).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        uploadType: "video",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        filename: "clip.mp4",
+        declaredSize: 5_566_718,
+      }),
+    );
+  });
+
+  it("rejects a video upload above the shared 50 MB limit", async () => {
+    mocks.readBody.mockResolvedValue({
+      filename: "clip.mp4",
+      mimetype: "video/mp4",
+      declaredSize: 50 * 1024 * 1024 + 1,
+      uploadType: "video",
+    });
+
+    await expect(startChunkedUpload({} as never)).resolves.toEqual({
+      error: "Video too large (max 50 MB)",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 413);
+    expect(mocks.createSession).not.toHaveBeenCalled();
   });
 
   it("rejects a missing Content-Length before buffering the body", async () => {
@@ -227,6 +283,52 @@ describe("chunked reference uploads", () => {
       { path: "slides-upload:v1:final" },
     ]);
     expect(mocks.saveFile).toHaveBeenCalled();
+  });
+
+  it("stores a completed video through the uploaded-assets path", async () => {
+    const video = {
+      url: "https://media.example.com/clip.mp4",
+      filename: "clip.mp4",
+      type: "video/mp4",
+      size: 4,
+    };
+    mocks.getQuery.mockReturnValue({ index: "0", isFinal: "1" });
+    mocks.getSession.mockResolvedValue(
+      session({
+        uploadType: "video",
+        filename: "clip.mp4",
+        mimeType: "video/mp4",
+        declaredSize: 4,
+      }),
+    );
+    mocks.uploadVideoAsset.mockResolvedValue(video);
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual(video);
+    expect(mocks.uploadVideoAsset).toHaveBeenCalledWith({
+      email: "owner@example.com",
+      orgId: "org-1",
+      originalName: "clip.mp4",
+      data: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+    });
+    expect(mocks.saveFile).not.toHaveBeenCalled();
+    expect(mocks.deleteSession).toHaveBeenCalledWith("session-1");
+  });
+
+  it("rejects a video upload session owned by a different user", async () => {
+    mocks.resolveAuth.mockResolvedValueOnce({
+      ok: true,
+      context: { email: "other@example.com", orgId: "org-1" },
+    });
+    mocks.getSession.mockResolvedValue(
+      session({ uploadType: "video", filename: "clip.mp4" }),
+    );
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+      error: "Upload session belongs to another user",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 403);
+    expect(mocks.readRawBody).not.toHaveBeenCalled();
+    expect(mocks.putBlob).not.toHaveBeenCalled();
   });
 
   it("rejects a final upload whose bytes do not equal declaredSize", async () => {

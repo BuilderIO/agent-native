@@ -7,6 +7,9 @@ import {
 import type { PrivateBlobHandle } from "@agent-native/core/private-blob";
 
 export interface ChunkedUploadSession {
+  uploadType?: "reference" | "video";
+  ownerEmail?: string;
+  orgId?: string | null;
   filename: string;
   mimeType: string;
   declaredSize: number;

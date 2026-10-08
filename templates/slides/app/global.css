@@ -1255,6 +1255,13 @@ button[title="Open agent sidebar"] {
   animation: skeleton-shimmer 1.6s linear infinite;
 }
 
+.fmd-video-upload-placeholder {
+  overflow: hidden;
+  border: 1px solid var(--deck-line, currentColor);
+  border-radius: var(--deck-radius, 0);
+  background-color: var(--deck-surface, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .slide-thumbnail-ai-shimmer {
     animation: none;

@@ -428,7 +428,11 @@ function layerKindForElement(
   hasChildren: boolean,
 ): SlidesLayerKind {
   if (isRichTextBlock(element)) return "text";
-  if (element.tagName === "VIDEO") return "video";
+  if (
+    element.tagName === "VIDEO" ||
+    element.classList.contains("fmd-video-upload-placeholder")
+  )
+    return "video";
   if (
     element.tagName === "IMG" ||
     element.classList.contains("fmd-img-placeholder") ||
