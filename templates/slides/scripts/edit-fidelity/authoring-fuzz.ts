@@ -172,6 +172,10 @@ export function isBrowserSessionPath(pathname: string) {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
+export function isConflictResourceConsoleError(message: string) {
+  return /\bstatus of 409\b/.test(message);
+}
+
 export function authoringFuzzLineNavigationKeys(
   platform: string,
   override?: ReturnType<typeof lineNavigationKeys>,
@@ -644,7 +648,7 @@ export async function runAuthoringFuzz(
   let conflictResourceErrors = 0;
   const onConsole = (message: any) => {
     if (message.type() !== "error") return;
-    if (message.text().includes("status of 409 (Conflict)")) {
+    if (isConflictResourceConsoleError(message.text())) {
       conflictResourceErrors += 1;
       return;
     }
