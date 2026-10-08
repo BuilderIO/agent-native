@@ -1111,6 +1111,23 @@ export function interpolateMcpConnectTemplate(
 export const PLAIN_MCP_SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 /**
+ * A name the framework derives from the app id or hostname is its own guess,
+ * so it is fitted to the plain shape rather than refused: a 63-character
+ * hostname label is valid DNS but pushes `agent-native-<label>-preview` past
+ * 64 characters. A name the developer configures is still refused.
+ */
+export function derivedMcpServerBaseName(
+  label: string,
+  environment: McpConnectEnvironment,
+): string {
+  const room = 64 - (environment === "production" ? 0 : environment.length + 1);
+  const slug = label
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/^[^A-Za-z0-9]+/, "");
+  return `agent-native-${slug || "app"}`.slice(0, room).replace(/[-_]+$/, "");
+}
+
+/**
  * Production keeps the bare name so existing client entries keep working;
  * every other environment gets its own entry instead of overwriting
  * production's in the same client.

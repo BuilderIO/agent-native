@@ -4,6 +4,7 @@ import { SUPPORTED_LOCALES } from "../localization/shared.js";
 import {
   MCP_CONNECT_GUIDES,
   buildMcpInstallLink,
+  derivedMcpServerBaseName,
   matchesMcpConnectHost,
   mcpConnectServerName,
   MCP_STATIC_TOKEN_FALLBACK,
@@ -154,6 +155,31 @@ describe("MCP server names", () => {
     expect(() => mcpConnectServerName("a".repeat(60), "beta")).toThrow(
       /not a plain name/,
     );
+  });
+
+  it.each([
+    ["mail", "production", "agent-native-mail"],
+    ["[::1]", "local", "agent-native-1"],
+    ["@acme/notes", "production", "agent-native-acme-notes"],
+    ["", "production", "agent-native-app"],
+  ] as const)(
+    "derives a publishable base name from %j",
+    (label, environment, expected) => {
+      expect(derivedMcpServerBaseName(label, environment)).toBe(expected);
+      expect(() =>
+        mcpConnectServerName(
+          derivedMcpServerBaseName(label, environment),
+          environment,
+        ),
+      ).not.toThrow();
+    },
+  );
+
+  it("shortens a derived name so the environment suffix still fits", () => {
+    const base = derivedMcpServerBaseName("a".repeat(63), "preview");
+    const name = mcpConnectServerName(base, "preview");
+    expect(name).toHaveLength(64);
+    expect(name.endsWith("-preview")).toBe(true);
   });
 });
 

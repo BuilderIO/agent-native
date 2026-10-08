@@ -1419,6 +1419,19 @@ describe("explicit server name", () => {
       }),
     ).rejects.toThrow(/not a plain name/);
   });
+
+  it("is refused before a token is minted that no response would return", async () => {
+    const { recordMintedToken } = await import("./connect-store.js");
+    vi.mocked(recordMintedToken).mockClear();
+    await expect(
+      handleMcpConnect(
+        ev({ method: "POST", host: "plan.agent-native.com" }),
+        "/token",
+        { serverName: "plan; echo hi" },
+      ),
+    ).rejects.toThrow(/not a plain name/);
+    expect(recordMintedToken).not.toHaveBeenCalled();
+  });
 });
 
 describe("connect identity", () => {
@@ -1446,6 +1459,16 @@ describe("connect identity", () => {
       mcpUrl: "https://content.agent-native.com/mcp",
       environment: "production",
     });
+  });
+
+  it("fits a long hostname-derived name instead of failing", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "preview");
+    const label = `deploy-preview-6800--${"x".repeat(42)}`;
+    const { serverName } = await identityFor(`${label}.netlify.app`);
+    expect(serverName).toMatch(
+      /^agent-native-deploy-preview-6800--x+-preview$/,
+    );
+    expect(serverName.length).toBeLessThanOrEqual(64);
   });
 
   it.each([

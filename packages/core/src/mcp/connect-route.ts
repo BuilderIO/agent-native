@@ -28,6 +28,7 @@ import { readBody } from "../server/h3-helpers.js";
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import {
   buildMcpInstallLink,
+  derivedMcpServerBaseName,
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
@@ -176,7 +177,8 @@ export function resolveMcpConnectIdentity(
 ): McpConnectIdentity {
   const environment = connectEnvironment();
   const baseName =
-    options.serverName?.trim() || `agent-native-${appLabel(appUrl, options)}`;
+    options.serverName?.trim() ||
+    derivedMcpServerBaseName(appLabel(appUrl, options), environment);
   return {
     serverName: mcpConnectServerName(baseName, environment),
     appName: options.appName || appLabel(appUrl, options),
@@ -388,15 +390,14 @@ export async function mintOrgServiceToken(params: {
 }
 
 function mcpResultPayload(
-  appUrl: string,
-  options: McpConnectRouteOptions,
+  identity: McpConnectIdentity,
   auth: {
     token?: string;
     ownerEmail?: string;
     catalogScope?: "full" | null;
   },
 ) {
-  const { mcpUrl, serverName } = resolveMcpConnectIdentity(appUrl, options);
+  const { appUrl, mcpUrl, serverName } = identity;
   const headers: Record<string, string> = {};
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
   if (!auth.token && auth.ownerEmail) {
@@ -1428,6 +1429,9 @@ export async function handleMcpConnect(
   const origin = deriveOrigin(event);
   const basePath = getConfiguredAppBasePath();
   const appUrl = `${origin}${basePath}`;
+  // Before any subroute mints a token: a name that cannot be published must
+  // fail the request before a token record exists that no response returns.
+  const identity = resolveMcpConnectIdentity(appUrl, options);
   let requestUrl: URL | null = null;
   try {
     requestUrl = new URL(
@@ -1461,7 +1465,7 @@ export async function handleMcpConnect(
         renderConnectPage({
           connectBasePath: basePath,
           email: "(no auth configured)",
-          identity: resolveMcpConnectIdentity(appUrl, options),
+          identity,
           userCode: null,
           catalogScope: null,
           locale,
@@ -1490,7 +1494,7 @@ export async function handleMcpConnect(
       renderConnectPage({
         connectBasePath: basePath,
         email: session.email,
-        identity: resolveMcpConnectIdentity(appUrl, options),
+        identity,
         userCode,
         catalogScope,
         locale,
@@ -1505,7 +1509,7 @@ export async function handleMcpConnect(
     if (method !== "GET" && method !== "HEAD") {
       return json({ error: "Method not allowed" }, 405);
     }
-    return json(resolveMcpConnectIdentity(appUrl, options));
+    return json(identity);
   }
 
   if (sub === "/token") {
@@ -1516,9 +1520,7 @@ export async function handleMcpConnect(
       !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
       canUseDevOpenConnect(event)
     ) {
-      return json(
-        mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
-      );
+      return json(mcpResultPayload(identity, { ownerEmail: session.email }));
     }
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       label?: unknown;
@@ -1548,7 +1550,7 @@ export async function handleMcpConnect(
         requestOrigin: origin,
         ...(catalogScope ? { catalogScope } : {}),
       });
-      return json(mcpResultPayload(appUrl, options, { token }));
+      return json(mcpResultPayload(identity, { token }));
     } catch (err) {
       if (err instanceof McpCredentialIssuanceError)
         return issuanceErrorResponse(err);
@@ -1716,7 +1718,7 @@ export async function handleMcpConnect(
           if (devOpen) {
             return json({
               status: "approved",
-              ...mcpResultPayload(appUrl, options, {
+              ...mcpResultPayload(identity, {
                 ownerEmail: row.ownerEmail!,
                 catalogScope: claimed.catalogScope,
               }),
@@ -1747,7 +1749,7 @@ export async function handleMcpConnect(
           }
           return json({
             status: "approved",
-            ...mcpResultPayload(appUrl, options, { token }),
+            ...mcpResultPayload(identity, { token }),
           });
         },
       );
