@@ -227,6 +227,7 @@ import {
   useId,
   type Dispatch,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import { flushSync } from "react-dom";
@@ -511,6 +512,7 @@ import {
 } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
+import { useViewSettings } from "@/hooks/use-view-settings";
 import {
   isDesignHotkeyEditableTarget,
   isNativeKeyboardActivationTarget,
@@ -1271,6 +1273,40 @@ type RequestDesignAccessResult = {
 // first overview camera render — before any layout effect could measure the
 // DOM — already accounts for it; see chromeInsetLeft below.
 const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
+
+const ZOOM_MENU_ROW_CLASS = "h-6 px-2 py-0 text-[12px]";
+
+function ZoomMenuRow({
+  label,
+  checked,
+  shortcut,
+  disabled,
+  onSelect,
+}: {
+  label: ReactNode;
+  checked?: boolean;
+  shortcut?: string;
+  disabled?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <DropdownMenuItem
+      onClick={onSelect}
+      disabled={disabled}
+      className={ZOOM_MENU_ROW_CLASS}
+    >
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        {checked ? <IconCheck className="size-3.5" /> : null}
+      </span>
+      <span className="flex-1">{label}</span>
+      {shortcut ? (
+        <DropdownMenuShortcut className="tracking-normal">
+          {shortcut}
+        </DropdownMenuShortcut>
+      ) : null}
+    </DropdownMenuItem>
+  );
+}
 
 const NO_SELECTORS: string[] = [];
 const NO_SELECTOR_GROUPS: string[][] = [];
@@ -8230,6 +8266,29 @@ function DesignEditor() {
     zoom,
   ]);
 
+  const {
+    settings: {
+      pixelGrid,
+      snapToPixelGrid,
+      rulers,
+      multiplayerCursors,
+      commentsHidden,
+    },
+    update: updateViewSettings,
+    toggle: toggleViewSetting,
+  } = useViewSettings({ enabled: isSignedIn });
+  const showComments = useCallback(
+    () => updateViewSettings({ commentsHidden: false }),
+    [updateViewSettings],
+  );
+  const visibleCursorOthers = useMemo(
+    () =>
+      multiplayerCursors
+        ? othersWithAgentCursor
+        : othersWithAgentCursor.filter((other) => other.isAgent),
+    [multiplayerCursors, othersWithAgentCursor],
+  );
+
   const { others: overviewOthers } = usePresence(
     overviewAwareness,
     overviewYdoc?.clientID ?? null,
@@ -12485,7 +12544,7 @@ function DesignEditor() {
         persistPendingNodeId: false,
         breakpointWidthPx,
       });
-      setCommentsHidden(false);
+      showComments();
       viewModeRef.current = "overview";
       setActiveFileId(screenId);
       setOverviewSelectedScreenIds([screenId]);
@@ -12510,6 +12569,7 @@ function DesignEditor() {
       handleScreenElementSelect,
       id,
       overviewScreens,
+      showComments,
     ],
   );
 
@@ -16173,10 +16233,9 @@ function DesignEditor() {
       window.removeEventListener(DESIGN_HISTORY_OPEN_EVENT, openHistory);
   }, []);
 
-  const [commentsHidden, setCommentsHidden] = useState(false);
   const handleToggleComments = useCallback(() => {
-    setCommentsHidden((current) => !current);
-  }, []);
+    toggleViewSetting("commentsHidden");
+  }, [toggleViewSetting]);
 
   const handleUngroupSelection = useCallback(
     () =>
@@ -18531,7 +18590,7 @@ function DesignEditor() {
       handleExitReviewCommentMode();
       return;
     }
-    setCommentsHidden(false);
+    showComments();
     setActiveInspectorTab("comments");
     if (viewMode !== "overview") {
       enterOverviewFromZoom("annotate");
@@ -18545,6 +18604,7 @@ function DesignEditor() {
     enterOverviewFromZoom,
     handleExitReviewCommentMode,
     pinMode,
+    showComments,
     viewMode,
   ]);
 
@@ -24944,20 +25004,20 @@ function DesignEditor() {
   const [openZoomControl, setOpenZoomControl] = useState<
     "toolbar" | "inspector" | null
   >(null);
-  const [zoomInputValue, setZoomInputValue] = useState(zoomLabel);
+  const zoomInputDigits = String(Math.round(zoom));
+  const [zoomInputValue, setZoomInputValue] = useState(zoomInputDigits);
   useEffect(() => {
-    if (!openZoomControl) setZoomInputValue(zoomLabel);
-  }, [zoomLabel, openZoomControl]);
+    if (!openZoomControl) setZoomInputValue(zoomInputDigits);
+  }, [zoomInputDigits, openZoomControl]);
   const commitZoomInput = useCallback(() => {
-    const next = Number(zoomInputValue.replace("%", "").trim());
-    if (!Number.isFinite(next)) {
-      setZoomInputValue(zoomLabel);
+    if (zoomInputValue === "") {
+      setZoomInputValue(zoomInputDigits);
       return;
     }
     suppressOverviewPopForExplicitZoomRef.current = true;
-    setZoom(clampZoom(next));
+    setZoom(clampZoom(Number(zoomInputValue)));
     setOpenZoomControl(null);
-  }, [setZoom, zoomInputValue, zoomLabel]);
+  }, [setZoom, zoomInputValue, zoomInputDigits]);
 
   const handleTokensApplied = useCallback(
     (resolvedCssVars: Record<string, string>) => {
@@ -26458,7 +26518,7 @@ function DesignEditor() {
       open={openZoomControl === controlId}
       onOpenChange={(open) => {
         if (open) {
-          setZoomInputValue(zoomLabel);
+          setZoomInputValue(zoomInputDigits);
           setOpenZoomControl(controlId);
           return;
         }
@@ -26487,74 +26547,94 @@ function DesignEditor() {
         className="design-editor-app-menu-content w-52 rounded-lg bg-[var(--design-editor-panel-bg)] p-1"
       >
         <div className="px-1 pb-1 pt-0.5">
-          <Input
-            autoFocus
-            value={zoomInputValue}
-            onChange={(event) => setZoomInputValue(event.target.value)}
-            onFocus={(event) => event.currentTarget.select()}
-            onKeyDown={(event) => {
-              event.stopPropagation();
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commitZoomInput();
-              } else if (event.key === "Escape") {
-                event.preventDefault();
-                setZoomInputValue(zoomLabel);
-                setOpenZoomControl(null);
+          <div className="flex h-7 items-center rounded-[5px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-control-bg)] px-2 text-[12px] font-medium tabular-nums text-foreground focus-within:ring-1 focus-within:ring-[var(--design-editor-accent-color)]">
+            <Input
+              autoFocus
+              inputMode="numeric"
+              value={zoomInputValue}
+              onChange={(event) =>
+                setZoomInputValue(event.target.value.replace(/\D/g, ""))
               }
-            }}
-            className="h-7 rounded-[5px] border-[var(--design-editor-accent-color)] bg-[var(--design-editor-control-bg)] px-2 text-[12px] font-medium tabular-nums text-foreground shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-            aria-label={"Zoom percentage" /* i18n-ignore zoom field */}
-          />
+              onFocus={(event) => event.currentTarget.select()}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitZoomInput();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  setZoomInputValue(zoomInputDigits);
+                  setOpenZoomControl(null);
+                }
+              }}
+              style={{ width: `${Math.max(zoomInputValue.length, 1)}ch` }}
+              className="h-auto min-w-0 rounded-none border-0 bg-transparent p-0 text-[12px] font-medium shadow-none focus-visible:ring-0"
+              aria-label={"Zoom percentage" /* i18n-ignore zoom field */}
+            />
+            <span aria-hidden="true">%</span>
+          </div>
         </div>
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={handleZoomIn}
-          className="h-6 px-2 py-0 text-[12px]"
-        >
-          <span className="flex-1">{"Zoom in" /* i18n-ignore */}</span>
-          <DropdownMenuShortcut className="tracking-normal">
-            {shortcut("$mod+=")}
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={handleZoomOut}
-          className="h-6 px-2 py-0 text-[12px]"
-        >
-          <span className="flex-1">{"Zoom out" /* i18n-ignore */}</span>
-          <DropdownMenuShortcut className="tracking-normal">
-            {shortcut("$mod+-")}
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={handleZoomToFit}
-          className="h-6 px-2 py-0 text-[12px]"
-        >
-          <span className="flex-1">{"Zoom to fit" /* i18n-ignore */}</span>
-          <DropdownMenuShortcut className="tracking-normal">
-            {shortcut("shift+1")}
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
+        <ZoomMenuRow
+          label={"Zoom in" /* i18n-ignore */}
+          shortcut={shortcut("$mod+=")}
+          onSelect={handleZoomIn}
+        />
+        <ZoomMenuRow
+          label={"Zoom out" /* i18n-ignore */}
+          shortcut={shortcut("$mod+-")}
+          onSelect={handleZoomOut}
+        />
+        <ZoomMenuRow
+          label={"Zoom to fit" /* i18n-ignore */}
+          shortcut={shortcut("shift+1")}
+          onSelect={handleZoomToFit}
+        />
         {[50, 100, 200].map((preset) => (
-          <DropdownMenuItem
+          <ZoomMenuRow
             key={preset}
-            onClick={() => {
+            label={
+              <>
+                {"Zoom to " /* i18n-ignore */}
+                {preset}%
+              </>
+            }
+            shortcut={preset === 100 ? shortcut("$mod+0") : undefined}
+            onSelect={() => {
               suppressOverviewPopForExplicitZoomRef.current = true;
               setZoom(preset);
             }}
-            className="h-6 px-2 py-0 text-[12px]"
-          >
-            <span className="flex-1">
-              {"Zoom to " /* i18n-ignore */}
-              {preset}%
-            </span>
-            {preset === 100 ? (
-              <DropdownMenuShortcut className="tracking-normal">
-                {shortcut("$mod+0")}
-              </DropdownMenuShortcut>
-            ) : null}
-          </DropdownMenuItem>
+          />
         ))}
+        <DropdownMenuSeparator />
+        <ZoomMenuRow
+          label={"Pixel grid" /* i18n-ignore */}
+          checked={pixelGrid}
+          onSelect={() => toggleViewSetting("pixelGrid")}
+        />
+        <ZoomMenuRow
+          label={"Snap to pixel grid" /* i18n-ignore */}
+          checked={snapToPixelGrid}
+          onSelect={() => toggleViewSetting("snapToPixelGrid")}
+        />
+        <ZoomMenuRow
+          label={"Rulers" /* i18n-ignore */}
+          checked={rulers}
+          disabled={viewMode !== "overview"}
+          onSelect={() => toggleViewSetting("rulers")}
+        />
+        <ZoomMenuRow
+          label={"Multiplayer cursors" /* i18n-ignore */}
+          checked={multiplayerCursors}
+          onSelect={() => toggleViewSetting("multiplayerCursors")}
+        />
+        <DropdownMenuSeparator />
+        <ZoomMenuRow
+          label={"Comments" /* i18n-ignore */}
+          checked={!commentsHidden}
+          shortcut={shortcut("shift+c")}
+          onSelect={handleToggleComments}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -28283,6 +28363,9 @@ function DesignEditor() {
                         reviewResourceId={id}
                         reviewPinMode={pinMode}
                         reviewCommentsHidden={commentsHidden}
+                        pixelGridEnabled={pixelGrid}
+                        snapToPixelGrid={snapToPixelGrid}
+                        showRulers={rulers}
                         reviewCanPost={canCommentDesign}
                         reviewCanResolve={canEditDesign}
                         reviewTargetId={null}
@@ -28672,6 +28755,7 @@ function DesignEditor() {
                             : null
                         }
                         zoom={responsiveInteractActive ? interactZoom : zoom}
+                        pixelGridEnabled={pixelGrid}
                         onZoomChange={
                           responsiveInteractActive ? undefined : setZoom
                         }
@@ -28964,9 +29048,9 @@ function DesignEditor() {
                       {/* Presence: live cursor overlay for remote participants.
                           The AI gets a synthesized cursor derived from its
                           current edit target (see othersWithAgentCursor). */}
-                      {othersWithAgentCursor.length > 0 && (
+                      {visibleCursorOthers.length > 0 && (
                         <LiveCursorOverlay
-                          others={othersWithAgentCursor}
+                          others={visibleCursorOthers}
                           containerRef={canvasContainerRef}
                         />
                       )}
