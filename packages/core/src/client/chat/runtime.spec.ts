@@ -380,16 +380,21 @@ describe("createHttpAgentChatRuntime", () => {
   it("lets a transport continue a paused turn with the previous input", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(sseResponse([{ type: "done" }], "run-1"))
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "tool-use" }], "run-1"),
+      )
       .mockResolvedValueOnce(sseResponse([{ type: "done" }], "run-2"));
+    let continuedInput: AgentChatRuntimeTurnInput | undefined;
     const runtime = createHttpAgentChatRuntime({
       endpoint: "/agent/chat",
       fetch: fetchMock as typeof fetch,
-      continueTurn: ({ continuation, previousTurn, startTurn }) =>
-        startTurn({
+      continueTurn: ({ continuation, previousTurn, startTurn }) => {
+        continuedInput = previousTurn;
+        return startTurn({
           ...previousTurn,
           prompt: continuation.prompt,
-        }),
+        });
+      },
     });
     const session = await runtime.createSession({ id: "thread-1" });
     const first = await session.startTurn({ prompt: "Start" });
@@ -399,6 +404,7 @@ describe("createHttpAgentChatRuntime", () => {
     expect(second).toBeDefined();
     await drain(second!.events);
 
+    expect(continuedInput).toMatchObject({ prompt: "Start" });
     expect(
       JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
     ).toMatchObject({

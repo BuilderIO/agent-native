@@ -3109,6 +3109,102 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("preserves turn context through client time-limit continuation", async () => {
+    const sseResponse = (events: unknown[], runId: string) =>
+      new Response(
+        events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+        {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "X-Run-Id": runId,
+          },
+        },
+      );
+    let turnId: string | undefined;
+    let continuationRequest: Record<string, unknown> | undefined;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), "http://localhost");
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (method === "POST") {
+          const request = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          if (request.autoContinueOfRunId === "run-1") {
+            continuationRequest = request;
+            return sseResponse(
+              [
+                { type: "text", text: "part two", seq: 0 },
+                { type: "done", seq: 1 },
+              ],
+              "run-2",
+            );
+          }
+          turnId = String(request.turnId);
+          return sseResponse(
+            [
+              { type: "text", text: "part one ", seq: 0 },
+              { type: "auto_continue", reason: "run_timeout", seq: 1 },
+            ],
+            "run-1",
+          );
+        }
+        if (url.pathname.endsWith("/runs/latest")) {
+          return Response.json({
+            runId: "run-1",
+            status: "truncated",
+            terminalReason: "run_timeout",
+            turnId,
+            dispatchMode: "foreground",
+          });
+        }
+        if (url.pathname.endsWith("/runs/run-1/events")) {
+          return sseResponse([], "run-1");
+        }
+        throw new Error(`Unexpected runtime request: ${url}`);
+      },
+    ) as typeof fetch;
+    const transport = createAgentKitProtocolAdapter(
+      createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetchMock,
+      }),
+    );
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        { ...userMessage("Earlier project context"), id: "user-earlier" },
+        {
+          ...userMessage("Continue the long answer"),
+          id: "user-current",
+        },
+      ],
+      options: {
+        model: "continuation-context-model",
+        reasoningEffort: "high",
+        metadata: { turnContextMarker: "preserved" },
+      },
+    });
+
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.at(-1)?.type).toBe("run.completed");
+    expect(continuationRequest).toMatchObject({
+      model: "continuation-context-model",
+      effort: "high",
+      autoContinueOfRunId: "run-1",
+      history: [
+        { role: "user", content: "Earlier project context" },
+        { role: "user", content: "Continue the long answer" },
+      ],
+      metadata: { turnContextMarker: "preserved" },
+    });
+    await transport.dispose();
+  });
+
   it("waits for a server continuation before failing an ended chunk", async () => {
     vi.useFakeTimers();
     try {
