@@ -458,6 +458,7 @@ export function SessionReplayStoryboardExportDialog({
           cleanupPending?: boolean;
           cleanupUnknown?: boolean;
           saveOutcomeUnknown?: boolean;
+          storyboardResponseUnreadable?: boolean;
         };
         error?: string | boolean;
         message?: string;
@@ -497,6 +498,9 @@ export function SessionReplayStoryboardExportDialog({
       if (!upload.ok) {
         if (result?.data?.saveOutcomeUnknown) {
           throw new Error(t("sessions.storyboardSaveOutcomeUnknown"));
+        }
+        if (result?.data?.storyboardResponseUnreadable) {
+          throw new Error(t("sessions.storyboardUnexpectedResponse"));
         }
         const errorMessage =
           (typeof result?.error === "string" && result.error.trim()) ||

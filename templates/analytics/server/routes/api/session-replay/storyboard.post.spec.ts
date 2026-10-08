@@ -638,10 +638,11 @@ describe("POST /api/session-replay/storyboard", () => {
 
     expect(error).toMatchObject({
       statusCode: 503,
-      statusMessage: expect.stringContaining(
-        "Analytics could not read its response",
-      ),
-      data: { saveOutcomeUnknown: true },
+      statusMessage: "Design returned an unexpected screenshot upload response",
+      data: {
+        saveOutcomeUnknown: true,
+        storyboardResponseUnreadable: true,
+      },
     });
   });
 
@@ -658,11 +659,32 @@ describe("POST /api/session-replay/storyboard", () => {
 
       expect(error).toMatchObject({
         statusCode: 503,
-        statusMessage: expect.stringContaining("invalid screenshot upload"),
-        data: { saveOutcomeUnknown: true },
+        statusMessage:
+          "Design returned an unexpected screenshot upload response",
+        data: {
+          saveOutcomeUnknown: true,
+          storyboardResponseUnreadable: true,
+        },
       });
     },
   );
+
+  it("marks an unreadable 400 response for localized client handling", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(
+      new Response("not-json", { status: 400 }),
+    );
+
+    const error = await (handler as any)(makeEvent(makeFormData())).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toMatchObject({
+      statusCode: 400,
+      statusMessage: "Design returned an unexpected screenshot upload response",
+      data: { storyboardResponseUnreadable: true },
+    });
+    expect(error).not.toHaveProperty("data.saveOutcomeUnknown");
+  });
 
   it("does not retry a 401 with an organization-principal fallback token", async () => {
     mocks.resolveA2ACallerAuth.mockResolvedValueOnce({

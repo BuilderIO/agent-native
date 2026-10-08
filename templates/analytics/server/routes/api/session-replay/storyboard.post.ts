@@ -90,6 +90,21 @@ function unknownSaveOutcomeError(message: string, cause?: unknown) {
   });
 }
 
+function unreadableDesignUploadResponseError(
+  statusCode: number,
+  cause: unknown,
+) {
+  return createError({
+    statusCode,
+    statusMessage: "Design returned an unexpected screenshot upload response",
+    data: {
+      storyboardResponseUnreadable: true,
+      ...(statusCode >= 500 ? { saveOutcomeUnknown: true } : {}),
+    },
+    cause,
+  });
+}
+
 function requestDeadlineError(statusMessage: string) {
   return createError({ statusCode: 504, statusMessage });
 }
@@ -1002,14 +1017,10 @@ export default defineEventHandler(async (event) =>
           });
         }
         if (uploadResponse && !uploadResponse.ok) {
-          throw createError({
-            statusCode: uploadResponse.status,
-            statusMessage: `Design returned HTTP ${uploadResponse.status}, but Analytics could not read its response.`,
-            ...(uploadResponse.status >= 500
-              ? { data: { saveOutcomeUnknown: true } }
-              : {}),
-            cause: error,
-          });
+          throw unreadableDesignUploadResponseError(
+            uploadResponse.status,
+            error,
+          );
         }
         if (
           error instanceof Error &&
@@ -1042,14 +1053,7 @@ export default defineEventHandler(async (event) =>
             error,
           );
         }
-        throw createError({
-          statusCode: uploadResponse.status,
-          statusMessage: `Design returned HTTP ${uploadResponse.status} with an invalid screenshot upload response.`,
-          ...(uploadResponse.status >= 500
-            ? { data: { saveOutcomeUnknown: true } }
-            : {}),
-          cause: error,
-        });
+        throw unreadableDesignUploadResponseError(uploadResponse.status, error);
       }
       cleanupPending =
         uploadResult.cleanupPending === true ||
