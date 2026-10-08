@@ -6,6 +6,7 @@ import {
   index,
   ownableColumns,
   createSharesTable,
+  real,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
 import { sql } from "drizzle-orm";
@@ -181,6 +182,11 @@ export const bigqueryCache = table("bigquery_cache", {
   bytesProcessed: integer("bytes_processed").notNull().default(0),
   createdAt: text("created_at").notNull(),
   expiresAt: text("expires_at").notNull(),
+  generation: integer("generation").notNull().default(0),
+  fenceToken: text("fence_token"),
+  refreshInProgress: boolean("refresh_in_progress").notNull().default(false),
+  refreshForced: boolean("refresh_forced").notNull().default(false),
+  refreshStartedAt: text("refresh_started_at"),
 });
 
 export const firstPartyAnalyticsCache = table("first_party_analytics_cache", {
@@ -378,6 +384,237 @@ export const analyticsSessionEventGaps = table(
 // have incomplete event coverage, so event filters exclude them.
 export const analyticsSessionEventCoverage = table(
   "analytics_session_event_coverage",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    startedAt: text("started_at").notNull(),
+  },
+);
+
+// Friction a recording's own replay shows, measured as its chunks arrive. The
+// row covers the recording only while it has processed every stored chunk.
+export const sessionRecordingFriction = table(
+  "session_recording_friction",
+  {
+    recordingId: text("recording_id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    processedChunks: integer("processed_chunks").notNull().default(0),
+    deadClicks: integer("dead_clicks").notNull().default(0),
+    errorToasts: integer("error_toasts").notNull().default(0),
+    retryLoops: integer("retry_loops").notNull().default(0),
+    errorThenLeave: integer("error_then_leave").notNull().default(0),
+    stalledRequests: integer("stalled_requests").notNull().default(0),
+    http4xx: integer("http_4xx").notNull().default(0),
+    http5xx: integer("http_5xx").notNull().default(0),
+    // Null on a row measured before this was counted: unknown, not zero.
+    issueErrors: integer("issue_errors"),
+    score: integer("score").notNull().default(0),
+    detectorState: text("detector_state").notNull().default("{}"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => ({
+    updatedAtIdx: index("session_recording_friction_updated_at_idx").on(
+      t.updatedAt,
+    ),
+  }),
+);
+
+// Friction a session's tracked events show, written with the session event
+// index so one gap marker covers both.
+export const analyticsSessionFriction = table(
+  "analytics_session_friction",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    failedActions: integer("failed_actions").notNull().default(0),
+    stuckChats: integer("stuck_chats").notNull().default(0),
+    thumbsDown: integer("thumbs_down").notNull().default(0),
+    cancelledRuns: integer("cancelled_runs").notNull().default(0),
+    agentFailures: integer("agent_failures").notNull().default(0),
+    quickBacks: integer("quick_backs").notNull().default(0),
+    // Cancelled runs, thumbs-down, and quick backs read as measured only
+    // while a pageview from a client that reports every stop, rating, and
+    // page load has arrived and no older tab of the same session (an
+    // unmarked pageview or a sampled stop) has: the session id is shared
+    // across tabs.
+    agentSignalsMeasured: boolean("agent_signals_measured")
+      .notNull()
+      .default(false),
+    agentSignalsMissing: boolean("agent_signals_missing")
+      .notNull()
+      .default(false),
+    score: integer("score").notNull().default(0),
+    navState: text("nav_state"),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+  },
+  (t) => ({
+    sessionUnique: uniqueIndex("analytics_session_friction_key_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
+    lastAtIdx: index("analytics_session_friction_last_at_idx").on(t.lastAt),
+  }),
+);
+
+// Sessions whose event friction write failed while the session event index
+// write committed. Their event friction reads as unmeasured, never as zero.
+export const analyticsSessionFrictionGaps = table(
+  "analytics_session_friction_gaps",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (t) => ({
+    sessionGapUnique: uniqueIndex("analytics_session_friction_gaps_key_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
+  }),
+);
+
+// Failed actions and agent failures grouped per session: actions by name and
+// status, agent failures by named cause or else by error code.
+export const analyticsSessionTrouble = table(
+  "analytics_session_trouble",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    kind: text("kind", { enum: ["action", "agent"] }).notNull(),
+    label: text("label").notNull(),
+    status: text("status"),
+    cause: text("cause"),
+    eventCount: integer("event_count").notNull().default(0),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+  },
+  (t) => ({
+    sessionIdx: index("analytics_session_trouble_session_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
+    lastAtIdx: index("analytics_session_trouble_last_at_idx").on(t.lastAt),
+  }),
+);
+
+// When each tenant's session friction began. Event friction covers only
+// sessions that started after it.
+export const analyticsSessionFrictionCoverage = table(
+  "analytics_session_friction_coverage",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    startedAt: text("started_at").notNull(),
+  },
+);
+
+// Weighted histogram buckets of page-view vitals and request durations, per
+// day, app, and route template. Buckets are positional within a histogram
+// version; see shared/session-performance.ts.
+export const analyticsRoutePerformanceDaily = table(
+  "analytics_route_performance_daily",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    app: text("app").notNull().default(""),
+    route: text("route").notNull(),
+    metric: text("metric").notNull(),
+    histogramVersion: integer("histogram_version").notNull().default(1),
+    bucket: integer("bucket").notNull(),
+    weight: real("weight").notNull().default(0),
+  },
+  (t) => ({
+    routePerformanceUnique: uniqueIndex(
+      "analytics_route_performance_daily_key_idx",
+    ).on(
+      t.tenantKey,
+      t.eventDate,
+      t.app,
+      t.route,
+      t.metric,
+      t.histogramVersion,
+      t.bucket,
+    ),
+  }),
+);
+
+// Each session's worst measured page view and its slow requests. Null metrics
+// were never measured, which is not the same as fast.
+export const analyticsSessionPerformance = table(
+  "analytics_session_performance",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    app: text("app").notNull().default(""),
+    pageViews: integer("page_views").notNull().default(0),
+    maxTtfbMs: real("max_ttfb_ms"),
+    maxLcpMs: real("max_lcp_ms"),
+    maxInpMs: real("max_inp_ms"),
+    maxCls: real("max_cls"),
+    slowRequests: integer("slow_requests").notNull().default(0),
+    maxRequestMs: real("max_request_ms"),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+  },
+  (t) => ({
+    sessionPerformanceUnique: uniqueIndex(
+      "analytics_session_performance_key_idx",
+    ).on(t.tenantKey, t.sessionId),
+    tenantLastAtIdx: index(
+      "analytics_session_performance_tenant_last_at_idx",
+    ).on(t.tenantKey, t.lastAt),
+  }),
+);
+
+// Days, and sessions within them, whose performance aggregates failed to
+// record some events. An empty session id marks the day's route aggregates.
+export const analyticsPerformanceGaps = table(
+  "analytics_performance_gaps",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    sessionId: text("session_id").notNull().default(""),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (t) => ({
+    performanceGapUnique: uniqueIndex("analytics_performance_gaps_key_idx").on(
+      t.tenantKey,
+      t.eventDate,
+      t.sessionId,
+    ),
+    performanceGapSessionIdx: index(
+      "analytics_performance_gaps_session_idx",
+    ).on(t.tenantKey, t.sessionId),
+  }),
+);
+
+// When each tenant's performance aggregates began.
+export const analyticsPerformanceCoverage = table(
+  "analytics_performance_coverage",
   {
     tenantKey: text("tenant_key").primaryKey(),
     ownerEmail: text("owner_email").notNull(),

@@ -60,6 +60,12 @@ export {
   normalizeDocumentTitle,
 } from "./document-title.js";
 export {
+  parseBase64DataUrl,
+  parseDataUrl,
+  type ParsedBase64DataUrl,
+  type ParsedDataUrl,
+} from "./data-url.js";
+export {
   DEFAULT_REASONING_EFFORT,
   REASONING_EFFORTS,
   getReasoningEffortOptionsForModel,
@@ -75,6 +81,7 @@ export {
   type AgentDesignSystemContext,
   type AgentDesignSystemContextAvailable,
   type AgentDesignSystemContextUnavailable,
+  type AgentDesignSystemPurpose,
 } from "./design-system-agent-context.js";
 export {
   formatHtmlStyleSummary,

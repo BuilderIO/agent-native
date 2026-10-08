@@ -254,6 +254,16 @@ const messages = {
     generateImage: "Generate Image",
     assetLibrary: "Asset Library",
     imageOptions: "Image options",
+    videoPlayback: "Video playback",
+    autoplayVideo: "Autoplay",
+    loopVideo: "Loop video",
+    videoUploading: "Uploading video…",
+    videoAdded: "Video added",
+    videoUploadFailed: "Video upload failed",
+    videoUploadError: "Could not upload this video.",
+    videoFormatUnsupported: "Only MP4 and WebM videos are supported.",
+    videoTooLarge: "Videos must be 50 MB or smaller.",
+    videoUploadNeedsBuilder: "Video storage is not configured.",
     cropImage: "Crop image",
     cropHandle: "Crop image {{position}}",
     diagrams: "Diagrams",
@@ -306,6 +316,9 @@ const messages = {
     conflictStatus: "Text conflict",
     conflictStatusDescription:
       "Review the conflicting text before saving more changes.",
+    accessLost: "Access lost",
+    accessLostDescription:
+      "Your access to this deck changed. Your edits stay on screen; retry once access is restored, or download a backup.",
     reviewConflict: "Review conflict",
     conflictTitle: "Slide {{number}} has a text conflict",
     conflictDescription:
@@ -353,6 +366,7 @@ const messages = {
     googleSlidesCreated: "Exported to Google Slides",
     googleSlidesCreatedHint:
       "A copy of this deck was created in your Google Drive.",
+    googleSlidesGoTo: "Go to Google Slides",
     duplicateDeck: "Duplicate deck",
   },
   share: {

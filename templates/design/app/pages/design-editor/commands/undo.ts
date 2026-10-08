@@ -26,6 +26,7 @@ import {
   prepareContentHistoryReplay,
   STALE_CONTENT_HISTORY_REPLAY,
 } from "@/pages/design-editor/commands/prepare-content-history-replay";
+import { flushCommitsAfterPaint } from "@/pages/design-editor/commit-after-paint";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import {
   getCanvasFrameGeometry,
@@ -402,7 +403,9 @@ export interface UndoArgs {
   allowPendingLiveEdits?: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
-  codeLayerOwnerByNodeIdRef: RefObject<Map<string, { node: CodeLayerNode }>>;
+  codeLayerOwnerByNodeIdRef: RefObject<
+    ReadonlyMap<string, { node: CodeLayerNode }>
+  >;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentRedoSelectionStackRef: RefObject<
     (GeometryHistorySelection | undefined)[]
@@ -626,6 +629,7 @@ export function runUndo({
   writeFrameGeometrySnapshot,
   ydoc,
 }: UndoArgs) {
+  flushCommitsAfterPaint();
   const restoreHistorySelection = (
     selection: GeometryHistorySelection | undefined,
     replaySources: Record<string, string> = {},

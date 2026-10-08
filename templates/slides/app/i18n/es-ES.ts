@@ -260,6 +260,16 @@ const messages = {
     generateImage: "Generar imagen",
     assetLibrary: "Biblioteca de recursos",
     imageOptions: "Opciones de imagen",
+    videoPlayback: "Reproducción de vídeo",
+    autoplayVideo: "Reproducción automática",
+    loopVideo: "Repetir vídeo",
+    videoUploading: "Subiendo vídeo…",
+    videoAdded: "Vídeo añadido",
+    videoUploadFailed: "Error al subir el vídeo",
+    videoUploadError: "No se pudo subir este vídeo.",
+    videoFormatUnsupported: "Solo se admiten vídeos MP4 y WebM.",
+    videoTooLarge: "El vídeo no puede superar los 50 MB.",
+    videoUploadNeedsBuilder: "El almacenamiento de vídeos no está configurado.",
     cropImage: "Recortar imagen",
     cropHandle: "Recortar imagen {{position}}",
     diagrams: "Diagramas",
@@ -313,6 +323,9 @@ const messages = {
     conflictStatus: "Conflicto de texto",
     conflictStatusDescription:
       "Revisa el texto en conflicto antes de guardar más cambios.",
+    accessLost: "Acceso perdido",
+    accessLostDescription:
+      "Tu acceso a esta presentación cambió. Tus cambios siguen en pantalla; reintenta cuando se restablezca el acceso o descarga una copia de seguridad.",
     reviewConflict: "Revisar conflicto",
     conflictTitle: "Conflicto de texto en la diapositiva {{number}}",
     conflictDescription:
@@ -361,6 +374,7 @@ const messages = {
     googleSlidesCreated: "Abierto en Google Slides",
     googleSlidesCreatedHint:
       "Se creó una copia de esta presentación en tu Google Drive.",
+    googleSlidesGoTo: "Ir a Google Slides",
     duplicateDeck: "Duplicar deck",
   },
   share: {

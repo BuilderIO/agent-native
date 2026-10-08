@@ -7226,7 +7226,7 @@ describe("editor chrome bridge — text editing session", () => {
   );
 
   it(
-    "T24: while a session is active but unfocused, the next keydown refocuses the editable instead of falling through",
+    "T24: lost text-edit focus refocuses for typing but forwards Delete to the host",
     { timeout: 30_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -7292,6 +7292,38 @@ describe("editor chrome bridge — text editing session", () => {
         expect(afterKey.activeId).toBe("target");
         expect(afterKey.text).toBe("Hello worlda");
 
+        await page.evaluate(() => {
+          document.body.dataset.deleteHotkeyForwarded = "false";
+          window.addEventListener("message", (event) => {
+            if (
+              event.data?.type === "design-hotkey" &&
+              event.data.key === "Delete"
+            ) {
+              document.body.dataset.deleteHotkeyForwarded = "true";
+            }
+          });
+          document.querySelector<HTMLElement>("#steal")!.focus();
+        });
+        await page.keyboard.press("Delete");
+        await page.waitForFunction(
+          () => document.body.dataset.deleteHotkeyForwarded === "true",
+        );
+        const afterDelete = await page.evaluate(() => ({
+          activeId: document.activeElement?.id,
+          editing: !!document.querySelector("[data-agent-native-text-editing]"),
+          text: document.querySelector("#target")?.textContent,
+        }));
+        expect(afterDelete.activeId).toBe("steal");
+        expect(afterDelete.editing).toBe(false);
+        expect(afterDelete.text).toBe("Hello worlda");
+
+        await page.evaluate(() => {
+          window.postMessage(
+            { type: "begin-text-edit", nodeId: "target", force: true },
+            "*",
+          );
+        });
+        await page.waitForSelector("[data-agent-native-text-editing]");
         await page.evaluate(() => {
           document.querySelector<HTMLElement>("#steal")!.focus();
         });

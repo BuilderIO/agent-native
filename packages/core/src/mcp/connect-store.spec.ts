@@ -30,6 +30,8 @@ let tokens: TokenRow[] = [];
 let devices: DeviceRow[] = [];
 let failNextCreateTable = false;
 let failNextOrgLookup = false;
+let failNextOrgServiceList = false;
+let failNextRevokeByName = false;
 let failNextDeviceCodeLookup = false;
 const getDbExecMock = vi.fn(() => ({ execute: exec }));
 const executeDdlMock = vi.hoisted(() => vi.fn());
@@ -104,6 +106,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       sql,
     )
   ) {
+    if (failNextOrgServiceList) {
+      failNextOrgServiceList = false;
+      throw new Error("CONNECTION_LOST");
+    }
     const rows = tokens
       .filter((r) => r.org_id === args[0] && r.kind === "service")
       .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
@@ -124,6 +130,25 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     if (!t) return { rows: [], rowsAffected: 0 };
     t.revoked_at = args[0];
     return { rows: [], rowsAffected: 1 };
+  }
+  if (
+    /^UPDATE mcp_connect_tokens SET revoked_at = \? WHERE org_id = \? AND kind = 'service' AND service_name = \?/i.test(
+      sql,
+    )
+  ) {
+    if (failNextRevokeByName) {
+      failNextRevokeByName = false;
+      throw new Error("connection terminated");
+    }
+    const hit = tokens.filter(
+      (r) =>
+        r.org_id === args[1] &&
+        r.kind === "service" &&
+        r.service_name === args[2] &&
+        r.revoked_at == null,
+    );
+    for (const t of hit) t.revoked_at = args[0];
+    return { rows: [], rowsAffected: hit.length };
   }
   if (/^UPDATE mcp_connect_tokens SET revoked_at = \?/i.test(sql)) {
     const t = tokens.find(
@@ -271,6 +296,7 @@ describe("connect-store", () => {
     devices = [];
     failNextCreateTable = false;
     failNextOrgLookup = false;
+    failNextOrgServiceList = false;
     failNextDeviceCodeLookup = false;
     vi.restoreAllMocks();
   });
@@ -567,6 +593,14 @@ describe("connect-store", () => {
       expect(list[0].createdBy).toBe("admin@example.com");
     });
 
+    it("throws when the org service-token store cannot be read", async () => {
+      failNextOrgServiceList = true;
+
+      await expect(store.listOrgServiceTokens("org-1")).rejects.toThrow(
+        "CONNECTION_LOST",
+      );
+    });
+
     it("revokeOrgServiceToken is org-scoped and kills the jti via the shared gate", async () => {
       const id = await store.recordMintedToken({
         jti: "jti-svc",
@@ -586,6 +620,38 @@ describe("connect-store", () => {
       const first = tokens[0].revoked_at;
       expect(await store.revokeOrgServiceToken("org-1", id)).toBe(false);
       expect(tokens[0].revoked_at).toBe(first);
+    });
+
+    it("revokeServiceTokensByName revokes only that service's active tokens in one org", async () => {
+      const mint = (jti: string, org: string, name: string) =>
+        store.recordMintedToken({
+          jti,
+          ownerEmail: store.serviceIdentityEmail(name, org),
+          orgId: org,
+          kind: "service",
+          serviceName: name,
+          createdBy: "admin@example.com",
+        });
+      await mint("a1", "org-1", "ci");
+      await mint("a2", "org-1", "ci");
+      await mint("b1", "org-1", "other");
+      await mint("c1", "org-2", "ci");
+      const already = await mint("a0", "org-1", "ci");
+      await store.revokeOrgServiceToken("org-1", already);
+
+      expect(await store.revokeServiceTokensByName("org-1", "ci")).toBe(2);
+      expect(await store.isJtiRevoked("a1")).toBe(true);
+      expect(await store.isJtiRevoked("a2")).toBe(true);
+      expect(await store.isJtiRevoked("b1")).toBe(false);
+      expect(await store.isJtiRevoked("c1")).toBe(false);
+      expect(await store.revokeServiceTokensByName("org-1", "ci")).toBe(0);
+    });
+
+    it("revokeServiceTokensByName throws on a connection error instead of reporting 0", async () => {
+      failNextRevokeByName = true;
+      await expect(
+        store.revokeServiceTokensByName("org-1", "ci"),
+      ).rejects.toThrow("connection terminated");
     });
 
     it("revokeOrgServiceToken never touches personal tokens (kind mismatch)", async () => {
@@ -706,6 +772,7 @@ describe("connect-store", () => {
 
     it("rechecks expiry in the approval mutation after the lookup", async () => {
       const created = await store.createDeviceCode();
+      vi.spyOn(Date, "now").mockReturnValue(created.expiresAt! - 1);
       const tx = {
         execute: vi.fn(async (input: Parameters<typeof exec>[0]) => {
           if (typeof input !== "string" && input.sql.startsWith("UPDATE"))

@@ -216,7 +216,7 @@ export default {
       tokenLabel: "Figma-Zugriffstoken",
       tokenPlaceholder: "Figma-Zugriffstoken einfügen",
       connecting: "Verbindung wird hergestellt…",
-      connect: "Builder.io verwenden",
+      connect: "Figma verbinden",
       getToken: "Token abrufen",
       importFrame: "Frame importieren",
       chooseFrame: "Frame wählen",
@@ -1611,6 +1611,8 @@ export default {
     assetAdded: "Asset hinzugefügt",
     assetsNoImageUrl: "Assets hat keine Bild-URL zurückgegeben.",
     failedToUploadFile: "Datei konnte nicht hochgeladen werden",
+    imageAttachmentUnavailable:
+      "Dieses Bild konnte nicht als visuelle Eingabe vorbereitet werden. Füge eine kleinere PNG-, JPG-, GIF- oder WebP-Datei an.",
     attachmentsTooLarge:
       "Diese Anhänge sind zu groß. Uploads sind auf insgesamt {{max}} MB begrenzt – hänge weniger oder kleinere Dateien an.",
     failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
@@ -2058,6 +2060,16 @@ export default {
       "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
   },
   designSystems: {
+    comingSoonTitle: "Designsysteme kommen bald",
+    waitlist: {
+      join: "Warteliste beitreten",
+      joining: "Wird eingetragen…",
+      joined: "Sie stehen auf der Warteliste",
+      error:
+        "Sie konnten nicht zur Warteliste hinzugefügt werden. Bitte versuchen Sie es erneut.",
+      unavailable:
+        "Die Anmeldung zur Warteliste ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
+    },
     deleteError: "Das Designsystem konnte nicht gelöscht werden",
     updateSuccess: "Designsystem aktualisiert",
     updateError: "Das Designsystem konnte nicht aktualisiert werden",

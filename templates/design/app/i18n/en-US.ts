@@ -214,7 +214,7 @@ export default {
       tokenLabel: "Figma access token",
       tokenPlaceholder: "Paste Figma access token",
       connecting: "Connecting…",
-      connect: "Use Builder.io",
+      connect: "Connect Figma",
       getToken: "Get token",
       importFrame: "Import frame",
       chooseFrame: "Choose frame",
@@ -1581,6 +1581,8 @@ export default {
     assetAdded: "Asset added",
     assetsNoImageUrl: "Assets did not return an image URL.",
     failedToUploadFile: "Failed to upload file",
+    imageAttachmentUnavailable:
+      "We couldn't prepare this image as visual input. Attach a smaller PNG, JPG, GIF, or WebP file.",
     attachmentsTooLarge:
       "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
     failedToSubmitPrompt: "Failed to submit prompt",
@@ -2009,6 +2011,15 @@ export default {
       "Code and repository indexing requires the Builder Enterprise plan",
   },
   designSystems: {
+    comingSoonTitle: "Design systems are coming soon",
+    waitlist: {
+      join: "Join waitlist",
+      joining: "Joining…",
+      joined: "You're on the waitlist",
+      error: "Could not join the waitlist. Please try again.",
+      unavailable:
+        "Waitlist sign-up isn't available right now. Please try again later.",
+    },
     deleteError: "Could not delete design system",
     updateSuccess: "Design system updated",
     updateError: "Could not update design system",

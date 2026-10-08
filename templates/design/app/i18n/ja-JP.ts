@@ -218,7 +218,7 @@ export default {
       tokenLabel: "Figma アクセストークン",
       tokenPlaceholder: "Figma アクセストークンを貼り付け",
       connecting: "接続中…",
-      connect: "Builder.io を使う",
+      connect: "Figmaに接続",
       getToken: "トークンを取得",
       importFrame: "フレームをインポート",
       chooseFrame: "フレームを選択",
@@ -1596,6 +1596,8 @@ export default {
     assetAdded: "アセットが追加されました",
     assetsNoImageUrl: "Assets が画像 URL を返しませんでした。",
     failedToUploadFile: "ファイルのアップロードに失敗しました",
+    imageAttachmentUnavailable:
+      "この画像を視覚入力として準備できませんでした。より小さい PNG、JPG、GIF、WebP ファイルを添付してください。",
     attachmentsTooLarge:
       "添付ファイルが大きすぎます。アップロードは合計 {{max}} MB までです。ファイル数を減らすか、より小さいファイルを添付してください。",
     failedToSubmitPrompt: "プロンプトを送信できませんでした",
@@ -2032,6 +2034,15 @@ export default {
       "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
   },
   designSystems: {
+    comingSoonTitle: "デザインシステムは近日公開予定です",
+    waitlist: {
+      join: "ウェイトリストに登録",
+      joining: "登録中…",
+      joined: "ウェイトリストに登録されました",
+      error: "ウェイトリストに登録できませんでした。もう一度お試しください。",
+      unavailable:
+        "ウェイトリストへの登録は現在利用できません。後でもう一度お試しください。",
+    },
     deleteError: "デザインシステムを削除できませんでした",
     updateSuccess: "デザインシステムが更新されました",
     updateError: "デザインシステムを更新できませんでした",

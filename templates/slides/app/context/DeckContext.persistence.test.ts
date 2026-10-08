@@ -2334,13 +2334,13 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     it.each([
-      [400, "slide_content_hash_required"],
-      [403, "forbidden"],
-      [404, "not_found"],
-      [409, "deck_write_conflict"],
+      [400, "slide_content_hash_required", false],
+      [403, "forbidden", true],
+      [404, "not_found", true],
+      [409, "deck_write_conflict", false],
     ])(
-      "fails a %i %s save once with a non-retryable typed error",
-      async (status, errorCode) => {
+      "fails a %i %s save once with a typed error (retryable: %s)",
+      async (status, errorCode, retryable) => {
         const { result, getPatchAttempts } = await renderWithDeck({
           patchStatus: status,
           patchResponse: { error: "Rejected", errorCode },
@@ -2368,11 +2368,75 @@ describe("DeckContext deck creation persistence", () => {
         expect(getDeckSaveError(deckId)).toMatchObject({
           status,
           errorCode,
-          retryable: false,
+          retryable,
         });
         expect(hasUnsavedDeckChanges(deckId)).toBe(true);
       },
     );
+
+    async function failOneSave(
+      result: Awaited<ReturnType<typeof renderWithDeck>>["result"],
+    ) {
+      vi.useFakeTimers();
+      act(() => {
+        result.current.updateSlide(
+          deckId,
+          "slide-1",
+          { notes: "Changed" },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await expect(
+          result.current.flushDeckSave(deckId),
+        ).rejects.toBeInstanceOf(DeckSaveError);
+      });
+    }
+    const focusWindow = () =>
+      act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+    it("retries an access-lost save once per focus and clears it when access returns", async () => {
+      const options = {
+        patchStatus: 403,
+        patchResponse: {
+          error: "Requires editor role",
+          errorCode: "forbidden",
+        },
+      };
+      const { result, getPatchAttempts } = await renderWithDeck(options);
+      await failOneSave(result);
+      expect(getPatchAttempts(deckId)).toBe(1);
+
+      await focusWindow();
+      expect(getPatchAttempts(deckId)).toBe(2);
+      expect(getDeckSaveError(deckId)).toMatchObject({
+        status: 403,
+        retryable: true,
+      });
+      expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+
+      options.patchStatus = 200;
+      options.patchResponse = { error: "", errorCode: "" };
+      await focusWindow();
+      expect(getPatchAttempts(deckId)).toBe(3);
+      expect(getDeckSaveError(deckId)).toBeUndefined();
+      expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+    });
+
+    it("does not retry a non-access terminal save on focus", async () => {
+      const { result, getPatchAttempts } = await renderWithDeck({
+        patchStatus: 400,
+        patchResponse: { error: "Rejected", errorCode: "bad_request" },
+      });
+      await failOneSave(result);
+
+      await focusWindow();
+
+      expect(getPatchAttempts(deckId)).toBe(1);
+    });
 
     it.each([408, 429])(
       "keeps retrying a transient %i save",

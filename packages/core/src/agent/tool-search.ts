@@ -2,12 +2,15 @@ import { isActionHiddenFromEveryAgentSurface } from "../action.js";
 import { parseMcpToolName } from "../mcp-client/manager.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 import { getRequestRunContext } from "../server/request-context.js";
+import { clipHead } from "./clip-text.js";
 import type { ActionEntry } from "./production-agent.js";
 
 export const TOOL_SEARCH_ACTION_NAME = "tool-search";
 
 type ToolSearchArgs = {
   query?: unknown;
+  queries?: unknown;
+  names?: unknown;
   limit?: unknown;
   includeSchemas?: unknown;
   readOnlyOnly?: unknown;
@@ -39,6 +42,9 @@ type ToolSearchOptions = {
 
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 10;
+const MAX_QUERIES = 5;
+const MAX_NAMES = 20;
+const EXACT_NAME_SCORE = 100;
 const MAX_MENU_DESCRIPTION_CHARS = 140;
 const MAX_DESCRIPTION_CHARS = 220;
 const MAX_PARAMETER_COUNT = 8;
@@ -61,7 +67,7 @@ export function createToolSearchEntry(
   return {
     tool: {
       description:
-        "Find actions and connected MCP tools named `mcp__<server>__<tool>` by capability or name. A targeted query returns concise details and adds matches allowed in the current mode, with their full schemas, to the next model step. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
+        "Find actions and connected MCP tools named `mcp__<server>__<tool>` by capability or name. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
       parameters: {
         type: "object",
         properties: {
@@ -70,9 +76,22 @@ export function createToolSearchEntry(
             description:
               "Capability or exact tool name to find. A targeted search adds matches allowed in the current mode, with their full schemas, to the next model step. Omit for a bounded alphabetical inventory.",
           },
+          queries: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: MAX_QUERIES,
+            description: `Up to ${MAX_QUERIES} capability searches run together; all matches load on the next step.`,
+          },
+          names: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: MAX_NAMES,
+            description:
+              "Exact tool names to load on the next step, together with any queries.",
+          },
           limit: {
             type: "number",
-            description: `Maximum results to return, including menu mode. Defaults to ${defaultLimit}; capped at ${maxLimit}.`,
+            description: `Maximum results to return per query, including menu mode. Defaults to ${defaultLimit}; capped at ${maxLimit}.`,
           },
           includeSchemas: {
             type: "boolean",
@@ -148,19 +167,100 @@ export async function filterActionsForAgentDiscovery(
   return filtered;
 }
 
-export function searchToolRegistry(
-  registry: Record<string, ActionEntry>,
-  args: ToolSearchArgs = {},
-  options: ToolSearchOptions = {},
-): {
+type ToolSearchOutput = {
   query: string;
   totalTools: number;
   count: number;
   repeated?: boolean;
   message?: string;
   results: ToolSearchResult[];
-} {
-  const query = String(args.query ?? "").trim();
+};
+
+/**
+ * One call may carry several capability queries and exact names; every match
+ * loads on the same next step. Each query keeps its own repeat guard.
+ */
+export function searchToolRegistry(
+  registry: Record<string, ActionEntry>,
+  args: ToolSearchArgs = {},
+  options: ToolSearchOptions = {},
+): ToolSearchOutput {
+  const { parsedQueries, parsedNames } = parseToolSearchLists(args);
+  const queries = parsedQueries.kept;
+  const names = parsedNames.kept;
+  // Providers rarely enforce `maxItems`; a silently dropped entry reads as a
+  // tool that loaded.
+  const truncationNote = [
+    droppedEntriesNote("queries", MAX_QUERIES, parsedQueries.dropped),
+    droppedEntriesNote("names", MAX_NAMES, parsedNames.dropped),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const withTruncationNote = (output: ToolSearchOutput): ToolSearchOutput =>
+    truncationNote
+      ? {
+          ...output,
+          message: [output.message, truncationNote].filter(Boolean).join(" "),
+        }
+      : output;
+  const targets: SearchTarget[] = [
+    ...queries.map((query) => ({ query })),
+    ...(names.length > 0 ? [{ names }] : []),
+  ];
+  if (targets.length <= 1) {
+    return withTruncationNote(
+      searchOnce(registry, targets[0] ?? { query: "" }, args, options),
+    );
+  }
+  const parts = targets.map((target) =>
+    searchOnce(registry, target, args, options),
+  );
+  const byName = new Map<string, ToolSearchResult>();
+  for (const part of parts) {
+    for (const result of part.results) {
+      const existing = byName.get(result.name);
+      if (!existing || result.score > existing.score) {
+        byName.set(result.name, result);
+      }
+    }
+  }
+  const results = [...byName.values()].sort(
+    (a, b) => b.score - a.score || a.name.localeCompare(b.name),
+  );
+  const allRepeated = parts.every((part) => part.repeated);
+  const message = allRepeated
+    ? parts[0].message
+    : parts
+        .filter((part) => !part.repeated && part.message)
+        .map((part) => part.message)
+        .join(" ");
+  return withTruncationNote({
+    query: parts.map((part) => part.query).join(" | "),
+    totalTools: Math.max(...parts.map((part) => part.totalTools)),
+    count: results.length,
+    ...(allRepeated ? { repeated: true } : {}),
+    ...(message ? { message } : {}),
+    results,
+  });
+}
+
+type SearchTarget = { query: string } | { names: string[] };
+
+function searchOnce(
+  registry: Record<string, ActionEntry>,
+  target: SearchTarget,
+  args: ToolSearchArgs,
+  options: ToolSearchOptions,
+): ToolSearchOutput {
+  const names = "names" in target ? target.names : undefined;
+  const exactNames = names
+    ? new Set(names.map((name) => name.toLowerCase()))
+    : undefined;
+  const query = names
+    ? `names: ${names.join(", ")}`
+    : "query" in target
+      ? target.query
+      : "";
   const listAll = query.length === 0;
   const readOnlyOnly = parseBoolean(args.readOnlyOnly);
   const limit = parseLimit(
@@ -240,15 +340,19 @@ export function searchToolRegistry(
     }
 
     const parameters = summarizeParameters(entry.tool.parameters);
-    const score = scoreTool({
-      query,
-      queryTokens,
-      name,
-      source,
-      description,
-      parameters,
-      kind,
-    });
+    const score = exactNames
+      ? exactNames.has(name.toLowerCase())
+        ? EXACT_NAME_SCORE
+        : 0
+      : scoreTool({
+          query,
+          queryTokens,
+          name,
+          source,
+          description,
+          parameters,
+          kind,
+        });
 
     if (score <= 0) continue;
 
@@ -284,11 +388,21 @@ export function searchToolRegistry(
     return a.name.localeCompare(b.name);
   });
 
+  const cap = exactNames ? MAX_NAMES : limit;
+  const found = new Set(
+    candidates.map((candidate) => candidate.name.toLowerCase()),
+  );
+  const missing = names?.filter((name) => !found.has(name.toLowerCase()));
   const result = {
     query,
     totalTools,
-    count: Math.min(candidates.length, limit),
-    results: candidates.slice(0, limit),
+    count: Math.min(candidates.length, cap),
+    ...(missing && missing.length > 0
+      ? {
+          message: `No tool named ${missing.join(", ")} is available in the current mode.`,
+        }
+      : {}),
+    results: candidates.slice(0, cap),
   };
   rememberToolSearchResult(cacheKey, result);
   return result;
@@ -359,7 +473,110 @@ function rememberToolSearchResult(
 
 function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
-  return `${value.slice(0, max - 1).trimEnd()}…`;
+  return `${clipHead(value, max - 1).trimEnd()}…`;
+}
+
+function parseToolSearchLists(args: ToolSearchArgs) {
+  return {
+    parsedQueries: parseStringList(
+      [String(args.query ?? ""), args.queries],
+      MAX_QUERIES,
+    ),
+    parsedNames: parseStringList([args.names], MAX_NAMES),
+  };
+}
+
+/**
+ * Whether a search names anything to look for. A menu search (no query,
+ * queries or names) only lists, so a caller that grants tools from a search
+ * result must not grant from it. Reads the lists exactly as the search does,
+ * so a form the search accepts is never read as a menu search.
+ */
+export function isTargetedToolSearch(args: object): boolean {
+  const { parsedQueries, parsedNames } = parseToolSearchLists(args);
+  return parsedQueries.kept.length > 0 || parsedNames.kept.length > 0;
+}
+
+/** Callable matches of a targeted search; empty for a menu or an error. */
+export function extractToolSearchResultNames(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const result = value as { query?: unknown; results?: unknown };
+  if (typeof result.query !== "string" || result.query.trim().length === 0) {
+    return [];
+  }
+  if (!Array.isArray(result.results)) return [];
+  const names: string[] = [];
+  for (const item of result.results) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    if (record.callable === false) continue;
+    const name = record.name;
+    if (typeof name === "string" && name.trim()) names.push(name);
+  }
+  return names;
+}
+
+/**
+ * The tools a search made callable lead its stored result. Replayed history
+ * clips a result mid-object, and the loaded list must outlive that clip, so it
+ * is read before the rest of the object is parsed.
+ */
+export function withLoadedToolNames<T extends object>(
+  output: T,
+  names: string[],
+) {
+  return { loadedForNextStep: names, ...output };
+}
+
+const LEADING_LOADED_TOOL_NAMES =
+  /^\s*\{\s*"loadedForNextStep"\s*:\s*(\[\s*(?:"(?:[^"\\]|\\.)*"(?:\s*,\s*"(?:[^"\\]|\\.)*")*)?\s*\])/;
+
+/**
+ * Tools a stored tool-search result made callable. `[]` means it loaded
+ * nothing, which includes a failed or interrupted search (not an object);
+ * `null` means it is a search result that cannot be read, clipped or corrupt.
+ */
+export function readLoadedToolNames(content: string): string[] | null {
+  try {
+    const leading = LEADING_LOADED_TOOL_NAMES.exec(content);
+    if (leading) return JSON.parse(leading[1]) as string[];
+    if (!content.trimStart().startsWith("{")) return [];
+    // Results stored before the loaded list existed carry every callable
+    // match. Pretty-printed JSON has no blank line, so notes appended after
+    // the object start at the first one.
+    const end = content.indexOf("\n\n");
+    return extractToolSearchResultNames(
+      JSON.parse(end < 0 ? content : content.slice(0, end)),
+    );
+    // coercion-ok: unreadable returns null, which callers tell apart from [] (loaded nothing) and warn about
+  } catch {
+    return null;
+  }
+}
+
+function parseStringList(
+  values: unknown[],
+  max: number,
+): { kept: string[]; dropped: string[] } {
+  const unique = new Map<string, string>();
+  for (const item of values.flat()) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (trimmed && !unique.has(trimmed.toLowerCase())) {
+      unique.set(trimmed.toLowerCase(), trimmed);
+    }
+  }
+  const all = [...unique.values()];
+  return { kept: all.slice(0, max), dropped: all.slice(max) };
+}
+
+function droppedEntriesNote(
+  kind: string,
+  max: number,
+  dropped: readonly string[],
+): string {
+  if (dropped.length === 0) return "";
+  return `Only the first ${max} ${kind} were used; ${dropped.length} more were ignored (${truncate(dropped.join(", "), 200)}). Request them in another call.`;
 }
 
 function parseLimit(value: unknown, fallback: number, max: number): number {

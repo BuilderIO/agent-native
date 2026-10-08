@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -21,16 +21,23 @@ import {
   optionalJsonRecordSchema,
   sourceAnswerPolicySchema,
 } from "./_schemas.js";
-import { assertValidSourceConfig } from "./_source-config.js";
+import {
+  assertValidSourceConfig,
+  mergeSourceConfigJson,
+  sourceConfigJsonSchema,
+} from "./_source-config.js";
 
 export default defineAction({
   description:
-    "Update a Brain source's title, status, config, cursor, or trusted-answer policy.",
+    "Update a Brain source's title, status, config, cursor, or trusted-answer policy. Config keys are merged into the existing config; a top-level key such as zoom is replaced as a whole.",
   schema: z.object({
     id: z.string().min(1),
     title: z.string().min(1).optional(),
     status: z.enum(["active", "paused", "archived", "error"]).optional(),
-    config: optionalJsonRecordSchema,
+    config: optionalJsonRecordSchema.describe(
+      "Config keys to merge, as an object for UI and CLI callers; agents use configJson",
+    ),
+    configJson: sourceConfigJsonSchema,
     cursor: optionalJsonRecordSchema,
     policy: sourceAnswerPolicySchema
       .optional()
@@ -41,21 +48,37 @@ export default defineAction({
   run: async (args) => {
     const access = await assertAccess("brain-source", args.id, "editor");
     const existing = access.resource;
-    if (args.config !== undefined) {
-      assertValidSourceConfig(existing.provider, args.config);
+    const mergedConfig = mergeSourceConfigJson(args.config, args.configJson);
+    const config =
+      mergedConfig && Object.keys(mergedConfig).length
+        ? mergedConfig
+        : undefined;
+    if (
+      args.title === undefined &&
+      args.status === undefined &&
+      config === undefined &&
+      args.cursor === undefined &&
+      args.policy === undefined
+    ) {
+      fail(
+        "update-source received no changes. Pass title, status, policy, or the config keys to change in configJson.",
+        { errorCode: "no_source_changes" },
+      );
+    }
+    if (config !== undefined) {
+      assertValidSourceConfig(existing.provider, config);
     }
     const updates: Record<string, unknown> = { updatedAt: nowIso() };
     if (args.title !== undefined) updates.title = args.title;
     if (args.status !== undefined) updates.status = args.status;
-    if (args.config !== undefined || args.policy !== undefined) {
+    if (config !== undefined || args.policy !== undefined) {
       let nextConfig: Record<string, unknown> = {
         ...parseJson<Record<string, unknown>>(existing.configJson, {}),
-        ...(args.config ?? {}),
+        ...config,
       };
       if (
         args.policy !== undefined ||
-        (args.config &&
-          Object.prototype.hasOwnProperty.call(args.config, "answerPolicy"))
+        (config && Object.prototype.hasOwnProperty.call(config, "answerPolicy"))
       ) {
         nextConfig = withSourceAnswerPolicy(
           nextConfig,
@@ -63,7 +86,7 @@ export default defineAction({
         );
       }
       if (existing.provider === "slack") {
-        nextConfig = normalizeSlackChannelConfig(nextConfig, args.config ?? {});
+        nextConfig = normalizeSlackChannelConfig(nextConfig, config ?? {});
       }
       const workspaceConnectionId =
         typeof nextConfig.workspaceConnectionId === "string"

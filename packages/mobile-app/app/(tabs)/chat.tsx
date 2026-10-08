@@ -62,6 +62,7 @@ import {
   messageChatScope,
 } from "@/lib/agent-chat/version-history";
 import { inspectNativeSession, NATIVE_AUTH_BASE_URL } from "@/lib/native-auth";
+import { useMobileNavigation } from "@/lib/navigation";
 import {
   appendRemoteFollowUp,
   createRemoteRun,
@@ -159,7 +160,7 @@ function ComputerMessages({
   onDeny: (approvalKey?: string) => void;
   onMessageActions?: (message: ChatMessage) => void;
   onContinueAfterConnection: (requestId: string, provider: string) => void;
-  onOpenConnections: () => void;
+  onOpenConnections: (provider?: string) => void;
   chatEligibility: AgentChatController["chatEligibility"];
   canChat: boolean;
   refreshChatEligibility: () => void;
@@ -284,6 +285,7 @@ function ComputerMessages({
 
 export default function ChatTab() {
   const { foreground, mutedForeground } = useMobileThemeColors();
+  const mobileNavigation = useMobileNavigation();
   const { contentInset } = useTabBarLayout();
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
   const tabBarSpacerStyle = useAnimatedStyle(() => ({
@@ -722,15 +724,30 @@ export default function ChatTab() {
 
   const showNotice = (message: string) => setNotice(message);
 
-  const openConnections = useCallback(() => {
-    const url = new URL(
-      "/settings/agent#integrations",
-      chat.baseUrl,
-    ).toString();
-    void Linking.openURL(url).catch(() =>
-      showNotice("Could not open integration settings"),
+  const openBuilderSetup = useCallback(() => {
+    mobileNavigation.push(
+      `/app/chat?path=${encodeURIComponent(
+        "/settings/integrations/builder?builderConnect=1",
+      )}`,
     );
-  }, [chat.baseUrl]);
+  }, [mobileNavigation]);
+
+  const openConnections = useCallback(
+    (provider?: string) => {
+      if (provider?.toLowerCase().includes("builder")) {
+        openBuilderSetup();
+        return;
+      }
+      const url = new URL(
+        "/settings/agent#integrations",
+        chat.baseUrl,
+      ).toString();
+      void Linking.openURL(url).catch(() =>
+        showNotice("Could not open integration settings"),
+      );
+    },
+    [chat.baseUrl, openBuilderSetup],
+  );
 
   const shareThread = () => {
     if (chat.messages.length === 0) return;
@@ -934,7 +951,7 @@ export default function ChatTab() {
                 chatEligibility={chat.chatEligibility}
                 canChat={chat.canChat}
                 refreshChatEligibility={chat.refreshChatEligibility}
-                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenSettings={openBuilderSetup}
               />
             ) : chat.historyLoading ? (
               <View className="flex-1 items-center justify-center">
@@ -947,7 +964,7 @@ export default function ChatTab() {
                 onMessageActions={setActionsFor}
                 onOpenConnections={openConnections}
                 onSignIn={() => setSignInOpen(true)}
-                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenSettings={openBuilderSetup}
               />
             )}
           </>

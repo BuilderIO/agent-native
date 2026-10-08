@@ -71,6 +71,24 @@ describe("action discovery", () => {
     expect(registry["mutating-read"].readOnly).toBe(false);
   });
 
+  it("preserves Standard Schema metadata from static action entries", () => {
+    const schema = {
+      "~standard": { validate: async () => ({ value: {} }) },
+    };
+    const registry = loadActionsFromStaticRegistry({
+      "schema-read": {
+        default: {
+          tool: { description: "Schema read", parameters: {} },
+          schema,
+          readOnly: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["schema-read"].schema).toBe(schema);
+  });
+
   it("preserves explicit MCP annotations from static action entries", () => {
     const mcpAnnotations = {
       readOnlyHint: false,
@@ -690,6 +708,8 @@ describe("action discovery", () => {
         "create-org-service-token",
         "list-org-service-tokens",
         "revoke-org-service-token",
+        "set-service-principal-policy",
+        "set-service-principal-lifecycle",
       ],
     };
 

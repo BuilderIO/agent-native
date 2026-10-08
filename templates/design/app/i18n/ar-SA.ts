@@ -211,7 +211,7 @@ export default {
       tokenLabel: "رمز وصول Figma",
       tokenPlaceholder: "الصق رمز وصول Figma",
       connecting: "جار الاتصال…",
-      connect: "اتصال",
+      connect: "الاتصال بـ Figma",
       getToken: "الحصول على رمز",
       importFrame: "استيراد الإطار",
       chooseFrame: "اختيار إطار",
@@ -1557,6 +1557,8 @@ export default {
     assetAdded: "تمت إضافة الأصول",
     assetsNoImageUrl: "لم تُرجع Assets عنوان URL للصورة.",
     failedToUploadFile: "فشل تحميل الملف",
+    imageAttachmentUnavailable:
+      "تعذّر تجهيز هذه الصورة كمدخل مرئي. أرفق ملف PNG أو JPG أو GIF أو WebP أصغر.",
     attachmentsTooLarge:
       "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
     failedToSubmitPrompt: "تعذر إرسال المطالبة",
@@ -1983,6 +1985,14 @@ export default {
       "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "أنظمة التصميم قريبًا",
+    waitlist: {
+      join: "انضم إلى قائمة الانتظار",
+      joining: "جارٍ الانضمام…",
+      joined: "أُضيفت إلى قائمة الانتظار",
+      error: "تعذّر الانضمام إلى قائمة الانتظار. يُرجى المحاولة مجددًا.",
+      unavailable: "التسجيل في قائمة الانتظار غير متاح الآن. يُرجى المحاولة لاحقًا.",
+    },
     deleteError: "لا يمكن حذف نظام التصميم",
     updateSuccess: "تم تحديث نظام التصميم",
     updateError: "لا يمكن تحديث نظام التصميم",

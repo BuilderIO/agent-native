@@ -64,6 +64,7 @@ describe("AgentKit root entrypoint", () => {
   it("publishes one package with a subpath for every AgentKit surface", () => {
     expect(Object.keys(manifest().exports ?? {}).sort()).toEqual([
       ".",
+      "./chat-context",
       "./client",
       "./conformance",
       "./http",

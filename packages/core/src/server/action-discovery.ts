@@ -142,6 +142,13 @@ function wrapDefaultExport(
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
   if (
+    entry.schema &&
+    typeof entry.schema === "object" &&
+    "~standard" in entry.schema
+  ) {
+    out.schema = entry.schema;
+  }
+  if (
     entry.access &&
     typeof entry.access === "object" &&
     !Array.isArray(entry.access)
@@ -836,6 +843,10 @@ export async function mergeCoreSharingActions(
       () => import("../audit/actions/export-audit-events.js"),
     ],
     [
+      "export-audit-ocsf",
+      () => import("../audit/actions/export-audit-ocsf.js"),
+    ],
+    [
       "export-resource-pack",
       () => import("../resources/actions/export-resource-pack.js"),
     ],
@@ -977,6 +988,14 @@ export async function mergeCoreSharingActions(
     [
       "revoke-org-service-token",
       () => import("../mcp/actions/revoke-org-service-token.js"),
+    ],
+    [
+      "set-service-principal-policy",
+      () => import("../mcp/actions/set-service-principal-policy.js"),
+    ],
+    [
+      "set-service-principal-lifecycle",
+      () => import("../mcp/actions/set-service-principal-lifecycle.js"),
     ],
     ["list-mcp-tools", () => import("../mcp/actions/list-mcp-tools.js")],
     ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],

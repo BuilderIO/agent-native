@@ -4,6 +4,9 @@ import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { recordAgentRun } from "../observability/metrics.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -15,6 +18,7 @@ import {
   describeErrorWithCauses,
   isProviderConnectionError,
 } from "./engine/error-detail.js";
+import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
 import {
@@ -582,6 +586,20 @@ function emitRunTerminalTrackingEvent(args: {
   userId?: string;
   attemptCount?: number;
 }): void {
+  try {
+    recordAgentRun({
+      status: args.status,
+      terminalReason: args.terminalReason,
+      requestModel: args.model,
+      providerName: args.engineName,
+      supportedModels: args.engineName
+        ? getAgentEngineEntry(args.engineName)?.supportedModels
+        : undefined,
+    });
+    // coercion-ok: metrics must never affect the agent run or its status.
+  } catch {
+    // Metrics must never affect the agent run or its persisted status.
+  }
   const properties: Record<string, unknown> = {
     source: "agent_run_manager",
     run_id: args.runId,
@@ -801,14 +819,19 @@ export function startRun(
             : {}),
         }
       : undefined;
+  const servicePrincipalRunStart = Boolean(
+    options?.turnInitiator &&
+    parseServiceIdentityEmail(options.turnInitiator.email),
+  );
   const insertRunPromise = (
-    options?.runRowAlreadyInserted
+    options?.runRowAlreadyInserted && !servicePrincipalRunStart
       ? Promise.resolve()
       : insertOptions
         ? insertRun(runId, threadId, options?.turnId, insertOptions)
         : insertRun(runId, threadId, options?.turnId)
   ).catch((error) => {
     captureRunPersistenceError(error, "insert-run");
+    if (error instanceof ServicePrincipalRefusedError) throw error;
   });
 
   let persistenceChain: Promise<void> = Promise.resolve();
@@ -1406,7 +1429,15 @@ export function startRun(
     void emitRunEvent(runEvent);
   };
 
-  const runPromise = runFn(send, runControl.chunkSignal, runControl)
+  const runPromise = (
+    servicePrincipalRunStart
+      ? insertRunPromise.then(() => {
+          if (!abort.signal.aborted) {
+            return runFn(send, runControl.chunkSignal, runControl);
+          }
+        })
+      : runFn(send, runControl.chunkSignal, runControl)
+  )
     .then(() => {
       settleBoundary(false);
       if (abort.signal.aborted) {

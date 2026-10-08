@@ -26,6 +26,8 @@ type AnalyticsPanelSourceResolver = PanelSourceResolver<
 
 type AnalyticsPanelSourceRequest = PanelSourceRequest<DashboardPanelSource> & {
   timeoutMs?: number;
+  forceRefresh?: boolean;
+  signal?: AbortSignal;
 };
 
 function createResolver(
@@ -35,11 +37,16 @@ function createResolver(
     source,
     resolve: async (request, context) => {
       const timeoutMs = (request as AnalyticsPanelSourceRequest).timeoutMs;
+      const forceRefresh = (request as AnalyticsPanelSourceRequest)
+        .forceRefresh;
+      const signal = (request as AnalyticsPanelSourceRequest).signal;
       return (await runDashboardPanelQuery({
         source: request.source,
         query: request.query,
         ctx: context,
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        ...(forceRefresh ? { forceRefresh: true } : {}),
+        ...(signal ? { signal } : {}),
       })) as DashboardPanelQueryResult | AnalyticsPanelSourceFailure;
     },
   };
