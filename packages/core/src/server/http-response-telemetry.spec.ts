@@ -611,6 +611,42 @@ describe("http response telemetry", () => {
     });
     expect(line?.boot_to_module_ms).toEqual(expect.any(Number));
     expect(line?.module_to_request_ms).toEqual(expect.any(Number));
+    expect(line?.db_measured).toBe(true);
+  });
+
+  it("does not throw from the request hook where AsyncLocalStorage cannot enterWith", async () => {
+    const storageKey = Symbol.for(
+      "@agent-native/core/db.request-telemetry-storage",
+    );
+    const globalRef = globalThis as Record<symbol, unknown>;
+    const originalStorage = globalRef[storageKey];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    globalRef[storageKey] = {
+      getStore: () => undefined,
+      run: (_store: unknown, fn: () => unknown) => fn(),
+      enterWith: () => {
+        throw new Error("asyncLocalStorage.enterWith() is not implemented");
+      },
+    };
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      processState.requestSequence = 0;
+
+      for (const path of ["/_agent-native/jobs/_process-sweep", "/"]) {
+        const event = eventFor(path);
+        expect(() => requestHooks[0](event)).not.toThrow();
+        await responseHooks[0](new Response("{}"), event);
+      }
+
+      expect(loggedLines()[0]).toMatchObject({
+        cold_start: true,
+        db_measured: false,
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      globalRef[storageKey] = originalStorage;
+      warnSpy.mockRestore();
+    }
   });
 
   it("does not put live phase timings on a shared-cacheable response", async () => {

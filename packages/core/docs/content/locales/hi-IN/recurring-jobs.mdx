@@ -135,15 +135,24 @@ Summarize overnight emails.`,
 
 ## शेड्यूलर कैसे चलता है {#how-scheduler-runs}
 
-शेड्यूलर एक फ्रेमवर्क प्लगइन (आंतरिक `processRecurringJobs()` रूटीन) है जो इन-प्रोसेस चलता है: एक `setInterval` एजेंट चैट प्लगइन के अंदर, जहां भी सर्वर चल रहा है, हर 60 सेकंड में सक्रिय होता है (10 सेकंड की स्टार्टअप देरी के साथ)।
+हर टिक पर शेड्यूलर (आंतरिक `processRecurringJobs()` रूटीन) उन जॉब को ढूंढता है जिनका समय हो गया है और उन्हें चलाता है। टिक किससे फायर होता है, यह इस पर निर्भर करता है कि ऐप कहाँ चल रहा है:
 
-<Diagram id="doc-block-1ald1fd" title={"एक अनुसूचक टिक"} summary={"प्रत्येक 60 के दशक में शेड्यूलर उचित नौकरियां ढूंढता है, प्रत्येक को एक नए एजेंट थ्रेड के रूप में चलाता है, और परिणाम को जॉब फ़ाइल में वापस लिखता है।"}>
+| होस्ट                                                               | टिक किससे फायर होता है                                              | आवश्यकताएँ और सीमाएँ                                                                                       |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| लंबे समय तक चलने वाला सर्वर (Node.js, Docker, Fly, Render, कोई VPS) | हर 60 सेकंड में एक इन-प्रोसेस टाइमर, बूट के 10 सेकंड बाद से शुरू    | प्रोसेस चालू रहने तक चलता है।                                                                              |
+| [Netlify](/docs/netlify)                                            | Build द्वारा emit किया गया एक scheduled function, हर मिनट           | केवल published deploys पर, Deploy Previews या branch deploys पर कभी नहीं। Build को `A2A_SECRET` चाहिए।     |
+| [Vercel](/docs/vercel#vercel-scheduled-work)                        | Build द्वारा जोड़ा गया एक Vercel cron job, डिफ़ॉल्ट रूप से हर मिनट  | केवल production deployment पर। `CRON_SECRET` चाहिए। Hobby projects इसे दिन में अधिकतम एक बार चला सकते हैं। |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-scheduled-work)    | Build द्वारा `wrangler.json` में जोड़ा गया एक Cron Trigger, हर मिनट | Worker secret के रूप में `A2A_SECRET` चाहिए।                                                               |
+| AWS Lambda                                                          | कुछ नहीं                                                            | Scheduled automations फायर नहीं होते।                                                                      |
+| लोकल डेवलपमेंट                                                      | कुछ नहीं, जब तक आप opt in न करें                                    | नीचे दिया गया callout देखें।                                                                               |
+
+Netlify, Vercel और Cloudflare पर वही टिक event-triggered automations की queue भी खाली करता है, उन runs को साफ़ करता है जिनका function बीच में कट गया था, और Mail के snooze और send-later जैसे ऐप sweeps भी चलाता है। बिना trigger वाले serverless deploy को इनमें से कुछ नहीं मिलता: event-triggered automations queue में इंतज़ार करते रहते हैं और बाधित runs अटके रहते हैं। Webhook-triggered automations और **Run now** अपने-आप dispatch होते हैं, इसलिए वे फिर भी काम करते हैं। जब कोई deploy schedules फायर नहीं कर सकता, तो **Automations** पेज यह बताता है और इसका कारण भी बताता है।
+
+<Diagram id="doc-block-1ald1fd" title={"एक अनुसूचक टिक"} summary={"हर टिक पर शेड्यूलर उन जॉब को ढूंढता है जिनका समय हो गया है, फिर उन्हें event automations वाले उसी background execution lifecycle से भेजता है।"}>
 
 ```html
 <div class="sched">
-  <div class="diagram-box accent">
-    <code>setInterval</code> &bull; 60s &#8635;
-  </div>
+  <div class="diagram-box accent">शेड्यूलर टिक &bull; हर मिनट &#8635;</div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-card">
     <span class="diagram-pill">1 &middot; scan</span
@@ -201,14 +210,26 @@ Summarize overnight emails.`,
 
 <Callout id="doc-block-j6yn07" tone="risk">
 
-**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+**गर्म instance schedules नहीं चलाता।** Serverless hosts कभी भी in-process timer शुरू नहीं करते, इसलिए keep-alive pings से जॉब फायर नहीं होते। केवल ऊपर की तालिका में दिया गया platform trigger ही उन्हें फायर करता है। AWS Lambda पर अभी कुछ भी उन्हें फायर नहीं करता, इसलिए scheduled automations को इसके बजाय किसी लंबे समय तक चलने वाले host (Fly, Render, कोई VPS) पर चलाएँ।
+
+</Callout>
+
+<Callout id="doc-block-rj2" tone="warning">
+
+**लोकल dev में डिफ़ॉल्ट रूप से बंद।** जब `NODE_ENV` `development` या `test` हो, या ऐप URL `localhost` / `127.0.0.1` / `*.localhost` की ओर इशारा करता हो, तब शेड्यूलर का `setInterval` loop कभी शुरू नहीं होता — इसमें अधिकांश लोकल dev सेटअप आ जाते हैं। फिर भी लोकल रूप से शेड्यूलर चलाने के लिए `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` सेट करें। किसी भी host पर scheduled jobs बंद करने के लिए `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1` का उपयोग करें, जिसका वर्णन आगे है।
+
+</Callout>
+
+<Callout id="doc-block-rj3" tone="warning">
+
+**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` दो scopes में पढ़ा जाता है।** Netlify, Vercel और Cloudflare पर **build** environment तय करता है: platform trigger event automations की queue खाली करने और runs साफ़ करने के लिए फायर होता रहता है, लेकिन switch चालू वाला build scheduled jobs को छोड़ देता है, चाहे deployed environment कुछ भी कहे। लंबे समय तक चलने वाले सर्वर पर **runtime** environment in-process timer को नियंत्रित करता है। इसे वहीं सेट करें जहाँ आपका host इसे पढ़ता है। Build अपना निर्णय रिकॉर्ड करता है, ताकि **Automations** पेज ऐसी next-run तारीख दिखाने के बजाय, जिसका कोई पालन नहीं होगा, यह बता सके कि schedules कभी नहीं चलेंगे।
 
 </Callout>
 
 ## किसी कार्य को डिबग करना {#debugging}
 
 - एजेंट संसाधन में `jobs/<name>.md` खोलें - फ्रंटमैटर `lastRun`, `lastStatus`, `lastError`, `nextRun` दिखाता है।
-- **बिना प्रतीक्षा किए इसका परीक्षण करें:** कोई बलपूर्वक फायर करने वाला उपकरण नहीं है। मांग पर समान कार्य करने के लिए, या तो कार्य के संकेत को एजेंट चैट में पेस्ट करें और इसे वहां चलने दें, या अस्थायी रूप से शेड्यूल को अगले मिनट पर सेट करें ताकि शेड्यूलर इसे अगले टिक पर उठाए (फिर वास्तविक क्रॉन को पुनर्स्थापित करें)।
+- **बिना प्रतीक्षा किए इसका परीक्षण करें:** **Automations** में ऑटोमेशन खोलें और **Run now** चुनें। यह ऑटोमेशन को उसके वास्तविक side effects के साथ तुरंत चलाता है और शेड्यूलर टिक का इंतज़ार नहीं करता, इसलिए यह लोकल रूप से और बिना trigger वाले hosts पर भी काम करता है।
 - **इसे रोकें:** `enabled: false` को पलटें। फ़ाइल वहीं रुक जाती है, बस चलना बंद हो जाती है।
 
 ## एजेंट टूल {#agent-tool}
@@ -228,7 +249,7 @@ Summarize overnight emails.`,
 
 आवर्ती नौकरियों को `@agent-native/scheduling` के साथ भ्रमित न करें:
 
-- **आवर्ती नौकरियां (यह पृष्ठ)** - क्रॉन-शेड्यूल _प्रॉम्प्ट_ एजेंट पृष्ठभूमि में चलता है। ढाँचा-स्तर। कार्यक्षेत्र में रहता है. किसी भी एजेंट-मूल ऐप पर चलता है।
+- **आवर्ती नौकरियां (यह पृष्ठ)** - क्रॉन-शेड्यूल _प्रॉम्प्ट_ एजेंट पृष्ठभूमि में चलता है। ढाँचा-स्तर। कार्यक्षेत्र में रहता है. शेड्यूलर वाले किसी भी host पर फायर होता है (देखें [शेड्यूलर कैसे चलता है](#how-scheduler-runs))।
 - **`@agent-native/scheduling`** - कैलेंडर/बुकिंग सुविधाओं (इवेंट प्रकार, उपलब्धता विंडो, बुकिंग) के निर्माण के लिए एक पुन: प्रयोज्य डोमेन पैकेज। `calendar` टेम्पलेट और कस्टम शेड्यूलिंग सतहों को शक्ति प्रदान करता है।
 
 आवर्ती कार्य हैं "मैं एजेंट को स्वयं कार्य करने के लिए कैसे बाध्य करूं?" शेड्यूलिंग पैकेज है "मैं एक कैलेंडर ऐप कैसे बनाऊं?" अलग-अलग चिंताएं.
