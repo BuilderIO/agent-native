@@ -108,6 +108,29 @@ function markAutoRetryClaim(key: string, ownerId: string) {
   }
 }
 
+/**
+ * A run the user cancelled or retried must stay out of auto-retry across a
+ * reload too: the claim every owner checks is the one place that survives it, so
+ * the click takes the claim for itself. Best effort, like the claim itself.
+ */
+function markUserActedOnRun(
+  threadId: string | null | undefined,
+  runId: string,
+) {
+  if (!threadId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      autoRetryClaimKey(threadId, runId),
+      JSON.stringify({
+        ownerId: "user-action",
+        expiresAt: Date.now() + AUTO_RETRY_CLAIM_TTL_MS,
+      }),
+    );
+  } catch {
+    // The in-memory marker still covers this mount.
+  }
+}
+
 async function claimAutoRetryAttempt(
   threadId: string | null | undefined,
   runId: string,
@@ -366,6 +389,7 @@ export function RunStuckBanner({
     if (!state.runId || busy.type !== "none") return;
     const runId = state.runId;
     userActedRunIdsRef.current.add(runId);
+    markUserActedOnRun(threadId, runId);
     setBusy({ type: "cancel", runId });
     trackEvent("agent_chat_stuck_cancel", {
       runId,
@@ -390,6 +414,7 @@ export function RunStuckBanner({
     }
     const runId = state.runId;
     userActedRunIdsRef.current.add(runId);
+    markUserActedOnRun(threadId, runId);
     setBusy({ type: "retry", runId });
     trackEvent("agent_chat_stuck_retry", {
       runId,
