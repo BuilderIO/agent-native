@@ -2263,6 +2263,50 @@ describe("published recap readback workflow", () => {
     return match[1];
   }
 
+  function urlValidationScript(file: string): string {
+    const workflow = parseYaml(
+      readFileSync(path.join(repoRoot, file), "utf8"),
+    ) as {
+      jobs: {
+        recap: {
+          steps: Array<{ name?: string; run?: string }>;
+        };
+      };
+    };
+    const step = workflow.jobs.recap.steps.find(
+      ({ name }) => name === "Read plan URL",
+    );
+    const match = step?.run?.match(
+      /URL_RESULT=\$\(PLAN_URL="\$PLAN_URL" node <<'NODE'\n([\s\S]*?)\nNODE/,
+    );
+    if (!match) throw new Error(`${file} is missing its plan URL validator`);
+    return match[1];
+  }
+
+  function executeUrlValidation(
+    script: string,
+    input: { planUrl: string; appUrl: string },
+  ) {
+    const writes: string[] = [];
+    runInNewContext(script, {
+      URL,
+      process: {
+        env: {
+          PLAN_URL: input.planUrl,
+          PLAN_RECAP_APP_URL: input.appUrl,
+        },
+        stdout: {
+          write: (chunk: string) => {
+            writes.push(chunk);
+            return true;
+          },
+        },
+      },
+    });
+    expect(writes).toHaveLength(1);
+    return JSON.parse(writes[0]!);
+  }
+
   async function executeReadback(
     script: string,
     input: { planUrl: string; appUrl: string },
@@ -2296,6 +2340,23 @@ describe("published recap readback workflow", () => {
     const scripts = workflowFiles.map(readbackScript);
     expect(scripts[1]).toBe(scripts[0]);
     expect(scripts[2]).toBe(scripts[0]);
+  });
+
+  it("keeps URL validation in sync and lets stdout drain on every result", () => {
+    const scripts = workflowFiles.map(urlValidationScript);
+    expect(scripts[1]).toBe(scripts[0]);
+    expect(scripts[2]).toBe(scripts[0]);
+    expect(scripts[0]).not.toContain("process.exit(");
+    expect(
+      executeUrlValidation(scripts[0]!, {
+        planUrl: "//evil.example/recaps/recap_123",
+        appUrl: "https://plan.agent-native.com",
+      }),
+    ).toMatchObject({
+      url: "",
+      reason:
+        "recap-url.txt points at https://evil.example, expected https://plan.agent-native.com",
+    });
   });
 
   it("keeps bearer requests on the Plan origin for a double-slash base path", async () => {

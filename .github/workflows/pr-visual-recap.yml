@@ -790,12 +790,13 @@ jobs:
           # preserving path-prefixed self-hosted mounts.
           if [ -z "$URL_REASON" ]; then
             URL_RESULT=$(PLAN_URL="$PLAN_URL" node <<'NODE'
+          void (() => {
           const emit = (value) => process.stdout.write(JSON.stringify(value));
           try {
             const raw = process.env.PLAN_URL || "";
             if (!raw) {
               emit({ url: "", reason: "recap-url.txt was empty" });
-              process.exit(0);
+              return;
             }
             const trusted = new URL(process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
             const parsed = /^https?:\/\//i.test(raw)
@@ -803,7 +804,7 @@ jobs:
               : new URL(raw, trusted);
             if (parsed.origin !== trusted.origin) {
               emit({ url: "", reason: `recap-url.txt points at ${parsed.origin}, expected ${trusted.origin}` });
-              process.exit(0);
+              return;
             }
 
             const base = trusted.pathname.replace(/\/$/, "");
@@ -816,13 +817,14 @@ jobs:
               const match = path.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
               if (match) {
                 emit({ url: `${trusted.origin}${base}/recaps/${match[1]}`, reason: "" });
-                process.exit(0);
+                return;
               }
             }
             emit({ url: "", reason: "recap-url.txt did not contain a valid /plans/<id> or /recaps/<id> URL for the configured plan app" });
           } catch {
             emit({ url: "", reason: "recap-url.txt was not a valid URL or recap path" });
           }
+          })();
           NODE
             )
             CANONICAL_URL=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).url||"")}catch{process.stdout.write("")}' "$URL_RESULT")
