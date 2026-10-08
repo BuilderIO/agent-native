@@ -7,6 +7,7 @@ import {
   MCP_PUBLIC_ROUTE_PREFIX,
 } from "../mcp/route-paths.js";
 import { findWorkspaceRoot } from "../mcp/workspace-resolve.js";
+import { PLAIN_MCP_SERVER_NAME } from "../shared/mcp-connect-content.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   CLIENTS,
@@ -727,13 +728,6 @@ async function validateOAuthMcpServer(
   return false;
 }
 
-/**
- * A server chooses this name before anyone has signed in, and it becomes the
- * entry's key in every client config and the label each client shows, so only
- * the identifier shape first-party server names use is accepted.
- */
-const PLAIN_SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
-
 function unusableServerNameReason(name: string): string {
   return `the server name ${JSON.stringify(name)} is not a plain name (letters, digits, "-" and "_")`;
 }
@@ -770,7 +764,7 @@ async function lookupConnectServerName(
     if (!serverName) {
       return { status: "failed", reason: "the response had no serverName" };
     }
-    if (!PLAIN_SERVER_NAME.test(serverName)) {
+    if (!PLAIN_MCP_SERVER_NAME.test(serverName)) {
       return { status: "failed", reason: unusableServerNameReason(serverName) };
     }
     return { status: "found", serverName };
@@ -939,7 +933,7 @@ export async function runDeviceFlow(
       const token = poll.token ?? "";
       const mcpUrl = mcpUrlForBaseUrl(poll.mcpUrl ?? baseUrl);
       const serverName = poll.serverName ?? `${SERVER_NAME_PREFIX}-${appSlug}`;
-      if (!PLAIN_SERVER_NAME.test(serverName)) {
+      if (!PLAIN_MCP_SERVER_NAME.test(serverName)) {
         logErr(`  Could not connect: ${unusableServerNameReason(serverName)}.`);
         return null;
       }

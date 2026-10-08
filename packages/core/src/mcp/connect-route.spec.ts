@@ -1411,6 +1411,14 @@ describe("explicit server name", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).serverName).toBe("plan");
   });
+
+  it("is refused rather than published when it is not a plain name", async () => {
+    await expect(
+      handleMcpConnect(ev({ host: "plan.agent-native.com" }), "/identity", {
+        serverName: "plan; echo hi",
+      }),
+    ).rejects.toThrow(/not a plain name/);
+  });
 });
 
 describe("connect identity", () => {
