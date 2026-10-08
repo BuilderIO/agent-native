@@ -308,6 +308,7 @@ test("right rail actions row keeps the Share button inside the panel", async ({
   await cdpScreenshot(page, testInfo.outputPath("editor-share-toolbar.png"));
 });
 
+// oracle: none — verifies app-specific breakpoint control routing; native Figma behavior is unmeasured.
 test("screen overview adds and targets frames from the unified breakpoint control", async ({
   page,
 }) => {
