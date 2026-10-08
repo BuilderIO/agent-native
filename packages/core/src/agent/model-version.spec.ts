@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { BUILDER_MODEL_CONFIG } from "./model-config.js";
 import {
   getModelOptionLabel,
+  normalizeModelForEngine,
   upgradeBuilderModelAlias,
   upgradeModelForProvider,
 } from "./model-version.js";
@@ -53,6 +54,24 @@ describe("upgradeModelForProvider", () => {
     expect(
       upgradeModelForProvider("claude-sonnet-5", supportedModels, "anthropic"),
     ).toBeUndefined();
+  });
+});
+
+describe("normalizeModelForEngine", () => {
+  it("moves the retired OpenRouter Grok ID to the current model while preserving custom IDs", () => {
+    const engine = {
+      name: "ai-sdk:openrouter",
+      defaultModel: "openai/gpt-6-luna",
+      supportedModels: ["openai/gpt-6-luna", "x-ai/grok-build-0.1"],
+      preserveCustomModels: true,
+    };
+
+    expect(normalizeModelForEngine(engine, "x-ai/grok-code-fast-1")).toBe(
+      "x-ai/grok-build-0.1",
+    );
+    expect(normalizeModelForEngine(engine, "custom/provider-model")).toBe(
+      "custom/provider-model",
+    );
   });
 });
 

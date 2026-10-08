@@ -13,6 +13,9 @@ interface ParsedVersionedModelId {
 }
 
 const UPGRADEABLE_GPT_TIERS = new Set(["-sol", "-terra", "-luna"]);
+const OPENROUTER_MODEL_ALIASES: Record<string, string> = {
+  "x-ai/grok-code-fast-1": "x-ai/grok-build-0.1",
+};
 
 export interface NormalizeModelOptions {
   preserveCustomModels?: boolean;
@@ -90,6 +93,16 @@ export function upgradeBuilderModelAlias(
   return latest && supportedModels.includes(latest) ? latest : undefined;
 }
 
+function upgradeOpenRouterModelAlias(
+  candidate: string,
+  supportedModels: readonly string[],
+  provider: string,
+): string | undefined {
+  if (provider !== "ai-sdk:openrouter") return undefined;
+  const latest = OPENROUTER_MODEL_ALIASES[candidate];
+  return latest && supportedModels.includes(latest) ? latest : undefined;
+}
+
 export function isNewerVersionedModel(
   candidate: string,
   newerModel: string,
@@ -144,6 +157,13 @@ export function normalizeModelForEngine(
 ): string {
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
+
+  const providerAlias = upgradeOpenRouterModelAlias(
+    candidate,
+    engine.supportedModels,
+    engine.name,
+  );
+  if (providerAlias) return providerAlias;
 
   if (engine.preserveCustomModels || options.preserveCustomModels) {
     return candidate;
