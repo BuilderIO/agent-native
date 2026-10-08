@@ -5442,7 +5442,7 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
     );
   const handoffThread = thread.thread as AgentKitHandoffThreadSnapshot | null;
   const savedTitle = handoffThread?.title?.trim();
-  const titleSource =
+  const titleSource: "fallback" | undefined =
     !savedTitle || handoffThread?.titleSource === "fallback"
       ? "fallback"
       : undefined;
