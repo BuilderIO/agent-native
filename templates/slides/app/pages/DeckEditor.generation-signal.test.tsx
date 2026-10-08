@@ -1543,6 +1543,59 @@ describe("DeckEditor generation signal wiring", () => {
     ).toBe(false);
   });
 
+  it.each([
+    {
+      name: "generation failure",
+      recovery: {
+        kind: "generation_failure",
+        attemptId: "attempt-1",
+        failureCode: "outcome_unresolved",
+      },
+      generationContext: {
+        generationAttemptId: "attempt-1",
+        generationFailureCode: "outcome_unresolved",
+        generationFailureAttemptId: "attempt-1",
+      },
+    },
+    {
+      name: "accepted retry",
+      recovery: {
+        kind: "retry_accepted",
+        retryAttemptId: "retry-attempt-1",
+      },
+      generationContext: {
+        generationAttemptId: "retry-attempt-1",
+        generationFailureCode: null,
+        generationFailureAttemptId: null,
+      },
+    },
+  ])(
+    "keeps a matching $name journal when flush fails",
+    async ({ recovery, generationContext }) => {
+      const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+      const serializedRecovery = JSON.stringify(recovery);
+      window.localStorage.setItem(recoveryKey, serializedRecovery);
+      mocks.deck.generationContext = {
+        generationStartedAt: Date.now(),
+        generationMode: undefined,
+        originalPrompt: "",
+        ...generationContext,
+      };
+      mocks.flushDeckSave.mockRejectedValueOnce(new Error("save failed"));
+      router = createMemoryRouter(
+        [{ path: "/deck/:id", element: <DeckEditor /> }],
+        { initialEntries: ["/deck/deck-1"] },
+      );
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() =>
+        expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
+      );
+      expect(window.localStorage.getItem(recoveryKey)).toBe(serializedRecovery);
+    },
+  );
+
   it("restores retry run tracking from the persisted submit-to-tab mapping", async () => {
     const submitMessageId = "retry-submit";
     const tabId = "retry-tab";

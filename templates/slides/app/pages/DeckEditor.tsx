@@ -1049,45 +1049,35 @@ export default function DeckEditor() {
     } else if (recovery.kind === "generation_failure") {
       if (recovery.attemptId !== generationAttemptId) return;
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
-      if (
-        generationContext.generationFailureCode === recovery.failureCode &&
-        generationContext.generationFailureAttemptId === recovery.attemptId
-      ) {
-        clearEmptyGenerationRecovery(
-          retryRecoveryStorageKey,
-          serializedRecovery,
-        );
-        return;
-      }
       emptyGenerationRecoveryRef.current = serializedRecovery;
-      updateDeck(id, {
-        generationContext: {
-          ...generationContext,
-          generationFailureCode: recovery.failureCode,
-          generationFailureAttemptId: recovery.attemptId,
-        },
-      });
+      if (
+        generationContext.generationFailureCode !== recovery.failureCode ||
+        generationContext.generationFailureAttemptId !== recovery.attemptId
+      ) {
+        updateDeck(id, {
+          generationContext: {
+            ...generationContext,
+            generationFailureCode: recovery.failureCode,
+            generationFailureAttemptId: recovery.attemptId,
+          },
+        });
+      }
     } else {
       if (recovery.retryAttemptId !== generationAttemptId) return;
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
-      if (
-        generationContext.generationFailureCode == null &&
-        generationContext.generationFailureAttemptId == null
-      ) {
-        clearEmptyGenerationRecovery(
-          retryRecoveryStorageKey,
-          serializedRecovery,
-        );
-        return;
-      }
       emptyGenerationRecoveryRef.current = serializedRecovery;
-      updateDeck(id, {
-        generationContext: {
-          ...generationContext,
-          generationFailureCode: null,
-          generationFailureAttemptId: null,
-        },
-      });
+      if (
+        generationContext.generationFailureCode != null ||
+        generationContext.generationFailureAttemptId != null
+      ) {
+        updateDeck(id, {
+          generationContext: {
+            ...generationContext,
+            generationFailureCode: null,
+            generationFailureAttemptId: null,
+          },
+        });
+      }
     }
 
     void flushDeckSave(id)
