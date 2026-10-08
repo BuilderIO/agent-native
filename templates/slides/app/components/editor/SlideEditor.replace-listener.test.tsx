@@ -16,6 +16,10 @@ import {
 } from "@/components/deck/SlideRenderer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
+import {
+  applyRemoteSlideUnderInlineEdit,
+  onInlineEditRemoteRetry,
+} from "@/lib/inline-edit-remote";
 import * as slideCommentAnchor from "@/lib/slide-comment-anchor";
 import {
   captureSlideImageUploadProvenance,
@@ -148,6 +152,114 @@ describe("SlideEditor with a newer version of the edited slide", () => {
       slide.id,
       { preserveLocalState: true },
     );
+  });
+
+  describe("another writer's saved edit during a text edit", () => {
+    const objects = (a: string, b: string) =>
+      `<div class="fmd-slide"><div data-slide-object-id="a">${a}</div><div data-slide-object-id="b">${b}</div></div>`;
+
+    function openEdit(slideId: string, content: string) {
+      vi.stubGlobal("fetch", () => new Promise(() => {}));
+      const noop = () => {};
+      const slide = { id: slideId, content, layout: "blank" } as Slide;
+      render(
+        <SlideEditor
+          slide={slide}
+          deckId="deck-live"
+          onUpdateSlide={() => undefined}
+          onGenerateImage={noop}
+          onOpenAssetLibrary={noop}
+          onUploadImage={noop}
+          onToggleObjectFit={noop}
+          onChangeObjectPosition={noop}
+        />,
+        { wrapper: Providers },
+      );
+      const edited = document.querySelector<HTMLElement>(
+        '.slide-content [data-slide-object-id="a"]',
+      )!;
+      fireEvent.doubleClick(edited, { detail: 2 });
+      expect(edited.getAttribute("contenteditable")).toBe("true");
+      (edited.firstChild as Text).data = "Alpha typed";
+      return { edited, slide };
+    }
+
+    it("shows another object's change around the open edit", () => {
+      const base = objects("Alpha", "Beta");
+      const { edited } = openEdit("slide-live-editor", base);
+
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-editor",
+          base,
+          objects("Alpha", "Beta by remote"),
+        ),
+      ).toBe("applied");
+
+      expect(
+        document.querySelector('.slide-content [data-slide-object-id="b"]')
+          ?.textContent,
+      ).toBe("Beta by remote");
+      expect(edited.getAttribute("contenteditable")).toBe("true");
+      expect(edited.textContent).toBe("Alpha typed");
+    });
+
+    it("holds a change to the edited text and one that arrives after the edit ended", () => {
+      const base = objects("Alpha", "Beta");
+      openEdit("slide-live-held", base);
+      const remote = objects("Alpha by remote", "Beta");
+
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-held",
+          base,
+          remote,
+        ),
+      ).toBe("held");
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-held",
+          base,
+          objects("Alpha", "Beta by remote"),
+        ),
+      ).toBe("held");
+    });
+
+    it("waits out an IME composition and asks for a retry when it ends", () => {
+      const base = objects("Alpha", "Beta");
+      const { edited } = openEdit("slide-live-ime", base);
+      const retry = vi.fn();
+      const stopListening = onInlineEditRemoteRetry(retry);
+      const remote = objects("Alpha", "Beta by remote");
+
+      fireEvent.compositionStart(edited);
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-ime",
+          base,
+          remote,
+        ),
+      ).toBe("later");
+      expect(retry).not.toHaveBeenCalled();
+
+      fireEvent.compositionEnd(edited);
+      expect(retry).toHaveBeenCalledWith("deck-live");
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-ime",
+          base,
+          remote,
+        ),
+      ).toBe("applied");
+      stopListening();
+    });
   });
 
   it("refocuses the canvas after Escape and keeps the layer selected", () => {
