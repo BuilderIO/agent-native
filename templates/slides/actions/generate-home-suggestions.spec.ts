@@ -154,6 +154,28 @@ describe("generate-home-suggestions", () => {
     );
   });
 
+  it("uses generic suggestions and tracks the optional model timeout", async () => {
+    mocks.completeText.mockRejectedValue(
+      new Error("completeText timed out after 10000ms"),
+    );
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "timeout",
+      suggestions: [],
+    });
+    expect(mocks.track).toHaveBeenCalledWith(
+      "home_suggestions_unavailable",
+      expect.objectContaining({
+        app_name: "slides",
+        failure_code: "timeout",
+      }),
+      expect.objectContaining({ userEmail: "user@example.test" }),
+    );
+  });
+
   it("maps malformed model output to an upstream failure", async () => {
     mocks.completeText.mockResolvedValue({ text: "not a JSON array" });
 

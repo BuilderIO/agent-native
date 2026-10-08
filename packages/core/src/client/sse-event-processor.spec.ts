@@ -5318,6 +5318,19 @@ describe("auto-continue on a deployment that replaces the error message", () => 
     ).toBe(true);
   });
 
+  it("keeps an invalid request terminal when the message says timeout", async () => {
+    expect(
+      (
+        await readError({
+          error: "Invalid request timed out",
+          errorCode: "invalid_request",
+          recoverable: true,
+          providerRetryable: false,
+        })
+      ).continued,
+    ).toBe(false);
+  });
+
   for (const errorCode of [
     "rate_limit_exceeded",
     "credits-limit-reached",

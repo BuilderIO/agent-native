@@ -135,6 +135,18 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).toMatch(/new chat|retry|wait/i);
   });
 
+  it("redacts legacy raw gateway events from persisted error details", () => {
+    const legacyError =
+      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_example"})';
+
+    for (const errorCode of [undefined, "invalid_request"]) {
+      const normalized = normalizeChatError(legacyError, errorCode);
+
+      expect(normalized.details).toBe("Gateway error (no detail)");
+      expect(normalized.message).not.toContain("req_example");
+    }
+  });
+
   it("uses malformed-request guidance for no-detail invalid_request errors", () => {
     const normalized = normalizeChatError(
       "Gateway error (no detail)",

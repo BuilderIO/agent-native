@@ -2397,6 +2397,41 @@ describe("run manager soft timeout", () => {
     expect(errorEvent).not.toHaveProperty("providerRetryable");
   });
 
+  it("preserves an explicit terminal provider verdict on the wire", async () => {
+    const events: AgentChatEvent[] = [];
+    const message = "Invalid request timed out";
+
+    const run = startRun(
+      "run-provider-terminal-verdict",
+      "thread-provider-terminal-verdict",
+      async () => {
+        throw new EngineError(message, {
+          errorCode: "invalid_request",
+          providerRetryable: false,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-provider-terminal-verdict",
+        "errored",
+      ),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        error: message,
+        errorCode: "invalid_request",
+        providerRetryable: false,
+      }),
+    );
+  });
+
   it("does not capture missing LLM provider errors while preserving the terminal event", async () => {
     const provider = vi.fn(() => "evt_run");
     const unregister = registerErrorCaptureProvider(

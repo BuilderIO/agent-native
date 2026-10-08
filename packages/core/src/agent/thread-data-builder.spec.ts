@@ -929,6 +929,37 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("keeps an invalid request with timeout wording visible at continuation boundaries", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "partial answer" } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "Invalid request timed out",
+            errorCode: "invalid_request",
+            providerRetryable: false,
+          },
+        },
+      ],
+      "run-invalid-request",
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-invalid-request",
+      },
+    );
+
+    expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(message?.metadata?.custom?.continued).toBeUndefined();
+    expect(message?.content).toEqual([
+      {
+        type: "text",
+        text: "partial answer\n\nError: The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+      },
+    ]);
+  });
+
   it("ignores the engine's retry verdict when deciding continuation boundaries", () => {
     const message = buildAssistantMessage(
       [

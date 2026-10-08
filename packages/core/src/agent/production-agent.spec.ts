@@ -14638,6 +14638,18 @@ describe("isRecoverableContinuationError", () => {
       ).toBe(true);
     }
   });
+
+  it("keeps explicitly terminal invalid requests from continuing on timeout wording", () => {
+    expect(
+      isRecoverableContinuationError({
+        type: "error",
+        error: "Invalid request timed out",
+        errorCode: "invalid_request",
+        recoverable: true,
+        providerRetryable: false,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("isTransientProviderRateLimitError", () => {

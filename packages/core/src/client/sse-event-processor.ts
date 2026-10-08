@@ -872,16 +872,16 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   const code = String(ev.errorCode ?? "").toLowerCase();
   const msg = errMsg.toLowerCase();
 
-  // An explicit `recoverable: false` outranks EVERY inference below — the code
-  // list as well as the message sniff — matching the server's own precedence in
-  // `isRecoverableContinuationError`. The repeat guards stop a turn with a
+  // Explicit terminal classifications outrank EVERY inference below — the
+  // code list as well as the message sniff — matching the server's precedence
+  // in `isRecoverableContinuationError`. The repeat guards stop a turn with a
   // message that names the looping tool, so a stop on
   // `list-workspace-connections` matched the "connection" sniff and
   // auto-continued the very loop it was emitted to break; the background
   // no-progress breaker stops one while PRESERVING the underlying transient
   // code (so the failure stays diagnosable), so reading the code instead of the
   // flag re-POSTs the exact chain the server just refused to continue.
-  if (ev.recoverable === false) return false;
+  if (ev.providerRetryable === false || ev.recoverable === false) return false;
 
   // These messages can carry `recoverable: true` for banner rendering, but
   // repeating the request would retry the same rejected credential or a run
@@ -913,6 +913,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "gateway_not_enabled" ||
     code === "missing_api_key" ||
     code === "missing_credentials" ||
+    code === "invalid_request" ||
     code === "invalid_request_error" ||
     code === "request_too_large" ||
     code === "not_found_error" ||
@@ -2194,10 +2195,7 @@ export function processEvent(
 
   if (ev.type === "error") {
     const errMsg = ev.error ?? "Unknown error";
-    if (
-      (ev.errorCode === "run_timeout" && ev.recoverable) ||
-      isAutoRecoverableError(ev, errMsg)
-    ) {
+    if (isAutoRecoverableError(ev, errMsg)) {
       const normalized = normalizeChatError(errMsg, ev.errorCode);
       return {
         action: "auto_continue",

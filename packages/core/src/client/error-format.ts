@@ -410,7 +410,10 @@ export function normalizeChatError(
 ): NormalizedChatError {
   const raw = String(errorMessage || "Unknown error");
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
-  const text = looksHtml ? htmlToText(raw) : raw.trim();
+  const providerText = looksHtml ? htmlToText(raw) : raw.trim();
+  const text = /^Gateway error \(no detail; raw event:/i.test(providerText)
+    ? "Gateway error (no detail)"
+    : providerText;
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
   const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const credential = chatCredentialState(text, code);

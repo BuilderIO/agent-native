@@ -1482,8 +1482,8 @@ export function startRun(
         ...(err instanceof EngineError && err.upgradeUrl
           ? { upgradeUrl: err.upgradeUrl }
           : {}),
-        ...(err instanceof EngineError && err.providerRetryable === true
-          ? { providerRetryable: true }
+        ...(err instanceof EngineError && err.providerRetryable !== undefined
+          ? { providerRetryable: err.providerRetryable }
           : {}),
         ...(err instanceof EngineError && err.contextOverflow === true
           ? { contextOverflow: true }
