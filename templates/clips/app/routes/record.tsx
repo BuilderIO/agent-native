@@ -1121,6 +1121,18 @@ export function shouldShowFirstRunStorageSetup({
   );
 }
 
+export function shouldPreserveFirstRunStorageSetupIntent({
+  firstRunStorageSetup,
+  currentIntent,
+  dismissal,
+}: {
+  firstRunStorageSetup: boolean;
+  currentIntent: boolean;
+  dismissal: FirstRunStorageSetupDismissal;
+}): boolean {
+  return dismissal !== "dismissed" && (firstRunStorageSetup || currentIntent);
+}
+
 export function shouldPersistFirstRunStorageSetupDismissal({
   firstRunStorageSetup,
   connectStorageRequested,
@@ -1162,6 +1174,8 @@ export default function RecordRoute() {
   const [uiState, setUiState] = useState<UiState>("idle");
   const [firstRunStorageSetupDismissal, setFirstRunStorageSetupDismissal] =
     useState<FirstRunStorageSetupDismissal>(readFirstRunStorageSetupDismissal);
+  const [firstRunStorageSetupIntent, setFirstRunStorageSetupIntent] =
+    useState(false);
   const [savingKind, setSavingKind] = useState<"recording" | "upload" | null>(
     null,
   );
@@ -1253,9 +1267,21 @@ export default function RecordRoute() {
     isClipIntake: !!clipIntake,
     connectStorageRequested,
   });
+  useEffect(() => {
+    setFirstRunStorageSetupIntent((currentIntent) =>
+      shouldPreserveFirstRunStorageSetupIntent({
+        firstRunStorageSetup,
+        currentIntent,
+        dismissal: firstRunStorageSetupDismissal,
+      }),
+    );
+  }, [firstRunStorageSetup, firstRunStorageSetupDismissal]);
   const storageSetupRequested =
     !clipIntake &&
-    (pendingUploadFile || connectStorageRequested || firstRunStorageSetup);
+    (pendingUploadFile ||
+      connectStorageRequested ||
+      firstRunStorageSetup ||
+      firstRunStorageSetupIntent);
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
       queryClient.setQueryData<VideoStorageStatus>(
@@ -3764,6 +3790,7 @@ export default function RecordRoute() {
   const showStorageStatusUnavailable =
     storageQuery.isError && storageSetupRequested;
   const skipStorageSetup = () => {
+    setFirstRunStorageSetupIntent(false);
     if (
       shouldPersistFirstRunStorageSetupDismissal({
         firstRunStorageSetup,

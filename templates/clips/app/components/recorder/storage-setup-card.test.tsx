@@ -79,6 +79,7 @@ function flowState(overrides: Record<string, unknown> = {}) {
     configured: false,
     envManaged: false,
     accountExists: false,
+    effective: "org",
     connecting: false,
     agentNativeProvisioningEnabled: true,
     statusResolved: true,
@@ -353,6 +354,24 @@ describe("StorageSetupCard", () => {
   it("uses a personal Builder grant when an org grant cannot be connected", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ canConnect: { org: false, personal: true } }),
+    );
+    await renderCard();
+
+    await clickConnect();
+    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
+
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
+      provisionAccount: false,
+      scope: "personal",
+    });
+  });
+
+  it("prefers the effective Builder grant when both scopes are connectable", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({
+        effective: "personal",
+        canConnect: { org: true, personal: true },
+      }),
     );
     await renderCard();
 

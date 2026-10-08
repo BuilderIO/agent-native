@@ -181,12 +181,17 @@ export function StorageSetupCard({
   });
   const hasBuilderAccount =
     builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
-  const builderConnectionScope: BuilderConnectionScope | null = builderConnect
-    .canConnect.org
-    ? "org"
-    : builderConnect.canConnect.personal
-      ? "personal"
-      : null;
+  const builderConnectionScope: BuilderConnectionScope | null =
+    builderConnect.effective === "org" && builderConnect.canConnect.org
+      ? "org"
+      : builderConnect.effective === "personal" &&
+          builderConnect.canConnect.personal
+        ? "personal"
+        : builderConnect.canConnect.org
+          ? "org"
+          : builderConnect.canConnect.personal
+            ? "personal"
+            : null;
   useEffect(() => {
     const startedAt = retryingBuilderStatusAtCountRef.current;
     if (

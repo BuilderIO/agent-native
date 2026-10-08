@@ -18,6 +18,7 @@ import {
   RecordingErrorCard,
   RecordingLeaveChoices,
   shouldPersistFirstRunStorageSetupDismissal,
+  shouldPreserveFirstRunStorageSetupIntent,
   shouldRedirectToStorageSetupHome,
   shouldShowFirstRunStorageSetup,
 } from "./record";
@@ -85,6 +86,30 @@ describe("record route lifecycle shell", () => {
         connectStorageRequested: false,
       }),
     ).toBe(true);
+  });
+
+  it("preserves first-run setup intent while storage status refreshes", () => {
+    const intent = shouldPreserveFirstRunStorageSetupIntent({
+      firstRunStorageSetup: true,
+      currentIntent: false,
+      dismissal: "not-dismissed",
+    });
+
+    expect(intent).toBe(true);
+    expect(
+      shouldPreserveFirstRunStorageSetupIntent({
+        firstRunStorageSetup: false,
+        currentIntent: intent,
+        dismissal: "not-dismissed",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreserveFirstRunStorageSetupIntent({
+        firstRunStorageSetup: false,
+        currentIntent: intent,
+        dismissal: "dismissed",
+      }),
+    ).toBe(false);
   });
 
   it.each([
