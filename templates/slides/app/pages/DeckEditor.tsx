@@ -1067,8 +1067,10 @@ export default function DeckEditor() {
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
       emptyGenerationRecoveryRef.current = serializedRecovery;
       if (
-        generationContext.generationFailureCode != null ||
-        generationContext.generationFailureAttemptId != null
+        generationContext.generationFailureAttemptId !==
+          recovery.retryAttemptId &&
+        (generationContext.generationFailureCode != null ||
+          generationContext.generationFailureAttemptId != null)
       ) {
         updateDeck(id, {
           generationContext: {

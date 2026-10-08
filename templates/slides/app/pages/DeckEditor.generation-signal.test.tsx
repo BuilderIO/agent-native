@@ -1569,6 +1569,18 @@ describe("DeckEditor generation signal wiring", () => {
         generationFailureAttemptId: null,
       },
     },
+    {
+      name: "accepted retry with same-attempt failure",
+      recovery: {
+        kind: "retry_accepted",
+        retryAttemptId: "retry-attempt-1",
+      },
+      generationContext: {
+        generationAttemptId: "retry-attempt-1",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "retry-attempt-1",
+      },
+    },
   ])(
     "keeps a matching $name journal when flush fails",
     async ({ recovery, generationContext }) => {
@@ -1592,7 +1604,11 @@ describe("DeckEditor generation signal wiring", () => {
       await waitFor(() =>
         expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
       );
+      await waitFor(() =>
+        expect(mocks.toastError).toHaveBeenCalledWith("settings.saveFailed"),
+      );
       expect(window.localStorage.getItem(recoveryKey)).toBe(serializedRecovery);
+      expect(mocks.deck.generationContext).toMatchObject(generationContext);
     },
   );
 
