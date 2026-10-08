@@ -96,6 +96,7 @@ import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
 } from "../server/agent-chat/skill-frontmatter.js";
+import { captureError } from "../server/capture-error.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
@@ -157,6 +158,10 @@ import {
   drainAgentWarnings,
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
+import {
+  CONTINUE_UNAVAILABLE_CODE,
+  type ContinueTrigger,
+} from "./auto-continue.js";
 import { clipHead } from "./clip-text.js";
 import {
   connectionRequiredMessage,
@@ -9129,6 +9134,7 @@ export function createProductionAgentHandler(
       agentKitMessageId: requestedAgentKitMessageId,
       internalContinuation,
       autoContinueOfRunId: requestedAutoContinueOfRunId,
+      continueOfRunId: requestedContinueOfRunId,
       turnId: requestTurnId,
       model: requestModel,
       engine: requestEngine,
@@ -9139,12 +9145,30 @@ export function createProductionAgentHandler(
       trackInRunsTray,
       skipPendingSelectionContext,
     } = body;
-    const autoContinueOfRunId =
+    const continuedRunId = (requested: unknown) =>
       internalContinuation === true &&
-      typeof requestedAutoContinueOfRunId === "string" &&
-      requestedAutoContinueOfRunId.trim().length <= 200
-        ? requestedAutoContinueOfRunId.trim() || undefined
+      typeof requested === "string" &&
+      requested.trim().length <= 200
+        ? requested.trim() || undefined
         : undefined;
+    const autoContinueOfRunId = continuedRunId(requestedAutoContinueOfRunId);
+    // The stopped run this request resumes in its own turn, from the turn's
+    // history and journal, whether the chat or a person asked.
+    const continueOf: { runId: string; trigger: ContinueTrigger } | undefined =
+      autoContinueOfRunId
+        ? { runId: autoContinueOfRunId, trigger: "auto" }
+        : (() => {
+            const runId = continuedRunId(requestedContinueOfRunId);
+            return runId ? { runId, trigger: "manual" } : undefined;
+          })();
+    const continueRefusal = (code: string) => ({
+      error:
+        continueOf?.trigger === "manual"
+          ? "This turn can no longer be continued."
+          : "This turn will not continue automatically.",
+      code,
+      retryable: false,
+    });
     if (requestEngine !== undefined && typeof requestEngine !== "string") {
       setResponseStatus(event, 400);
       return { error: "engine must be a string" };
@@ -10399,9 +10423,7 @@ export function createProductionAgentHandler(
           ...(dispatchToBackground
             ? { dispatchPayload: JSON.stringify(body) }
             : {}),
-          ...(autoContinueOfRunId
-            ? { autoContinueOf: autoContinueOfRunId }
-            : {}),
+          ...(continueOf ? { continueOf } : {}),
         });
       } catch (error) {
         await setupResumeClaim?.release();
@@ -10418,14 +10440,10 @@ export function createProductionAgentHandler(
         await setupResumeClaim?.release();
         return { ok: true, stopped: true };
       }
-      if (slot.autoContinueRefused) {
+      if (slot.continueRefused) {
         await setupResumeClaim?.release();
         setResponseStatus(event, 409);
-        return {
-          error: "This turn will not continue automatically.",
-          code: slot.autoContinueRefused,
-          retryable: false,
-        };
+        return continueRefusal(slot.continueRefused);
       }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
@@ -10504,26 +10522,33 @@ export function createProductionAgentHandler(
       ? Math.max(0, priorTurnInputTokensFromBody)
       : 0;
 
-    // A server successor and an automatic continuation resume the same turn
-    // the same way: the thread's tool calls and results, plus the turn's
+    // A server successor and a continuation, automatic or chosen, resume the
+    // same turn the same way: the thread's tool calls and results, plus the turn's
     // journal of finished steps, so nothing already done is sent again.
-    if (
-      (isChainedBackgroundContinuation || autoContinueOfRunId) &&
-      effectiveThreadId
-    ) {
+    if ((isChainedBackgroundContinuation || continueOf) && effectiveThreadId) {
       try {
         const { getThread } = await import("../chat-threads/store.js");
-        const { resumeThreadHistoryForRequest } =
+        const { latestPromptTurnId, resumeThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
+        const threadData = (await getThread(effectiveThreadId))?.threadData;
         const { messages: resumed, foundTurnPrompt } =
-          resumeThreadHistoryForRequest(
-            (await getThread(effectiveThreadId))?.threadData,
-          );
+          resumeThreadHistoryForRequest(threadData);
         // A continuation always follows a stopped run, so a thread without
         // that turn's prompt means its history was lost, not that there was
         // none. A successor stays best-effort and resumes from what is there.
-        if (autoContinueOfRunId && !foundTurnPrompt) {
+        if (continueOf && !foundTurnPrompt) {
           throw new Error(`thread ${effectiveThreadId} has no turn prompt`);
+        }
+        // Resuming takes the thread's newest prompt, so a newer one, even one
+        // whose run never started, would run under this turn's journal.
+        const promptTurnId =
+          continueOf && threadData ? latestPromptTurnId(threadData) : undefined;
+        if (promptTurnId && promptTurnId !== effectiveTurnId) {
+          if (await updateRunStatusIfRunning(runId, "errored")) {
+            await setRunTerminalReason(runId, CONTINUE_UNAVAILABLE_CODE);
+          }
+          setResponseStatus(event, 409);
+          return continueRefusal(CONTINUE_UNAVAILABLE_CODE);
         }
         if (resumed.length > 0) {
           const actionPreparationTool =
@@ -10540,7 +10565,7 @@ export function createProductionAgentHandler(
             effectiveThreadId,
             effectiveTurnId,
           );
-          if (autoContinueOfRunId && journalRead.status === "unreadable") {
+          if (continueOf && journalRead.status === "unreadable") {
             throw new Error(journalRead.error);
           }
           const journalNote =
@@ -10555,7 +10580,7 @@ export function createProductionAgentHandler(
           messages.push(...resumed);
         }
       } catch (error) {
-        if (autoContinueOfRunId) {
+        if (continueOf) {
           // The browser's history lacks the stopped run's tool results, so
           // continuing from it could repeat a step that already finished.
           console.warn(
@@ -10597,6 +10622,25 @@ export function createProductionAgentHandler(
           `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
           err,
         );
+      }
+    }
+    if (!internalContinuation && !isChainedBackgroundContinuation && threadId) {
+      try {
+        const { loadStoppedPreviousTurnNote } =
+          await import("./previous-turn-note.js");
+        const note = await loadStoppedPreviousTurnNote(
+          threadId,
+          effectiveTurnId,
+        );
+        const prompt = messages.at(-1);
+        if (note && prompt?.role === "user") {
+          prompt.content = [{ type: "text", text: note }, ...prompt.content];
+        }
+      } catch (err) {
+        captureError(err, {
+          tags: { source: "agent-chat", failureClass: "previous-turn-note" },
+          extra: { threadId, turnId: effectiveTurnId },
+        });
       }
     }
     setupMark("depsThread");

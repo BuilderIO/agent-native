@@ -1140,6 +1140,8 @@ const messages = {
   "recovery.connectingBuilder": "Setting up Builder.io",
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
+  "recovery.continueUnavailable":
+    "This run can't be continued anymore. Send a message to keep going.",
   "recovery.retryAttachmentUnavailable":
     "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
   "recovery.deferredSubmissionFailed":

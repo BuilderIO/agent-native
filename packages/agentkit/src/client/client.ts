@@ -359,6 +359,12 @@ export interface AgentKitController {
     context?: AgentRequestContext,
   ): Promise<void>;
   supportsQueuedMessageReordering?(): boolean;
+  continueRun?(
+    threadId: ThreadId,
+    runId: RunId,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  supportsRunContinuation?(): boolean;
   submitFeedback(
     threadId: ThreadId,
     messageId: string,
@@ -3122,6 +3128,31 @@ export class AgentKitClient implements AgentKitController {
         throw error;
       }
     });
+  }
+
+  public supportsRunContinuation(): boolean {
+    return typeof this.transport.continueRun === "function";
+  }
+
+  public async continueRun(
+    threadId: ThreadId,
+    runId: RunId,
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const continueRun = this.transport.continueRun;
+    if (!continueRun) throw new AgentKitOperationError("run continuation");
+    const result = await this.invokeRequest(
+      this.createRequestContext(context),
+      (request) => continueRun({ threadId, runId }, request),
+    );
+    this.assertActive();
+    this.markRunStarted(threadId, result.runId);
+    this.trackConsumer(
+      threadId,
+      result.runId,
+      this.consume(threadId, result.runId),
+    );
   }
 
   public supportsQueuedMessageReordering(): boolean {
