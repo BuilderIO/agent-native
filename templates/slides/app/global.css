@@ -1257,7 +1257,7 @@ button[title="Open agent sidebar"] {
 
 .fmd-video-upload-placeholder {
   overflow: hidden;
-  border: 1px solid var(--deck-line, currentColor);
+  border: 1px solid var(--deck-ink, currentColor);
   border-radius: var(--deck-radius, 0);
   background-color: var(--deck-surface, transparent);
 }

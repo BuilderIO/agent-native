@@ -1594,6 +1594,44 @@ async function deleteUploadedVideoAssetRow(
     );
 }
 
+async function findUploadedVideoAssetById(
+  email: string,
+  assetId: string,
+  requestedOrgId: string | null | undefined,
+): Promise<UploadedVideoAsset | null> {
+  const orgId = requestedOrgId ?? undefined;
+  const [asset] = await getDb()
+    .select({
+      id: schema.uploadedAssets.id,
+      filename: schema.uploadedAssets.filename,
+      url: schema.uploadedAssets.url,
+      type: schema.uploadedAssets.type,
+      size: schema.uploadedAssets.size,
+      provider: schema.uploadedAssets.provider,
+    })
+    .from(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, assetId),
+        eq(schema.uploadedAssets.ownerEmail, email),
+        orgId
+          ? eq(schema.uploadedAssets.orgId, orgId)
+          : isNull(schema.uploadedAssets.orgId),
+      ),
+    )
+    .limit(1);
+  if (!asset || !asset.type.startsWith("video/")) return null;
+  return { ...asset, provider: asset.provider ?? undefined };
+}
+
+async function uploadedVideoAssetRowExists(
+  id: string,
+  ownerEmail: string,
+  orgId: string | null | undefined,
+): Promise<boolean> {
+  return Boolean(await findUploadedVideoAssetById(ownerEmail, id, orgId));
+}
+
 export async function reapOrphanedVideoAssetObjects(
   ownerEmail: string,
   orgId: string | undefined,
@@ -1624,13 +1662,28 @@ export async function reapOrphanedVideoAssetObjects(
         !cleanup.url ||
         (cleanup.assetId !== undefined &&
           (typeof cleanup.assetId !== "string" || !cleanup.assetId)) ||
+        (cleanup.preserveIfAssetExists !== undefined &&
+          (typeof cleanup.preserveIfAssetExists !== "boolean" ||
+            (cleanup.preserveIfAssetExists && !cleanup.assetId))) ||
         (cleanup.providerObjectId !== null &&
           typeof cleanup.providerObjectId !== "string")
       ) {
         return;
       }
       try {
-        if (cleanup.assetId) {
+        if (
+          cleanup.assetId &&
+          cleanup.preserveIfAssetExists &&
+          (await runWithRequestContext(requestContext, () =>
+            uploadedVideoAssetRowExists(cleanup.assetId!, ownerEmail, orgId),
+          ))
+        ) {
+          await runWithRequestContext(requestContext, () =>
+            deleteOrphanedVideoAssetCleanup(key),
+          );
+          return;
+        }
+        if (cleanup.assetId && !cleanup.preserveIfAssetExists) {
           await runWithRequestContext(requestContext, () =>
             deleteUploadedVideoAssetRow(cleanup.assetId!, ownerEmail, orgId),
           );
@@ -1733,7 +1786,21 @@ export async function uploadVideoAsset(args: {
         createdAt: new Date().toISOString(),
       });
   } catch (insertError) {
+    let committedAsset: UploadedVideoAsset | null = null;
+    let assetLookupFailed = false;
+    try {
+      committedAsset = await findUploadedVideoAssetById(
+        args.email,
+        asset.id,
+        orgId ?? null,
+      );
+    } catch {
+      assetLookupFailed = true;
+    }
+    if (committedAsset) return committedAsset;
+
     let completed: UploadedVideoAsset | null = null;
+    let sessionLookupFailed = false;
     if (args.uploadSessionId) {
       try {
         completed = await findUploadedVideoAssetForSession(
@@ -1742,12 +1809,12 @@ export async function uploadVideoAsset(args: {
           orgId ?? null,
         );
       } catch {
-        // Preserve the insert failure; the object cleanup below remains useful
-        // even when the database cannot answer the idempotency lookup.
+        sessionLookupFailed = true;
       }
     }
 
     if (completed?.id === asset.id) return completed;
+    const cleanupUncertain = assetLookupFailed || sessionLookupFailed;
 
     const cleanupKey = `${args.uploadSessionId ?? asset.id}`;
     let cleanupRecord: string | undefined;
@@ -1757,6 +1824,9 @@ export async function uploadVideoAsset(args: {
           version: 1,
           ownerEmail: args.email,
           orgId: orgId ?? null,
+          ...(cleanupUncertain
+            ? { assetId: asset.id, preserveIfAssetExists: true }
+            : {}),
           provider: result.provider,
           providerObjectId: result.id ?? null,
           url: result.url,
@@ -1769,6 +1839,16 @@ export async function uploadVideoAsset(args: {
         cleanupKey,
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+
+    if (cleanupUncertain) {
+      if (!cleanupRecord) {
+        console.error("[slides-upload] uncertain video object is untracked", {
+          cleanupKey,
+        });
+      }
+      if (completed && cleanupRecord) return completed;
+      throw insertError;
     }
 
     let objectDeleted = false;
@@ -2048,6 +2128,9 @@ export const listAssets = defineEventHandler(async (event) => {
     .where(
       and(
         eq(schema.uploadedAssets.ownerEmail, session.email),
+        session.orgId
+          ? eq(schema.uploadedAssets.orgId, session.orgId)
+          : isNull(schema.uploadedAssets.orgId),
         notLike(schema.uploadedAssets.type, "video/%"),
       ),
     )
@@ -2072,6 +2155,9 @@ export const deleteAsset = defineEventHandler(async (event) => {
       and(
         eq(schema.uploadedAssets.id, decodeURIComponent(id)),
         eq(schema.uploadedAssets.ownerEmail, session.email),
+        session.orgId
+          ? eq(schema.uploadedAssets.orgId, session.orgId)
+          : isNull(schema.uploadedAssets.orgId),
       ),
     );
   return { success: true };
