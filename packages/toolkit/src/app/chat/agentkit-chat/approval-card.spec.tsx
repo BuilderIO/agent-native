@@ -126,6 +126,23 @@ describe("CoreAgentKitApproval", () => {
     expect(startRun).not.toHaveBeenCalled();
   });
 
+  it("masks a failed resolution's message in replays", async () => {
+    const client = new AgentKitClient({
+      transport: createTransport({
+        resolveApproval: vi.fn(async () => {
+          throw new Error("Jane Doe's calendar is locked");
+        }),
+      }),
+    });
+    renderApproval(client);
+
+    await clickButton("Approve");
+
+    const error = container.querySelector(".agentkit-command-error");
+    expect(error?.textContent).toBe("Jane Doe's calendar is locked");
+    expect(error?.hasAttribute("data-an-mask")).toBe(true);
+  });
+
   it("uses a generic summary when the tool name is not safe to display", () => {
     const client = new AgentKitClient({ transport: createTransport() });
     renderApproval(client, {

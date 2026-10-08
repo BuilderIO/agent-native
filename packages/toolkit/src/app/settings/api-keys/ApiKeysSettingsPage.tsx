@@ -29,15 +29,7 @@ import {
   IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import {
@@ -71,13 +63,9 @@ import {
 const K = "agentChat.settingsApiKeys.";
 const M = "agentChat.settingsModel.";
 
-type ProviderDialogTarget =
+type ProviderDialogState =
   | { mode: "manage"; provider: AgentProviderId; scope: AgentEngineKeyScope }
   | { mode: "add"; provider: AgentProviderId };
-
-type ProviderDialogState = ProviderDialogTarget & {
-  trackingFlow: "chat_setup" | "settings";
-};
 
 function useSecretKeyHash(): string | null {
   const read = () =>
@@ -104,12 +92,6 @@ function useSecretKeyHash(): string | null {
  */
 export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
   const t = useT();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const chatSetupTrackingPending = useRef(
-    (location.state as { providerSetupTrackingFlow?: string } | null)
-      ?.providerSetupTrackingFlow === "chat_setup",
-  );
   const org = useOrg();
   const listing = useActionQuery<ApiKeysListing>("list-api-keys" as never);
   const [valueDialog, setValueDialog] = useState<KeyValueDialogMode | null>(
@@ -119,26 +101,6 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
   const [provider, setProvider] = useState<ProviderDialogState | null>(null);
   const hashKey = useSecretKeyHash();
   const handledHashKey = useRef<string | null>(null);
-  const openProviderDialog = useCallback(
-    (target: ProviderDialogTarget) => {
-      const trackingFlow = chatSetupTrackingPending.current
-        ? "chat_setup"
-        : "settings";
-      if (chatSetupTrackingPending.current) {
-        chatSetupTrackingPending.current = false;
-        navigate(
-          {
-            pathname: location.pathname,
-            search: location.search,
-            hash: location.hash,
-          },
-          { replace: true, state: null },
-        );
-      }
-      setProvider({ ...target, trackingFlow });
-    },
-    [location.hash, location.pathname, location.search, navigate],
-  );
 
   const ready = !!listing.data;
   const header = useMemo(
@@ -177,10 +139,9 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
       (entry) => entry.name === hashKey,
     );
     if (saved || managed) return;
-    if (hashProvider) {
-      openProviderDialog({ mode: "add", provider: hashProvider });
-    } else setValueDialog({ mode: "add", initialName: hashKey });
-  }, [hashKey, listing.data, openProviderDialog]);
+    if (hashProvider) setProvider({ mode: "add", provider: hashProvider });
+    else setValueDialog({ mode: "add", initialName: hashKey });
+  }, [hashKey, listing.data]);
 
   if (listing.isError) {
     return (
@@ -208,7 +169,7 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
   const rowProps = {
     onManageProvider: (entry: ApiKeyEntry) =>
       entry.provider
-        ? openProviderDialog({
+        ? setProvider({
             mode: "manage",
             provider: entry.provider,
             scope: entry.scope,
@@ -301,7 +262,6 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
       ) : null}
       <ProviderDialog
         open={provider !== null}
-        trackingFlow={provider?.trackingFlow ?? "settings"}
         onOpenChange={(open) => {
           if (!open) setProvider(null);
         }}
@@ -423,8 +383,9 @@ function KeyMenu({
   const t = useT();
   const test = async () => {
     const result = await testSavedApiKey(entry.name);
-    if (result.ok) toast.success(t(`${K}testPassed`));
-    else toast.error(result.error);
+    if (result.ok) {
+      toast.success(t(`${K}testPassed`));
+    } else toast.error(result.error);
   };
   return (
     <DropdownMenu>

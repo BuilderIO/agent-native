@@ -40,6 +40,7 @@ import { DeferredBuilderConnectPopover } from "../../settings/deferred-builder-c
 import { currentTemplateId } from "../../settings/shell/app-identity.js";
 import { useBuilderConnectFlow } from "../../settings/useBuilderStatus.js";
 import { BuilderReferralInviteRow } from "../BuilderReferralInviteRow.js";
+import { SESSION_REPLAY_MASK_PROPS } from "../session-replay-privacy.js";
 
 const builderSubscriptionUrl = withBuilderUtmTrackingParams(
   "https://builder.io/account/subscription?signupSource=agent-native",
@@ -381,7 +382,10 @@ export function BuilderConnectCta({
           </button>
         </DeferredBuilderConnectPopover>
         {error && (
-          <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end">
+          <p
+            {...SESSION_REPLAY_MASK_PROPS}
+            className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end"
+          >
             {error}
           </p>
         )}
@@ -422,7 +426,14 @@ export function BuilderConnectCta({
         <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[220px]">
           {t("agentChat.setup.freeCredits")}
         </p>
-        {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
+        {error && (
+          <p
+            {...SESSION_REPLAY_MASK_PROPS}
+            className="mt-1 text-[10px] text-destructive"
+          >
+            {error}
+          </p>
+        )}
       </div>
       <DeferredBuilderConnectPopover
         flow={flow}
@@ -868,7 +879,10 @@ export function RunErrorRecoveryCard({
               terminal: t("agentChat.error.failed"),
             })}
           </div>
-          <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+          <p
+            {...SESSION_REPLAY_MASK_PROPS}
+            className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground"
+          >
             {localizeKnownChatErrorText(info.message, t)}
           </p>
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
@@ -907,7 +921,10 @@ export function RunErrorRecoveryCard({
               {info.runId && <div>run: {info.runId}</div>}
               {info.errorCode && <div>code: {info.errorCode}</div>}
               {info.details && (
-                <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono">
+                <pre
+                  {...SESSION_REPLAY_MASK_PROPS}
+                  className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono"
+                >
                   {info.details}
                 </pre>
               )}
@@ -1034,12 +1051,20 @@ export function RunErrorRecoveryCard({
         </div>
       </div>
       {shouldShowBuilderReconnect && builderReconnect.error && (
-        <p className="mt-2 text-xs leading-relaxed text-red-500">
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 text-xs leading-relaxed text-destructive"
+        >
           {builderReconnect.error}
         </p>
       )}
       {forkError && (
-        <p className="mt-2 text-xs leading-relaxed text-red-500">{forkError}</p>
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 text-xs leading-relaxed text-destructive"
+        >
+          {forkError}
+        </p>
       )}
       {continueError && (
         <p className="mt-2 text-xs leading-relaxed text-destructive">
@@ -1238,7 +1263,14 @@ export function LoopLimitContinueCard({
           {t("agentChat.limit.ownerOnly")}
         </p>
       )}
-      {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}
+      {error && (
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 text-[11px] text-destructive"
+        >
+          {error}
+        </p>
+      )}
     </div>
   );
 }

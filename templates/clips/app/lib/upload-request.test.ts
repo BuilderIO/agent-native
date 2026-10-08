@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { uploadChunkRequest } from "./upload-request";
 
 vi.mock("@agent-native/core/client/analytics", () => ({
-  getAnalyticsSessionId: () => "browser-session-1",
+  getAnalyticsSessionId: () => "browser-session-42",
 }));
 
 describe("uploadChunkRequest", () => {
@@ -39,10 +39,10 @@ describe("uploadChunkRequest", () => {
       body,
     });
     expect(
-      new Headers(fetchMock.mock.calls[0]?.[1]?.headers as HeadersInit).get(
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
         "X-Agent-Native-Session-Id",
       ),
-    ).toBe("browser-session-1");
+    ).toBe("browser-session-42");
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/_agent-native/auth/session");
     expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
       cache: "no-store",
@@ -59,10 +59,10 @@ describe("uploadChunkRequest", () => {
       ),
     ).toBe("Bearer fresh-token");
     expect(
-      new Headers(fetchMock.mock.calls[2]?.[1]?.headers as HeadersInit).get(
+      new Headers(fetchMock.mock.calls[2]?.[1]?.headers).get(
         "X-Agent-Native-Session-Id",
       ),
-    ).toBe("browser-session-1");
+    ).toBe("browser-session-42");
   });
 
   it("does not retry non-auth failures", async () => {

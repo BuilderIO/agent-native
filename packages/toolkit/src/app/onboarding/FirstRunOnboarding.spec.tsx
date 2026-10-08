@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   useActualRouter: false,
   navigate: vi.fn(),
   trackOnboardingEvent: vi.fn(),
+  setCustomKeyOnboardingAttempt: vi.fn(),
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
@@ -58,6 +59,8 @@ vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
 }));
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  createOnboardingCorrelationId: () => "test-onboarding-correlation-id",
+  setCustomKeyOnboardingAttempt: mocks.setCustomKeyOnboardingAttempt,
   trackOnboardingEvent: mocks.trackOnboardingEvent,
   useOnboarding: mocks.useOnboarding,
 }));
@@ -90,6 +93,8 @@ describe("FirstRunOnboarding", () => {
     mocks.completeFirstRun.mockResolvedValue(undefined);
     mocks.useBuilderConnectFlow.mockReset();
     mocks.trackOnboardingEvent.mockReset();
+    mocks.setCustomKeyOnboardingAttempt.mockReset();
+    mocks.setCustomKeyOnboardingAttempt.mockResolvedValue("stored");
     mocks.useOnboarding.mockReset();
     mocks.useOnboardingPreviewMode.mockReset();
     mocks.useOnboardingPreviewStep.mockReset();
@@ -1340,6 +1345,7 @@ describe("FirstRunOnboarding", () => {
     );
     const attemptId = (methodClick?.[1] as Record<string, unknown>)
       ?.onboarding_attempt_id;
+    expect(mocks.setCustomKeyOnboardingAttempt).toHaveBeenCalledWith(attemptId);
     expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
       "onboarding_method_outcome",
       expect.objectContaining({
@@ -1350,6 +1356,61 @@ describe("FirstRunOnboarding", () => {
     );
     window.history.replaceState(null, "", "/");
   });
+
+  it.each(["no_session", "unavailable"] as const)(
+    "navigates while custom-key attempt storage resolves and reports %s",
+    async (status) => {
+      let resolveAttemptStorage:
+        | ((status: "stored" | "no_session" | "unavailable") => void)
+        | undefined;
+      mocks.setCustomKeyOnboardingAttempt.mockReturnValue(
+        new Promise((resolve) => {
+          resolveAttemptStorage = resolve;
+        }),
+      );
+
+      act(() => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+      });
+      act(() => {
+        document.body
+          .querySelector("[data-testid='first-run-role-skip']")
+          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+
+      await act(async () => {
+        document.body
+          .querySelector("[data-testid='first-run-open-key-settings']")
+          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+      });
+
+      expect(window.location.pathname).toBe(
+        manualSetupSettingsRoute({ redesign: true }),
+      );
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_method_outcome",
+        expect.objectContaining({
+          method_id: "custom_keys",
+          outcome: "settings_opened",
+        }),
+      );
+
+      await act(async () => {
+        resolveAttemptStorage?.(status);
+        await Promise.resolve();
+      });
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_correlation_unavailable",
+        expect.objectContaining({ correlation_status: status }),
+      );
+      window.history.replaceState(null, "", "/");
+    },
+  );
 
   it("lets Clips skip provider setup and finish first-run onboarding", async () => {
     let resolveCompletion: (() => void) | undefined;

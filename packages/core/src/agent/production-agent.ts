@@ -5010,7 +5010,7 @@ export async function runAgentLoop(opts: {
     });
   };
   if (followUpRunId) send({ type: "suggestions", suggestions: [] });
-  let model = opts.model;
+  let model = normalizeModelForEngine(engine, opts.model);
   let outcomeReported = false;
   const reportOutcome = (outcome: AgentLoopOutcome) => {
     if (outcomeReported) return;

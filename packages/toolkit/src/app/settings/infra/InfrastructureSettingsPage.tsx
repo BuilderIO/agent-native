@@ -791,7 +791,6 @@ function InfrastructurePageContent({
 
       <ProviderDialog
         open={keyDialog !== null}
-        trackingFlow="settings"
         onOpenChange={(open) => {
           if (!open) setKeyDialog(null);
         }}

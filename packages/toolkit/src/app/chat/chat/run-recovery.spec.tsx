@@ -253,6 +253,50 @@ describe("run recovery surfaces", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it.each(["message", "details"] as const)(
+    "masks run failure %s without masking recovery controls",
+    async (field) => {
+      const info = {
+        message: "Example Person's example notes are locked.",
+        details: "Example Document cannot be opened for Example Person.",
+        runId: "run-example",
+        errorCode: "runtime_error",
+      };
+      await act(async () => {
+        root.render(
+          <RunErrorRecoveryCard
+            info={info}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />,
+        );
+      });
+      if (field === "details") {
+        await act(async () => {
+          Array.from(container.querySelectorAll("button"))
+            .find((button) => button.textContent === "Details")!
+            .click();
+        });
+      }
+      const message = Array.from(
+        container.querySelectorAll(field === "message" ? "p" : "pre"),
+      ).find((element) => element.textContent === info[field]);
+      expect(message?.hasAttribute("data-an-mask")).toBe(true);
+      expect(container.firstElementChild?.hasAttribute("data-an-mask")).toBe(
+        false,
+      );
+      expect(
+        container
+          .querySelector(".font-medium.text-foreground")
+          ?.closest("[data-an-mask]"),
+      ).toBeNull();
+      for (const button of container.querySelectorAll("button")) {
+        expect(button.closest("[data-an-mask]")).toBeNull();
+      }
+    },
+  );
+
   it("offers the Builder subscription link for credit limits only", async () => {
     await act(async () => {
       root.render(

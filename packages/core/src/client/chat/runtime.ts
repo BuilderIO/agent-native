@@ -9,6 +9,7 @@ import {
 import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
@@ -3875,6 +3876,10 @@ export function createAgentNativeChatRuntime(
   const runtimeId = options.id ?? "agent-native";
   const fetchImpl = options.fetch ?? fetch;
   const streamingUrl = options.streamingUrl?.trim() || agentChatStreamingUrl();
+  const isSameOriginEndpoint = (url: string) => {
+    if (typeof window === "undefined") return false;
+    return new URL(url, window.location.href).origin === window.location.origin;
+  };
   let streamFallbackWarningShown = false;
   const runtimeFetch: FetchLike = streamingUrl
     ? async (input, init) => {
@@ -3922,6 +3927,9 @@ export function createAgentNativeChatRuntime(
 
         const headers = new Headers(init?.headers);
         headers.set("Authorization", `Bearer ${token}`);
+        if (!isSameOriginEndpoint(streamingUrl)) {
+          headers.delete("x-agent-native-session-id");
+        }
         try {
           return await fetchImpl(streamingUrl, {
             ...init,
@@ -3953,6 +3961,14 @@ export function createAgentNativeChatRuntime(
     headers: async (input) => {
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
+      if (!isSameOriginEndpoint(apiUrl)) {
+        headers.delete("x-agent-native-session-id");
+      } else if (!headers.has("x-agent-native-session-id")) {
+        const browserSessionId = getOrCreateAnalyticsSessionId();
+        if (browserSessionId) {
+          headers.set("x-agent-native-session-id", browserSessionId);
+        }
+      }
       return headers;
     },
     capabilities: {

@@ -346,7 +346,7 @@ El bucle del agente emite tres tipos de intervalos:
 | `execute_tool {tool}` | una vez por invocación de acción | `gen_ai.tool.name`, más estado de éxito/error                                                             |
 | `chat {model}`        | por llamada de modelo            | `gen_ai.provider.name`, tiempo + estado correcto/error                                                    |
 
-Los tramos finalizan con el estado OK/ERROR y registran el mensaje de error en caso de falla. Los valores de atributo cero/centinela se eliminan para que los intervalos no estén saturados de ruido. Esta capa OTel es puramente aditiva a las tablas internas `agent_trace_spans` / `agent_trace_summaries` que alimentan el tablero de arriba; ambas se producen a partir de los mismos eventos de ejecución.
+Los tramos finalizan con el estado OK/ERROR y registran un mensaje fijo derivado del código en caso de falla. Los valores de atributo cero/centinela se eliminan para que los intervalos no estén saturados de ruido. Esta capa OTel es puramente aditiva a las tablas internas `agent_trace_spans` / `agent_trace_summaries` que alimentan el tablero de arriba; ambas se producen a partir de los mismos eventos de ejecución.
 
 ### Métricas {#otel-metrics}
 
@@ -553,3 +553,7 @@ Los campos de identidad establecidos explícitamente a través de `setUser({ id,
 - [**Tracking**](/docs/tracking): análisis de productos (PostHog, Mixpanel, Amplitude) para los eventos propios de tu aplicación
 - [**Actions**](/docs/actions-overview): las operaciones que aparecen como llamadas a herramientas en los seguimientos
 - [**Security**](/docs/security): alcance de datos y manejo de credenciales
+
+Los mensajes de error de las ejecuciones se omiten de Analytics y Monitoring, incluso con la captura de contenido activada. `$ai_error` contiene el código terminal, una causa identificada, la posibilidad de reintento y un mensaje fijo derivado del código. Los eventos omiten `error_message`, `agent_run_terminal.error_detail` y el texto de resultados fallidos de herramientas; el evento terminal conserva `error_code` y `error_cause`. `agent_runs.error_detail` y `agent_trace_spans.error_message` siguen disponibles en la base de datos de la aplicación para la depuración con acceso limitado al propietario.
+
+Las excepciones de las ejecuciones y de la puerta de enlace de Builder conservan tipo, código y marcos de pila, con el mensaje fijo `Internal Server Error`, sin el mensaje original ni causas anidadas. Monitoring agrupa por aplicación, tipo, marco, código y clase de fallo, en lugar de nombres en el mensaje. `$ai_trace_id` mantiene el enlace a la traza. Las exportaciones opcionales de OpenTelemetry para ejecuciones, gestionadas por el host, también omiten el texto del fallo y conservan `agent.error_code` y `agent.error_cause`. No cambia la captura de otras excepciones.

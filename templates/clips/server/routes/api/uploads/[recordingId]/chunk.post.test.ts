@@ -12,6 +12,9 @@ const mockTrack = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() =>
   vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
 );
+const mockReadBrowserSessionIdHeader = vi.hoisted(() =>
+  vi.fn<(...args: unknown[]) => string | undefined>(() => undefined),
+);
 const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
@@ -81,6 +84,8 @@ vi.mock("@agent-native/core/feature-flags", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  readBrowserSessionIdHeader: (...args: unknown[]) =>
+    mockReadBrowserSessionIdHeader(...args),
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...(args as [unknown, () => unknown])),
 }));
@@ -226,6 +231,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     mockUpdateSets.length = 0;
     mockUpdateRows.current = [{ id: "rec-1" }];
     mockEqCalls.length = 0;
+    mockReadBrowserSessionIdHeader.mockReturnValue(undefined);
     mockSelectRows.rows = [
       {
         id: "rec-1",
@@ -240,6 +246,9 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     ];
     mockGetRouterParam.mockReturnValue("rec-1");
     mockGetHeader.mockReturnValue(undefined);
+    mockReadBrowserSessionIdHeader.mockImplementation((event) =>
+      mockGetHeader(event, "x-agent-native-session-id"),
+    );
     mockGetEventOwnerContext.mockResolvedValue({
       userEmail: "owner@example.com",
       orgId: "org-1",
@@ -774,6 +783,21 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         orgId: "org-1",
         authUserId: "better-auth-user-1",
       },
+      expect.any(Function),
+    );
+  });
+
+  it("propagates the browser analytics session into recording finalization", async () => {
+    mockReadBrowserSessionIdHeader.mockReturnValue("browser-session-42");
+    setRequest({
+      query: { index: "0", total: "4", mimeType: "video/webm" },
+      body: new Uint8Array([1, 2, 3, 4, 5]),
+    });
+
+    await handler({} as any);
+
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      expect.objectContaining({ browserSessionId: "browser-session-42" }),
       expect.any(Function),
     );
   });

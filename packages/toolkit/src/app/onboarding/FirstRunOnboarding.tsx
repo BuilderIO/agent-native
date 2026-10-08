@@ -7,6 +7,8 @@ import {
 } from "@agent-native/core/client/onboarding/first-run-registry";
 import { saveFirstRunOnboardingRole } from "@agent-native/core/client/onboarding/first-run-status";
 import {
+  createOnboardingCorrelationId,
+  setCustomKeyOnboardingAttempt,
   trackOnboardingEvent,
   useOnboarding,
 } from "@agent-native/core/client/onboarding/use-onboarding";
@@ -311,11 +313,12 @@ export function FirstRunOnboarding({
   const abandonmentTrackedRef = useRef(false);
   const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
+  const stepViewRef = useRef<{ key: string; id: string } | null>(null);
   const startSetupMethod = useCallback(
     (methodId: FirstRunSetupMethodId, methodKind: "builder" | "manual") => {
       if (previewMode || typeof window === "undefined") return null;
       const attempt = {
-        id: window.crypto.randomUUID(),
+        id: createOnboardingCorrelationId(),
         methodId,
         outcomeTracked: false,
       };
@@ -378,7 +381,10 @@ export function FirstRunOnboarding({
     }
   }, [firstRun, loading, previewMode, profile]);
   useEffect(() => {
-    if (previewMode || !firstRun || loading || !profile) return;
+    if (previewMode || !firstRun || loading || !profile) {
+      stepViewRef.current = null;
+      return;
+    }
     const step = firstRunStepProperties(
       screen,
       beforeSetupExtensions,
@@ -387,7 +393,14 @@ export function FirstRunOnboarding({
       extensionIndex,
       extensionStepIndex,
     );
-    trackOnboardingEvent("onboarding_step_viewed", step);
+    const key = [step.step_id, step.extension_id, step.step_index].join(":");
+    if (stepViewRef.current?.key !== key) {
+      stepViewRef.current = { key, id: createOnboardingCorrelationId() };
+    }
+    trackOnboardingEvent("onboarding_step_viewed", {
+      ...step,
+      step_view_id: stepViewRef.current.id,
+    });
   }, [
     afterSetupExtensions,
     beforeSetupExtensions,
@@ -598,7 +611,23 @@ export function FirstRunOnboarding({
       );
       return;
     }
+    const attemptStorage = attempt
+      ? setCustomKeyOnboardingAttempt(attempt.id)
+      : null;
     trackFirstRunSetupOutcome(attempt, "settings_opened");
+    if (attempt && attemptStorage) {
+      void attemptStorage.then((status) => {
+        if (status !== "stored") {
+          trackOnboardingEvent("onboarding_correlation_unavailable", {
+            flow: "first_run",
+            step_id: "choice",
+            method_id: "custom_keys",
+            onboarding_attempt_id: attempt.id,
+            correlation_status: status,
+          });
+        }
+      });
+    }
     if (typeof window === "undefined") return;
     const search = new URLSearchParams(window.location.search);
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);

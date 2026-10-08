@@ -1,10 +1,7 @@
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useAppearanceSync } from "@agent-native/core/client/ui";
-import {
-  AgentSidebar,
-  AgentToggleButton,
-} from "@agent-native/toolkit/app/chat";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
 import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 import { IconMenu } from "@tabler/icons-react";
@@ -23,6 +20,7 @@ import { useLocation } from "react-router";
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
+import { HeaderActions } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
@@ -446,7 +444,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {headerControls?.right}
-                      <AgentToggleButton />
+                      <HeaderActions />
                     </div>
                   </header>
                 )}

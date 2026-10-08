@@ -3,7 +3,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import englishMessages from "../../i18n/catalogs/en-US.js";
@@ -14,7 +13,6 @@ const state = vi.hoisted(() => ({
   preview: undefined as unknown,
   header: null as { action?: React.ReactNode } | null,
   providerDialog: null as unknown,
-  location: null as unknown,
 }));
 const callActionMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
@@ -22,6 +20,22 @@ const clientMock = vi.hoisted(() => ({
   save: vi.fn(),
   test: vi.fn(),
   notify: vi.fn(),
+}));
+const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
+const onboardingAbandonmentRequestMock = vi.hoisted(() => vi.fn());
+const credentialSaveBoundaryMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  requestCustomKeyOnboardingAbandonment: onboardingAbandonmentRequestMock,
+  trackCustomKeyOnboardingOutcome: onboardingOutcomeMock,
+  withCustomKeyOnboardingCredentialSave: async (
+    save: () => Promise<unknown>,
+  ) => {
+    credentialSaveBoundaryMock();
+    const result = await save();
+    onboardingOutcomeMock("credential_saved");
+    return result;
+  },
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -90,13 +104,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   }),
 }));
 
-import { DeleteKeyDialog, ServiceKeyDialog } from "./ApiKeyDialogs.js";
+import {
+  DeleteKeyDialog,
+  KeyValueDialog,
+  ServiceKeyDialog,
+} from "./ApiKeyDialogs.js";
 import ApiKeysSettingsPage from "./ApiKeysSettingsPage.js";
-
-function LocationProbe() {
-  state.location = useLocation();
-  return null;
-}
 
 function entry(overrides: Partial<ApiKeyEntry>): ApiKeyEntry {
   return {
@@ -183,6 +196,17 @@ function buttonByText(text: string, scope: ParentNode = document) {
   return button;
 }
 
+function pointerDown(element: Element | null | undefined) {
+  if (!element) throw new Error("Nothing to open");
+  element.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      pointerType: "mouse",
+    }),
+  );
+}
+
 function typeInto(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
@@ -202,12 +226,14 @@ describe("ApiKeysSettingsPage", () => {
     state.preview = undefined;
     state.header = null;
     state.providerDialog = null;
-    state.location = null;
     callActionMock.mockReset();
     navigateMock.mockReset();
     clientMock.save.mockReset();
     clientMock.test.mockReset();
-    window.history.replaceState(null, "", "/settings/keys");
+    onboardingOutcomeMock.mockReset();
+    onboardingAbandonmentRequestMock.mockReset();
+    credentialSaveBoundaryMock.mockReset();
+    window.history.replaceState(null, "", "/settings/api-keys");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -220,74 +246,20 @@ describe("ApiKeysSettingsPage", () => {
     vi.unstubAllGlobals();
   });
 
-  async function render(
-    labs: Record<string, boolean> = {},
-    locationState?: unknown,
-  ) {
-    const entry = new URL(window.location.href);
+  async function render(labs: Record<string, boolean> = {}) {
     await act(async () => {
       root.render(
-        <MemoryRouter
-          initialEntries={[
-            {
-              pathname: entry.pathname,
-              search: entry.search,
-              hash: entry.hash,
-              state: locationState,
-            },
-          ]}
-        >
-          <LocationProbe />
-          <QueryClientProvider client={new QueryClient()}>
-            <ApiKeysSettingsPage
-              pageId="api-keys"
-              sub={null}
-              context={{ labs } as never}
-              bridge={{} as never}
-            />
-          </QueryClientProvider>
-        </MemoryRouter>,
+        <QueryClientProvider client={new QueryClient()}>
+          <ApiKeysSettingsPage
+            pageId="api-keys"
+            sub={null}
+            context={{ labs } as never}
+            bridge={{} as never}
+          />
+        </QueryClientProvider>,
       );
     });
   }
-
-  it("uses chat setup attribution for the first provider dialog opening only", async () => {
-    window.history.replaceState(
-      null,
-      "",
-      "/settings/keys?from=chat#secrets:GROQ_API_KEY",
-    );
-    await render({}, { providerSetupTrackingFlow: "chat_setup" });
-
-    expect(state.providerDialog).toMatchObject({
-      open: true,
-      mode: "add",
-      provider: "groq",
-      trackingFlow: "chat_setup",
-    });
-    expect(state.location).toMatchObject({
-      pathname: "/settings/keys",
-      search: "?from=chat",
-      hash: "#secrets:GROQ_API_KEY",
-      state: null,
-    });
-
-    await act(async () => {
-      (
-        state.providerDialog as { onOpenChange: (open: boolean) => void }
-      ).onOpenChange(false);
-    });
-    await act(async () =>
-      buttonByText("Manage", row("secrets:ANTHROPIC_API_KEY")).click(),
-    );
-    expect(state.providerDialog).toMatchObject({
-      open: true,
-      mode: "manage",
-      provider: "anthropic",
-      scope: "user",
-      trackingFlow: "settings",
-    });
-  });
 
   async function renderHeader() {
     const header = document.createElement("div");
@@ -357,6 +329,32 @@ describe("ApiKeysSettingsPage", () => {
       provider: "anthropic",
       scope: "user",
     });
+  });
+
+  it("does not count testing an arbitrary saved key as onboarding validation", async () => {
+    state.listing = listing({ keys: [entry({ canTest: true })] });
+    clientMock.test.mockResolvedValue({ ok: true });
+    await render();
+
+    const keyRow = row("secrets:STRIPE_SECRET_KEY");
+    const menuTrigger = keyRow.querySelector(
+      '[aria-label="Manage STRIPE_SECRET_KEY"]',
+    );
+    await act(async () => pointerDown(menuTrigger));
+    const testItem = [...document.querySelectorAll('[role="menuitem"]')].find(
+      (item) => item.textContent?.trim() === "Test",
+    );
+    if (!testItem) throw new Error("No Test menu item");
+    await act(async () =>
+      testItem.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+
+    await vi.waitFor(() =>
+      expect(clientMock.test).toHaveBeenCalledWith("STRIPE_SECRET_KEY"),
+    );
+    expect(onboardingOutcomeMock).not.toHaveBeenCalledWith(
+      "credential_validated",
+    );
   });
 
   it("lists organization keys for admins", async () => {
@@ -469,11 +467,98 @@ describe("ApiKeysSettingsPage", () => {
     expect(dialog.textContent).toContain("Get key");
   });
 
+  it("does not count saving a registered key as validation", async () => {
+    clientMock.save.mockResolvedValue(undefined);
+    await render();
+    const header = await renderHeader();
+    await act(async () => buttonByText("Add key", header).click());
+
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const [name, value] = [
+      ...dialog.querySelectorAll("input"),
+    ] as HTMLInputElement[];
+    await act(async () => typeInto(name!, "git"));
+    await act(async () => buttonByText("GITHUB_TOKEN", dialog).click());
+    await act(async () => typeInto(value!, "fake-github-token"));
+    await act(async () => {
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    const outcomes = onboardingOutcomeMock.mock.calls.map(
+      ([outcome]) => outcome,
+    );
+    expect(outcomes).toContain("credential_saved");
+    expect(outcomes).not.toContain("credential_validated");
+  });
+
+  it("allows leaving a key dialog while preserving its pending save outcome", async () => {
+    let resolveSave!: () => void;
+    clientMock.save.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    const onOpenChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <KeyValueDialog
+            open
+            onOpenChange={onOpenChange}
+            dialog={{ mode: "add" }}
+            listing={listing()}
+            orgName="Acme"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const [name, value] = [
+      ...dialog.querySelectorAll("input"),
+    ] as HTMLInputElement[];
+    await act(async () => typeInto(name!, "CUSTOM_API_KEY"));
+    await act(async () => typeInto(value!, "fake-custom-value"));
+    await act(async () => {
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    expect(clientMock.save).toHaveBeenCalledWith({
+      name: "CUSTOM_API_KEY",
+      value: "fake-custom-value",
+      registered: false,
+      shared: false,
+    });
+
+    await act(async () => buttonByText("Close", dialog).click());
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onboardingAbandonmentRequestMock).toHaveBeenCalledTimes(1);
+    expect(
+      onboardingOutcomeMock.mock.calls.map(([outcome]) => outcome),
+    ).not.toContain("credential_skipped");
+
+    await act(async () => resolveSave());
+    await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    const outcomes = onboardingOutcomeMock.mock.calls.map(
+      ([outcome]) => outcome,
+    );
+    expect(outcomes).toContain("credential_saved");
+    expect(outcomes).not.toContain("credential_skipped");
+    expect(credentialSaveBoundaryMock).toHaveBeenCalledTimes(1);
+  });
+
   it("opens Add key for a #secrets:KEY link to a key nobody saved", async () => {
     window.history.replaceState(
       null,
       "",
-      "/settings/keys#secrets:GOOGLE_APPLICATION_CREDENTIALS",
+      "/settings/api-keys#secrets:GOOGLE_APPLICATION_CREDENTIALS",
     );
     await render();
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
@@ -485,7 +570,7 @@ describe("ApiKeysSettingsPage", () => {
     window.history.replaceState(
       null,
       "",
-      "/settings/keys#secrets:GROQ_API_KEY",
+      "/settings/api-keys#secrets:GROQ_API_KEY",
     );
     await render();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -501,7 +586,7 @@ describe("ApiKeysSettingsPage", () => {
     window.history.replaceState(
       null,
       "",
-      "/settings/keys#secrets:ANTHROPIC_API_KEY",
+      "/settings/api-keys#secrets:ANTHROPIC_API_KEY",
     );
     await render();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -567,6 +652,9 @@ describe("DeleteKeyDialog", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     callActionMock.mockReset();
+    clientMock.save.mockReset();
+    onboardingOutcomeMock.mockReset();
+    credentialSaveBoundaryMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -677,6 +765,84 @@ describe("DeleteKeyDialog", () => {
     });
     expect(onSaved).toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("records a service-key attempt as skipped when canceled", async () => {
+    state.listing = listing({ canManageOrg: true });
+    const onOpenChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <ServiceKeyDialog
+            open
+            onOpenChange={onOpenChange}
+            keyName="VOYAGE_API_KEY"
+            mode="add"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await act(async () => buttonByText("Cancel", dialog).click());
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onboardingOutcomeMock).toHaveBeenCalledWith("credential_skipped");
+  });
+
+  it("allows leaving a service-key dialog while preserving its pending save outcome", async () => {
+    let resolveSave!: () => void;
+    clientMock.save.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    state.listing = listing({ canManageOrg: true });
+    const onOpenChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <ServiceKeyDialog
+            open
+            onOpenChange={onOpenChange}
+            keyName="VOYAGE_API_KEY"
+            mode="add"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const [, value] = [
+      ...dialog.querySelectorAll("input"),
+    ] as HTMLInputElement[];
+    await act(async () => typeInto(value!, "fake-voyage-value"));
+    await act(async () => {
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    await vi.waitFor(() => expect(clientMock.save).toHaveBeenCalled());
+
+    await act(async () => buttonByText("Close", dialog).click());
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onboardingAbandonmentRequestMock).toHaveBeenCalledTimes(1);
+    expect(
+      onboardingOutcomeMock.mock.calls.map(([outcome]) => outcome),
+    ).not.toContain("credential_skipped");
+
+    await act(async () => {
+      resolveSave();
+      await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    });
+    const outcomes = onboardingOutcomeMock.mock.calls.map(
+      ([outcome]) => outcome,
+    );
+    expect(outcomes).toContain("credential_saved");
+    expect(outcomes).not.toContain("credential_skipped");
+    expect(credentialSaveBoundaryMock).toHaveBeenCalledTimes(1);
   });
 
   it("replaces a service's saved organization key from Manage", async () => {

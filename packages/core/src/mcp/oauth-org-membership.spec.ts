@@ -599,7 +599,7 @@ describe("MCP OAuth access after the user is removed from the org", () => {
 
   it("(a) the already-issued access token is refused", async () => {
     const { auth } = await authenticateMcpRequest(bob.accessToken);
-    expect(auth).toEqual({ authed: false });
+    expect(auth).toEqual({ authed: false, refusal: "not-member" });
   });
 
   it("(a) an MCP call with the already-issued token cannot read the org's org-visible rows", async () => {
@@ -633,7 +633,7 @@ describe("MCP OAuth access after the user is removed from the org", () => {
 
   it("removal revokes Bob's connect token in place instead of transferring it", async () => {
     const { auth } = await authenticateMcpRequest(bobConnectToken.token);
-    expect(auth).toEqual({ authed: false });
+    expect(auth).toEqual({ authed: false, refusal: "revoked" });
     const { rows } = await getDbExec().execute({
       sql: `SELECT owner_email, revoked_at FROM mcp_connect_tokens WHERE jti = ?`,
       args: [bobConnectToken.jti],
@@ -653,7 +653,7 @@ describe("MCP OAuth access after membership ends without offboarding", () => {
     const { auth } = await authenticateMcpRequest(
       serviceShapedHuman.accessToken,
     );
-    expect(auth).toEqual({ authed: false });
+    expect(auth).toEqual({ authed: false, refusal: "not-member" });
   });
 
   it("refuses a human OAuth refresh whose subject uses a service address", async () => {
@@ -677,7 +677,7 @@ describe("MCP OAuth access after membership ends without offboarding", () => {
 
   it("refuses the access token of a user whose membership row is gone", async () => {
     const { auth } = await authenticateMcpRequest(carol.accessToken);
-    expect(auth).toEqual({ authed: false });
+    expect(auth).toEqual({ authed: false, refusal: "not-member" });
     expect(await docsVisibleTo(carol.accessToken)).toEqual([]);
   });
 
@@ -1068,6 +1068,7 @@ describe("MCP OAuth issuance-owner cutover", () => {
     await invite(BOB);
     expect((await authenticateMcpRequest(body.token)).auth).toEqual({
       authed: false,
+      refusal: "revoked",
     });
   });
 
@@ -1163,6 +1164,7 @@ describe("MCP OAuth issuance-owner cutover", () => {
       (await authenticateMcpRequest(refreshed!.body.access_token)).auth,
     ).toEqual({
       authed: false,
+      refusal: "not-member",
     });
     expect((await refreshRowsFor(connection))[0].revoked_at).not.toBeNull();
     await invite(BOB);
@@ -1227,6 +1229,7 @@ describe("MCP OAuth issuance-owner cutover", () => {
 
     expect((await authenticateMcpRequest(legacyAccessToken)).auth).toEqual({
       authed: false,
+      refusal: "invalid",
     });
     expect(await docsVisibleTo(legacyAccessToken)).toEqual([]);
     expect(
@@ -1450,12 +1453,14 @@ describe("MCP credentials after an email change", () => {
   it("refuses the old address's Personal OAuth access token", async () => {
     expect((await authenticateMcpRequest(accessToken)).auth).toEqual({
       authed: false,
+      refusal: "email-retired",
     });
   });
 
   it("refuses the old address's Personal connect token", async () => {
     expect((await authenticateMcpRequest(connectToken)).auth).toEqual({
       authed: false,
+      refusal: "identity-mismatch",
     });
   });
 
@@ -1500,9 +1505,11 @@ describe("MCP credentials after an email change", () => {
       });
       expect((await authenticateMcpRequest(accessToken)).auth).toEqual({
         authed: false,
+        refusal: "email-retired",
       });
       expect((await authenticateMcpRequest(connectToken)).auth).toEqual({
         authed: false,
+        refusal: "identity-mismatch",
       });
     } finally {
       vi.useRealTimers();
