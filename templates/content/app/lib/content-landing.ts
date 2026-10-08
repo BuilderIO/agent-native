@@ -1,6 +1,6 @@
 import { writeClientAppState } from "@agent-native/core/client/application-state";
-import { isMcpDirectoryWidgetReadOnlyEmbed } from "@agent-native/core/client/host";
 import { callAction } from "@agent-native/core/client/hooks";
+import { isMcpDirectoryWidgetReadOnlyEmbed } from "@agent-native/core/client/host";
 import {
   CONTENT_LAST_LOCATION_STATE_KEY,
   contentSpaceLastLocationStateKey,
