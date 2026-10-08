@@ -1096,6 +1096,10 @@ export default {
       interact: "Interact",
       screens: "螢幕",
     },
+    topBar: {
+      modeDesign: "設計",
+      modeSwitch: "編輯器模式",
+    },
     fileTabs: "檔案",
     tools: {
       move: "移動",

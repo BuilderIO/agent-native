@@ -76,6 +76,8 @@ export function FigmaPasteImagesNotice({
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [filled, setFilled] = useState<ReadonlySet<string>>(() => new Set());
+  // Screens already filled per hash, so a retry after a partial failure resumes at the failed screen.
+  const filledScreensRef = useRef<Set<string>>(new Set());
   const figInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   // The chooser can dismiss the popover, so the target outlives the list.
@@ -127,11 +129,14 @@ export function FigmaPasteImagesNotice({
       // uploadImage already surfaced why: storage setup or an upload error.
       if (!imageUrl) return;
       for (const fileId of target.image.fileIds) {
+        const screenKey = `${fileId}\u0000${target.image.hash}`;
+        if (filledScreensRef.current.has(screenKey)) continue;
         await callAction("fill-figma-paste-image", {
           fileId,
           hash: target.image.hash,
           imageUrl,
         });
+        filledScreensRef.current.add(screenKey);
       }
       onHydrated();
       setFilled((current) => new Set(current).add(target.image.hash));

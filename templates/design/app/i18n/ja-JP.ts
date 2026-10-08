@@ -1010,6 +1010,10 @@ export default {
       interact: "Interact",
       screens: "画面",
     },
+    topBar: {
+      modeDesign: "デザイン",
+      modeSwitch: "エディターモード",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",

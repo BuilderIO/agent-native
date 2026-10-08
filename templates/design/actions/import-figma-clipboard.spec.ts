@@ -675,6 +675,26 @@ describe("import-figma-clipboard", () => {
       expect(mocks.importFigmaClipboardFromBuffer).not.toHaveBeenCalled();
     });
 
+    it("keeps the connect prompt when there is no clipboard buffer to decode locally", async () => {
+      const { AgentConnectionRequiredError } =
+        await import("@agent-native/core/action");
+      mocks.executeProviderApiRequest.mockRejectedValue(
+        new AgentConnectionRequiredError(
+          "figma requires an available workspace connection.",
+          { provider: "figma" },
+        ),
+      );
+
+      await expect(
+        action.run({
+          figmetaFileKey: FILE_KEY,
+          selectedNodeIds: ["1:1"],
+          clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+        } as any),
+      ).rejects.toMatchObject({ errorCode: "connection_required" });
+      expect(mocks.importFigmaClipboardFromBuffer).not.toHaveBeenCalled();
+    });
+
     describe("with the editor's paste scene", () => {
       const decoded = (wrapsLooseNode: boolean) => ({
         files: [

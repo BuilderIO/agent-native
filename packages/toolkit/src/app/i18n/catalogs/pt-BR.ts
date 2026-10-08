@@ -2209,7 +2209,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Não foi possível desconectar o Builder.io.",
   "settingsShell.builder.disconnectTitle": "Desconectar o Builder.io?",
   "settingsShell.builder.grantsFailed":
-    "Não foi possível verificar a conexão com o Builder.io.",
+    "O status da conexão está indisponível. Tente novamente para verificar.",
   "settingsShell.builder.setupStartFailed":
     "Não foi possível iniciar a configuração do Builder.io. Atualize esta página e tente novamente.",
   "settingsShell.builder.setupHostFailed":
@@ -2658,7 +2658,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Acesso a modelos, automação de navegador, armazenamento de arquivos e identidade do workspace. Plano gratuito disponível.",
   "settingsShell.integrations.builderStatusFailed":
-    "Não foi possível verificar a conexão do Builder.io.",
+    "O status da conexão está indisponível. Tente novamente para verificar.",
   "settingsShell.integrations.category.analytics": "Análise",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Engenharia",
@@ -2815,6 +2815,11 @@ const messages: ToolkitAgentChatTranslation = {
     "O fallback da implantação está disponível. Use sua própria conta do Builder.io para substituí-lo.",
   "settingsInfra.builderStorageHint":
     "O armazenamento de objetos mantém os arquivos enviados e permite reutilizar seus URLs em toda a conversa. Use o Builder.io ou o bucket compatível com S3 abaixo.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io está conectado, mas ainda não pode armazenar arquivos enviados. Reconecte para conceder acesso a uploads ou configure um bucket abaixo.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Não foi possível verificar o acesso de upload do Builder.io. Tente novamente ou configure um bucket abaixo.",
+  "settingsInfra.reconnectBuilderUploads": "Conceder acesso a uploads",
   "settingsInfra.builderUnknown":
     "Não foi possível verificar a conexão com o Builder.io.",
   "settingsInfra.manage": "Gerenciar",

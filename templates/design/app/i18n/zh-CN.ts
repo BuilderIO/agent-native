@@ -970,6 +970,10 @@ export default {
       interact: "Interact",
       screens: "屏幕",
     },
+    topBar: {
+      modeDesign: "设计",
+      modeSwitch: "编辑器模式",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",

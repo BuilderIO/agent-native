@@ -318,6 +318,45 @@ describe("FigmaPasteImagesNotice file picker", () => {
   });
 
   // oracle: none — exercises the notice's own upload and fill wiring, not measured Figma behavior.
+  it("retries a shared image only on the screens a failed attempt missed", async () => {
+    mocks.callAction
+      .mockResolvedValueOnce({ resolved: 1, missing: 0 })
+      .mockRejectedValueOnce(new Error("save failed"))
+      .mockResolvedValue({ resolved: 1, missing: 0 });
+    const props = await renderNotice({
+      "screen-1": missingImage("shared", "Logo"),
+      "screen-2": missingImage("shared", "Logo"),
+    });
+    const logo = () =>
+      new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" });
+
+    await chooseImageFile(
+      buttonWithText("designEditor.import.figmaPasteUploadImage")!,
+      logo(),
+    );
+    expect(props.onClose).not.toHaveBeenCalled();
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="designEditor.import.figmaHydrationDialogTitle"]',
+        )!
+        .click(),
+    );
+    await chooseImageFile(
+      buttonWithText("designEditor.import.figmaPasteUploadImage")!,
+      logo(),
+    );
+
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.fileId)).toEqual([
+      "screen-1",
+      "screen-2",
+      "screen-2",
+    ]);
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // oracle: none — exercises the notice's own upload and fill wiring, not measured Figma behavior.
   it("does not fill anything when the upload produced no URL", async () => {
     const props = await renderNotice(missingImage("abc123", "Robot arm"), {
       uploadImage: vi.fn(async () => ""),

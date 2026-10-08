@@ -395,8 +395,9 @@ export default defineAction({
       if (
         selectedNodeIds?.length &&
         !parsedClipboard.fallbackHtml &&
-        !figmaApiKeyMissing &&
-        (!isTransient || !clipboardBuffer)
+        (figmaApiKeyMissing
+          ? !clipboardBuffer && isAgentConnectionRequiredError(error)
+          : !isTransient || !clipboardBuffer)
       ) {
         throw error;
       }
