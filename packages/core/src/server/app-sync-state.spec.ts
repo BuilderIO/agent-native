@@ -352,6 +352,47 @@ describe("AppSyncState first event after an access check miss", () => {
     expect(db.execute).toHaveBeenCalledTimes(1);
   });
 
+  it("does not wait for a pending check beyond the boundary the durable read stopped at", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000_000);
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const rows = Array.from({ length: 1_001 }, (_, i) => ({
+      id: `row-${i}`,
+      version: 6 + i,
+      event_json: JSON.stringify({
+        source: "action",
+        type: "change",
+        key: "k",
+      }),
+    }));
+    const db = {
+      execute: vi.fn(async (query: string | { sql: string }) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        return {
+          rows: sql.startsWith("SELECT id, version, event_json") ? rows : [],
+          rowsAffected: 0,
+        };
+      }),
+    };
+    const state = new AppSyncState({
+      getDb: () => db,
+      resolveAccess: () => new Promise(() => {}),
+    });
+    state.recordChange(resourceEvent);
+
+    let settled = false;
+    const read = state
+      .getCombinedChangesSinceForUser(5, "reader@example.com", undefined, true)
+      .then((result) => {
+        settled = true;
+        return result;
+      });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(settled).toBe(true);
+    expect(await read).toMatchObject({ version: 1_005, cursorLimited: true });
+  });
+
   it("does not wait when the read is not blocked on an access check", async () => {
     const state = new AppSyncState({
       getDb: () => makeDb(),

@@ -1485,7 +1485,6 @@ export class AppSyncState {
     const events = Array.from(byIdentity.values()).sort((a, b) =>
       compareSyncCursors(cursorForEvent(a), cursorForEvent(b)),
     );
-    const accessPending = memory.accessPending || durable.accessPending;
     if (cursor) {
       const limitedCursors = [memory, durable]
         .filter((result) => result.cursorLimited)
@@ -1493,6 +1492,16 @@ export class AppSyncState {
       if (limitedCursors.length > 0) {
         const boundary = limitedCursors.reduce((minimum, value) =>
           compareSyncCursors(value, minimum) < 0 ? value : minimum,
+        );
+        // A check pending beyond the boundary the other read stopped at is
+        // filtered out of this response, so waiting on it delivers nothing.
+        const accessPending = [memory, durable].some(
+          (result) =>
+            result.accessPending &&
+            compareSyncCursors(
+              decodeSyncCursor(result.cursor) ?? cursor,
+              boundary,
+            ) <= 0,
         );
         return {
           version: boundary.version,
@@ -1527,6 +1536,10 @@ export class AppSyncState {
     const limitedVersions = [memory, durable]
       .filter((result) => result.cursorLimited)
       .map((result) => result.version);
+    const accessPending = [memory, durable].some(
+      (result) =>
+        result.accessPending && result.version <= Math.min(...limitedVersions),
+    );
     return {
       version:
         limitedVersions.length > 0
