@@ -586,6 +586,17 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     designJobStart,
     designJobEnd === -1 ? undefined : designJobEnd,
   );
+  assert.ok(designJob.includes("needs: change-scope"));
+  assert.ok(
+    designJob.includes(
+      "if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
+    ),
+  );
+  assert.match(
+    designJob,
+    /^\s+run: pnpm exec playwright install --only-shell --with-deps chromium$/m,
+    "Design shards must install the Chromium runtime dependencies",
+  );
   const jobTimeout = Number(
     designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
   );
@@ -593,17 +604,92 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
   assert.ok(
-    stepTimeout >= 10,
-    "the focused Design cases need ten minutes for the slow position shard",
+    Number.isInteger(stepTimeout) && stepTimeout >= 10,
+    `focused Design cases need ten minutes for the slow position shard (got ${stepTimeout})`,
   );
   assert.ok(
-    jobTimeout >= stepTimeout + 10,
-    "job timeout must leave ten minutes for setup around the focused test step",
+    Number.isInteger(jobTimeout) && jobTimeout >= stepTimeout + 10,
+    `job timeout must leave ten minutes for setup around the focused test step (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.match(
     designJob,
-    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*drag-1,\s*drag-2,\s*position,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
   );
+  const fixedLocations = (start: number, end: number) =>
+    [
+      ...regressionCases.slice(start, end).matchAll(/e2e\/[^ \n]+(?::\d+)?/g),
+    ].map(([location]) => location);
+  const shardStart = (name: string) =>
+    regressionCases.indexOf(`            ${name})`);
+  const inspectorOneStart = shardStart("inspector-1");
+  const inspectorTwoStart = shardStart("inspector-2");
+  const inspectorThreeStart = shardStart("inspector-3");
+  const inspectorFourStart = shardStart("inspector-4");
+  const dragOneStart = shardStart("drag-1");
+  assert.ok(
+    inspectorOneStart >= 0 &&
+      inspectorTwoStart > inspectorOneStart &&
+      inspectorThreeStart > inspectorTwoStart &&
+      inspectorFourStart > inspectorThreeStart &&
+      dragOneStart > inspectorFourStart,
+  );
+  assert.deepEqual(fixedLocations(inspectorOneStart, inspectorTwoStart), [
+    "e2e/canvas-invariants.spec.ts:508",
+    "e2e/canvas-invariants.spec.ts:1286",
+    "e2e/inspector-styles.spec.ts:176",
+    "e2e/inspector-styles.spec.ts:238",
+    "e2e/inspector-styles.spec.ts:314",
+  ]);
+  assert.deepEqual(fixedLocations(inspectorTwoStart, inspectorThreeStart), [
+    "e2e/canvas-invariants.spec.ts:383",
+    "e2e/canvas-invariants.spec.ts:538",
+    "e2e/inspector-styles.spec.ts:452",
+    "e2e/inspector-styles.spec.ts:610",
+    "e2e/inspector-styles.spec.ts:737",
+  ]);
+  assert.deepEqual(fixedLocations(inspectorFourStart, dragOneStart), [
+    "e2e/canvas-invariants.spec.ts:553",
+    "e2e/inspector-styles.spec.ts:541",
+    "e2e/inspector-styles.spec.ts:667",
+    "e2e/inspector-styles.spec.ts:798",
+    "e2e/inspector-styles.spec.ts:426",
+  ]);
+  assert.deepEqual(fixedLocations(inspectorThreeStart, inspectorFourStart), [
+    "e2e/canvas-invariants.spec.ts:1170",
+    "e2e/canvas-invariants.spec.ts:1320",
+    "e2e/inspector-styles.spec.ts:833",
+    "e2e/inspector-styles.spec.ts:880",
+    "e2e/inspector-styles.spec.ts:999",
+  ]);
+  const positionOneStart = shardStart("position-1");
+  const positionTwoStart = shardStart("position-2");
+  const positionThreeStart = shardStart("position-3");
+  const fallbackStart = shardStart("*");
+  assert.ok(
+    positionOneStart >= 0 &&
+      positionTwoStart > positionOneStart &&
+      positionThreeStart > positionTwoStart &&
+      fallbackStart > positionThreeStart,
+  );
+  assert.deepEqual(fixedLocations(positionOneStart, positionTwoStart), [
+    "e2e/pasted-svg-image-inspector.spec.ts:656",
+    "e2e/pasted-svg-image-inspector.spec.ts:693",
+    "e2e/position-alignment.spec.ts:361",
+    "e2e/position-alignment.spec.ts:431",
+    "e2e/position-alignment.spec.ts:509",
+  ]);
+  assert.deepEqual(fixedLocations(positionTwoStart, positionThreeStart), [
+    "e2e/position-alignment.spec.ts:292",
+    "e2e/position-alignment.spec.ts:570",
+    "e2e/position-alignment.spec.ts:615",
+    "e2e/position-alignment.spec.ts:661",
+  ]);
+  assert.deepEqual(fixedLocations(positionThreeStart, fallbackStart), [
+    "e2e/position-alignment.spec.ts:312",
+    "e2e/position-alignment.spec.ts:708",
+    "e2e/position-alignment.spec.ts:740",
+    "e2e/position-alignment.spec.ts:780",
+  ]);
   assert.ok(
     regressionCases.includes(
       "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
@@ -625,7 +711,58 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
   );
   assert.ok(regressionCases.includes('if [[ -f "$spec" ]]; then'));
+  const fastTestsStart = workflow.indexOf("  fast-tests:\n");
+  assert.ok(fastTestsStart >= 0);
+  const fastTestsBodyStart = fastTestsStart + "  fast-tests:\n".length;
+  const nextJobOffset = workflow
+    .slice(fastTestsBodyStart)
+    .search(/^  [a-z0-9-]+:[ \t]*$/m);
+  const fastTestsEnd =
+    nextJobOffset === -1 ? workflow.length : fastTestsBodyStart + nextJobOffset;
+  const fastTestsJob = workflow.slice(fastTestsStart, fastTestsEnd);
+  assert.doesNotMatch(
+    fastTestsJob.slice("  fast-tests:\n".length),
+    /^  [a-z0-9-]+:[ \t]*$/m,
+    "fast-tests assertions must stay inside that job",
+  );
+  const needsStart = fastTestsJob.indexOf("    needs:");
+  const needsEnd = fastTestsJob.indexOf("    if:", needsStart);
+  assert.ok(
+    fastTestsJob
+      .slice(needsStart, needsEnd)
+      .includes("design-canvas-interaction-acceptance"),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}",
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes('if [ "$DESIGN_CANVAS_E2E" = "true" ]; then'),
+  );
+  assert.ok(
+    fastTestsJob.includes('if [ "$DESIGN_CANVAS_RESULT" != "success" ]; then'),
+  );
+  assert.match(
+    fastTestsJob,
+    /if \[ "\$DESIGN_CANVAS_E2E" = "true" \]; then\s+if \[ "\$DESIGN_CANVAS_RESULT" != "success" \]; then\s+echo "::error::Design canvas interaction acceptance did not succeed \(\$DESIGN_CANVAS_RESULT\)"\s+exit 1\s+fi/,
+  );
   const selectedTests = [
+    [
+      "e2e/canvas-invariants.spec.ts",
+      383,
+      "X/Y match the element's real position, not 0,0",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      538,
+      "setting X moves the element by exactly that amount",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      553,
+      "setting Y moves the element by exactly that amount",
+    ],
     [
       "e2e/canvas-invariants.spec.ts",
       508,
@@ -760,6 +897,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/pasted-svg-image-inspector.spec.ts",
       693,
       "rejected SVG HTML is consumed instead of inserted as native markup",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      292,
+      "Left and Right alignment controls move to their named edges",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      312,
+      "Top and Bottom alignment controls move to their named edges",
     ],
     [
       "e2e/position-alignment.spec.ts",
