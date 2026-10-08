@@ -5,6 +5,7 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { runQuery } from "../server/lib/bigquery";
+import { recoverFromSchemaMiss } from "../server/lib/bigquery-schema-recovery";
 
 function extractBigQueryMessage(message: string): string {
   const jsonStart = message.indexOf("{");
@@ -122,7 +123,7 @@ function stopForRepeatedBigQueryQuery(): never {
 
 export default defineAction({
   description:
-    "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. For a named customer or organization ID, resolve the canonical CRM/contract identity first and verify the returned rows carry the same customer and org/root-org identifiers. For account health, distinguish completed-month usage from current partial snapshots, contract metrics from similarly named platform metrics, total distinct contracted users from DAU/WAU, and actual usage from contracted capacity. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If a query fails with a schema or SQL error (unknown dataset/table/column, syntax), treat it as a normal debugging signal: inspect the real schema with `search-bigquery-schema` (or query INFORMATION_SCHEMA), correct the query based on the error, and run it again — a few corrective attempts are expected. Surface the error to the user only if it still fails after a few attempts or is non-recoverable (missing credentials, permission, quota). Never rerun identical failing SQL, and never substitute made-up numbers for data you could not query.",
+    "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. For a named customer or organization ID, resolve the canonical CRM/contract identity first and verify the returned rows carry the same customer and org/root-org identifiers. For account health, distinguish completed-month usage from current partial snapshots, contract metrics from similarly named platform metrics, total distinct contracted users from DAU/WAU, and actual usage from contracted capacity. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If a query fails with a schema or SQL error (unknown dataset/table/column, syntax), treat it as a normal debugging signal: use the `didYouMean` and `columns` the failure often carries, else inspect the real schema with `search-bigquery-schema` (or query INFORMATION_SCHEMA), correct the query based on the error, and run it again — a few corrective attempts are expected. Surface the error to the user only if it still fails after a few attempts or is non-recoverable (missing credentials, permission, quota). Never rerun identical failing SQL, and never substitute made-up numbers for data you could not query.",
   schema: z.object({
     sql: z.string().describe("SQL query to execute"),
   }),
@@ -172,11 +173,23 @@ export default defineAction({
         };
       }
       if (/BigQuery (API|poll) error/i.test(msg)) {
+        const message = extractBigQueryMessage(msg);
+        const recovery = await recoverFromSchemaMiss(
+          args.sql,
+          message,
+          context?.signal,
+        );
+        const foundSchema = Boolean(
+          recovery?.columns?.length || recovery?.didYouMeanTables?.length,
+        );
         return {
           error: "bigquery_query_failed",
-          message: extractBigQueryMessage(msg),
+          message,
           recoverable: true,
-          hint: "Likely a schema mismatch (wrong dataset, table, or column) or a SQL issue. Use search-bigquery-schema to get the exact datasets/tables/columns (or query INFORMATION_SCHEMA), correct the SQL based on this error, and run it again. Change the query based on the error — do not rerun identical SQL — and never substitute made-up numbers for data you could not query.",
+          hint: foundSchema
+            ? "The warehouse schema for this failure is below: correct the SQL using the exact names in `didYouMean`, `didYouMeanTables`, or `columns` and run it again. Do not rerun identical SQL, and never substitute made-up numbers for data you could not query."
+            : "Likely a schema mismatch (wrong dataset, table, or column) or a SQL issue. Use search-bigquery-schema to get the exact datasets/tables/columns (or query INFORMATION_SCHEMA), correct the SQL based on this error, and run it again. Change the query based on the error — do not rerun identical SQL — and never substitute made-up numbers for data you could not query.",
+          ...recovery,
         };
       }
       throw err;

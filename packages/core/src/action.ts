@@ -593,25 +593,21 @@ export function defineAction<
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
+  // Converting a schema to JSON Schema is the dominant module-scope cost of an
+  // action-heavy app's cold start, so convert only the schema the agent sees.
   let toolParameters: ActionTool["parameters"];
   if (hasSchema) {
-    toolParameters = schemaToJsonSchema(options.schema, options.description);
+    toolParameters = schemaToJsonSchema(
+      options.agentInputSchema && "~standard" in options.agentInputSchema
+        ? options.agentInputSchema
+        : options.schema,
+      options.description,
+    );
   } else if (options.parameters) {
     toolParameters = {
       type: "object" as const,
       properties: options.parameters,
     };
-  }
-
-  if (
-    hasSchema &&
-    options.agentInputSchema &&
-    "~standard" in options.agentInputSchema
-  ) {
-    toolParameters = schemaToJsonSchema(
-      options.agentInputSchema,
-      options.description,
-    );
   }
 
   const guardedRun =

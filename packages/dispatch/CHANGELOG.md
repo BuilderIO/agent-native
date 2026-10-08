@@ -1,5 +1,16 @@
 # @agent-native/dispatch
 
+## 0.40.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [c8bbbd4]
+- Updated dependencies [4ba5ea5]
+- Updated dependencies
+- Updated dependencies [4c1d77f]
+  - @agent-native/toolkit@0.204.0
+
 ## 0.40.16
 
 ### Patch Changes
@@ -1161,11 +1172,5 @@
 ### Patch Changes
 
 - 802f708: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-
-## 0.27.10
-
-### Patch Changes
-
-- 904b67c: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
