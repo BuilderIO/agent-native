@@ -23,6 +23,7 @@ describe("PGlite dev reloads", () => {
       await import("./client.js");
     await closePgliteClients();
     resumePgliteClientAccess();
+    vi.unstubAllEnvs();
     delete processState.__agentNativePgliteClients;
     delete processState.__agentNativePgliteClientsPendingClose;
     delete processState.__agentNativePgliteProcessLocks;
@@ -129,6 +130,63 @@ describe("PGlite dev reloads", () => {
       await closePgliteClients();
     }
   });
+
+  it.each(["execute", "transaction", "atomicBatch"] as const)(
+    "rejects a retained database proxy during %s when shutdown wins its initialization continuation",
+    async (method) => {
+      vi.stubEnv("DATABASE_URL", "pglite:memory");
+      vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+      vi.stubEnv("NETLIFY_DATABASE_URL", "");
+      vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+      const client = {
+        query: vi.fn(async () => ({ rows: [] })),
+        close: vi.fn(async () => {}),
+      };
+      vi.doMock("@electric-sql/pglite", () => ({
+        PGlite: { create: vi.fn(async () => client) },
+      }));
+
+      const {
+        beginPgliteClientShutdown,
+        closeDbExec,
+        getDbExec,
+        resumePgliteClientAccess,
+        waitForPgliteClientOperations,
+      } = await import("./client.js");
+      const retainedProxy = getDbExec();
+
+      try {
+        await getDbExec().execute("SELECT 1");
+
+        const closing = Promise.resolve().then(async () => {
+          beginPgliteClientShutdown();
+          await waitForPgliteClientOperations();
+          await closeDbExec();
+        });
+        const staleOperation = Promise.resolve().then(() => {
+          if (method === "execute") return retainedProxy.execute("SELECT 2");
+          if (method === "transaction") {
+            return retainedProxy.transaction!(async () => undefined);
+          }
+          return retainedProxy.atomicBatch!(["SELECT 2"]);
+        });
+
+        await expect(staleOperation).rejects.toMatchObject({
+          message:
+            "PGlite access is paused while the development server restarts.",
+          statusCode: 503,
+          statusMessage: "Service Unavailable",
+        });
+        await expect(closing).resolves.toBeUndefined();
+        expect(client.query).toHaveBeenCalledTimes(1);
+        expect(client.close).toHaveBeenCalledOnce();
+      } finally {
+        resumePgliteClientAccess();
+        await closeDbExec();
+      }
+    },
+  );
 });
 
 describe("db/client Postgres URL handling", () => {

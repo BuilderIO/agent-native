@@ -2156,6 +2156,22 @@ async function initClient(): Promise<void> {
   _exec = exec;
 }
 
+function getCurrentDbExec(): DbExec {
+  assertPgliteClientAccessOpen();
+  if (_exec) return _exec;
+  const error = new Error(
+    "Database client is unavailable while database clients are closing.",
+  ) as Error & { statusCode: number; statusMessage: string };
+  error.statusCode = 503;
+  error.statusMessage = "Service Unavailable";
+  throw error;
+}
+
+function getInitializedDbExec(generation: number): DbExec {
+  assertPgliteClientGeneration(generation);
+  return getCurrentDbExec();
+}
+
 export function annotateMissingTable(err: unknown, sql: unknown): unknown {
   if (!(err instanceof Error)) return err;
   const match = /relation\s+["'`]?([\w.]+)["'`]?\s+does not exist/i.exec(
@@ -2203,88 +2219,76 @@ export function getDbExec(): DbExec {
   ): ReturnType<DbExec["execute"]> {
     assertSchemaMutationAllowed(s);
     try {
-      return await _exec!.execute(sanitize(s));
+      return await getCurrentDbExec().execute(sanitize(s));
     } catch (err) {
       throw annotateMissingTable(err, s);
     }
   }
 
+  async function initializeProxy(): Promise<DbExec> {
+    const generation = pgliteProcess.__agentNativePgliteClientGeneration ?? 0;
+    const initPromise = (_initPromise ??= initClient());
+    try {
+      await initPromise;
+    } catch (err) {
+      if (_initPromise === initPromise) {
+        _initPromise = undefined;
+        _exec = undefined;
+      }
+      throw err;
+    }
+    return getInitializedDbExec(generation);
+  }
+
+  function createInitializedProxy(exec: DbExec): DbExec {
+    return {
+      execute: (s) => execAnnotated(s),
+      atomicBatch: exec.atomicBatch
+        ? async (statements) => {
+            for (const statement of statements) {
+              assertSchemaMutationAllowed(statement);
+            }
+            const currentExec = getCurrentDbExec();
+            if (!currentExec.atomicBatch) {
+              throw new Error("This database does not support atomic batches.");
+            }
+            return currentExec.atomicBatch(
+              statements.map((statement) => sanitize(statement)),
+            );
+          }
+        : undefined,
+      transaction: exec.transaction
+        ? (fn) => {
+            const currentExec = getCurrentDbExec();
+            if (!currentExec.transaction) {
+              throw new Error("This database does not support transactions.");
+            }
+            return currentExec.transaction((tx) =>
+              fn({
+                execute: (s) => {
+                  assertSchemaMutationAllowed(s);
+                  return tx.execute(sanitize(s));
+                },
+                transaction: tx.transaction?.bind(tx),
+              }),
+            );
+          }
+        : undefined,
+    };
+  }
+
   const proxy: DbExec = {
     async execute(sql) {
       assertSchemaMutationAllowed(sql);
-      const initPromise = (_initPromise ??= initClient());
-      try {
-        await initPromise;
-      } catch (err) {
-        if (_initPromise === initPromise) {
-          _initPromise = undefined;
-          _exec = undefined;
-        }
-        throw err;
-      }
-      const wrapper: DbExec = {
-        execute: (s) => execAnnotated(s),
-        atomicBatch: _exec!.atomicBatch
-          ? async (statements) => {
-              for (const statement of statements) {
-                assertSchemaMutationAllowed(statement);
-              }
-              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
-            }
-          : undefined,
-        transaction: _exec!.transaction
-          ? (fn) =>
-              _exec!.transaction!((tx) =>
-                fn({
-                  execute: (s) => {
-                    assertSchemaMutationAllowed(s);
-                    return tx.execute(sanitize(s));
-                  },
-                  transaction: tx.transaction?.bind(tx),
-                }),
-              )
-          : undefined,
-      };
-      Object.assign(proxy, wrapper);
+      const exec = await initializeProxy();
+      Object.assign(proxy, createInitializedProxy(exec));
       return execAnnotated(sql);
     },
     async transaction(fn) {
-      const initPromise = (_initPromise ??= initClient());
-      try {
-        await initPromise;
-      } catch (err) {
-        if (_initPromise === initPromise) {
-          _initPromise = undefined;
-          _exec = undefined;
-        }
-        throw err;
-      }
-      const wrapper: DbExec = {
-        execute: (s) => execAnnotated(s),
-        atomicBatch: _exec!.atomicBatch
-          ? async (statements) => {
-              for (const statement of statements) {
-                assertSchemaMutationAllowed(statement);
-              }
-              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
-            }
-          : undefined,
-        transaction: _exec!.transaction
-          ? (innerFn) =>
-              _exec!.transaction!((tx) =>
-                innerFn({
-                  execute: (s) => {
-                    assertSchemaMutationAllowed(s);
-                    return tx.execute(sanitize(s));
-                  },
-                  transaction: tx.transaction?.bind(tx),
-                }),
-              )
-          : undefined,
-      };
-      Object.assign(proxy, wrapper);
-      if (_exec!.transaction) {
-        return _exec!.transaction((tx) =>
+      const exec = await initializeProxy();
+      Object.assign(proxy, createInitializedProxy(exec));
+      if (exec.transaction) {
+        return exec.transaction((tx) =>
           fn({
             execute: (s) => {
               assertSchemaMutationAllowed(s);
@@ -2294,35 +2298,31 @@ export function getDbExec(): DbExec {
           }),
         );
       }
-      if (_exec!.atomicBatch) {
+      if (exec.atomicBatch) {
         throw new Error(
           "This database supports atomic batches, not interactive transactions.",
         );
       }
+      const wrapper = createInitializedProxy(exec);
       return explicitTransaction(wrapper.execute.bind(wrapper))(fn);
     },
     async atomicBatch(statements) {
       for (const statement of statements) {
         assertSchemaMutationAllowed(statement);
       }
-      const initPromise = (_initPromise ??= initClient());
-      try {
-        await initPromise;
-      } catch (err) {
-        if (_initPromise === initPromise) {
-          _initPromise = undefined;
-          _exec = undefined;
-        }
-        throw err;
-      }
-      if (!_exec!.atomicBatch) {
+      const exec = await initializeProxy();
+      if (!exec.atomicBatch) {
         throw new Error("This database does not support atomic batches.");
       }
       const batch = async (items: typeof statements) => {
         for (const item of items) {
           assertSchemaMutationAllowed(item);
         }
-        return _exec!.atomicBatch!(items.map((item) => sanitize(item)));
+        const currentExec = getCurrentDbExec();
+        if (!currentExec.atomicBatch) {
+          throw new Error("This database does not support atomic batches.");
+        }
+        return currentExec.atomicBatch(items.map((item) => sanitize(item)));
       };
       Object.assign(proxy, { atomicBatch: batch });
       return batch(statements);
