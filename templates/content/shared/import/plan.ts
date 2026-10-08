@@ -89,8 +89,9 @@ export function dataUrlByteLength(dataUrl: string): number | null {
   if (!/;base64$/i.test(header)) {
     try {
       return new TextEncoder().encode(decodeURIComponent(payload)).length;
-    } catch {
-      return null;
+    } catch (error) {
+      if (error instanceof URIError) return null;
+      throw error;
     }
   }
   const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
