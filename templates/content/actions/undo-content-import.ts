@@ -20,7 +20,7 @@ import {
 
 export default defineAction({
   description:
-    "Undo an import-content run by moving the pages it created to Trash. Only the person who ran the import can undo it, and it refuses with IMPORT_PAGE_CHANGED when any of those pages was edited, renamed, moved, given a new icon or description, or given child pages since; use delete-document for a page you mean to discard anyway.",
+    "Undo an import-content run by moving the pages it created to Trash. Only the person who ran the import can undo it, and it refuses with IMPORT_PAGE_CHANGED when any of those pages was edited, renamed, moved, given a new icon or description, or given child pages since, and with IMPORT_IN_PROGRESS while the import is still adding pages; use delete-document for a page you mean to discard anyway.",
   mcpTool: true,
   schema: z
     .object({

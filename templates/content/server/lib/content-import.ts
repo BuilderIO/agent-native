@@ -694,9 +694,10 @@ export function importedStateFingerprint(page: {
 }
 
 /**
- * What a retry with the same key must repeat: the destination and every file
- * by name, plus each Markdown file's text. Image URLs are left out because a
- * retry uploads the images again.
+ * What a retry with the same key must repeat: the destination, each Markdown
+ * file's name and text, and each image's name and url. The url stands in for
+ * the image's bytes, so a retry sends the same upload's url rather than
+ * uploading the image again.
  */
 function importRequestFingerprint(
   destination: ImportContentResult["destination"],
@@ -710,8 +711,6 @@ function importRequestFingerprint(
       markdown: [...markdown]
         .sort((a, b) => (a.path < b.path ? -1 : 1))
         .map((file) => [file.path, sha256(file.text)]),
-      // The url stands in for the image's bytes, so a retry sends the same
-      // upload's url rather than uploading the image again.
       images: [...images.values()]
         .sort((a, b) => (a.path < b.path ? -1 : 1))
         .map((image) => [image.path, image.url]),

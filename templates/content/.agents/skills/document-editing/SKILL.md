@@ -98,8 +98,9 @@ pnpm action import-content --dryRun false --parentId abc123 --idempotencyKey gui
 ```
 
 Run the dry run first and tell the user each page's `status` and `notes`
-before applying. Applying needs a `url` for every image named in `uploads`;
-an image nobody can supply becomes a visible placeholder on the page. Other
+before applying. Applying fails with `IMPORT_IMAGE_NOT_UPLOADED` until every
+image named in `uploads` has a `url`; leave an image nobody can supply out of
+`files`, and its references become visible placeholders on the page. Other
 formats come back in `skipped` as not supported yet. Pass an
 `idempotencyKey` on every apply, and reuse it only to retry the same files,
 with the same image `url`s, into the same place. `IMPORT_INCOMPLETE` means
@@ -109,8 +110,12 @@ same call again finishes the import. `IMPORT_PAGE_TRASHED` means the import
 was undone or its pages trashed; restore them, or import with a new key.
 
 `undo-content-import --importId <id>` moves the import's pages to Trash. It
-refuses with `IMPORT_PAGE_CHANGED` when a page was edited, moved, or given
-child pages since; ask before using `delete-document` instead. While the Import dialog is open,
+needs only editor access, not the admin access `delete-document` needs,
+because it moves only pages the caller imported that nobody has changed since.
+It refuses with `IMPORT_PAGE_CHANGED` when a page was edited, moved, or given
+child pages since; ask before using `delete-document` instead.
+`IMPORT_IN_PROGRESS` means the import is still adding pages; undo it again once
+it finishes. While the Import dialog is open,
 `view-screen` returns `contentImport` with its status, destination, file
 names, and counts, never file contents. `import-content-source` is unrelated:
 it syncs a connected local folder.
