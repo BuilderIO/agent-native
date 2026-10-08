@@ -21,8 +21,10 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply**, under a hard question budget, then recap.
 
-Output is fixes; reply only when informative. Two fixes and three messages
-beats thirty replies.
+Output is fixes. Reply in-thread for every workflow reaction added this run;
+continuing work gets a concrete progress reply, and resolved work gets a final
+reply after verification. Follow
+[`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
 
@@ -46,9 +48,10 @@ work, post one status reply with task link and remaining scope.
 
 ## Phase 0: claim what you are taking
 
-For an eligible item you intend to take, add `👀` before investigation and
-never remove it. Do not resume items excluded by the Slack ownership gate. Post
-**In progress** only when work continues beyond this run.
+Resolve known duplicate clusters before claiming. For an eligible item, add
+`👀` before investigation and never remove it. Do not resume items excluded by
+the Slack ownership gate. Post **In progress** only when work continues beyond
+this run.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
 Investigate first; ask what they saw or did in plain language. Gather request
@@ -62,13 +65,16 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 ### Reaction gate
 
-`👀` is claim history; `✅` requires **Fixed** after all Phase 2 bars. `🎫`
-marks accepted work another owner must do; use it only with an existing ticket
-naming that owner and exact action, linked in the ledger and reply. No `🎫` for
-fixed scope, routine rollout, optional live checks, subjective/out-of-scope, or
-unapproved work. Pair `✅` + `🎫` only for distinct scopes; name the fixed
-behavior and ticket action. **Shipped**/**Live verified** alone don't earn
-`✅`. Never remove reactions.
+`👀` is claim history; `✅` requires **Fixed** after Phase 2 bars. Check each
+reported symptom separately. For partial fixes, pair `✅` for verified scope
+with `🎫` for any distinct unfinished scope that needs a human to take
+ownership or act, whether or not a ticket exists. Link a verified ticket and
+name its owner/action; without one, keep the handoff explicit in the reply and
+ledger and say that an owner or ticket still needs to be assigned. Do not
+create or promise a ticket without authorization. No `🎫` for fixed scope,
+routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
+**Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
+Follow the reply reference before marking an item replied.
 
 For every concrete objective defect, attempt to reproduce it before recording
 an evidence limit or asking the reporter for more information. A screenshot,
@@ -89,7 +95,8 @@ means you found neither a fix nor a useful question; state why in the thread.
 For eligible items, use one disposition per row; record it in the recap and, if
 unstated, in the thread or linked work. Do not inspect gated items for status.
 For clusters, post one owner status with each source permalink and
-**Clustered**; reply in a non-owner only for a distinct question or update.
+**Clustered**; do not mark duplicate non-owners separately. Give a distinct
+question or update its own reaction and reply.
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
@@ -464,16 +471,8 @@ Share only new or useful information.
 
 ### After a PR merges
 
-After a Slack-fix PR merges, reply only in threads claimed this run.
-
-For beta app fixes, check the merge-triggered publisher run before giving the
-normal few-hours ETA. This checks release-job status, not beta behavior. If it
-succeeds, say what changed and that it'll be on beta in the next few hours.
-Keep test environment, verification, publisher results, and rollout details out
-of the reply; record evidence in the recap or PR. If the run is missing or
-failed, omit the ETA and state what's done, the exact remaining action and owner,
-and an existing ticket when available. Apply the Reaction gate before `🎫`.
-For packages, state availability without verification details.
+Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for
+post-merge beta ETAs and package replies.
 
 For a fixed behavior with a ticketed handoff, state the done behavior and
 remaining action/owner/ticket separately; don't imply the fixed scope is open.
@@ -522,8 +521,15 @@ schemas once and reuse them.
 
 For every Slack write: use the exact parent `thread_ts` from a full-thread
 read, never a search-result or adjacent timestamp, and re-read after posting.
-Do not close, label, assign, or comment on GitHub or Sentry unless the
-invocation authorizes it; link them in the recap instead.
+Do not close, label, or assign GitHub/Sentry items, or post unrelated comments,
+unless the invocation authorizes it. For PR review feedback, first verify the
+live PR author and follow `babysit-pr`: concise replies that disposition
+feedback on the active user's own PR, including a recap for feedback found only
+in a review body, need no extra authorization. On another person's PR, comment
+only when the invocation explicitly authorizes comments on that exact PR;
+otherwise draft the reply, leave the feedback unresolved, and link it in the
+recap. This exception is only for PR review feedback, not proactive PR comments
+or issue comments.
 
 ## Publishing
 
@@ -570,9 +576,9 @@ Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
+| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply proof | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
+| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 human handoff needed |
 <!-- framework-repo-only:start -->
 | CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | test fix/quarantine; deploy target proof | N/A | owner/[issue](...) | N/A | N/A |
 <!-- framework-repo-only:end -->

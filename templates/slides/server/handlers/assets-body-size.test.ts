@@ -1,4 +1,4 @@
-import { assertBodySize, mockEvent } from "h3";
+import { assertBodySize, mockEvent, readRawBody } from "h3";
 import { expect, it } from "vitest";
 
 it("rejects a streamed request without Content-Length when its body is too large", async () => {
@@ -18,5 +18,6 @@ it("rejects a streamed request without Content-Length when its body is too large
   const event = mockEvent(request);
 
   expect(event.req.headers.has("content-length")).toBe(false);
-  await expect(assertBodySize(event, 8)).rejects.toMatchObject({ status: 413 });
+  assertBodySize(event, 8);
+  await expect(readRawBody(event)).rejects.toMatchObject({ status: 413 });
 });

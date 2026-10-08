@@ -8,6 +8,7 @@ const messages = {
       providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
     common: { retry: "إعادة المحاولة" },
+    onboarding: { skipForNow: "تخطي الآن" },
   },
   timelineTrack: {
     helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
@@ -1460,9 +1461,18 @@ const messages = {
     builderConnectPopupError:
       "تعذّر فتح Builder.io. إذا كان التطبيق مضمّنًا في محادثة، فافتحه في علامة تبويب بالمتصفح؛ وإلا فحاول مرة أخرى.",
     builderConnectError:
-      "تعذّر إعداد Builder.io. حاول مرة أخرى أو تواصل مع الدعم.",
+      "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اختر تخزينًا متوافقًا مع S3.",
+    builderConnectErrorAskAdmin:
+      "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اطلب من مالك أو مسؤول إعداد التخزين.",
+    builderStatusReadError:
+      "حالة الاتصال غير متاحة. أعد المحاولة للتحقق مرة أخرى.",
+    builderUploadGrantMissing:
+      "Builder.io متصل بخدمات الذكاء الاصطناعي، لكن هذا الاتصال لا يمكنه رفع المقاطع. أعد ربط Builder.io مع صلاحية الرفع، أو اطلب المساعدة من مالك أو مسؤول.",
+    builderGrantAskAdmin:
+      "اطلب من مالك أو مسؤول ربط Builder.io مع صلاحية رفع المقاطع.",
+    statusUnavailable: "تعذر التحقق من جاهزية تخزين الفيديو.",
     checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
-    builderTimeout: "لم يصل رد من Builder خلال 5 دقائق. حاول مرة أخرى.",
+    builderTimeout: "تعذّر تأكيد جاهزية تخزين Builder.io. حاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
     description:
@@ -1815,6 +1825,9 @@ const messages = {
     pendingStorageDescription: "اربط مساحة تخزين وسيرفعه Clips فورًا.",
     storageConnectedUploading: "تم ربط التخزين. جارٍ رفع تسجيلك…",
     downloadCopy: "تنزيل نسخة",
+    localRecordingPreview: "معاينة التسجيل المحلي",
+    localPreviewUnavailable:
+      "المعاينة المحلية غير متاحة. لا يزال بإمكانك تنزيل نسخة.",
     localRecordingOpenElsewhere:
       "هذا التسجيل لا يزال مفتوحًا في علامة تبويب أخرى من Clips.",
     uploadWaitingForConnection:

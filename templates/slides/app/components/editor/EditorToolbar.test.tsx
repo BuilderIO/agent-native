@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   deckContentConflicts: [] as Array<{ slideId: string; canResolve: boolean }>,
   resolveDeckContentConflict: vi.fn(),
   saving: { value: false },
+  readOnlyDirectoryWidget: { value: false },
   saveError: {
     value: undefined as { status?: number; retryable: boolean } | undefined,
   },
@@ -43,6 +44,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       : key === "creativeContext.share.tabLabel"
         ? "Context"
         : key,
+}));
+
+vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+  useIsMcpAppWidgetEmbed: () => false,
+  useIsMcpDirectoryWidgetReadOnlyEmbed: () =>
+    mocks.readOnlyDirectoryWidget.value,
 }));
 
 vi.mock("sonner", () => ({
@@ -205,6 +212,7 @@ beforeEach(() => {
   mocks.deckContentConflicts = [];
   mocks.saveError.value = undefined;
   mocks.saving.value = false;
+  mocks.readOnlyDirectoryWidget.value = false;
 });
 
 afterEach(() => {
@@ -240,6 +248,14 @@ describe("<EditorToolbar>", () => {
   });
 
   it("shows no save status to a viewer with nothing failed", () => {
+    render(viewerToolbar());
+
+    expect(screen.queryByTestId("save-status")).toBeNull();
+  });
+
+  it("hides save failures in a read-only directory widget", () => {
+    mocks.saveError.value = { status: 403, retryable: true };
+    mocks.readOnlyDirectoryWidget.value = true;
     render(viewerToolbar());
 
     expect(screen.queryByTestId("save-status")).toBeNull();

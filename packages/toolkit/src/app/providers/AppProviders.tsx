@@ -19,6 +19,7 @@ import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared/document-title";
+import { getMcpAppWidgetEmbedBootScriptBody } from "@agent-native/core/shared/mcp-app-widget-embed";
 import { getSsrBetaRedirectScriptBody } from "@agent-native/core/shared/ssr-beta-redirect";
 import { getSsrSessionBootstrapScriptBody } from "@agent-native/core/shared/ssr-session-bootstrap";
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
@@ -94,6 +95,17 @@ function EarlyBetaRedirectScript() {
           frameworkRoutePrefix(),
         ),
       }}
+    />
+  );
+}
+
+// Marks <html> as an MCP App widget before the server-rendered skeleton below
+// paints, so the widget never flashes the app's own sidebar.
+function McpAppWidgetBootScript() {
+  return (
+    <script
+      data-agent-native-mcp-widget-boot="1"
+      dangerouslySetInnerHTML={{ __html: getMcpAppWidgetEmbedBootScriptBody() }}
     />
   );
 }
@@ -480,6 +492,7 @@ export function AppProviders({
 
   return (
     <>
+      <McpAppWidgetBootScript />
       {!sessionBypass && (
         <>
           <EarlySessionBootstrapScript />

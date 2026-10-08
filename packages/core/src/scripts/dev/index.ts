@@ -7,6 +7,7 @@ import {
   type DatabaseToolsOption,
 } from "../db/tool-mode.js";
 import { dbExecToolParameters } from "../db/tool-schemas.js";
+import { serializeCliArgs } from "../parse-args.js";
 import { tool as listFilesTool, run as listFilesRun } from "./list-files.js";
 import { tool as readFileTool, run as readFileRun } from "./read-file.js";
 import {
@@ -25,15 +26,7 @@ function wrapCliScript(
     tool,
     ...(opts?.readOnly ? { readOnly: true as const } : {}),
     run: async (args: Record<string, string>): Promise<string> => {
-      const cliArgs: string[] = [];
-      for (const [k, v] of Object.entries(args)) {
-        const raw = v as unknown;
-        const value =
-          raw != null && typeof raw === "object"
-            ? JSON.stringify(raw)
-            : String(raw);
-        cliArgs.push(`--${k}`, value);
-      }
+      const cliArgs = serializeCliArgs(args);
 
       const logs: string[] = [];
       const origLog = console.log;

@@ -47,6 +47,8 @@ import type { DesignSystemData } from "../../../shared/api";
 import { isSlideTextEditingTarget } from "./slide-text-targets";
 
 interface EditorSidebarProps {
+  /** Thumbnails only, for a narrow host pane. */
+  compact?: boolean;
   slides: Slide[];
   activeSlideId: string;
   deckId: string;
@@ -304,7 +306,9 @@ function SortableSlideThumb({
   onDuplicateSlide,
   onToggleSkipSlide,
   altDragSlideId,
+  compact = false,
 }: {
+  compact?: boolean;
   slide: Slide;
   index: number;
   slideCount: number;
@@ -422,14 +426,16 @@ function SortableSlideThumb({
             aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
             aria-current={isActive ? "true" : undefined}
             data-slide-thumbnail-id={slide.id}
-            className={`w-full text-left flex items-start gap-1.5 p-1.5 rounded-lg transition-[background-color,box-shadow] duration-150 ${
+            className={`w-full text-left flex items-start gap-1.5 ${compact ? "p-1" : "p-1.5"} rounded-lg transition-[background-color,box-shadow] duration-150 ${
               isSelected ? "bg-accent" : isActive ? "bg-accent/60" : ""
             } ${
               readOnly ? "" : "cursor-grab active:cursor-grabbing"
             } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1`}
           >
             {/* Index and slide presence share the fixed rail so presence does not resize the row. */}
-            <div className="relative flex-shrink-0 w-4 self-stretch">
+            <div
+              className={`relative flex-shrink-0 w-4 self-stretch ${compact ? "hidden" : ""}`}
+            >
               <span className="block text-center text-[10px] font-medium leading-5 text-muted-foreground/70">
                 {index + 1}
               </span>
@@ -487,6 +493,11 @@ function SortableSlideThumb({
                   designSystem={designSystem}
                   onOverflowChange={onOverflowChange}
                 />
+                {compact && (
+                  <span className="pointer-events-none absolute start-0.5 top-0.5 z-10 rounded bg-background/80 px-1 text-[9px] font-medium leading-4 text-foreground">
+                    {index + 1}
+                  </span>
+                )}
                 {showGeneratingShimmer && (
                   <div
                     aria-hidden="true"
@@ -604,6 +615,7 @@ function GeneratingSlideSkeleton({
 }
 
 export default function EditorSidebar({
+  compact = false,
   slides,
   activeSlideId,
   selectedSlideIds = [],
@@ -911,7 +923,9 @@ export default function EditorSidebar({
   }, [activeSlideId, navigateToSlide]);
 
   return (
-    <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
+    <div
+      className={`flex h-full min-h-0 flex-shrink-0 flex-col bg-background ${compact ? "w-24" : "w-48 sm:w-52"}`}
+    >
       <div
         className="relative min-h-0 flex-1"
         data-slides-thumbnail-scroll={
@@ -919,7 +933,7 @@ export default function EditorSidebar({
         }
       >
         <div
-          className="h-full min-h-0 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain p-2"
+          className={`h-full min-h-0 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain ${compact ? "p-1" : "p-2"}`}
           onScroll={(event) => {
             setThumbnailListScrolled(event.currentTarget.scrollTop > 1);
           }}
@@ -931,6 +945,7 @@ export default function EditorSidebar({
             {slides.map((slide, index) => (
               <SortableSlideThumb
                 key={slide.id}
+                compact={compact}
                 slide={slide}
                 index={index}
                 slideCount={slides.length}

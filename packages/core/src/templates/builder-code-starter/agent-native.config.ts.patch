@@ -1,0 +1,10 @@
+===================================================================
+--- a/agent-native.config.ts
++++ b/agent-native.config.ts
+@@ -2,5 +2,6 @@
+ 
+ export default defineAgentNativeConfig({
+   changelog: { enabled: false },
+   harness: true,
++  onboarding: { firstRun: "off" },
+ });

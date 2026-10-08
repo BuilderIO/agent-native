@@ -13,6 +13,12 @@ import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import {
+  assertServicePrincipalMayRun,
+  recordServicePrincipalDenial,
+  ServicePrincipalRefusedError,
+} from "../org/service-principal-guard.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
@@ -668,7 +674,10 @@ export function mountA2A(
         return { ok: true };
       } catch (err: any) {
         console.error("[a2a] process-task failed:", err);
-        setResponseStatus(event, 500);
+        setResponseStatus(
+          event,
+          err instanceof ServicePrincipalRefusedError ? err.statusCode : 500,
+        );
         return { error: err?.message ?? "process-task failed" };
       }
     }),
@@ -691,6 +700,7 @@ export function mountA2A(
       let verifiedOrgDomain: string | null = null;
       let verifiedOrgId: string | undefined;
       let verifiedIdentityAssurance: "user" | "organization" | undefined;
+      let servicePrincipalAllowedActions: string[] | null | undefined;
       let verifiedAudienceBound = false;
       let legacyApiKeyAuthenticated = false;
       let bearerTokenVerified = false;
@@ -725,6 +735,36 @@ export function mountA2A(
             error: {
               code: -32003,
               message: "A2A identity verification is temporarily unavailable",
+            },
+          };
+        }
+        try {
+          const admission = await assertServicePrincipalMayRun(
+            tokenPayload.email,
+            verifiedOrgId,
+          );
+          if (parseServiceIdentityEmail(tokenPayload.email)) {
+            servicePrincipalAllowedActions = admission.allowedActions;
+          }
+        } catch (error) {
+          if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+          if (error.statusCode === 403) {
+            await recordServicePrincipalDenial({
+              email: tokenPayload.email,
+              orgId: verifiedOrgId,
+              actionName: "a2a:admission",
+              caller: "a2a",
+              error,
+            });
+          }
+          setResponseStatus(event, error.statusCode);
+          return {
+            jsonrpc: "2.0",
+            id: null,
+            error: {
+              code: error.statusCode === 503 ? -32003 : -32001,
+              message: error.message,
+              data: { errorCode: error.errorCode },
             },
           };
         }
@@ -820,6 +860,10 @@ export function mountA2A(
       }
       if (verifiedOrgId) {
         event.context.__a2aVerifiedOrgId = verifiedOrgId;
+      }
+      if (servicePrincipalAllowedActions !== undefined) {
+        event.context.__a2aServicePrincipalAllowedActions =
+          servicePrincipalAllowedActions;
       }
 
       const body = await readBody(event);

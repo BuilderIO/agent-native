@@ -45,6 +45,10 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import {
+  useIsMcpAppWidgetEmbed,
+  useIsMcpDirectoryWidgetReadOnlyEmbed,
+} from "@agent-native/core/client/mcp-app-host";
+import {
   useReviewComments,
   useSendReviewThreadToAgent,
 } from "@agent-native/core/client/review";
@@ -300,6 +304,7 @@ import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
 } from "@/components/design/editor/DesignWorkspaceRail";
+import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
 import { HistoryPanel } from "@/components/design/editor/HistoryPanel";
 import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
 import { MakeRealDialog } from "@/components/design/editor/MakeRealDialog";
@@ -329,7 +334,11 @@ import {
 } from "@/components/design/inspector";
 import { waitForShaderWriteToSettle } from "@/components/design/inspector/GlslShaderPanel";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
-import { KeyboardShortcutsPanel } from "@/components/design/KeyboardShortcutsPanel";
+import {
+  isEditorHotkeyBlockedByShortcutsDialog,
+  isKeyboardShortcutsDialogTarget,
+  KeyboardShortcutsDialog,
+} from "@/components/design/KeyboardShortcutsDialog";
 import {
   LayersPanel,
   type LayersPanelFile,
@@ -550,6 +559,7 @@ import {
   journalDesignSaveOutboxEntry,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import {
   DESIGN_HISTORY_OPEN_EVENT,
@@ -820,7 +830,10 @@ import { runScreenTextContentChange } from "./design-editor/commands/screen-text
 import { runScreenVisualDuplicateChange } from "./design-editor/commands/screen-visual-duplicate-change";
 import { runScreenVisualStructureChange } from "./design-editor/commands/screen-visual-structure-change";
 import { runScreenVisualStyleChange } from "./design-editor/commands/screen-visual-style-change";
-import { runSelectAll } from "./design-editor/commands/select-all";
+import {
+  runSelectAll,
+  explicitScreenTargetsAfterSelectAll,
+} from "./design-editor/commands/select-all";
 import {
   restoreSelectionColorPreview,
   runSelectionColorChange,
@@ -1046,9 +1059,11 @@ import {
   localhostConsentRequestDisposition,
   localhostConsentRequestRefetchInterval,
 } from "./design-editor/localhost-consent-request";
+import { applyMcpDirectoryWidgetReadOnlyPolicy } from "./design-editor/mcp-widget-write-capabilities";
 import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
   hasMinimalInspectorSelection,
+  rightInspectorCanvasInset,
   rightInspectorPanelClassName,
 } from "./design-editor/minimal-inspector";
 import {
@@ -1164,6 +1179,7 @@ import {
 } from "./design-editor/screen-command-utils";
 import {
   buildActiveFileNodeIdSet,
+  applyExplicitOverviewScreenSelectionToggle,
   computeOverviewScreenPickSelectionIds,
   getContentSignature,
   getOverviewScreenContentKey,
@@ -1174,16 +1190,19 @@ import {
   hasSelectableCodeLayerParent,
   isScreenRootElementInfo,
   isUserOriginatedSelectionIntent,
+  overviewScreenSelectionForPendingEcho,
   overviewSelectionTargetsElement,
   resolveAvailableActiveFileId,
   resolveEffectiveSelectedLayerIds,
   resolveMarqueeAdditive,
   sameStringIds,
+  explicitOverviewScreenSelectionForHistory,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldLimitEditorChromeUntilContentReady,
   shouldUseOverviewRuntimeReplacement,
+  updateExplicitOverviewScreenSelection,
 } from "./design-editor/selection-state";
 import {
   resolveSourceBaseForPublication,
@@ -1205,6 +1224,7 @@ import {
   shouldAskOnNewDesignArrival,
   shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
+import { TOP_BAR_HEIGHT_PX, isTopBarVisible } from "./design-editor/top-bar";
 import {
   type DesignData,
   type DesignFile,
@@ -1439,7 +1459,12 @@ function DesignEditor() {
   const isLiveCanvasShareLink =
     isVisualEditSurface && searchParams.get("share") === "1";
   const embedChromeRequested = isEmbedChromeRequested();
-  const hostOwnsChrome = embedded && !shellMode && !embedChromeRequested;
+  // An MCP App host owns navigation and chat, not the editor: the widget keeps
+  // the canvas, tools, and inspector as floating controls instead of going bare.
+  const widgetEmbed = useIsMcpAppWidgetEmbed();
+  const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
+  const hostOwnsChrome =
+    embedded && !shellMode && !embedChromeRequested && !widgetEmbed;
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
     isBuilderHostEmbed(),
   );
@@ -2325,7 +2350,7 @@ function DesignEditor() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
   const [uiHidden, setUiHidden] = useState(false);
   const minimalUiByDefault =
-    embedded && !hostOwnsChrome && !embedChromeRequested;
+    widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested);
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
   useEffect(() => {
     setMinimalUi(minimalUiByDefault);
@@ -2923,6 +2948,8 @@ function DesignEditor() {
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const selectedLayerIdsStateRef = useRef<string[]>([]);
   const overviewSelectedScreenIdsRef = useRef<string[]>([]);
+  const explicitOverviewScreenSelectionRef = useRef<string[]>([]);
+  const selectionRevisionRef = useRef(0);
   const fileCreationUndoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const fileCreationRedoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const pendingFileCreationHistoryEntriesRef = useRef<
@@ -3000,6 +3027,9 @@ function DesignEditor() {
         overviewSelectedScreenIds: [...overviewSelectedScreenIdsRef.current],
         selectedLayerIds: [...selectedLayerIdsStateRef.current],
         activeFileId: activeFileIdForUndoRef.current,
+        explicitOverviewScreenIds: [
+          ...explicitOverviewScreenSelectionRef.current,
+        ],
       },
       codeLayerOwnerByNodeIdRef.current,
       (screenId) => historySourceReaderRef.current(screenId),
@@ -3009,10 +3039,16 @@ function DesignEditor() {
     (selection: GeometryHistorySelection | undefined) => {
       if (!selection) return;
       if (viewModeRef.current !== "overview") {
+        explicitOverviewScreenSelectionRef.current = [];
         setSelectedLayerIdsState(selection.selectedLayerIds);
         if (selection.activeFileId) setActiveFileId(selection.activeFileId);
         return;
       }
+      const screenFileIds = new Set(
+        getOverviewScreenFileIds(historyFilesRef.current),
+      );
+      explicitOverviewScreenSelectionRef.current =
+        explicitOverviewScreenSelectionForHistory({ selection, screenFileIds });
       const restoredLayerId =
         selection.selectedLayerIds.length === 1
           ? selection.selectedLayerIds[0]
@@ -4101,9 +4137,42 @@ function DesignEditor() {
     isVisualEditSurface &&
     designQueryFailed &&
     (designResult === undefined || designQueryAuthFailed);
-  const canEditDesign = !visualEditAccessLost
-    ? canShareDesign || designAccessRole === "editor"
-    : false;
+  const roleCanEditDesign =
+    !visualEditAccessLost && (canShareDesign || designAccessRole === "editor");
+  const roleCanEditLiveScreens =
+    isVisualEditSurface &&
+    !visualEditAccessLost &&
+    (roleCanEditDesign ||
+      design?.visibility === "public" ||
+      designAccessRole === "viewer" ||
+      designAccessRole === "commenter");
+  const rolePublicVisualEdit =
+    isVisualEditSurface &&
+    !visualEditAccessLost &&
+    !roleCanEditDesign &&
+    design?.visibility === "public";
+  const roleCanCommentDesign =
+    isSignedIn &&
+    (designAccessRole === "owner" ||
+      designAccessRole === "admin" ||
+      designAccessRole === "editor" ||
+      designAccessRole === "commenter");
+  const {
+    canEditDesign,
+    canEditLiveScreens,
+    publicVisualEdit,
+    canCommentDesign,
+    canRenderAuthenticatedShare,
+  } = applyMcpDirectoryWidgetReadOnlyPolicy(
+    {
+      canEditDesign: roleCanEditDesign,
+      canEditLiveScreens: roleCanEditLiveScreens,
+      publicVisualEdit: rolePublicVisualEdit,
+      canCommentDesign: roleCanCommentDesign,
+      canRenderAuthenticatedShare: isSignedIn || roleCanEditDesign,
+    },
+    readOnlyWidget,
+  );
   const [failedLocalhostConsentClear, setFailedLocalhostConsentClear] =
     useState<string | null>(null);
   const localhostConsentRequestQuery = useActionQuery(
@@ -4205,18 +4274,6 @@ function DesignEditor() {
       visualEditSnapshotPublicationState,
     ],
   );
-  const canEditLiveScreens =
-    isVisualEditSurface &&
-    !visualEditAccessLost &&
-    (canEditDesign ||
-      design?.visibility === "public" ||
-      designAccessRole === "viewer" ||
-      designAccessRole === "commenter");
-  const publicVisualEdit =
-    isVisualEditSurface &&
-    !visualEditAccessLost &&
-    !canEditDesign &&
-    design?.visibility === "public";
   const canEditPublicLiveScreenUrl =
     publicVisualEdit && Boolean(getEmbedAuthToken());
   const canApplyPendingVisualEditsWithAgent =
@@ -4228,13 +4285,6 @@ function DesignEditor() {
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
   const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
-  const canCommentDesign =
-    isSignedIn &&
-    (designAccessRole === "owner" ||
-      designAccessRole === "admin" ||
-      designAccessRole === "editor" ||
-      designAccessRole === "commenter");
-  const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -4396,7 +4446,9 @@ function DesignEditor() {
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: ["action"],
-        predicate: (query) => query.queryKey[1] !== "get-design",
+        predicate: (query) =>
+          query.queryKey[1] !== "get-design" &&
+          !isContentIndependentDesignQuery(query.queryKey[1]),
       });
     },
   });
@@ -4532,17 +4584,21 @@ function DesignEditor() {
   const fileSaveTimersRef = useRef<Record<string, number>>({});
   const postAuthSaveRef = useRef<string | null>(null);
 
+  // A directory widget's session is read-only, so a refused save is expected
+  // there and not a lost connection or a lost edit to warn about.
   const warnChangesWillRetry = useCallback(() => {
+    if (readOnlyWidget) return;
     toast.warning(t("visualEditor.changesSaveWhenReconnected"), {
       id: "design-save-outbox-warning",
     });
-  }, [t]);
+  }, [readOnlyWidget, t]);
 
   const warnChangesDiscarded = useCallback(() => {
+    if (readOnlyWidget) return;
     toast.error(t("visualEditor.changesDiscarded"), {
       id: "design-save-outbox-discarded",
     });
-  }, [t]);
+  }, [readOnlyWidget, t]);
 
   const journalOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
@@ -6964,6 +7020,9 @@ function DesignEditor() {
           setViewMode,
           setZoomForView,
           pendingOverviewScreenSelectionRef,
+          setExplicitOverviewScreenSelection: (screenIds) => {
+            explicitOverviewScreenSelectionRef.current = screenIds;
+          },
           overviewDataReady,
           viewModeRef,
           requestCameraFit: (camera) => {
@@ -7110,6 +7169,7 @@ function DesignEditor() {
       setActiveFileId(plan.activeFileId);
       setSelectedElement(null);
       setSelectedLayerIdsState(plan.selectedLayerIds);
+      explicitOverviewScreenSelectionRef.current = plan.selectedScreenIds;
       setOverviewSelectedScreenIds(plan.selectedScreenIds);
       setActiveTool("move");
       setMode("edit");
@@ -7857,6 +7917,7 @@ function DesignEditor() {
           ? `[data-agent-native-node-id="${finding.nodeId.replace(/"/g, '\\"')}"]`
           : null);
       if (!selector) return;
+      explicitOverviewScreenSelectionRef.current = [];
       canvasIframeRef.current?.contentWindow?.postMessage(
         {
           type: "select-element",
@@ -10731,6 +10792,10 @@ function DesignEditor() {
   const handleReviewThreadSelect = useCallback(
     (thread: ReviewThread) => {
       const targetId = thread.root.targetId;
+      explicitOverviewScreenSelectionRef.current =
+        targetId && overviewScreens.some((screen) => screen.id === targetId)
+          ? [targetId]
+          : [];
       if (
         shouldClearSelectionForReviewThreadTarget({
           activeFileId: activeFile?.id,
@@ -10762,7 +10827,7 @@ function DesignEditor() {
         threadId: thread.root.threadId,
       });
     },
-    [activeFile?.id, boardFileId],
+    [activeFile?.id, boardFileId, overviewScreens],
   );
 
   useEffect(() => {
@@ -11236,12 +11301,40 @@ function DesignEditor() {
   ]);
 
   const handleOverviewScreenSelectionChange = useCallback(
-    (ids: string[]) => {
+    (ids: string[], intent?: ElementSelectionIntent) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
       const fileIds = new Set(getOverviewScreenFileIds(files));
       const nextIds = ids.filter((layerId) => fileIds.has(layerId));
-      if (pendingId && ids.length === 0) return;
-      if (pendingId && ids.includes(pendingId)) {
+      if (intent?.screenSelectionToggle) {
+        explicitOverviewScreenSelectionRef.current =
+          applyExplicitOverviewScreenSelectionToggle({
+            currentExplicitScreenIds:
+              explicitOverviewScreenSelectionRef.current,
+            screenId: intent.screenSelectionToggle.screenId,
+            selected: intent.screenSelectionToggle.selected,
+          });
+      }
+      if (intent?.source === "marquee" && intent.cancelled) {
+        setOverviewSelectedScreenIds((current) =>
+          sameStringIds(current, nextIds) ? current : nextIds,
+        );
+        return;
+      }
+      if (!intent?.screenSelectionToggle && pendingId && ids.length === 0) {
+        explicitOverviewScreenSelectionRef.current = [];
+        return;
+      }
+      if (
+        !intent?.screenSelectionToggle &&
+        pendingId &&
+        ids.includes(pendingId)
+      ) {
+        explicitOverviewScreenSelectionRef.current =
+          overviewScreenSelectionForPendingEcho({
+            screenIds: nextIds,
+            pendingLayerId: pendingOverviewLayerSelectionRef.current,
+            screenFileIds: fileIds,
+          });
         setOverviewSelectedScreenIds((current) =>
           sameStringIds(current, nextIds) ? current : nextIds,
         );
@@ -11250,11 +11343,47 @@ function DesignEditor() {
         }
         return;
       }
+      if (!sameStringIds(overviewSelectedScreenIdsRef.current, nextIds)) {
+        selectionRevisionRef.current += 1;
+      }
       if (pendingId) {
         pendingOverviewScreenSelectionRef.current = null;
         pendingOverviewLayerSelectionRef.current = null;
         clearPendingOverviewLayerSelectionTimer();
         setCreatedOverviewLayerSelection(null);
+      }
+      const ownerDerivedScreenIds = new Set(
+        selectedLayerIdsStateRef.current.flatMap((layerId) => {
+          const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+          return owner ? [owner.fileId] : [];
+        }),
+      );
+      if (
+        intent?.source === "marquee" &&
+        (intent.metaKey === true || intent.ctrlKey === true)
+      ) {
+        const deepSelectedScreenIds = new Set(
+          intent.marqueeSelectedScreenIds ?? [],
+        );
+        explicitOverviewScreenSelectionRef.current =
+          explicitOverviewScreenSelectionRef.current.filter(
+            (screenId) =>
+              nextIds.includes(screenId) &&
+              !deepSelectedScreenIds.has(screenId),
+          );
+      } else {
+        explicitOverviewScreenSelectionRef.current =
+          updateExplicitOverviewScreenSelection({
+            previousSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+            selectedScreenIds: nextIds,
+            currentExplicitScreenIds:
+              explicitOverviewScreenSelectionRef.current,
+            ownerDerivedScreenIds,
+            additive:
+              intent?.source === "marquee"
+                ? intent.additive === true
+                : shiftKeyHeldRef.current,
+          });
       }
       setOverviewSelectedScreenIds((current) =>
         sameStringIds(current, nextIds) ? current : nextIds,
@@ -11457,6 +11586,7 @@ function DesignEditor() {
       if (event.key !== " " || event.code !== "Space") return;
       if (event.repeat) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isKeyboardShortcutsDialogTarget(event.target)) return;
       if (isNativeKeyboardActivationTarget(event.target)) return;
       if (isDesignHotkeyEditableTarget(event.target)) return;
       if (canEditDesignRef.current) {
@@ -11823,6 +11953,7 @@ function DesignEditor() {
       selector?: string;
       title?: string;
     }) => {
+      explicitOverviewScreenSelectionRef.current = [];
       if (viewModeRef.current === "single") {
         viewModeRef.current = "overview";
         setViewMode("overview");
@@ -11934,6 +12065,12 @@ function DesignEditor() {
       } = {},
     ) => {
       const run = () => {
+        if (
+          isUserOriginatedSelectionIntent(intent) &&
+          !(intent?.additive || intent?.shiftKey || shiftKeyHeldRef.current)
+        ) {
+          explicitOverviewScreenSelectionRef.current = [];
+        }
         runScreenElementSelect(
           {
             activeBreakpointWidthStateRef,
@@ -11976,6 +12113,7 @@ function DesignEditor() {
         run();
         return;
       }
+      selectionRevisionRef.current += 1;
       recordSelectionHistoryAroundChange(run);
     },
     [
@@ -12014,6 +12152,7 @@ function DesignEditor() {
       if (shouldPreserveBlockedOverviewLayerSelectionRef.current(screenId)) {
         return;
       }
+      selectionRevisionRef.current += 1;
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
@@ -12055,6 +12194,7 @@ function DesignEditor() {
         handleScreenElementSelect(screenId, info, intent);
         return;
       }
+      explicitOverviewScreenSelectionRef.current = [];
       setSelectedElement(
         canonicalizeElementInfoFromProjection(activeCodeLayerProjection, info),
       );
@@ -12101,6 +12241,7 @@ function DesignEditor() {
 
   const handleScreenElementDblClickText = useCallback(
     (screenId: string, info: ElementInfo) => {
+      explicitOverviewScreenSelectionRef.current = [];
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
@@ -12138,6 +12279,7 @@ function DesignEditor() {
         handleScreenElementDblClickText(screenId, info);
         return;
       }
+      explicitOverviewScreenSelectionRef.current = [];
       setSelectedElement(
         canonicalizeElementInfoFromProjection(activeCodeLayerProjection, info),
       );
@@ -14166,6 +14308,7 @@ function DesignEditor() {
         )
         .filter((node): node is CodeLayerNode => Boolean(node));
       if (insertedNodes.length === 0) return;
+      explicitOverviewScreenSelectionRef.current = [];
       const lastNode = insertedNodes[insertedNodes.length - 1];
       if (lastNode) {
         pendingOverviewScreenSelectionRef.current =
@@ -15052,6 +15195,9 @@ function DesignEditor() {
         getScreenContent,
         getSelectedLayerSnapshots,
         handleDuplicateScreen,
+        clearExplicitOverviewScreenSelection: () => {
+          explicitOverviewScreenSelectionRef.current = [];
+        },
         lastDuplicateTransformRef,
         overviewSelectedScreenIds,
         remapMotionTracksForClone,
@@ -16251,6 +16397,9 @@ function DesignEditor() {
           runtimeStructureInsertRevisionRef,
           runtimeStructurePendingTransactionRef,
           sendRuntimeLayerMoveSemanticHandoff,
+          clearExplicitOverviewScreenSelection: () => {
+            explicitOverviewScreenSelectionRef.current = [];
+          },
           setActiveFileId,
           setCreatedOverviewLayerSelection,
           setOverviewSelectedScreenIds,
@@ -16960,6 +17109,7 @@ function DesignEditor() {
           localContentUndoStackRef,
           queryClient,
           redoOrderRef: redoOrderRef as React.RefObject<UndoRedoOrderKind[]>,
+          selectionRevisionRef,
           overviewSelectedScreenIds,
           selectedElement,
           selectedLayerIdsState,
@@ -17037,10 +17187,22 @@ function DesignEditor() {
   }, [files, selectedElement, selectedLayerIdsState]);
 
   const handleDeleteOverviewSelection = useCallback(
-    (selectedIds: string[]) => {
+    (selectedIds: string[], explicitScreenDeletion = false) => {
       if (!canEditDesign) return false;
       if (fileHistoryMutationPendingRef.current) return false;
+      const overviewScreenIds = new Set(
+        overviewScreens.map((screen) => screen.id),
+      );
+      const selectedIdSet = new Set(selectedIds);
+      const selectedFiles = files.filter(
+        (file) => selectedIdSet.has(file.id) && overviewScreenIds.has(file.id),
+      );
+      const explicitlySelectedFiles = selectedFiles.filter((file) =>
+        explicitOverviewScreenSelectionRef.current.includes(file.id),
+      );
       if (
+        !explicitScreenDeletion &&
+        explicitlySelectedFiles.length === 0 &&
         overviewSelectionTargetsElement({
           selectedElement,
           selectedLayerIds: selectedLayerIdsState,
@@ -17050,25 +17212,34 @@ function DesignEditor() {
         handleDeleteSelection();
         return false;
       }
-      if (!selectedIds.length || overviewScreens.length <= 1) return false;
-
-      const selectedIdSet = new Set(selectedIds);
-      const overviewScreenIds = new Set(
-        overviewScreens.map((screen) => screen.id),
-      );
-      const selectedFiles = files.filter(
-        (file) => selectedIdSet.has(file.id) && overviewScreenIds.has(file.id),
-      );
-      if (!selectedFiles.length) return false;
+      const filesToDelete =
+        explicitlySelectedFiles.length > 0
+          ? explicitlySelectedFiles
+          : selectedFiles;
+      if (!filesToDelete.length || overviewScreens.length <= 1) return false;
 
       const maxDeleteCount =
-        selectedFiles.length >= overviewScreens.length
+        filesToDelete.length >= overviewScreens.length
           ? Math.max(0, overviewScreens.length - 1)
-          : selectedFiles.length;
-      const filesToDelete = selectedFiles.slice(0, maxDeleteCount);
-      if (!filesToDelete.length) return false;
+          : filesToDelete.length;
+      const boundedFilesToDelete = filesToDelete.slice(0, maxDeleteCount);
+      if (!boundedFilesToDelete.length) return false;
 
-      performDeleteFiles(filesToDelete, { recordDeletionHistory: true });
+      const explicitScreenIds = explicitScreenDeletion
+        ? boundedFilesToDelete.map((file) => file.id)
+        : explicitlySelectedFiles.map((file) => file.id);
+      const selectionRevisionAtStart = selectionRevisionRef.current;
+      explicitOverviewScreenSelectionRef.current = [];
+      performDeleteFiles(boundedFilesToDelete, {
+        recordDeletionHistory: true,
+        onMutationSettled: (deletedFiles) => {
+          if (selectionRevisionRef.current !== selectionRevisionAtStart) return;
+          const deletedIds = new Set(deletedFiles.map((file) => file.id));
+          explicitOverviewScreenSelectionRef.current = explicitScreenIds.filter(
+            (fileId) => !deletedIds.has(fileId),
+          );
+        },
+      });
       return false;
     },
     [
@@ -18224,6 +18395,8 @@ function DesignEditor() {
 
   const handleSidebarScreenSelect = useCallback(
     (screenId: string) => {
+      selectionRevisionRef.current += 1;
+      explicitOverviewScreenSelectionRef.current = [];
       if (
         viewModeRef.current === "overview" &&
         overviewSelectedScreenIds.length > 0
@@ -18256,6 +18429,7 @@ function DesignEditor() {
 
   const handleReviewNodeRewrite = useCallback(
     (proposal: NodeRewriteProposal) => {
+      explicitOverviewScreenSelectionRef.current = [proposal.fileId];
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
@@ -18311,6 +18485,7 @@ function DesignEditor() {
 
   const handleSidebarScreenOverview = useCallback(() => {
     const restoredOverviewSelection = getRestoredOverviewSelection();
+    explicitOverviewScreenSelectionRef.current = restoredOverviewSelection;
     pendingOverviewScreenSelectionRef.current = null;
     pendingOverviewLayerSelectionRef.current = null;
     clearPendingOverviewLayerSelectionTimer();
@@ -18500,6 +18675,7 @@ function DesignEditor() {
       expandedIds: readonly string[] = [],
     ): boolean => {
       if (nodes.length === 0) return false;
+      explicitOverviewScreenSelectionRef.current = [];
       setActiveFileId(fileId);
       setOverviewSelectedScreenIds([]);
       setSelectedLayerIdsState(nodes.map((node) => node.id));
@@ -18782,6 +18958,12 @@ function DesignEditor() {
           })
         : ({ kind: "screens" } as const);
       if (projection && decision.kind === "layers") {
+        selectionRevisionRef.current += 1;
+        explicitOverviewScreenSelectionRef.current =
+          explicitScreenTargetsAfterSelectAll(
+            decision,
+            explicitOverviewScreenSelectionRef.current,
+          );
         setSelectedLayerIdsState(decision.layerIds);
         const lastId = decision.layerIds[decision.layerIds.length - 1];
         const lastNode = projection.nodes.find((n) => n.id === lastId);
@@ -18790,13 +18972,16 @@ function DesignEditor() {
         return;
       }
       if (!overviewScreens.length) return;
+      selectionRevisionRef.current += 1;
       setDrawMode(false);
       setPinMode(false);
       setMode("edit");
       setActiveTool("move");
       viewModeRef.current = "overview";
       setViewMode("overview");
-      setOverviewSelectedScreenIds(overviewScreens.map((screen) => screen.id));
+      const selectedScreenIds = overviewScreens.map((screen) => screen.id);
+      explicitOverviewScreenSelectionRef.current = selectedScreenIds;
+      setOverviewSelectedScreenIds(selectedScreenIds);
       setOverviewSelectAllRequest((request) => request + 1);
     });
   }, [
@@ -18810,6 +18995,8 @@ function DesignEditor() {
   ]);
 
   const shouldHandleEditorHotkey = useCallback((event: KeyboardEvent) => {
+    // The shortcuts dialog is modal: only its own open/close chord leaves it.
+    if (isEditorHotkeyBlockedByShortcutsDialog(event)) return false;
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
     const primary = event.metaKey || event.ctrlKey;
     const plainPasteHotkey =
@@ -21721,6 +21908,7 @@ function DesignEditor() {
     pendingOverviewLayerSelectionRef.current = null;
     clearPendingOverviewLayerSelectionTimer();
     setCreatedOverviewLayerSelection(null);
+    explicitOverviewScreenSelectionRef.current = [];
     setActiveFileId(owner.fileId);
     setSelectedLayerIdsState([resolvedInitialRouteSelectionId]);
     if (viewModeRef.current === "overview") {
@@ -21992,7 +22180,7 @@ function DesignEditor() {
   const handleRemoveSelectedScreen = useCallback(() => {
     const screenId = selectedScreenGeometry?.id;
     if (!screenId) return;
-    handleDeleteOverviewSelection([screenId]);
+    handleDeleteOverviewSelection([screenId], true);
   }, [handleDeleteOverviewSelection, selectedScreenGeometry?.id]);
 
   const handleScreenSourceChange = useCallback(
@@ -22978,6 +23166,12 @@ function DesignEditor() {
             addUnique(nextScreenIds, owner.fileId);
           }
         }
+
+        explicitOverviewScreenSelectionRef.current = targets.some(
+          (target) => target.tag !== "html" && target.tag !== "body",
+        )
+          ? []
+          : [...nextScreenIds];
 
         if (viewModeRef.current === "overview") {
           const nextActiveFileId = nextScreenIds[0] ?? targets[0]?.fileId;
@@ -24224,7 +24418,11 @@ function DesignEditor() {
         range: boolean;
       },
     ) => {
+      if (!sameStringIds(selectedLayerIdsStateRef.current, ids)) {
+        selectionRevisionRef.current += 1;
+      }
       recordSelectionHistoryAroundChange(() => {
+        explicitOverviewScreenSelectionRef.current = [];
         const effectiveIds = runLayerSelectionChange(
           {
             applyFileContentUpdate,
@@ -24279,8 +24477,47 @@ function DesignEditor() {
     (
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
+      options: {
+        clearExplicitScreenSelection?: boolean;
+        clearExplicitScreenIds?: string[];
+        marqueeSelectedScreenIds?: string[];
+      } = {},
     ) => {
+      if (!intent.cancelled) selectionRevisionRef.current += 1;
       recordMarqueeSelectionHistoryAroundChange(() => {
+        if (
+          !intent.cancelled &&
+          (intent.source !== "marquee" || options.clearExplicitScreenSelection)
+        ) {
+          explicitOverviewScreenSelectionRef.current = [];
+        }
+        if (!intent.cancelled && options.clearExplicitScreenIds?.length) {
+          const clearedScreenIds = new Set(options.clearExplicitScreenIds);
+          explicitOverviewScreenSelectionRef.current =
+            explicitOverviewScreenSelectionRef.current.filter(
+              (screenId) => !clearedScreenIds.has(screenId),
+            );
+        }
+        if (
+          !intent.cancelled &&
+          intent.final === true &&
+          options.marqueeSelectedScreenIds
+        ) {
+          const selectedScreenIds = new Set(intent.selectedScreenIds ?? []);
+          const explicitScreenIds =
+            explicitOverviewScreenSelectionRef.current.filter((screenId) =>
+              selectedScreenIds.has(screenId),
+            );
+          for (const screenId of options.marqueeSelectedScreenIds) {
+            if (
+              selectedScreenIds.has(screenId) &&
+              !explicitScreenIds.includes(screenId)
+            ) {
+              explicitScreenIds.push(screenId);
+            }
+          }
+          explicitOverviewScreenSelectionRef.current = explicitScreenIds;
+        }
         runLayerMarqueeSelectionChange(
           {
             clearPendingOverviewLayerSelectionTimer,
@@ -24314,6 +24551,46 @@ function DesignEditor() {
     ],
   );
 
+  const handleCanvasLayerMarqueeSelectionChange = useCallback(
+    (
+      selection: CanvasLayerMarqueeSelection[],
+      intent: ElementSelectionIntent,
+    ) => {
+      const resolvedIntent = intent;
+      if (
+        resolvedIntent.final === true &&
+        resolvedIntent.cancelled !== true &&
+        resolvedIntent.selectedScreenIds !== undefined
+      ) {
+        handleOverviewScreenSelectionChange(
+          resolvedIntent.selectedScreenIds,
+          resolvedIntent,
+        );
+      }
+      handleLayerMarqueeSelectionChange(selection, resolvedIntent, {
+        clearExplicitScreenSelection:
+          resolvedIntent.metaKey === true ||
+          resolvedIntent.ctrlKey === true ||
+          (!resolvedIntent.shiftKey &&
+            resolvedIntent.selectedScreenIds !== undefined &&
+            resolvedIntent.selectedScreenIds.length === 0),
+        clearExplicitScreenIds:
+          resolvedIntent.shiftKey &&
+          resolvedIntent.metaKey !== true &&
+          resolvedIntent.ctrlKey !== true
+            ? [...new Set(selection.map(({ screenId }) => screenId))]
+            : undefined,
+        marqueeSelectedScreenIds:
+          resolvedIntent.final &&
+          !resolvedIntent.metaKey &&
+          !resolvedIntent.ctrlKey
+            ? resolvedIntent.marqueeSelectedScreenIds
+            : undefined,
+      });
+    },
+    [handleLayerMarqueeSelectionChange, handleOverviewScreenSelectionChange],
+  );
+
   const handleScreenElementMarqueeSelect = useCallback(
     (
       screenId: string,
@@ -24330,6 +24607,18 @@ function DesignEditor() {
           shiftKey: Boolean(intent?.shiftKey),
           metaKey: Boolean(intent?.metaKey),
           ctrlKey: Boolean(intent?.ctrlKey),
+        },
+        {
+          clearExplicitScreenSelection:
+            !intent?.shiftKey ||
+            intent?.metaKey === true ||
+            intent?.ctrlKey === true,
+          clearExplicitScreenIds:
+            intent?.shiftKey &&
+            intent.metaKey !== true &&
+            intent.ctrlKey !== true
+              ? [screenId]
+              : undefined,
         },
       );
     },
@@ -24655,7 +24944,7 @@ function DesignEditor() {
 
   const zoomLabel = `${Math.round(zoom)}%`;
   const [openZoomControl, setOpenZoomControl] = useState<
-    "toolbar" | "inspector" | null
+    "toolbar" | "inspector" | "topbar" | null
   >(null);
   const [zoomInputValue, setZoomInputValue] = useState(zoomLabel);
   useEffect(() => {
@@ -25507,18 +25796,20 @@ function DesignEditor() {
   // on MultiScreenCanvas without changing behavior.
   const handleOverviewScreenPick = useCallback(
     (pickedId: string) => {
+      if (!shiftKeyHeldRef.current) selectionRevisionRef.current += 1;
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
       setCreatedOverviewLayerSelection(null);
+      if (!shiftKeyHeldRef.current) {
+        explicitOverviewScreenSelectionRef.current = [pickedId];
+      }
       setSelectedElement(null);
       setHoveredElement(null);
-      // PICK-RACE — see computeOverviewScreenPickSelectionIds's doc comment
-      // (design-editor/selection-state.ts) for the full race this closes:
-      // MultiScreenCanvas's shift-click toggle can't report its full
-      // multi-id array through the single-id onPick signature, so a
-      // shift-held pick must leave the current selection alone rather than
-      // clobber it to a wrong singleton.
+      // MultiScreenCanvas reports the Shift-toggled Screen separately from
+      // the primary target so provenance follows the user's toggle intent,
+      // while the selection-change callback remains the source of the full
+      // selected Screen list.
       if (!shiftKeyHeldRef.current) {
         setOverviewSelectedScreenIds([pickedId]);
       }
@@ -26164,7 +26455,7 @@ function DesignEditor() {
     </Tooltip>
   );
 
-  const renderZoomControl = (controlId: "toolbar" | "inspector") => (
+  const renderZoomControl = (controlId: "toolbar" | "inspector" | "topbar") => (
     <DropdownMenu
       open={openZoomControl === controlId}
       onOpenChange={(open) => {
@@ -26184,10 +26475,20 @@ function DesignEditor() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 gap-0.5 px-1 text-[10px] tabular-nums text-muted-foreground cursor-pointer hover:text-foreground"
+              className={cn(
+                "h-6 cursor-pointer tabular-nums text-muted-foreground hover:text-foreground",
+                controlId === "topbar"
+                  ? "gap-1 rounded-md border border-border px-2 text-xs font-normal text-foreground"
+                  : "gap-0.5 px-1 text-[10px]",
+              )}
             >
               {zoomLabel}
-              <IconChevronDown className="size-2.5 opacity-60" />
+              <IconChevronDown
+                className={cn(
+                  "opacity-60",
+                  controlId === "topbar" ? "size-3" : "size-2.5",
+                )}
+              />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
@@ -26339,28 +26640,28 @@ function DesignEditor() {
   const pendingNodeRewriteLabel = t("designEditor.nodeRewrite.pendingReview", {
     count: pendingNodeRewriteProposals.length,
   });
-  const pendingNodeRewriteButtonContent = (
-    <>
-      {!rightToolbarCompact ? (
-        <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-      ) : null}
-      <IconFileStack className="size-3.5 shrink-0" />
-      {rightToolbarCompact ? (
-        <span className="min-w-4 rounded bg-primary/10 px-1 text-center text-[10px] font-semibold tabular-nums text-primary">
-          {pendingNodeRewriteProposals.length}
-        </span>
-      ) : (
-        <span className="truncate">{pendingNodeRewriteLabel}</span>
-      )}
-    </>
-  );
-  const pendingNodeRewriteButtonClassName = cn(
-    "h-8 rounded-md border-primary/30 bg-primary/5 text-xs hover:bg-primary/10",
-    rightToolbarCompact ? "min-w-10 gap-1 px-1.5" : "max-w-44 gap-1.5 px-2",
-  );
-  const pendingNodeRewriteControl =
-    pendingNodeRewriteProposals.length ===
-    0 ? null : pendingNodeRewriteProposals.length === 1 ? (
+  const renderPendingNodeRewriteControl = (compact: boolean) => {
+    const pendingNodeRewriteButtonContent = (
+      <>
+        {!compact ? (
+          <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+        ) : null}
+        <IconFileStack className="size-3.5 shrink-0" />
+        {compact ? (
+          <span className="min-w-4 rounded bg-primary/10 px-1 text-center text-[10px] font-semibold tabular-nums text-primary">
+            {pendingNodeRewriteProposals.length}
+          </span>
+        ) : (
+          <span className="truncate">{pendingNodeRewriteLabel}</span>
+        )}
+      </>
+    );
+    const pendingNodeRewriteButtonClassName = cn(
+      "h-8 rounded-md border-primary/30 bg-primary/5 text-xs hover:bg-primary/10",
+      compact ? "min-w-10 gap-1 px-1.5" : "max-w-44 gap-1.5 px-2",
+    );
+    return pendingNodeRewriteProposals.length ===
+      0 ? null : pendingNodeRewriteProposals.length === 1 ? (
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -26376,7 +26677,7 @@ function DesignEditor() {
             {pendingNodeRewriteButtonContent}
           </Button>
         </TooltipTrigger>
-        {rightToolbarCompact ? (
+        {compact ? (
           <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
         ) : null}
       </Tooltip>
@@ -26393,13 +26694,13 @@ function DesignEditor() {
                 aria-label={pendingNodeRewriteLabel}
               >
                 {pendingNodeRewriteButtonContent}
-                {!rightToolbarCompact ? (
+                {!compact ? (
                   <IconChevronDown className="size-3 shrink-0 opacity-70" />
                 ) : null}
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          {rightToolbarCompact ? (
+          {compact ? (
             <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
           ) : null}
         </Tooltip>
@@ -26424,6 +26725,7 @@ function DesignEditor() {
         </DropdownMenuContent>
       </DropdownMenu>
     );
+  };
 
   const publishWaitlistControl = (
     <Popover
@@ -26553,6 +26855,165 @@ function DesignEditor() {
     </Popover>
   );
 
+  // The controls below live in two places: the top bar (docked editor) and
+  // the minimal-UI right bar (which has no top bar). Build each once.
+  const presenceControl = hostEmbeddedEditor ? null : (
+    <PresenceBar
+      activeUsers={mergePresenceUsers(
+        currentUser ? [currentUser] : [],
+        activeUsers,
+        overviewActiveUsers,
+      )}
+      agentPresent={agentPresent || overviewAgentPresent}
+      agentActive={agentActive || overviewAgentActive}
+      currentUserEmail={currentUser?.email}
+      showCurrentUser
+      followingEmail={followingEmail}
+      onAvatarClick={handleAvatarClick}
+      disableAgentClick
+      className="shrink-0"
+    />
+  );
+
+  const reviewFeedbackControl =
+    canEditDesign && reviewAgentQueueCount > 0 ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-[var(--design-row-height)] gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
+        onClick={handleApplyReviewFeedback}
+        disabled={reviewFeedbackApplying}
+      >
+        {reviewFeedbackApplying ? (
+          <Spinner className="size-3.5" />
+        ) : (
+          <IconMessageCircle className="size-3.5" />
+        )}
+        {reviewFeedbackApplying
+          ? t("review.applyingFeedback")
+          : t("review.applyFeedback", { count: reviewAgentQueueCount })}
+      </Button>
+    ) : null;
+
+  const renderShareControl = (dense: boolean) =>
+    hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
+      <ShareButton
+        resourceType="design"
+        resourceId={id}
+        resourceTitle={design.title}
+        hideTriggerIcon
+        defaultOpen={shouldOpenShare}
+        shareUrl={editorShareUrl}
+        shareUrlLabel={t(
+          hasLocalhostScreens
+            ? "designEditor.liveCanvasLink"
+            : "designEditor.shareEditorLink",
+        )}
+        shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
+        roleCopy={{
+          commenter: {
+            label: t("designEditor.commenterRoleLabel"),
+            description: t("designEditor.commenterRoleDescription"),
+          },
+        }}
+        shareTabs={designShareTabs}
+        popoverClassName={designSharePopoverClassName}
+        triggerClassName={cn(
+          dense
+            ? "h-[var(--design-control-height)] px-[var(--design-baseline-unit)] text-xs"
+            : "h-[var(--design-row-height)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm",
+          "rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]",
+        )}
+      />
+    ) : sessionResolved ? (
+      signedOutPersistenceActions
+    ) : null;
+
+  const localPreviewRow =
+    activeScreenIsLocalSource &&
+    viewMode === "single" &&
+    !activeScreenSnapshotOnly &&
+    activeScreenPreviewUrl ? (
+      <div className="flex h-[var(--design-row-height)] min-w-0 items-center gap-[var(--design-baseline-half)]">
+        <a
+          href={activeScreenPreviewUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex h-[var(--design-control-height)] min-w-0 flex-1 items-center gap-[var(--design-baseline-half)] rounded-md border border-border bg-[var(--design-editor-panel-raised-bg)] px-[var(--design-baseline-unit)] text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={"Open local preview" /* i18n-ignore */}
+          title={activeScreenPreviewUrl}
+        >
+          <IconLink className="size-3 shrink-0" />
+          <span className="min-w-0 flex-1 truncate font-mono">
+            {activeScreenPreviewUrl}
+          </span>
+          <IconExternalLink className="size-3 shrink-0" />
+        </a>
+        {(activeLocalhostRouteIsWritable ||
+          activeLocalhostRouteIsCompiledSource) &&
+        canEditDesign &&
+        id ? (
+          activeLocalhostRouteIsCompiledSource ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="size-[var(--design-control-height)]"
+                    disabled
+                    aria-label={t("designEditor.applyToSource")}
+                  >
+                    <IconDeviceFloppy className="size-3" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t("designEditor.applyToSourceUnavailableCompiled")}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="size-[var(--design-control-height)]"
+                  disabled={
+                    applyToSourcePending || !activeLocalhostSourceWriteContent
+                  }
+                  aria-label={
+                    applyToSourcePending
+                      ? t("designEditor.writingToSource")
+                      : t("designEditor.applyToSource")
+                  }
+                  onClick={handleApplyToSource}
+                >
+                  {applyToSourcePending ? (
+                    <Spinner className="size-3" />
+                  ) : (
+                    <IconDeviceFloppy className="size-3" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {!activeLocalhostSourceWriteContent
+                  ? NO_LOCALHOST_WRITE_CONTENT_MESSAGE
+                  : activeLocalhostRelPath
+                    ? t("designEditor.applyToSourcePath", {
+                        path: activeLocalhostRelPath,
+                      })
+                    : t("designEditor.applyToSource")}
+              </TooltipContent>
+            </Tooltip>
+          )
+        ) : null}
+      </div>
+    ) : null;
+
+  // Minimal UI hides the top bar, so its floating right bar carries the same
+  // controls.
   const rightSidebarActions = (
     <div
       data-design-chrome-region="right-toolbar"
@@ -26565,21 +27026,7 @@ function DesignEditor() {
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <>
-              <PresenceBar
-                activeUsers={mergePresenceUsers(
-                  currentUser ? [currentUser] : [],
-                  activeUsers,
-                  overviewActiveUsers,
-                )}
-                agentPresent={agentPresent || overviewAgentPresent}
-                agentActive={agentActive || overviewAgentActive}
-                currentUserEmail={currentUser?.email}
-                showCurrentUser
-                followingEmail={followingEmail}
-                onAvatarClick={handleAvatarClick}
-                disableAgentClick
-                className="shrink-0"
-              />
+              {presenceControl}
               {sessionResolved && !isSignedIn ? publishWaitlistControl : null}
             </>
           )}
@@ -26590,143 +27037,49 @@ function DesignEditor() {
             edge on its own, and a shrink-0 row has no way to give that space
             back — it just overflows the panel. */}
         <div className="flex min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
-          {pendingNodeRewriteControl}
-          {canEditDesign && reviewAgentQueueCount > 0 ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-[var(--design-row-height)] gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
-              onClick={handleApplyReviewFeedback}
-              disabled={reviewFeedbackApplying}
-            >
-              {reviewFeedbackApplying ? (
-                <Spinner className="size-3.5" />
-              ) : (
-                <IconMessageCircle className="size-3.5" />
-              )}
-              {reviewFeedbackApplying
-                ? t("review.applyingFeedback")
-                : t("review.applyFeedback", { count: reviewAgentQueueCount })}
-            </Button>
-          ) : null}
+          {renderPendingNodeRewriteControl(rightToolbarCompact)}
+          {reviewFeedbackControl}
           {!sessionResolved || isSignedIn ? publishWaitlistControl : null}
-
-          {hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
-            <ShareButton
-              resourceType="design"
-              resourceId={id}
-              resourceTitle={design.title}
-              hideTriggerIcon
-              defaultOpen={shouldOpenShare}
-              shareUrl={editorShareUrl}
-              shareUrlLabel={t(
-                hasLocalhostScreens
-                  ? "designEditor.liveCanvasLink"
-                  : "designEditor.shareEditorLink",
-              )}
-              shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
-              roleCopy={{
-                commenter: {
-                  label: t("designEditor.commenterRoleLabel"),
-                  description: t("designEditor.commenterRoleDescription"),
-                },
-              }}
-              shareTabs={designShareTabs}
-              popoverClassName={designSharePopoverClassName}
-              triggerClassName="h-[var(--design-row-height)] rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
-            />
-          ) : sessionResolved ? (
-            signedOutPersistenceActions
-          ) : null}
+          {renderShareControl(false)}
         </div>
       </div>
-      {activeScreenIsLocalSource &&
-      viewMode === "single" &&
-      !activeScreenSnapshotOnly &&
-      activeScreenPreviewUrl ? (
-        <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 items-center gap-[var(--design-baseline-half)]">
-          <a
-            href={activeScreenPreviewUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex h-[var(--design-control-height)] min-w-0 flex-1 items-center gap-[var(--design-baseline-half)] rounded-md border border-border bg-[var(--design-editor-panel-raised-bg)] px-[var(--design-baseline-unit)] text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={"Open local preview" /* i18n-ignore */}
-            title={activeScreenPreviewUrl}
-          >
-            <IconLink className="size-3 shrink-0" />
-            <span className="min-w-0 flex-1 truncate font-mono">
-              {activeScreenPreviewUrl}
-            </span>
-            <IconExternalLink className="size-3 shrink-0" />
-          </a>
-          {(activeLocalhostRouteIsWritable ||
-            activeLocalhostRouteIsCompiledSource) &&
-          canEditDesign &&
-          id ? (
-            activeLocalhostRouteIsCompiledSource ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="size-[var(--design-control-height)]"
-                      disabled
-                      aria-label={t("designEditor.applyToSource")}
-                    >
-                      <IconDeviceFloppy className="size-3" />
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {t("designEditor.applyToSourceUnavailableCompiled")}
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    className="size-[var(--design-control-height)]"
-                    disabled={
-                      applyToSourcePending || !activeLocalhostSourceWriteContent
-                    }
-                    aria-label={
-                      applyToSourcePending
-                        ? t("designEditor.writingToSource")
-                        : t("designEditor.applyToSource")
-                    }
-                    onClick={handleApplyToSource}
-                  >
-                    {applyToSourcePending ? (
-                      <Spinner className="size-3" />
-                    ) : (
-                      <IconDeviceFloppy className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {!activeLocalhostSourceWriteContent
-                    ? NO_LOCALHOST_WRITE_CONTENT_MESSAGE
-                    : activeLocalhostRelPath
-                      ? t("designEditor.applyToSourcePath", {
-                          path: activeLocalhostRelPath,
-                        })
-                      : t("designEditor.applyToSource")}
-                </TooltipContent>
-              </Tooltip>
-            )
-          ) : null}
+      {localPreviewRow ? (
+        <div className="mt-[var(--design-baseline-half)]">
+          {localPreviewRow}
         </div>
       ) : null}
-      {/* Zoom sits here rather than in the inspector tab row below: sharing
-          that row truncated the "Comments" tab label at normal panel widths. */}
       <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center gap-[var(--design-baseline-half)]">
         <div className="shrink-0">{renderZoomControl("inspector")}</div>
       </div>
     </div>
+  );
+
+  const topBarVisible = isTopBarVisible({
+    embedded,
+    isVisualEditSurface,
+    minimalUi,
+    uiHidden,
+  });
+  const topBarControlsVisible = !initialGenerationChromeLimited;
+  // The mode switch used to live in the bottom toolbar, so it keeps that
+  // toolbar's gating.
+  const topBarShowsModes =
+    designBottomToolbarMode === "editor" && design && !questionFlowActive;
+  // Leaving Interact for Design needs a fresh runtime layer snapshot, same
+  // as the Interact bar's own Edit button.
+  const handleTopBarModeChange = (next: EditorMode) => {
+    if (mode === "interact" && next === "edit") {
+      setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
+    }
+    handleModeChange(next);
+  };
+  const topBarActions = (
+    <>
+      {renderPendingNodeRewriteControl(isMobileViewport)}
+      {reviewFeedbackControl}
+      {publishWaitlistControl}
+      {renderShareControl(true)}
+    </>
   );
 
   const renderResponsiveInteractBar = (floating: boolean) => (
@@ -26770,8 +27123,11 @@ function DesignEditor() {
     selectedLayerIds,
     selectedScreenGeometry,
   });
+  // Below md the inspector panel is display:none and the Sheet below carries
+  // it, so the panel must neither inset the canvas nor displace the toolbar.
   const rightSidebarVisible =
     !hostOwnsChrome &&
+    !isMobileViewport &&
     !uiHidden &&
     !initialGenerationChromeLimited &&
     !responsiveInteractActive &&
@@ -26779,7 +27135,11 @@ function DesignEditor() {
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
-  const chromeInsetRight = rightSidebarVisible ? rightSidebarWidth : 0;
+  const chromeInsetRight = rightInspectorCanvasInset({
+    visible: rightSidebarVisible,
+    width: rightSidebarWidth,
+    widgetEmbed,
+  });
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
@@ -27013,7 +27373,30 @@ function DesignEditor() {
         </div>
       )}
       {/* ── Render: main canvas area ── */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div
+        className="flex-1 flex overflow-hidden relative"
+        style={topBarVisible ? { paddingTop: TOP_BAR_HEIGHT_PX } : undefined}
+      >
+        {/* ── Render: top bar (canvas + inspector columns) ── */}
+        {topBarVisible ? (
+          <EditorTopBar
+            mode={mode}
+            onModeChange={handleTopBarModeChange}
+            modes={topBarShowsModes ? undefined : []}
+            zoomControl={
+              topBarControlsVisible && !responsiveInteractActive
+                ? renderZoomControl("topbar")
+                : null
+            }
+            presence={topBarControlsVisible ? presenceControl : null}
+            actions={topBarControlsVisible ? topBarActions : null}
+            leftInset={chromeInsetLeft}
+            narrowLeftInset={
+              leftSidebarVisible ? DESIGN_CHROME_RAIL_WIDTH_PX : 0
+            }
+            inspectorWidth={rightSidebarVisible ? rightSidebarWidth : undefined}
+          />
+        ) : null}
         {leftSidebarVisible ? (
           <div
             data-design-chrome-region="left-shell"
@@ -27053,7 +27436,10 @@ function DesignEditor() {
               >
                 <div
                   data-design-chrome-region="left-header"
-                  className="flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]"
+                  className={cn(
+                    "flex shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]",
+                    topBarVisible ? "h-12" : "h-[var(--design-section-height)]",
+                  )}
                 >
                   {projectTitleControl}
                   {minimalUiToggle}
@@ -27080,7 +27466,9 @@ function DesignEditor() {
                     searchQuery={layersSearchQuery}
                     onScreenSelect={handleSidebarScreenSelect}
                     onScreenOverview={handleSidebarScreenOverview}
-                    onAddScreen={handleAddScreenAffordance}
+                    onAddScreen={
+                      canEditDesign ? handleAddScreenAffordance : undefined
+                    }
                     onSearchQueryChange={setLayersSearchQuery}
                     onExpandedIdsChange={setExpandedLayerIds}
                     onLeaveLayer={handleLayerLeave}
@@ -27328,7 +27716,10 @@ function DesignEditor() {
             row rather than a second floating control. Not needed for the
             floating (minimal-UI) bar: minimal UI hides this rail entirely. */}
         {responsiveInteractActive && !minimalUi ? (
-          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3">
+          <div
+            className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3"
+            style={topBarVisible ? { top: TOP_BAR_HEIGHT_PX } : undefined}
+          >
             <ResponsiveInteractExitButton
               onClose={handleExitResponsiveInteract}
               className="pointer-events-auto"
@@ -27366,12 +27757,13 @@ function DesignEditor() {
               onMediaFiles={handleDesignMediaFiles}
               onCommentPin={handlePinToolToggle}
               onModeChange={handleModeChange}
-              shortcutsPanelOpen={keyboardShortcutsOpen}
+              showModeTabs={!topBarVisible}
             />
           )}
 
-        {!hostOwnsChrome && keyboardShortcutsOpen ? (
-          <KeyboardShortcutsPanel
+        {!hostOwnsChrome ? (
+          <KeyboardShortcutsDialog
+            open={keyboardShortcutsOpen}
             onClose={handleCloseKeyboardShortcuts}
             nudgeAmounts={editorPreferences.nudge}
             onNudgeAmountsChange={(nudge) =>
@@ -27936,6 +28328,15 @@ function DesignEditor() {
                           hasExplicitOverviewZoomCommand &&
                           explicitOverviewCanvasZoom === null
                         }
+                        initialFitScreenId={
+                          widgetEmbed
+                            ? (findDesignFileByScreenTarget(
+                                files,
+                                initialRouteScreenTarget,
+                              )?.id ?? null)
+                            : undefined
+                        }
+                        fillFocusedViewport={readOnlyWidget}
                         chromeInsetLeft={chromeInsetLeft}
                         chromeInsetRight={chromeInsetRight}
                         visibleCanvasRectRef={visibleCanvasRectRef}
@@ -28162,7 +28563,7 @@ function DesignEditor() {
                         }
                         onSelectionChange={handleOverviewScreenSelectionChange}
                         onLayerMarqueeSelectionChange={
-                          handleLayerMarqueeSelectionChange
+                          handleCanvasLayerMarqueeSelectionChange
                         }
                         selectedLayerSelectorGroupsByScreen={
                           selectedLayerSelectorGroupsByScreen
@@ -28170,7 +28571,9 @@ function DesignEditor() {
                         onPick={handleOverviewScreenPick}
                         onEdit={handleOverviewFrameAction}
                         onDuplicate={handleDuplicateScreen}
-                        onAddBreakpoint={handleOverviewAddBreakpoint}
+                        onAddBreakpoint={
+                          widgetEmbed ? undefined : handleOverviewAddBreakpoint
+                        }
                         breakpointMutationPending={
                           addBreakpointMutation.isPending ||
                           removeBreakpointMutation.isPending ||
@@ -28545,6 +28948,7 @@ function DesignEditor() {
                         onElementHover={handleElementHover}
                         onEditorDragStateChange={handleEditorDragStateChange}
                         onClearSelection={() => {
+                          explicitOverviewScreenSelectionRef.current = [];
                           setSelectedElement(null);
                           setHoveredElement(null);
                           setHoveredElementScreenId(null);
@@ -28691,7 +29095,16 @@ function DesignEditor() {
             ref={rightSidebarContentRef}
             data-design-chrome-region="right-panel"
             className={rightInspectorPanelClassName(minimalUi)}
-            style={{ width: rightSidebarWidth }}
+            style={
+              topBarVisible && !minimalUi
+                ? {
+                    width: rightSidebarWidth,
+                    top: TOP_BAR_HEIGHT_PX,
+                    bottom: 0,
+                    height: "auto",
+                  }
+                : { width: rightSidebarWidth }
+            }
           >
             <div
               role="separator"
@@ -28700,7 +29113,16 @@ function DesignEditor() {
               className="absolute left-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
               onPointerDown={(event) => startSidebarResize("right", event)}
             />
-            {rightSidebarActions}
+            {!topBarVisible ? (
+              rightSidebarActions
+            ) : localPreviewRow ? (
+              <div
+                data-design-chrome-region="right-toolbar"
+                className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
+              >
+                {localPreviewRow}
+              </div>
+            ) : null}
             {mode === "edit" ? (
               <div className="min-h-0 flex-1">
                 <EditPanel {...editPanelProps} width={rightSidebarWidth} />
@@ -28717,14 +29139,20 @@ function DesignEditor() {
             className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
           >
             <div className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3">
-              <div
-                data-design-minimal-bar="left"
-                className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
-              >
-                <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
-                <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
-                {minimalUiToggle}
-              </div>
+              {widgetEmbed ? (
+                <div aria-hidden="true" />
+              ) : (
+                <div
+                  data-design-minimal-bar="left"
+                  className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
+                >
+                  <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
+                  <div className="min-w-0 flex-1 px-1">
+                    {projectTitleControl}
+                  </div>
+                  {minimalUiToggle}
+                </div>
+              )}
               <div
                 data-design-minimal-bar="interact"
                 className="pointer-events-none flex min-w-0 justify-center"
@@ -28733,7 +29161,9 @@ function DesignEditor() {
                   ? renderResponsiveInteractBar(true)
                   : null}
               </div>
-              {!rightSidebarVisible || uiHidden ? (
+              {widgetEmbed ? (
+                <div aria-hidden="true" />
+              ) : !rightSidebarVisible || uiHidden ? (
                 <div
                   data-design-minimal-bar="right"
                   className="pointer-events-auto min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
@@ -28746,31 +29176,46 @@ function DesignEditor() {
             </div>
           </div>
         ) : null}
+
+        {/* The widget's only persistent control sits in the bottom corner so it
+            never covers the page header the screen starts with. */}
+        {widgetEmbed && minimalUi && (!rightSidebarVisible || uiHidden) ? (
+          <div
+            data-design-widget-zoom
+            className="absolute bottom-3 right-3 z-[90] flex h-7 items-center rounded-md border border-border bg-[var(--design-editor-panel-bg)] px-0.5 shadow-md"
+          >
+            {renderZoomControl("inspector")}
+          </div>
+        ) : null}
       </div>
 
       {/* ── Render: mobile inspector sheet ── */}
+      {/* Minimal UI on a phone opens the sheet itself on every selection. The
+          widget shares a pane with chat, so it opens on request instead, and
+          a frame selected by the route never covers the canvas on load. */}
       {!hostOwnsChrome &&
       !uiHidden &&
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
         <Sheet
           open={
-            minimalUi
+            minimalUi && !widgetEmbed
               ? isMobileViewport && minimalInspectorHasSelection
               : undefined
           }
           onOpenChange={
-            minimalUi
+            minimalUi && !widgetEmbed
               ? (nextOpen) => {
                   if (nextOpen) return;
                   setSelectedElement(null);
                   setSelectedLayerIdsState([]);
+                  explicitOverviewScreenSelectionRef.current = [];
                   setOverviewSelectedScreenIds([]);
                 }
               : undefined
           }
         >
-          {!minimalUi ? (
+          {!minimalUi || (widgetEmbed && minimalInspectorHasSelection) ? (
             <SheetTrigger asChild>
               <Button
                 type="button"

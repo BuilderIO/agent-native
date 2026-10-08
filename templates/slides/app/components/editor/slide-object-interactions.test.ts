@@ -65,7 +65,18 @@ import {
   ungroupSlideObject,
   SLIDE_OBJECT_PASTE_OFFSET,
   distributeSlideObjectMembers,
+  clientPointToContainingBlockOffset,
+  hasFitTextMinHeight,
+  isFitTextObject,
+  isLayoutSpacer,
+  planSlideObjectGeometry,
+  resolveFitTextBoxResize,
+  resolveFreeformSizing,
+  resolveSelectionIdentity,
+  resolveSlideSelectionAnchor,
   type SlideObjectGeometry,
+  type SlideObjectGeometryApplier,
+  type SlideObjectGeometryPlan,
   type SlideObjectGroupResizeMember,
   type SlideObjectRotationMember,
 } from "./slide-object-interactions";
@@ -1335,7 +1346,7 @@ describe("slide object interactions", () => {
     ).toEqual({ x: 130, y: 57.5, width: 170, height: 85 });
   });
 
-  it("keeps height auto only for a width-only drag on a text object", () => {
+  it("keeps height auto for every handle on a fit text box", () => {
     const textBox = document.createElement("div");
     textBox.className = "fmd-text-box";
     textBox.textContent = "Some text";
@@ -1343,15 +1354,55 @@ describe("slide object interactions", () => {
     const shape = document.createElement("div");
     shape.setAttribute("data-slide-shape", "rectangle");
 
-    for (const handle of ["e", "w"] as const) {
+    for (const handle of [
+      "n",
+      "ne",
+      "e",
+      "se",
+      "s",
+      "sw",
+      "w",
+      "nw",
+    ] as const) {
       expect(isAutoHeightTextResize(textBox, handle, false)).toBe(true);
-      expect(isAutoHeightTextResize(textBox, handle, true)).toBe(false);
+      expect(isAutoHeightTextResize(textBox, handle, true)).toBe(true);
       expect(isAutoHeightTextResize(shape, handle, false)).toBe(false);
     }
+  });
 
-    for (const handle of ["nw", "ne", "sw", "se", "n", "s"] as const) {
-      expect(isAutoHeightTextResize(textBox, handle, false)).toBe(false);
+  it("keeps height auto only for a width-only drag on a fixed-height text leaf", () => {
+    const text = document.createElement("p");
+    text.textContent = "Some text";
+    text.style.height = "80px";
+
+    for (const handle of ["e", "w"] as const) {
+      expect(isAutoHeightTextResize(text, handle, false)).toBe(true);
+      expect(isAutoHeightTextResize(text, handle, true)).toBe(false);
     }
+    for (const handle of ["nw", "ne", "sw", "se", "n", "s"] as const) {
+      expect(isAutoHeightTextResize(text, handle, false)).toBe(false);
+    }
+  });
+
+  it("keeps the explicit height of a painted text leaf on an E/W drag", () => {
+    const rect = document.createElement("div");
+    rect.textContent = "Some text";
+    rect.style.height = "200px";
+    rect.style.backgroundColor = "rgb(20, 24, 29)";
+
+    for (const handle of ["e", "w"] as const) {
+      expect(isAutoHeightTextResize(rect, handle, false)).toBe(false);
+    }
+  });
+
+  it("keeps the height of a bottom-anchored text leaf on an E/W drag", () => {
+    const text = document.createElement("p");
+    text.textContent = "Footer";
+    text.style.position = "absolute";
+    text.style.bottom = "40px";
+
+    expect(isFitTextObject(text)).toBe(false);
+    expect(isAutoHeightTextResize(text, "e", false)).toBe(false);
   });
 
   it("freezes an in-flow text block without removing its layout slot", () => {
@@ -1904,7 +1955,7 @@ describe("slide object interactions", () => {
     const objectA = createFreeformObject("a", { left: 10, top: 20 });
     const objectB = createFreeformObject("b", { left: 30, top: 40 });
     document.body.append(objectA, objectB);
-    const applied = new Map<string, SlideObjectGeometry>();
+    const applied = new Map<string, SlideObjectGeometryPlan>();
     const members = collectMovableSlideObjects(
       [objectA, objectB],
       (element) => ({
@@ -1915,10 +1966,7 @@ describe("slide object interactions", () => {
       }),
     );
 
-    const applyGeometry = (
-      element: HTMLElement,
-      geometry: SlideObjectGeometry,
-    ) => {
+    const applyGeometry: SlideObjectGeometryApplier = (element, geometry) => {
       applied.set(element.dataset.slideObjectId as string, geometry);
     };
 
@@ -2418,7 +2466,7 @@ describe("slide object groups and rotation", () => {
     entries: Array<[HTMLElement, SlideObjectGeometry]>,
   ): {
     get: (element: HTMLElement) => SlideObjectGeometry;
-    apply: (element: HTMLElement, geometry: SlideObjectGeometry) => void;
+    apply: SlideObjectGeometryApplier;
   } => {
     const geometries = new Map(entries);
     const get = (element: HTMLElement) => {
@@ -2431,12 +2479,14 @@ describe("slide object groups and rotation", () => {
         height: Number.parseFloat(element.style.height) || 0,
       };
     };
-    const apply = (element: HTMLElement, geometry: SlideObjectGeometry) => {
-      geometries.set(element, geometry);
+    const apply: SlideObjectGeometryApplier = (element, geometry) => {
+      geometries.set(element, { ...get(element), ...geometry });
       element.style.left = `${geometry.x}px`;
       element.style.top = `${geometry.y}px`;
       element.style.width = `${geometry.width}px`;
-      element.style.height = `${geometry.height}px`;
+      if (geometry.height !== undefined) {
+        element.style.height = `${geometry.height}px`;
+      }
     };
     return { get, apply };
   };
@@ -3114,5 +3164,790 @@ describe("layer drop and arrange guards", () => {
 
     expect(arrangeSlideLayerInParent(bg, "front")).toBe(false);
     expect(bg.style.zIndex).toBe("-1");
+  });
+});
+
+describe("fit text objects", () => {
+  const flowLayout = {
+    display: "block",
+    flexGrow: "0",
+    flexShrink: "1",
+    flexBasis: "auto",
+    alignSelf: "auto",
+  };
+
+  const createFitTextBox = (
+    id: string,
+    { left = 0, top = 0, width = 200 } = {},
+  ): HTMLElement => {
+    const element = createFreeformObject(id, { left, top });
+    element.className = "fmd-text-box";
+    element.style.width = `${width}px`;
+    element.textContent = "Some text";
+    return element;
+  };
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("classifies fit text by its missing inline height", () => {
+    const textBox = createFitTextBox("box");
+    expect(isFitTextObject(textBox)).toBe(true);
+
+    textBox.style.height = "auto";
+    expect(isFitTextObject(textBox)).toBe(true);
+
+    textBox.style.minHeight = "120px";
+    expect(isFitTextObject(textBox)).toBe(true);
+    expect(hasFitTextMinHeight(textBox)).toBe(true);
+
+    textBox.style.height = "120px";
+    expect(isFitTextObject(textBox)).toBe(false);
+
+    const heading = document.createElement("h1");
+    heading.textContent = "Title";
+    expect(isFitTextObject(heading)).toBe(true);
+    expect(hasFitTextMinHeight(heading)).toBe(false);
+  });
+
+  it("does not treat painted cards, images, or imported PPTX text as fit text", () => {
+    const card = document.createElement("div");
+    card.textContent = "Card";
+    card.style.backgroundColor = "rgb(240, 240, 240)";
+    expect(isFitTextObject(card)).toBe(false);
+
+    const bordered = document.createElement("div");
+    bordered.textContent = "Card";
+    bordered.style.border = "2px solid rgb(0, 0, 0)";
+    expect(isFitTextObject(bordered)).toBe(false);
+
+    const image = document.createElement("img");
+    expect(isFitTextObject(image)).toBe(false);
+
+    const imported = createFitTextBox("imported");
+    imported.setAttribute("data-imported-pptx", "true");
+    expect(isFitTextObject(imported)).toBe(false);
+
+    const filledTextBox = createFitTextBox("filled");
+    filledTextBox.style.backgroundColor = "rgb(255, 255, 0)";
+    expect(isFitTextObject(filledTextBox)).toBe(true);
+  });
+
+  it("picks fit for text, min for painted cards, and fixed for everything else", () => {
+    const heading = document.createElement("h2");
+    heading.textContent = "Heading";
+    expect(resolveFreeformSizing(heading)).toBe("fit");
+
+    const card = document.createElement("div");
+    card.textContent = "Card";
+    card.style.backgroundColor = "rgb(240, 240, 240)";
+    expect(resolveFreeformSizing(card)).toBe("min");
+
+    const fixedCard = card.cloneNode(true) as HTMLElement;
+    fixedCard.style.height = "300px";
+    expect(resolveFreeformSizing(fixedCard)).toBe("fixed");
+
+    const bar = document.createElement("div");
+    bar.style.backgroundColor = "rgb(0, 0, 0)";
+    expect(resolveFreeformSizing(bar)).toBe("fixed");
+
+    expect(resolveFreeformSizing(document.createElement("img"))).toBe("fixed");
+    const placeholder = document.createElement("div");
+    placeholder.className = "fmd-img-placeholder";
+    placeholder.textContent = "Image";
+    placeholder.style.backgroundColor = "rgb(240, 240, 240)";
+    expect(resolveFreeformSizing(placeholder)).toBe("fixed");
+  });
+
+  it.each([
+    ["fit", "", ""],
+    ["min", "", "64px"],
+    ["fixed", "64px", ""],
+  ] as const)(
+    "promotes a flow block with %s sizing",
+    (sizing, height, minHeight) => {
+      const parent = document.createElement("div");
+      const text = document.createElement("h1");
+      text.textContent = "Slide title";
+      parent.append(text);
+
+      const spacer = freezeSlideElementForFreeform(
+        text,
+        { x: 120, y: 80, width: 420, height: 64 },
+        flowLayout,
+        undefined,
+        { sizing },
+      );
+
+      expect(text.style.position).toBe("absolute");
+      expect(text.style.left).toBe("120px");
+      expect(text.style.top).toBe("80px");
+      expect(text.style.width).toBe("420px");
+      expect(text.style.height).toBe(height);
+      expect(text.style.minHeight).toBe(minHeight);
+      expect(spacer.style.width).toBe("420px");
+      expect(spacer.style.height).toBe("64px");
+      expect(Number.parseFloat(spacer.style.minHeight)).toBe(0);
+    },
+  );
+
+  it("promotes with a fixed height when no sizing is given", () => {
+    const parent = document.createElement("div");
+    const text = document.createElement("h1");
+    text.textContent = "Slide title";
+    parent.append(text);
+
+    freezeSlideElementForFreeform(
+      text,
+      { x: 0, y: 0, width: 420, height: 64 },
+      flowLayout,
+    );
+
+    expect(text.style.height).toBe("64px");
+    expect(text.style.minHeight).toBe("");
+  });
+
+  it("omits height from geometry plans of fit text only", () => {
+    const fit = createFitTextBox("fit");
+    const image = createFreeformObject("image");
+    const geometry = { x: 1, y: 2, width: 30, height: 40 };
+
+    expect(planSlideObjectGeometry(fit, geometry)).toEqual({
+      x: 1,
+      y: 2,
+      width: 30,
+    });
+    expect("height" in planSlideObjectGeometry(fit, geometry)).toBe(false);
+    expect(planSlideObjectGeometry(image, geometry)).toEqual(geometry);
+  });
+
+  it("moves, aligns, and distributes fit text without a height", () => {
+    const fitA = createFitTextBox("a", { left: 10, top: 20 });
+    const fitB = createFitTextBox("b", { left: 110, top: 80 });
+    const shape = createFreeformObject("c", { left: 230, top: 140 });
+    shape.style.height = "20px";
+    document.body.append(fitA, fitB, shape);
+    const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+      [fitA, { x: 10, y: 20, width: 50, height: 31 }],
+      [fitB, { x: 110, y: 80, width: 30, height: 62 }],
+      [shape, { x: 230, y: 140, width: 40, height: 20 }],
+    ]);
+    const members = collectMovableSlideObjects(
+      [fitA, fitB, shape],
+      (element) => geometries.get(element)!,
+    );
+
+    const moved = new Map<string, SlideObjectGeometryPlan>();
+    applySlideObjectMoveDelta(members, 5, 6, (element, geometry) => {
+      moved.set(element.dataset.slideObjectId!, geometry);
+    });
+    expect(moved.get("a")).toEqual({ x: 15, y: 26, width: 50 });
+    expect("height" in moved.get("a")!).toBe(false);
+    expect(moved.get("c")).toEqual({ x: 235, y: 146, width: 40, height: 20 });
+
+    const aligned = alignSlideObjectMembers(members, "middle");
+    expect("height" in aligned.get("a")!).toBe(false);
+    expect(aligned.get("a")?.y).toBeCloseTo(20 + (140 - 31) / 2, 5);
+    expect(aligned.get("c")?.height).toBe(20);
+
+    const distributed = distributeSlideObjectMembers(members, "horizontal");
+    expect("height" in distributed.get("b")!).toBe(false);
+    expect(distributed.get("c")?.height).toBe(20);
+  });
+
+  it("groups and ungroups fit text without writing its height", () => {
+    const parent = document.createElement("div");
+    const fit = createFitTextBox("fit", { left: 20, top: 30 });
+    const shape = createFreeformObject("shape", { left: 140, top: 60 });
+    shape.style.width = "50px";
+    shape.style.height = "30px";
+    parent.append(fit, shape);
+    document.body.append(parent);
+    const geometry = new Map<HTMLElement, SlideObjectGeometry>([
+      [fit, { x: 20, y: 30, width: 200, height: 31 }],
+      [shape, { x: 140, y: 60, width: 50, height: 30 }],
+    ]);
+    const get = (element: HTMLElement) =>
+      geometry.get(element) ?? { x: 0, y: 0, width: 0, height: 0 };
+    const apply: SlideObjectGeometryApplier = (element, next) => {
+      geometry.set(element, { ...get(element), ...next });
+      element.style.left = `${next.x}px`;
+      element.style.top = `${next.y}px`;
+      element.style.width = `${next.width}px`;
+      if (next.height !== undefined) element.style.height = `${next.height}px`;
+    };
+
+    const group = groupSlideObjects([fit, shape], get, apply);
+    expect(group).not.toBeNull();
+    expect(fit.style.height).toBe("");
+    expect(shape.style.height).toBe("30px");
+
+    geometry.set(group!, { x: 20, y: 30, width: 200, height: 60 });
+    ungroupSlideObject(group!, get, apply);
+    expect(fit.style.height).toBe("");
+    expect(fit.style.left).toBe("20px");
+    expect(shape.style.height).toBe("30px");
+  });
+
+  it("omits height when resizing members and group members around fit text", () => {
+    const fit = createFitTextBox("fit");
+    const shape = createFreeformObject("shape");
+    const fitStart = { x: 0, y: 0, width: 100, height: 31 };
+    const shapeStart = { x: 0, y: 40, width: 100, height: 60 };
+
+    const plan = resizeSlideObjectMembers(
+      [
+        { objectId: "fit", element: fit, start: fitStart },
+        { objectId: "shape", element: shape, start: shapeStart },
+      ],
+      { handle: "se", dx: 100, dy: 100 },
+    );
+    expect("height" in plan.get("fit")!).toBe(false);
+    expect(plan.get("fit")?.width).toBe(200);
+    expect(plan.get("shape")?.height).toBeGreaterThan(60);
+
+    const scaled = scaleSlideObjectGroupMembers(
+      [
+        groupResizeMember("fit", fit, fitStart),
+        groupResizeMember("shape", shape, shapeStart),
+      ],
+      { width: 100, height: 100 },
+      { width: 200, height: 200 },
+    );
+    expect("height" in scaled.get(fit)!.geometry).toBe(false);
+    expect(scaled.get(fit)?.geometry.width).toBe(200);
+    expect(scaled.get(shape)?.geometry.height).toBe(120);
+  });
+});
+
+describe("resolveFitTextBoxResize", () => {
+  const resize = (
+    handle: Parameters<typeof resolveFitTextBoxResize>[0]["handle"],
+    start: SlideObjectGeometry,
+    dx: number,
+    dy: number,
+    options: { hasMinHeight?: boolean; alt?: boolean; shift?: boolean } = {},
+  ) =>
+    resolveFitTextBoxResize({
+      handle,
+      start,
+      delta: { dx, dy },
+      minWidth: 24,
+      hasMinHeight: options.hasMinHeight ?? false,
+      alt: options.alt ?? false,
+      shift: options.shift ?? false,
+    });
+
+  // Slide-unit boxes from gs-truth-text.md section 2 (T.4, 2.1-2.8).
+  const box = { x: 825.1, y: 234.6, width: 628, height: 370 };
+
+  it("never returns a height", () => {
+    for (const handle of [
+      "n",
+      "ne",
+      "e",
+      "se",
+      "s",
+      "sw",
+      "w",
+      "nw",
+    ] as const) {
+      expect("height" in resize(handle, box, 30, 40)).toBe(false);
+      expect("minHeight" in resize(handle, box, 30, 40)).toBe(false);
+    }
+  });
+
+  it("2.1: the S handle changes nothing without a min-height", () => {
+    for (const dy of [80, -50]) {
+      expect(resize("s", box, 0, dy)).toEqual({
+        x: box.x,
+        y: box.y,
+        width: box.width,
+      });
+    }
+  });
+
+  it("2.2: the N handle translates the box and leaves its width alone", () => {
+    expect(resize("n", box, 0, 31)).toEqual({
+      x: box.x,
+      y: box.y + 31,
+      width: box.width,
+    });
+    expect(resize("n", box, 0, -39).y).toBeCloseTo(195.6, 5);
+  });
+
+  it("2.3: E keeps the left edge fixed", () => {
+    const start = { ...box, x: 100, width: 576 };
+    expect(resize("e", start, -149, 25)).toEqual({
+      x: 100,
+      y: box.y,
+      width: 427,
+    });
+    expect(resize("e", { ...start, width: 427 }, 201, 0).width).toBe(628);
+  });
+
+  it("2.4: W keeps the right edge fixed", () => {
+    const next = resize("w", box, 100, -20);
+    expect(next.width).toBe(528);
+    expect(next.x + next.width).toBeCloseTo(box.x + box.width, 5);
+    expect(next.y).toBe(box.y);
+  });
+
+  it("2.5: south corners apply the horizontal component only", () => {
+    const start = { x: 0, y: 50, width: 586, height: 332 };
+    expect(resize("se", start, 63, 40)).toEqual({ x: 0, y: 50, width: 649 });
+    expect(resize("se", { ...start, width: 649 }, -79, -30).width).toBe(570);
+    expect(resize("se", start, 63, 40).y).toBe(50);
+  });
+
+  it("2.6: NE follows dx for width and dy for the top edge", () => {
+    const start = { x: 900, y: 226.6, width: 570, height: 332 };
+    const next = resize("ne", start, 51, 61);
+    expect(next.x).toBe(900);
+    expect(next.y).toBeCloseTo(287.6, 5);
+    expect(next.width).toBe(621);
+  });
+
+  it("2.7: SW ignores dy and NW also moves the top edge", () => {
+    const start = { x: 100, y: 200, width: 600, height: 332 };
+    const southWest = resize("sw", start, 71, 50);
+    expect(southWest).toEqual({ x: 171, y: 200, width: 529 });
+
+    const northWest = resize("nw", start, -39, 41);
+    expect(northWest).toEqual({ x: 61, y: 241, width: 639 });
+    expect(northWest.x + northWest.width).toBe(start.x + start.width);
+  });
+
+  it("2.8/2.9: Shift changes nothing because there is no aspect to lock", () => {
+    for (const handle of ["se", "nw", "e", "n"] as const) {
+      expect(resize(handle, box, 40, -30, { shift: true })).toEqual(
+        resize(handle, box, 40, -30),
+      );
+    }
+  });
+
+  it("2.10: Alt resizes width about the centre and moves the top edge", () => {
+    const start = { x: 899.1, y: 328.6, width: 530, height: 370 };
+    const next = resize("se", start, 61, 41, { alt: true });
+    expect(next.width).toBe(652);
+    expect(next.x).toBeCloseTo(838.1, 5);
+    expect(next.y).toBeCloseTo(287.6, 5);
+
+    const northEast = resize("ne", start, 61, -41, { alt: true });
+    expect(northEast.width).toBe(652);
+    expect(northEast.y).toBeCloseTo(287.6, 5);
+
+    const west = resize("w", start, -61, 0, { alt: true });
+    expect(west.width).toBe(652);
+    expect(west.x + west.width / 2).toBeCloseTo(start.x + start.width / 2, 5);
+  });
+
+  it("clamps width at the minimum and keeps the fixed edge fixed", () => {
+    const east = resize("e", { ...box, width: 100 }, -500, 0);
+    expect(east.width).toBe(24);
+    expect(east.x).toBe(box.x);
+
+    const west = resize("w", { ...box, width: 100 }, 500, 0);
+    expect(west.width).toBe(24);
+    expect(west.x + west.width).toBeCloseTo(box.x + 100, 5);
+  });
+
+  it("edits min-height from N and S when the box carries one", () => {
+    const start = { x: 10, y: 100, width: 300, height: 200 };
+    expect(resize("s", start, 0, 60, { hasMinHeight: true })).toEqual({
+      x: 10,
+      y: 100,
+      width: 300,
+      minHeight: 260,
+    });
+    expect(resize("n", start, 0, -40, { hasMinHeight: true })).toEqual({
+      x: 10,
+      y: 60,
+      width: 300,
+      minHeight: 240,
+    });
+  });
+
+  it("keeps min-height at one line and the bottom edge fixed when clamped", () => {
+    const start = { x: 10, y: 100, width: 300, height: 200 };
+    expect(resize("s", start, 0, -500, { hasMinHeight: true }).minHeight).toBe(
+      24,
+    );
+
+    const north = resize("n", start, 0, 500, { hasMinHeight: true });
+    expect(north.minHeight).toBe(24);
+    expect(north.y + north.minHeight!).toBe(start.y + start.height);
+
+    const floored = resolveFitTextBoxResize({
+      handle: "s",
+      start,
+      delta: { dx: 0, dy: -500 },
+      hasMinHeight: true,
+      floorHeight: 93,
+    });
+    expect(floored.minHeight).toBe(93);
+  });
+
+  it("leaves corners on the fit rule even with a min-height", () => {
+    const start = { x: 10, y: 100, width: 300, height: 200 };
+    expect(resize("se", start, 20, 90, { hasMinHeight: true })).toEqual({
+      x: 10,
+      y: 100,
+      width: 320,
+    });
+  });
+});
+
+describe("object interaction geometry hardening", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("measures the selection frame from the content height when asked", () => {
+    const element = createFreeformObject("editing");
+    Object.defineProperty(element, "offsetWidth", { value: 100 });
+    Object.defineProperty(element, "offsetHeight", { value: 31 });
+    Object.defineProperty(element, "scrollHeight", { value: 93 });
+    const rect = { left: 10, top: 20, width: 100, height: 31 } as DOMRect;
+
+    expect(readSlideObjectSelectionFrame(element, rect)?.height).toBe(31);
+    expect(
+      readSlideObjectSelectionFrame(element, rect, { contentHeight: "scroll" })
+        ?.height,
+    ).toBe(93);
+    expect(
+      readSlideObjectSelectionFrame(element, rect, { contentHeight: 120 })
+        ?.height,
+    ).toBe(120);
+    expect(
+      readSlideObjectSelectionFrame(element, rect, { contentHeight: 10 })
+        ?.height,
+    ).toBe(31);
+
+    const zoomed = readSlideObjectSelectionFrame(
+      element,
+      { left: 20, top: 40, width: 200, height: 62 } as DOMRect,
+      { contentHeight: "scroll" },
+    );
+    expect(zoomed?.height).toBe(186);
+    expect(zoomed?.width).toBe(200);
+    expect(zoomed?.top).toBe(40);
+  });
+
+  it.each([
+    ["backdrop-filter", "blur(4px)"],
+    ["-webkit-backdrop-filter", "blur(4px)"],
+    ["will-change", "transform"],
+    ["will-change", "opacity, filter"],
+    ["will-change", "perspective"],
+    ["translate", "10px 0px"],
+    ["rotate", "10deg"],
+    ["scale", "1.1"],
+    ["container-type", "inline-size"],
+    ["container-type", "size"],
+    ["content-visibility", "auto"],
+  ])("treats %s: %s as a containing block", (property, value) => {
+    const layer = document.createElement("div");
+    const card = document.createElement("div");
+    const text = document.createElement("p");
+    card.style.setProperty(property, value);
+    card.append(text);
+    layer.append(card);
+    document.body.append(layer);
+
+    expect(resolveSlideObjectContainingBlock(text, layer)).toBe(card);
+  });
+
+  it.each([
+    ["will-change", "opacity"],
+    ["will-change", "auto"],
+    ["container-type", "normal"],
+    ["content-visibility", "visible"],
+    ["translate", "none"],
+    ["backdrop-filter", "none"],
+  ])("ignores inert %s: %s", (property, value) => {
+    const layer = document.createElement("div");
+    const card = document.createElement("div");
+    const text = document.createElement("p");
+    card.style.setProperty(property, value);
+    card.append(text);
+    layer.append(card);
+    document.body.append(layer);
+
+    expect(resolveSlideObjectContainingBlock(text, layer)).toBe(layer);
+  });
+
+  it("converts a client point against the padding box of a bordered block", () => {
+    const card = document.createElement("div");
+    card.style.position = "relative";
+    card.style.border = "4px solid black";
+    document.body.append(card);
+    Object.defineProperty(card, "offsetWidth", { value: 208 });
+    Object.defineProperty(card, "offsetHeight", { value: 108 });
+    Object.defineProperty(card, "clientLeft", { value: 4 });
+    Object.defineProperty(card, "clientTop", { value: 4 });
+    const rect = (scale: number) =>
+      ({
+        left: 100,
+        top: 50,
+        width: 208 * scale,
+        height: 108 * scale,
+      }) as DOMRect;
+
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue(rect(1));
+    expect(clientPointToContainingBlockOffset(110, 60, card)).toEqual({
+      x: 6,
+      y: 6,
+    });
+
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue(rect(2));
+    expect(clientPointToContainingBlockOffset(120, 70, card)).toEqual({
+      x: 6,
+      y: 6,
+    });
+  });
+
+  it("recognises layout spacers by class or owner attribute", () => {
+    const byClass = document.createElement("div");
+    byClass.className = "fmd-layout-spacer";
+    const byAttribute = document.createElement("div");
+    byAttribute.setAttribute("data-slide-layout-spacer-for", "x");
+
+    expect(isLayoutSpacer(byClass)).toBe(true);
+    expect(isLayoutSpacer(byAttribute)).toBe(true);
+    expect(isLayoutSpacer(document.createElement("div"))).toBe(false);
+  });
+
+  it("keeps selection on the promoted element when a spacer is inserted before it", () => {
+    const root = document.createElement("div");
+    const row = document.createElement("div");
+    const before = document.createElement("p");
+    const heading = document.createElement("h1");
+    heading.textContent = "Title";
+    row.append(before, heading);
+    root.append(row);
+    document.body.append(root);
+
+    const unpromoted = resolveSelectionIdentity(heading, root);
+    expect(unpromoted).toEqual({ objectId: null, path: [0, 1] });
+
+    freezeSlideElementForFreeform(
+      heading,
+      { x: 0, y: 0, width: 100, height: 30 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
+    );
+
+    expect(resolveSelectionIdentity(heading, root).path).toEqual([0, 1]);
+    expect(resolveSlideSelectionAnchor(root, unpromoted)).toBe(heading);
+  });
+
+  it("prefers the object id over a stale path and never resolves a spacer", () => {
+    const root = document.createElement("div");
+    const row = document.createElement("div");
+    const spacer = document.createElement("div");
+    spacer.className = "fmd-layout-spacer";
+    const moved = createFreeformObject("moved");
+    const other = document.createElement("p");
+    other.textContent = "other";
+    row.append(spacer, other);
+    root.append(row, moved);
+    document.body.append(root);
+
+    expect(
+      resolveSlideSelectionAnchor(root, { objectId: "moved", path: [0, 0] }),
+    ).toBe(moved);
+    expect(resolveSelectionIdentity(moved, root).objectId).toBe("moved");
+    expect(
+      resolveSlideSelectionAnchor(root, { objectId: null, path: [0, 0] }),
+    ).toBe(other);
+    expect(
+      resolveSlideSelectionAnchor(root, { objectId: null, path: [0, 1] }),
+    ).toBeNull();
+  });
+
+  it("snaps within 4 screen px at any zoom", () => {
+    const snap = (deltaX: number, scale?: number) =>
+      snapSlideObjectMove({
+        moving: { x: 100, y: 0, width: 80, height: 40 },
+        deltaX,
+        deltaY: 0,
+        peers: [{ x: 200, y: 300, width: 50, height: 50 }],
+        scale,
+      });
+
+    // Right edge lands at 197 / 195 on a peer edge at 200.
+    expect(snap(17, 1).deltaX).toBe(20);
+    expect(snap(15, 1).deltaX).toBe(15);
+    // 3 screen px = 6 slide units and 5 screen px = 10 at scale 0.5.
+    expect(snap(14, 0.5).deltaX).toBe(20);
+    expect(snap(10, 0.5).deltaX).toBe(10);
+    // 3 screen px = 1.5 slide units and 5 screen px = 2.5 at scale 2.
+    expect(snap(18.5, 2).deltaX).toBe(20);
+    expect(snap(17.5, 2).deltaX).toBe(17.5);
+  });
+
+  it("keeps the 8-unit default tolerance without a scale", () => {
+    const snap = (deltaX: number) =>
+      snapSlideObjectMove({
+        moving: { x: 100, y: 0, width: 80, height: 40 },
+        deltaX,
+        deltaY: 0,
+        peers: [{ x: 200, y: 300, width: 50, height: 50 }],
+      });
+
+    expect(snap(13).deltaX).toBe(20);
+    expect(snap(11).deltaX).toBe(11);
+  });
+});
+
+describe("fit text geometry boundaries", () => {
+  it("treats a bottom-anchored absolute text leaf as fixed, so top + bottom cannot stretch it", () => {
+    const footer = document.createElement("p");
+    footer.textContent = "Footer";
+    footer.style.position = "absolute";
+    footer.style.bottom = "40px";
+
+    expect(isFitTextObject(footer)).toBe(false);
+    expect(resolveFreeformSizing(footer)).toBe("fixed");
+    expect(
+      planSlideObjectGeometry(footer, {
+        x: 10,
+        y: 480,
+        width: 300,
+        height: 24,
+      }),
+    ).toEqual({ x: 10, y: 480, width: 300, height: 24 });
+
+    footer.style.bottom = "auto";
+    expect(isFitTextObject(footer)).toBe(true);
+  });
+
+  it("resizes a rotated fit text box without ever producing a height change", () => {
+    const start = { x: 100, y: 80, width: 100, height: 50 };
+    const transform = {
+      transform: "matrix(0, 1, -1, 0, 0, 0)",
+      transformOrigin: "50% 50%",
+    };
+
+    expect(
+      resizeTransformedSlideObject(start, transform, {
+        handle: "s",
+        dx: 20,
+        dy: 0,
+        preserveAspectRatio: false,
+        fitText: true,
+      }),
+    ).toEqual(start);
+
+    const corner = resizeTransformedSlideObject(start, transform, {
+      handle: "se",
+      dx: 20,
+      dy: 30,
+      preserveAspectRatio: true,
+      fitText: true,
+    });
+    expect(corner?.width).toBe(130);
+    expect(corner?.height).toBe(50);
+
+    const withHeight = resizeTransformedSlideObject(start, transform, {
+      handle: "s",
+      dx: 20,
+      dy: 0,
+      preserveAspectRatio: false,
+    });
+    expect(withHeight?.height).not.toBe(50);
+  });
+
+  it("drops contain: size when a flow block is promoted as fit or min, keeps it for fixed", () => {
+    const promote = (sizing: "fit" | "min" | "fixed") => {
+      const parent = document.createElement("div");
+      const block = document.createElement("div");
+      block.textContent = "Edited in flow";
+      block.style.setProperty("contain", "size");
+      block.style.setProperty("contain-intrinsic-size", "auto 64px");
+      parent.append(block);
+      document.body.append(parent);
+      freezeSlideElementForFreeform(
+        block,
+        { x: 10, y: 20, width: 300, height: 64 },
+        {
+          display: "block",
+          flexGrow: "0",
+          flexShrink: "1",
+          flexBasis: "auto",
+          alignSelf: "auto",
+        },
+        undefined,
+        { sizing },
+      );
+      return block;
+    };
+
+    for (const sizing of ["fit", "min"] as const) {
+      const block = promote(sizing);
+      expect(block.style.getPropertyValue("contain")).toBe("");
+      expect(block.style.getPropertyValue("contain-intrinsic-size")).toBe("");
+    }
+    expect(promote("fixed").style.getPropertyValue("contain")).toBe("size");
+  });
+
+  it("plans every member of a move before the first geometry write", () => {
+    const first = document.createElement("p");
+    const second = document.createElement("p");
+    for (const element of [first, second]) element.textContent = "Text";
+    const plans: unknown[] = [];
+
+    applySlideObjectMoveDelta(
+      [
+        {
+          objectId: "a",
+          element: first,
+          start: { x: 0, y: 0, width: 100, height: 20 },
+        },
+        {
+          objectId: "b",
+          element: second,
+          start: { x: 0, y: 50, width: 100, height: 20 },
+        },
+      ],
+      5,
+      5,
+      (element, plan) => {
+        plans.push(plan);
+        // A write that changes how the other member classifies.
+        second.style.height = "20px";
+        expect(element).toBeDefined();
+      },
+    );
+
+    expect(plans).toEqual([
+      { x: 5, y: 5, width: 100 },
+      { x: 5, y: 55, width: 100 },
+    ]);
+  });
+});
+
+describe("default text box colour", () => {
+  it("uses the ink a dark slide declares when it has no text yet", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div data-slide-canvas style="background-color: rgb(255, 255, 255)">
+        <div class="slide-content">
+          <div class="fmd-slide" style="--deck-ink: #F2EFE6; background: #14110F; color: var(--deck-ink)"></div>
+        </div>
+      </div>
+    `;
+    document.body.append(root);
+    const layer = root.querySelector<HTMLElement>(".fmd-slide")!;
+
+    expect(getSlideTextBoxDefaultColor(null, layer)).toBe("#F2EFE6");
+    root.remove();
   });
 });

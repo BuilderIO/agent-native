@@ -7,6 +7,7 @@ import {
   emailToName,
   type CollabUser,
 } from "@agent-native/core/client/collab";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   actionErrorMessage,
   callAction,
@@ -37,6 +38,7 @@ import type {
   Document,
   DocumentSyncStatus,
 } from "@shared/api";
+import { LIVE_BODY_SHADOW_FLAG } from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import {
@@ -220,6 +222,7 @@ import {
   type ToolbarBreadcrumbItem,
   type ToolbarBreadcrumbOpen,
 } from "./DocumentToolbar";
+import { isEditorContentClean } from "./editor-clean";
 import type { EditorDraftSaveResult } from "./editor-draft-save";
 import { EmojiPicker } from "./EmojiPicker";
 import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
@@ -234,7 +237,8 @@ import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
-  persistTitleBeforeSyncingPageDraftJournal,
+  listPageDraftJournal,
+  syncPageDraftJournalBeforePersistingRecoveryDraft,
   writePageDraftJournal,
 } from "./page-draft-journal";
 import { PageDraftRecovery } from "./PageDraftRecovery";
@@ -2424,6 +2428,7 @@ function PageEditorSessionBody({
     t,
   ]);
   const updateDocument = useUpdateDocument();
+  const observeLiveBody = useFeatureFlag(LIVE_BODY_SHADOW_FLAG.key);
   const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
   const updatePreviewDocumentDraftRef = useRef(
@@ -4350,7 +4355,7 @@ function PageEditorSessionBody({
             true,
           );
         if (scope) {
-          await persistTitleBeforeSyncingPageDraftJournal({
+          await syncPageDraftJournalBeforePersistingRecoveryDraft({
             persist,
             scope,
             title,
@@ -6669,6 +6674,34 @@ function PageEditorSessionBody({
     [],
   );
 
+  const isEditorClean = useCallback(
+    (liveMarkdown: string) => {
+      // No scope means the journal cannot be read, which is never clean.
+      const scope = journalScope();
+      let journalContents: string[] | null = null;
+      if (scope) {
+        try {
+          const { writerId: _writerId, ...documentScope } = scope;
+          journalContents = listPageDraftJournal(documentScope)
+            .filter((entry) => entry.recoveryStatus !== "retained_in_history")
+            .map((entry) => entry.snapshot.content);
+        } catch {
+          journalContents = null;
+        }
+      }
+      return isEditorContentClean({
+        liveMarkdown,
+        normalize: canonicalizeNfm,
+        saveQueued: saveTimeoutRef.current !== null,
+        saveInFlight: activeContentSavesRef.current > 0,
+        recoveryPending: reconcileRecoveryStateRef.current !== null,
+        journalContents,
+        suggesting: isSuggesting,
+      });
+    },
+    [isSuggesting, journalScope],
+  );
+
   const handleRemoteSnapshotChange = useCallback(
     (content: string) => {
       liveMarkdownRef.current = content;
@@ -8893,6 +8926,7 @@ function PageEditorSessionBody({
                                   ? handleRemoteSnapshotChange
                                   : undefined
                               }
+                              isEditorClean={isEditorClean}
                               collabContentRevision={
                                 isLocalFileDocument || isSuggesting
                                   ? null
@@ -8914,6 +8948,7 @@ function PageEditorSessionBody({
                                   ? ydoc
                                   : null
                               }
+                              observeLiveBody={observeLiveBody}
                               collabSynced={
                                 collabEditorEnabled ? collabSynced : true
                               }

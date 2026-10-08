@@ -12,6 +12,7 @@ import {
 } from "../shared/workspace-app-id.js";
 import type { CreateStartKind } from "./create-tui.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { applyTemplateLayer, readTemplateLayer } from "./template-layer.js";
 import {
   coreTemplates,
   getTemplate,
@@ -1447,7 +1448,7 @@ async function scaffoldAppTemplate(
   const sourceTemplate = templateSourceName(resolved);
   const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
-    copyDir(localTemplate, targetDir);
+    copyTemplateTree(localTemplate, targetDir);
     removeWorkspaceOnlyTemplateWiring(targetDir);
     return {
       templateSource: localTemplateSourceKind(localTemplate),
@@ -1479,6 +1480,30 @@ function removeWorkspaceOnlyTemplateWiring(appDir: string): void {
     changed = true;
   }
   if (changed) fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+}
+
+/** Copies a bundled template's source tree, resolving template layers. */
+function copyTemplateTree(templateDir: string, dest: string): void {
+  const layer = readTemplateLayer(templateDir);
+  if (!layer) {
+    copyDir(templateDir, dest);
+    return;
+  }
+  const base = findLocalTemplate(layer.base);
+  if (!base) {
+    throw new Error(
+      `No local copy of "${layer.base}", the base of ${templateDir}.`,
+    );
+  }
+  copyTemplateTree(base, dest);
+  applyTemplateLayer(templateDir, layer, dest);
+}
+
+// A bundled layer (template-layer.json) installs its base template's
+// dependencies, so it needs the same workspace overrides as that base.
+function firstPartyBaseTemplate(templateName: string): string {
+  const local = findLocalTemplate(templateName);
+  return (local && readTemplateLayer(local)?.base) || templateName;
 }
 
 function localTemplateSourceKind(
@@ -2260,7 +2285,7 @@ function postProcessStandalone(
       nf3: '"0.3.17"',
     };
   }
-  if (templateName && getTemplate(templateName)) {
+  if (templateName && getTemplate(firstPartyBaseTemplate(templateName))) {
     sections.overrides = {
       ...sections.overrides,
       ...TIPTAP_WORKSPACE_OVERRIDES,
@@ -2552,6 +2577,7 @@ export {
   ensureScaffoldEmailBrandingConfig as _ensureScaffoldEmailBrandingConfig,
   fixWebManifestName as _fixWebManifestName,
   copyDir as _copyDir,
+  copyTemplateTree as _copyTemplateTree,
   localTemplateSourceKind as _localTemplateSourceKind,
   REPO as _REPO,
   TEMPLATES_DIR as _TEMPLATES_DIR,
@@ -3956,7 +3982,9 @@ function scaffoldGuidanceForTemplate(
   if (!templateName || templateName.startsWith("github:")) return undefined;
   const normalized = normalizeTemplateName(templateName);
   if (normalized === "headless") return "headless";
-  return getTemplate(normalized) ? "default" : undefined;
+  return getTemplate(firstPartyBaseTemplate(normalized))
+    ? "default"
+    : undefined;
 }
 
 function fixWebManifestName(

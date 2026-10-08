@@ -126,7 +126,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth is not configured for this deployment.",
     googlePickerNeedsKeys:
-      "Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
+      "Google Drive file browsing isn't configured. You can still import a document by pasting its link.",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
       "Set up object storage to upload images: use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
@@ -778,6 +778,10 @@ const messages = {
     exportFailed: "Export failed",
     agentRunFailed:
       "The agent run failed before creating any slides. Check the chat for details, then try again.",
+    generationFailed:
+      "Slides weren't created. Check the chat for details, then try again.",
+    generationOutcomeUnresolved:
+      "We couldn't confirm whether slides were created. Check the deck or chat, then try again.",
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",

@@ -84,7 +84,7 @@ describe("automatic continuation admission", () => {
       turnId: turn,
       replayCompletedTurn: true,
       dispatchMode: "foreground",
-      autoContinueOf: run,
+      continueOf: { runId: run, trigger: "auto" },
     });
 
     expect(slot).toEqual({ claimed: true, activeRunId: null });
@@ -106,7 +106,7 @@ describe("automatic continuation admission", () => {
       const slot = await tryClaimRunSlot(thread, next, undefined, {
         turnId: turn,
         dispatchMode: "foreground",
-        autoContinueOf: stopped,
+        continueOf: { runId: stopped, trigger: "auto" },
       });
       expect(slot.claimed, `continuation ${n}`).toBe(true);
       await stopAtTimeLimit(next);
@@ -117,12 +117,12 @@ describe("automatic continuation admission", () => {
     const refused = await tryClaimRunSlot(thread, `${run}-over`, undefined, {
       turnId: turn,
       dispatchMode: "foreground",
-      autoContinueOf: stopped,
+      continueOf: { runId: stopped, trigger: "auto" },
     });
     expect(refused).toEqual({
       claimed: false,
       activeRunId: null,
-      autoContinueRefused: "auto_continue_cap_reached",
+      continueRefused: "auto_continue_cap_reached",
     });
     const rows = await (
       await pglite.prepare(`SELECT id FROM agent_runs WHERE turn_id = ?`)
@@ -137,7 +137,7 @@ describe("automatic continuation admission", () => {
       tryClaimRunSlot(thread, id, undefined, {
         turnId: turn,
         dispatchMode: "foreground",
-        autoContinueOf: run,
+        continueOf: { runId: run, trigger: "auto" },
       });
 
     const first = await claim(`${run}-tab-a`);
@@ -174,12 +174,12 @@ describe("automatic continuation admission", () => {
       const slot = await tryClaimRunSlot(thread, `${run}-next`, undefined, {
         turnId: turn,
         dispatchMode: "foreground",
-        autoContinueOf: run,
+        continueOf: { runId: run, trigger: "auto" },
       });
       expect(slot, reason).toEqual({
         claimed: false,
         activeRunId: null,
-        autoContinueRefused: "auto_continue_unavailable",
+        continueRefused: "auto_continue_unavailable",
       });
     }
   });
@@ -192,13 +192,77 @@ describe("automatic continuation admission", () => {
     const slot = await tryClaimRunSlot(thread, `${run}-next`, undefined, {
       turnId: turn,
       dispatchMode: "foreground",
-      autoContinueOf: run,
+      continueOf: { runId: run, trigger: "auto" },
     });
 
     expect(slot).toEqual({
       claimed: false,
       activeRunId: null,
       turnAborted: true,
+    });
+  });
+});
+
+describe("continuation a person chose", () => {
+  async function crashedRun() {
+    seq += 1;
+    const { insertRun, insertRunEvent, updateRunStatusIfRunning } =
+      await freshRunStore();
+    const thread = `thread-manual-${seq}`;
+    const turn = `turn-manual-${seq}`;
+    const run = `run-manual-${seq}`;
+    await insertRun(run, thread, turn, { dispatchMode: "foreground" });
+    await insertRunEvent(
+      run,
+      1,
+      JSON.stringify({ type: "error", errorCode: "stale_run" }),
+    );
+    await updateRunStatusIfRunning(run, "errored");
+    return { thread, turn, run };
+  }
+
+  it("continues a crashed run in its own turn instead of replaying the stop", async () => {
+    const { thread, turn, run } = await crashedRun();
+    const { tryClaimRunSlot } = await freshRunStore();
+
+    // The browser sends the turn id, which alone would replay the turn's
+    // last terminal event: the crash the person is trying to get past.
+    const slot = await tryClaimRunSlot(thread, `${run}-next`, undefined, {
+      turnId: turn,
+      replayCompletedTurn: true,
+      dispatchMode: "foreground",
+      continueOf: { runId: run, trigger: "manual" },
+    });
+
+    expect(slot).toEqual({ claimed: true, activeRunId: null });
+    const row = (await (
+      await pglite.prepare(
+        `SELECT turn_id, auto_continue_of FROM agent_runs WHERE id = ?`,
+      )
+    ).get(`${run}-next`)) as { turn_id: string; auto_continue_of: unknown };
+    // A chosen continuation does not spend the automatic cap.
+    expect(row).toEqual({ turn_id: turn, auto_continue_of: null });
+  });
+
+  it("refuses a run that is not the thread's newest stop", async () => {
+    const { thread, turn, run } = await crashedRun();
+    const { tryClaimRunSlot, insertRun, updateRunStatusIfRunning } =
+      await freshRunStore();
+    await insertRun(`${run}-later`, thread, `${turn}-later`, {
+      dispatchMode: "foreground",
+    });
+    await updateRunStatusIfRunning(`${run}-later`, "completed");
+
+    const slot = await tryClaimRunSlot(thread, `${run}-next`, undefined, {
+      turnId: turn,
+      dispatchMode: "foreground",
+      continueOf: { runId: run, trigger: "manual" },
+    });
+
+    expect(slot).toEqual({
+      claimed: false,
+      activeRunId: null,
+      continueRefused: "continue_unavailable",
     });
   });
 });
