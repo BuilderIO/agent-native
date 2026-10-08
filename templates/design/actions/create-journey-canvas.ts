@@ -85,14 +85,15 @@ export default defineAction({
     "Pass the journey tree from Analytics `get-onboarding-journey` as `tree` and one captured frame per example as `frames` ({ nodeKey, exampleIndex, width, height, capturedAt } plus exactly one of `imageUrl` (https only; data: URLs are rejected) or `attachmentRef` (a personal private attachment, copied into Design's private blob storage and served only to people who can view the design)). " +
     "Cards are sized from each frame's real aspect ratio; extra examples (up to `maxExamplesPerNode`, default 3) stack behind the front card. A step with no frame is left off and listed in `skippedNodes` unless `includeScreenshotless` is true. " +
     "Omit `designId` to create a new design; pass one to replace the storyboard this action drew earlier in that design (only its own screens and board objects are replaced, everything else on the canvas is left alone). " +
-    "Returns { designId, url, nodeCount, frameCount, skippedNodes, collabSyncPending }; `collabSyncPending` lists file ids that are saved but whose open editors could not be updated live (empty when all synced), so tell the user to reload the design when it is not empty.",
+    "Returns { designId, url, nodeCount, frameCount, skippedNodes, collabSyncPending }; `collabSyncPending` lists file ids that are saved but whose open editors could not be updated live (empty when all synced). When it is not empty, call again with the same `designId` to retry the live sync; until then an open editor can still show the previous version.",
   requiresAuth: true,
   maxBodyBytes: 4 * 1024 * 1024,
   schema: createJourneyCanvasInputSchema,
   mcpTool: true,
   mcpAnnotations: {
     readOnlyHint: false,
-    destructiveHint: false,
+    // With designId, the screens and screenshot rows drawn earlier are deleted and replaced.
+    destructiveHint: true,
     openWorldHint: false,
   },
   run: async (input, context) => {
@@ -299,7 +300,7 @@ export default defineAction({
           } as SourceWorkspaceFile);
           if (lockedLive.content !== liveBoard.content) {
             fail(
-              "The Design board changed while the journey was being drawn. Nothing was written; run the action again.",
+              "The Design board changed while the journey was being drawn. No journey content was written; run the action again.",
               { errorCode: "journey_board_changed", statusCode: 409 },
             );
           }

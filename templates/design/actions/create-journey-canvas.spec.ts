@@ -596,9 +596,10 @@ describe("create-journey-canvas run", () => {
 describe("create-journey-canvas exposure", () => {
   it("is declared an MCP tool so external agents such as Codex can call it", () => {
     expect((action as any).mcpTool).toBe(true);
+    // A refresh deletes and replaces the screens and screenshot rows drawn earlier.
     expect((action as any).mcpAnnotations).toMatchObject({
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
     });
     // Without designId every call creates a new design, so a retry is not a no-op.
     expect((action as any).mcpAnnotations.idempotentHint).not.toBe(true);

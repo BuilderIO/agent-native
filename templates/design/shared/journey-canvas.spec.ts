@@ -258,6 +258,24 @@ describe("planJourneyCanvas", () => {
     ]);
   });
 
+  it("never drops a frame passed for an other node: it is rejected without examples and drawn as a card with them", () => {
+    const withOther = (examples: ReturnType<typeof example>[]) => {
+      const raw = rawInput();
+      const other = raw.tree.nodes.find((entry) => entry.kind === "other")!;
+      other.examples = examples;
+      raw.frames = [...raw.frames, frame("signup > other", 0)];
+      return raw;
+    };
+    expect(problems(withOther([])).join("\n")).toMatch(/signup > other/);
+    const drawn = plan(withOther([example("other-1")]));
+    expect(
+      drawn.screens.some((screen) => screen.nodeKey === "signup > other"),
+    ).toBe(true);
+    expect(
+      drawn.skippedNodes.some((skipped) => skipped.key === "signup > other"),
+    ).toBe(false);
+  });
+
   it("gives every screen a deterministic, prefixed id and filename", () => {
     const first = plan();
     const second = plan();

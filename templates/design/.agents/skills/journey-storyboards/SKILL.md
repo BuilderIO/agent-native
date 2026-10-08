@@ -24,7 +24,8 @@ sizes and persists the whole tree in one transaction.
 3. `create-journey-canvas { title, tree, frames }` returns
    `{ designId, url, nodeCount, frameCount, skippedNodes, collabSyncPending }`. Open `url`.
    A non-empty `collabSyncPending` means those files are saved but an open editor
-   could not be updated live; tell the user to reload the design.
+   could not be updated live and may still show (and re-save) the previous
+   version; call again with the same `designId` to retry the live sync.
 
 Options: `designId` (refresh that design), `cardWidth` (default 360),
 `maxExamplesPerNode` (default 3, at most 6), `includeScreenshotless` (default false).
@@ -41,7 +42,7 @@ Options: `designId` (refresh that design), `cardWidth` (default 360),
 - Card height follows each frame's real aspect ratio (clamped to 0.5 to 2, letterboxed, never stretched or cropped). Extra examples stack behind the front card.
 - A step with no frame is left off and listed in `skippedNodes`; its children re-attach to the nearest drawn ancestor with a dashed arrow and a recomputed percent. Tell the user which steps are missing instead of calling the storyboard complete.
 - Each step with drop-off gets a red "X% dropped" stub; `other` nodes are neutral stubs.
-- Passing `designId` again replaces only what this action drew (ids start `jc_`, board objects `jc-`) and redraws in place. Other screens and board objects are untouched. A first draw goes below existing canvas content.
+- Passing `designId` again replaces only what this action drew (ids start `jc_`, board objects `jc-`) and redraws in place. Other screens and board objects are untouched. A first draw goes below existing screens; board objects are not measured, so check for overlap on a board that already has shapes.
 - If every node lacks a frame the call fails with `journey_canvas_empty` and lists them.
 - If the design's board was edited while the call ran, it writes nothing and fails with `journey_board_changed`; call it again.
 - Omitting `designId` creates a new design on every call, so do not blindly retry a call whose response was lost: look for the design first.
