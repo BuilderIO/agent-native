@@ -77,7 +77,7 @@ describe("deriveJourneyStep", () => {
           methodId: "builder_create_account",
         }),
         "method:builder_create_account",
-        "Chose: Create Builder.io account",
+        "Chose: Use Builder.io",
       ],
       [
         row("onboarding_method_outcome", 1, {
