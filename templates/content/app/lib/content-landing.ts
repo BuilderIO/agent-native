@@ -1,5 +1,6 @@
 import { writeClientAppState } from "@agent-native/core/client/application-state";
 import { callAction } from "@agent-native/core/client/hooks";
+import { hasSessionHint } from "@agent-native/core/client/use-session";
 import {
   CONTENT_LAST_LOCATION_STATE_KEY,
   contentSpaceLastLocationStateKey,
@@ -10,7 +11,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import { matchPath } from "react-router";
 
 import { invalidateContentDatabaseNavigationQueries } from "@/hooks/use-content-database";
-import { LIST_DOCUMENTS_QUERY_KEY } from "@/hooks/use-documents";
+import {
+  LIST_DOCUMENTS_QUERY_KEY,
+  startPageOpenDocumentReads,
+} from "@/hooks/use-documents";
 
 import { readLastLocationHintForAnyAccount } from "./last-location-hint";
 
@@ -37,6 +41,29 @@ export function pageOpenedByLoad(location: {
   return isPersonalLanding(location)
     ? readLastLocationHintForAnyAccount()
     : matchPath("/page/:id", location.pathname)?.params.id;
+}
+
+// A load of a page, or of /home and the page it likely reopens, reads that
+// page alongside the session check rather than after the app mounts behind
+// it. Without the session hint the read would only be refused, and a refused
+// read makes the app check the session again.
+export function startLoadReads(
+  queryClient: QueryClient,
+  location: { key: string; pathname: string; search: string },
+) {
+  if (!hasSessionHint()) return;
+  const documentId = pageOpenedByLoad(location);
+  if (!documentId) return;
+  // Asking where /home lands can create a Welcome page, so only a browser
+  // that has landed before asks this early.
+  if (isPersonalLanding(location)) {
+    startEarlyContentLanding(queryClient, location.key);
+  }
+  const search = new URLSearchParams(location.search);
+  startPageOpenDocumentReads(queryClient, documentId, {
+    databaseId: search.get("databaseId"),
+    databaseDocumentId: search.get("databaseDocumentId"),
+  });
 }
 
 export type EarlyContentLanding =

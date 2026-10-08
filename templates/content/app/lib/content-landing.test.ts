@@ -1,17 +1,38 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { writeClientAppState } = vi.hoisted(() => ({
-  writeClientAppState: vi.fn(),
-}));
+const { writeClientAppState, callAction, hasSessionHint, pageReads } =
+  vi.hoisted(() => ({
+    writeClientAppState: vi.fn(),
+    callAction: vi.fn(),
+    hasSessionHint: vi.fn(() => true),
+    pageReads: vi.fn(),
+  }));
 
 vi.mock("@agent-native/core/client/application-state", () => ({
   writeClientAppState,
 }));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction,
+}));
+vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-session")
+  >()),
+  hasSessionHint,
+}));
+vi.mock("@/hooks/use-documents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
+  startPageOpenDocumentReads: pageReads,
+}));
+
+import { QueryClient } from "@tanstack/react-query";
 
 import {
   isPersonalLanding,
   pageOpenedByLoad,
   rememberContentLandingDocument,
+  startLoadReads,
 } from "./content-landing";
 import { LAST_LOCATION_HINT_STORAGE_KEY } from "./last-location-hint";
 
@@ -176,5 +197,70 @@ describe("pageOpenedByLoad", () => {
     for (const pathname of ["/page", "/page/", "/trash", "/settings/agent"]) {
       expect(pageOpenedByLoad({ pathname, search: "" })).toBeFalsy();
     }
+  });
+});
+
+describe("startLoadReads", () => {
+  beforeEach(() => {
+    callAction.mockReset();
+    callAction.mockReturnValue(new Promise(() => {}));
+    hasSessionHint.mockReturnValue(true);
+    pageReads.mockReset();
+    const stored = JSON.stringify({ scope: "[]", documentId: "last-page" });
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) =>
+        key === LAST_LOCATION_HINT_STORAGE_KEY ? stored : null,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const landings = () =>
+    callAction.mock.calls.filter(([name]) => name === "resolve-content-landing")
+      .length;
+
+  it("reads a page a load opens without asking where /home lands", () => {
+    startLoadReads(new QueryClient(), {
+      key: "load-1",
+      pathname: "/page/NXqMwg3WOBAQ",
+      search: "?databaseId=db-1",
+    });
+
+    expect(pageReads).toHaveBeenCalledWith(
+      expect.any(QueryClient),
+      "NXqMwg3WOBAQ",
+      { databaseId: "db-1", databaseDocumentId: null },
+    );
+    expect(landings()).toBe(0);
+  });
+
+  it("asks where /home lands alongside the page it likely reopens", () => {
+    startLoadReads(new QueryClient(), {
+      key: "load-2",
+      pathname: "/home",
+      search: "",
+    });
+
+    expect(pageReads).toHaveBeenCalledWith(
+      expect.any(QueryClient),
+      "last-page",
+      { databaseId: null, databaseDocumentId: null },
+    );
+    expect(landings()).toBe(1);
+  });
+
+  it("starts nothing without the session hint", () => {
+    hasSessionHint.mockReturnValue(false);
+    for (const [key, pathname] of [
+      ["load-3", "/home"],
+      ["load-4", "/page/NXqMwg3WOBAQ"],
+    ]) {
+      startLoadReads(new QueryClient(), { key, pathname, search: "" });
+    }
+
+    expect(pageReads).not.toHaveBeenCalled();
+    expect(landings()).toBe(0);
   });
 });
