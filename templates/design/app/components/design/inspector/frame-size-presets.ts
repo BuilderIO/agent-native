@@ -1,16 +1,15 @@
 /**
- * Frame-tool size presets — the equivalent of Figma's right-panel preset list
- * that replaces the inspector while the Frame tool (F / A) is armed. Each
+ * Frame-tool size presets shown while the Frame tool (F / A) is armed. Each
  * category maps to a `framePresets.categories.<key>` i18n label; preset
  * `name` values are product/device names and are intentionally left as
- * untranslated literals (matching Figma's own behavior).
+ * untranslated literals.
  *
  * Pure data + a couple of small pure helpers so the shape can be unit tested
  * without mounting EditPanel.
  *
  * i18n-raw-literal-disable-file: every `name` below is a real-world
  * product/device name (iPhone, Android, Instagram Post, etc.) and must stay
- * untranslated in every locale, matching Figma's own preset list behavior.
+ * untranslated in every locale.
  */
 
 export type FrameSizePresetCategoryKey =

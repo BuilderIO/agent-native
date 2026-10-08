@@ -500,24 +500,23 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/vite.config.ts",
     "templates/design/playwright.config.ts",
     "templates/design/e2e/base-url.ts",
-    "templates/design/e2e/chrome-geometry.reference.ts",
     "templates/design/e2e/global-setup.ts",
     "templates/design/e2e/global-teardown.ts",
     "templates/design/e2e/drag-out-of-screen-to-board.spec.ts",
-    "templates/design/e2e/parity-drag-reparent.spec.ts",
-    "templates/design/e2e/parity-vector-endpoints.spec.ts",
-    "templates/design/e2e/parity-report-interactions.spec.ts",
-    "templates/design/e2e/parity-oversized-nested.spec.ts",
-    "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
-    "templates/design/e2e/parity-selection.spec.ts",
-    "templates/design/e2e/z-order-parity.spec.ts",
+    "templates/design/e2e/interaction-drag-reparent.spec.ts",
+    "templates/design/e2e/interaction-vector-endpoints.spec.ts",
+    "templates/design/e2e/interaction-report-interactions.spec.ts",
+    "templates/design/e2e/interaction-oversized-nested.spec.ts",
+    "templates/design/e2e/interaction-alt-drag-duplicate.spec.ts",
+    "templates/design/e2e/interaction-selection.spec.ts",
+    "templates/design/e2e/z-order-behavior.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
     "templates/design/e2e/responsive-overview-regressions.spec.ts",
     "templates/design/e2e/helpers.ts",
     "templates/design/e2e/drag-and-drop.shared.ts",
     "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
-    "templates/design/e2e/drag-and-drop.auto-layout-parity.spec.ts",
-    "templates/design/e2e/cross-screen-auto-layout-parity.spec.ts",
+    "templates/design/e2e/drag-and-drop.auto-layout.spec.ts",
+    "templates/design/e2e/cross-screen-auto-layout.spec.ts",
     "packages/core/src/index.ts",
     "packages/toolkit/src/index.ts",
     "packages/creative-context/src/index.ts",
@@ -651,8 +650,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
     "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
   ];
+  // source-read-ok: validates the case names used by fixed Playwright line selectors.
   const screenHistorySpec = readFileSync(
-    "templates/design/e2e/parity-selection-history-delete-screen.spec.ts",
+    "templates/design/e2e/interaction-selection-history-delete-screen.spec.ts",
     "utf8",
   );
   for (const title of screenHistoryCases) {
@@ -826,12 +826,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.deepEqual(fixedLocations(dragTwoAStart, dragTwoBStart), [
     "e2e/drag-and-drop.moving-by-drag.spec.ts:105",
-    "e2e/parity-alt-drag-duplicate.spec.ts:1293",
-    "e2e/parity-selection.spec.ts:313",
+    "e2e/interaction-alt-drag-duplicate.spec.ts:1293",
+    "e2e/interaction-selection.spec.ts:313",
   ]);
   assert.deepEqual(fixedLocations(dragTwoBStart, positionOneAStart), [
-    "e2e/parity-selection.spec.ts:451",
-    "e2e/parity-selection.spec.ts:572",
+    "e2e/interaction-selection.spec.ts:451",
+    "e2e/interaction-selection.spec.ts:572",
   ]);
   assert.deepEqual(fixedLocations(positionOneAStart, positionOneBStart), [
     "e2e/pasted-svg-image-inspector.spec.ts:656",
@@ -1025,7 +1025,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     [
       "e2e/inspector-styles.spec.ts",
       667,
-      "numeric input applies Figma math and starts an Option scrub drag",
+      "numeric input applies arithmetic expressions and starts an Option scrub drag",
     ],
     [
       "e2e/inspector-styles.spec.ts",
@@ -1068,17 +1068,17 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "Alt+drag leaves the original and creates a copy",
     ],
     [
-      "e2e/parity-selection.spec.ts",
+      "e2e/interaction-selection.spec.ts",
       313,
       "board regression: an overlapping Frame drop into another board Frame persists after reload",
     ],
     [
-      "e2e/parity-selection.spec.ts",
+      "e2e/interaction-selection.spec.ts",
       451,
       "board regression: overlapping board Frames keep the pointer drop without cancel or revert",
     ],
     [
-      "e2e/parity-selection.spec.ts",
+      "e2e/interaction-selection.spec.ts",
       572,
       "selected nested frame drag from its grandchild tracks the pointer and persists",
     ],
@@ -1178,7 +1178,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "Align uses a Group's bounds while Position stays Frame-relative",
     ],
     [
-      "e2e/parity-alt-drag-duplicate.spec.ts",
+      "e2e/interaction-alt-drag-duplicate.spec.ts",
       1293,
       "copies a root auto-layout Frame as a selected board-root layer and preserves its original",
     ],
@@ -1186,10 +1186,19 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   for (const [file, line, title] of selectedTests) {
     const location = `${file}:${line}`;
     assert.ok(regressionCases.includes(location), location);
-    const sourceLine = readFileSync(`templates/design/${file}`, "utf8").split(
+    const sourceLines = readFileSync(`templates/design/${file}`, "utf8").split(
       "\n",
-    )[line - 1];
-    assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
+    );
+    const testStart = sourceLines.findIndex((sourceLine) =>
+      sourceLine.includes(`test(\"${title}\"`),
+    );
+    assert.notEqual(testStart, -1, location);
+    const nextTestStart = sourceLines.findIndex(
+      (sourceLine, index) =>
+        index > testStart && /^\s*test\s*\(/.test(sourceLine),
+    );
+    const testEnd = nextTestStart === -1 ? sourceLines.length : nextTestStart;
+    assert.ok(line - 1 >= testStart && line - 1 < testEnd, location);
   }
 });
 

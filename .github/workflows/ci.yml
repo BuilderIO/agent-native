@@ -504,7 +504,7 @@ jobs:
               ;;
           esac
           pnpm exec playwright test \
-            e2e/parity-selection-history-delete-screen.spec.ts \
+            e2e/interaction-selection-history-delete-screen.spec.ts \
             --grep "$grep" \
             --workers=1
 
@@ -629,14 +629,14 @@ jobs:
             drag-2a)
               fixed_specs=( \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
-                e2e/parity-alt-drag-duplicate.spec.ts:1293 \
-                e2e/parity-selection.spec.ts:313 \
+                e2e/interaction-alt-drag-duplicate.spec.ts:1293 \
+                e2e/interaction-selection.spec.ts:313 \
               )
               ;;
             drag-2b)
               fixed_specs=( \
-                e2e/parity-selection.spec.ts:451 \
-                e2e/parity-selection.spec.ts:572 \
+                e2e/interaction-selection.spec.ts:451 \
+                e2e/interaction-selection.spec.ts:572 \
               )
               ;;
             position-1a)

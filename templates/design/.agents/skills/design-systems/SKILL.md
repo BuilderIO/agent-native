@@ -316,12 +316,12 @@ it is separate from (and does not reopen) the Design System Setup `.fig`
 upload above. Treat it as experimental — the `.fig` container is a proprietary,
 undocumented format, so unsupported node types, geometry, or schema variants
 fail closed with an explicit warning/placeholder rather than a silent
-approximation. Read the returned `fidelityReport` (`stats`, `warnings`) back to
-the user, and see `FIGMA_INTEROPERABILITY.md`'s "`.fig` upload" row for the
-current fidelity contract and required verification corpus.
+approximation. Read the returned `fidelityReport` (`stats`, `warnings`) and
+explain the conversion coverage and any listed fallbacks. See
+`FIGMA_INTEROPERABILITY.md` for supported import and export workflows.
 
-**When the user wants a Figma Assets-style native component drawer inside
-Design**, do not use Figma or media assets. Use `list-design-native-assets` to
+**When the user wants a native component drawer inside Design**, use
+`list-design-native-assets` to
 choose an editable primitive/component/layout, then
 `insert-design-native-asset` to insert it into the active screen. These entries
 are Design-native HTML stamped with component/layer metadata.
@@ -334,10 +334,10 @@ design-system indexing just to insert a component. Use
 component/component set with provenance. Styles and variables still belong in
 the Builder-backed design-system path above.
 
-### Import from Figma (pixel-accurate frame import)
+### Import from a Figma URL or file
 
-**When the user pastes a Figma frame/screen link and wants a real, editable
-Design screen** (not a rendered image, not a component insert), use
+**When the user pastes a Figma frame/screen link and wants an editable Design
+screen** (not a component insert), use
 `import-figma-frame` instead of `list-figma-library-assets` +
 `insert-figma-library-asset`:
 
@@ -498,15 +498,17 @@ When the user provides multiple sources, call all applicable import actions in p
 7. **Call `create-design-system`** with the combined result
 8. **Link to design** via `update-design --designSystemId`
 
-## Fidelity Limits And Open-Ended Figma/GitHub API Access
+## Import limits and open-ended provider API access
 
 Figma import/read/paste and design-system/token workflows
 (`import-figma-frame`, `get-figma-design-context`,
 `list-figma-library-assets`, clipboard paste, `.fig` upload) are covered above —
 read them before guessing the calling convention.
 
-Never claim universal lossless Figma import/export; consult
-`FIGMA_INTEROPERABILITY.md` for the real fidelity contract.
+Imported content can include unsupported constructs. Read the import report and
+explain any listed omissions or approximations. Consult
+`FIGMA_INTEROPERABILITY.md` for the supported import, paste, and export
+workflows.
 
 For open-ended GitHub/Figma API questions, use
 `provider-api-catalog`/`provider-api-docs`/`provider-api-request` rather than

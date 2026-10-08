@@ -10,7 +10,6 @@ Read relevant guides before deeper work:
 - `.agents/skills/design-templates/SKILL.md` — when reusing existing Design work.
 - `.agents/skills/responsive-breakpoints/SKILL.md` — for breakpoint editing.
 - `.agents/skills/design-systems/SKILL.md` — for tokens, brand extraction, or Figma.
-- `.agents/skills/design-figma-parity/SKILL.md` — for evidence rules on measured Figma behavior claims.
 - `.agents/skills/creative-context/SKILL.md` — for cross-app sources and governed context.
 - `.agents/skills/design-review-feedback/SKILL.md` — for persisted review comments.
 - `.agents/skills/export-handoff/SKILL.md` — for exports and coding handoffs.

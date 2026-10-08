@@ -97,7 +97,7 @@ describe("click-through onto a generated Frame's children", () => {
     expect(selected).toEqual(["frame-a", "kid-a1"]);
   });
 
-  it("a top-level board Frame's child is selected by the first click, like a Figma artboard", async () => {
+  it("the first click selects a child inside a top-level board Frame", async () => {
     const selected = await clickSequence([[56, 490]]);
     expect(selected).toEqual(["text-d1"]);
   });

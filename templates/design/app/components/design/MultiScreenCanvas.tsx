@@ -5142,10 +5142,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  whole surface so it's included whenever explicitly requested); omit it
    *  to collect every screen.
    *
-   *  `deep` mirrors the in-iframe marquee/click's own Cmd/Ctrl semantics
+   *  `deep` uses the in-iframe marquee/click's Cmd/Ctrl semantics
    *  (container-first-selection.bridge.spec.ts, marquee-container-first.bridge.spec.ts):
    *  false collects only the direct children of each screen's current
-   *  selection-container scope (matching Figma's plain marquee), true
+   *  selection-container scope, true
    *  reaches into nested descendants. Double-click drill-in and click-to-pick
    *  (`drillIntoScreenAtPoint`) always pass true — they need the full
    *  descendant list to walk one level deeper per repeat click/click. The
@@ -8142,8 +8142,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         hasMoved: false,
       };
       setIsDragging(true);
-      // Figma parity: object drags keep the default arrow cursor, never a
-      // grabbing hand — see the matching comment in beginDraftDrag above.
+      // Object drags keep the default arrow cursor.
 
       // The surface itself never moves mid-gesture, so its bounding rect is
       // invariant for the whole drag. Cache it once instead of letting the
@@ -12063,9 +12062,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           />
         ))}
 
-        {/* Figma-parity alt-hover measurement: orange edge-to-edge distance
-            lines between the current selection and whatever frame/draft is
-            under the cursor while Alt is held (pure hover, no drag). */}
+        {/* Alt-hover measurement: orange edge-to-edge distance lines between
+            the current selection and the frame or draft under the cursor. */}
         {[altHoverMeasurement?.horizontal, altHoverMeasurement?.vertical]
           .filter(
             (line): line is AltHoverMeasurementLine => !!line && !line.overlaps,
@@ -13535,12 +13533,8 @@ const Screen = memo(function Screen({
             transition: getChromeLabelTransition(chromeSettling),
           }}
         >
-          {/* B5-3: the leading dot/bullet before the screen label was pure
-              decorative chrome added in the Figma-parity visual pass
-              (aa345ccde3, #1636) — it renders unconditionally for every
-              screen with no semantic meaning (not a base/breakpoint marker,
-              not a dirty/unsaved indicator), and Figma's own frame labels
-              don't use one. Removed rather than kept, per B5-3 spec. */}
+          {/* The screen label has no leading decoration; its text carries the
+              screen name and breakpoint state. */}
           <span
             data-frame-title
             className={cn(
@@ -13864,7 +13858,7 @@ const Screen = memo(function Screen({
         />
       </div>
 
-      {/* Multi-breakpoint preview row (§6.4 — Framer/Figma-Sites style).
+      {/* Multi-breakpoint preview row.
           Rendered as a sibling row to the right of the primary frame when
           the screen has breakpointWidths set. Each frame shares the same
           srcdoc content at a different viewport width. The active breakpoint

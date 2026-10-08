@@ -378,16 +378,16 @@ async function mirrorFigmaImageUrls(
 }
 
 /**
- * Figma's box model treats a frame's declared width/height as the OUTER
- * (border-box-equivalent) size: padding eats into the interior without
+ * Imported frame width and height represent the OUTER
+ * (border-box-equivalent) size: padding uses interior space without
  * growing the frame's footprint. The browser default is `box-sizing:
  * content-box`, so `figma-node-to-html.ts`'s per-node inline `width`/`height`
  * (mapped 1:1 from `absoluteBoundingBox`) plus any padding on the same node
- * renders LARGER than Figma intends by exactly the padding amount, and the
+ * grows the rendered frame by exactly the padding amount, and the
  * default UA `body { margin: 8px }` additionally offsets the whole imported
  * screen away from (0,0). Both together produce visible horizontal/vertical
- * overflow and a diagonal pixel offset relative to Figma's own render for any
- * auto-layout frame with padding (i.e. most real designs). Scope the reset to
+ * overflow and a diagonal pixel offset for any
+ * auto-layout frame with padding. Scope the reset to
  * this Figma-import pipeline only — the shared `normalizeImportedHtmlDocument`
  * is also used by non-Figma import paths that must not be affected.
  */

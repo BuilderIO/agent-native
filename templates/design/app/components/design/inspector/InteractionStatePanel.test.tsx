@@ -220,7 +220,7 @@ describe("InteractionStatePanel menu interactions", () => {
     ).toBe("true");
   });
 
-  it("matches Figma's state order, icons, and selected trailing dot", async () => {
+  it("uses the configured state order, icons, and selected trailing dot", async () => {
     const { container } = await mountPanel();
     const trigger = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Interaction state"]',

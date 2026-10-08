@@ -256,7 +256,7 @@ test("1:16 — header text is readable against the canvas background", async ({
   expect(
     colour,
     `Text committed color:"${colour}" on a #0b0f19 canvas. currentcolor resolves ` +
-      `to the UA default black, so the header is invisible. NOT Figma parity — Figma ` +
+      `to the UA default black, so the header is invisible. The design app ` +
       `defaults to black too; this asserts Design's own intent, since it stamps ` +
       `data-an-auto-text-color on every text primitive.`,
   ).not.toBe("currentcolor");
@@ -307,7 +307,7 @@ test("8:35 — a frame adopts an element drawn inside it", async ({ page }) => {
   ).toBe(true);
 });
 
-test("a rectangle does NOT adopt children, matching Figma", async ({
+test("a rectangle does not adopt children", async ({
   page,
 }) => {
   const designId = await newDesign(page);

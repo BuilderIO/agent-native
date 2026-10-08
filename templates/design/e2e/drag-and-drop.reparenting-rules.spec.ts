@@ -293,7 +293,7 @@ test.describe("reparenting rules", () => {
       });
     expect(
       directParent,
-      'Figma: "If an object is smaller than a frame, we will make it a child of the frame."',
+      'Dropping a smaller object over a frame should place it inside the frame.',
     ).toBe("frame-a");
   });
 
@@ -376,7 +376,7 @@ test.describe("reparenting rules", () => {
       await expect
         .poll(chipParent, {
           message:
-            'Figma: "When moving an object out of a frame\'s bounds, hold the Space bar to keep an object within the current parent."',
+            "The layer should stay in its current parent while Space is held.",
         })
         .toBe("row");
     } finally {
@@ -492,7 +492,7 @@ test.describe("reparenting rules", () => {
       await expect
         .poll(chipParent, {
           message:
-            'Figma: "When moving an object out of a frame\'s bounds, hold the Space bar to keep an object within the current parent."',
+            "The layer should stay in its current parent while Space is held.",
         })
         .toBe("row");
     } finally {

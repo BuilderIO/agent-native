@@ -75,7 +75,7 @@ const trackSchema = z.object({
   property: z
     .string()
     .describe(
-      "CSS property to animate. Figma-parity mapping: translation → " +
+      "CSS property to animate. CSS mapping: translation → " +
         '"translate", scale → "scale", rotation → "rotate", opacity → ' +
         '"opacity", corner radius → "border-radius", fill → ' +
         '"background-color", stroke paint → "border-color", stroke weight ' +

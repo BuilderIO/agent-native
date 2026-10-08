@@ -227,7 +227,7 @@ export default defineAction({
       })
       .optional()
       .describe(
-        "The editor's selection, visible canvas, and screen frames at paste time. When set, the paste is placed like Figma: layers bound for an existing screen, frame, or the board come back as `layers` + `plan` (unsaved) for the editor to insert; new screens are saved at the viewport centre. Omit to save each pasted frame as a new screen.",
+        "The editor's selection, visible canvas, and screen frames at paste time. When set, layers bound for an existing screen, frame, or the board come back as `layers` + `plan` (unsaved) for the editor to insert; new screens are saved at the viewport centre. Omit to save each pasted frame as a new screen.",
       ),
   }),
   run: async (

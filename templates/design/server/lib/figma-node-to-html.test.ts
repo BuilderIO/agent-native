@@ -1159,7 +1159,7 @@ describe("mapFigmaNodeToHtml - blur radius scale", () => {
 });
 
 describe("mapFigmaNodeToHtml - rotation and rotated-parent geometry", () => {
-  it("rotates in the same direction Figma does (no sign flip)", () => {
+  it("applies rotation without flipping the sign", () => {
     const root: FigmaNode = {
       id: "root",
       type: "FRAME",
