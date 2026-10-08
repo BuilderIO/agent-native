@@ -1816,7 +1816,7 @@ export async function loadResourcesForPrompt(
       addSection(block);
     }
     addSection(
-      `<context-note>Organization learnings above and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool. Treat shared LEARNINGS.md as organization-wide: keep setup-specific findings in personal memory or the current analysis, and ask the user before writing a finding to shared LEARNINGS.md or organization memory unless they directly asked for that shared write. A generic request to remember something does not authorize sharing it.</context-note>`,
+      `<context-note>\`resources\` reads personal memory (memory/MEMORY.md) and organization learnings. Keep setup findings personal; shared LEARNINGS.md or organization-memory writes require approval. "Remember this" alone is not approval.</context-note>`,
       "required",
     );
   } else {

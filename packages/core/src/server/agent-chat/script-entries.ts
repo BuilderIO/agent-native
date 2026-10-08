@@ -418,7 +418,7 @@ export async function createResourceScriptEntries(): Promise<
       resources: {
         tool: {
           description:
-            'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "effective" (show workspace -> organization/app -> personal inheritance for a path), "write" (create/update personal or shared; workspace only for local file mode control files), "promote" (make agent scratch visible), "delete" (remove personal or shared; workspace only for local file mode control files). Shared resource changes affect the organization and require approval for each write, promotion, or deletion. A generic request to remember something is not approval; keep setup-specific findings personal. Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
+            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval.',
           parameters: {
             type: "object",
             properties: {

@@ -310,7 +310,7 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
   {
     id: "acknowledgments",
-    text: "ACKNOWLEDGMENTS — When responding to user feedback, use at most one brief acknowledgment. Avoid stacked compliments or repeated validation, then address the feedback directly.",
+    text: "ACKNOWLEDGMENTS: Acknowledge feedback once, then address it.",
   },
 ];
 
