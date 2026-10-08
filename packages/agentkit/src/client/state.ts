@@ -724,7 +724,7 @@ export function reduceAgentEvent(
         ),
       };
     case "tool.started":
-    case "tool.updated":
+    case "tool.updated": {
       if (
         wouldReopenTerminalItem(
           next.tools[event.toolCall.id]?.status,
@@ -733,10 +733,30 @@ export function reduceAgentEvent(
       ) {
         return next;
       }
+      const currentToolCall = next.tools[event.toolCall.id];
+      const toolCall =
+        event.type === "tool.updated"
+          ? {
+              ...event.toolCall,
+              ...(event.toolCall.messageId === undefined &&
+              currentToolCall?.messageId !== undefined
+                ? { messageId: currentToolCall.messageId }
+                : {}),
+              ...(event.toolCall.input === undefined &&
+              currentToolCall?.input !== undefined
+                ? { input: currentToolCall.input }
+                : {}),
+              ...(event.toolCall.output === undefined &&
+              currentToolCall?.output !== undefined
+                ? { output: currentToolCall.output }
+                : {}),
+            }
+          : event.toolCall;
       return {
         ...next,
-        tools: { ...next.tools, [event.toolCall.id]: event.toolCall },
+        tools: { ...next.tools, [event.toolCall.id]: toolCall },
       };
+    }
     case "tool.delta": {
       const current =
         next.tools[event.toolCallId] ??
@@ -828,6 +848,7 @@ export function reduceAgentEvent(
     case "approval.requested":
       return {
         ...updateRun(next, event.runId, { status: "awaiting_approval" }),
+        ...updateActiveRuns(next, event.runId, true),
         approvals: { ...next.approvals, [event.request.id]: event.request },
         approvalRunIds: {
           ...next.approvalRunIds,

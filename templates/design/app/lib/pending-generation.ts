@@ -3,6 +3,7 @@ import { isBoardFile } from "@shared/board-file";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import { normalizedDesignFileType } from "@/pages/design-editor/canvas-primitive-insert";
 
 export const PENDING_GENERATION_STALE_MS = 30 * 60_000;
@@ -125,6 +126,20 @@ export function clearPendingGeneration(id: string | undefined): void {
   } catch {
     // Storage may be unavailable.
   }
+}
+
+export function failPendingGenerationForMissingImagePayload(
+  id: string | undefined,
+  error: unknown,
+  message: string,
+  setGenerationIssue: (message: string) => void,
+  setHasPendingGeneration: (pending: boolean) => void,
+): boolean {
+  if (!(error instanceof MissingVisualImagePayloadError)) return false;
+  clearPendingGeneration(id);
+  setGenerationIssue(message);
+  setHasPendingGeneration(false);
+  return true;
 }
 
 export function readPendingGeneration(

@@ -51,11 +51,12 @@ function openReads(queryClient: QueryClient) {
   return reads;
 }
 
+// Returns whether it started a read; one made for this open already counts.
 export function startPageOpenRead<TData>(
   queryClient: QueryClient,
   documentId: string,
   options: FetchQueryOptions<TData, Error, TData, QueryKey>,
-) {
+): boolean {
   const reads = openReads(queryClient);
   const queryHash = hashKey(options.queryKey);
   const current = reads.get(queryHash);
@@ -64,7 +65,7 @@ export function startPageOpenRead<TData>(
     !current.invalidated &&
     Date.now() - current.startedAt < PAGE_OPEN_READ_TTL_MS
   ) {
-    return;
+    return false;
   }
   const query = queryClient
     .getQueryCache()
@@ -87,6 +88,7 @@ export function startPageOpenRead<TData>(
     landed: false,
   });
   void queryClient.prefetchQuery({ ...options, staleTime: 0 });
+  return true;
 }
 
 export function isPageOpenRead(queryClient: QueryClient, queryKey: QueryKey) {

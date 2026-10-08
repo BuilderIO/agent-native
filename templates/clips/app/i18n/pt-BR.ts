@@ -9,6 +9,7 @@ const messages = {
         "Não foi possível confirmar se a IA está pronta.",
     },
     common: { retry: "Tentar novamente" },
+    onboarding: { skipForNow: "Pular por enquanto" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -217,6 +218,7 @@ const messages = {
   recordingPage: {
     back: "Voltar",
     done: "Concluído",
+    backToClip: "Voltar ao clipe",
     untitledClip: "Clipe sem título",
     recordingNotFound: "Gravação não encontrada",
     noAccess: "Você pode não ter acesso a este clipe.",
@@ -1361,6 +1363,11 @@ const messages = {
     burningRedactions: "Aplicando as tarjas ao vídeo…",
     burningRedactionsPercent: "Aplicando as tarjas ao vídeo… {{percent}}%",
     editFailed: "Não foi possível salvar essa edição",
+    refreshFailed:
+      "Não foi possível carregar as edições mais recentes. Tente novamente antes de editar.",
+    autoSaveHint: "As edições são salvas automaticamente neste clipe",
+    savingChanges: "Salvando alterações…",
+    changesSaved: "Alterações salvas neste clipe",
     nothingToRedo: "Nada para refazer",
   },
   transcriptEditor: {
@@ -1398,6 +1405,14 @@ const messages = {
     agentTitle: "Crie uma conta Clips grátis para participar da conversa",
     genericTitle: "Crie uma conta Clips grátis para continuar",
     description: "Você voltará para este clipe assim que terminar.",
+    verificationPendingTitle: "Verifique seu e-mail",
+    verificationPendingCopy:
+      "Enviamos um e-mail de verificação para {{email}}. Abra-o para terminar de criar sua conta e voltar a este clipe.",
+    resendVerification: "Reenviar e-mail de verificação",
+    resendingVerification: "Enviando e-mail de verificação...",
+    verificationEmailResent: "Enviamos um novo e-mail de verificação.",
+    verificationEmailFailed:
+      "Não foi possível reenviar o e-mail de verificação. Tente novamente ou entre com um link por e-mail.",
     passwordsMismatch: "As senhas não conferem.",
     commentIntent: "comentar",
     reactIntent: "adicionar uma reação",
@@ -1476,15 +1491,25 @@ const messages = {
     builderConnectPopupError:
       "Não foi possível abrir o Builder.io. Se este app estiver incorporado em um chat, abra-o em uma aba do navegador; caso contrário, tente novamente.",
     builderConnectError:
-      "Não foi possível configurar o Builder.io. Tente novamente ou entre em contato com o suporte.",
+      "Não foi possível concluir a configuração do Builder.io. Tente novamente ou escolha um armazenamento compatível com S3.",
+    builderConnectErrorAskAdmin:
+      "Não foi possível concluir a configuração do Builder.io. Tente novamente ou peça a um proprietário ou administrador para configurar o armazenamento.",
+    builderStatusReadError:
+      "O status da conexão está indisponível. Tente novamente para verificar.",
+    builderUploadGrantMissing:
+      "O Builder.io está conectado para IA, mas esta conexão não pode enviar clipes. Reconecte o Builder.io com permissão de envio ou peça ajuda a um proprietário ou administrador.",
+    builderGrantAskAdmin:
+      "Peça a um proprietário ou administrador para conectar o Builder.io com permissão para enviar clipes.",
+    statusUnavailable:
+      "Não foi possível verificar se o armazenamento de vídeo está pronto.",
     checkingBuilderConnection: "Verificando a conexão com o Builder…",
     builderTimeout:
-      "Não houve resposta do Builder em 5 minutos. Tente novamente.",
+      "Não foi possível confirmar que o armazenamento do Builder.io está pronto. Tente novamente.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Aguardando Builder...",
     description:
       "Armazene os vídeos gravados com o Builder.io ou com um armazenamento compatível com S3. O Builder.io inclui hospedagem gratuita e créditos de IA.",
-    createBuilderAccount: "Criar conta do Builder.io",
+    createBuilderAccount: "Usar Builder.io",
     signInWithBuilderAccount: "Entrar com uma conta do Builder.io",
     free: "Grátis",
     whyPrompt: "Por que estou vendo isso?",
@@ -1834,6 +1859,9 @@ const messages = {
     storageConnectedUploading:
       "Armazenamento conectado. Enviando sua gravação…",
     downloadCopy: "Baixar uma cópia",
+    localRecordingPreview: "Prévia da gravação local",
+    localPreviewUnavailable:
+      "Não foi possível exibir a prévia local. Você ainda pode baixar uma cópia.",
     localRecordingOpenElsewhere:
       "Essa gravação ainda está aberta em outra aba do Clips.",
     uploadWaitingForConnection:

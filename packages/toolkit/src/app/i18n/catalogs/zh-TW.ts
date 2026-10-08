@@ -119,8 +119,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暫時略過",
   "onboarding.saveRoleError": "無法儲存你的角色。",
-  "onboarding.builderCreateAccount": "建立 Builder.io 帳戶",
-  "onboarding.builderSignInWithAccount": "使用 Builder.io 帳戶登入",
+  "onboarding.builderCreateAccount": "使用 Builder.io",
+  "onboarding.builderSignInWithAccount": "使用 Builder.io",
   "onboarding.builderActivateDescription":
     "只要按一下即可建立或重新使用您的 Builder.io 帳戶，並啟用免費額度。",
   "onboarding.builderActiveCredits": "包含於有效的 Builder.io 免費額度",
@@ -130,6 +130,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "每月 60 點 Agent Credits",
   "onboarding.builderIncludedFree": "免費包含",
   "onboarding.builderMoreServices": "+ {{count}} 項其他服務",
+  "onboarding.builderLlmCredits": "LLM 點數",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM 點數 + {{count}} 項其他服務",
+  "onboarding.builderAccountCreated": "已建立並連結 Builder.io 帳戶。",
   "onboarding.builderIncludedServices": "包含的服務",
   "onboarding.builderActivateTitle": "啟用免費額度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 帳戶",
@@ -143,11 +147,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "服務條款",
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
-  "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
+  "onboarding.builderExistingAccount": "使用 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
   "onboarding.builderProvisioningDescription":
-    "正在建立或重新使用您的 Builder.io 帳戶，通常需要幾秒鐘。",
+    "正在建立您的 Builder.io 帳戶並啟用免費額度。",
   "onboarding.builderConnectionDescription": "在新視窗中按一下即可完成連線。",
   "onboarding.builderReadyWithCodeChanges":
     "AI 點數與雲端程式碼變更已準備就緒。",
@@ -190,7 +194,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder 儲存空間或相容 S3 的儲存桶",
   "onboarding.capability.clipsObjectStorage.why":
-    "錄製的影片需要持久的物件儲存空間，才能播放或分享。",
+    "不連接儲存空間也能錄製、預覽和下載 Clips。連接持久物件儲存空間後，就能在不同裝置上查看並分享錄製內容。",
   "onboarding.capability.clipsTranscription.keySummary": "語音轉文字提供者金鑰",
   "onboarding.capability.about": "關於{{label}}",
   "onboarding.capability.why": "為什麼需要{{label}}",
@@ -384,6 +388,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.connectAbove": "請在上方連線 AI 以繼續...",
   "composer.connectBuilder": "使用 Builder.io",
   "composer.connectKeys": "連線金鑰",
+  "composer.connectAgent": "連線代理程式",
   "composer.connectingBuilder": "正在設定 Builder.io…",
   "composer.costHigher": "較高費用",
   "composer.costLower": "較低費用",
@@ -635,6 +640,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "不喜歡",
   "feedback.thumbsUp": "喜歡",
   "feedback.tooSlow": "太慢",
+  "feedback.reasonMisread": "誤解了我的請求",
+  "feedback.reasonNotDone": "說已完成，但實際並未完成",
+  "feedback.reasonWrongNumbers": "數字有誤",
+  "feedback.copyDetails": "複製詳細資料",
   "feedback.whatWentWrong": "哪裡出了問題？",
   "feedback.wrongTool": "工具錯誤",
   "header.switchToCli": "切換到 CLI",
@@ -952,6 +961,17 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "訊息操作",
   "message.copyMessage": "複製訊息",
   "message.copyRequestId": "複製要求 ID",
+  "message.usage": "用量",
+  "message.usageLoading": "正在載入用量…",
+  "message.usageUnavailable": "無法取得用量",
+  "message.usageNotRecorded": "未記錄用量",
+  "message.usageIncomplete": "部分用量無法分類，因此已隱藏總計。",
+  "message.usageReportedCost": "費用 {{amount}}",
+  "message.usageEstimatedCost": "預估費用 {{amount}}",
+  "message.usageBuilderCredits": "已使用的 Builder 點數 {{amount}}",
+  "message.usageEstimatedBuilderCredits": "預估的 Builder 點數 {{amount}}",
+  "message.usageMixedCost": "已回報與預估費用 {{amount}}",
+  "message.usageMixedBuilderCredits": "已回報與預估的 Builder 點數 {{amount}}",
   "message.requestIdUnavailable": "要求 ID 無法使用",
   "message.unavailable": "此訊息在此對話中已無法使用。",
   "message.navigationUnavailable": "對話導覽無法使用。",
@@ -1054,6 +1074,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "正在設定 Builder.io",
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
+  "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
   "recovery.retryAttachmentUnavailable":
     "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
   "recovery.deferredSubmissionFailed":
@@ -1078,6 +1099,10 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "已有 {{seconds}} 秒沒有進展。代理可能遇到伺服器逾時或連線中斷。",
   "recovery.stuckRetrying": "正在自動重試。",
+  "recovery.statusUnreadable":
+    "無法連線至伺服器檢查此對話，它可能已經完成。我們會持續嘗試。",
+  "recovery.statusMismatch": "伺服器顯示此對話已不再執行。重新載入以查看結果。",
+  "recovery.reload": "重新載入",
   "recovery.statusCheckFailed":
     "無法連線至伺服器以檢查代理是否仍在工作。請重新傳送訊息以重試。",
   "recovery.streamEnded":
@@ -1525,6 +1550,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "應用程式",
   "settings.usage.allApps": "所有應用程式",
   "settings.usage.unattributedApp": "未歸屬",
+  "settings.usage.unclassifiedUsage": "未分類的用量",
   "settings.usage.peopleFilterLabel": "成員",
   "settings.usage.everyone": "所有人",
   "settings.usage.justYou": "僅限你",
@@ -1643,6 +1669,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.retry": "重試",
   "settings.storage.adminOnly": "只有組織擁有者和管理員可以變更檔案儲存空間。",
   "settings.audit.action": "操作",
+  "settings.audit.agentVia": "透過 {{protocol}} 的代理",
   "settings.audit.allApps": "所有應用程式",
   "settings.audit.app": "應用程式",
   "settings.audit.changedBy": "變更者",
@@ -1907,7 +1934,8 @@ const messages: ToolkitAgentChatTranslation = {
     "這會影響 {{org}} 中所有未連結自己帳戶的人。",
   "settingsShell.builder.disconnectFailed": "無法中斷 Builder.io 的連結。",
   "settingsShell.builder.disconnectTitle": "要中斷 Builder.io 的連結嗎？",
-  "settingsShell.builder.grantsFailed": "無法讀取 Builder.io 連結。",
+  "settingsShell.builder.grantsFailed":
+    "連線狀態目前無法確認。請重試以再次檢查。",
   "settingsShell.builder.setupStartFailed":
     "無法啟動 Builder.io 設定。請重新整理此頁面後再試一次。",
   "settingsShell.builder.setupHostFailed":
@@ -2274,7 +2302,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "模型存取、瀏覽器自動化、檔案儲存和工作區身分。提供免費方案。",
   "settingsShell.integrations.builderStatusFailed":
-    "無法確認 Builder.io 連結。",
+    "連線狀態目前無法確認。請重試以再次檢查。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "設計",
   "settingsShell.integrations.category.engineering": "工程",
@@ -2416,6 +2444,11 @@ const messages: ToolkitAgentChatTranslation = {
     "可使用部署備援設定。使用您自己的 Builder.io 帳戶即可覆寫。",
   "settingsInfra.builderStorageHint":
     "物件儲存空間會保留上傳檔案，並讓網址在整個對話中重複使用。請使用下方的 Builder.io 或相容 S3 的儲存貯體。",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io 已連線，但目前無法儲存上傳的檔案。重新連線以授予上傳權限，或在下方設定儲存貯體。",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "無法確認 Builder.io 的上傳權限。請重試或在下方設定儲存貯體。",
+  "settingsInfra.reconnectBuilderUploads": "授予上傳權限",
   "settingsInfra.builderUnknown": "無法檢查 Builder.io 連線。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "連線",

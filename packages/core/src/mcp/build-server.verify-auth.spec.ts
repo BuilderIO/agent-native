@@ -41,6 +41,20 @@ vi.mock("./credential-membership.js", () => ({
     checkCredentialEmailRetirementMock(...a),
 }));
 
+const evaluateServicePrincipalMock = vi.fn();
+const recordServicePrincipalDenialMock = vi.fn();
+vi.mock("../org/service-principal-policy.js", async (importActual) => ({
+  ...(await importActual<
+    typeof import("../org/service-principal-policy.js")
+  >()),
+  evaluateServicePrincipal: (...a: any[]) => evaluateServicePrincipalMock(...a),
+}));
+vi.mock("../org/service-principal-guard.js", async (importActual) => ({
+  ...(await importActual<typeof import("../org/service-principal-guard.js")>()),
+  recordServicePrincipalDenial: (...a: any[]) =>
+    recordServicePrincipalDenialMock(...a),
+}));
+
 const { resolveMcpIdentityOrgId, verifyAuth } =
   await import("./build-server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
@@ -63,6 +77,11 @@ async function sign(
 describe("verifyAuth — connect-token revoke check", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    evaluateServicePrincipalMock.mockImplementation(async (email: string) =>
+      /^svc-.+@service\./.test(email)
+        ? { status: "ungoverned", orgId: "org_123", serviceName: "ci" }
+        : { status: "not-service" },
+    );
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue(null);
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
@@ -152,6 +171,147 @@ describe("verifyAuth — connect-token revoke check", () => {
     );
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
     expect(isJtiRevokedMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves a same-secret connect subject after its stored JTI identity matches", async () => {
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: SECRET,
+    });
+    isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      kind: "personal",
+      ownerEmail: "alice@builder.io",
+      orgId: "org-builder",
+    });
+    const token = await sign({
+      sub: "alice@builder.io",
+      scope: "mcp-connect",
+      jti: "jti-same-secret",
+      org_domain: "builder.io",
+    });
+
+    const res = await verifyAuth(`Bearer ${token}`);
+
+    expect(res.authed).toBe(true);
+    expect(res.identity).toEqual({
+      userEmail: "alice@builder.io",
+      identityAssurance: "user",
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-same-secret");
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-same-secret");
+    expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-same-secret");
+  });
+
+  it.each([
+    {
+      label: "unknown JTI",
+      claims: {
+        sub: "alice@builder.io",
+        jti: "jti-unknown-same-secret",
+      },
+      stored: { status: "missing" as const },
+    },
+    {
+      label: "different stored owner",
+      claims: { sub: "alice@builder.io", jti: "jti-other-owner" },
+      stored: {
+        status: "found" as const,
+        kind: "personal" as const,
+        ownerEmail: "bob@builder.io",
+        orgId: "org-builder",
+      },
+    },
+    {
+      label: "different claimed organization",
+      claims: {
+        sub: "alice@builder.io",
+        jti: "jti-other-org",
+        org_id: "org-other",
+      },
+      stored: {
+        status: "found" as const,
+        kind: "personal" as const,
+        ownerEmail: "alice@builder.io",
+        orgId: "org-builder",
+      },
+    },
+  ])(
+    "rejects a same-secret connect token with $label",
+    async ({ claims, stored }) => {
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-builder",
+        orgDomain: "builder.io",
+        secret: SECRET,
+      });
+      isJtiRevokedMock.mockResolvedValue(false);
+      lookupConnectTokenOrgMock.mockResolvedValue(stored);
+      const token = await sign({
+        ...claims,
+        scope: "mcp-connect",
+        org_domain: "builder.io",
+      });
+
+      const res = await verifyAuth(`Bearer ${token}`);
+
+      expect(res).toEqual({ authed: false });
+      expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+      expect(touchTokenUsedMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a revoked same-secret connect token before resolving its identity", async () => {
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: SECRET,
+    });
+    isJtiRevokedMock.mockResolvedValue(true);
+    const token = await sign({
+      sub: "alice@builder.io",
+      scope: "mcp-connect",
+      jti: "jti-revoked-same-secret",
+      org_domain: "builder.io",
+    });
+
+    const res = await verifyAuth(`Bearer ${token}`);
+
+    expect(res).toEqual({ authed: false });
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it("still ignores the subject of an ordinary org token when secrets match", async () => {
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: SECRET,
+    });
+    const token = await sign({
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+    });
+
+    const res = await verifyAuth(`Bearer ${token}`);
+
+    expect(res).toEqual({
+      authed: true,
+      identity: {
+        userEmail: undefined,
+        identityAssurance: "organization",
+        orgId: "org-builder",
+        orgDomain: "builder.io",
+      },
+      fullSurface: true,
+      fullCatalog: false,
+    });
+    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
   it("ignores a forged subject on an org-secret token", async () => {
@@ -443,6 +603,91 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(res.fullSurface).toBe(true);
     expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-svc");
+  });
+
+  describe("service principal governance", () => {
+    async function serviceToken(jti: string) {
+      isJtiRevokedMock.mockResolvedValue(false);
+      lookupConnectTokenOrgMock.mockResolvedValue({
+        status: "found",
+        kind: "service",
+        ownerEmail: "svc-ci@service.org_123",
+        orgId: "org_123",
+      });
+      return sign({
+        sub: "svc-ci@service.org_123",
+        scope: "mcp-connect",
+        jti,
+        org_id: "org_123",
+      });
+    }
+
+    it.each(["suspended", "retired"])(
+      "refuses a %s service principal without marking the token used",
+      async (status) => {
+        evaluateServicePrincipalMock.mockResolvedValue({
+          status,
+          policy: { lifecycle: status },
+        });
+        const token = await serviceToken("jti-svc-inactive");
+        const res = await verifyAuth(`Bearer ${token}`);
+        expect(res).toEqual({ authed: false });
+        expect(evaluateServicePrincipalMock).toHaveBeenCalledWith(
+          "svc-ci@service.org_123",
+          "org_123",
+        );
+        expect(touchTokenUsedMock).not.toHaveBeenCalled();
+        expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            actionName: "mcp:admission",
+            caller: "mcp",
+            error: expect.objectContaining({ statusCode: 403 }),
+          }),
+        );
+      },
+    );
+
+    it("answers retryable unavailable when the policy cannot be read", async () => {
+      evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
+      const token = await serviceToken("jti-svc-unavailable");
+      const res = await verifyAuth(`Bearer ${token}`);
+      expect(res).toEqual({ authed: false, unavailable: true });
+      expect(touchTokenUsedMock).not.toHaveBeenCalled();
+      expect(recordServicePrincipalDenialMock).not.toHaveBeenCalled();
+    });
+
+    it("admits an active governed principal", async () => {
+      evaluateServicePrincipalMock.mockResolvedValue({
+        status: "active",
+        policy: { lifecycle: "active", allowedActions: ["read-*"] },
+      });
+      const token = await serviceToken("jti-svc-active");
+      const res = await verifyAuth(`Bearer ${token}`);
+      expect(res.authed).toBe(true);
+      expect(res.identity?.identityAssurance).toBe("service");
+    });
+
+    it("admits an ungoverned (legacy) principal unchanged", async () => {
+      const token = await serviceToken("jti-svc-legacy");
+      const res = await verifyAuth(`Bearer ${token}`);
+      expect(res.authed).toBe(true);
+    });
+
+    it("refuses a suspended principal on a first-party cross-app token too", async () => {
+      evaluateServicePrincipalMock.mockResolvedValue({
+        status: "suspended",
+        policy: { lifecycle: "suspended" },
+      });
+      const token = await sign({
+        sub: "svc-ci@service.org_123",
+        scope: "mcp-connect",
+        jti: "jti-first-party-svc",
+        org_id: "org_123",
+        agent_native_first_party_mcp: true,
+      });
+      const res = await verifyAuth(`Bearer ${token}`);
+      expect(res.authed).toBe(false);
+    });
   });
 
   it("rejects a revoked org SERVICE token (same revocation gate as personal)", async () => {

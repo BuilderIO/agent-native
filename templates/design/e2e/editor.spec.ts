@@ -68,15 +68,29 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
+// oracle: none — verifies which controls render, not parity with a design reference.
 test("editor renders the toolbar and the design iframe content", async ({
   page,
 }) => {
   const toolbar = page.locator("[data-design-bottom-toolbar]");
-  for (const tool of ["Move", "Frame", "Text", "Pen", "Edit", "Interact"]) {
+  for (const tool of ["Move", "Frame", "Text", "Pen"]) {
     await expect(
       toolbar.getByRole("button", { name: tool, exact: true }),
     ).toBeVisible();
   }
+  const modeSwitch = page.locator(
+    "[data-design-top-bar] [data-design-mode-switch]",
+  );
+  await expect(modeSwitch.locator("[data-design-mode]")).toHaveText([
+    "Interact",
+    "Design",
+    "Annotate",
+  ]);
+  await expect(modeSwitch.locator('[data-design-mode="edit"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(toolbar.locator("[data-design-mode]")).toHaveCount(0);
   await expect(designFrame(page).getByText("E2E Hero Heading")).toBeVisible();
   const nodeCount = await designFrame(page)
     .locator("h1, h2, p, button")
@@ -151,6 +165,7 @@ test("agent rail stays contained at a narrow viewport", async ({
   await cdpScreenshot(page, testInfo.outputPath("design-agent-narrow.png"));
 });
 
+// oracle: none — verifies viewport bounds, not parity with a design reference.
 test("designs list shared sidebar stays contained at normal and narrow widths", async ({
   page,
 }, testInfo) => {
@@ -160,9 +175,7 @@ test("designs list shared sidebar stays contained at normal and narrow widths", 
   await page.getByRole("button", { name: "Toggle agent", exact: true }).click();
   const sidebar = page.locator('[data-agent-sidebar-state="open"]');
   await expect(sidebar).toBeVisible();
-  await expect(
-    sidebar.getByRole("button", { name: "New chat", exact: true }),
-  ).toBeVisible();
+  await expect(sidebar.locator('button[aria-label="New chat"]')).toBeVisible();
   await expect(
     sidebar.getByRole("button", {
       name: "Agent panel options",
@@ -276,39 +289,76 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   }
 });
 
-test("right rail actions row keeps the Share button inside the panel", async ({
+// oracle: none — verifies which shell carries the moved controls, not parity with a design reference.
+test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs", async ({
+  page,
+}) => {
+  await page.goto(appPath(`/visual-edit/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
+  const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
+  await expect(rightPanel).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("[data-design-top-bar]")).toHaveCount(0);
+  await expect(
+    rightPanel.getByRole("button", { name: /^share/i }).first(),
+  ).toBeVisible();
+  await expect(
+    rightPanel.getByRole("button", { name: /^\d+%$/ }),
+  ).toBeVisible();
+  const toolbar = page.locator("[data-design-bottom-toolbar]");
+  for (const tab of ["Annotate", "Edit", "Interact"]) {
+    await expect(
+      toolbar.getByRole("button", { name: tab, exact: true }),
+    ).toBeVisible();
+  }
+});
+
+// oracle: none — verifies the top bar's own height and containment, not parity with a design reference.
+test("top bar is 48px and keeps Share, presence and zoom inside the bar", async ({
   page,
 }, testInfo) => {
-  const actionsRow = page.locator(
-    '[data-design-chrome-region="right-toolbar-actions"]',
-  );
-  await expect(actionsRow).toBeVisible();
+  const topBar = page.locator("[data-design-top-bar]");
+  await expect(topBar).toBeVisible();
+  const barBox = await topBar.boundingBox();
+  if (!barBox) throw new Error("missing top bar box");
+  expect(barBox.y).toBe(0);
+  expect(barBox.height).toBe(48);
+  const leftShellBox = await page
+    .locator('[data-design-chrome-region="left-shell"]')
+    .boundingBox();
+  if (!leftShellBox) throw new Error("missing left shell box");
+  expect(leftShellBox.y).toBe(0);
+  expect(barBox.x).toBe(leftShellBox.x + leftShellBox.width);
 
   await expect(
     page.getByRole("button", { name: "Add to Context" }),
   ).toHaveCount(0);
 
-  const shareButton = page
+  const shareButton = topBar
     .getByRole("button", { name: /^share(?: \(.+\))?$/i })
     .first();
   await expect(shareButton).toBeVisible();
-
-  const rowBox = await actionsRow.boundingBox();
   const shareBox = await shareButton.boundingBox();
-  if (!rowBox || !shareBox) throw new Error("missing right rail action boxes");
-
-  expect(shareBox.width).toBeGreaterThan(0);
-  expect(shareBox.x).toBeGreaterThanOrEqual(rowBox.x - 1);
+  if (!shareBox) throw new Error("missing Share box");
+  expect(shareBox.x).toBeGreaterThanOrEqual(barBox.x - 1);
   expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(
-    rowBox.x + rowBox.width + 1,
+    barBox.x + barBox.width + 1,
   );
   expect(
-    await actionsRow.evaluate((node) => node.scrollWidth - node.clientWidth),
+    await topBar.evaluate((node) => node.scrollWidth - node.clientWidth),
   ).toBeLessThanOrEqual(1);
+  await expect(topBar.getByRole("button", { name: /^\d+%$/ })).toBeVisible();
 
-  await cdpScreenshot(page, testInfo.outputPath("editor-share-toolbar.png"));
+  // The rail no longer carries the moved controls.
+  const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
+  await expect(rightPanel.getByRole("button", { name: /^share/i })).toHaveCount(
+    0,
+  );
+
+  await cdpScreenshot(page, testInfo.outputPath("editor-top-bar.png"));
 });
 
+// oracle: none — verifies app-specific breakpoint control routing; native Figma behavior is unmeasured.
 test("screen overview adds and targets frames from the unified breakpoint control", async ({
   page,
 }) => {
@@ -331,8 +381,25 @@ test("screen overview adds and targets frames from the unified breakpoint contro
     await route.fulfill({ response });
   });
 
-  const breakpointControl = page.locator("[data-breakpoint-device-control]");
   try {
+    const fixtureDesignId = await createFixtureDesign(
+      page,
+      "E2E Unified Breakpoint Control",
+    );
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto(
+      appPath(`/design/${fixtureDesignId}?view=overview&zoom=24`),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
+    await page
+      .locator("aside")
+      .first()
+      .getByRole("button", { name: "All screens", exact: true })
+      .click();
+    await expect(page.locator("[data-screen-card]").first()).toBeVisible();
+
+    const breakpointControl = page.locator("[data-breakpoint-device-control]");
     await expect(
       breakpointControl.getByRole("button", { name: "Base" }),
     ).toHaveAttribute("aria-pressed", "true");

@@ -43,6 +43,7 @@ const DIRECT_MCP_READS = [
   "get-data-program",
   "get-error-issue",
   "get-first-party-analytics-health",
+  "get-onboarding-journey",
   "get-session-replay-summary",
   "get-session-replay-timeline",
   "get-sql-dashboard",

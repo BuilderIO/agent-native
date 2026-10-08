@@ -1698,7 +1698,7 @@ describe("Builder callback CSRF state", () => {
             type: "upload",
             contentType: "image/png",
             name: "preview.png",
-            dataUrl: "data:image/png;base64,ZmFrZQ==",
+            dataUrl: "data:image/png;charset=binary;base64,ZmFrZQ==",
             size: 5,
             id: "file-image",
           },

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import {
+  buildShareAttributedSignUpHref,
   buildShareCopyHref,
   buildShareSignInHref,
   buildShareSignUpHref,
@@ -15,8 +16,25 @@ import {
 
 const writeClipboardText = vi.hoisted(() => vi.fn());
 const trackEvent = vi.hoisted(() => vi.fn());
+const appBasePathState = vi.hoisted(() => ({ value: "" }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appBasePath: () => appBasePathState.value,
+  appPath: (path: string) => {
+    const basePath = appBasePathState.value;
+    if (
+      !basePath ||
+      path === basePath ||
+      path.startsWith(`${basePath}/`) ||
+      !path.startsWith("/")
+    ) {
+      return path;
+    }
+    return `${basePath}${path}`;
+  },
+}));
 
 vi.mock("@agent-native/toolkit/clipboard", () => ({
   writeClipboardText,
@@ -30,10 +48,12 @@ function expectSignInHref(
   href: string | null | undefined,
   returnTo: string,
   tab?: "signup",
+  pathname = "/sign-in",
+  extraParams: Record<string, string> = {},
 ) {
   expect(href).toBeTypeOf("string");
   const url = new URL(href!, "https://clips.example.test");
-  expect(url.pathname).toBe("/sign-in");
+  expect(url.pathname).toBe(pathname);
   const continuation = url.searchParams.get("c");
   expect(continuation).not.toBeNull();
   expect(
@@ -42,7 +62,10 @@ function expectSignInHref(
     ),
   ).toBe(returnTo);
   url.searchParams.delete("c");
-  expect(Object.fromEntries(url.searchParams)).toEqual(tab ? { tab } : {});
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    ...(tab ? { tab } : {}),
+    ...extraParams,
+  });
 }
 
 describe("SignedOutShareActions", () => {
@@ -50,6 +73,7 @@ describe("SignedOutShareActions", () => {
   let root: Root;
 
   beforeEach(() => {
+    appBasePathState.value = "";
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -131,6 +155,29 @@ describe("SignedOutShareActions", () => {
       links[1]?.getAttribute("href"),
       "/share/clip/1?at=90&panel=comments",
       "signup",
+    );
+  });
+
+  it("mounts signup continuation and attribution under the app base path", () => {
+    appBasePathState.value = "/clips";
+
+    const href = buildShareAttributedSignUpHref(
+      "/share/clip-1?ref=clip_share&via=owner-1&at=90",
+      "owner-1",
+    );
+
+    expectSignInHref(
+      href,
+      "/clips/share/clip-1?ref=clip_share&via=owner-1&at=90",
+      "signup",
+      "/clips/sign-in",
+      { ref: "clip_share", via: "owner-1" },
+    );
+    expectSignInHref(
+      buildShareSignUpHref("clip-1", "90"),
+      "/clips/share/clip-1?at=90",
+      "signup",
+      "/clips/sign-in",
     );
   });
 

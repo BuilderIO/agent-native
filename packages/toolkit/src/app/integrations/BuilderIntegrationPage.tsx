@@ -420,12 +420,16 @@ function DisconnectOrgDialog({
   orgName,
   usages,
   loading,
+  failed,
+  onRetry,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   orgName: string;
   usages: readonly BuilderUsage[];
   loading: boolean;
+  failed: boolean;
+  onRetry: () => void;
 }) {
   const t = useT();
   const disconnect = useDisconnectBuilder();
@@ -497,6 +501,22 @@ function DisconnectOrgDialog({
             )}
           </ul>
         </div>
+        {failed ? (
+          <Alert variant="destructive">
+            <IconAlertCircle aria-hidden="true" />
+            <AlertDescription className="flex items-center justify-between gap-3">
+              <span>{t(`${K}.usedForLoadFailed`)}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onRetry}
+              >
+                {t(`${K}.retry`)}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
         {error ? (
           <Alert variant="destructive">
             <IconAlertCircle aria-hidden="true" />
@@ -868,6 +888,8 @@ export function BuilderIntegrationPage({
         orgName={orgName}
         usages={usage.usages}
         loading={usage.loading}
+        failed={usage.failed}
+        onRetry={usage.retry}
       />
     </div>
   );

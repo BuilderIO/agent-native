@@ -440,6 +440,28 @@ describe("ShareButton", () => {
     ).toBe("recover-me@example.com");
   });
 
+  it("opens without a trigger when invoked from an external menu", async () => {
+    popoverTestState.simulateMounting = true;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            defaultOpen
+            hideTrigger
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.querySelector('button[aria-label="Share"]')).toBeNull();
+    expect(
+      container.querySelector("[data-agent-native-share-overlay]"),
+    ).not.toBeNull();
+  });
+
   it("shows the copy action for share URLs regardless of visibility", async () => {
     await act(async () => {
       root.render(

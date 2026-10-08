@@ -5,6 +5,7 @@ import { useLoaderData, useSearchParams } from "react-router";
 
 import { BuildOnlinePopover } from "../components/BuilderWaitlistPopover";
 import {
+  SHOW_COMMUNITY_APPS,
   communityApps as seedCommunityApps,
   type CommunityApp,
 } from "../components/community-apps";
@@ -32,7 +33,10 @@ export default function TemplatesPage() {
   const { data: communityCatalog } = useActionQuery(
     "list-community-apps",
     {},
-    { enabled: typeof window !== "undefined", staleTime: 30_000 },
+    {
+      enabled: SHOW_COMMUNITY_APPS && typeof window !== "undefined",
+      staleTime: 30_000,
+    },
   );
   const communityApps: CommunityApp[] = communityCatalog?.apps ?? seedApps;
   const [searchParams] = useSearchParams();
@@ -80,9 +84,9 @@ export default function TemplatesPage() {
                 {t("templatesPage.firstPartyTitle")}
               </h2>
             </div>
-            {/* Breaks back out of the section's padding so the cards touch at
-                the full content measure, like the homepage app rail. */}
-            <div className="-mx-4 grid min-w-0 border-s border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-0 sm:-mx-6 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Breaks back out of the section's padding so cards fill the
+                content measure while keeping their gutters. */}
+            <div className="-mx-4 grid min-w-0 gap-1 bg-[var(--b-bg-page)] p-0 sm:-mx-6 sm:grid-cols-2 lg:grid-cols-3">
               {featuredTemplates.map((template) => (
                 <TemplateCard key={template.name} template={template} />
               ))}
@@ -136,65 +140,63 @@ export default function TemplatesPage() {
             </div>
           </section>
 
-          {/* Same shape as the first-party section above: break out of the page
-              padding so the top rule spans the full measure, then restore it so
-              the heading stays aligned with the rest of the page. */}
-          <section
-            className="-mx-4 border-t border-solid border-[var(--b-border-default)] px-4 sm:-mx-6 sm:px-6"
-            aria-labelledby="community-apps-heading"
-          >
-            {/* Same opaque heading band as the first-party section above. */}
-            <div className="-mx-[15px] bg-[var(--b-bg-page)] px-[15px] pt-16 pb-6 sm:-mx-[23px] sm:px-[23px]">
-              <div className="max-w-[720px]">
-                <h2
-                  id="community-apps-heading"
-                  className={`m-0 ${SECTION_HEADING_CLASS}`}
-                >
-                  {t("templatesPage.communityTitle")}
-                </h2>
-                <p className="mt-4 mb-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
-                  {t("templatesPage.communityDescription")}
+          {SHOW_COMMUNITY_APPS ? (
+            <section
+              className="-mx-4 border-t border-solid border-[var(--b-border-default)] px-4 sm:-mx-6 sm:px-6"
+              aria-labelledby="community-apps-heading"
+            >
+              <div className="-mx-[15px] bg-[var(--b-bg-page)] px-[15px] pt-16 pb-6 sm:-mx-[23px] sm:px-[23px]">
+                <div className="max-w-[720px]">
+                  <h2
+                    id="community-apps-heading"
+                    className={`m-0 ${SECTION_HEADING_CLASS}`}
+                  >
+                    {t("templatesPage.communityTitle")}
+                  </h2>
+                  <p className="mt-4 mb-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t("templatesPage.communityDescription")}
+                  </p>
+                </div>
+              </div>
+
+              {communityApps.length > 0 ? (
+                <div className="-mx-4 grid min-w-0 gap-1 bg-[var(--b-bg-page)] p-0 sm:-mx-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {communityApps.map((app) => (
+                    <CommunityAppCard key={app.slug} app={app} />
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="flex flex-col items-center gap-[var(--spacing-4)] pt-[120px] pb-16 text-center">
+                <h3 className={`m-0 ${SECTION_HEADING_CLASS}`}>
+                  {t("templatesPage.communitySubmissionTitle")}
+                </h3>
+                <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                  {t("templatesPage.communitySubmissionDescription")}
+                </p>
+                <div className="mt-[var(--spacing-2)] flex flex-col items-center gap-[var(--spacing-4)]">
+                  <CommunityAppSubmissionDialog />
+                  {submissionReceived ? (
+                    <p
+                      role="status"
+                      className="m-0 font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-secondary)]"
+                    >
+                      {t("templatesPage.communitySubmissionReady")}
+                    </p>
+                  ) : null}
+                </div>
+                <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-muted)]">
+                  {t("templatesPage.communityTrust")}{" "}
+                  <a
+                    href={sitePathForLocale("/docs/creating-templates", locale)}
+                    className="text-[var(--b-text-link)] underline underline-offset-2"
+                  >
+                    {t("templatesPage.publishGuide")}
+                  </a>
                 </p>
               </div>
-            </div>
-
-            {communityApps.length > 0 ? (
-              <div className="-mx-4 grid min-w-0 border-s border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-0 sm:-mx-6 sm:grid-cols-2 lg:grid-cols-3">
-                {communityApps.map((app) => (
-                  <CommunityAppCard key={app.slug} app={app} />
-                ))}
-              </div>
-            ) : null}
-
-            <div className="flex flex-col items-center gap-[var(--spacing-4)] pt-[120px] pb-16 text-center">
-              <h3 className={`m-0 ${SECTION_HEADING_CLASS}`}>
-                {t("templatesPage.communitySubmissionTitle")}
-              </h3>
-              <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
-                {t("templatesPage.communitySubmissionDescription")}
-              </p>
-              <div className="mt-[var(--spacing-2)] flex flex-col items-center gap-[var(--spacing-4)]">
-                <CommunityAppSubmissionDialog />
-                {submissionReceived ? (
-                  <p
-                    role="status"
-                    className="m-0 font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-secondary)]"
-                  >
-                    {t("templatesPage.communitySubmissionReady")}
-                  </p>
-                ) : null}
-              </div>
-              <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-muted)]">
-                {t("templatesPage.communityTrust")}{" "}
-                <a
-                  href={sitePathForLocale("/docs/creating-templates", locale)}
-                  className="text-[var(--b-text-link)] underline underline-offset-2"
-                >
-                  {t("templatesPage.publishGuide")}
-                </a>
-              </p>
-            </div>
-          </section>
+            </section>
+          ) : null}
         </GridInner>
       </PageSection>
     </div>

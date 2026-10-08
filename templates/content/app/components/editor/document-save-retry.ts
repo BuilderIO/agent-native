@@ -31,11 +31,13 @@ type SaveOwner = {
 export function pendingSaveRetrySnapshot(
   result: PageSaveResult,
   pending: SaveOwner,
-  current: SaveOwner & SaveSnapshot & { canEdit: boolean },
+  current: SaveOwner & SaveSnapshot & { active: boolean; canEdit: boolean },
 ): SaveSnapshot | null {
   if (
     result.contentPersisted ||
+    result.outcome === "abandoned" ||
     result.outcome === "pending_preservation" ||
+    !current.active ||
     !current.canEdit ||
     current.contentEditVersion !== pending.contentEditVersion ||
     current.editGeneration !== pending.editGeneration ||
@@ -57,7 +59,7 @@ export function pendingSaveRetrySnapshot(
   const recovery = result.recoveryDraft;
   if (!recovery) return null;
   return {
-    title: recovery.title,
+    title: current.title,
     content: recovery.content,
     contentBase:
       recovery.baseContent === undefined

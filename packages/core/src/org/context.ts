@@ -943,50 +943,38 @@ async function releaseClaim(
 }
 
 export async function getOrgDomain(orgId: string): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
-      args: [orgId],
-    });
-    if (!rows[0]) return null;
-    const domain = String((rows[0] as any).allowed_domain || "");
-    return domain || null;
-  } catch {
-    return null;
-  }
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+    args: [orgId],
+  });
+  if (!rows[0]) return null;
+  const domain = String((rows[0] as any).allowed_domain || "");
+  return domain || null;
 }
 
 export async function getOrgA2ASecret(orgId: string): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
-      args: [orgId],
-    });
-    if (!rows[0]) return null;
-    const secret = String((rows[0] as any).a2a_secret || "");
-    return secret || null;
-  } catch {
-    return null;
-  }
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+    args: [orgId],
+  });
+  if (!rows[0]) return null;
+  const secret = String((rows[0] as any).a2a_secret || "");
+  return secret || null;
 }
 
 export async function getA2ASecretByDomain(
   domain: string,
 ): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
-      args: [domain.toLowerCase()],
-    });
-    if (!rows[0]) return null;
-    const secret = String((rows[0] as any).a2a_secret || "");
-    return secret || null;
-  } catch {
-    return null;
-  }
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+    args: [domain.toLowerCase()],
+  });
+  if (!rows[0]) return null;
+  const secret = String((rows[0] as any).a2a_secret || "");
+  return secret || null;
 }
 
 export async function resolveOrgByDomain(

@@ -2,8 +2,15 @@ import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { describe, expect, it } from "vitest";
 
+import {
+  agentChatContentFromImages,
+  imageAttachmentsFromUploadedFiles,
+  MissingVisualImagePayloadError,
+} from "@/lib/chat-image-attachments";
+
 import { designFinalResponseGuard } from "../../../server/lib/design-response-guard";
 import {
+  builderDesignEmbedSubmitData,
   designGenerationDirectives,
   designIntakeQuestionDirectives,
   designTemplateRefinementDirectives,
@@ -11,6 +18,74 @@ import {
   structuralReferenceDirectives,
 } from "./generation-prompt-directives";
 import type { IntakeTopicCoverage } from "./intake-question-topics";
+
+describe("imageAttachmentsFromUploadedFiles", () => {
+  it("requires a visual payload for every attached image", () => {
+    expect(() =>
+      imageAttachmentsFromUploadedFiles([
+        { type: "image/png", originalName: "reference.png" },
+      ]),
+    ).toThrow(MissingVisualImagePayloadError);
+  });
+
+  it("returns visual image data and ignores non-image files", () => {
+    const image = "data:image/png;base64,AAAA";
+
+    expect(
+      imageAttachmentsFromUploadedFiles([
+        { type: "image/png", originalName: "reference.png", dataUrl: image },
+        { type: "application/pdf", originalName: "brief.pdf" },
+      ]),
+    ).toEqual([image]);
+  });
+});
+
+describe("agentChatContentFromImages", () => {
+  it("puts image data in MCP content alongside the visible user message", () => {
+    expect(
+      agentChatContentFromImages("Review this screenshot", [
+        "data:IMAGE/JPG;base64,AQID",
+      ]),
+    ).toEqual([
+      { type: "text", text: "Review this screenshot" },
+      { type: "image", data: "AQID", mimeType: "image/jpeg" },
+    ]);
+  });
+
+  it("rejects image data the host relay cannot deliver", () => {
+    expect(() =>
+      agentChatContentFromImages("Review this screenshot", [
+        "data:image/bmp;base64,AQID",
+      ]),
+    ).toThrow(MissingVisualImagePayloadError);
+  });
+});
+
+describe("builderDesignEmbedSubmitData", () => {
+  it("includes reference pixels in the host submit envelope", () => {
+    const image = "data:IMAGE/JPG;charset=binary;base64,AQID";
+
+    expect(
+      builderDesignEmbedSubmitData("Match this screenshot", [image]),
+    ).toEqual({
+      message: "Match this screenshot",
+      submit: true,
+      images: [image],
+      content: [
+        { type: "text", text: "Match this screenshot" },
+        { type: "image", data: "AQID", mimeType: "image/jpeg" },
+      ],
+      context: expect.stringContaining("1 visual reference image(s)"),
+    });
+  });
+
+  it("keeps text-only host submissions free of image fields", () => {
+    expect(builderDesignEmbedSubmitData("Build a calendar", [])).toEqual({
+      message: "Build a calendar",
+      submit: true,
+    });
+  });
+});
 
 describe("designTemplateRefinementDirectives", () => {
   it("uses copy-first editing instructions without a positive fresh-generation directive", () => {
@@ -72,6 +147,20 @@ describe("designIntakeQuestionDirectives", () => {
     expect(text).toContain("could not be checked");
     expect(text).toContain("context service down");
     expect(text).toContain('not treat it as "nothing saved"');
+  });
+
+  it("uses an attached screenshot as the complete generation brief", () => {
+    const intake = designIntakeQuestionDirectives("design-1", null, 1).join(
+      "\n",
+    );
+    const generation = designGenerationDirectives("design-1", null, 1).join(
+      "\n",
+    );
+
+    expect(intake).toBe(generation);
+    expect(generation).toContain("Inspect the actual image pixels");
+    expect(generation).toContain("ask the user to attach it again");
+    expect(generation).not.toContain("If the user asked to explore variations");
   });
 });
 

@@ -41,6 +41,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
+import { shouldInvalidateDesignQueryForSync } from "@/lib/design-sync-invalidation";
 import {
   requestDesignHistoryOpen,
   requestDesignUiToggle,
@@ -125,6 +126,7 @@ export function DbSyncSetup() {
     queryClient: qc,
     queryKeys: ["designs", "design-systems", "design-files"],
     ignoreSource: getBrowserTabId(),
+    actionInvalidatePredicate: shouldInvalidateDesignQueryForSync,
     realtime: isPrivateDesignEditorPath(location.pathname)
       ? { reason: "collaborators can edit this design while it is open" }
       : undefined,

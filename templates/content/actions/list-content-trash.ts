@@ -118,10 +118,11 @@ const cursorSchema = z
 
 export default defineAction({
   description:
-    "Search cursor-paginated authorized Trash items, or browse root groups and their nested members. Returns metadata only.",
+    "Search cursor-paginated authorized Trash items, or browse root groups and their nested members. Returns metadata only, including each item's trashedAt and trashRootId. Restore pages with restore-document; restore collections with restore-content-database, using the revision from list-trashed-content-databases.",
   schema: inputSchema,
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   run: async (args): Promise<ListContentTrashResponse> => {
     const email = getRequestUserEmail();
     if (!email)

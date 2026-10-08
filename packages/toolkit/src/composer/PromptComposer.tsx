@@ -33,6 +33,7 @@ import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
 import { IMAGE_ATTACHMENT_ACCEPT } from "./attachment-accept.js";
 import {
+  CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
   TextAttachmentAdapter,
 } from "./attachment-accept.js";
@@ -97,7 +98,7 @@ export interface PromptComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
-  /** When provided, both + and @ open this shared Add menu. */
+  /** When provided, + opens this shared Add menu; a typed @ also suggests its context sources. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /** Called when the user submits the composer. */
   onSubmit: (
@@ -312,6 +313,20 @@ class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return { ...(await super.add(state)), id: crypto.randomUUID() };
   }
+}
+
+// SVGs never match the raster adapter, so agent chat stages them as reference
+// documents rather than images a model would try to read as pixels.
+class ChatDocumentAttachmentAdapter extends BinaryDocumentAttachmentAdapter {
+  public accept = CHAT_DOCUMENT_ATTACHMENT_ACCEPT;
+}
+
+export function createChatAttachmentAdapter(): AttachmentAdapter {
+  return new CompositeAttachmentAdapter([
+    new RasterImageAttachmentAdapter(),
+    new ChatDocumentAttachmentAdapter(),
+    new TextAttachmentAdapter(),
+  ]);
 }
 
 function isInlineableTextFile(file: File): boolean {

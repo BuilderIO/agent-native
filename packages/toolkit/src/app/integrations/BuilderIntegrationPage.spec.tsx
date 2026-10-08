@@ -587,7 +587,7 @@ describe("BuilderIntegrationPage", () => {
     await render(member);
 
     expect(container.textContent).toContain(
-      "Couldn't read the Builder.io connections.",
+      "Connection status is unavailable. Retry to check again.",
     );
     expect(container.textContent).not.toContain("Not connected");
   });

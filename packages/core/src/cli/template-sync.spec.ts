@@ -27,6 +27,7 @@ import {
   resolveBaselineStore,
 } from "./template-baseline.js";
 import {
+  downloadTemplateLayer,
   isMergeExcluded,
   materializeTemplate,
   mergeTemplateTrees,
@@ -34,6 +35,7 @@ import {
   resolveTargets,
   runTemplate,
 } from "./template-sync.js";
+import { BUILDER_CODE_STARTER_SKILLS } from "./workspace-skill-policy.js";
 import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
@@ -381,6 +383,104 @@ describe("materializeTemplate", () => {
     }
     fs.rmSync(materialized.dir, { recursive: true, force: true });
   }, 180_000);
+
+  it("materializes builder-code-starter as a layer over Chat", async () => {
+    const materialized = await materializeTemplate({
+      appName: "app",
+      template: "builder-code-starter",
+      ref: null,
+      shape: "standalone",
+    });
+    const bundled = path.resolve(import.meta.dirname, "..", "templates");
+    const skillFile = (root: string, skill: string) =>
+      fs.readFileSync(path.join(root, ".agents/skills", skill, "SKILL.md"));
+
+    expect(
+      fs.readdirSync(path.join(materialized.dir, ".agents/skills")).sort(),
+    ).toEqual([...BUILDER_CODE_STARTER_SKILLS].sort());
+    expect(
+      fs.existsSync(
+        path.join(
+          bundled,
+          "builder-code-starter/.agents/skills/storing-data/SKILL.md",
+        ),
+      ),
+    ).toBe(false);
+    expect(skillFile(materialized.dir, "storing-data").toString()).toContain(
+      "managed Drizzle scaffold is the only app migration path",
+    );
+    expect(skillFile(materialized.dir, "security")).toEqual(
+      skillFile(path.join(bundled, "chat"), "security"),
+    );
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(materialized.dir, "package.json"), "utf-8"),
+    );
+    expect(pkg.name).toBe("app");
+    expect(pkg["agent-native"].scaffold).toMatchObject({
+      template: "builder-code-starter",
+      frameworkSkills: "default",
+      shape: "standalone",
+      templateRef: expect.any(String),
+      coreVersion: expect.any(String),
+    });
+    expect(pkg.scripts["migrate:production"]).toBe(
+      "tsx scripts/migrate-production.ts && pnpm db:migrate",
+    );
+    // Shared with Chat, not copied: the layer's base supplies them.
+    for (const rel of ["vite.config.ts", "app/global.css", "netlify.toml"]) {
+      expect(
+        fs.existsSync(path.join(bundled, "builder-code-starter", rel)),
+      ).toBe(false);
+      expect(fs.existsSync(path.join(materialized.dir, rel))).toBe(true);
+    }
+    expect(
+      fs.lstatSync(path.join(materialized.dir, "CLAUDE.md")).isFile(),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(path.join(materialized.dir, "AGENTS.md"), "utf-8"),
+    ).not.toBe(
+      fs.readFileSync(path.join(materialized.dir, "CLAUDE.md"), "utf-8"),
+    );
+    for (const removed of [
+      "app/routes/settings.tsx",
+      "app/i18n",
+      "CHANGELOG.md",
+    ]) {
+      expect(fs.existsSync(path.join(materialized.dir, removed))).toBe(false);
+    }
+    fs.rmSync(materialized.dir, { recursive: true, force: true });
+  }, 120_000);
+
+  it("fetches a layer and its base from the same ref", async () => {
+    const repoRoot = path.resolve(import.meta.dirname, "../../../..");
+    const requested: Array<{ subdir: string; refs: string[] }> = [];
+    const dest = path.join(tmpDir, "remote-layer");
+    const usedRef = await downloadTemplateLayer(
+      "builder-code-starter",
+      "v9.9.9",
+      dest,
+      async (subdir, target, refs) => {
+        requested.push({ subdir, refs });
+        fs.cpSync(path.join(repoRoot, subdir), target, { recursive: true });
+        return "resolved-ref";
+      },
+    );
+
+    expect(usedRef).toBe("resolved-ref");
+    expect(requested).toEqual([
+      {
+        subdir: "packages/core/src/templates/builder-code-starter",
+        refs: ["v9.9.9"],
+      },
+      { subdir: "templates/chat", refs: ["resolved-ref"] },
+    ]);
+    expect(
+      fs.readFileSync(path.join(dest, "app/routes/_index.tsx"), "utf-8"),
+    ).toContain("Your app here");
+    expect(fs.existsSync(path.join(dest, "app/routes/settings.tsx"))).toBe(
+      false,
+    );
+  });
 
   it("records provenance the scaffolder can round-trip", async () => {
     const appDir = path.join(tmpDir, "prov");

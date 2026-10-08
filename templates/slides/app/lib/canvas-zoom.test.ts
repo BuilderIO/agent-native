@@ -45,4 +45,31 @@ describe("computeCanvasFitZoom", () => {
       }),
     ).toBe(53);
   });
+
+  it("scales a slide up and down to span the viewport width exactly when asked to fill it", () => {
+    const fill = (viewportWidth: number) =>
+      computeCanvasFitZoom({
+        viewportWidth,
+        viewportHeight: 900,
+        canvasWidth: 960,
+        canvasHeight: 540,
+        fillViewport: true,
+      });
+
+    expect((960 * fill(524)) / 100).toBeCloseTo(524, 6);
+    expect((960 * fill(1004)) / 100).toBeCloseTo(1004, 6);
+    expect(fill(1004)).toBeGreaterThan(100);
+  });
+
+  it("still lets the height limit a filled canvas in a short pane", () => {
+    expect(
+      computeCanvasFitZoom({
+        viewportWidth: 1200,
+        viewportHeight: 270,
+        canvasWidth: 960,
+        canvasHeight: 540,
+        fillViewport: true,
+      }),
+    ).toBe(50);
+  });
 });

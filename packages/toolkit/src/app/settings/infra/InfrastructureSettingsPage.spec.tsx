@@ -18,6 +18,8 @@ const state = vi.hoisted(() => ({
   queries: {} as Record<string, unknown>,
   errors: new Set<string>(),
   builder: {} as Record<string, unknown>,
+  builderOptions: {} as Record<string, unknown>,
+  refetches: {} as Record<string, ReturnType<typeof vi.fn>>,
 }));
 const callActionMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
@@ -31,13 +33,16 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
     data: state.errors.has(name) ? undefined : state.queries[name],
     isError: state.errors.has(name),
-    refetch: vi.fn(),
+    refetch: (state.refetches[name] ??= vi.fn()),
   }),
   callAction: callActionMock,
 }));
 
 vi.mock("../useBuilderStatus.js", () => ({
-  useBuilderConnectFlow: () => state.builder,
+  useBuilderConnectFlow: (options: Record<string, unknown>) => {
+    state.builderOptions = options;
+    return state.builder;
+  },
 }));
 
 vi.mock("../deferred-builder-connect-popover.js", () => ({
@@ -220,6 +225,30 @@ const STORAGE: FileStorageStatus = {
   builderUploadConfigured: false,
 };
 
+function unconfiguredStorage(
+  builderUploadConfigured: boolean | null,
+): FileStorageStatus {
+  return {
+    ...STORAGE,
+    configured: false,
+    provider: null,
+    endpoint: null,
+    bucket: null,
+    region: null,
+    publicBaseUrl: null,
+    saved: {
+      endpoint: false,
+      bucket: false,
+      accessKeyId: false,
+      secretAccessKey: false,
+      region: false,
+      publicBaseUrl: false,
+    },
+    activeProvider: null,
+    builderUploadConfigured,
+  };
+}
+
 const LISTING = {
   hasOrganization: true,
   canManageOrg: true,
@@ -245,6 +274,7 @@ function builderFlow(connected: boolean) {
     grants: connected ? { org: { connectedAt: 1, needsReconnect: false } } : {},
     canConnect: { org: true, personal: false },
     start: vi.fn(),
+    retry: vi.fn(() => true),
   };
 }
 
@@ -298,6 +328,8 @@ describe("InfrastructureSettingsPage", () => {
     };
     state.errors = new Set();
     state.builder = builderFlow(false);
+    state.builderOptions = {};
+    state.refetches = {};
     callActionMock.mockReset();
     callActionMock.mockImplementation(
       async (name: string, params: { service?: string }) => {
@@ -498,6 +530,27 @@ describe("InfrastructureSettingsPage", () => {
     expect(row("background").querySelector("button")).toBeNull();
     act(() => button(row("builder"), "Manage").click());
     expect(navigateMock).toHaveBeenCalledWith("integrations", "builder");
+  });
+
+  it("offers an inline retry when Builder connection status cannot be read", async () => {
+    const retry = vi.fn(() => true);
+    state.builder = {
+      ...builderFlow(false),
+      grants: null,
+      error: "Couldn't check your Builder.io connection.",
+      errorKind: "status-read",
+      retry,
+    };
+
+    await render();
+
+    const builderRow = row("builder");
+    expect(builderRow.textContent).toContain(
+      "Couldn't check the Builder.io connection.",
+    );
+    expect(builderRow.querySelector('[role="alert"]')).toBeNull();
+    act(() => button(builderRow, "Retry").click());
+    expect(retry).toHaveBeenCalledOnce();
   });
 
   it("updates a service row before the server answers, then keeps its answer", async () => {
@@ -707,6 +760,75 @@ describe("InfrastructureSettingsPage", () => {
         "[data-storage-dialog] [data-testid=storage-form]",
       ),
     ).not.toBeNull();
+  });
+
+  it("offers upload-specific Builder reauthorization when its grant is missing", async () => {
+    state.builder = builderFlow(true);
+    state.queries["get-file-storage"] = unconfiguredStorage(false);
+    await render();
+
+    expect(row("uploads").textContent).toContain(
+      "Builder.io is connected, but it can't store uploaded files yet.",
+    );
+    act(() => button(row("uploads"), "Set up").click());
+
+    const dialog = document.querySelector("[data-storage-dialog]")!;
+    expect(dialog.textContent).toContain(
+      "Builder.io is connected, but it can't store uploaded files yet.",
+    );
+    act(() => button(dialog, "Grant upload access").click());
+    expect(state.builder.start).toHaveBeenCalledWith({
+      provisionAccount: false,
+      scope: "org",
+      trackingFlow: "file_upload",
+    });
+    expect(dialog.querySelector("[data-testid=storage-form]")).not.toBeNull();
+
+    state.queries["get-file-storage"] = {
+      ...unconfiguredStorage(true),
+      configured: true,
+      activeProvider: { id: "builder", name: "Builder.io" },
+    };
+    await render();
+    expect(document.querySelector("[data-storage-dialog]")).toBeNull();
+    expect(row("uploads").textContent).toContain(
+      "Builder.io · Uploads in every app",
+    );
+  });
+
+  it("keeps unknown Builder upload status distinct and retryable", async () => {
+    state.builder = builderFlow(true);
+    state.queries["get-file-storage"] = unconfiguredStorage(null);
+    await render();
+
+    const uploads = row("uploads");
+    expect(uploads.textContent).toContain(
+      "Couldn't verify Builder.io upload access.",
+    );
+    act(() => button(uploads, "Retry").click());
+    expect(state.refetches["get-file-storage"]).toHaveBeenCalledOnce();
+
+    act(() => button(uploads, "Set up").click());
+    const dialog = document.querySelector("[data-storage-dialog]")!;
+    expect(dialog.textContent).toContain(
+      "Couldn't verify Builder.io upload access.",
+    );
+    expect(dialog.querySelector("[data-testid=storage-form]")).not.toBeNull();
+  });
+
+  it("refreshes upload storage status after Builder reconnects", async () => {
+    const queryKey = ["action", "get-file-storage", undefined] as const;
+    queryClient.setQueryData(queryKey, STORAGE);
+    await render();
+
+    const onConnected = state.builderOptions.onConnected as
+      | (() => Promise<void>)
+      | undefined;
+    await act(async () => {
+      await onConnected?.();
+    });
+
+    expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true);
   });
 
   it("reports a failed read on its row instead of an empty state", async () => {

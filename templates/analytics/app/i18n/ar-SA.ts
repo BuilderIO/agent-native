@@ -89,7 +89,7 @@ export default {
     visibilityPrivateOnly: "لي",
     visibilitySharedOnly: "مشترك",
     visibilityAllDescription: "عرض كل العناصر",
-    visibilityPrivateOnlyDescription: "عرض العناصر الظاهرة لك فقط",
+    visibilityPrivateOnlyDescription: "عرض العناصر التي أنشأتها",
     visibilitySharedOnlyDescription: "عرض عناصر المؤسسة المشتركة والعامة",
     hiddenAnalyses: "التحليلات المخفية",
     shareWithOrg: "مشاركة مع المؤسسة",
@@ -1481,6 +1481,19 @@ export default {
       "مقاطع محددة النطاق تُستخدم لإعادة بناء هذا التسجيل. تبقى عناوين URL الخاصة بالمزوّد خاصة.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "تنزيل لقطة الشاشة",
+    savingScreenshot: "جارٍ حفظ لقطة الشاشة…",
+    screenshotDownloaded: "تم تنزيل لقطة الشاشة",
+    screenshotSaveFailed: "تعذّر حفظ لقطة الشاشة",
+    copyScreenshot: "نسخ إلى Design",
+    copyingScreenshot: "جارٍ نسخ لقطة الشاشة…",
+    screenshotCopiedForDesign: "نُسخت لقطة الشاشة. الصقها في Design.",
+    screenshotCopyFailed:
+      "تعذّر نسخ لقطة الشاشة. نزّلها وارفع ملف PNG إلى Design بدلاً من ذلك.",
+    screenshotCopyUnsupportedAssets:
+      "لم تُنسخ لقطة الشاشة: يتضمن هذا الموضع وسائط أو صورًا لا يمكن التقاطها بأمان. جرّب موضعًا آخر في التسجيل.",
+    screenshotUnsupportedAssets:
+      "لم تُحفظ لقطة الشاشة: تعذّر التقاط بعض الوسائط المضمّنة أو الصور بأمان.",
     timeline: "الخط الزمني للأحداث",
     replayTimeline: "خط إعادة التشغيل الزمني",
     timelineDescription: "عرض {{count}} من {{total}} أحداث مفيدة.",
@@ -1514,8 +1527,12 @@ export default {
     time: "الوقت",
     storageSetupTitle: "ربط مساحة تخزين التسجيلات",
     storageSetupDescription:
-      "تحتاج تسجيلات إعادة عرض الجلسات إلى مساحة تخزين قبل أن يتسنى حفظ الأجزاء. استخدم Builder.io للحصول على تخزين بالباقة المجانية، أو هيّئ حاوية متوافقة مع S3 خاصة بك.",
+      "تحتاج تسجيلات إعادة عرض الجلسات إلى موفّر رفع ملفات مُصرّح به. يخزّن Builder.io التسجيلات عند منح إذن الرفع، أو يمكنك إعداد حاوية S3 متوافقة خاصة بك.",
     storageConnected: "تم ربط مساحة التخزين",
+    storageStatusUnavailable:
+      "تعذّر التحقق من حالة تخزين الإعادة. أعد المحاولة لمعرفة ما إذا كانت التحميلات جاهزة.",
+    builderAiConnectedStorageNeedsGrant:
+      "اتصل Builder.io للذكاء الاصطناعي والأرصدة، لكن تحميلات الإعادة تحتاج إلى إذن تخزين منفصل.",
     connectBuilder: "استخدام Builder.io",
     configureS3: "تهيئة تخزين S3",
     devtools: "أدوات المطوّر",
@@ -1547,6 +1564,56 @@ export default {
     devtoolsNoConsoleMatches:
       "لا توجد رسائل وحدة تحكم مطابقة لعوامل التصفية الحالية.",
     devtoolsNoNetworkMatches: "لا توجد طلبات مطابقة لعوامل التصفية الحالية.",
+    storyboardSelectionCoverage:
+      "تم اختيار {{selected}} من أصل {{total}} من جلسات الإعادة ({{percent}}).",
+    storyboardSelectHint: "اختر حتى 3 جلسات لإنشاء لوحة قصصية.",
+    clearStoryboardSelection: "مسح التحديد",
+    createStoryboard: "إنشاء لوحة قصصية",
+    selectReplayForStoryboard: "اختر إعادة التشغيل {{id}} للوحة القصصية",
+    storyboardDesignId: "معرّف Design (اختياري)",
+    storyboardTitle: "عنوان اللوحة القصصية",
+    storyboardDefaultTitle: "لوحة قصصية لإعادة الجلسة",
+    storyboardTimestamps: "الطوابع الزمنية (حتى 3، مفصولة بفواصل)",
+    storyboardReplayPreview: "معاينة إعادة التشغيل",
+    storyboardStartingCapture:
+      "اختر علامة تبويب Analytics هذه في أداة التقاط المتصفح.",
+    storyboardLoadingReplay: "جارٍ تحميل إعادة التشغيل {{replayId}}…",
+    storyboardCapturingFrame:
+      "جارٍ التقاط {{current}} من {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "جارٍ إرسال لقطات الشاشة إلى Design…",
+    storyboardComplete: "تمت إضافة {{screenshots}} من لقطات الشاشة إلى Design.",
+    storyboardTimestampError: "استخدم التنسيق mm:ss أو hh:mm:ss أو mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "أدخل طابعًا زمنيًا واحدًا على الأقل لكل إعادة تشغيل محددة.",
+    storyboardTimestampLimit: "اختر 3 طوابع زمنية كحد أقصى لكل إعادة تشغيل.",
+    storyboardDuplicateTimestamp: "أزل الطوابع الزمنية المكررة.",
+    storyboardScreenshotLimit: "اختر 9 لقطات شاشة كحد أقصى.",
+    storyboardReplayLimit: "اختر حتى 3 جلسات إعادة تشغيل.",
+    storyboardCaptureFailed: "تعذر التقاط لقطة الشاشة.",
+    storyboardCanceled: "تم إلغاء الالتقاط.",
+    storyboardReplayIncomplete:
+      "تحتوي إعادة التشغيل {{replayId}} على أحداث غير متاحة؛ تم إيقاف التصدير.",
+    storyboardViewportUnavailable: "أبعاد إطار العرض المسجلة غير متاحة.",
+    storyboardTimestampOutOfRange:
+      "الطابع الزمني خارج نطاق إعادة التشغيل {{replayId}}.",
+    storyboardScreenshotTooLarge: "تتجاوز إحدى لقطات الشاشة حد 5 MB.",
+    storyboardBatchTooLarge: "تتجاوز مجموعة لقطات الشاشة حد 20 MB.",
+    storyboardRouteUnavailable:
+      "المسار عند {{timestamp}} غير متاح لإعادة التشغيل {{replayId}}.",
+    storyboardNoDesignResponse: "لم يُرجع Design نتيجة للوحة القصصية.",
+    storyboardTemporaryCleanupPending:
+      "حُفظت لوحة القصص، لكن تعذّر حذف ملفات لقطات الشاشة المؤقتة.",
+    storyboardTemporaryCleanupFailed:
+      "لا يزال تنظيف لقطات الشاشة المؤقتة قيد الانتظار.",
+    storyboardUnexpectedResponse:
+      "أعاد تصدير لقطات الشاشة استجابة يتعذّر قراءتها. أعد المحاولة.",
+    storyboardSaveOutcomeUnknown:
+      "ربما حفظ Design لوحة القصص. تحقّق من Design قبل إعادة المحاولة.",
+    openStoryboard: "فتح اللوحة القصصية في Design",
+    cancelStoryboardCapture: "إلغاء الالتقاط",
+    captureToDesign: "التقاط وإضافة إلى Design",
+    storyboardSelectAnalyticsTab:
+      "اختر علامة تبويب Analytics هذه في أداة التقاط المتصفح.",
   },
   catalog: {
     description:

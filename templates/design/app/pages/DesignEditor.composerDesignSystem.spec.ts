@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor composer design system picker", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const slot = source.slice(
     source.indexOf("composerSlot={"),
     source.indexOf("composerSlot={") >= 0

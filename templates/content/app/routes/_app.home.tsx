@@ -21,14 +21,14 @@ import { Header } from "@/components/layout/Header";
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
-import { invalidateContentDatabaseNavigationQueries } from "@/hooks/use-content-database";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
-import {
-  LIST_DOCUMENTS_QUERY_KEY,
-  startPageOpenDocumentReads,
-} from "@/hooks/use-documents";
+import { startPageOpenDocumentReads } from "@/hooks/use-documents";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
-import { isPersonalLanding } from "@/lib/content-landing";
+import {
+  isPersonalLanding,
+  refreshLandingCollections,
+  takeEarlyContentLanding,
+} from "@/lib/content-landing";
 import {
   landingOptimisticTitle,
   stashLandingTitleHint,
@@ -116,12 +116,16 @@ export default function HomeRoute() {
   const spaceId = searchParams.get("spaceId");
   const startedFor = useRef<string | null>(null);
   const landingRequestIdRef = useRef(0);
+  const mountedRef = useRef(true);
+  const collectionsRefreshOwedRef = useRef(false);
   const lastLocationHint = useLastLocationTitleHint();
   const lastLocationHintRef = useRef(lastLocationHint);
   lastLocationHintRef.current = lastLocationHint;
   const queryClient = useQueryClient();
   const { session } = useSession();
   const scope = filesRootHintScope(session?.email, session?.orgId);
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
   const localLastDocumentId = useMemo(
     () => readLastLocationHint(scope),
     [scope],
@@ -144,33 +148,53 @@ export default function HomeRoute() {
     ContentLandingResult | ContentSpaceLandingResult,
     { spaceId?: string }
   >("resolve-content-landing", {
-    // Refreshing every read here aborts and restarts the startup reads; only
-    // a newly created Welcome page changes what other queries show.
     skipActionQueryInvalidation: true,
     onSuccess: (result) => {
-      if (!("welcomeCreated" in result) || !result.welcomeCreated) return;
-      invalidateContentDatabaseNavigationQueries(queryClient, {
-        parentId: null,
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-recent"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: LIST_DOCUMENTS_QUERY_KEY,
-      });
+      const owed = collectionsRefreshOwedRef.current;
+      collectionsRefreshOwedRef.current = false;
+      if (owed || ("welcomeCreated" in result && result.welcomeCreated)) {
+        refreshLandingCollections(queryClient);
+      }
     },
   });
 
   const openLanding = useCallback(async () => {
-    const requestKey = spaceId ?? "personal";
+    // A new visit, or a session that changes while /home waits, starts the
+    // landing over, so an answer asked for another visit or account never
+    // navigates.
+    const requestKey = `${spaceId ?? "personal"}:${scope}:${location.key}`;
     if (startedFor.current === requestKey) return;
     startedFor.current = requestKey;
     const requestId = ++landingRequestIdRef.current;
     try {
-      const result = await resolveLanding.mutateAsync(
-        spaceId ? { spaceId } : {},
-      );
-      if (requestId !== landingRequestIdRef.current) return;
+      const early = spaceId
+        ? null
+        : await takeEarlyContentLanding(location.key);
+      const current = () =>
+        mountedRef.current &&
+        requestId === landingRequestIdRef.current &&
+        scopeRef.current === scope;
+      if (!current()) return;
+      // The early request went out before the session was known, so only an
+      // answer resolved for this session's account is adopted.
+      const adopted =
+        early?.ok &&
+        scope !== null &&
+        filesRootHintScope(
+          early.result.account.email,
+          early.result.account.orgId,
+        ) === scope
+          ? early.result
+          : null;
+      // The early request refreshed for its own answer. One that failed may
+      // still be creating Welcome on the server, and every answer after it
+      // would only call Welcome reused, so the refresh stays owed until an
+      // answer arrives, across a failed retry.
+      if (early && !early.ok) collectionsRefreshOwedRef.current = true;
+      const result =
+        adopted ??
+        (await resolveLanding.mutateAsync(spaceId ? { spaceId } : {}));
+      if (!current()) return;
       if ("target" in result) {
         if (!result.target) return;
         if (result.fallbackReason === "saved-document-unavailable") {
@@ -197,11 +221,28 @@ export default function HomeRoute() {
     } catch (error) {
       console.error("Failed to resolve the Content landing page", error);
     }
-  }, [location.hash, location.search, navigate, resolveLanding, spaceId, t]);
+  }, [
+    location.hash,
+    location.key,
+    location.search,
+    navigate,
+    resolveLanding,
+    scope,
+    spaceId,
+    t,
+  ]);
 
   useEffect(() => {
     void openLanding();
   }, [openLanding]);
+  // An answer that lands after /home has gone must not navigate. A ref, not a
+  // request id bump: StrictMode's replayed mount keeps the request in flight.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   if (resolveLanding.isError) {
     return (

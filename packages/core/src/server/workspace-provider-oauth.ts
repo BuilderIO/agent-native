@@ -46,6 +46,7 @@ import {
   resolveOAuthRedirectUri,
   type OAuthStatePayload,
 } from "./google-oauth.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import { runWithRequestContext } from "./request-context.js";
 
 export type GenericWorkspaceOAuthProvider =
@@ -560,7 +561,10 @@ export async function handleWorkspaceProviderOAuthCallback(
         flow.returnUrl ??
         state.returnUrl ??
         `/settings/integrations?connected=${encodeURIComponent(providerId)}`;
-      return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, getAppUrl(event, returnPath)),
+      );
     },
   );
 }

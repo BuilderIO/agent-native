@@ -965,6 +965,7 @@ test.describe("drag reparent parity", () => {
       .toBe(true);
   });
 
+  // oracle: none — verifies rendered-window board drop persistence, not Figma parity.
   test("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
     page,
   }) => {
@@ -1138,7 +1139,7 @@ test.describe("drag reparent parity", () => {
       );
     });
     expect(boardCommitPoint).not.toBeNull();
-    expect(boardCommitPoint.targetOutsideBoardRenderGeometry).toBe(true);
+    expect(boardCommitPoint.targetOutsideBoardContentBounds).toBe(true);
     expect(boardCommitPoint.boardSurfaceRenderOrigin).toMatchObject({
       x: expect.any(Number),
       y: expect.any(Number),
@@ -1162,6 +1163,18 @@ test.describe("drag reparent parity", () => {
     const boardLeft = styleNum(boardStyle, "left");
     const boardTop = styleNum(boardStyle, "top");
     const worldTolerance = 1 / offRenderPoint.zoom;
+    expect(
+      Math.abs(boardCommitPoint.targetCanvasPoint.x - offRenderPoint.world.x),
+      `the traced target must match the held canvas point; ` +
+        `expected=${offRenderPoint.world.x}, actual=${boardCommitPoint.targetCanvasPoint.x}, ` +
+        `point=${JSON.stringify(offRenderPoint)}. Trace: ${trace.slice(-800)}`,
+    ).toBeLessThanOrEqual(worldTolerance);
+    expect(
+      Math.abs(boardCommitPoint.targetCanvasPoint.y - offRenderPoint.world.y),
+      `the traced target must match the held canvas point; ` +
+        `expected=${offRenderPoint.world.y}, actual=${boardCommitPoint.targetCanvasPoint.y}, ` +
+        `point=${JSON.stringify(offRenderPoint)}. Trace: ${trace.slice(-800)}`,
+    ).toBeLessThanOrEqual(worldTolerance);
     expect(
       Math.abs(boardLeft - (offRenderPoint.world.x - sourceWidth / 2)),
       `persisted board x must match the held canvas point within one canvas pixel; ` +

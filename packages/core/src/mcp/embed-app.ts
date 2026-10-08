@@ -1,5 +1,9 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  MCP_APP_HOST_FILL_ATTRIBUTE,
+  MCP_APP_PANE_FILL_MAX_HEIGHT,
+} from "../shared/mcp-app-display.js";
 
 const MCP_APP_IMPORT =
   "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.5/app-with-deps";
@@ -55,8 +59,12 @@ export function embedApp(
     ...(options.description ? { description: options.description } : {}),
     html: (ctx) => {
       const remoteBridgeFallbackEnabled = ctx.catalogMode !== "directory";
+      // A directory widget is an editor that lives in a host pane, never a
+      // content-sized card, so it fills the pane even when the host will not
+      // give it a height (see paneFillHeight).
+      const fillsPane = ctx.catalogMode === "directory";
       return `<!doctype html>
-<html lang="en">
+<html lang="en"${fillsPane ? ` ${MCP_APP_HOST_FILL_ATTRIBUTE}="1"` : ""}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -82,13 +90,19 @@ export function embedApp(
     .fallback-copy { max-width: 520px; color: color-mix(in srgb, CanvasText 64%, Canvas); font-size: 13px; line-height: 1.45; }
     .fallback-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
     .fallback-url { max-width: min(560px, 100%); overflow-wrap: anywhere; color: color-mix(in srgb, CanvasText 76%, Canvas); font-size: 12px; }
+    html[${MCP_APP_HOST_FILL_ATTRIBUTE}], html[${MCP_APP_HOST_FILL_ATTRIBUTE}] body { height: 100%; }
+    html[${MCP_APP_HOST_FILL_ATTRIBUTE}] .shell { display: flex; flex-direction: column; gap: 0; height: 100vh; height: 100dvh; min-height: 0; }
+    html[${MCP_APP_HOST_FILL_ATTRIBUTE}] .bar { display: none; }
+    html[${MCP_APP_HOST_FILL_ATTRIBUTE}] .stage { flex: 1 1 auto; min-height: 0; }
+    html[${MCP_APP_HOST_FILL_ATTRIBUTE}] iframe, html[${MCP_APP_HOST_FILL_ATTRIBUTE}] .message, html[${MCP_APP_HOST_FILL_ATTRIBUTE}] .fallback { height: 100% !important; min-height: 0; }
   </style>
 </head>
 <body
   data-app-title="${attr(title)}"
   data-iframe-title="${attr(iframeTitle)}"
   data-open-label="${attr(openLabel)}"
-  data-start-tool="${attr(startToolName)}"
+  data-start-tool="${attr(ctx.startToolName ?? startToolName)}"
+  data-catalog-mode="${attr(ctx.catalogMode)}"
   data-embed-default="${embedByDefault ? "1" : "0"}"
 >
   <main class="shell">
@@ -115,6 +129,9 @@ export function embedApp(
     const chatBridgeParam = ${JSON.stringify(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)};
     const defaultIntrinsicHeight = ${height};
     const chromeHeight = ${MCP_APP_WRAPPER_CHROME_HEIGHT};
+    const hostFillAttribute = ${JSON.stringify(MCP_APP_HOST_FILL_ATTRIBUTE)};
+    const fillsPane = ${fillsPane};
+    const paneFillMaxHeight = ${MCP_APP_PANE_FILL_MAX_HEIGHT};
     const frameReadyMessageDelays = [0, 200, 500, 1500, 3000, 7000, 15000, 30000];
     const frameReadyTimeoutMs = 45000;
     const frameLoadTimeoutMs = 45000;
@@ -135,6 +152,7 @@ export function embedApp(
     const hostChatRequests = new Map();
     let toolInput = {};
     let toolResultData = {};
+    let toolResponseMetadata = {};
     let openUrl = "";
     let openStartUrl = "";
     let startedFor = "";
@@ -176,6 +194,76 @@ export function embedApp(
       if (!context || typeof context !== "object") return null;
       return finiteNumber(context.maxHeight) ||
         finiteNumber(context.containerDimensions && context.containerDimensions.maxHeight);
+    }
+
+    // Keep in sync with mcpAppHostFillsContainer (shared/mcp-app-display.ts);
+    // embed-app.spec.ts runs both over the same table.
+    function hostFillsContainer(context) {
+      const record = objectValue(context);
+      const dimensions = objectValue(record.containerDimensions);
+      const fixedHeight = dimensions.height;
+      if (typeof fixedHeight === "number" && Number.isFinite(fixedHeight) && fixedHeight > 0) {
+        return true;
+      }
+      return record.displayMode === "fullscreen" || record.displayMode === "pip";
+    }
+
+    // A fullscreen view or fixed-height container sizes the frame itself, so
+    // the shell fills it with CSS and never reports a height. An inline card is
+    // the opposite: the host follows the height reported here, so filling the
+    // frame would feed its own size back into it. Never derive the height from
+    // the frame's innerHeight. A directory widget fills with CSS in both cases;
+    // only the host-sized one still reports (see paneFillHeight).
+    function applyHostFillMode() {
+      const context = hostState().context || {};
+      const hostFill = hostFillsContainer(context);
+      const root = document.documentElement;
+      if (hostFill || fillsPane) {
+        root.setAttribute(hostFillAttribute, "1");
+        if (appFrame) appFrame.style.height = "";
+      } else {
+        root.removeAttribute(hostFillAttribute);
+      }
+      body.dataset.hostFill = hostFill ? "1" : "0";
+      body.dataset.paneFill = fillsPane && !hostFill ? "1" : "0";
+      body.dataset.hostDisplayMode = typeof context.displayMode === "string" ? context.displayMode : "";
+      return hostFill;
+    }
+
+    // Codex and ChatGPT side panes size the widget frame only from the height
+    // reported here, and their containerDimensions are a { maxHeight } hint
+    // (about 360 inline on Codex), not the pane's height. A content-sized
+    // report leaves the pane's own background showing under the frame, so a
+    // directory widget reports the most height the viewer's screen can show and
+    // lets the host clamp it to the pane. It is a constant of the viewer, never
+    // of the frame or the content, so it cannot feed back into itself.
+    function paneFillHeight(context) {
+      const screenHeight = finiteNumber(window.screen && window.screen.availHeight) || 0;
+      const hostMaxHeight = contextMaxHeight(context) || 0;
+      // The configured height is only a fallback: as a floor it would push the
+      // frame past a pane shorter than it.
+      const height = screenHeight
+        ? Math.max(screenHeight, hostMaxHeight)
+        : Math.max(defaultIntrinsicHeight, hostMaxHeight);
+      return Math.floor(Math.min(paneFillMaxHeight, height));
+    }
+
+    // The app document lifts its inline-card height clamp when the host owns
+    // the frame's height; in a pane the shell owns it, so tell the app so.
+    function hostStateForApp() {
+      const state = hostState();
+      if (!fillsPane || hostFillsContainer(state.context)) return state;
+      const context = objectValue(state.context);
+      return {
+        ...state,
+        context: {
+          ...context,
+          containerDimensions: {
+            ...objectValue(context.containerDimensions),
+            height: paneFillHeight(context)
+          }
+        }
+      };
     }
 
     function visibleIntrinsicHeight() {
@@ -407,7 +495,7 @@ export function embedApp(
     }
 
     function sendHostContext() {
-      sendToAppFrame({ type: "agentNative.mcpHostContext", data: hostState() });
+      sendToAppFrame({ type: "agentNative.mcpHostContext", data: hostStateForApp() });
     }
 
     function sendFrameReadyMessages(frame) {
@@ -436,6 +524,18 @@ export function embedApp(
 
     function embedSessionArgsFor(value) {
       const chrome = typeof toolInput.chrome === "string" ? toolInput.chrome : "full";
+      if (body.dataset.catalogMode === "directory") {
+        const widgetSource = toolResponseMetadata["agent-native/widgetSource"];
+        const sourceTool = widgetSource && typeof widgetSource.toolName === "string"
+          ? widgetSource.toolName
+          : undefined;
+        return {
+          ...(sourceTool ? { sourceTool } : {}),
+          toolInput,
+          toolOutput: toolResultData,
+          chrome
+        };
+      }
       return typeof value === "string" && value.startsWith("/")
         ? { path: value, chrome }
         : { url: value, chrome };
@@ -1041,6 +1141,30 @@ export function embedApp(
       };
     }
 
+    // A directory widget on a host that offers fullscreen asks for it once, on
+    // the first click into the app: never on load, which would take over the
+    // chat before the user touched the widget. The flag is not reset, so a host
+    // that refuses is not asked again.
+    let fullscreenRequested = false;
+    function requestFullscreenOnFirstInteraction() {
+      if (!fillsPane || fullscreenRequested) return;
+      const context = hostState().context || {};
+      if ((context.displayMode || "inline") !== "inline") return;
+      if (!supportedDisplayMode("fullscreen")) return;
+      fullscreenRequested = true;
+      void requestHostDisplayMode("fullscreen").catch((err) => {
+        console.warn("[agent-native] MCP host rejected display mode request", err);
+      });
+    }
+
+    // Focus moving into the cross-origin app frame is the only signal the
+    // shell gets that the user clicked in it.
+    window.addEventListener("blur", () => {
+      if (appFrame && document.activeElement === appFrame) {
+        requestFullscreenOnFirstInteraction();
+      }
+    });
+
     function setMessage(message) {
       stage.innerHTML = '<div class="message">' + esc(message) + '</div>';
     }
@@ -1458,8 +1582,10 @@ export function embedApp(
     }
 
     function notifyHostHeight() {
-      const intrinsic = visibleIntrinsicHeight();
-      const height = applyIntrinsicHeight(intrinsic);
+      if (applyHostFillMode()) return;
+      const height = fillsPane
+        ? paneFillHeight(hostState().context || {})
+        : applyIntrinsicHeight(visibleIntrinsicHeight());
       if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") {
         if (app && typeof app.sendSizeChanged === "function") {
           try {
@@ -1852,7 +1978,8 @@ export function embedApp(
 
     function updateTitle(data) {
       const record = objectValue(data);
-      const label = record.label || record.app || record.view || body.dataset.appTitle || "App";
+      const openLink = objectValue(toolResponseMetadata["agent-native/openLink"]);
+      const label = record.label || openLink.label || record.app || record.view || body.dataset.appTitle || "App";
       titleEl.textContent = String(label);
     }
 
@@ -1896,10 +2023,14 @@ export function embedApp(
       openAiBridge = bridge;
       toolInput = objectValue(bridge.toolInput);
       const params = openAiToolResultParams(bridge);
+      toolResponseMetadata = objectValue(params._meta);
       const data = parseToolResult(params);
       toolResultData = objectValue(data);
       openUrl = openLinkFrom(params, data);
       openStartUrl = embedStartUrlFrom(params, data);
+      const openLinkLabel = objectValue(
+        toolResponseMetadata["agent-native/openLink"],
+      ).label;
       // set_globals fires constantly, and this sync calls notifyHostHeight/
       // sendHostContext which the host echoes back as another set_globals — an
       // infinite storm. Only do the host round-trips + (re)launch when something
@@ -1909,8 +2040,10 @@ export function embedApp(
       try {
         signature = JSON.stringify([
           toolInput,
+          toolResponseMetadata["agent-native/widgetSource"],
           openUrl,
           openStartUrl,
+          openLinkLabel,
           bridge.displayMode,
           bridge.theme,
           bridge.locale
@@ -1979,7 +2112,32 @@ export function embedApp(
       let rpcId = 0;
       let connectPromise = null;
       let hostContext = {};
+      let hostContextFields = {};
       const pendingRequests = new Map();
+
+      // ui/initialize answers { hostContext }; host-context-changed carries a
+      // partial context, so merge it instead of replacing what we know.
+      function setHostContext(payload, replace) {
+        const nextHostContext = objectValue(payload);
+        if (replace) hostContext = nextHostContext;
+        const fields = objectValue(nextHostContext.hostContext || nextHostContext.context || nextHostContext);
+        if (replace) {
+          hostContextFields = { ...fields };
+        } else {
+          const merged = { ...hostContextFields, ...fields };
+          if (
+            fields.containerDimensions &&
+            typeof fields.containerDimensions === "object" &&
+            !Array.isArray(fields.containerDimensions)
+          ) {
+            merged.containerDimensions = {
+              ...objectValue(hostContextFields.containerDimensions),
+              ...fields.containerDimensions,
+            };
+          }
+          hostContextFields = merged;
+        }
+      }
 
       function rpcNotify(method, params) {
         window.parent.postMessage({ jsonrpc: "2.0", method, params: params || {} }, "*");
@@ -2037,7 +2195,7 @@ export function embedApp(
         ontoolresult: null,
         onhostcontextchanged: null,
         getHostContext() {
-          return hostContext.context || hostContext;
+          return hostContextFields;
         },
         getHostCapabilities() {
           return hostContext.capabilities || { tools: true, messaging: true };
@@ -2058,10 +2216,10 @@ export function embedApp(
               },
               nativeBridgeInitializeTimeoutMs
             );
-            hostContext = objectValue(result);
+            setHostContext(result, true);
             rpcNotify("ui/notifications/initialized", {});
             if (typeof nativeApp.onhostcontextchanged === "function") {
-              nativeApp.onhostcontextchanged(hostContext);
+              nativeApp.onhostcontextchanged(hostContextFields);
             }
             return hostContext;
           })().catch((err) => {
@@ -2133,9 +2291,9 @@ export function embedApp(
           message.method === "ui/notifications/host-context" ||
           message.method === "ui/notifications/context"
         ) {
-          hostContext = objectValue(params);
+          setHostContext(params, false);
           if (typeof nativeApp.onhostcontextchanged === "function") {
-            nativeApp.onhostcontextchanged(hostContext);
+            nativeApp.onhostcontextchanged(hostContextFields);
           }
         }
       }
@@ -2151,6 +2309,7 @@ export function embedApp(
       };
       app.ontoolresult = (params) => {
         const data = parseToolResult(params);
+        toolResponseMetadata = objectValue(metadataRecord(params));
         toolResultData = objectValue(data);
         openUrl = openLinkFrom(params, data);
         openStartUrl = embedStartUrlFrom(params, data);
@@ -2185,6 +2344,7 @@ export function embedApp(
       };
       app.ontoolresult = (params) => {
         const data = parseToolResult(params);
+        toolResponseMetadata = objectValue(metadataRecord(params));
         toolResultData = objectValue(data);
         openUrl = openLinkFrom(params, data);
         openStartUrl = embedStartUrlFrom(params, data);

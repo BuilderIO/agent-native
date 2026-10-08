@@ -65,7 +65,7 @@ export interface ChatThreadShareLink extends ChatThreadShareState {
   url: string;
 }
 
-type ThreadTitleSource = "generated" | "extracted";
+type ThreadTitleSource = "fallback" | "generated" | "extracted";
 
 interface ForkSnapshotWithScope extends ChatThreadSnapshot {
   scope: ChatThreadScope | null;
@@ -292,6 +292,7 @@ function nextThreadTitle(
 ): string {
   if (options.preserveUserTitle && currentTitle) return currentTitle;
   if (source === "generated") return incomingTitle;
+  if (source === "fallback") return currentTitle || incomingTitle;
   if (!currentTitle && source === "extracted") return "";
   if (!currentTitle) return incomingTitle;
   if (!incomingTitle) return currentTitle;

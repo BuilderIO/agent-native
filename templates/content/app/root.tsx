@@ -1,6 +1,7 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
-import { appPath } from "@agent-native/core/client/api-path";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
   type LocaleCode,
@@ -55,15 +56,18 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { ContentCommandSearchResults } from "./components/ContentCommandSearch";
+import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/content-layout";
 import { ContentStartupShell } from "./components/layout/ContentStartupShell";
-import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/sidebar-preferences";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
 import { startPageOpenDocumentReads } from "./hooks/use-documents";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
-import { isPersonalLanding } from "./lib/content-landing";
+import {
+  isPersonalLanding,
+  startEarlyContentLanding,
+} from "./lib/content-landing";
 import { readLastLocationHintForAnyAccount } from "./lib/last-location-hint";
 import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
 import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
@@ -114,6 +118,19 @@ export function shouldRevalidate({
 }
 
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
+
+export function isContentEditorPath(pathname: string): boolean {
+  const basePath = appBasePath();
+  const appPathname =
+    basePath && pathname.startsWith(`${basePath}/`)
+      ? pathname.slice(basePath.length)
+      : pathname;
+  return /^\/page\/[^/]+\/?$/.test(appPathname);
+}
+
+export function computeSessionBypass(pathname: string): boolean {
+  return isContentEditorPath(pathname) && Boolean(getEmbedAuthToken());
+}
 
 // The startup shell draws before the i18n provider exists, so it reads its
 // copy straight from the locale messages the loader sent.
@@ -401,6 +418,9 @@ export default function Root() {
     if (!isPersonalLanding(location)) return;
     const documentId = readLastLocationHintForAnyAccount();
     if (!documentId) return;
+    // Asking where /home lands can create a Welcome page, so only a browser
+    // that has landed before asks this early.
+    startEarlyContentLanding(queryClient, location.key);
     const search = new URLSearchParams(location.search);
     startPageOpenDocumentReads(queryClient, documentId, {
       databaseId: search.get("databaseId"),
@@ -481,6 +501,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        sessionBypass={computeSessionBypass(location.pathname)}
         clientOnlyFallback={
           <ContentStartupShell
             pathname={location.pathname}

@@ -27,11 +27,13 @@ import {
   documentEditorReviewReadsSettled,
   documentEditorShowsInlineComments,
   documentEditorShowsUtilityPanelSheet,
+  utilityPanelRegionShouldReceiveFocus,
   dismissDocumentCommentFocus,
   documentEditorLoadState,
   documentTitleWidthChanged,
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
+  enqueueRecoveryDraftTitleSync,
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
   isSuggestionStaleActionError,
@@ -71,9 +73,11 @@ import {
   visualEditorInstanceKey,
 } from "./DocumentEditor";
 import {
+  breadcrumbFoldWidth,
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
+import { runPageSaveIfSessionActive } from "./pageSession";
 import {
   markdownSuggestionOperation,
   markdownSuggestionOperations,
@@ -304,9 +308,11 @@ describe("document editor layout", () => {
     expect(source).not.toContain('"mx-auto max-w-5xl"');
     expect(source).toContain('showDesktopInfoPanel ? "flex-1" : "w-full"');
     expect(source).toContain('className="absolute right-0 top-0 w-80"');
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
-    expect(source).toMatch(
-      /useElementMinWidth\(\s*documentLayoutRef,\s*DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,\s*\)/,
+    expect(source).toContain(
+      'const hasUtilityRailSpace = commentSurfaces.list === "rail";',
+    );
+    expect(source).toContain(
+      'const hasInlineCommentSpace = commentSurfaces.margin === "lane";',
     );
     expect(source).toContain('reserveInlineReviewSpace && "pr-80"');
     expect(source).toContain(
@@ -1296,6 +1302,34 @@ describe("document editor layout", () => {
     ).toBe(false);
   });
 
+  it("moves comments above a forced agent overlay", () => {
+    expect(
+      documentEditorShowsUtilityPanelSheet({
+        utilityPanel: "comments",
+        commentsHistoryDrawerOpen: true,
+        hasUtilityRailSpace: true,
+        hasInlineCommentSpace: false,
+        selectedSuggestionId: null,
+        agentPanelOverlay: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("enters a utility region when the menu opener unmounts", () => {
+    expect(
+      utilityPanelRegionShouldReceiveFocus({
+        openerConnected: false,
+        focusOnBody: false,
+      }),
+    ).toBe(true);
+    expect(
+      utilityPanelRegionShouldReceiveFocus({
+        openerConnected: true,
+        focusOnBody: false,
+      }),
+    ).toBe(false);
+  });
+
   it.each([
     [940, true, null, true],
     [940, true, "saved-suggestion", true],
@@ -1538,7 +1572,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const handler = source.slice(
-      source.indexOf("const handleContentChange"),
+      source.indexOf("const queueEditorContentSave"),
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("localContentRef.current = newContent");
@@ -1553,7 +1587,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const handler = source.slice(
-      source.indexOf("const handleContentChange"),
+      source.indexOf("const queueEditorContentSave"),
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("if (updateReconcileDraft(newContent)) {");
@@ -2108,6 +2142,33 @@ describe("document editor layout", () => {
     ]);
   });
 
+  it("abandons a retry that reaches the save queue after its editor unmounts", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const queueRef = { current: Promise.resolve() };
+    let active = true;
+    const persistRetry = vi.fn().mockResolvedValue({ contentPersisted: true });
+    const first = enqueueDocumentSave(queueRef, async () => {
+      await firstGate;
+      return "first";
+    });
+    const retry = enqueueDocumentSave(queueRef, () =>
+      runPageSaveIfSessionActive(() => active, persistRetry),
+    );
+
+    active = false;
+    releaseFirst();
+
+    await expect(first).resolves.toBe("first");
+    await expect(retry).resolves.toEqual({
+      contentPersisted: false,
+      outcome: "abandoned",
+    });
+    expect(persistRetry).not.toHaveBeenCalled();
+  });
+
   it("continues the save queue after an earlier request fails", async () => {
     const queueRef = { current: Promise.resolve() };
     const first = enqueueDocumentSave(queueRef, async () => {
@@ -2117,6 +2178,50 @@ describe("document editor layout", () => {
 
     await expect(first).rejects.toThrow("network interrupted");
     await expect(second).resolves.toBe("latest");
+  });
+
+  it("does not re-retain stale content from a queued peer-title sync", async () => {
+    const queueRef = { current: Promise.resolve() };
+    let currentDraft = {
+      title: "Original title",
+      content: "A",
+      supersedable: true,
+    };
+    const retained: (typeof currentDraft)[] = [];
+    const persist = async (draft: typeof currentDraft) => {
+      currentDraft = draft;
+      retained.push({ ...draft });
+    };
+
+    await enqueueDocumentSave(queueRef, async () => persist(currentDraft));
+
+    const peerTitle = "Peer title";
+    const newerDraft = {
+      title: peerTitle,
+      content: "A+B",
+      supersedable: false,
+    };
+    const newerRetention = enqueueDocumentSave(queueRef, async () =>
+      persist(newerDraft),
+    );
+    const titleSync = enqueueRecoveryDraftTitleSync(
+      queueRef,
+      peerTitle,
+      () => currentDraft,
+      async (draft) => persist({ ...draft, title: peerTitle }),
+    );
+
+    await Promise.all([newerRetention, titleSync]);
+
+    expect(retained).toEqual([
+      {
+        title: "Original title",
+        content: "A",
+        supersedable: true,
+      },
+      newerDraft,
+    ]);
+    expect(currentDraft).toEqual(newerDraft);
   });
 
   it("keeps the first title edit writable after canonical creation advances the optimistic timestamp", () => {
@@ -2635,8 +2740,9 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain(
-      "relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4",
+      "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
     );
+    expect(source).toContain('shareInMenu ? "gap-1 px-2" : "gap-3 px-4"');
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
@@ -2645,7 +2751,7 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.shareAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
-    expect(source).toContain("showCommentsControl ?");
+    expect(source).toContain("showCommentsControl && !commentsInMenu ?");
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );
@@ -2757,8 +2863,12 @@ describe("document editor layout", () => {
     ).replace(/\r\n/g, "\n");
 
     expect(documentEditorSource).toContain(
-      "const collabEnabled = !isLocalFileDocument;",
+      "const mcpDirectoryWidgetReadOnly =\n    document.mcpDirectoryWidgetReadOnly === true;",
     );
+    expect(documentEditorSource).toContain(
+      "const collabEnabled = shouldUseLiveDocumentCollaboration({",
+    );
+    expect(documentEditorSource).toContain("mcpDirectoryWidgetReadOnly,");
     expect(documentEditorSource).toContain(
       "const collabDocumentId =\n    collabEnabled && !isDocumentCreationPending(document)",
     );
@@ -2871,7 +2981,11 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain(
-      'className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
+      '"flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
+    );
+    expect(source).toContain("overlayClassName={");
+    expect(source).toContain(
+      'shellLayout?.agentPanel === "overlay" && "z-[80]"',
     );
     expect(source).toContain(
       'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',
@@ -2887,6 +3001,9 @@ describe("document editor layout", () => {
     expect(source).not.toContain("{showUtilityPanelSheet ? (");
     expect(source).toContain("utilityPanelSheetContainer,");
     expect(source).toContain("showDesktopCommentsHistory");
+    expect(source).toContain("const transferredToRail =");
+    expect(source).toContain("if (utilityPanel && !transferredToRail) return;");
+    expect(source).toContain("showDesktopInfoPanel,");
     expect(source).toContain("data-comments-history-rail");
     expect(source).toContain("commentsHistoryRailMounted");
     expect(source).toContain('event.propertyName === "width"');
@@ -3512,6 +3629,76 @@ describe("document editor layout", () => {
         { id: "draft", title: "Draft" },
       ]).map((item) => item.title),
     ).toEqual(["Personal", "…", "Page 2", "Draft"]);
+  });
+
+  it("folds breadcrumb ancestors by width before the page title loses its readable width", () => {
+    const deep = [
+      { id: "files", title: "Personal" },
+      { id: "one", title: "Page 1" },
+      { id: "two", title: "Page 2" },
+      { id: "draft", title: "Draft" },
+    ];
+    const shallow = [
+      { id: "files", title: "Personal" },
+      { id: "draft", title: "Draft" },
+    ];
+    const titles = (items: typeof deep, width: number) =>
+      compactToolbarBreadcrumbItems(items, width).map((item) => item.title);
+
+    expect(titles(deep, 380)).toEqual(["Personal", "…", "Page 2", "Draft"]);
+    expect(titles(deep, 300)).toEqual(["…", "Page 2", "Draft"]);
+    expect(
+      compactToolbarBreadcrumbItems(deep, 300)[0].menuItems?.map(
+        (item) => item.title,
+      ),
+    ).toEqual(["Personal", "Page 1"]);
+    expect(titles(deep, 200)).toEqual(["…", "Draft"]);
+    expect(titles(shallow, 216)).toEqual(["Personal", "Draft"]);
+    expect(titles(shallow, 200)).toEqual(["…", "Draft"]);
+  });
+
+  it("keeps every ancestor in the breadcrumb menu at the narrowest width", () => {
+    const deep = [
+      { id: "files", title: "Personal" },
+      { id: "one", title: "Page 1" },
+      { id: "two", title: "Page 2" },
+      { id: "draft", title: "Draft" },
+    ];
+    const menu = (items: typeof deep, width: number) =>
+      compactToolbarBreadcrumbItems(items, width).map((item) => ({
+        title: item.title,
+        menu: item.menuItems?.map((menuItem) => menuItem.id),
+      }));
+
+    for (const width of [0, 60, 120]) {
+      expect(menu(deep, width)).toEqual([
+        { title: "…", menu: ["files", "one", "two"] },
+        { title: "Draft", menu: undefined },
+      ]);
+      expect(menu([deep[0], deep[3]], width)).toEqual([
+        { title: "…", menu: ["files"] },
+        { title: "Draft", menu: undefined },
+      ]);
+      expect(menu([deep[3]], width)).toEqual([
+        { title: "Draft", menu: undefined },
+      ]);
+    }
+  });
+
+  it("folds the same at a breadcrumb's fold width as at its measured width", () => {
+    const deep = [
+      { id: "files", title: "Personal" },
+      { id: "one", title: "Page 1" },
+      { id: "two", title: "Page 2" },
+      { id: "draft", title: "Draft" },
+    ];
+    for (let width = 0; width <= 600; width += 1) {
+      for (const items of [deep, deep.slice(1), deep.slice(2)]) {
+        expect(
+          compactToolbarBreadcrumbItems(items, breadcrumbFoldWidth(width)),
+        ).toEqual(compactToolbarBreadcrumbItems(items, width));
+      }
+    }
   });
 
   it("focuses the first real breadcrumb destination on keyboard open", () => {

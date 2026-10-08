@@ -14,6 +14,12 @@ const repoRoot = path.resolve(
 const clientModule = pathToFileURL(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "client.ts"),
 ).href;
+const devDatabaseLifecycleModule = pathToFileURL(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../server/dev-database-lifecycle.ts",
+  ),
+).href;
 const childSource = `
   import fs from "node:fs";
   import path from "node:path";
@@ -22,7 +28,18 @@ const childSource = `
   const marker = (name) => path.join(dir, name);
   const { closePgliteClients, getPgliteClient } = await import(${JSON.stringify(clientModule)});
   try {
-    if (process.env.PGLITE_LOCK_MODE === "owner") {
+    if (process.env.PGLITE_LOCK_MODE === "close-hook") {
+      const { installDevDatabaseCloseHook } = await import(${JSON.stringify(devDatabaseLifecycleModule)});
+      let close;
+      installDevDatabaseCloseHook({ hooks: { hook(name, handler) { if (name === "close") close = handler; } } });
+      const client = await getPgliteClient("pglite:" + path.join(dir, "db"));
+      await client.exec("CREATE TABLE probe_rows (id integer primary key, who text not null)");
+      await client.exec("INSERT INTO probe_rows (id, who) VALUES (1, CHR(65))");
+      fs.writeFileSync(marker("owner-ready"), "ready");
+      while (!fs.existsSync(marker("close-now"))) await sleep(25);
+      await close();
+      fs.writeFileSync(marker("owner-closed"), "closed");
+    } else if (process.env.PGLITE_LOCK_MODE === "owner") {
       const client = await getPgliteClient("pglite:" + path.join(dir, "db"));
       await client.exec("CREATE TABLE probe_rows (id integer primary key, who text not null)");
       await client.exec("INSERT INTO probe_rows (id, who) VALUES (1, CHR(65))");
@@ -63,7 +80,12 @@ function spawnChild(dir: string, mode: string, stdout: "ignore" | "pipe") {
     ["--import", "tsx", "--input-type=module", "--eval", childSource],
     {
       cwd: repoRoot,
-      env: { ...process.env, PGLITE_LOCK_DIR: dir, PGLITE_LOCK_MODE: mode },
+      env: {
+        ...process.env,
+        NODE_ENV: mode === "close-hook" ? "development" : process.env.NODE_ENV,
+        PGLITE_LOCK_DIR: dir,
+        PGLITE_LOCK_MODE: mode,
+      },
       stdio: ["ignore", stdout, "inherit"],
     },
   );
@@ -85,6 +107,38 @@ async function waitFor(pathname: string): Promise<void> {
 }
 
 describe("PGlite persistent process ownership", () => {
+  it("releases database clients when Nitro closes the dev runtime", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "pglite-worker-close-"));
+    const dbDir = path.join(dir, "db");
+    const lockPath = `${dbDir}.agent-native-pglite.lock`;
+    const owner = spawnChild(dir, "close-hook", "pipe");
+    try {
+      await waitFor(path.join(dir, "owner-ready"));
+      expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(
+        owner.child.pid,
+      );
+      writeFileSync(path.join(dir, "close-now"), "close");
+      await owner.exited;
+      expect(existsSync(path.join(dir, "owner-closed"))).toBe(true);
+      expect(existsSync(lockPath)).toBe(false);
+
+      const { closePgliteClients, getPgliteClient } =
+        await import("./client.js");
+      const reopened = await getPgliteClient(`pglite:${dbDir}`);
+      const result = await reopened.query(
+        "SELECT id, who FROM probe_rows ORDER BY id",
+      );
+      expect(result.rows).toEqual([{ id: 1, who: "A" }]);
+      await closePgliteClients();
+    } finally {
+      if (owner.child.exitCode === null && owner.child.signalCode === null) {
+        owner.child.kill("SIGKILL");
+      }
+      await owner.exited.catch(() => {});
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 90_000);
+
   it("keeps exit listeners bounded across repeated PGlite restarts", async () => {
     const dir = await mkdtemp(
       path.join(os.tmpdir(), "pglite-listener-restarts-"),
@@ -112,8 +166,9 @@ describe("PGlite persistent process ownership", () => {
   it("rejects a competing process without losing the owner's write", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "pglite-process-lock-"));
     const dbDir = path.join(dir, "db");
+    let owner: ReturnType<typeof spawnChild> | undefined;
     try {
-      const owner = spawnChild(dir, "owner", "ignore");
+      owner = spawnChild(dir, "owner", "ignore");
       await waitFor(path.join(dir, "owner-ready"));
 
       const competitor = spawnChild(dir, "competitor", "ignore");
@@ -137,6 +192,10 @@ describe("PGlite persistent process ownership", () => {
       expect(output.trim()).toBe('[{"id":1,"who":"A"}]');
       expect(existsSync(`${dbDir}.agent-native-pglite.lock`)).toBe(false);
     } finally {
+      if (owner?.child.exitCode === null && owner.child.signalCode === null) {
+        owner.child.kill("SIGKILL");
+      }
+      await owner?.exited.catch(() => {});
       await rm(dir, { recursive: true, force: true });
     }
   }, 90_000);

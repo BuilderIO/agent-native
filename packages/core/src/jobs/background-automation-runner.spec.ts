@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
 
 const pglite = await createTestPglite();
 
@@ -56,13 +57,21 @@ vi.mock("../agent/engine/index.js", async (importOriginal) => {
 });
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
-  runAgentLoopDirectWithSoftTimeout: vi.fn(async () => ({
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-    model: "test-model",
-  })),
+  runAgentLoopDirectWithSoftTimeout: vi.fn(async (opts) => {
+    opts.send?.({
+      type: "tool_done",
+      tool: "send-notification",
+      result: "Sent",
+      completedSideEffect: true,
+    });
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    };
+  }),
 }));
 
 vi.mock("../chat-threads/store.js", () => ({
@@ -112,7 +121,707 @@ const testEngine = {
   supportedModels: ["test-model"],
 } as any;
 
+describe("runBackgroundAutomation — confirmed work", () => {
+  const usage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    model: "test-model",
+  };
+
+  it.each(["nothing-needed", "failed-send", "confirmed-work"])(
+    "settles a declared no-op: %s",
+    async (scenario) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          expect(opts.systemPrompt).toContain("automation-no-op");
+          if (scenario === "failed-send") {
+            opts.send({
+              type: "tool_done",
+              tool: "send-digest",
+              result: "HTTP 503: notification rejected",
+              isError: true,
+              errorCode: "http_503",
+            });
+          } else if (scenario === "confirmed-work") {
+            opts.send({
+              type: "tool_done",
+              tool: "send-digest",
+              result: "Sent",
+              completedSideEffect: true,
+            });
+          }
+          const declaration = await opts.actions["automation-no-op"].run({
+            reason: "No urgent mail found.",
+          });
+          expect(declaration).toEqual({
+            status: "skipped",
+            reason: "No urgent mail found.",
+          });
+          opts.send({ type: "text", text: "No notification was sent." });
+          return usage;
+        },
+      );
+      const adapters = await import("../integrations/adapters/index.js");
+      const sendMessageToTarget = vi.fn();
+      const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
+        formatAgentResponse: (text: string) => ({ text }),
+        sendMessageToTarget,
+      } as any);
+      const name = `declared-no-op-${scenario}`;
+      try {
+        const run = runBackgroundAutomation(
+          runOptions(
+            precondition(
+              name,
+              scenario === "nothing-needed"
+                ? {
+                    deliveryPlatform: "slack",
+                    deliveryDestination: "example-channel",
+                  }
+                : {},
+            ),
+          ),
+          { ...standardDeps, getInitialToolNames: () => ["list-events"] },
+        );
+        if (scenario === "failed-send") {
+          await expect(run).rejects.toMatchObject({ errorCode: "http_503" });
+        } else {
+          await expect(run).resolves.toMatchObject({
+            status: scenario === "nothing-needed" ? "skipped" : "success",
+            ...(scenario === "nothing-needed"
+              ? { reason: "No urgent mail found." }
+              : {}),
+          });
+        }
+        expect(sendMessageToTarget).not.toHaveBeenCalled();
+        expect(
+          await pglite
+            .prepare(
+              "SELECT status, error FROM automation_runs WHERE automation = ?",
+            )
+            .get(name),
+        ).toMatchObject({
+          status:
+            scenario === "nothing-needed"
+              ? "skipped"
+              : scenario === "failed-send"
+                ? "error"
+                : "success",
+          ...(scenario === "nothing-needed"
+            ? { error: "No urgent mail found." }
+            : {}),
+        });
+      } finally {
+        adapter.mockRestore();
+      }
+    },
+  );
+
+  it("rejects a no-op declaration without a reason", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        await expect(
+          opts.actions["automation-no-op"].run({ reason: "  " }),
+        ).rejects.toThrow();
+        return usage;
+      },
+    );
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("invalid-no-op")),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({ errorCode: "automation_no_confirmed_work" });
+  });
+
+  it.each([
+    { trackProgress: false, status: 429 },
+    { trackProgress: false, status: 503 },
+    { trackProgress: true, status: 503 },
+    { trackProgress: false, status: 200 },
+    { trackProgress: false, status: 200, tool: "provider-api-request" },
+  ])(
+    "rejects a real HTTP $status send failure (progress bookkeeping: $trackProgress)",
+    async ({ trackProgress, status, tool = "web-request" }) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const { runAgentLoop: actualLoop } = await vi.importActual<
+        typeof import("../agent/production-agent.js")
+      >("../agent/production-agent.js");
+      const { createFetchToolEntry } =
+        await import("../extensions/fetch-tool.js");
+      const { createProgressToolEntries } =
+        await import("../progress/actions.js");
+      const { createProviderApiRequestAction } =
+        await import("../provider-api/actions/provider-api.js");
+      let requests = 0;
+      const engine: AgentEngine = {
+        ...testEngine,
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (requests++ === 0) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                ...(trackProgress
+                  ? [
+                      {
+                        type: "tool-call" as const,
+                        id: "progress-1",
+                        name: "manage-progress",
+                        input: { action: "start", title: "Send weekly digest" },
+                      },
+                    ]
+                  : []),
+                {
+                  type: "tool-call",
+                  id: "send-1",
+                  name: tool,
+                  input:
+                    tool === "provider-api-request"
+                      ? {
+                          provider: "slack",
+                          path: "/chat.postMessage",
+                          method: "POST",
+                          body: { text: "Digest" },
+                        }
+                      : {
+                          url:
+                            status === 200
+                              ? "https://slack.com/api/chat.postMessage"
+                              : "https://93.184.216.34/digest",
+                          method: "POST",
+                          body: '{"text":"Digest"}',
+                        },
+                },
+                ...(tool === "provider-api-request"
+                  ? [
+                      {
+                        type: "tool-call" as const,
+                        id: "no-op-1",
+                        name: "automation-no-op",
+                        input: { reason: "No notification was needed." },
+                      },
+                    ]
+                  : []),
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+          } else {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text: "No notification was sent." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+          }
+        },
+      };
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(
+          status === 200
+            ? JSON.stringify({ ok: false, error: "invalid_auth" })
+            : "Delivery unavailable",
+          {
+            status,
+            statusText: "Unavailable",
+          },
+        ),
+      );
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        actualLoop,
+      );
+      try {
+        await expect(
+          runBackgroundAutomation(
+            runOptions(precondition("http-digest"), { manual: true }),
+            {
+              ...standardDeps,
+              engine,
+              getActions: () => ({
+                ...createFetchToolEntry(),
+                ...createProgressToolEntries(() => "alice@agent-native.test"),
+                "provider-api-request": createProviderApiRequestAction({
+                  executeRequest: async () => ({
+                    response: {
+                      ok: false,
+                      status: 200,
+                      json: { ok: false, error: "invalid_auth" },
+                    },
+                  }),
+                }),
+              }),
+            },
+          ),
+        ).rejects.toMatchObject({
+          errorCode:
+            tool === "provider-api-request"
+              ? "provider_api_rejected"
+              : status === 200
+                ? "web_request_provider_failed"
+                : `http_${status}`,
+          message: expect.stringContaining(`HTTP ${status}`),
+        });
+        expect(requests).toBe(2);
+        expect(assistantContent()).toContainEqual(
+          expect.objectContaining({
+            type: "tool-call",
+            toolName: tool,
+          }),
+        );
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    },
+  );
+
+  it.each(["No notification was sent.", "Everything is complete."])(
+    "rejects a prose-only finish: %s",
+    async (text) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          opts.send?.({ type: "text", text });
+          return usage;
+        },
+      );
+      await expect(
+        runBackgroundAutomation(
+          runOptions(precondition(`prose-only-${text.length}`)),
+          standardDeps,
+        ),
+      ).rejects.toMatchObject({ errorCode: "automation_no_confirmed_work" });
+    },
+  );
+
+  it.each(["delivered", "empty", "preparation", "failure", "action-only"])(
+    "settles configured delivery: %s",
+    async (scenario) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const adapters = await import("../integrations/adapters/index.js");
+      const sendMessageToTarget = vi.fn(async () => {
+        if (scenario === "failure")
+          throw Object.assign(new Error("Slack delivery rejected"), {
+            errorCode: "http_503",
+          });
+      });
+      const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
+        formatAgentResponse: (text: string) => ({
+          text,
+          platformContext: {},
+        }),
+        sendMessageToTarget,
+      } as any);
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          if (scenario === "preparation") {
+            opts.send?.({ type: "text", text: "I will gather the digest." });
+            opts.send?.({
+              type: "tool_done",
+              tool: "list-events",
+              result: "[]",
+            });
+          } else if (scenario === "action-only") {
+            opts.send?.({
+              type: "tool_done",
+              tool: "send-notification",
+              result: "Sent",
+              completedSideEffect: true,
+            });
+          } else if (scenario !== "empty") {
+            opts.send?.({ type: "text", text: "Your weekly digest." });
+          }
+          return usage;
+        },
+      );
+      try {
+        const run = runBackgroundAutomation(
+          runOptions(
+            precondition(`delivery-${scenario}`, {
+              deliveryPlatform: "slack",
+              deliveryDestination: "example-channel",
+            }),
+          ),
+          standardDeps,
+        );
+        if (scenario === "delivered" || scenario === "action-only") {
+          await expect(run).resolves.toMatchObject({
+            runId: expect.any(String),
+          });
+        } else {
+          await expect(run).rejects.toMatchObject({
+            errorCode:
+              scenario === "failure"
+                ? "http_503"
+                : "automation_no_confirmed_work",
+          });
+          expect(assistantMessage().status).toMatchObject({
+            type: "incomplete",
+            reason: "error",
+          });
+        }
+        expect(sendMessageToTarget).toHaveBeenCalledTimes(
+          scenario === "delivered" || scenario === "failure" ? 1 : 0,
+        );
+      } finally {
+        adapter.mockRestore();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "rejects an undelivered digest (successful read: %s)",
+    async (readSucceeded) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          if (readSucceeded)
+            opts.send?.({
+              type: "tool_done",
+              tool: "list-events",
+              result: "[]",
+            });
+          opts.send?.({
+            type: "tool_done",
+            tool: "send-digest",
+            result: "Slack connection is unavailable",
+            isError: true,
+            completedSideEffect: false,
+          });
+          opts.send?.({ type: "text", text: "No notification was sent." });
+          opts.send?.({ type: "done" });
+          return {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "test-model",
+          };
+        },
+      );
+      const name = `undelivered-digest-${readSucceeded}`;
+      const options = {
+        automation: {
+          name,
+          meta: { schedule: "* * * * *", enabled: true },
+          body: "Send the Slack digest.",
+          resource: {
+            owner: "alice@agent-native.test",
+            path: `jobs/${name}.md`,
+          } as any,
+        },
+        ownerEmail: "alice@agent-native.test",
+        prompt: "Send the Slack digest.",
+        threadTitle: `Job: ${name}`,
+        runIdPrefix: `job-${name}`,
+        usageLabel: name,
+        manual: true,
+      };
+      await expect(
+        runBackgroundAutomation(options, {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "automation_no_confirmed_work",
+        message: expect.stringContaining("Slack connection is unavailable"),
+      });
+      const row = (await pglite
+        .prepare(
+          "SELECT status, error_code, run_id FROM automation_runs WHERE automation = ?",
+        )
+        .get(name)) as { status: string; error_code: string; run_id: string };
+      expect(row).toMatchObject({
+        status: "error",
+        error_code: "automation_no_confirmed_work",
+      });
+      expect(assistantMessage().status).toMatchObject({
+        type: "incomplete",
+        reason: "error",
+      });
+      const { getRun } = await import("../agent/run-manager.js");
+      const coreRun = getRun(row.run_id)!;
+      await coreRun.finalized;
+      expect(coreRun.status).toBe("errored");
+      expect(coreRun.events.at(-1)?.event).toMatchObject({
+        type: "error",
+        errorCode: "automation_no_confirmed_work",
+      });
+      expect(
+        await pglite
+          .prepare("SELECT status, error_code FROM agent_runs WHERE id = ?")
+          .get(row.run_id),
+      ).toMatchObject({
+        status: "errored",
+        error_code: "automation_no_confirmed_work",
+      });
+    },
+  );
+});
+
+describe("default selection reaches new chats and background runs", () => {
+  it("preserves app overrides on shared changes, honors app changes and resets only explicitly", async () => {
+    const { registerAgentEngine, resolveEngine, getStoredModelForEngine } =
+      await import("../agent/engine/index.js");
+    const { unregisterAgentEngine } =
+      await import("../agent/engine/registry.js");
+    const {
+      writeAgentAppModelDefaultSettings,
+      resetAgentAppModelDefaultSettings,
+    } = await import("../agent/app-model-defaults.js");
+    const { selectDefaultAgentEngine } =
+      await import("../scripts/agent-engines/set-agent-engine.js");
+    const { run: manageEngine } =
+      await import("../scripts/agent-engines/manage-agent-engine.js");
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const ctx = { userEmail: "default-model@example.test" };
+    const fakeEngine = {
+      ...testEngine,
+      name: "default-model-fixture",
+      defaultModel: "claude-sonnet-5-5",
+      supportedModels: ["claude-sonnet-5-5", "gpt-6-luna", "app-choice"],
+    };
+    registerAgentEngine({
+      ...fakeEngine,
+      label: "Fixture",
+      description: "",
+      capabilities: {},
+      requiredEnvVars: [],
+      create: () => fakeEngine,
+    });
+    try {
+      await writeAgentAppModelDefaultSettings(ctx, "calendar", {
+        engine: fakeEngine.name,
+        model: "gpt-6-luna",
+      });
+      await runWithRequestContext(ctx, async () => {
+        const engine = await resolveEngine({ appId: "calendar" });
+        expect(
+          await getStoredModelForEngine(engine, { appId: "calendar" }),
+        ).toBe("gpt-6-luna");
+        expect(
+          await selectDefaultAgentEngine(
+            {
+              engine: fakeEngine.name,
+              model: "claude-sonnet-5-5",
+              appId: "calendar",
+            },
+            { actionName: "manage-agent-engine", caller: "tool" },
+          ),
+        ).toMatchObject({
+          status: "selected",
+          scope: "user",
+          effective: { model: "gpt-6-luna", source: "app-default" },
+        });
+        const newChatEngine = await resolveEngine({ appId: "calendar" });
+        expect(
+          await getStoredModelForEngine(newChatEngine, { appId: "calendar" }),
+        ).toBe("gpt-6-luna");
+        const inheritingEngine = await resolveEngine({ appId: "mail" });
+        expect(
+          await getStoredModelForEngine(inheritingEngine, { appId: "mail" }),
+        ).toBe("claude-sonnet-5-5");
+        const changed = JSON.parse(
+          await manageEngine({
+            action: "set-app-default",
+            appId: "calendar",
+            engine: fakeEngine.name,
+            model: "app-choice",
+          }),
+        );
+        expect(changed).toMatchObject({
+          requestedScope: "app",
+          model: "app-choice",
+        });
+      });
+      for (const pinned of [false, true]) {
+        vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+        await runBackgroundAutomation(
+          {
+            automation: {
+              name: "model-precedence",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                ...(pinned ? { model: "gpt-6-luna" } : {}),
+              },
+              body: "Return a short status.",
+              resource: {
+                owner: ctx.userEmail,
+                path: "jobs/model-precedence.md",
+              } as any,
+            },
+            ownerEmail: ctx.userEmail,
+            prompt: "Return a short status.",
+            threadTitle: "Job: model precedence",
+            runIdPrefix: `job-model-${pinned}`,
+            usageLabel: "recurring-job:model-precedence",
+          },
+          {
+            appId: "calendar",
+            getActions: () => ({}),
+            getSystemPrompt: async () => "system",
+          },
+        );
+        expect(
+          vi.mocked(runAgentLoopDirectWithSoftTimeout).mock.calls.at(-1)?.[0],
+        ).toMatchObject({
+          engine: { name: fakeEngine.name },
+          model: pinned ? "gpt-6-luna" : "app-choice",
+        });
+      }
+      await runWithRequestContext(ctx, async () => {
+        const reset = JSON.parse(
+          await manageEngine({
+            action: "reset-app-default",
+            appId: "calendar",
+          }),
+        );
+        expect(reset).toMatchObject({
+          requestedScope: "app",
+          engine: null,
+          model: null,
+        });
+        const inheritedEngine = await resolveEngine({ appId: "calendar" });
+        expect(
+          await getStoredModelForEngine(inheritedEngine, { appId: "calendar" }),
+        ).toBe("claude-sonnet-5-5");
+      });
+    } finally {
+      unregisterAgentEngine(fakeEngine.name);
+      await resetAgentAppModelDefaultSettings(ctx, "calendar");
+      const { deleteUserSetting } =
+        await import("../settings/user-settings.js");
+      await deleteUserSetting(ctx.userEmail, "agent-engine");
+    }
+  });
+});
+
 describe("runBackgroundAutomation — background-run self-claim", () => {
+  it.each([
+    { triggerType: undefined, manual: false, timezone: "America/New_York" },
+    {
+      triggerType: "schedule" as const,
+      manual: false,
+      timezone: "America/New_York",
+    },
+    {
+      triggerType: "event" as const,
+      manual: false,
+      timezone: "America/New_York",
+    },
+    {
+      triggerType: "webhook" as const,
+      manual: false,
+      timezone: "America/New_York",
+    },
+    {
+      triggerType: "schedule" as const,
+      manual: true,
+      timezone: "America/New_York",
+    },
+    { triggerType: "schedule" as const, manual: false, timezone: undefined },
+    { triggerType: "schedule" as const, manual: false, timezone: "not/a-zone" },
+  ])(
+    "gives $triggerType runs (manual=$manual, timezone=$timezone) chat's current date, time and timezone",
+    async ({ triggerType, manual, timezone }) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+      vi.stubEnv("TZ", "UTC");
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-10-06T00:26:52Z"));
+
+      try {
+        await runBackgroundAutomation(
+          {
+            automation: {
+              name: "clock-check",
+              meta: {
+                schedule: "*/2 * * * *",
+                enabled: true,
+                timezone,
+                triggerType,
+              },
+              body: "Report the current time.",
+              resource: {
+                owner: "alice@agent-native.test",
+                path: "jobs/clock-check.md",
+              } as any,
+            },
+            ownerEmail: "alice@agent-native.test",
+            prompt: "Report the current time.",
+            threadTitle: "Job: clock-check",
+            runIdPrefix: "job-clock-check",
+            usageLabel: "clock-check",
+            manual,
+          },
+          {
+            getActions: () => ({}),
+            getSystemPrompt: async () => {
+              // Setup can take time; inject the clock when execution starts.
+              vi.setSystemTime(new Date("2026-10-06T00:28:52Z"));
+              return "system";
+            },
+            engine: testEngine,
+          },
+        );
+
+        const input = vi
+          .mocked(runAgentLoopDirectWithSoftTimeout)
+          .mock.calls.at(-1)?.[0];
+        const eastern = timezone === "America/New_York";
+        const expectedTimezone = eastern ? "America/New_York" : "UTC";
+        expect(input?.systemPrompt).toContain("currentDate: 2026-10-06");
+        expect(input?.systemPrompt).toContain(
+          `currentDateInTimezone: ${eastern ? "2026-10-05" : "2026-10-06"}`,
+        );
+        expect(input?.systemPrompt).toContain(
+          `currentTimezone: ${expectedTimezone}`,
+        );
+        expect(input?.systemPrompt).toMatch(
+          /^system[\s\S]*<\/runtime-context>$/,
+        );
+        expect(input?.systemPrompt).not.toContain("currentUtc:");
+        expect(input?.messages[0].content).toEqual([
+          {
+            type: "text",
+            text: expect.stringMatching(
+              /^Report the current time\.[\s\S]*currentUtc: 2026-10-06T00:28:52\.000Z/,
+            ),
+          },
+        ]);
+        expect(JSON.stringify(input?.messages)).toContain(
+          `currentTimezone: ${expectedTimezone}`,
+        );
+        expect(JSON.stringify(input?.messages)).toContain(
+          eastern ? "8:28:52 PM EDT" : "12:28:52 AM UTC",
+        );
+      } finally {
+        vi.useRealTimers();
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
   it("keeps the outer hard timeout at the ten-minute background budget", () => {
     expect(BACKGROUND_RUN_HARD_TIMEOUT_MS).toBe(10 * 60_000);
   });
@@ -419,6 +1128,12 @@ describe("runBackgroundAutomation — thread transcript", () => {
           id: "tc_1",
           tool: "poll-slack-channel",
           result: JSON.stringify({ checked: 1 }),
+        });
+        opts.send?.({
+          type: "tool_done",
+          tool: "send-notification",
+          result: "Sent",
+          completedSideEffect: true,
         });
         return {
           inputTokens: 0,

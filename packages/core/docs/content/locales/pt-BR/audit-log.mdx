@@ -28,7 +28,7 @@ Quando qualquer ação de **mutação** é executada (qualquer coisa que não se
 - **Ação** — o nome da ação (por exemplo, `delete-recording`).
 - **Ator** — `agent`, `human` ou `system`, além do e-mail do ator — preenchido **mesmo para chamadas de agente**, para que você obtenha "o agente, atuando em nome de alice@, …".
 - **Run linkage** — o agente `threadId` / `turnId` que acionou a chamada (uma chamada de ferramenta), portanto, uma mutação remonta ao turno exato do agente.
-- **Superfície** — `tool` (agente), `frontend`, `http`, `cli`, `mcp` ou `a2a`.
+- **Superfície** — `tool` (agente), `frontend`, `http`, `cli`, `mcp`, `webmcp` ou `a2a`. São protocolos de agentes, então uma chamada por `mcp`, `webmcp` ou `a2a` é registrada como `agent` agindo em seu nome, não como você.
 - **Resultado** — `success`, `error` (com um código de erro) ou `denied` (bloqueado por um portão de aprovação humana).
 - **Entradas** — os argumentos da chamada, com valores em formato de credencial [redacted](#privacy).
 - **Destino e proprietário** — o recurso que a ação alterou, usado para [scope reads](#reading).
@@ -91,6 +91,21 @@ const { data } = useActionQuery("list-audit-events", {
 ```
 
 O agente pode chamar a mesma ação - pergunte "o que você mudou nesta gravação?" e responde pela trilha.
+
+## Exportar para um SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** retorna a trilha da organização como eventos OCSF 1.9.0 API Activity ([OCSF](https://schema.ocsf.io), `class_uid` 6003), do mais antigo ao mais recente, para um SIEM coletar periodicamente. Apenas para proprietários e administradores; lê os mesmos eventos `org` e `admins` do log de auditoria da organização, nunca as linhas privadas de ninguém.
+
+| Entrada  | Significado                                                                                  |
+| -------- | -------------------------------------------------------------------------------------------- |
+| `since`  | Somente eventos a partir deste carimbo de data/hora ISO 8601 ou destes ms epoch (inclusive). |
+| `until`  | Somente eventos anteriores a este carimbo de data/hora ISO 8601 ou a estes ms epoch.         |
+| `cursor` | O `nextCursor` da página anterior.                                                           |
+| `limit`  | Eventos por página, até 500 (padrão 100).                                                    |
+
+Retorna `{ events, hasMore, nextCursor }`. Guarde cada `nextCursor` retornado e envie-o na próxima coleta, mesmo quando `events` estiver vazio; páginas vazias avançam o ready watermark. O cursor relê uma janela de sobreposição de cinco minutos para detectar gravações atrasadas; portanto, deduplique entre coletas usando `metadata.uid`. Os cinco segundos mais recentes são retidos para que uma linha gravada com atraso nunca seja ignorada.
+
+Cada evento mapeia `status` para `status_id` (`success` é Success; `error` e `denied` são Failure, e `denied` também recebe `action_id` Denied e um `severity_id` maior), o ator para `actor.user` (um principal de serviço é do tipo Service), a ação para `api.operation` e o alvo para `resources`. Os ids de execução, tarefa, tarefa pai, thread, turno e app não têm campo OCSF e ficam em `unmapped`. Os argumentos da chamada nunca são exportados.
 
 ## Privacidade e retenção {#privacy}
 

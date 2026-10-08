@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { resolveServerFiles } from "./editor-state";
+import { readDesignEditorSource } from "./read-design-editor-source";
 import type { DesignFile } from "./types";
 
 function makeFile(id: string): DesignFile {
@@ -40,13 +41,7 @@ describe("resolveServerFiles", () => {
 });
 
 describe("DesignEditor serverFiles call site", () => {
-  const editorSrc = readFileSync(
-    path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../DesignEditor.tsx",
-    ),
-    "utf8",
-  );
+  const editorSrc = readDesignEditorSource();
 
   it("reads server files through the stable resolver, not a fresh array literal", () => {
     expect(editorSrc).toContain(

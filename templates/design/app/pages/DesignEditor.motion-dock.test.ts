@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor motion dock transition", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
 
   it("opens after a painted collapsed frame so height can transition", () => {
     const openStart = source.indexOf("const setMotionDockOpenAnimated");

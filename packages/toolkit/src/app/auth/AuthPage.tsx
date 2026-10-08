@@ -1,5 +1,6 @@
 /** @jsxRuntime classic */
 
+import { getAnalyticsSessionId } from "@agent-native/core/client/analytics";
 import { frameworkRoutePrefix } from "@agent-native/core/client/api-path";
 import {
   isAgentNativeDesktop,
@@ -60,7 +61,6 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TAB_STORAGE_KEY = "an.onboarding.tab";
 const PENDING_SIGNUP_EMAIL_STORAGE_KEY = "an.onboarding.pendingSignupEmail";
 const ANALYTICS_ANONYMOUS_ID_KEY = "agent-native.anonymous_id";
-const ANALYTICS_SESSION_ID_KEY = "agent-native.session_id";
 const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE = "an_ft";
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
@@ -265,14 +265,7 @@ function trackAuth(
     if (!config?.agentNativeAnalyticsPublicKey) return;
     const anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
     if (!anonymousId) return;
-    const sessionId = (() => {
-      try {
-        return window.sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY) ?? "";
-      } catch {
-        // coercion-ok: analytics session storage is optional.
-        return "";
-      }
-    })();
+    const sessionId = getAnalyticsSessionId();
     const endpoint = resolveLaneEndpoint(
       config.agentNativeAnalyticsEndpoint ??
         "https://analytics.agent-native.com/track",
@@ -291,7 +284,7 @@ function trackAuth(
         event: event.name,
         properties: event.properties,
         anonymousId,
-        sessionId: sessionId || undefined,
+        sessionId,
         timestamp: new Date().toISOString(),
       });
       if (navigator.sendBeacon?.(endpoint, body)) continue;

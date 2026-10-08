@@ -5,6 +5,8 @@ import {
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
 import { recordAgentRun } from "../observability/metrics.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -310,6 +312,15 @@ export interface StartRunOptions {
   userId?: string;
   attemptCount?: number;
   recoverChunkBoundaries?: boolean;
+  persistEvent?: (
+    write: () => Promise<void>,
+    metadata: {
+      terminal: boolean;
+      runId: string;
+      seq: number;
+      eventData: string;
+    },
+  ) => Promise<void>;
 }
 
 export interface RunChunkControl {
@@ -817,14 +828,19 @@ export function startRun(
             : {}),
         }
       : undefined;
+  const servicePrincipalRunStart = Boolean(
+    options?.turnInitiator &&
+    parseServiceIdentityEmail(options.turnInitiator.email),
+  );
   const insertRunPromise = (
-    options?.runRowAlreadyInserted
+    options?.runRowAlreadyInserted && !servicePrincipalRunStart
       ? Promise.resolve()
       : insertOptions
         ? insertRun(runId, threadId, options?.turnId, insertOptions)
         : insertRun(runId, threadId, options?.turnId)
   ).catch((error) => {
     captureRunPersistenceError(error, "insert-run");
+    if (error instanceof ServicePrincipalRefusedError) throw error;
   });
 
   let persistenceChain: Promise<void> = Promise.resolve();
@@ -1358,6 +1374,19 @@ export function startRun(
     });
   };
 
+  const persistRunEvent = (runEvent: RunEvent): Promise<void> => {
+    const eventData = JSON.stringify(runEvent.event);
+    const write = () => insertRunEvent(runId, runEvent.seq, eventData);
+    return options?.persistEvent
+      ? options.persistEvent(write, {
+          terminal: isTerminalRunEvent(runEvent.event),
+          runId,
+          seq: runEvent.seq,
+          eventData,
+        })
+      : write();
+  };
+
   const emitRunEvent = (
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
@@ -1380,11 +1409,7 @@ export function startRun(
 
     const thisInsert = persistenceChain.then(async () => {
       try {
-        await insertRunEvent(
-          runId,
-          runEvent.seq,
-          JSON.stringify(runEvent.event),
-        );
+        await persistRunEvent(runEvent);
       } catch (error) {
         if (!eventPersistenceErrorCaptured) {
           eventPersistenceErrorCaptured = true;
@@ -1393,11 +1418,7 @@ export function startRun(
             eventType: runEvent.event.type,
           });
         }
-        await insertRunEvent(
-          runId,
-          runEvent.seq,
-          JSON.stringify(runEvent.event),
-        );
+        await persistRunEvent(runEvent);
       }
     });
     persistenceChain = thisInsert;
@@ -1422,7 +1443,15 @@ export function startRun(
     void emitRunEvent(runEvent);
   };
 
-  const runPromise = runFn(send, runControl.chunkSignal, runControl)
+  const runPromise = (
+    servicePrincipalRunStart
+      ? insertRunPromise.then(() => {
+          if (!abort.signal.aborted) {
+            return runFn(send, runControl.chunkSignal, runControl);
+          }
+        })
+      : runFn(send, runControl.chunkSignal, runControl)
+  )
     .then(() => {
       settleBoundary(false);
       if (abort.signal.aborted) {
@@ -1472,17 +1501,20 @@ export function startRun(
         await persistenceChain;
       } catch (error) {
         eventPersistenceError = error;
-        run.status = "errored";
-        pendingTerminalEvent = {
-          seq: run.events.length,
-          event: {
-            type: "error",
-            error: "Agent run ended unexpectedly",
-            errorCode: "run_event_persistence_failed",
-          },
-        };
+        if (run.status !== "aborted") {
+          run.status = "errored";
+          pendingTerminalEvent = {
+            seq: run.events.length,
+            event: {
+              type: "error",
+              error: "Agent run ended unexpectedly",
+              errorCode: "run_event_persistence_failed",
+            },
+          };
+        }
       }
       const resolveTerminalEventForCompletion = () => {
+        if (run.status === "aborted") return null;
         if (eventPersistenceError) return pendingTerminalEvent;
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
@@ -1553,14 +1585,15 @@ export function startRun(
       if (unfinishedTurnContinuationEvent) {
         terminalEvent = unfinishedTurnContinuationEvent;
       }
-      const terminalReason = eventPersistenceError
-        ? "error:run_event_persistence_failed"
-        : terminalReasonForRun(
-            finalStatus,
-            terminalEvent,
-            run.abortReason,
-            completionError,
-          );
+      const terminalReason =
+        eventPersistenceError && finalStatus !== "aborted"
+          ? "error:run_event_persistence_failed"
+          : terminalReasonForRun(
+              finalStatus,
+              terminalEvent,
+              run.abortReason,
+              completionError,
+            );
       const persistedStatus =
         finalStatus === "completed" &&
         isContinuationTerminalReason(terminalReason)
@@ -1606,11 +1639,7 @@ export function startRun(
             );
             if (!eventPersistenceError) {
               try {
-                await insertRunEvent(
-                  runId,
-                  terminal.seq,
-                  JSON.stringify(terminal.event),
-                );
+                await persistRunEvent(terminal);
                 terminalPersistenceError = null;
               } catch (retryError) {
                 terminalPersistenceError = retryError;

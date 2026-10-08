@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/agentkit",
-  "version": "0.202.0",
+  "version": "0.204.0",
   "description": "Provider-neutral AgentKit protocol, headless client, and transports for composable agent-native conversations.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -28,6 +28,10 @@
     "./protocol": {
       "types": "./dist/protocol/index.d.ts",
       "import": "./dist/protocol/index.js"
+    },
+    "./chat-context": {
+      "types": "./dist/chat-context.d.ts",
+      "import": "./dist/chat-context.js"
     },
     "./client": {
       "types": "./dist/client/index.d.ts",

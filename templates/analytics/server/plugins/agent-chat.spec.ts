@@ -11,6 +11,24 @@ const accountHealthSkill = readFileSync(
   new URL("../../.agents/skills/account-health/SKILL.md", import.meta.url),
   "utf8",
 );
+const readMarkdown = (relativePath: string) =>
+  readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(
+    /\s+/g,
+    " ",
+  );
+const agentsGuide = readMarkdown("../../AGENTS.md");
+const dashboardSkill = readMarkdown(
+  "../../.agents/skills/dashboard-management/SKILL.md",
+);
+const customBlocksSkill = readMarkdown(
+  "../../.agents/skills/custom-blocks/SKILL.md",
+);
+const incidentSkill = readMarkdown(
+  "../../.agents/skills/incident-investigation/SKILL.md",
+);
+const analysisWorkspaceSkill = readMarkdown(
+  "../../.agents/skills/analysis-workspace/SKILL.md",
+);
 
 const {
   agentChatPluginOptions,
@@ -134,22 +152,14 @@ import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import {
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
   looksLikeAnalyticsDataRequest,
+  stripInjectedAnalyticsGuardContext,
 } from "../lib/real-data-actions";
 import {
-  analyticsDataDictionaryRoutingContext,
-  analyticsSourceGuidanceOpening,
-  ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
-  ANALYTICS_CROSS_APP_ROUTING_GUIDANCE,
-  ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
-  ANALYTICS_ACCOUNT_HEALTH_GUIDANCE,
-  INTERNAL_PRODUCT_USAGE_GUIDANCE,
-  BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
-  DASHBOARD_REFERENCE_GUIDANCE,
-  BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
+  ANALYTICS_PROMPT_RULES,
+  analyticsExtraContext,
   NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
   NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
-  NON_ANALYTICS_REQUEST_GUIDANCE,
   realDataFinalGuard,
 } from "./agent-chat";
 
@@ -191,6 +201,7 @@ describe("Analytics prompt-reference preparation", () => {
       vi.mocked(retrieveAnalyticsPromptReferences).mockResolvedValue({
         jevPromptCandidates: [candidate],
         jevFallbackCandidateIds: [candidate.id],
+        prefetchStatus: "ok",
       });
       const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
         details: Record<string, unknown>,
@@ -198,6 +209,7 @@ describe("Analytics prompt-reference preparation", () => {
 
       const result = await prepareRequest({
         ownerEmail: "owner@example.test",
+        message: "count active users",
         requestContext: "Current request: count active users",
         contextPrefetchDeadlineAt: Date.now() + 1_300,
         dispatchToBackground: false,
@@ -208,6 +220,7 @@ describe("Analytics prompt-reference preparation", () => {
       expect(result).toEqual({
         jevPromptCandidates: [candidate],
         jevFallbackCandidateIds: [candidate.id],
+        status: "ok",
       });
     },
   );
@@ -218,8 +231,15 @@ describe("Analytics prompt-reference preparation", () => {
     ) => Promise<unknown>;
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
 
+    vi.mocked(retrieveAnalyticsPromptReferences).mockResolvedValue({
+      jevPromptCandidates: [],
+      jevFallbackCandidateIds: [],
+      prefetchStatus: "empty",
+    });
+
     await prepareRequest({
       ownerEmail: "owner@example.test",
+      message: "count active users",
       requestContext:
         "Recent user requests:\nUser: prior question\n\nCurrent request: count active users",
       contextPrefetchDeadlineAt,
@@ -233,6 +253,151 @@ describe("Analytics prompt-reference preparation", () => {
       orgId: null,
       deadlineAt: contextPrefetchDeadlineAt,
     });
+  });
+
+  it.each(["hello", "thanks!", "👍", "?"])(
+    "does not spend the preload budget on the trivial turn %j",
+    async (message) => {
+      const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
+        details: Record<string, unknown>,
+      ) => Promise<unknown>;
+
+      await expect(
+        prepareRequest({
+          ownerEmail: "owner@example.test",
+          message,
+          requestContext: `Current request:\n${message}`,
+          contextPrefetchDeadlineAt: Date.now() + 1_300,
+          dispatchToBackground: false,
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(retrieveAnalyticsPromptReferences).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "what's our NRR",
+    "Q3 bookings",
+    "pull the renewal list for Q4",
+    "churned logos last quarter",
+    "who owns Acme",
+    "same but for last quarter",
+    "what about EMEA?",
+    "split it by owner",
+    "change it to last quarter",
+    "ok",
+    // An artifact edit may still change what is measured; the relevance bar
+    // keeps unrelated references out.
+    "make it blue",
+    "rename this chart",
+    "Remove the legend from this panel",
+    "resize the chart by 20%",
+    "change this chart to paid signups",
+    "switch this panel to net revenue",
+    "set the chart to EMEA",
+    "update the chart to use the orders table",
+    "remove test accounts from this chart",
+    "turn off bot traffic on this chart",
+    "make it ARR",
+    "make this chart about retention",
+    "fix the revenue numbers on this chart",
+    "update the dashboard with the latest numbers",
+    "add revenue panel to this dashboard",
+    "change the dashboard to show page views",
+    "switch the chart to page views",
+  ])("retrieves references for %j", async (message) => {
+    vi.mocked(retrieveAnalyticsPromptReferences).mockResolvedValue({
+      jevPromptCandidates: [],
+      jevFallbackCandidateIds: [],
+      prefetchStatus: "empty",
+    });
+    const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
+      details: Record<string, unknown>,
+    ) => Promise<unknown>;
+
+    await prepareRequest({
+      ownerEmail: "owner@example.test",
+      message,
+      requestContext: `Current request:\n${message}`,
+      contextPrefetchDeadlineAt: Date.now() + 1_300,
+      dispatchToBackground: false,
+    });
+
+    expect(retrieveAnalyticsPromptReferences).toHaveBeenCalledOnce();
+  });
+
+  it.each(["timed_out", "failed", "empty"] as const)(
+    "reports a %s preload to core instead of returning it as nothing relevant",
+    async (prefetchStatus) => {
+      vi.mocked(retrieveAnalyticsPromptReferences).mockResolvedValue({
+        jevPromptCandidates: [],
+        jevFallbackCandidateIds: [],
+        prefetchStatus,
+      });
+      const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
+        details: Record<string, unknown>,
+      ) => Promise<unknown>;
+
+      const result = await prepareRequest({
+        ownerEmail: "owner@example.test",
+        message: "what's our NRR",
+        requestContext: "Current request:\nwhat's our NRR",
+        contextPrefetchDeadlineAt: Date.now() + 1_300,
+        dispatchToBackground: false,
+      });
+
+      expect(result).toEqual({
+        jevPromptCandidates: [],
+        jevFallbackCandidateIds: [],
+        status: prefetchStatus,
+      });
+    },
+  );
+
+  it("does not let a context note core adds to the turn change how the ask is classified", () => {
+    const note =
+      "<context-note>Preloaded references were unavailable this turn.</context-note>";
+
+    expect(
+      stripInjectedAnalyticsGuardContext(`what's our NRR\n\n${note}`),
+    ).toBe("what's our NRR");
+  });
+
+  it.each(["ok", "empty", "timed_out", "failed"] as const)(
+    "reports a %s preload on the outcome event",
+    async (prefetch) => {
+      getRequestRunContext.mockReturnValue({
+        isBackgroundWorker: true,
+        contextStatus: { prefetch },
+      });
+      const onAgentRunComplete = agentChatPluginOptions[0]
+        ?.onAgentRunComplete as (
+        scope: unknown,
+        run: { threadId: string; events: unknown[] },
+      ) => Promise<void>;
+
+      await onAgentRunComplete(null, { threadId: "thread-1", events: [] });
+
+      expect(summarizeAnalyticsRun).toHaveBeenCalledWith(
+        expect.objectContaining({ prefetchStatus: prefetch }),
+      );
+    },
+  );
+
+  it("marks a run that reported no preload status instead of calling it empty", async () => {
+    getRequestRunContext.mockReturnValue({ isBackgroundWorker: true });
+    const onAgentRunComplete = agentChatPluginOptions[0]
+      ?.onAgentRunComplete as (
+      scope: unknown,
+      run: { threadId: string; events: unknown[] },
+    ) => Promise<void>;
+
+    await onAgentRunComplete(null, { threadId: "thread-1", events: [] });
+
+    expect(summarizeAnalyticsRun).toHaveBeenCalledWith(
+      expect.objectContaining({ prefetchStatus: "unrecorded" }),
+    );
   });
 
   it("does not spend the preload budget in the foreground before background dispatch", async () => {
@@ -278,6 +443,7 @@ describe("Analytics prompt-reference preparation", () => {
       events: run.events,
       groundingActionNames: expect.any(Array),
       preloadedReferenceCount: 2,
+      prefetchStatus: "unrecorded",
     });
   });
 });
@@ -298,55 +464,209 @@ describe("Analytics agent Plan mode policy", () => {
     expect(ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS).toBe(3 * 60_000);
   });
 
-  it("injects the bounded structured lookup fast path into source guidance", () => {
-    const guidance = analyticsSourceGuidanceOpening();
+  it("renders every always-on rule inside one guidance block", () => {
+    const context = analyticsExtraContext();
 
-    expect(guidance).toContain("<data-source-guidance>");
-    expect(guidance).toContain(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE);
-    expect(guidance).toContain(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE);
-    expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
-    expect(guidance).toContain(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE);
-    expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
-    expect(guidance).toContain(NON_ANALYTICS_REQUEST_GUIDANCE);
-    expect(guidance).toContain("run one bounded query");
-    expect(guidance).toContain("Once the query succeeds");
-    expect(guidance).toContain("never answer from a guess");
-    expect(guidance).toContain(
-      "This does not replace or restrict external sources",
-    );
-    expect(guidance).toContain("When the user names an external provider");
-    expect(guidance).toContain("[Connect data sources](");
-    expect(guidance).toContain(
-      "Chat remains available when no external data source is connected",
+    expect(context.startsWith("<data-source-guidance>")).toBe(true);
+    expect(context.endsWith("</data-source-guidance>")).toBe(true);
+    for (const rule of ANALYTICS_PROMPT_RULES) {
+      expect(context).toContain(rule.text);
+    }
+    expect(new Set(ANALYTICS_PROMPT_RULES.map((rule) => rule.id)).size).toBe(
+      ANALYTICS_PROMPT_RULES.length,
     );
   });
 
-  it("keeps ordinary structured lookups on one authoritative source", () => {
-    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
-      "search-analytics-query-catalog",
+  it("keeps Analytics feedback acknowledgments brief", () => {
+    expect(ruleText("acknowledgments")).toContain(
+      "at most one brief acknowledgment",
     );
-    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
-      "run one bounded query",
+    expect(ruleText("acknowledgments")).toContain("Avoid stacked compliments");
+    expect(ruleText("acknowledgments")).toContain(
+      "address the feedback directly",
     );
-    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
-      "do not by themselves make it a corpus investigation",
+  });
+
+  it("hands the plugin the same rules as extraContext", async () => {
+    const extraContext = agentChatPluginOptions[0]?.extraContext as
+      | (() => Promise<string> | string)
+      | undefined;
+
+    expect(await extraContext?.()).toBe(analyticsExtraContext());
+  });
+
+  const ruleText = (id: string) => {
+    const rule = ANALYTICS_PROMPT_RULES.find((entry) => entry.id === id);
+    if (!rule) throw new Error(`missing prompt rule ${id}`);
+    return rule.text;
+  };
+
+  it("keeps ordinary lookups on one authoritative source", () => {
+    expect(ruleText("references")).toContain("search-analytics-query-catalog");
+    expect(ruleText("references")).toContain(
+      "do not by themselves make a question a corpus investigation",
     );
-    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
-      "Never repeat an identical invalid or failed tool call",
+    expect(ruleText("failed-calls")).toContain(
+      "never repeat an identical failed call",
     );
+    expect(ruleText("real-data")).toContain("live data-source query");
+    expect(ruleText("sources")).toContain("authoritative for the turn");
+  });
+
+  it("keeps every clause of the understand-the-ask rule", () => {
+    const rule = ruleText("understand-the-ask");
+
+    for (const clause of [
+      '"this", "that", and "it"',
+      "`selected-object`",
+      "keep its source and business logic and change only filters and window",
+      "certified over favorite over unmarked",
+      "ask exactly one `ask-question` with a recommended default",
+      "pick the default and label it",
+      '"Reading this as: <metric definition>, <window>, <filters>, <source>"',
+      '"Changing <panel title> on <dashboard>"',
+      "A source the user names wins",
+      "Never ask the user for dataset, table, column, or SQL identifiers",
+    ]) {
+      expect(rule).toContain(clause);
+    }
+  });
+
+  it("keeps export delivery and the deferred-tool shortcut in the skills rule", () => {
+    const skills = ruleText("skills");
+
+    expect(skills).toContain("Download CSV on compact tables");
+    expect(skills).toContain("never finish with only a path");
+    for (const tool of [
+      "update-dashboard",
+      "compose-dashboard",
+      "generate-chart",
+      "show-workspace-file",
+      "provider-api-request",
+    ]) {
+      expect(skills).toContain(`\`${tool}\``);
+    }
+    expect(skills).toContain("one `tool-search` call");
+  });
+
+  it("tells a small panel edit to skip the skill read everywhere it is stated", () => {
+    expect(ruleText("skills")).toContain(
+      "a small edit of one existing panel needs no skill",
+    );
+    expect(agentsGuide).toContain("no skill read is needed");
+    expect(dashboardSkill).toContain(
+      "a small edit of one existing panel needs no skill",
+    );
+  });
+
+  it("does not send a lean-path agent to a block that is never injected", () => {
+    for (const text of [
+      dashboardSkill,
+      readMarkdown("../../.agents/skills/cross-source-analysis/SKILL.md"),
+      readMarkdown("../../.agents/skills/adhoc-analysis/SKILL.md"),
+    ]) {
+      expect(text).not.toContain("injected `<data-dictionary>`");
+    }
+  });
+
+  it("routes built-in product metrics to the first-party query action", () => {
+    expect(ruleText("sources")).toContain("query-agent-native-analytics");
+    expect(ruleText("sources")).toContain("never call it disconnected");
+    expect(ruleText("sources")).toContain("[Connect data sources](");
+  });
+
+  it("routes internal usage and sibling-app questions without user-supplied SQL", () => {
+    const routing = ruleText("workspace-routing");
+
+    expect(routing).toContain("agent-native signups");
+    expect(routing).toContain("built-in source and query catalog");
+    expect(routing).toContain("list-dispatch-usage-metrics");
+    expect(routing).toContain(
+      "Do not ask for a user export or BigQuery schema",
+    );
+    expect(routing).toContain("never substitute workspace metrics");
+    expect(routing).toContain("`call-agent` with agent `brain`");
+    expect(routing).toContain("Brain is not in `list-extensions`");
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Pull AI credit usage and branch creation data by user for each month",
+      ),
+    ).toBe(true);
+  });
+
+  it("tells explicit dashboard requests to finish non-destructive build steps", () => {
+    const builds = ruleText("dashboard-builds");
+
+    expect(builds).toContain("Do not ask 'want me to proceed?'");
+    expect(builds).toContain("its dashboard id is authoritative");
+  });
+
+  it("routes each moved procedure to a skill the runtime agent can read", () => {
+    const skills = ruleText("skills");
+
+    for (const skill of [
+      "dashboard-management",
+      "custom-blocks",
+      "account-health",
+      "incident-investigation",
+      "analysis-workspace",
+    ]) {
+      expect(skills).toContain(`\`${skill}\``);
+    }
+  });
+
+  it("states the dashboard verification invariant once, in AGENTS.md", () => {
+    expect(agentsGuide).toContain(
+      "A dashboard edit is done only when `mutate-dashboard` returns `verified: true`.",
+    );
+    expect(agentsGuide).toContain("call `inspect-dashboard-panel`");
+    expect(analyticsExtraContext()).not.toContain("verified: true");
+    expect(agentsGuide).not.toMatch(/run it once,? and stop/i);
+    expect(dashboardSkill).toContain("only `verified: true` is");
+  });
+
+  it("keeps the dashboard procedures in the dashboard-management skill", () => {
+    expect(dashboardSkill).toContain('`panelIds: ["panel-id"]`');
+    expect(dashboardSkill).toContain("Ignored missing result columns");
+    expect(dashboardSkill).toContain("`config.yKeys`");
+    expect(dashboardSkill).toContain('`chartType: "combo"`');
+    expect(dashboardSkill).toContain("remove `pivot`");
+    expect(dashboardSkill).toContain(
+      "Replicating Or Adapting Another Dashboard",
+    );
+    expect(dashboardSkill).not.toContain("reliable-mutations");
+  });
+
+  it("moves Custom Block rules into a skill and keeps native panels first", () => {
+    expect(customBlocksSkill).toContain(
+      "native dashboard panels and Data Programs first",
+    );
+    expect(customBlocksSkill).toContain("only actions that are HTTP-mounted");
+    expect(customBlocksSkill).toContain(
+      "never call `query-agent-native-analytics`",
+    );
+    expect(customBlocksSkill).toContain("canonical `bigquery` action");
+    expect(customBlocksSkill).toContain("only when the user explicitly asks");
+    expect(customBlocksSkill).toContain("intended scope is this dashboard");
+    expect(customBlocksSkill).toContain("nativeGapReason");
+    expect(customBlocksSkill).toContain("never put prompt text, customer data");
+    expect(customBlocksSkill).toContain("call `connect-builder`");
+    expect(customBlocksSkill).toContain("preserve the existing Custom Block");
+    expect(customBlocksSkill).not.toContain("automatically create");
   });
 
   it("guards named account health against scope and metric-definition drift", () => {
+    const normalized = accountHealthSkill.replace(/\s+/g, " ");
     for (const phrase of [
-      "org ID as a lookup key",
-      "different customer, mixed IDs",
+      "lookup key, not as proof",
+      "mixed organization IDs",
       "deprecated or retired",
       "current partial-period snapshot",
-      "total distinct contracted users",
+      "total distinct contracted/eligible users",
       "utilization at or above 100%",
       "each requested product or feature dimension separately",
     ]) {
-      expect(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE).toContain(phrase);
+      expect(normalized).toContain(phrase);
     }
   });
 
@@ -356,78 +676,24 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
-  it("routes built-in product metrics to the first-party query action", () => {
-    expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain(
-      "query-agent-native-analytics",
-    );
-    expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain(
-      "Do not report the first-party source as disconnected",
-    );
-    expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain("analytics_events");
-  });
-
-  it("routes internal product usage through schema discovery instead of user-supplied SQL", () => {
-    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain("search-bigquery-schema");
-    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
-      "list-dispatch-usage-metrics",
-    );
-    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
-      "named customer or account such as OCBC",
-    );
-    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
-      "do not ask the user for identifiers",
-    );
-    expect(
-      looksLikeAnalyticsDataRequest(
-        "Pull AI credit usage and branch creation data by user for each month",
-      ),
-    ).toBe(true);
-  });
-
-  it("advertises Analytics as the owner for curated first-party product metrics", () => {
-    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
-      "agent-native signups",
-    );
-    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
-      "built-in first-party source and query catalog",
-    );
-    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
-      "list-dispatch-usage-metrics",
-    );
-    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain("call-agent");
-  });
-
   it("discovers incident sessions without requiring a JavaScript error count", () => {
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
-      "Do not require hasErrors=true for this initial lookup",
-    );
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+    for (const phrase of [
+      "Do not require `hasErrors=true` for this initial lookup",
       "agent_chat_stuck_detected",
-    );
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
-      "create-session-replay-agent-link first",
-    );
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "call `create-session-replay-agent-link` first",
       "detailed error text, stacks, request metadata",
-    );
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
-      "read-only investigation tools remain available in Plan mode",
-    );
-    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "remain available in Plan mode",
       "run the query instead of deferring it",
-    );
+    ]) {
+      expect(incidentSkill).toContain(phrase);
+    }
   });
 
-  it("routes data-dictionary lookup on demand with compact guidance", () => {
-    const context = analyticsDataDictionaryRoutingContext();
-
-    expect(context).toContain("system may preload a small set");
-    expect(context).toContain("`list-data-dictionary`");
-    expect(context).toContain(
-      "Call `list-data-dictionary` separately when the catalog has no usable match",
+  it("delivers requested files in the same turn through the workspace skill", () => {
+    expect(analysisWorkspaceSkill).toContain("`show-workspace-file`");
+    expect(analysisWorkspaceSkill).toContain(
+      "never an error or failed response",
     );
-    expect(context).toContain("approved entries as canonical");
-    expect(context.length).toBeLessThan(1_000);
   });
 
   it("leaves representative read-only Analytics tools available to the shared Plan-mode policy", () => {
@@ -441,154 +707,48 @@ describe("Analytics agent Plan mode policy", () => {
       expect(pluginActions[name]).not.toHaveProperty("allowInPlanMode", false);
     }
   });
-  it("keeps bulk corpus tools on the initial tool surface", () => {
+
+  it("hands the plugin the receipt-aware guard", () => {
+    expect(agentChatPluginOptions[0]?.finalResponseGuard).toBe(
+      realDataFinalGuard,
+    );
+  });
+
+  it("starts with the core dashboard and query tools, leaving heavyweights lazy", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
-        "bigquery",
+        "get-sql-dashboard",
+        "mutate-dashboard",
+        "inspect-dashboard-panel",
+        "search-dashboard-references",
         "search-analytics-query-catalog",
+        "query-agent-native-analytics",
+        "bigquery",
         "search-bigquery-schema",
         "list-data-dictionary",
-        "provider-api-request",
-        "provider-corpus-job",
-        "query-staged-dataset",
+        "view-screen",
+        "call-agent",
       ]),
     );
-    expect(INITIAL_TOOL_NAMES).not.toEqual(
-      expect.arrayContaining([
-        "provider-api-catalog",
-        "provider-api-docs",
-        "run-code",
-        "get-code-execution",
-        "account-deep-dive",
-        "gong-calls",
-        "gong-native-insights",
-        "run-gong-native-insight",
-        "github-repo-files",
-        "hubspot-deals",
-        "hubspot-records",
-        "hubspot-pipelines",
-        "jira-search",
-        "slack-messages",
-        "sentry",
-      ]),
-    );
-  });
-
-  it("keeps named-session incident evidence on the initial tool surface", () => {
-    expect(INITIAL_TOOL_NAMES).toEqual(
-      expect.arrayContaining([
-        "create-session-replay-agent-link",
-        "get-session-replay-events",
-        "get-error-issue",
-        "get-session-replay-summary",
-        "get-session-replay-timeline",
-        "list-error-issues",
-        "list-session-recordings",
-      ]),
-    );
-  });
-
-  it("keeps the first-party query action on the initial tool surface", () => {
-    expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
-  });
-
-  it("keeps the chat file delivery path on the initial tool surface", async () => {
-    expect(INITIAL_TOOL_NAMES).toContain("show-workspace-file");
-
-    const extraContext = agentChatPluginOptions[0]?.extraContext as
-      | (() => Promise<string>)
-      | undefined;
-    const context = await extraContext?.();
-    expect(context).toContain("EXPORT DELIVERY");
-    expect(context).toContain("call `show-workspace-file`");
-    expect(context).toContain("Never save an error or failed response");
-  });
-
-  it("keeps dashboard replication discovery bounded and reference-only", async () => {
-    expect(INITIAL_TOOL_NAMES).toContain("search-dashboard-references");
-    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
-      "search-dashboard-references",
-    );
-    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
-      "not as proof that its source is authoritative",
-    );
-    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain("get-explorer-dashboard");
-    const context = await (
-      agentChatPluginOptions[0]?.extraContext as () => Promise<string>
-    )?.();
-    expect(context).toContain("DASHBOARD REFERENCE DISCOVERY");
-  });
-
-  it("keeps Brain handoff tools on the initial tool surface", async () => {
-    expect(INITIAL_TOOL_NAMES).toEqual(
-      expect.arrayContaining(["describe-workspace-apps", "call-agent"]),
-    );
-
-    const extraContext = agentChatPluginOptions[0]?.extraContext as
-      | (() => Promise<string>)
-      | undefined;
-    const context = await extraContext?.();
-    expect(context).toContain("Brain is the sibling app");
-    expect(context).toContain("Do not use `list-extensions` to find Brain");
-    expect(context).toContain("use `call-agent` with agent `brain`");
-  });
-
-  it("keeps the complete dashboard build path on the initial tool surface", () => {
-    expect(INITIAL_TOOL_NAMES).toEqual(
-      expect.arrayContaining([
-        "get-explorer-dashboard",
-        "update-dashboard",
-        "mutate-dashboard",
-        "compose-dashboard",
-        "create-extension",
-        "extension-data-set",
-      ]),
-    );
-  });
-
-  it("tells explicit dashboard requests to finish non-destructive build steps", async () => {
-    const extraContext = agentChatPluginOptions[0]?.extraContext as
-      | (() => Promise<string>)
-      | undefined;
-    expect(extraContext).toBeDefined();
-    const context = await extraContext?.();
-    expect(context).toContain("EXECUTION CONTINUITY");
-    expect(context).toContain("Do not ask 'want me to proceed?'");
-    expect(context).toContain("APPROVED MUTATION CONTINUITY");
-    expect(context).toContain("saved: true");
-    expect(context).toContain("changed: true");
-  });
-
-  it("makes Custom Blocks a deliberate one-off exception to native dashboards", () => {
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "native dashboard panels and Data Programs first",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "only actions that are HTTP-mounted",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "never call `query-agent-native-analytics`",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "canonical `bigquery` action",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "only when the user explicitly asks",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "intended scope is this dashboard",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain("nativeGapReason");
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "never put prompt text, customer data",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain("call `connect-builder`");
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
-      "preserve the existing Custom Block",
-    );
-    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).not.toContain(
-      "automatically create",
-    );
+    for (const lazy of [
+      "provider-api-request",
+      "provider-corpus-job",
+      "query-staged-dataset",
+      "update-dashboard",
+      "compose-dashboard",
+      "generate-chart",
+      "create-extension",
+      "update-extension",
+      "show-workspace-file",
+      "list-session-recordings",
+      "list-error-issues",
+      "run-code",
+      "provider-api-catalog",
+      "account-deep-dive",
+      "gong-calls",
+    ]) {
+      expect(INITIAL_TOOL_NAMES).not.toContain(lazy);
+    }
   });
 
   it("explicitly keeps extension creation enabled for Analytics Custom Blocks", async () => {
@@ -1612,5 +1772,352 @@ describe("realDataFinalGuard", () => {
     );
 
     expect(result).toBeNull();
+  });
+});
+
+function threadContext(params: {
+  earlier: string[];
+  userText: string;
+  draftText: string;
+  toolResults?: AgentLoopFinalResponseGuardContext["toolResults"];
+}): AgentLoopFinalResponseGuardContext {
+  const messages: AgentLoopFinalResponseGuardContext["messages"] = [];
+  for (const text of params.earlier) {
+    messages.push(userMessage(text), {
+      role: "assistant",
+      content: [{ type: "text", text: "Here you go." }],
+    });
+  }
+  messages.push(userMessage(params.userText));
+  return {
+    ...guardContext({
+      userText: params.userText,
+      draftText: params.draftText,
+      toolResults: params.toolResults,
+    }),
+    messages,
+  };
+}
+
+const UNGROUNDED_FIGURES =
+  "Net revenue retention was 112% and 41 customers churned last quarter.";
+
+describe("realDataFinalGuard turn classification", () => {
+  it.each([
+    "what's our NRR",
+    "Q3 bookings",
+    "pull the renewal list for Q4",
+    "churned logos last quarter",
+    "who owns Acme",
+    "how many seats does Globex have",
+    "what's our win rate",
+    "who are our top reps",
+    "median time to close",
+    "are we on track for the quarter",
+    "rank sales reps by closed won",
+    "biggest drop in activation last week",
+    "update me on page views",
+    "update me on tab usage",
+    "先月のサインアップ数は？",
+    "Сколько регистраций за прошлую неделю?",
+  ])("judges an unqueried draft of figures for %j", (userText) => {
+    expect(
+      realDataFinalGuard(
+        guardContext({ userText, draftText: UNGROUNDED_FIGURES }),
+      ),
+    ).toMatchObject({ retryMessage: expect.any(String) });
+  });
+
+  const PIPELINE_THREAD = [
+    "pipeline by stage for Q3",
+    "what about EMEA?",
+    "and APAC?",
+    "and LATAM?",
+  ];
+
+  it.each([
+    ["what about EMEA?", ["show me pipeline by stage for Q3"]],
+    ["same but for APAC", ["what's our NRR"]],
+    ["and APAC?", ["Q3 bookings by region", "what about EMEA?"]],
+    // Past the fourth consecutive short follow-up the root ask is out of reach.
+    ["and the UK?", PIPELINE_THREAD],
+    ["remove EMEA from this", ["show me pipeline by stage for Q3"]],
+    ["switch to the EMEA region", ["show me pipeline by stage for Q3"]],
+    ["set the window to 30 days", ["show me pipeline by stage for Q3"]],
+    [
+      "can you do the same for enterprise only",
+      ["show me pipeline by stage for Q3"],
+    ],
+  ])("judges an unqueried draft for the follow-up %j", (userText, earlier) => {
+    expect(
+      realDataFinalGuard(
+        threadContext({ earlier, userText, draftText: UNGROUNDED_FIGURES }),
+      ),
+    ).toMatchObject({ retryMessage: expect.any(String) });
+  });
+
+  it.each([
+    ["what about winter?", ["write me a haiku about autumn"]],
+    ["what about winter?", []],
+    ["and the UK?", [...PIPELINE_THREAD, ...PIPELINE_THREAD, "and MENA?"]],
+  ])(
+    "judges an unqueried draft for %j whatever the thread before it",
+    (userText, earlier) => {
+      expect(
+        realDataFinalGuard(
+          threadContext({ earlier, userText, draftText: UNGROUNDED_FIGURES }),
+        ),
+      ).toMatchObject({ retryMessage: expect.any(String) });
+    },
+  );
+
+  // A destructive or navigational artifact ask names a metric inside the
+  // artifact's name; its confirmation may quote counts of what it touched.
+  it.each([
+    "open the revenue dashboard",
+    "go to the pipeline dashboard",
+    "share the churn dashboard with Sam",
+    "delete the old signups dashboard",
+    "favorite the customers dashboard",
+    "fix the layout of the accounts page",
+    "the route for tickets is broken",
+    "update the code that handles signups",
+    "open the data sources page",
+    "add the revenue dashboard to my favorites",
+  ])("does not retry a confirmation of %j that quotes counts", (userText) => {
+    expect(
+      realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText:
+            "Done. The old Signups dashboard had 7 panels, and 2 accounts had access.",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  // An edit of how an artifact looks quotes nothing measured, even when its
+  // size, device, or new name carries a figure or a metric word.
+  it.each([
+    ["move the legend to the left", "Done. The legend now lists 2 accounts."],
+    [
+      "change the chart title to Overview",
+      "Done. The legend now lists 2 accounts.",
+    ],
+    [
+      "make the chart show the legend",
+      "Done. The legend now lists 2 accounts.",
+    ],
+    [
+      "resize the chart to full width",
+      "Done. The legend now lists 2 accounts.",
+    ],
+    ["resize the chart by 20%", "Done. The chart is now 20% wider."],
+    ["resize the chart by 20%", "Resized the chart by 20%."],
+    [
+      "move the legend by 10px",
+      "Done. Moved the legend by 10px; it now lists 2 accounts.",
+    ],
+    [
+      "make the chart bigger for mobile",
+      "Done. The chart is now 40% taller on mobile.",
+    ],
+    [
+      "rename the chart to Revenue Overview",
+      "Renamed the chart to Revenue Overview; it still shows 2 accounts.",
+    ],
+    [
+      "rename the chart to Revenue by Region",
+      "Renamed the chart to Revenue by Region; it still shows 2 accounts.",
+    ],
+    ["remove the legend", "Done. The legend now lists 2 accounts."],
+    [
+      "remove the legend completely",
+      "Done. I removed the legend; the chart still shows 2 accounts.",
+    ],
+    [
+      "delete the chart called Revenue",
+      "Done. I deleted the chart; the dashboard still lists 2 accounts.",
+    ],
+    ["hide the gridlines", "Done. The chart still shows 2 accounts."],
+    ["delete this panel", "Done. The dashboard still lists 2 accounts."],
+    ["remove this chart", "Done. The dashboard still lists 2 accounts."],
+    ["delete the old dashboard", "Done. Deleted it; 2 accounts had access."],
+    [
+      "remove the x-axis",
+      "Done. I removed the x-axis; the chart still shows 2 accounts.",
+    ],
+    ["hide the y-axis", "Done. The chart still shows 2 accounts."],
+    [
+      "remove the shadow from the panel",
+      "Done. The panel still lists 2 accounts.",
+    ],
+    [
+      "remove the footer from this dashboard",
+      "Done. The dashboard still lists 2 accounts.",
+    ],
+    [
+      "remove the margin around the chart",
+      "Done. The chart still shows 2 accounts.",
+    ],
+    [
+      "turn off the animation on this chart",
+      "Done. The chart still shows 2 accounts.",
+    ],
+    [
+      "disable animations on the dashboard",
+      "Done. The dashboard still lists 2 accounts.",
+    ],
+    [
+      "remove everything from this page",
+      "Done. The page is empty; it listed 2 accounts.",
+    ],
+    [
+      "move this chart to another tab",
+      "Done. Moved the chart to the Overview tab; it still shows 2 accounts.",
+    ],
+    [
+      "move this panel into a new section",
+      "Done. Moved the panel into the Growth section; it still lists 2 accounts.",
+    ],
+  ])(
+    "does not retry a confirmation of the look edit %j",
+    (userText, draftText) => {
+      expect(
+        realDataFinalGuard(guardContext({ userText, draftText })),
+      ).toBeNull();
+    },
+  );
+
+  // An edit that changes what a chart measures is a data turn: figures in the
+  // reply need a query, however the ask is worded.
+  it.each([
+    "change this chart to show revenue by region",
+    "make this chart show signups by plan",
+    "add a series for churn to this chart",
+    "add ARR to this panel",
+    "add a line for MRR to the chart",
+    "change the chart to exclude trial accounts",
+    "change this chart to revenue",
+    "turn this chart into a funnel",
+    "change this chart for mobile users",
+    "change this chart for 2024",
+    "remove EMEA from this chart",
+    "remove EMEA from chart",
+    "remove refunds from chart",
+    "hide churn on dashboard",
+    "remove page views from this chart",
+    "remove views from this chart",
+    "remove tab views from this chart",
+    "remove label clicks from this chart",
+    "remove test accounts from this chart",
+    "remove internal users from the dashboard",
+    "hide trial accounts on this dashboard",
+    "delete the churned customers from this panel",
+    "exclude refunds from this chart",
+    "turn off bot traffic on this chart",
+    "make the chart ignore test accounts",
+    "update the dashboard to ignore refunds",
+    "remove users who opened the settings page from this chart",
+    "delete sessions that reached the checkout page",
+    "add a tab about retention",
+  ])(
+    "judges an unqueried draft of figures for the data edit %j",
+    (userText) => {
+      expect(
+        realDataFinalGuard(
+          guardContext({ userText, draftText: UNGROUNDED_FIGURES }),
+        ),
+      ).toMatchObject({ retryMessage: expect.any(String) });
+    },
+  );
+
+  it.each([
+    "write me a haiku about autumn",
+    "explain how a left join works",
+    "can you review my PR",
+    "how do I connect HubSpot",
+    "what does MRR mean",
+    "the chat keeps typing long messages that disappear",
+  ])("passes a draft with no figures for the general ask %j", (userText) => {
+    expect(
+      realDataFinalGuard(
+        guardContext({ userText, draftText: "Here is a short answer." }),
+      ),
+    ).toBeNull();
+  });
+
+  it("judges a draft once the turn has started catalog discovery, whatever the wording", () => {
+    expect(
+      realDataFinalGuard(
+        guardContext({
+          userText: "make the chart show signups by plan",
+          draftText: "Free has 1,200 signups and Pro has 340 customers.",
+          toolResults: [
+            {
+              name: "search-analytics-query-catalog",
+              isError: false,
+              content: '{"candidates":[]}',
+            },
+          ],
+        }),
+      ),
+    ).toMatchObject({ retryMessage: expect.any(String) });
+  });
+
+  // Jason's 2026-08-17 reports: the canned no-grounded-data sentence replied to
+  // theme and extension edits.
+  it.each([
+    "add a dark mode toggle to the theme settings",
+    "switch the theme to dark",
+    "make the extension header blue",
+    "rename this chart",
+    "make it blue",
+    "update the extension to add a copy button to each row",
+    "edit the extension so the header is sticky",
+  ])("never answers the UI ask %j with the no-data sentence", (userText) => {
+    const result = realDataFinalGuard(
+      guardContext({ userText, draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE }),
+    );
+
+    expect(
+      (result as { fallbackMessage?: string } | null)?.fallbackMessage,
+    ).not.toBe(GENERIC_NO_DATA_FALLBACK_MESSAGE);
+    expect(result).not.toMatchObject({
+      retryMessage: expect.stringContaining("no real source query ran"),
+    });
+  });
+
+  it.each([
+    "add a dark mode toggle to the theme settings",
+    "switch the theme to dark",
+    "make it blue",
+    "rename this chart",
+  ])(
+    "retries the canned sentence on %j as ordinary conversation",
+    (userText) => {
+      expect(
+        realDataFinalGuard(
+          guardContext({
+            userText,
+            draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+          }),
+        ),
+      ).toMatchObject({
+        retryMessage: NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
+        fallbackMessage: NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
+      });
+    },
+  );
+
+  it("does not demand a query for a greeting that mentions a number", () => {
+    expect(
+      realDataFinalGuard(
+        guardContext({
+          userText: "hello",
+          draftText: "Hi! I found 3 things I can help with today.",
+        }),
+      ),
+    ).toBeNull();
   });
 });

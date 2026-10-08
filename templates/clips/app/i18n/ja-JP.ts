@@ -8,6 +8,7 @@ const messages = {
       providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
     common: { retry: "再試行" },
+    onboarding: { skipForNow: "今はスキップ" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -215,6 +216,7 @@ const messages = {
   recordingPage: {
     back: "戻る",
     done: "完了",
+    backToClip: "クリップに戻る",
     untitledClip: "無題のクリップ",
     recordingNotFound: "録画が見つかりません",
     noAccess: "このクリップにアクセスできない可能性があります。",
@@ -1350,6 +1352,11 @@ const messages = {
     burningRedactions: "マスクを動画に焼き込んでいます…",
     burningRedactionsPercent: "マスクを動画に焼き込んでいます… {{percent}}%",
     editFailed: "その編集を保存できませんでした",
+    refreshFailed:
+      "最新の編集内容を読み込めませんでした。編集を続ける前にもう一度お試しください。",
+    autoSaveHint: "編集内容はこのクリップに自動保存されます",
+    savingChanges: "変更を保存中…",
+    changesSaved: "このクリップに変更を保存しました",
     nothingToRedo: "やり直す操作がありません",
   },
   transcriptEditor: {
@@ -1387,6 +1394,14 @@ const messages = {
     agentTitle: "会話に参加するには無料の Clips アカウントを作成",
     genericTitle: "続行するには無料の Clips アカウントを作成",
     description: "完了すると、このクリップに戻ります。",
+    verificationPendingTitle: "メールアドレスを確認してください",
+    verificationPendingCopy:
+      "{{email}} に確認メールを送信しました。メールを開いてアカウント作成を完了し、このクリップに戻ってください。",
+    resendVerification: "確認メールを再送信",
+    resendingVerification: "確認メールを送信しています...",
+    verificationEmailResent: "新しい確認メールを送信しました。",
+    verificationEmailFailed:
+      "確認メールを再送信できませんでした。もう一度お試しいただくか、メールリンクでログインしてください。",
     passwordsMismatch: "パスワードが一致しません。",
     commentIntent: "コメント",
     reactIntent: "リアクションを追加",
@@ -1465,15 +1480,24 @@ const messages = {
     builderConnectPopupError:
       "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
     builderConnectError:
-      "Builder.io を設定できませんでした。もう一度お試しいただくか、サポートにお問い合わせください。",
+      "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、S3 互換ストレージを選択してください。",
+    builderConnectErrorAskAdmin:
+      "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、オーナーまたは管理者にストレージの設定を依頼してください。",
+    builderStatusReadError:
+      "接続状態を確認できません。もう一度お試しください。",
+    builderUploadGrantMissing:
+      "Builder.io は AI 用に接続されていますが、この接続ではクリップをアップロードできません。アップロード権限を付けて Builder.io を再接続するか、オーナーまたは管理者に相談してください。",
+    builderGrantAskAdmin:
+      "オーナーまたは管理者に、クリップのアップロード権限を付けて Builder.io を接続するよう依頼してください。",
+    statusUnavailable: "動画ストレージの状態を確認できませんでした。",
     checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
-      "5 分以内に Builder から応答がありませんでした。もう一度お試しください。",
+      "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
     description:
       "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
-    createBuilderAccount: "Builder.io アカウントを作成",
+    createBuilderAccount: "Builder.io を使う",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",
     whyPrompt: "なぜこれが表示されていますか？",
@@ -1829,6 +1853,9 @@ const messages = {
     storageConnectedUploading:
       "ストレージを接続しました。録画をアップロードしています…",
     downloadCopy: "コピーをダウンロード",
+    localRecordingPreview: "ローカル録画のプレビュー",
+    localPreviewUnavailable:
+      "ローカルプレビューは利用できません。コピーをダウンロードできます。",
     localRecordingOpenElsewhere:
       "その録画は別の Clips タブでまだ開いています。",
     uploadWaitingForConnection:

@@ -120,7 +120,7 @@ const messages = {
     firstSlidesDescription: "每張幻燈片送達後，簡報會開始顯示在這裡。",
     googleOAuthNotConfigured: "此部署尚未設定 Google OAuth。",
     googlePickerNeedsKeys:
-      "Google Picker 需要 GOOGLE_PICKER_API_KEY 和 GOOGLE_PICKER_APP_ID。",
+      "Google Drive 檔案選擇器尚未設定。您仍可貼上文件連結來匯入。",
     imageUploadFailed: "圖片上傳失敗",
     imageUploadNeedsBuilder:
       "連接物件儲存以上傳圖片：連接 Builder.io（免費），或在「設定 → 檔案上傳」中新增自己的 S3 相容儲存金鑰。",
@@ -244,6 +244,16 @@ const messages = {
     generateImage: "產生圖片",
     assetLibrary: "素材庫",
     imageOptions: "圖片選項",
+    videoPlayback: "影片播放",
+    autoplayVideo: "自動播放",
+    loopVideo: "循環播放影片",
+    videoUploading: "正在上傳影片…",
+    videoAdded: "已新增影片",
+    videoUploadFailed: "影片上傳失敗",
+    videoUploadError: "無法上傳此影片。",
+    videoFormatUnsupported: "僅支援 MP4 和 WebM 影片。",
+    videoTooLarge: "影片大小不得超過 50 MB。",
+    videoUploadNeedsBuilder: "尚未設定影片儲存空間。",
     cropImage: "裁切圖片",
     cropHandle: "裁切圖片{{position}}",
     diagrams: "圖表",
@@ -295,6 +305,9 @@ const messages = {
     downloadBackup: "下載備份",
     conflictStatus: "文字衝突",
     conflictStatusDescription: "請先檢查衝突的文字，再儲存其他變更。",
+    accessLost: "存取權限已失效",
+    accessLostDescription:
+      "你對此簡報的存取權限已變更。你的編輯仍保留在畫面上；恢復存取後可重試，或下載備份。",
     reviewConflict: "檢視衝突",
     conflictTitle: "第 {{number}} 張投影片有文字衝突",
     conflictDescription: "編輯文字時，另一個版本變更了這張投影片。",
@@ -339,6 +352,7 @@ const messages = {
       "由於尚未設定 Google 連線，目前無法匯出至 Google Slides。請改為匯出 PPTX，再將檔案匯入 Google Slides。",
     googleSlidesCreated: "已在 Google Slides 中開啟",
     googleSlidesCreatedHint: "已在你的 Google 雲端硬碟中建立此簡報的副本。",
+    googleSlidesGoTo: "在 Google Slides 中開啟",
     duplicateDeck: "複製幻燈片",
   },
   share: {
@@ -739,6 +753,9 @@ const messages = {
     exportFailed: "匯出失敗",
     agentRunFailed:
       "代理程式在建立任何投影片前執行失敗。請查看聊天中的詳細資訊，然後再試一次。",
+    generationFailed: "未建立投影片。請查看聊天中的詳細資訊，然後再試一次。",
+    generationOutcomeUnresolved:
+      "無法確認投影片是否已建立。請檢查簡報或聊天，然後再試一次。",
     deckHasNoSlides: "幻燈片沒有頁面。",
     pdfRenderFailed: "無法渲染 PDF。",
     buildingDeck: "正在建置幻燈片",

@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
     common: { retry: "Retry" },
+    onboarding: { skipForNow: "Skip for now" },
   },
   common: {
     cancel: "Cancel",
@@ -152,6 +153,7 @@ const messages = {
   recordingPage: {
     back: "Back",
     done: "Done",
+    backToClip: "Back to clip",
     untitledClip: "Untitled Clip",
     recordingNotFound: "Recording not found",
     noAccess: "You may not have access to this clip.",
@@ -1268,6 +1270,10 @@ const messages = {
     burningRedactionsPercent:
       "Rendering the redactions into the video… {{percent}}%",
     editFailed: "Could not save that edit",
+    refreshFailed: "Couldn't load the latest edits. Try again before editing.",
+    autoSaveHint: "Edits save to this clip automatically",
+    savingChanges: "Saving changes…",
+    changesSaved: "Changes saved to this clip",
     nothingToRedo: "Nothing to redo",
   },
   transcriptEditor: {
@@ -1305,6 +1311,14 @@ const messages = {
     agentTitle: "Create a free Clips account to join the conversation",
     genericTitle: "Create a free Clips account to continue",
     description: "You’ll return to this clip as soon as you’re done.",
+    verificationPendingTitle: "Verify your email",
+    verificationPendingCopy:
+      "We sent a verification email to {{email}}. Open it to finish creating your account and return to this clip.",
+    resendVerification: "Resend verification email",
+    resendingVerification: "Sending verification email...",
+    verificationEmailResent: "A new verification email is on its way.",
+    verificationEmailFailed:
+      "We couldn't resend the verification email. Try again or sign in with an email link.",
     passwordsMismatch: "Passwords do not match.",
     commentIntent: "comment",
     reactIntent: "add a reaction",
@@ -1380,14 +1394,24 @@ const messages = {
     builderConnectPopupError:
       "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, try again.",
     builderConnectError:
-      "Couldn't set up Builder.io. Try again or contact support.",
+      "Builder.io setup didn't finish. Try again, or choose S3-compatible storage.",
+    builderConnectErrorAskAdmin:
+      "Builder.io setup didn't finish. Try again, or ask an owner or admin to set up storage.",
+    builderStatusReadError:
+      "Connection status is unavailable. Retry to check again.",
+    builderUploadGrantMissing:
+      "Builder.io is connected for AI, but this connection can't upload clips. Reconnect Builder.io with upload access, or ask an owner or admin for help.",
+    builderGrantAskAdmin:
+      "Ask an owner or admin to connect Builder.io with clip upload access.",
+    statusUnavailable: "Couldn't check whether video storage is ready.",
     checkingBuilderConnection: "Checking Builder connection…",
-    builderTimeout: "Didn't hear back from Builder in 5 minutes. Try again.",
+    builderTimeout:
+      "Couldn't confirm that Builder.io storage is ready. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
     description:
       "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
-    createBuilderAccount: "Create Builder.io account",
+    createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",
     whyPrompt: "Why am I seeing this?",
@@ -1792,6 +1816,9 @@ const messages = {
       "Connect storage and Clips uploads it right away.",
     storageConnectedUploading: "Storage connected. Uploading your recording…",
     downloadCopy: "Download a copy",
+    localRecordingPreview: "Local recording preview",
+    localPreviewUnavailable:
+      "This local preview isn't available. You can still download a copy.",
     localRecordingOpenElsewhere:
       "That recording is still open in another Clips tab.",
     uploadWaitingForConnection: "Upload paused. Clips retries automatically.",
