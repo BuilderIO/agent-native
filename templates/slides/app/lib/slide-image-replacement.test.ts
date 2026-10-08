@@ -261,6 +261,44 @@ describe("slide image replacement", () => {
     expect(image?.getAttribute("style")).toContain("height: 300px");
   });
 
+  it("restores a cropped pending image inside its crop viewport", () => {
+    const preview = {
+      previewSrc: "blob:cropped",
+      replaceSrc: null,
+      alt: "photo.png",
+      objectId: "cropped-object",
+    };
+    const croppedContent = `<div class="fmd-slide"><div class="fmd-pptx-image" data-pptx-element-kind="image" data-slide-object-id="cropped-object" style="position: absolute; left: 100px; top: 90px; width: 320px; height: 180px;"><div class="fmd-image-crop-viewport" style="position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden;"><img src="blob:cropped" alt="photo.png" style="position: absolute; left: -20%; top: -10%; width: 150%; height: 120%; max-width: none; max-height: none; margin: 0;"></div></div></div>`;
+    const editedPreview = captureOptimisticImagePreview(
+      croppedContent,
+      preview,
+    );
+    const persisted = stripOptimisticImagePreviews(croppedContent, [
+      editedPreview,
+    ]);
+    const completed = replaceOptimisticImagePreview(
+      applyOptimisticImagePreview(persisted, editedPreview),
+      preview.previewSrc,
+      "/uploads/photo.png",
+    );
+    const doc = new DOMParser().parseFromString(completed, "text/html");
+    const frame = doc.querySelector<HTMLElement>(
+      '.fmd-pptx-image[data-slide-object-id="cropped-object"]',
+    );
+    const viewport = frame?.querySelector<HTMLElement>(
+      ".fmd-image-crop-viewport",
+    );
+    const image = viewport?.querySelector<HTMLImageElement>("img");
+
+    expect(frame?.style.width).toBe("320px");
+    expect(image?.getAttribute("src")).toBe("/uploads/photo.png");
+    expect(image?.style.left).toBe("-20%");
+    expect(image?.style.top).toBe("-10%");
+    expect(image?.style.width).toBe("150%");
+    expect(image?.style.height).toBe("120%");
+    expect(doc.querySelector(".fmd-slide > img")).toBeNull();
+  });
+
   it("keeps placeholder uploads resolvable after edited content is persisted", () => {
     const replaceSrc = createPlaceholderImageTarget(0, "Hero image");
     const preview = {

@@ -1440,6 +1440,33 @@ export default { run: async () => ({ ok: true }) };
     );
   });
 
+  it("passes authenticated caller context to generated action handlers", () => {
+    const source = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [
+        {
+          name: "create-org-service-token",
+          absPath: "/tmp/action.ts",
+          method: "post",
+        },
+      ],
+    );
+
+    expect(source).toContain(
+      "const actionSession = action_0.requiresAuth === true",
+    );
+    expect(source).toContain("await getGeneratedSession(event)");
+    expect(source).toContain("action_0.requiresAuth === true");
+    expect(source).toContain('JSON.stringify({ error: "Unauthorized" })');
+    expect(source).toContain("userEmail: actionSession.email");
+    expect(source).toContain("orgId: actionSession.orgId ?? null");
+    expect(source).toContain(
+      "runWithGeneratedRequestContext(actionContext, runAction)",
+    );
+  });
+
   it("mounts the generated UI capability route when actions are discovered", async () => {
     const dir = makeTempDir();
     const actionPath = path.join(dir, "delete-action.mjs");
@@ -1675,6 +1702,31 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
 
     expect(html).toContain('var homePath = (root || "") + "/inbox"');
     expect(html).toContain('"appHomePath":"/inbox"');
+  });
+
+  it("includes configured app identity in the generated worker shell config", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "identity-config.mjs");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCharCode(0x2028), workspaceId: "workspace-calendar" } });
+`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain(
+      '"appId":"calendar\\u003c/script\\u003e\\u0026\\u2028"',
+    );
+    expect(html).toContain('"workspaceAppId":"workspace-calendar"');
+    expect(html).toContain('"workspaceRuntime":true');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {

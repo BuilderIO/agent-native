@@ -5,6 +5,7 @@ import {
   IconCalendar,
   IconChevronLeft,
   IconChevronRight,
+  IconGauge,
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
@@ -67,6 +68,15 @@ import {
   SESSION_PAGE_SIZE,
 } from "../../../shared/session-page";
 import {
+  formatPerformanceValue,
+  isSlowSessionFilter,
+  rateWebVital,
+  type SessionPerformanceSummary,
+  type SessionRecordingPerformance,
+  SLOW_SESSION_FILTERS,
+  type SlowSessionFilter,
+} from "../../../shared/session-performance";
+import {
   SessionEventFilter,
   type SessionEventConditions,
 } from "./SessionEventFilter";
@@ -113,6 +123,8 @@ type Page = {
   appCounts: { app: string; count: number }[];
   /** Present when a friction filter or sort applied; null: part uncovered. */
   frictionCoverageStartedAt?: string | null;
+  /** Present when a speed filter applied; null: nothing measured yet. */
+  performanceCoverageStartedAt?: string | null;
 };
 
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
@@ -202,7 +214,7 @@ export function withSessionEventConditions(
  * True when part of the range predates friction coverage, so a friction
  * filter there can miss sessions that were never measured.
  */
-export function rangePredatesFrictionCoverage(
+export function rangePredatesCoverage(
   from: string | undefined,
   coverageStartedAt: string | null,
 ): boolean {
@@ -273,10 +285,15 @@ export function SessionsTriagePage() {
       : "newest";
   const frictionApplied =
     frictionSignals.length > 0 || isSessionFrictionSort(sort);
-  // A shared link with event or friction conditions waits briefly for the Lab
-  // state instead of listing unfiltered sessions. Nothing else waits, and a
-  // hung read stops holding the list and reads as failed.
-  const urlHasLabFilters = urlHasEventConditions || urlHasFrictionParams;
+  const urlSlow = params.get("slow");
+  const slow: SlowSessionFilter | undefined =
+    eventsLabEnabled && isSlowSessionFilter(urlSlow) ? urlSlow : undefined;
+  const urlHasSlowFilter = isSlowSessionFilter(urlSlow);
+  // A shared link with event, friction, or slow conditions waits briefly for
+  // the Lab state instead of listing unfiltered sessions. Nothing else waits,
+  // and a hung read stops holding the list and reads as failed.
+  const urlHasLabFilters =
+    urlHasEventConditions || urlHasFrictionParams || urlHasSlowFilter;
   const [labWaitExpired, setLabWaitExpired] = useState(false);
   const waitsForLab = urlHasLabFilters && eventsLab.isLoading;
   useEffect(() => {
@@ -413,6 +430,7 @@ export function SessionsTriagePage() {
           : undefined,
         frictionSignals: frictionSignals.length ? frictionSignals : undefined,
         includeFriction: frictionApplied || undefined,
+        slow,
         sort,
         offset: (page - 1) * SESSION_PAGE_SIZE,
         limit: SESSION_PAGE_SIZE,
@@ -450,7 +468,28 @@ export function SessionsTriagePage() {
         : t("sessions.frictionCoverageSince", {
             date: new Date(frictionCoverageStartedAt).toLocaleDateString(),
           });
+  const speedCoverageStartedAt = data?.performanceCoverageStartedAt;
+  const speedCoverageNote =
+    speedCoverageStartedAt === undefined
+      ? null
+      : speedCoverageStartedAt === null
+        ? t("sessions.speedCoverageStarting")
+        : t("sessions.speedCoverageSince", {
+            date: new Date(speedCoverageStartedAt).toLocaleDateString(),
+          });
   const total = data?.total ?? 0;
+  // Speed hints load beside the list, keyed on its rows, so turning the Lab
+  // on adds them without fetching the list again.
+  const {
+    data: speed,
+    error: speedError,
+    isFetching: speedFetching,
+    refetch: refetchSpeed,
+  } = useActionQuery<SessionRecordingPerformance>(
+    "list-session-performance",
+    { recordingIds: recordings.map((recording) => recording.id) },
+    { staleTime: 30_000, enabled: eventsLabEnabled && data !== undefined },
+  );
   const lastPage = Math.max(1, Math.ceil(total / SESSION_PAGE_SIZE));
   useEffect(() => {
     if (!data || isPending || isFetching || error || page <= lastPage) return;
@@ -485,6 +524,7 @@ export function SessionsTriagePage() {
         ? eventConditions.didNotEvents
         : undefined,
       frictionSignals: frictionSignals.length ? frictionSignals : undefined,
+      slow,
       sort,
       limit: 1,
     },
@@ -779,6 +819,65 @@ export function SessionsTriagePage() {
             onChange={setFrictionSignals}
           />
         ) : null}
+        {eventsLabEnabled ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={slow ? "secondary" : "outline"}
+                size="sm"
+                className={cn(
+                  "h-8 border border-input font-normal",
+                  !slow && "bg-transparent hover:bg-accent",
+                )}
+              >
+                <IconGauge />
+                {slow ? slowFilterLabel(slow, t) : t("sessions.speed")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-72">
+              <div className="space-y-3">
+                <Select
+                  value={slow ?? "all"}
+                  onValueChange={(value) =>
+                    setFilter("slow", value === "all" ? "" : value)
+                  }
+                >
+                  <SelectTrigger aria-label={t("sessions.speed")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      {t("sessions.anySpeed")}
+                    </SelectItem>
+                    {SLOW_SESSION_FILTERS.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {slowFilterLabel(value, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {speed || speedError ? (
+                  <p className="text-xs text-muted-foreground">
+                    {!speed
+                      ? t("sessions.speedUnavailable")
+                      : speed.coverageStartedAt
+                        ? t("sessions.speedCoverageSince", {
+                            date: new Date(
+                              speed.coverageStartedAt,
+                            ).toLocaleDateString(),
+                          })
+                        : t("sessions.speedCoverageStarting")}
+                  </p>
+                ) : null}
+                <Button asChild variant="outline" size="sm">
+                  <Link to={routePerformanceHref(range, app)}>
+                    {t("sessions.routePerformance")}
+                  </Link>
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : null}
         {hasActiveFilters ? (
           <Button
             variant="ghost"
@@ -821,6 +920,14 @@ export function SessionsTriagePage() {
           {t("sessions.frictionFiltersNeedLab")}
         </p>
       ) : null}
+      {urlHasSlowFilter &&
+      !eventsLabEnabled &&
+      !eventsLab.isLoading &&
+      !eventsLab.isError ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t("sessions.speedFilterNeedsLab")}
+        </p>
+      ) : null}
       {eventsLabEnabled &&
       !frictionApplied &&
       rowFrictionError &&
@@ -843,14 +950,35 @@ export function SessionsTriagePage() {
           </Button>
         </p>
       ) : null}
+      {eventsLabEnabled && speedError && !speed ? (
+        <p
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          {t("sessions.speedUnavailable")}
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => void refetchSpeed()}
+            disabled={speedFetching}
+          >
+            <IconRefresh className={cn(speedFetching && "animate-spin")} />
+            {t("sidebar.retry")}
+          </Button>
+        </p>
+      ) : null}
       {frictionCoverageStartedAt !== undefined &&
       recordings.length > 0 &&
-      rangePredatesFrictionCoverage(
-        dateBounds.from,
-        frictionCoverageStartedAt,
-      ) ? (
+      rangePredatesCoverage(dateBounds.from, frictionCoverageStartedAt) ? (
         <p className="text-xs text-muted-foreground" role="status">
           {frictionCoverageNote}
+        </p>
+      ) : null}
+      {speedCoverageStartedAt !== undefined &&
+      recordings.length > 0 &&
+      rangePredatesCoverage(dateBounds.from, speedCoverageStartedAt) ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {speedCoverageNote}
         </p>
       ) : null}
       <Card>
@@ -935,6 +1063,9 @@ export function SessionsTriagePage() {
                   <p>{t("sessions.noSessions")}</p>
                   {frictionCoverageNote ? (
                     <p className="mt-1 text-xs">{frictionCoverageNote}</p>
+                  ) : null}
+                  {speedCoverageNote ? (
+                    <p className="mt-1 text-xs">{speedCoverageNote}</p>
                   ) : null}
                   {showEmptySessionRecovery ? (
                     <Button
@@ -1037,6 +1168,13 @@ export function SessionsTriagePage() {
                               )}
                             </span>
                           )}
+                          <PerformanceHints
+                            performance={
+                              eventsLabEnabled
+                                ? speed?.performance[recording.id]
+                                : undefined
+                            }
+                          />
                         </span>
                       </Link>
                     </SessionRow>
@@ -1077,6 +1215,82 @@ export function SessionsTriagePage() {
       </Card>
     </div>
   );
+}
+
+const POOR_VITAL_HINTS = [
+  ["lcp", "lcpMs", "LCP"],
+  ["inp", "inpMs", "INP"],
+  ["cls", "cls", "CLS"],
+  ["ttfb", "ttfbMs", "TTFB"],
+] as const;
+
+/** Null is a session speed never measured, which must not read as fast. */
+function PerformanceHints({
+  performance,
+}: {
+  performance: SessionPerformanceSummary | null | undefined;
+}) {
+  const t = useT();
+  if (performance === null) {
+    return (
+      <span className="text-muted-foreground">
+        {t("sessions.speedNotMeasured")}
+      </span>
+    );
+  }
+  if (!performance) return null;
+  const poor = POOR_VITAL_HINTS.flatMap(([metric, key, name]) => {
+    const value = performance[key];
+    if (value === null || rateWebVital(metric, value) !== "poor") return [];
+    const formatted = formatPerformanceValue(metric, value);
+    return [
+      `${name} ${
+        performance.atLeast.includes(key)
+          ? t("sessions.perfAtLeast", { value: formatted })
+          : formatted
+      }`,
+    ];
+  });
+  const { slowRequests } = performance;
+  return (
+    <>
+      {poor.map((hint) => (
+        <span key={hint} className="text-destructive">
+          {hint}
+        </span>
+      ))}
+      {slowRequests !== null && slowRequests > 0 ? (
+        <span>
+          {t(
+            slowRequests === 1
+              ? "sessions.slowRequestCountSingular"
+              : "sessions.slowRequestCount",
+            { count: slowRequests.toLocaleString() },
+          )}
+        </span>
+      ) : null}
+      {performance.incomplete ? (
+        <span>{t("sessions.speedIncomplete")}</span>
+      ) : null}
+    </>
+  );
+}
+
+function routePerformanceHref(range: Range, app: string): string {
+  const next = new URLSearchParams();
+  if (range === "30d" || range === "90d") next.set("range", range);
+  if (app) next.set("app", app);
+  const query = next.toString();
+  return `/sessions/performance${query ? `?${query}` : ""}`;
+}
+
+function slowFilterLabel(
+  value: SlowSessionFilter,
+  t: ReturnType<typeof useT>,
+): string {
+  if (value === "vitals") return t("sessions.speedPoorVitals");
+  if (value === "requests") return t("sessions.speedSlowRequests");
+  return t("sessions.speedSlowAny");
 }
 
 function eventCatalogHref(range: Range, app: string): string {

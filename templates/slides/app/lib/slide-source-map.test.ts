@@ -15,14 +15,16 @@ import {
   stampSlideSource,
   storedFormOf,
 } from "./slide-source-map";
+import { applyVideoPlaybackSettings } from "./slide-video";
 
 const NONCE = "slide-r1.s1";
 const SCOPE = '[data-slide-content-scope="slide-r1"]';
 
-function mount(stored: string) {
+function mount(stored: string, disableVideoAutoplay = false) {
   const rendered = renderRawSlideHtml(stored, {
     scopeSelector: SCOPE,
     stampNonce: NONCE,
+    disableVideoAutoplay,
   });
   const root = document.createElement("div");
   root.innerHTML = rendered.html;
@@ -119,6 +121,24 @@ describe("mergeRenderedEdits", () => {
       }
     }
     expect(slides).toBeGreaterThan(40);
+  });
+
+  it("persists autoplay being turned off from a thumbnail-rendered slide", () => {
+    const source =
+      '<div class="fmd-slide"><video autoplay src="/uploads/clip.mp4"></video></div>';
+    const { root, save } = mount(source, true);
+    const video = root.querySelector("video");
+    if (!video) throw new Error("Expected video in rendered slide");
+
+    applyVideoPlaybackSettings(video, { mode: "click", loop: false });
+
+    const result = save();
+    const savedVideo = new DOMParser()
+      .parseFromString(result.html, "text/html")
+      .querySelector("video");
+    expect(result.changed).toBe(true);
+    expect(savedVideo?.hasAttribute("autoplay")).toBe(false);
+    expect(savedVideo?.hasAttribute("data-video-autoplay")).toBe(false);
   });
 
   it("does not persist transient slash-menu accessibility attributes", () => {

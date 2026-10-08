@@ -24,6 +24,7 @@ const replayMock = vi.hoisted(() => ({
   emitSessionReplayAgentChatEvent: vi.fn(),
   emitSessionReplayAnalyticsEvent: vi.fn(),
   emitSessionReplayException: vi.fn(),
+  emitSessionReplaySlowRequest: vi.fn(),
   getSessionReplayId: vi.fn(() => undefined),
   getSessionReplayContext: vi.fn(() => null),
   getSessionReplayUrl: vi.fn(() => null),
@@ -227,6 +228,7 @@ describe("browser analytics pageviews", () => {
     replayMock.stopSessionReplay.mockClear();
     replayMock.emitSessionReplayAgentChatEvent.mockClear();
     replayMock.emitSessionReplayAnalyticsEvent.mockClear();
+    replayMock.emitSessionReplaySlowRequest.mockClear();
     tracingMock.recordTrackingEvent.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -938,6 +940,58 @@ describe("browser analytics pageviews", () => {
     });
     expect(amplitudeException?.[1]).not.toHaveProperty("exceptionTags");
     expect(amplitudeException?.[1]).not.toHaveProperty("exceptionExtra");
+  });
+
+  it("sends web_vitals with its route and never the page's path", async () => {
+    const { gtag } = installBrowser(
+      "https://slides.agent-native.com/decks/jane@example.com?tab=1",
+    );
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      pageviewTracking: false,
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        path: "/decks/jane@example.com",
+      }),
+    });
+    await tick();
+    amplitudeMock.track.mockClear();
+    analyticsCalls.length = 0;
+
+    trackEvent("web_vitals", { route: "/decks/:id", lcp_ms: 1200 });
+    trackEvent("deck_opened", { deck_count: 1 });
+    await tick();
+
+    const bodies = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    const vitals = bodies.find((body) => body.event === "web_vitals");
+    expect(vitals?.properties).toMatchObject({
+      route: "/decks/:id",
+      lcp_ms: 1200,
+    });
+    expect(JSON.stringify(vitals?.properties)).not.toContain("jane");
+    const amplitudeVitals = amplitudeMock.track.mock.calls.find(
+      ([name]) => name === "web_vitals",
+    );
+    expect(amplitudeVitals?.[1]).toMatchObject({ route: "/decks/:id" });
+    expect(JSON.stringify(amplitudeVitals?.[1])).not.toContain("jane");
+    const gtagVitals = gtag.mock.calls.find(
+      ([, name]) => name === "web_vitals",
+    );
+    expect(gtagVitals?.[2]).toMatchObject({ route: "/decks/:id" });
+    expect(JSON.stringify(gtagVitals?.[2])).not.toContain("jane");
+    // Every other event keeps the page it happened on.
+    expect(
+      bodies.find((body) => body.event === "deck_opened")?.properties,
+    ).toMatchObject({
+      url: "https://slides.agent-native.com/decks/jane@example.com",
+    });
   });
 
   it("links the open chat thread on a first-party exception, and leaves one outside a thread alone", async () => {
@@ -1757,6 +1811,43 @@ describe("browser analytics pageviews", () => {
     expect(marked).not.toContain("action.response");
     expect(marked).not.toContain("session_status");
     expect(marked).not.toContain("session_replay_upload_rejected");
+  });
+
+  it("marks a slow action response someone waited for on the replay with its own timing", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    installFetch({
+      session: { email: "dev@example.com", userId: "auth-user-1" },
+    });
+    replayMock.startSessionReplay.mockResolvedValue({
+      started: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+    });
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    await tick();
+
+    const slow = {
+      action: "save-clip",
+      method: "POST",
+      duration_ms: 1_000,
+      status_code: 500,
+      outcome: "error",
+    };
+    trackEvent("action.response", slow);
+    trackEvent("action.response", { ...slow, duration_ms: 999 });
+    trackEvent("action.response", { ...slow, page_hidden: true });
+    trackEvent("action.response", { ...slow, outcome: "cancelled" });
+    await tick();
+
+    expect(replayMock.emitSessionReplaySlowRequest).toHaveBeenCalledTimes(1);
+    expect(replayMock.emitSessionReplaySlowRequest).toHaveBeenCalledWith(
+      expect.objectContaining(slow),
+    );
   });
 
   it("switches content capture before emitting client-side pageviews", async () => {

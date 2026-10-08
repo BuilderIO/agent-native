@@ -13,6 +13,7 @@ import {
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
   isMcpEmbedTransplantOrigin,
@@ -49,6 +50,7 @@ function appendEmbedParams(
   if (chatBridgeActive) {
     url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
   }
+  url.searchParams.delete(MCP_DIRECTORY_WIDGET_QUERY_PARAM);
   return `${url.pathname}${url.search}${url.hash}`;
 }
 

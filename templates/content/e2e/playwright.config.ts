@@ -10,8 +10,7 @@ const SERVE_BUILD = process.env.CONTENT_E2E_SERVE_BUILD === "1";
 
 export default defineConfig({
   testDir: ".",
-  testMatch:
-    /(registry-blocks|local-files|database-preview-menu|sidebar-delete|shared-personal-page|signup-landing|unreadable-page-link|content-responsive-layout|realtime-collab|two-tab-convergence)\.spec\.ts/,
+  testMatch: "**/*.spec.ts",
   fullyParallel: true,
   workers: process.env.CI ? 2 : 3,
   retries: 2,

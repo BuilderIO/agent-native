@@ -12,8 +12,10 @@ metadata:
 Monitor PR #$ARGUMENTS in the current repo and fix CI failures and human or bot
 review feedback. A standalone `/babysit-pr` may stop after 30 minutes of green
 CI and no new feedback. When invoked by `/ship`, honor its inherited
-`ship_mode` in this foreground task. `/ship` and standalone `/babysit-pr` stay
-foreground-only; do not create or resume a durable watcher or use PR leases.
+`ship_mode` and reuse `/ship`'s same-thread heartbeat in Codex; do not create a
+second automation. Standalone `/babysit-pr` stays foreground-only and does not
+create or resume an automation unless the user explicitly asks for recurring
+follow-up. Do not use PR leases.
 
 A request to monitor or fix a PR does not authorize pushing to a PR authored by
 someone else. Push to that PR only when the user explicitly authorizes a push to
@@ -27,6 +29,14 @@ Before each push, resolve the active GitHub login with `gh api user --jq .login`
 include `author` in the live PR query, and compare `author.login` with that
 login. If they differ, require the current-request authorization for that exact
 PR.
+
+Review-reply authorization is separate from push authorization. On the active
+user's own PR, concise replies required to document fixes, declines, or terminal
+dispositions need no extra authorization. On another person's PR, post a reply
+only when the current request explicitly authorizes that communication on the
+exact PR; permission to review, monitor, fix, push, or merge does not authorize
+a comment. Without that authorization, draft the reply, leave the feedback
+unresolved, and do not claim the PR is ready or merge it.
 
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
@@ -98,14 +108,19 @@ gh api user --jq .login
 gh pr view <number> --json state,mergedAt,closedAt,author,headRepository,headRepositoryOwner,headRefName,headRefOid,baseRefName,mergeCommit
 ```
 
-If the query fails or is ambiguous, stay foreground-only until its state is
-known. A closed, unmerged PR ends babysitting and is reported as unsuccessful.
+If the query fails or is ambiguous, do not act on cached evidence. Retry only
+after live state is available. Keep retrying the live query in the foreground
+at a short, interruptible cadence; under `/ship`, the verified same-thread
+heartbeat is an additional reentry path, not a replacement for that retry.
+A closed, unmerged PR ends babysitting and is reported as unsuccessful.
 If a PR is already merged under inherited `ship_mode=merge-authorized`,
 continue the post-merge path here. Standalone and ready-only invocations report
 an unexpected merge without rotating.
 
-1. Run one foreground tick immediately and continue until this mode's endpoint.
-   Do not create or mutate automations for this workflow.
+1. Run one foreground tick immediately. Under `/ship`, preserve its goal and
+   task-scoped heartbeat through this mode's endpoint. Standalone babysitting
+   continues in the foreground without automation unless recurring follow-up
+   was explicitly requested. Never create a duplicate heartbeat.
 2. Before each PR write, reread the live state. Push normally (never force).
    Query and record `headRepository.nameWithOwner`, `headRefName`, and
    `headRefOid`. Resolve the writable push remote by matching its URL to that
@@ -344,9 +359,10 @@ record it as unavailable in the recap rather than treating it as no findings.
 
 ## Responding to feedback
 
-Every human or bot review comment must get a reply when it is fixed or skipped;
-a feedback item already closed by a disposition-specific terminal outcome does
-not need a manufactured reply.
+On the active user's own PR, every human or bot review comment must get a reply
+when it is fixed or skipped; a feedback item already closed by a
+disposition-specific terminal outcome does not need a manufactured reply. On
+another person's PR, post those replies only under the authorization rule above.
 
 ## Feedback precedence
 
@@ -480,7 +496,10 @@ missing, preserve the source branch. Continue through:
    babysitting or `ship_mode=ready-only`, retain the source branch unless the
    user requested that exact rotation in this task.
 
-The foreground task owns this continuation; no watcher or lease is required.
+The `/ship` goal and its same-thread heartbeat own this continuation. Keep the
+heartbeat active until `origin/main` ancestry and branch disposition are
+verified, then pause it and verify the saved automation state before completing
+the goal.
 
 PR merge by itself is not parent handoff or goal completion. If the exact head
 OID is unavailable, preserve the source branch and report that safe disposition
