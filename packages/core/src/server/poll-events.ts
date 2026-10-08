@@ -31,6 +31,7 @@ export interface PollEventsHandlerOptions {
 }
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const ACCESS_CHECK_WAIT_MS = 10_000;
 
 export function validateSseMaxDurationMs(
   value: unknown,
@@ -75,12 +76,50 @@ export function createPollEventsHandler(
       }
     };
 
+    // An event whose access check is still running is held, and every later
+    // event queues behind it: the client's cursor only moves forward, so an
+    // event delivered after a newer one is discarded as already seen.
+    let held: Promise<void> | null = null;
+
+    const deliver = async (change: ChangeEvent) => {
+      const visibilityOf = () =>
+        state.getChangeVisibilityForUser(change, session.email, session.orgId);
+      let visibility = visibilityOf();
+      if (visibility === "pending") {
+        await state.waitForAccessChecks(ACCESS_CHECK_WAIT_MS);
+        visibility = visibilityOf();
+      }
+      if (closed) return;
+      if (visibility === "visible") {
+        safePush(JSON.stringify(change));
+      } else if (visibility === "pending") {
+        // The reconnecting client polls from its last delivered cursor.
+        closed = true;
+        void stream.close();
+      }
+    };
+
     const push = (change: ChangeEvent) => {
       if (closed) return;
-      if (!state.canSeeChangeForUser(change, session.email, session.orgId)) {
-        return;
+      if (!held) {
+        const visibility = state.getChangeVisibilityForUser(
+          change,
+          session.email,
+          session.orgId,
+        );
+        if (visibility === "hidden") return;
+        if (visibility === "visible") {
+          safePush(JSON.stringify(change));
+          return;
+        }
       }
-      safePush(JSON.stringify(change));
+      const tail: Promise<void> = (held ?? Promise.resolve())
+        .then(() => deliver(change))
+        .catch(() => {})
+        .finally(() => {
+          if (held === tail) held = null;
+        });
+      held = tail;
     };
 
     const pushHeartbeat = () => {
