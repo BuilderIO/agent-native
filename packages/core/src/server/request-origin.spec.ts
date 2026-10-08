@@ -109,6 +109,27 @@ describe("getForwardedRequestOrigin", () => {
     }
   });
 
+  it("uses HTTPS for trusted forwarded hosts when protocol is absent in production", () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      expect(
+        getForwardedRequestOrigin(
+          fakeEvent(
+            {
+              host: "internal.gateway:3000",
+              "x-forwarded-host": "beta.design.agent-native.com",
+            },
+            { ip: "127.0.0.1", url: "http://internal.gateway:3000/" },
+          ),
+        ),
+      ).toBe("https://beta.design.agent-native.com");
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
   it("normalizes forwarded hostnames, including terminal dots", () => {
     expect(
       getForwardedRequestHostname(

@@ -29,9 +29,13 @@ export function getForwardedRequestOrigin(event: H3Event): string {
       });
     }
     const rawProto = getRequestHeader(event, "x-forwarded-proto");
+    const defaultProto =
+      process.env.NODE_ENV === "production"
+        ? "https"
+        : requestUrl.protocol.slice(0, -1);
     const headerProto =
       rawProto === undefined
-        ? requestUrl.protocol.slice(0, -1)
+        ? defaultProto
         : rawProto.split(",")[0]?.trim().toLowerCase();
     if (headerProto !== "http" && headerProto !== "https") {
       throw createError({
