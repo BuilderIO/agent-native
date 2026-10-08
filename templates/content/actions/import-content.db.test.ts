@@ -716,6 +716,32 @@ describe("undo-content-import", () => {
     expect(children.map((page) => page.trashedAt)).toEqual([null, null]);
   });
 
+  it("moves an imported page to Trash after someone else became its owner", async () => {
+    const applied = await importGuide();
+    const id = applied.pages[0].id!;
+    const newOwner = "new-owner@example.com";
+    await getDb()
+      .update(schema.documents)
+      .set({ ownerEmail: newOwner })
+      .where(eq(schema.documents.id, id));
+    await getDb().insert(schema.documentShares).values({
+      id: crypto.randomUUID(),
+      resourceId: id,
+      principalType: "user",
+      principalId: OWNER,
+      role: "editor",
+      createdBy: newOwner,
+      createdAt: new Date().toISOString(),
+    });
+
+    const undone = await asOwner(() =>
+      undoContentImport.run({ importId: applied.importId }),
+    );
+    expect(undone.trashedIds).toEqual([id]);
+    const [page] = await importedChildren();
+    expect(page.trashedAt).toEqual(expect.any(String));
+  });
+
   it("refuses when an imported page was edited after the import", async () => {
     const applied = await importGuide();
     await getDb()

@@ -52,6 +52,9 @@ export default defineAction({
         statusCode: 404,
       });
     }
+    // Editor, not the admin Move to Trash needs: Undo only trashes pages the
+    // caller created in this import and nobody has changed since, and an
+    // import under someone else's page must stay undoable by its importer.
     for (const page of imported) {
       await assertDocumentMutationAccess(page.documentId, "editor");
     }
@@ -74,7 +77,6 @@ export default defineAction({
       const records = await tx
         .select({
           documentId: schema.documentImports.documentId,
-          ownerEmail: schema.documentImports.ownerEmail,
           importedStateSha256: schema.documentImports.importedStateSha256,
         })
         .from(schema.documentImports)
@@ -91,6 +93,7 @@ export default defineAction({
       const current = await tx
         .select({
           id: schema.documents.id,
+          ownerEmail: schema.documents.ownerEmail,
           title: schema.documents.title,
           content: schema.documents.content,
           description: schema.documents.description,
@@ -128,22 +131,27 @@ export default defineAction({
       const trashed: string[] = [];
       for (const page of live) {
         if (changed.includes(page)) continue;
-        const { ownerEmail } = records.find(
-          (row) => row.documentId === page.id,
-        )!;
+        // The page's owner now, not at import: moving a page between
+        // workspaces makes the mover its owner.
         const lockedDatabaseIds = await lockDatabasesForTrash(
           tx,
           page.id,
-          ownerEmail,
+          page.ownerEmail,
         );
         const subtree = await trashDocumentSubtree(
           tx,
           page.id,
-          ownerEmail,
+          page.ownerEmail,
           undefined,
           lockedDatabaseIds,
           ctx?.caller,
         );
+        if (!subtree.includes(page.id)) {
+          fail(
+            `"${page.title}" could not be moved to Trash, so no imported page was moved.`,
+            { errorCode: "IMPORT_UNDO_FAILED", statusCode: 500 },
+          );
+        }
         // A page someone nested under the import is theirs, not the import's.
         if (subtree.some((id) => !importedIds.has(id))) changed.push(page);
         trashed.push(...subtree);
