@@ -214,6 +214,23 @@ function findImageWithSource(
   );
 }
 
+function findEmptyImageCropViewport(
+  doc: Document,
+  objectId: string,
+): HTMLElement | null {
+  const frame = Array.from(
+    doc.body.querySelectorAll<HTMLElement>(
+      '.fmd-pptx-image[data-pptx-element-kind="image"][data-slide-object-id]',
+    ),
+  ).find(
+    (candidate) => candidate.getAttribute("data-slide-object-id") === objectId,
+  );
+  const viewport = frame?.querySelector<HTMLElement>(
+    ".fmd-image-crop-viewport",
+  );
+  return viewport && viewport.childElementCount === 0 ? viewport : null;
+}
+
 function imageStructure(doc: Document, ignoredSourceStamp?: string): string {
   const body = doc.body.cloneNode(true) as HTMLElement;
   if (ignoredSourceStamp) {
@@ -1243,6 +1260,19 @@ export function applyOptimisticImagePreview(
   preview: OptimisticImagePreview,
 ): string {
   if (hasImageSource(content, preview.previewSrc)) return content;
+  if (!preview.replaceSrc && preview.objectId) {
+    const doc = parseFragment(content);
+    const viewport = findEmptyImageCropViewport(doc, preview.objectId);
+    if (viewport) {
+      const image = doc.createElement("img");
+      image.setAttribute("src", preview.previewSrc);
+      image.setAttribute("alt", cleanAlt(preview.alt));
+      image.className = "fmd-img-uploaded";
+      if (preview.style) image.setAttribute("style", preview.style);
+      viewport.appendChild(image);
+      return serializeFragment(doc);
+    }
+  }
   return preview.replaceSrc
     ? replaceImageTargetInSlideHtml(
         content,

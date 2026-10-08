@@ -65,6 +65,13 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser firefox
 ```
 
+Rerun one authoring parity case while debugging it by matching a substring of
+its case ID:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-case paragraph-bullet-delete
+```
+
 Run slash, Markdown, list, and Docs-shaped paste with undo/redo against
 representative source slides from the selected corpus. The gate requires
 absolute positioning, flex/grid, styled list rows, and a viewport-scaled slide.
@@ -169,6 +176,7 @@ because it creates and rewrites decks.
 | `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                                                          |
 | `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic decks; defaults to Chromium                   |
 | `--authoring`                  | Exercise slash commands, Markdown shortcuts, and list authoring in synthetic decks; defaults to Chromium                           |
+| `--authoring-case <id>`        | With `--authoring`, run only cases whose ID contains `<id>`                                                                        |
 | `--authoring-corpus`           | Exercise slash, Markdown, and list authoring against corpus layouts; checks save/reload, outside-block fidelity, and input latency |
 | `--authoring-source <id>`      | Focus `--authoring-corpus` on one selected layout source                                                                           |
 | `--authoring-flow <flow>`      | Focus `--authoring-corpus` on `slash`, `shortcut`, `list`, or `paste`                                                              |

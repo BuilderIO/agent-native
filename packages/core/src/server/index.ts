@@ -593,6 +593,7 @@ export {
   type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
+export { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 
 export {
   buildWorkspaceProviderAuthorizationUrl,
@@ -847,6 +848,10 @@ export {
   getFirstPartyProdUrl,
   resolveAppRuntimeUrl,
 } from "./app-url.js";
+export {
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
+} from "./request-origin.js";
 export {
   getConfiguredAppBasePath,
   normalizeAppBasePath,

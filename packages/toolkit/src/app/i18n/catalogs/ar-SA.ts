@@ -123,8 +123,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
-  "onboarding.builderCreateAccount": "إنشاء حساب Builder.io",
-  "onboarding.builderSignInWithAccount": "تسجيل الدخول بحساب Builder.io",
+  "onboarding.builderCreateAccount": "استخدم Builder.io",
+  "onboarding.builderSignInWithAccount": "استخدم Builder.io",
   "onboarding.builderActivateDescription":
     "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
   "onboarding.builderActiveCredits":
@@ -151,7 +151,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "شروط الخدمة",
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
-  "onboarding.builderExistingAccount": "لدي حساب Builder.io",
+  "onboarding.builderExistingAccount": "استخدم Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":
@@ -200,7 +200,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "تخزين Builder أو حاوية متوافقة مع S3",
   "onboarding.capability.clipsObjectStorage.why":
-    "تحتاج الفيديوهات المسجلة إلى تخزين كائنات دائم قبل تشغيلها أو مشاركتها.",
+    "يمكنك تسجيل Clips ومعاينتها وتنزيلها بدون تخزين. اربط تخزين كائنات دائمًا لإتاحة التسجيلات عبر الأجهزة ومشاركتها.",
   "onboarding.capability.clipsTranscription.keySummary":
     "مفتاح مزود تحويل الكلام إلى نص",
   "onboarding.capability.about": "حول {{label}}",
@@ -670,6 +670,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "عدم إعجاب",
   "feedback.thumbsUp": "إعجاب",
   "feedback.tooSlow": "بطيء جدًا",
+  "feedback.reasonMisread": "أساء فهم طلبي",
+  "feedback.reasonNotDone": "قال إنه أنجز المهمة، لكنه لم ينجزها",
+  "feedback.reasonWrongNumbers": "أرقام خاطئة",
+  "feedback.copyDetails": "نسخ التفاصيل",
   "feedback.whatWentWrong": "ما الذي حدث بشكل خاطئ؟",
   "feedback.wrongTool": "أداة غير صحيحة",
   "header.switchToCli": "التبديل إلى CLI",
@@ -1141,6 +1145,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "جارٍ إعداد Builder.io",
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",
+  "recovery.continueUnavailable":
+    "لم يعد بالإمكان متابعة هذا التشغيل. أرسل رسالة للمتابعة.",
   "recovery.retryAttachmentUnavailable":
     "تضمّن هذا الطلب ملفًا لا يمكن إعادة المحاولة به. أرفقه مجددًا في مربع الرسالة، ثم حاول مرة أخرى.",
   "recovery.deferredSubmissionFailed":
@@ -1165,6 +1171,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "لا يوجد تقدم منذ {{seconds}} ثانية. ربما انتهت مهلة الخادم أو انقطع اتصال الوكيل.",
   "recovery.stuckRetrying": "تجري إعادة المحاولة تلقائيًا الآن.",
+  "recovery.statusUnreadable":
+    "تعذّر الاتصال بالخادم للتحقق من هذه المحادثة. ربما انتهت. سنواصل المحاولة.",
+  "recovery.statusMismatch":
+    "يفيد الخادم بأن هذه المحادثة لم تعد قيد التشغيل. أعد التحميل لرؤية النتيجة.",
+  "recovery.reload": "إعادة التحميل",
   "recovery.statusCheckFailed":
     "تعذّر الوصول إلى الخادم للتحقق مما إذا كان الوكيل لا يزال يعمل. أرسل رسالتك مجددًا لإعادة المحاولة.",
   "recovery.streamEnded":
@@ -1904,6 +1915,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير تخزين الملفات.",
   "settings.audit.action": "الإجراء",
+  "settings.audit.agentVia": "وكيل عبر {{protocol}}",
   "settings.audit.allApps": "كل التطبيقات",
   "settings.audit.app": "التطبيق",
   "settings.audit.changedBy": "تم التغيير بواسطة",
@@ -2216,7 +2228,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يؤثر هذا على كل من في {{org}} ممن لم يربطوا حساباتهم الخاصة.",
   "settingsShell.builder.disconnectFailed": "تعذّر قطع اتصال Builder.io.",
   "settingsShell.builder.disconnectTitle": "هل تريد قطع اتصال Builder.io؟",
-  "settingsShell.builder.grantsFailed": "تعذّرت قراءة اتصالات Builder.io.",
+  "settingsShell.builder.grantsFailed": "تعذّر التحقق من اتصال Builder.io.",
   "settingsShell.builder.setupStartFailed":
     "تعذّر بدء إعداد Builder.io. حدّث هذه الصفحة وحاول مرة أخرى.",
   "settingsShell.builder.setupHostFailed":

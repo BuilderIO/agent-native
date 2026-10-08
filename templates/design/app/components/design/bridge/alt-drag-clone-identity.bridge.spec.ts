@@ -392,6 +392,34 @@ describe("Alt-drag clone identity handoff", () => {
     }
   });
 
+  it("clears the transient marker after an accepted Alt-drag insert", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await installAndListen(page);
+      const duplicate = await altDragDuplicate(page);
+      const cloneId = (duplicate.sourceNodeIdMap as [string, string][])[0]?.[1];
+      const clone = page.locator(`[data-agent-native-node-id="${cloneId}"]`);
+
+      expect(
+        await clone.getAttribute("data-agent-native-transient-drag-clone"),
+      ).toBe("true");
+      await page.evaluate((requestId) => {
+        window.postMessage(
+          { type: "visual-structure-ack", requestId, applied: true },
+          "*",
+        );
+      }, duplicate.requestId);
+
+      expect(await clone.count()).toBe(1);
+      expect(
+        await clone.getAttribute("data-agent-native-transient-drag-clone"),
+      ).toBeNull();
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("does not let a delayed refusal steal a newer selection", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

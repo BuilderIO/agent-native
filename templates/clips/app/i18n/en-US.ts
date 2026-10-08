@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
     common: { retry: "Retry" },
+    onboarding: { skipForNow: "Skip for now" },
   },
   common: {
     cancel: "Cancel",
@@ -1388,14 +1389,24 @@ const messages = {
     builderConnectPopupError:
       "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, try again.",
     builderConnectError:
-      "Couldn't set up Builder.io. Try again or contact support.",
+      "Builder.io setup didn't finish. Try again, or choose S3-compatible storage.",
+    builderConnectErrorAskAdmin:
+      "Builder.io setup didn't finish. Try again, or ask an owner or admin to set up storage.",
+    builderStatusReadError:
+      "Connection status is unavailable. Retry to check again.",
+    builderUploadGrantMissing:
+      "Builder.io is connected for AI, but this connection can't upload clips. Reconnect Builder.io with upload access, or ask an owner or admin for help.",
+    builderGrantAskAdmin:
+      "Ask an owner or admin to connect Builder.io with clip upload access.",
+    statusUnavailable: "Couldn't check whether video storage is ready.",
     checkingBuilderConnection: "Checking Builder connection…",
-    builderTimeout: "Didn't hear back from Builder in 5 minutes. Try again.",
+    builderTimeout:
+      "Couldn't confirm that Builder.io storage is ready. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
     description:
       "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
-    createBuilderAccount: "Create Builder.io account",
+    createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",
     whyPrompt: "Why am I seeing this?",
@@ -1800,6 +1811,9 @@ const messages = {
       "Connect storage and Clips uploads it right away.",
     storageConnectedUploading: "Storage connected. Uploading your recording…",
     downloadCopy: "Download a copy",
+    localRecordingPreview: "Local recording preview",
+    localPreviewUnavailable:
+      "This local preview isn't available. You can still download a copy.",
     localRecordingOpenElsewhere:
       "That recording is still open in another Clips tab.",
     uploadWaitingForConnection: "Upload paused. Clips retries automatically.",

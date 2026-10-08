@@ -40,7 +40,8 @@ export class PageDraftJournalError extends Error {
       | "unavailable"
       | "write_failed"
       | "read_failed"
-      | "invalid_entry",
+      | "invalid_entry"
+      | "rollback_failed",
     readonly cause?: unknown,
   ) {
     super(`Page draft journal ${code.replace(/_/g, " ")}.`);
@@ -206,31 +207,89 @@ export function updatePageDraftJournalTitle(
   return true;
 }
 
-export async function persistTitleBeforeSyncingPageDraftJournal(input: {
+export async function syncPageDraftJournalBeforePersistingRecoveryDraft(input: {
   persist: () => Promise<void>;
   scope: PageDraftJournalScope | null;
   title: string;
   editGeneration: number;
   content: string;
 }): Promise<boolean> {
-  await input.persist();
   const scope = input.scope;
-  if (!scope) return false;
+  let synchronized = false;
+  let journalWriteError: unknown;
+  let journalItemKey: string | null = null;
+  let previousRaw: string | null = null;
+  let writtenRaw: string | null = null;
+  if (scope) {
+    try {
+      const normalized = normalizedScope(scope);
+      journalItemKey = key(normalized);
+      const store = storage();
+      previousRaw = store.getItem(journalItemKey);
+      if (previousRaw !== null) {
+        const entry = parseEntry(previousRaw, journalItemKey);
+        if (
+          entry.snapshot.editGeneration === input.editGeneration &&
+          entry.snapshot.title === entry.snapshot.baseTitle
+        ) {
+          const contentChanged = entry.snapshot.content !== input.content;
+          const snapshot = {
+            ...entry.snapshot,
+            title: input.title,
+            baseTitle: input.title,
+            content: input.content,
+            ...(contentChanged
+              ? {
+                  authoredBaseRevision: undefined,
+                  authoredBaseContent: undefined,
+                  authoredCandidateContent: undefined,
+                  saveAttemptId: undefined,
+                  priorSaveAttemptIds: undefined,
+                  equivalentSaveAttemptIds: undefined,
+                }
+              : {}),
+          };
+          writtenRaw = JSON.stringify({
+            ...entry,
+            snapshot,
+            writtenAt: Date.now(),
+          });
+          store.setItem(journalItemKey, writtenRaw);
+          synchronized = true;
+        }
+      }
+    } catch (cause) {
+      journalWriteError =
+        cause instanceof PageDraftJournalError
+          ? cause
+          : new PageDraftJournalError("write_failed", cause);
+    }
+  }
 
-  const entry = listPageDraftJournal({
-    accountId: scope.accountId,
-    orgId: scope.orgId,
-    documentId: scope.documentId,
-  }).find((candidate) => candidate.scope.writerId === scope.writerId);
-  if (
-    !entry ||
-    entry.snapshot.editGeneration !== input.editGeneration ||
-    entry.snapshot.content !== input.content ||
-    entry.snapshot.title !== entry.snapshot.baseTitle
-  )
-    return false;
-
-  return updatePageDraftJournalTitle(scope, input.title);
+  try {
+    await input.persist();
+  } catch (persistError) {
+    if (
+      synchronized &&
+      journalItemKey !== null &&
+      previousRaw !== null &&
+      writtenRaw !== null
+    ) {
+      try {
+        const store = storage();
+        if (store.getItem(journalItemKey) === writtenRaw)
+          store.setItem(journalItemKey, previousRaw);
+      } catch (rollbackError) {
+        throw new PageDraftJournalError("rollback_failed", {
+          persistError,
+          rollbackError,
+        });
+      }
+    }
+    throw persistError;
+  }
+  if (journalWriteError !== undefined) throw journalWriteError;
+  return synchronized;
 }
 
 export function listPageDraftJournal(

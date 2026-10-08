@@ -101,6 +101,7 @@ function runStoredCrossScreenDrop(args: {
   const baseContentByFile = new Map(contentByFile);
   const historyEntries: unknown[] = [];
   const selectionEvents: string[] = [];
+  const clearExplicitOverviewScreenSelection = vi.fn();
   const cancelledFileIds: string[] = [];
   const fileHistoryMutationPendingRef = { current: false };
   let clearPendingHistoryCalls = 0;
@@ -167,6 +168,7 @@ function runStoredCrossScreenDrop(args: {
       applyFileContentUpdate,
       boardFileId: args.boardFileId,
       canEditDesign: true,
+      clearExplicitOverviewScreenSelection,
       clearPendingOverviewLayerSelectionTimer: () => {},
       codeLayerOwnerByNodeIdRef: { current: new Map() },
       designSourceType: "inline",
@@ -241,6 +243,7 @@ function runStoredCrossScreenDrop(args: {
     activeFileId,
     createdOverviewLayerSelection,
     historyEntries,
+    clearExplicitOverviewScreenSelection,
     fileHistoryMutationPendingRef,
     selectionEvents,
     selectedElement,
@@ -596,6 +599,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
     );
     expect((copy as HTMLElement | null)?.style.gridColumn).toBe("3 / 4");
     expect((copy as HTMLElement | null)?.style.gridRow).toBe("2 / 3");
+    expect(result.clearExplicitOverviewScreenSelection).toHaveBeenCalledOnce();
   });
 
   it("links an inline duplicate into another Screen in the same Design", () => {
@@ -1066,7 +1070,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 });
 
 describe("runCrossScreenElementDrop ordinary move routing", () => {
-  it("persists an unanchored board drop in authored coordinates outside the render window", () => {
+  it("persists an unanchored board drop in authored coordinates outside board content", () => {
     const renderOrigin = { x: -16_384, y: -8_192 };
     const targetCanvasPoint = { x: -18_099.98, y: -9_234.5 };
     const targetLocalPoint = {
@@ -1087,7 +1091,7 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
         targetScreenId: "target",
         targetDropMode: "absolute-container",
         targetCanvasPoint,
-        targetOutsideBoardRenderGeometry: true,
+        targetOutsideBoardContentBounds: true,
         targetLocalPoint,
         sourcePointerOffset,
       },
@@ -1122,7 +1126,7 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
         targetScreenId: "target",
         targetDropMode: "absolute-container",
         targetCanvasPoint,
-        targetOutsideBoardRenderGeometry: false,
+        targetOutsideBoardContentBounds: false,
         targetLocalPoint,
         sourcePointerOffset,
       },
@@ -1232,6 +1236,9 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
       "move-id",
     );
     expect(selection.selectedLayerIds).toEqual([movedNode!.id]);
+    expect(
+      selection.clearExplicitOverviewScreenSelection,
+    ).toHaveBeenCalledOnce();
     expect(selection.createdOverviewLayerSelection).toEqual({
       screenId: "target",
       layerId: movedNode!.id,

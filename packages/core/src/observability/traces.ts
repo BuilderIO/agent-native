@@ -30,7 +30,12 @@ import {
   redactSensitiveFields,
 } from "./trace-redaction.js";
 export { redactSensitiveFields } from "./trace-redaction.js";
-import { recordAgentToolCall, recordGenAiChat } from "./metrics.js";
+import {
+  recordAgentToolCall,
+  recordGenAiChat,
+  recordTraceWriteFailure,
+  type TraceWriteStage,
+} from "./metrics.js";
 import {
   type AgentSpan,
   type AgentSpanAttributeValue,
@@ -291,6 +296,7 @@ function emitLlmGenerationTrackingEvent(args: {
     parentTurnId?: string;
   };
   createdAt: number;
+  endedAt: number;
   experimentAssignments?: Array<{
     experimentId: string;
     variantId: string;
@@ -361,6 +367,8 @@ function emitLlmGenerationTrackingEvent(args: {
     model_selection_source: args.modelSelectionSource,
     created_at: new Date(args.createdAt).toISOString(),
     created_at_ms: args.createdAt,
+    ended_at: new Date(args.endedAt).toISOString(),
+    ended_at_ms: args.endedAt,
     $ai_trace_id: args.runId,
     $ai_session_id: args.threadId ?? undefined,
     $ai_span_id: args.llmSpanId,
@@ -1371,6 +1379,7 @@ export async function instrumentAgentLoop(opts: {
                 spanId: trip.spanId,
                 model: trip.usage?.model ?? runUsage.model,
                 createdAt: trip.start,
+                endedAt: trip.end,
                 latencyMs: Math.max(0, trip.end - trip.start),
                 callUsage: trip.usage,
                 stopReason: trip.stopReason,
@@ -1396,6 +1405,7 @@ export async function instrumentAgentLoop(opts: {
                   spanId: spanId(),
                   model: runUsage.model,
                   createdAt: runStart,
+                  endedAt: runStart + derivedLlmDurationMs,
                   latencyMs: derivedLlmDurationMs,
                   callUsage: usage,
                   stopReason: undefined as string | undefined,
@@ -1498,6 +1508,7 @@ export async function instrumentAgentLoop(opts: {
                 ? capturedContent
                 : null,
             createdAt: generation.createdAt,
+            endedAt: generation.endedAt,
           });
 
           emitLlmGenerationTrackingEvent({
@@ -1547,6 +1558,7 @@ export async function instrumentAgentLoop(opts: {
                 : undefined,
             delegation: opts.delegation,
             createdAt: generation.createdAt,
+            endedAt: generation.endedAt,
             experimentAssignments: opts.experimentAssignments,
             modelSelectionSource: opts.modelSelectionSource,
             browserSessionId,
@@ -1734,7 +1746,9 @@ export async function instrumentAgentLoop(opts: {
         createdAt: runStart,
       };
 
-      writeTraceData(spans, summary, runId, config).catch(() => {});
+      writeTraceData(spans, summary, runId, config).catch((error) =>
+        reportTraceWriteFailure(runId, "write", error),
+      );
 
       try {
         // Metrics are unsampled and independent of trace export.
@@ -1883,6 +1897,7 @@ export async function instrumentAgentLoop(opts: {
       if (precedingResponse) {
         const { inferAndTrackSentiment } = await import("./sentiment.js");
         await inferAndTrackSentiment({
+          runEngine: loopOpts.engine,
           classifierModel: config.inferredSentimentModel,
           precedingResponseModel: precedingResponse.model,
           text: opts.sentimentInput,
@@ -1901,21 +1916,69 @@ export async function instrumentAgentLoop(opts: {
   return usage!;
 }
 
+/**
+ * A trace that fails to persist leaves the run unreviewable and makes a
+ * thumbs-down for it unlinkable, so it is reported once per run and stage,
+ * never silently and never per span.
+ */
+function reportTraceWriteFailure(
+  runId: string,
+  stage: TraceWriteStage,
+  error: unknown,
+  detail: Record<string, number> = {},
+): void {
+  recordTraceWriteFailure(stage, error);
+  console.warn(
+    `[agent-native] observability: could not persist trace ${stage} for run ${runId}`,
+    {
+      ...detail,
+      error: toolErrorSignature(
+        error instanceof Error ? error.message : String(error),
+      ),
+    },
+  );
+}
+
 async function writeTraceData(
   spans: TraceSpan[],
   summary: TraceSummary,
   runId: string,
   config: ObservabilityConfig,
 ): Promise<void> {
-  const { insertTraceSpan, upsertTraceSummary } = await import("./store.js");
+  const { adoptTraceOrgForThread, insertTraceSpan, upsertTraceSummary } =
+    await import("./store.js");
+  let spanFailures = 0;
+  let firstSpanError: unknown;
   await Promise.all(
     spans.map((span) =>
       insertTraceSpan({ ...span, orgId: summary.orgId ?? null }).catch(
-        () => {},
+        (error) => {
+          spanFailures += 1;
+          firstSpanError ??= error;
+        },
       ),
     ),
   );
-  await upsertTraceSummary(summary).catch(() => {});
+  if (spanFailures > 0) {
+    reportTraceWriteFailure(runId, "spans", firstSpanError, {
+      failed: spanFailures,
+      total: spans.length,
+    });
+  }
+  // Adoption reads other runs' summaries to detect a thread spanning orgs, so
+  // it is only sound once this run's own org is on record too.
+  const summaryWritten = await upsertTraceSummary(summary).then(
+    () => true,
+    (error) => {
+      reportTraceWriteFailure(runId, "summary", error);
+      return false;
+    },
+  );
+  if (summaryWritten) {
+    await adoptTraceOrgForThread(summary).catch((error) =>
+      reportTraceWriteFailure(runId, "thread_org", error),
+    );
+  }
 
   try {
     const { evaluateRun } = await import("./evals.js");

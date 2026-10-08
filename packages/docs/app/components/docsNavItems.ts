@@ -848,6 +848,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
       {
+        id: "turn-into-app",
+        labelKey: "turnIntoApp",
+        slug: "turn-into-app",
+      },
+      {
         id: "agent-teams",
         labelKey: "customAgentsTeams",
         slug: "agent-teams",

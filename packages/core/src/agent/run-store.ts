@@ -10,18 +10,25 @@ import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import {
+  lockAndAssertServicePrincipalMayStartRun,
+  prepareServicePrincipalRunStart,
+  recordServicePrincipalDenial,
+} from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
 import {
   admitAutoContinue,
-  type AutoContinueRefusalCode,
+  admitManualContinue,
+  type ContinueRefusalCode,
+  type ContinueTrigger,
 } from "./auto-continue.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
 import { isContinuationTerminalReason } from "./types.js";
-import type { AgentChatEvent, ContinuationReason } from "./types.js";
+import type { AgentChatEvent, ContinuationReason, RunEvent } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -578,14 +585,36 @@ export async function insertRun(
     );
     return;
   }
-  await client.transaction(async (tx) => {
+  if (options?.turnInitiator) {
+    await prepareServicePrincipalRunStart(options.turnInitiator);
+  }
+  const refusal = await client.transaction(async (tx) => {
+    if (options?.turnInitiator) {
+      const denied = await lockAndAssertServicePrincipalMayStartRun(tx, {
+        email: options.turnInitiator.email,
+        orgId: options.turnInitiator.orgId,
+      });
+      if (denied) return denied;
+    }
     await lockContinuationOrder(tx, threadId, logicalTurnId);
     await insert(
       tx,
       explicitContinuationOrder ??
         (await nextContinuationOrder(tx, threadId, logicalTurnId)),
     );
+    return undefined;
   });
+  if (refusal) {
+    if (options?.turnInitiator) {
+      await recordServicePrincipalDenial({
+        ...options.turnInitiator,
+        actionName: "agent-run:start",
+        caller: "agent-run",
+        error: refusal,
+      });
+    }
+    throw refusal;
+  }
 }
 
 function normalizeContinuationOrder(
@@ -897,6 +926,41 @@ export async function countRunsForTurn(
   return Number.isFinite(count) ? count : 0;
 }
 
+/**
+ * The newest run of the turn before `turnId` in a thread: how the previous
+ * request ended. Null when the thread has no earlier turn.
+ */
+export async function getPreviousTurnNewestRun(
+  threadId: string,
+  turnId: string,
+): Promise<{
+  turnId: string;
+  status: string;
+  terminalReason: string | null;
+} | null> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT COALESCE(turn_id, id) AS turn_id, status, terminal_reason
+          FROM agent_runs
+          WHERE thread_id = ?
+            AND COALESCE(turn_id, id) <> ?
+            AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+          ORDER BY started_at DESC
+          LIMIT 1`,
+    args: [threadId, turnId],
+  });
+  const row = rows[0] as
+    | { turn_id: string; status: string; terminal_reason: string | null }
+    | undefined;
+  return row
+    ? {
+        turnId: row.turn_id,
+        status: row.status,
+        terminalReason: row.terminal_reason,
+      }
+    : null;
+}
+
 export async function getTurnInitiatorByRun(
   runId: string,
 ): Promise<(AgentTurnInitiator & { firstRunId: string }) | null> {
@@ -1077,26 +1141,41 @@ export async function tryClaimRunSlot(
     dispatchPayload?: string;
     continuationOrder?: number;
     turnInitiator?: AgentTurnInitiator;
-    /** The time-limit stop this run automatically continues. */
-    autoContinueOf?: string;
+    /** The stopped run this run continues in the same turn, and who asked. */
+    continueOf?: { runId: string; trigger: ContinueTrigger };
   },
 ): Promise<{
   claimed: boolean;
   activeRunId: string | null;
   completedRunId?: string;
   turnAborted?: boolean;
-  autoContinueRefused?: AutoContinueRefusalCode;
+  continueRefused?: ContinueRefusalCode;
 }> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
   const turnId = options?.turnId ?? runId;
+  const continueOf = options?.continueOf;
+  // A continuation names a run that already ended, so replaying the turn's
+  // last finished run would hand back the stop it asked to move past.
   const replayCompletedTurn =
-    options?.replayCompletedTurn === true && Boolean(options.turnId);
+    options?.replayCompletedTurn === true &&
+    Boolean(options.turnId) &&
+    !continueOf;
   if (!client.transaction) {
     throw new Error("Atomic run-slot claims require transaction support");
   }
-  return client.transaction(async (tx) => {
+  if (options?.turnInitiator) {
+    await prepareServicePrincipalRunStart(options.turnInitiator);
+  }
+  const transactionResult = await client.transaction(async (tx) => {
+    if (options?.turnInitiator) {
+      const denied = await lockAndAssertServicePrincipalMayStartRun(tx, {
+        email: options.turnInitiator.email,
+        orgId: options.turnInitiator.orgId,
+      });
+      if (denied) return { refused: denied } as const;
+    }
     await tx.execute({
       sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
       args: [`agent-native:run-slot:${threadId}`],
@@ -1107,7 +1186,9 @@ export async function tryClaimRunSlot(
       args: [threadId, turnId],
     });
     if (abortMarker.rows.length > 0) {
-      return { claimed: false, activeRunId: null, turnAborted: true };
+      return {
+        result: { claimed: false, activeRunId: null, turnAborted: true },
+      } as const;
     }
     if (options?.turnInitiator) {
       await bindTurnInitiator(
@@ -1124,7 +1205,9 @@ export async function tryClaimRunSlot(
       now,
       maxStaleMs,
     );
-    if (activeRunId) return { claimed: false, activeRunId };
+    if (activeRunId) {
+      return { result: { claimed: false, activeRunId } } as const;
+    }
 
     if (replayCompletedTurn) {
       const latest = await tx.execute({
@@ -1156,25 +1239,33 @@ export async function tryClaimRunSlot(
         | undefined;
       if (latestRun?.id && latestRun.has_terminal_event === true) {
         return {
-          claimed: false,
-          activeRunId: null,
-          completedRunId: latestRun.id,
-        };
+          result: {
+            claimed: false,
+            activeRunId: null,
+            completedRunId: latestRun.id,
+          },
+        } as const;
       }
     }
 
     // Admitted under the thread's slot lock, so two tabs continuing the same
     // stop start one run and the count of continuations stays exact.
-    if (options?.autoContinueOf) {
+    if (continueOf) {
       const turnRuns = await tx.execute({
         sql: `SELECT id, status, terminal_reason, completed_at,
                      COUNT(auto_continue_of) OVER () AS auto_continues,
-                     MIN(started_at) OVER () AS turn_started_at
+                     MIN(started_at) OVER () AS turn_started_at,
+                     EXISTS (
+                       SELECT 1 FROM agent_runs later
+                       WHERE later.thread_id = ?
+                         AND COALESCE(later.turn_id, later.id) <> ?
+                         AND later.started_at > agent_runs.started_at
+                     ) AS later_turn_started
               FROM agent_runs
               WHERE thread_id = ? AND turn_id = ?
                 AND dispatch_mode IS DISTINCT FROM 'turn-abort'
               ORDER BY started_at DESC LIMIT 1`,
-        args: [threadId, turnId],
+        args: [threadId, turnId, threadId, turnId],
       });
       const row = turnRuns.rows[0] as
         | {
@@ -1184,31 +1275,44 @@ export async function tryClaimRunSlot(
             completed_at: number | string | null;
             auto_continues: number | string;
             turn_started_at: number | string;
+            later_turn_started: boolean | string;
           }
         | undefined;
-      const admission = admitAutoContinue({
-        turn: row
-          ? {
-              newest: {
-                id: row.id,
-                status: row.status,
-                terminalReason: row.terminal_reason,
-                completedAt:
-                  row.completed_at === null ? null : Number(row.completed_at),
-              },
-              autoContinues: Number(row.auto_continues),
-              startedAt: Number(row.turn_started_at),
-            }
-          : null,
-        stoppedRunId: options.autoContinueOf,
-        nowMs: now,
-      });
+      const turn = row
+        ? {
+            newest: {
+              id: row.id,
+              status: row.status,
+              terminalReason: row.terminal_reason,
+              completedAt:
+                row.completed_at === null ? null : Number(row.completed_at),
+            },
+            autoContinues: Number(row.auto_continues),
+            startedAt: Number(row.turn_started_at),
+          }
+        : null;
+      const admission =
+        continueOf.trigger === "auto"
+          ? admitAutoContinue({
+              turn,
+              stoppedRunId: continueOf.runId,
+              nowMs: now,
+            })
+          : admitManualContinue({
+              turn,
+              stoppedRunId: continueOf.runId,
+              laterTurnStarted:
+                row?.later_turn_started === true ||
+                row?.later_turn_started === "t",
+            });
       if (!admission.admit) {
         return {
-          claimed: false,
-          activeRunId: null,
-          autoContinueRefused: admission.code,
-        };
+          result: {
+            claimed: false,
+            activeRunId: null,
+            continueRefused: admission.code,
+          },
+        } as const;
       }
     }
 
@@ -1227,14 +1331,27 @@ export async function tryClaimRunSlot(
         options?.dispatchMode ?? null,
         options?.dispatchPayload ?? null,
         continuationOrder,
-        options?.autoContinueOf ?? null,
+        // Only automatic continuations count toward the turn's cap.
+        continueOf?.trigger === "auto" ? continueOf.runId : null,
       ],
     });
     if ((inserted.rowsAffected ?? 0) !== 1) {
       throw new Error(`Failed to insert claimed run ${runId}`);
     }
-    return { claimed: true, activeRunId: null };
+    return { result: { claimed: true, activeRunId: null } } as const;
   });
+  if ("refused" in transactionResult && transactionResult.refused) {
+    if (options?.turnInitiator) {
+      await recordServicePrincipalDenial({
+        ...options.turnInitiator,
+        actionName: "agent-run:start",
+        caller: "agent-run",
+        error: transactionResult.refused,
+      });
+    }
+    throw transactionResult.refused;
+  }
+  return transactionResult.result;
 }
 
 export async function setRunError(
@@ -1786,6 +1903,7 @@ function priorDiagStageLabel(raw: unknown): string | null {
 
 async function reapSingleStaleRun(
   runId: string,
+  source: string,
   maxStaleMs?: number,
 ): Promise<boolean> {
   const completedAt = Date.now();
@@ -1884,6 +2002,11 @@ async function reapSingleStaleRun(
     priorStageInfo = read.priorStageInfo;
   }
 
+  // Saved before the successor starts: a successor that folds its own reply
+  // first would have this older run's steps land after its, and take its
+  // error and status.
+  if (reaped) await finalizeStaleRun(runId, source);
+
   if (reaped && outcome && outcome.outcome !== "not_background") {
     const outcomeDetail =
       outcome.outcome === "recovered"
@@ -1917,15 +2040,8 @@ export async function reapIfStale(
 ): Promise<boolean> {
   await ensureRunTables();
   if (await reconcileTerminalRunFromEvents(runId)) return false;
-  const reaped = await reapSingleStaleRun(runId, maxStaleMs);
+  const reaped = await reapSingleStaleRun(runId, "reap-if-stale", maxStaleMs);
   if (!reaped && (await reconcileTerminalRunFromEvents(runId))) return false;
-  if (reaped) {
-    await safeAppendTerminalRunEvent(
-      runId,
-      STALE_RUN_ERROR_EVENT,
-      "reap-if-stale",
-    );
-  }
   return reaped;
 }
 
@@ -2313,6 +2429,69 @@ export async function getRunById(runId: string): Promise<{
   };
 }
 
+/**
+ * What saving a run the server ended on its behalf needs: the run's ledger,
+ * and whether anything ran after it in its turn or in a later turn.
+ */
+export async function readStoppedRunForThreadFold(runId: string): Promise<{
+  threadId: string;
+  turnId: string;
+  startedAt: number;
+  events: RunEvent[];
+  continuedInTurn: boolean;
+  laterTurnStarted: boolean;
+} | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT r.thread_id, COALESCE(r.turn_id, r.id) AS turn_id,
+                 r.status, r.started_at,
+                 EXISTS (
+                   SELECT 1 FROM agent_runs later
+                   WHERE later.thread_id = r.thread_id
+                     AND COALESCE(later.turn_id, later.id) = COALESCE(r.turn_id, r.id)
+                     AND later.id <> r.id
+                     AND later.started_at >= r.started_at
+                     AND later.dispatch_mode IS DISTINCT FROM 'turn-abort'
+                 ) AS continued_in_turn,
+                 EXISTS (
+                   SELECT 1 FROM agent_runs later
+                   WHERE later.thread_id = r.thread_id
+                     AND COALESCE(later.turn_id, later.id) <> COALESCE(r.turn_id, r.id)
+                     AND later.started_at > r.started_at
+                 ) AS later_turn_started
+          FROM agent_runs r WHERE r.id = ?`,
+    args: [runId],
+  });
+  const row = rows[0] as
+    | {
+        thread_id: string;
+        turn_id: string;
+        status: string;
+        started_at: number | string;
+        continued_in_turn: boolean | string;
+        later_turn_started: boolean | string;
+      }
+    | undefined;
+  // A sweep can name a run whose worker answered again before it was reaped;
+  // that worker still saves its own reply.
+  if (!row || row.status === "running") return null;
+  const events: RunEvent[] = [];
+  for (const { seq, eventData } of await getRunEventsSince(runId, 0)) {
+    events.push({ seq, event: JSON.parse(eventData) as AgentChatEvent });
+  }
+  return {
+    threadId: row.thread_id,
+    turnId: row.turn_id,
+    startedAt: Number(row.started_at),
+    events,
+    continuedInTurn:
+      row.continued_in_turn === true || row.continued_in_turn === "t",
+    laterTurnStarted:
+      row.later_turn_started === true || row.later_turn_started === "t",
+  };
+}
+
 export async function getLastTerminalRunEvent(
   runId: string,
 ): Promise<{ seq: number; event: Record<string, unknown> } | null> {
@@ -2395,7 +2574,10 @@ export async function getRunByThread(
   const markerPriority = options?.turnId
     ? `CASE WHEN dispatch_mode = 'turn-abort' THEN 0 ELSE 1 END`
     : `CASE WHEN dispatch_mode = 'turn-abort' THEN 1 ELSE 0 END`;
-  const sql = `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code, in_flight_since FROM agent_runs WHERE thread_id = ?${turnClause}${statusClause} ORDER BY ${markerPriority}, started_at DESC LIMIT 1`;
+  const continuationOrder = options?.turnId
+    ? `, COALESCE(continuation_order, 0) DESC`
+    : "";
+  const sql = `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code, in_flight_since FROM agent_runs WHERE thread_id = ?${turnClause}${statusClause} ORDER BY ${markerPriority}${continuationOrder}, started_at DESC LIMIT 1`;
   const args = options?.turnId ? [threadId, options.turnId] : [threadId];
   const { rows } = await client.execute({ sql, args });
   if (rows.length === 0) return null;
@@ -2655,7 +2837,7 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string") continue;
     try {
-      if (await reapSingleStaleRun(id)) reapedCount += 1;
+      if (await reapSingleStaleRun(id, "reap-all-stale")) reapedCount += 1;
     } catch (error) {
       failedCount += 1;
       console.error(`[run-store] stale reap failed for run ${id}:`, error);
@@ -2892,11 +3074,7 @@ async function cleanupOldRunsInternal(
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id === "string") {
-      await safeAppendTerminalRunEvent(
-        id,
-        STALE_RUN_ERROR_EVENT,
-        "cleanup-old-runs",
-      );
+      await finalizeStaleRun(id, "cleanup-old-runs");
     }
   }
   await pruneAndRollUpPrunedRunOutcomes(client, cutoff, erroredCutoff);
@@ -2983,6 +3161,28 @@ export async function ensureTerminalRunEvent(
   event: Record<string, unknown>,
 ): Promise<void> {
   return appendTerminalRunEvent(runId, event);
+}
+
+/**
+ * Ends a run the server reaped because its worker stopped: records the stop
+ * in the run's ledger, then saves what the run did into its thread, which the
+ * dead worker never got to do.
+ */
+async function finalizeStaleRun(runId: string, source: string): Promise<void> {
+  await safeAppendTerminalRunEvent(runId, STALE_RUN_ERROR_EVENT, source);
+  try {
+    const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
+    await foldReapedRunIntoThread(runId);
+  } catch (error) {
+    captureError(error, {
+      tags: {
+        component: "agent-run-store",
+        operation: "fold-reaped-run",
+        source,
+      },
+      extra: { runId },
+    });
+  }
 }
 
 async function safeAppendTerminalRunEvent(

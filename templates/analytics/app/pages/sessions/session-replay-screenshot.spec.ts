@@ -13,6 +13,8 @@ import {
   downloadReplayScreenshot,
   inlineReplayAssets,
   ReplayScreenshotAssetError,
+  ReplayScreenshotClipboardError,
+  writeReplayScreenshotToClipboard,
 } from "./session-replay-screenshot";
 
 afterEach(() => {
@@ -629,28 +631,78 @@ describe("session replay screenshot asset checks", () => {
     expect(unlockPlayback).toHaveBeenCalledOnce();
   });
 
-  it("rejects video sources rather than saving a blank media frame", async () => {
+  it("allows readable current video frames", async () => {
     const video = document.createElement("video");
     Object.defineProperty(video, "currentSrc", {
       configurable: true,
       value: "https://assets.example.test/recording.mp4",
     });
+    Object.defineProperty(video, "readyState", {
+      configurable: true,
+      value: 2,
+    });
+    Object.defineProperty(video, "videoWidth", {
+      configurable: true,
+      value: 640,
+    });
+    Object.defineProperty(video, "videoHeight", {
+      configurable: true,
+      value: 480,
+    });
+    const drawImage = vi.fn();
+    const getImageData = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage,
+      getImageData,
+    } as unknown as CanvasRenderingContext2D);
     document.body.appendChild(video);
 
-    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
-      ReplayScreenshotAssetError,
+    await expect(assertRemoteImagesCapturable(document)).resolves.toEqual(
+      new Map(),
     );
+    expect(drawImage).toHaveBeenCalledWith(video, 0, 0, 1, 1);
+    expect(getImageData).toHaveBeenCalledWith(0, 0, 1, 1);
 
     video.remove();
   });
 
-  it("rejects poster-only videos and border-image visuals", () => {
+  it("rejects unreadable video frames and preflights a poster fallback", async () => {
+    const videoFrame = document.createElement("video");
+    Object.defineProperty(videoFrame, "currentSrc", {
+      configurable: true,
+      value: "https://assets.example.test/recording.mp4",
+    });
+    Object.defineProperty(videoFrame, "readyState", {
+      configurable: true,
+      value: 2,
+    });
+    Object.defineProperty(videoFrame, "videoWidth", {
+      configurable: true,
+      value: 640,
+    });
+    Object.defineProperty(videoFrame, "videoHeight", {
+      configurable: true,
+      value: 480,
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+      getImageData: () => {
+        throw new DOMException("Tainted video", "SecurityError");
+      },
+    } as unknown as CanvasRenderingContext2D);
+    document.body.appendChild(videoFrame);
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    videoFrame.remove();
+
     const video = document.createElement("video");
     video.poster = "https://assets.example.test/poster.png";
     document.body.appendChild(video);
-    expect(() => crossOriginImageUrls(document)).toThrow(
-      ReplayScreenshotAssetError,
-    );
+    expect(crossOriginImageUrls(document)).toContain(video.poster);
+    stubImageProbes(() => "load");
+    const assets = await assertRemoteImagesCapturable(document);
+    expect(assets.get(document)?.get(video.poster)).toMatch(/^data:image\/png/);
     video.remove();
 
     const element = document.createElement("div");
@@ -665,6 +717,51 @@ describe("session replay screenshot asset checks", () => {
       ReplayScreenshotAssetError,
     );
     element.remove();
+  });
+
+  it("replaces a poster-only video with its preflighted image in the clone", async () => {
+    const original = document.implementation.createHTMLDocument("original");
+    const cloned = document.implementation.createHTMLDocument("cloned");
+    const video = original.createElement("video");
+    video.poster = "https://assets.example.test/poster.png";
+    original.body.appendChild(video);
+    cloned.body.appendChild(cloned.createElement("video"));
+    markMatchingElements(original, cloned, "replay-poster");
+
+    stubImageProbes(() => "load");
+    const assets = await assertRemoteImagesCapturable(original);
+    inlineReplayAssets(original, cloned, assets, "replay-poster");
+
+    expect(cloned.querySelector("video")).toBeNull();
+    expect(cloned.querySelector("img")?.src).toMatch(/^data:image\/png/);
+  });
+
+  it("accepts html2canvas's canvas clone for a readable video frame", () => {
+    const original = document.implementation.createHTMLDocument("original");
+    const cloned = document.implementation.createHTMLDocument("cloned");
+    const video = original.createElement("video");
+    Object.defineProperty(video, "readyState", {
+      configurable: true,
+      value: 2,
+    });
+    Object.defineProperty(video, "videoWidth", {
+      configurable: true,
+      value: 320,
+    });
+    Object.defineProperty(video, "videoHeight", {
+      configurable: true,
+      value: 180,
+    });
+    original.body.appendChild(video);
+    const canvas = cloned.createElement("canvas");
+    cloned.body.appendChild(canvas);
+    markMatchingElements(original, cloned, "replay-video-canvas");
+    canvas.removeAttribute("data-replay-screenshot-map");
+
+    expect(() =>
+      inlineReplayAssets(original, cloned, new Map(), "replay-video-canvas"),
+    ).not.toThrow();
+    expect(cloned.querySelector("canvas")).not.toBeNull();
   });
 
   it("rejects embedded object and embed content", async () => {
@@ -1350,5 +1447,97 @@ describe("session replay screenshot asset checks", () => {
     );
 
     image.remove();
+  });
+});
+
+describe("session replay screenshot clipboard", () => {
+  it("writes a promise-backed PNG ClipboardItem before capture finishes", async () => {
+    let itemData: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "ClipboardItem",
+      class {
+        constructor(data: Record<string, unknown>) {
+          itemData = data;
+        }
+      },
+    );
+    let resolveScreenshot!: (blob: Blob) => void;
+    const screenshot = new Promise<Blob>((resolve) => {
+      resolveScreenshot = resolve;
+    });
+    const write = vi.fn().mockResolvedValue(undefined);
+    const clipboard = { write } as unknown as Pick<Clipboard, "write">;
+
+    const copied = writeReplayScreenshotToClipboard(screenshot, clipboard);
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(itemData).toHaveProperty("image/png");
+    expect(itemData?.["image/png"]).toBeInstanceOf(Promise);
+    resolveScreenshot(pngBlob());
+    await copied;
+    await expect(itemData?.["image/png"]).resolves.toMatchObject({
+      type: "image/png",
+    });
+  });
+
+  it("aborts a pending replay capture when clipboard writing fails", async () => {
+    vi.stubGlobal(
+      "ClipboardItem",
+      class {
+        constructor(_data: Record<string, unknown>) {}
+      },
+    );
+    const capture = new AbortController();
+    const onClipboardWriteFailure = vi.fn(() => capture.abort());
+    const screenshot = new Promise<Blob>((_resolve, reject) => {
+      capture.signal.addEventListener(
+        "abort",
+        () => reject(capture.signal.reason),
+        { once: true },
+      );
+    });
+
+    await expect(
+      writeReplayScreenshotToClipboard(
+        screenshot,
+        {
+          write: vi.fn().mockRejectedValue(new Error("clipboard denied")),
+        } as unknown as Clipboard,
+        onClipboardWriteFailure,
+      ),
+    ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
+    expect(onClipboardWriteFailure).toHaveBeenCalledTimes(1);
+    expect(capture.signal.aborted).toBe(true);
+  });
+
+  it("rejects when clipboard writing is unavailable or fails", async () => {
+    vi.stubGlobal(
+      "ClipboardItem",
+      class {
+        constructor(_data: Record<string, unknown>) {}
+      },
+    );
+
+    await expect(
+      writeReplayScreenshotToClipboard(pngBlob(), {} as Clipboard),
+    ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
+    await expect(
+      writeReplayScreenshotToClipboard(pngBlob(), {
+        write: vi.fn().mockRejectedValue(new Error("clipboard denied")),
+      } as unknown as Clipboard),
+    ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
+    const unsupportedAssets = new ReplayScreenshotAssetError();
+    await expect(
+      writeReplayScreenshotToClipboard(Promise.reject(unsupportedAssets), {
+        write: vi.fn().mockRejectedValue(new Error("clipboard denied")),
+      } as unknown as Clipboard),
+    ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
+    const unavailableClipboardAssets = new ReplayScreenshotAssetError();
+    await expect(
+      writeReplayScreenshotToClipboard(
+        Promise.reject(unavailableClipboardAssets),
+        {} as Clipboard,
+      ),
+    ).rejects.toBeInstanceOf(ReplayScreenshotClipboardError);
   });
 });

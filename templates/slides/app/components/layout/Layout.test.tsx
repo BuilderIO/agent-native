@@ -11,7 +11,9 @@ const {
   toastErrorMock,
   useDecksMock,
   creativeContextLabEnabled,
+  mcpAppWidgetEmbed,
 } = vi.hoisted(() => ({
+  mcpAppWidgetEmbed: { value: false },
   agentSidebarMock: vi.fn(),
   navigateChatMock: vi.fn(),
   flushDeckSaveMock: vi.fn(),
@@ -48,6 +50,9 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
     onEffortChange: vi.fn(),
     refreshEngines: vi.fn(),
   }),
+}));
+vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+  useIsMcpAppWidgetEmbed: () => mcpAppWidgetEmbed.value,
 }));
 vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
@@ -160,6 +165,27 @@ describe("Slides Layout", () => {
       flushDeckSave: flushDeckSaveMock,
     });
     creativeContextLabEnabled.value = false;
+    mcpAppWidgetEmbed.value = false;
+  });
+
+  it("renders only the page inside an MCP App widget, with no app chrome", () => {
+    mcpAppWidgetEmbed.value = true;
+    renderLayout("/deck/deck-1");
+
+    expect(screen.getByTestId("page-content")).toBeTruthy();
+    expect(screen.queryByTestId("agent-sidebar")).toBeNull();
+    expect(screen.queryByTestId("app-sidebar")).toBeNull();
+    expect(screen.queryByTestId("header")).toBeNull();
+    expect(screen.queryByTestId("menu-icon")).toBeNull();
+    expect(screen.queryByTestId("agent-work-indicator")).toBeNull();
+    expect(agentSidebarMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the app chrome outside an MCP App widget", () => {
+    renderLayout("/home");
+
+    expect(screen.getByTestId("agent-sidebar")).toBeTruthy();
+    expect(screen.getByTestId("app-sidebar")).toBeTruthy();
   });
 
   it("hides the Creative Context composer chip until its lab is enabled", () => {

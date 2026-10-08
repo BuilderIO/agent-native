@@ -94,11 +94,15 @@ function elementAttributesMatch(a: Element, b: Element) {
   );
 }
 
-function normalizeInlineTextSpanScope(scope: HTMLElement) {
-  const spans = Array.from(
-    scope.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
-  );
-  for (const span of spans.reverse()) {
+function normalizeInlineTextSpanScope(
+  editable: HTMLElement,
+  scope: HTMLElement,
+) {
+  const spans = () =>
+    Array.from(
+      scope.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
+    ).filter((span) => inlineTextNormalizationScope(editable, span) === scope);
+  for (const span of spans().reverse()) {
     if (!span.isConnected) continue;
     if (!span.textContent && span.children.length === 0) {
       span.remove();
@@ -112,13 +116,12 @@ function normalizeInlineTextSpanScope(scope: HTMLElement) {
   let merged = true;
   while (merged) {
     merged = false;
-    for (const span of Array.from(
-      scope.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
-    )) {
+    for (const span of spans()) {
       const next = span.nextSibling;
       if (
         next instanceof HTMLSpanElement &&
         next.matches(INLINE_STYLE_SPAN) &&
+        inlineTextNormalizationScope(editable, next) === scope &&
         elementAttributesMatch(span, next)
       ) {
         span.append(...Array.from(next.childNodes));
@@ -129,12 +132,14 @@ function normalizeInlineTextSpanScope(scope: HTMLElement) {
   }
 }
 
-function inlineTextNormalizationScope(editable: HTMLElement, text: Text) {
-  const block =
-    text.parentElement?.closest<HTMLElement>(INLINE_TEXT_BLOCKS) ?? editable;
+function inlineTextNormalizationScope(editable: HTMLElement, node: Node) {
+  const element = node instanceof Element ? node : node.parentElement;
+  const block = element?.closest<HTMLElement>(INLINE_TEXT_BLOCKS) ?? editable;
   if (INLINE_LAYOUT_DISPLAYS.has(getComputedStyle(block).display)) {
     return (
-      Array.from(block.children).find((child) => child.contains(text)) ?? null
+      Array.from(block.children).find(
+        (child) => child === node || child.contains(node),
+      ) ?? null
     );
   }
   return block;
@@ -144,15 +149,20 @@ export function normalizeInlineTextSpans(
   editable: HTMLElement,
   selectedText?: readonly Text[],
 ) {
-  const scopes = selectedText
-    ? new Set(
-        selectedText.flatMap((text) => {
-          const scope = inlineTextNormalizationScope(editable, text);
-          return scope instanceof HTMLElement ? [scope] : [];
-        }),
-      )
-    : new Set([editable]);
-  for (const scope of scopes) normalizeInlineTextSpanScope(scope);
+  const scopes = new Set<HTMLElement>();
+  if (selectedText) {
+    for (const text of selectedText) {
+      const scope = inlineTextNormalizationScope(editable, text);
+      if (scope instanceof HTMLElement) scopes.add(scope);
+    }
+  } else {
+    const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const scope = inlineTextNormalizationScope(editable, node);
+      if (scope instanceof HTMLElement) scopes.add(scope);
+    }
+  }
+  for (const scope of scopes) normalizeInlineTextSpanScope(editable, scope);
 }
 
 export function getEditableTextRange(
@@ -357,6 +367,7 @@ const DECORATION_LOOK = [
   "text-decoration-color",
   "text-decoration-style",
   "text-decoration-thickness",
+  "text-underline-offset",
 ] as const;
 
 function removeDecorationLine(

@@ -7,6 +7,7 @@ import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { chunks } from "./_batch-utils.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
@@ -16,6 +17,16 @@ import {
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
+import { setupError } from "./_database-setup-mutation.js";
+import {
+  assertPageLifecycleTarget,
+  claimDocumentLifecycleIntent,
+  finishDocumentLifecycleIntent,
+  lockLifecycleDocument,
+  parseDocumentLifecycleInput,
+  refreshAfterDocumentLifecycle,
+  usesDocumentLifecycleProtocol,
+} from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 
 const DELETE_BATCH_SIZE = 90;
@@ -619,60 +630,84 @@ export async function trashDocumentSubtree(
   return activeDocumentIds;
 }
 
+async function collectRestoreScope(
+  db: ReturnType<typeof getDb>,
+  rootId: string,
+  ownerEmail: string,
+) {
+  const documentIds = (
+    await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.trashRootId, rootId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      )
+  ).map((document) => document.id);
+  const memberships = await selectMembershipsForDocuments(db, documentIds);
+  const ownedDatabases = await selectOwnedDatabaseIds(
+    db,
+    documentIds,
+    ownerEmail,
+  );
+  return {
+    documentIds,
+    databaseIds: [
+      ...new Set([
+        ...ownedDatabases.map((database) => database.id),
+        ...memberships.map((membership) => membership.databaseId),
+      ]),
+    ].sort(),
+  };
+}
+
+/**
+ * A restore's group is every page with this trashRootId, which can differ from
+ * the root's current subtree once a member moves. Lock the group's collections
+ * here, before any page row, so every restore path takes them in one order.
+ */
+export async function lockDatabasesForRestore(
+  db: ReturnType<typeof getDb>,
+  rootId: string,
+  ownerEmail: string,
+  alsoLockDatabaseIds: readonly string[] = [],
+) {
+  const scope = await collectRestoreScope(db, rootId, ownerEmail);
+  const databaseIds = [
+    ...new Set([...scope.databaseIds, ...alsoLockDatabaseIds]),
+  ].sort();
+  for (const databaseId of databaseIds) {
+    await lockContentDatabaseMutation(db, databaseId);
+  }
+  return new Set(databaseIds);
+}
+
 export async function restoreDocumentSubtree(
   db: ReturnType<typeof getDb>,
   rootId: string,
   ownerEmail: string,
+  lockedDatabaseIds?: ReadonlySet<string>,
 ): Promise<string[]> {
-  const collectRestoreScope = async () => {
-    const documentIds = (
-      await db
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.trashRootId, rootId),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        )
-    ).map((document) => document.id);
-    const memberships = await selectMembershipsForDocuments(db, documentIds);
-    const ownedDatabaseIds = (
-      await selectOwnedDatabaseIds(db, documentIds, ownerEmail)
-    ).map((database) => database.id);
-    return { documentIds, memberships, ownedDatabaseIds };
-  };
-
-  const initialScope = await collectRestoreScope();
-  if (initialScope.documentIds.length === 0) return [];
-  const lockedDatabaseIds = [
-    ...new Set([
-      ...initialScope.ownedDatabaseIds,
-      ...initialScope.memberships.map((membership) => membership.databaseId),
-    ]),
-  ].sort();
-  for (const databaseId of lockedDatabaseIds) {
-    await lockContentDatabaseMutation(db, databaseId);
-  }
-
-  const restoreScope = await collectRestoreScope();
-  const lockedDatabaseIdSet = new Set(lockedDatabaseIds);
-  const unlockedDatabaseId = [
-    ...new Set([
-      ...restoreScope.ownedDatabaseIds,
-      ...restoreScope.memberships.map((membership) => membership.databaseId),
-    ]),
-  ].find((databaseId) => !lockedDatabaseIdSet.has(databaseId));
-  if (unlockedDatabaseId) {
+  const lockedDatabaseIdSet =
+    lockedDatabaseIds ??
+    (await lockDatabasesForRestore(db, rootId, ownerEmail));
+  const restoreScope = await collectRestoreScope(db, rootId, ownerEmail);
+  const documentIds = restoreScope.documentIds;
+  if (documentIds.length === 0) return [];
+  if (
+    restoreScope.databaseIds.some(
+      (databaseId) => !lockedDatabaseIdSet.has(databaseId),
+    )
+  ) {
     throw new Error("Document restore scope changed; retry restoration.");
   }
   await lockDatabaseMemberships(
     db,
-    await selectMembershipIdsForDatabases(db, lockedDatabaseIds),
+    await selectMembershipIdsForDatabases(db, [...lockedDatabaseIdSet].sort()),
   );
 
-  const documentIds = restoreScope.documentIds;
-  if (documentIds.length === 0) return [];
   const now = new Date().toISOString();
   for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
     await db
@@ -1153,10 +1188,25 @@ export async function deleteTrashedDocumentSubtree(
   );
 }
 
-export default defineAction({
-  description:
-    "Move a document and all its children to Trash. Use permanently-delete-document to destroy an item already in Trash.",
-  schema: z.object({
+const guardedTrashSchema = z
+  .object({
+    id: z.string().min(1).describe("Page ID to move to Trash"),
+    expectedUpdatedAt: z
+      .string()
+      .min(1)
+      .describe(
+        "The page's exact updatedAt from your latest get-document, list-documents, search-documents, or view-screen read",
+      ),
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe("Unique intent key; reuse unchanged after a lost response"),
+  })
+  .strict();
+
+const legacyTrashSchema = z
+  .object({
     id: z.string().optional().describe("Document ID (required)"),
     databaseDocumentId: z
       .string()
@@ -1168,8 +1218,88 @@ export default defineAction({
       .describe(
         "Currently open document, used only to return an explicit navigation outcome.",
       ),
-  }),
-  run: async (args, ctx) => {
+  })
+  .strict();
+
+async function trashDocumentWithReceipt(
+  input: z.infer<typeof guardedTrashSchema>,
+  origin: string | undefined,
+) {
+  const access = await assertDocumentMutationAccess(input.id, "admin", "id");
+  const ownerEmail = access.resource.ownerEmail as string;
+  const result = await getDb().transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    const lockedDatabaseIds = await lockDatabasesForTrash(
+      tx,
+      input.id,
+      ownerEmail,
+    );
+    const before = await lockLifecycleDocument(tx, input.id, ownerEmail);
+    const { claim, replay } = await claimDocumentLifecycleIntent(
+      tx,
+      "delete-document",
+      input.id,
+      input.idempotencyKey,
+      input,
+    );
+    if (replay) return replay;
+    await assertPageLifecycleTarget(tx, input.id, "delete-document");
+    if (before.trashedAt)
+      return finishDocumentLifecycleIntent(tx, claim, "unchanged", before, []);
+    if (before.updatedAt !== input.expectedUpdatedAt)
+      setupError(
+        "DOCUMENT_REVISION_CONFLICT",
+        "The page changed after you read it. Read it again, confirm it should still be trashed, and retry with its current updatedAt.",
+      );
+    const affected = await trashDocumentSubtree(
+      tx,
+      input.id,
+      ownerEmail,
+      undefined,
+      lockedDatabaseIds,
+      origin,
+    );
+    const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
+    if (!after.trashedAt || after.trashRootId !== input.id)
+      setupError(
+        "READBACK_UNAVAILABLE",
+        "The page could not be verified in Trash, so the change was rolled back.",
+      );
+    return finishDocumentLifecycleIntent(tx, claim, "trashed", after, affected);
+  });
+  await refreshAfterDocumentLifecycle(result.receipt);
+  return { success: true, ...result.value, receipt: result.receipt };
+}
+
+export default defineAction({
+  changeResource: (input, result) =>
+    // Taking a page out of Favorites leaves the page itself unchanged.
+    typeof result === "object" && result !== null && "removed" in result
+      ? null
+      : documentChangeResource(input.id),
+  description:
+    "Move one page and all its sub-pages to recoverable Trash, guarded by the page's exact updatedAt and an idempotency key. Returns a receipt with the affected page ids and the Trash root to restore. Collections use delete-content-database.",
+  mcpTool: true,
+  mcpApp: { structuredContent: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  agentInputSchema: guardedTrashSchema,
+  schema: z.union([guardedTrashSchema, legacyTrashSchema]),
+  run: async (input, ctx) => {
+    if (usesDocumentLifecycleProtocol(input, ctx))
+      return trashDocumentWithReceipt(
+        parseDocumentLifecycleInput(
+          guardedTrashSchema,
+          input,
+          "Agent page deletes require id, the page's exact updatedAt as expectedUpdatedAt, and idempotencyKey.",
+        ),
+        ctx?.caller,
+      );
+    const args = input as z.infer<typeof legacyTrashSchema>;
     const id = args.id;
     if (!id) throw new Error("--id is required");
 

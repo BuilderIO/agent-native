@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.203.0",
+  "version": "0.204.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -600,6 +600,7 @@
     "./shared/first-run-onboarding": "./dist/shared/first-run-onboarding.js",
     "./shared/framework-route-prefix": "./dist/shared/framework-route-prefix.js",
     "./shared/loading-labels": "./dist/shared/loading-labels.js",
+    "./shared/mcp-app-widget-embed": "./dist/shared/mcp-app-widget-embed.js",
     "./shared/mcp-connect-content": "./dist/shared/mcp-connect-content.js",
     "./shared/password-policy": "./dist/shared/password-policy.js",
     "./shared/qa-test-email": "./dist/shared/qa-test-email.js",
@@ -673,7 +674,7 @@
     "drizzle-orm": "^0.45.2",
     "esbuild": "^0.28.1",
     "fast-xml-parser": "5.11.1",
-    "h3": "^2.0.1-rc.20",
+    "h3": "^2.0.1",
     "i18next": "26.3.1",
     "ink": "6.8.0",
     "isbot": "^5",
@@ -681,7 +682,7 @@
     "jose": "^6.2.2",
     "linkedom": "catalog:",
     "minimatch": "^10.0.0",
-    "nitro": "3.0.260610-beta",
+    "nitro": "3.0.260903-beta",
     "postgres": "^3.4.9",
     "react-i18next": "17.0.8",
     "run": "2.0.1",
