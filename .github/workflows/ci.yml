@@ -509,6 +509,7 @@ jobs:
             drag-1)
               fixed_specs=( \
                 e2e/corner-radius-handle-drag.spec.ts:215 \
+                e2e/overview-wheel-zoom.spec.ts:184 \
                 e2e/drag-and-drop.drag-feedback.spec.ts:24 \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
                 e2e/inspector-styles.spec.ts:452 \

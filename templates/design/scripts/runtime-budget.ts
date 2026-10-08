@@ -306,38 +306,53 @@ const zoomOf = () =>
     const match = /scale\(([0-9.]+)\)/.exec(transform);
     return match ? Number(match[1]) * 100 : null;
   });
+const zoomPercentFromUrl = () =>
+  page.evaluate(() => {
+    const raw = new URLSearchParams(location.search).get("zoom");
+    const zoom = raw === null ? Number.NaN : Number(raw);
+    return Number.isFinite(zoom) && zoom > 0 ? zoom : null;
+  });
 async function zoomTo(target: number): Promise<boolean> {
   const startedAt = Date.now();
+  const deadline = startedAt + 10_000;
+  const remainingTimeout = () => Math.max(1, deadline - Date.now());
   // This benchmark measures camera-driven rendering and preview churn; wheel
   // forwarding is covered by parity-pan-zoom-mouse.spec.ts.
   const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
-  const currentZoomPercent = Number(
-    (await readout.textContent())?.replace("%", "").trim(),
+  const currentZoomPercent = await readZoomUntilAvailable(
+    zoomPercentFromUrl,
+    (ms) => page.waitForTimeout(ms),
+    deadline,
+    () => cdp.send("Runtime.terminateExecution"),
   );
+  if (currentZoomPercent === null) return false;
   // Overview zoom is normalized by board geometry, so compare the world
-  // transform with the current displayed zoom ratio instead of its raw value.
+  // transform with the exact route zoom instead of the rounded toolbar label.
   const expectedScale = expectedCanvasScaleAtZoomPercent(
     await zoomOf(),
     currentZoomPercent,
     target,
   );
   if (expectedScale === null) return false;
-  await readout.click();
+  await readout.click({ timeout: remainingTimeout() });
   const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
-  await zoomInput.fill(`${target}%`);
-  await zoomInput.press("Enter");
+  await zoomInput.fill(`${target}%`, { timeout: remainingTimeout() });
+  await zoomInput.press("Enter", { timeout: remainingTimeout() });
   const actual = await readZoomUntilAvailable(
     async () => {
       const zoom = await zoomOf();
+      const routeZoom = await zoomPercentFromUrl();
       const label = (await readout.textContent())?.trim();
       return zoom !== null &&
-        Math.abs(zoom - expectedScale) <= Math.max(0.5, expectedScale * 0.01) &&
+        routeZoom === target &&
+        Math.abs(zoom - expectedScale) <=
+          Math.max(0.005, expectedScale * 0.001) &&
         label === `${target}%`
         ? zoom
         : null;
     },
     (ms) => page.waitForTimeout(ms),
-    startedAt + 10_000,
+    deadline,
     () => cdp.send("Runtime.terminateExecution"),
   );
   const arrived = actual !== null;

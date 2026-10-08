@@ -747,6 +747,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "canvas corner-radius handle follows the drag and persists the radius",
     ],
     [
+      "e2e/overview-wheel-zoom.spec.ts",
+      184,
+      "the zoom percentage input updates the overview canvas scale",
+    ],
+    [
       "e2e/pasted-svg-image-inspector.spec.ts",
       656,
       "clipboard SVG File paste in the parent editor stays editable after reload",

@@ -182,7 +182,6 @@ async function enterEditor(page: Page, designId: string) {
   await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
 }
 
-// oracle: none — verifies the app's zoom readout maps to its canvas transform
 test("Cmd+R renames a Screen selected on canvas or in Layers without renaming the design", async ({
   page,
   request,
@@ -197,21 +196,6 @@ test("Cmd+R renames a Screen selected on canvas or in Layers without renaming th
     const original = await readDesign(request, designId);
     expect(original.title).toBeTruthy();
     await enterEditor(page, designId);
-    const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
-    await zoomControl.click();
-    const zoomPercentage = page.getByRole("textbox", {
-      name: "Zoom percentage",
-    });
-    await zoomPercentage.fill("25%");
-    await zoomPercentage.press("Enter");
-    await expect(zoomControl).toHaveText("25%");
-    await expect
-      .poll(() =>
-        page
-          .locator("[data-multi-screen-canvas-world]")
-          .evaluate((world) => world.getAttribute("style") ?? ""),
-      )
-      .toContain("scale(0.25)");
     const screenTitle = page
       .locator(`[data-screen-shell][data-frame-id="${fileId}"]`)
       .locator("[data-frame-title]")
