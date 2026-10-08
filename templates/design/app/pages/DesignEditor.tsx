@@ -11263,10 +11263,16 @@ function DesignEditor() {
   ]);
 
   const handleOverviewScreenSelectionChange = useCallback(
-    (ids: string[]) => {
+    (ids: string[], intent?: ElementSelectionIntent) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
       const fileIds = new Set(getOverviewScreenFileIds(files));
       const nextIds = ids.filter((layerId) => fileIds.has(layerId));
+      if (intent?.source === "marquee" && intent.cancelled) {
+        setOverviewSelectedScreenIds((current) =>
+          sameStringIds(current, nextIds) ? current : nextIds,
+        );
+        return;
+      }
       if (pendingId && ids.length === 0) {
         explicitOverviewScreenSelectionRef.current = [];
         return;
@@ -11301,14 +11307,33 @@ function DesignEditor() {
           return owner ? [owner.fileId] : [];
         }),
       );
-      explicitOverviewScreenSelectionRef.current =
-        updateExplicitOverviewScreenSelection({
-          previousSelectedScreenIds: overviewSelectedScreenIdsRef.current,
-          selectedScreenIds: nextIds,
-          currentExplicitScreenIds: explicitOverviewScreenSelectionRef.current,
-          ownerDerivedScreenIds,
-          additive: shiftKeyHeldRef.current,
-        });
+      if (
+        intent?.source === "marquee" &&
+        (intent.metaKey === true || intent.ctrlKey === true)
+      ) {
+        const deepSelectedScreenIds = new Set(
+          intent.marqueeSelectedScreenIds ?? [],
+        );
+        explicitOverviewScreenSelectionRef.current =
+          explicitOverviewScreenSelectionRef.current.filter(
+            (screenId) =>
+              nextIds.includes(screenId) &&
+              !deepSelectedScreenIds.has(screenId),
+          );
+      } else {
+        explicitOverviewScreenSelectionRef.current =
+          updateExplicitOverviewScreenSelection({
+            previousSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+            selectedScreenIds: nextIds,
+            currentExplicitScreenIds:
+              explicitOverviewScreenSelectionRef.current,
+            ownerDerivedScreenIds,
+            additive:
+              intent?.source === "marquee"
+                ? intent.additive === true
+                : shiftKeyHeldRef.current,
+          });
+      }
       setOverviewSelectedScreenIds((current) =>
         sameStringIds(current, nextIds) ? current : nextIds,
       );
@@ -24464,15 +24489,15 @@ function DesignEditor() {
     ) =>
       handleLayerMarqueeSelectionChange(selection, intent, {
         clearExplicitScreenSelection:
-          selection.length > 0 &&
-          (intent.additive === true ||
-            intent.shiftKey === true ||
-            intent.metaKey === true ||
-            intent.ctrlKey === true ||
-            intent.selectedScreenIds?.length === 0),
-        marqueeSelectedScreenIds: intent.final
-          ? intent.marqueeSelectedScreenIds
-          : undefined,
+          intent.metaKey === true ||
+          intent.ctrlKey === true ||
+          (!intent.shiftKey &&
+            intent.selectedScreenIds !== undefined &&
+            intent.selectedScreenIds.length === 0),
+        marqueeSelectedScreenIds:
+          intent.final && !intent.metaKey && !intent.ctrlKey
+            ? intent.marqueeSelectedScreenIds
+            : undefined,
       }),
     [handleLayerMarqueeSelectionChange],
   );
@@ -24494,7 +24519,12 @@ function DesignEditor() {
           metaKey: Boolean(intent?.metaKey),
           ctrlKey: Boolean(intent?.ctrlKey),
         },
-        { clearExplicitScreenSelection: true },
+        {
+          clearExplicitScreenSelection:
+            !intent?.shiftKey ||
+            intent?.metaKey === true ||
+            intent?.ctrlKey === true,
+        },
       );
     },
     [handleLayerMarqueeSelectionChange],

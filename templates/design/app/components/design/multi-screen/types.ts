@@ -304,7 +304,10 @@ export interface MultiScreenCanvasProps {
       onRuntimeReload?: () => void;
     },
   ) => ReactNode;
-  onScreenSelectionChange?: (ids: string[]) => void;
+  onScreenSelectionChange?: (
+    ids: string[],
+    intent?: ElementSelectionIntent,
+  ) => void;
   selectAllRequest?: number;
   clearSelectionRequest?: number;
   onAddBreakpoint?: (widthPx: number) => void;
@@ -320,7 +323,10 @@ export interface MultiScreenCanvasProps {
     nextWidthPx: number,
   ) => void;
   onEditBreakpoint?: (screenId: string, widthPx: number) => void;
-  onSelectionChange?: (selectedIds: string[]) => void;
+  onSelectionChange?: (
+    selectedIds: string[],
+    intent?: ElementSelectionIntent,
+  ) => void;
   onLayerMarqueeSelectionChange?: (
     selection: CanvasLayerMarqueeSelection[],
     intent: ElementSelectionIntent & { final?: boolean },
@@ -721,6 +727,8 @@ export interface MarqueeDragState {
   baseSelectedIds: string[];
   baseSelectedDraftIds: string[];
   additive: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
   hasMoved: boolean;
 }
 

@@ -634,6 +634,107 @@ test("Shift-reselecting an owner Screen makes Delete target the Screen", async (
   }
 });
 
+// oracle: none — this checks explicit Screen provenance across additive child selection, not a Figma observation.
+test("Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).__DESIGN_TRACE = true;
+    (window as any).__designPerformanceProbe = Object.create(null);
+  });
+
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    const blueBoxId = await blueBoxButton.getAttribute("data-layer-node-id");
+    expect(blueBoxId).toBeTruthy();
+    await blueBoxButton.click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+
+    const secondId = await fileIdByFilename(page, id, "second.html");
+    await page
+      .locator(`[data-frame-id="${secondId}"] [data-frame-title]`)
+      .click({ modifiers: ["Shift"] });
+    await expect.poll(() => selectedScreenIds(page)).toContain(secondId);
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+
+    const thirdId = await fileIdByFilename(page, id, "third.html");
+    const thirdFrame = page.locator(
+      `iframe[data-screen-iframe-id="${thirdId}"]`,
+    );
+    const iframeBox = await thirdFrame.boundingBox();
+    const greenBox = thirdFrame
+      .contentFrame()
+      .locator('[data-agent-native-node-id="third-target"]');
+    const greenBoxBox = await greenBox.boundingBox();
+    expect(iframeBox).not.toBeNull();
+    expect(greenBoxBox).not.toBeNull();
+    const margin = Math.min(5, Math.max(2, iframeBox!.width * 0.01));
+    const from = {
+      x: greenBoxBox!.x + greenBoxBox!.width + margin,
+      y: greenBoxBox!.y + greenBoxBox!.height + margin,
+    };
+    const to = {
+      x: greenBoxBox!.x - margin,
+      y: greenBoxBox!.y - margin,
+    };
+    expect(from.x).toBeLessThan(iframeBox!.x + iframeBox!.width);
+    expect(from.y).toBeLessThan(iframeBox!.y + iframeBox!.height);
+    expect(to.x).toBeGreaterThan(iframeBox!.x);
+    expect(to.y).toBeGreaterThan(iframeBox!.y);
+
+    const finalSelectionChangeCount = await page.evaluate(
+      () =>
+        (window as any).__designPerformanceProbe?.marqueeFinalSelectionChange ??
+        0,
+    );
+    await page.keyboard.down("Shift");
+    try {
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 12 });
+      await page.mouse.up();
+    } finally {
+      await page.keyboard.up("Shift");
+    }
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () =>
+              (window as any).__designPerformanceProbe
+                ?.marqueeFinalSelectionChange ?? 0,
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(finalSelectionChangeCount + 1);
+
+    const greenBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Green Box" });
+    const greenBoxId = await greenBoxButton.getAttribute("data-layer-node-id");
+    expect(greenBoxId).toBeTruthy();
+    await expect
+      .poll(() => lastSelectedLayers(page))
+      .toEqual(expect.arrayContaining([blueBoxId, greenBoxId]));
+    await expect.poll(() => selectedScreenIds(page)).toContain(secondId);
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Second")).toHaveCount(0);
+    await expect(layerRow(page, "Home")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+    await expect(layerRow(page, "Blue Box")).toHaveCount(1);
+    await expect(layerRow(page, "Green Box")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 // oracle: none — this checks explicit Screen intent from additive marquee selection, not a Figma observation.
 test("Shift-marquee reselecting an owner Screen makes Delete target the Screen", async ({
   page,
