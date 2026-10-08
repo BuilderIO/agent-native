@@ -935,6 +935,9 @@ export default function RecordingPage() {
     kind: ClipsAiRequestKind;
     requestedAt: string | null;
   } | null>(null);
+  const retryAiRequestRef = useRef<((kind: ClipsAiRequestKind) => void) | null>(
+    null,
+  );
   const transcriptLifecycleActiveRef = useRef(false);
   const transcriptLifecycleRecordingIdRef = useRef<string | null>(null);
   const transcriptPendingObservedRef = useRef(false);
@@ -1429,6 +1432,14 @@ export default function RecordingPage() {
         ...(aiRequestStatus.message
           ? { description: aiRequestStatus.message }
           : {}),
+        ...(kind === "remove-filler-words" || kind === "remove-silences"
+          ? {
+              action: {
+                label: t("agentChat.common.retry"),
+                onClick: () => retryAiRequestRef.current?.(kind),
+              },
+            }
+          : {}),
         duration: Number.POSITIVE_INFINITY,
       });
       cancelCompletionCue();
@@ -1649,10 +1660,19 @@ export default function RecordingPage() {
     startAiRequestToast(t(aiRequestProgressKey(kind)));
   };
   const handleBackgroundAiError = (err: Error) => {
+    const retryKind = activeAiRequestRef.current?.kind;
     activeAiRequestRef.current = null;
     cancelCompletionCue();
     failAiRequestToast(t("recordingPage.aiRequestFailed"), {
       description: actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"),
+      ...(retryKind === "remove-filler-words" || retryKind === "remove-silences"
+        ? {
+            action: {
+              label: t("agentChat.common.retry"),
+              onClick: () => retryAiRequestRef.current?.(retryKind),
+            },
+          }
+        : {}),
       duration: Number.POSITIVE_INFINITY,
     });
   };
@@ -1791,10 +1811,27 @@ export default function RecordingPage() {
         };
         startAiRequestToast(t(aiRequestProgressKey("remove-silences")));
         void aiRequestStatusQ.refetch();
+      } else if (result?.status === "completed") {
+        activeAiRequestRef.current = null;
+        completeAiRequestToast(t("recordingPage.silenceCompleted"));
+        playCompletionCue();
+        void playerDataQ.refetch();
       }
     },
     onError: handleBackgroundAiError,
   });
+  retryAiRequestRef.current = (kind) => {
+    if (!recording?.id) return;
+    beginAiRequest(kind);
+    if (kind === "remove-filler-words") {
+      removeFillerWords.mutate({ recordingId: recording.id } as any);
+    } else if (kind === "remove-silences") {
+      removeSilences.mutate({
+        recordingId: recording.id,
+        thresholdMs: 1200,
+      } as any);
+    }
+  };
   const addReaction = useActionMutation("react-to-recording" as any);
   const aiRequestBusy =
     regenerateTitle.isPending ||

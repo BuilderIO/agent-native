@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockCompareAndSetAppState = vi.hoisted(() => vi.fn(async () => true));
 const mockReadAppState = vi.hoisted(() => vi.fn(async () => null));
+const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
 const mockAssertAccess = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("@agent-native/core", () => ({
@@ -10,6 +11,7 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   compareAndSetAppState: mockCompareAndSetAppState,
   readAppState: mockReadAppState,
+  writeAppState: mockWriteAppState,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mockAssertAccess,
@@ -22,6 +24,7 @@ describe("update-ai-request-status", () => {
     vi.clearAllMocks();
     mockReadAppState.mockResolvedValue(null);
     mockCompareAndSetAppState.mockResolvedValue(true);
+    mockWriteAppState.mockResolvedValue(undefined);
   });
 
   it("writes a scoped completion status for queued silence removal", async () => {
