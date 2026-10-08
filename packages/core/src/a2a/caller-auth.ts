@@ -35,15 +35,10 @@ export async function resolveA2ACallerAuth(options?: {
   let orgSecret: string | undefined;
   const orgId = getRequestOrgId();
   if (orgId) {
-    try {
-      const { getOrgDomain } = await import("../org/context.js");
-      orgDomain = (await getOrgDomain(orgId)) ?? undefined;
-      if (orgDomain) metadata.orgDomain = orgDomain;
-    } catch {}
-    try {
-      const { getOrgA2ASecret } = await import("../org/context.js");
-      orgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
-    } catch {}
+    const { getOrgDomain, getOrgA2ASecret } = await import("../org/context.js");
+    orgDomain = (await getOrgDomain(orgId)) ?? undefined;
+    if (orgDomain) metadata.orgDomain = orgDomain;
+    orgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
   }
 
   const apiKeyAttempts: string[] = [];

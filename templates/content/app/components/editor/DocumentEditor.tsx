@@ -222,6 +222,7 @@ import {
   type ToolbarBreadcrumbItem,
   type ToolbarBreadcrumbOpen,
 } from "./DocumentToolbar";
+import { isEditorContentClean } from "./editor-clean";
 import type { EditorDraftSaveResult } from "./editor-draft-save";
 import { EmojiPicker } from "./EmojiPicker";
 import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
@@ -236,6 +237,7 @@ import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
+  listPageDraftJournal,
   syncPageDraftJournalBeforePersistingRecoveryDraft,
   writePageDraftJournal,
 } from "./page-draft-journal";
@@ -3151,6 +3153,7 @@ function PageEditorSessionBody({
       try {
         writePageDraftJournal({
           scope,
+          currentTitle: localTitleRef.current,
           snapshot: {
             title,
             content,
@@ -6672,6 +6675,34 @@ function PageEditorSessionBody({
     [],
   );
 
+  const isEditorClean = useCallback(
+    (liveMarkdown: string) => {
+      // No scope means the journal cannot be read, which is never clean.
+      const scope = journalScope();
+      let journalContents: string[] | null = null;
+      if (scope) {
+        try {
+          const { writerId: _writerId, ...documentScope } = scope;
+          journalContents = listPageDraftJournal(documentScope)
+            .filter((entry) => entry.recoveryStatus !== "retained_in_history")
+            .map((entry) => entry.snapshot.content);
+        } catch {
+          journalContents = null;
+        }
+      }
+      return isEditorContentClean({
+        liveMarkdown,
+        normalize: canonicalizeNfm,
+        saveQueued: saveTimeoutRef.current !== null,
+        saveInFlight: activeContentSavesRef.current > 0,
+        recoveryPending: reconcileRecoveryStateRef.current !== null,
+        journalContents,
+        suggesting: isSuggesting,
+      });
+    },
+    [isSuggesting, journalScope],
+  );
+
   const handleRemoteSnapshotChange = useCallback(
     (content: string) => {
       liveMarkdownRef.current = content;
@@ -8896,6 +8927,7 @@ function PageEditorSessionBody({
                                   ? handleRemoteSnapshotChange
                                   : undefined
                               }
+                              isEditorClean={isEditorClean}
                               collabContentRevision={
                                 isLocalFileDocument || isSuggesting
                                   ? null

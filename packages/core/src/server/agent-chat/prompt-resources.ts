@@ -37,6 +37,7 @@ import { discoverAgents } from "../agent-discovery.js";
 import type { BuilderGatewayAuth } from "../credential-provider.js";
 import {
   getRequestOrgId,
+  getRequestContext,
   getRequestRunContext,
   getRequestUserEmail,
 } from "../request-context.js";
@@ -1886,7 +1887,13 @@ export async function loadResourcesForPrompt(
       opts?.disabledFrameworkGroups,
       "workspaceApps",
     )
-      ? (await discoverAgents(selfAppId)).slice(0, 30)
+      ? (
+          await discoverAgents(selfAppId, {
+            includePersonalAgents:
+              owner !== SHARED_OWNER &&
+              getRequestContext()?.userEmail === owner,
+          })
+        ).slice(0, 30)
       : [];
     if (agents.length > 0) {
       const lines = agents.map(

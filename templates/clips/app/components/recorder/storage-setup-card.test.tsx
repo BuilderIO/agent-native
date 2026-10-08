@@ -716,6 +716,9 @@ describe("StorageSetupCard", () => {
     expect(
       container.querySelector('a[href="/settings/infra#uploads"]')?.textContent,
     ).toBe("settings.s3Title");
+    expect(container.textContent).not.toContain(
+      "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO",
+    );
   });
 
   it("asks members to find an owner or admin when they can't set up storage", async () => {

@@ -941,7 +941,7 @@ describe("useBuilderConnectFlow", () => {
       ).toBe("The previous connection failed.");
       const statusNotice = document.body.querySelector('[role="status"]');
       expect(statusNotice?.textContent).toContain(
-        "Couldn't check your Builder.io connection.",
+        "Connection status is unavailable. Retry to check again.",
       );
       expect(
         document.body.querySelector('[role="alert"]')?.textContent ?? "",
@@ -1037,7 +1037,7 @@ describe("useBuilderConnectFlow", () => {
         `Couldn't save Builder credentials: ${message}.`,
       );
       expect(container.textContent).not.toContain(
-        "Couldn't check the Builder.io connection.",
+        "Connection status is unavailable. Retry to check again.",
       );
     });
 
@@ -1104,7 +1104,7 @@ describe("useBuilderConnectFlow", () => {
         `Couldn't save Builder credentials: ${message}.`,
       );
       expect(container.textContent).not.toContain(
-        "Couldn't check the Builder.io connection.",
+        "Connection status is unavailable. Retry to check again.",
       );
     });
 
@@ -1990,7 +1990,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="terminal-error"]')?.textContent,
     ).toBe("none");
     expect(container.textContent).toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
 
     await act(async () => {
@@ -2008,7 +2008,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="terminal-error"]')?.textContent,
     ).toBe("none");
     expect(container.textContent).not.toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
   });
 
@@ -2052,7 +2052,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="error-kind"]')?.textContent,
     ).toBe("status-read");
     expect(container.textContent).toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
     expect(
       container.querySelector('[data-testid="terminal-error"]')?.textContent,
@@ -2082,7 +2082,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="error-kind"]')?.textContent,
     ).toBe("status-read");
     expect(container.textContent).toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
   });
 
@@ -2643,7 +2643,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="error-kind"]')?.textContent,
     ).toBe("status-read");
     expect(container.textContent).toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
 
     await act(async () => {
@@ -2673,7 +2673,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="error-kind"]')?.textContent,
     ).toBe("");
     expect(container.textContent).not.toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
   });
 

@@ -2228,7 +2228,8 @@ const messages: ToolkitAgentChatTranslation = {
     "يؤثر هذا على كل من في {{org}} ممن لم يربطوا حساباتهم الخاصة.",
   "settingsShell.builder.disconnectFailed": "تعذّر قطع اتصال Builder.io.",
   "settingsShell.builder.disconnectTitle": "هل تريد قطع اتصال Builder.io؟",
-  "settingsShell.builder.grantsFailed": "تعذّر التحقق من اتصال Builder.io.",
+  "settingsShell.builder.grantsFailed":
+    "حالة الاتصال غير متاحة. أعد المحاولة للتحقق مرة أخرى.",
   "settingsShell.builder.setupStartFailed":
     "تعذّر بدء إعداد Builder.io. حدّث هذه الصفحة وحاول مرة أخرى.",
   "settingsShell.builder.setupHostFailed":
@@ -2649,7 +2650,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "الوصول إلى النماذج وأتمتة المتصفح وتخزين الملفات وهوية مساحة العمل. تتوفر خطة مجانية.",
   "settingsShell.integrations.builderStatusFailed":
-    "تعذّر التحقق من اتصال Builder.io.",
+    "حالة الاتصال غير متاحة. أعد المحاولة للتحقق مرة أخرى.",
   "settingsShell.integrations.category.analytics": "التحليلات",
   "settingsShell.integrations.category.design": "التصميم",
   "settingsShell.integrations.category.engineering": "الهندسة",
@@ -2796,6 +2797,11 @@ const messages: ToolkitAgentChatTranslation = {
     "الرجوع إلى إعدادات النشر متاح. استخدم حساب Builder.io الخاص بك لتجاوزه.",
   "settingsInfra.builderStorageHint":
     "يحافظ تخزين الكائنات على الملفات المرفوعة ويجعل عناوين URL الخاصة بها قابلة لإعادة الاستخدام خلال المحادثة. استخدم Builder.io أو حاوية متوافقة مع S3 أدناه.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io متصل، لكنه لا يستطيع تخزين الملفات المرفوعة بعد. أعد توصيله لمنحه صلاحية الرفع، أو أعد إعداد حاوية أدناه.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "تعذّر التحقق من صلاحية Builder.io لرفع الملفات. أعد المحاولة أو أعد إعداد حاوية أدناه.",
+  "settingsInfra.reconnectBuilderUploads": "منح صلاحية الرفع",
   "settingsInfra.builderUnknown": "تعذّر التحقق من اتصال Builder.io.",
   "settingsInfra.manage": "إدارة",
   "settingsInfra.connect": "توصيل",

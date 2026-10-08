@@ -206,6 +206,22 @@ describe("resolveA2ACallerAuth", () => {
     );
   });
 
+  it("preserves workspace identity lookup failures instead of omitting auth", async () => {
+    getOrgDomainMock.mockRejectedValueOnce(
+      new Error("organization lookup unavailable"),
+    );
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        await expect(
+          resolveA2ACallerAuth({ audience: "https://peer.example.test" }),
+        ).rejects.toThrow("organization lookup unavailable");
+      },
+    );
+    expect(getOrgA2ASecretMock).not.toHaveBeenCalled();
+  });
+
   it("falls back to the org A2A secret when no shared secret is configured", async () => {
     delete process.env.A2A_SECRET;
 
