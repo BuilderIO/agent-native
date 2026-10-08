@@ -423,7 +423,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 9
     strategy:
       fail-fast: false
       matrix:
@@ -497,7 +497,7 @@ jobs:
       - name: Run focused Design regression cases
         if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
         working-directory: templates/design
-        timeout-minutes: 20
+        timeout-minutes: 4
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
