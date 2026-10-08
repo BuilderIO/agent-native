@@ -8,7 +8,12 @@ import {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 import { build } from "esbuild";
 
 import { e2eBaseURL } from "./base-url";
@@ -65,7 +70,7 @@ function App() {
       <PrimaryButton
         data-agent-native-node-id="react-button-1"
         data-agent-native-layer-name="React Primary Button"
-        style={{ minWidth: "160px", minHeight: "48px" }}
+        style={{ minWidth: "160px", minHeight: "48px", margin: "96px" }}
         variant="primary"
       />
     </main>
@@ -145,6 +150,40 @@ async function postAction(
     );
   }
   return response.json();
+}
+
+async function openDesignWithLocalNetworkPermission(page: Page): Promise<void> {
+  await page.context().grantPermissions(["local-network-access"], {
+    origin: new URL(baseURL).origin,
+  });
+  await page.goto(appPath(`/visual-edit/${designId}?editorView=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (
+            await navigator.permissions.query({
+              name: "local-network-access" as PermissionName,
+            })
+          ).state,
+      ),
+    )
+    .toBe("granted");
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
+  await expect(
+    page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .first(),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Connect your local screens" }),
+  ).toHaveCount(0);
 }
 
 test.beforeAll(async ({ request }, workerInfo) => {
@@ -442,6 +481,7 @@ test.fixme("lists the spawned folder, preserves dirty buffers, and saves a local
   await expect(localTree.getByText(".env", { exact: true })).toHaveCount(0);
 });
 
+// oracle: none — verifies the app-specific local-screen inspector flow, not Figma parity.
 test("updates only the selected URL screen from the Screen inspector", async ({
   page,
   request,
@@ -463,32 +503,7 @@ test("updates only the selected URL screen from the Screen inspector", async ({
   };
   const initial = await readDesign();
 
-  await page.context().grantPermissions(["local-network-access"], {
-    origin: new URL(baseURL).origin,
-  });
-  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect
-    .poll(() =>
-      page.evaluate(
-        async () =>
-          (
-            await navigator.permissions.query({
-              name: "local-network-access" as PermissionName,
-            })
-          ).state,
-      ),
-    )
-    .toBe("granted");
-  await expect(
-    page.getByRole("dialog", { name: "Connect your local screens" }),
-  ).toHaveCount(0);
-  const moveToolButton = page.getByRole("button", {
-    name: "Move",
-    exact: true,
-  });
-  await expect(moveToolButton).toBeVisible({ timeout: 30_000 });
+  await openDesignWithLocalNetworkPermission(page);
   await expect
     .poll(async () => {
       const current = await readDesign();
@@ -511,7 +526,8 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     (file: { id?: string; content?: string; fileType?: string }) =>
       file.id === screenId &&
       file.fileType === "html" &&
-      /^https?:\/\//.test(file.content ?? ""),
+      (file.content?.startsWith("http://") ||
+        file.content?.startsWith("https://")),
   );
   expect(screen?.id).toBe(screenId);
   await expect(
@@ -560,6 +576,20 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     path: nextPath,
   });
   await expect(urlInput).toHaveValue(expectedScreenUrl);
+  const screenPreviewIframe = page.locator(
+    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+  );
+  await expect
+    .poll(() =>
+      screenPreviewIframe.getAttribute("src").then((src) => {
+        if (!src) return null;
+        return new URL(src, baseURL).searchParams.get("url");
+      }),
+    )
+    .toBe(expectedScreenUrl);
+  await expect(
+    screenPreviewIframe.contentFrame().getByText("Local workbench fixture"),
+  ).toBeVisible();
   await cdpScreenshot(page, testInfo.outputPath("screen-source-settings.png"));
 
   const staticSourceResponsePromise = page.waitForResponse(
@@ -600,21 +630,16 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     previewState: "static",
   });
   await expect(page.getByLabel("Screen URL")).toHaveCount(0);
-  const selectedScreenShell = page.locator(
-    `[data-screen-shell][data-frame-id="${screenId}"]`,
-  );
-  const screenPreviewIframe = selectedScreenShell.locator(
-    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
-  );
+  await expect(
+    page.getByText("Preparing live editor...", { exact: true }),
+  ).toHaveCount(0);
   await expect(
     screenPreviewIframe.contentFrame().getByText("Local workbench fixture"),
   ).toBeVisible();
-  await expect(
-    selectedScreenShell.getByText("Preparing live editor...", { exact: true }),
-  ).toHaveCount(0);
   await cdpScreenshot(page, testInfo.outputPath("screen-source-static.png"));
 });
 
+// oracle: none — verifies local-source promotion and editing, not Figma parity.
 test("promotes and edits a URL-backed React component through the live iframe", async ({
   page,
   request,
@@ -641,12 +666,7 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   const hostLine = source.slice(0, hostAnchor).split("\n").length;
   const hostColumn = hostAnchor - source.lastIndexOf("\n", hostAnchor - 1);
 
-  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  await openDesignWithLocalNetworkPermission(page);
 
   const screenRow = page
     .getByRole("tree", { name: "Layers" })
@@ -780,6 +800,14 @@ test("promotes and edits a URL-backed React component through the live iframe", 
       )
       ?.contentWindow?.postMessage({ type: "clear-selection" }, "*");
   }, screenId);
+  await expect(
+    page
+      .locator(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+      )
+      .contentFrame()
+      .locator('[data-agent-native-edit-overlay="selection"]'),
+  ).toHaveCSS("display", "none");
   await selectByText(page, "primary", { screenId });
   const componentSection = page.getByTestId("component-section");
   await expect(componentSection).toContainText("PrimaryButton");
@@ -867,6 +895,7 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   );
 });
 
+// oracle: none — verifies app undo/redo for a local source, not Figma parity.
 test("duplicates a URL-backed React component through undo and redo", async ({
   page,
   request,
@@ -896,12 +925,7 @@ test("duplicates a URL-backed React component through undo and redo", async ({
     throw new Error(`Missing React screen metadata: ${JSON.stringify(opened)}`);
   }
 
-  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  await openDesignWithLocalNetworkPermission(page);
   const screenRow = page
     .getByRole("tree", { name: "Layers" })
     .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
@@ -972,6 +996,7 @@ test("duplicates a URL-backed React component through undo and redo", async ({
   );
 });
 
+// oracle: none — verifies app-specific local-screen error handling, not Figma parity.
 test("keeps a URL screen selected when its static snapshot fails", async ({
   page,
   request,
@@ -995,12 +1020,7 @@ test("keeps a URL screen selected when its static snapshot fails", async ({
     return response.json();
   };
 
-  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  await openDesignWithLocalNetworkPermission(page);
 
   const screenRow = page
     .getByRole("tree", { name: "Layers" })
@@ -1009,7 +1029,7 @@ test("keeps a URL screen selected when its static snapshot fails", async ({
   await screenRow.click();
   await expect(page.getByLabel("Screen URL")).toHaveValue(/visual-edit-dead/);
 
-  await page.getByRole("button", { name: "Static", exact: true }).click();
+  await page.getByRole("tab", { name: "Static", exact: true }).click();
 
   await expect(page.getByLabel("Screen URL")).toBeVisible();
   await expect
