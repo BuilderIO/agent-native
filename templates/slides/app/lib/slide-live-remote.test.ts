@@ -126,6 +126,37 @@ describe("applyRemoteHtmlUnderEdit", () => {
     expect(root.querySelectorAll("b")[0].textContent).toBe("Bold");
   });
 
+  it("keeps an empty class attribute the remote kept and drops one it removed", () => {
+    const withClass = (n: number, id: string, attr: string) =>
+      `<div ${attr} data-slide-object-id="${id}" ${stamp(n)}>${id}</div>`;
+    const prev = slide(box(1, "a", "Alpha"), withClass(2, "b", 'class="x"'));
+
+    const kept = mount(prev);
+    const keptNext = slide(box(1, "a", "Alpha"), withClass(2, "b", 'class=""'));
+    expect(
+      applyRemoteHtmlUnderEdit(kept, startEditing(kept, "a"), prev, keptNext),
+    ).toBe("applied");
+    expect(
+      kept.querySelector('[data-slide-object-id="b"]')!.getAttribute("class"),
+    ).toBe("");
+
+    const dropped = mount(prev);
+    const droppedNext = slide(box(1, "a", "Alpha"), withClass(2, "b", ""));
+    expect(
+      applyRemoteHtmlUnderEdit(
+        dropped,
+        startEditing(dropped, "a"),
+        prev,
+        droppedNext,
+      ),
+    ).toBe("applied");
+    expect(
+      dropped
+        .querySelector('[data-slide-object-id="b"]')!
+        .hasAttribute("class"),
+    ).toBe(false);
+  });
+
   it("does not apply a change to text outside every element", () => {
     const prev = `Intro${slide(box(1, "a", "Alpha"), box(2, "b", "Beta"))}`;
     const next = `Intro by remote${slide(box(1, "a", "Alpha"), box(2, "b", "Beta by remote"))}`;
