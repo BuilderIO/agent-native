@@ -1402,6 +1402,7 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "opencode-cli": "OpenCode",
   "claude-fable-5": "Claude Fable 5",
   "claude-fable-5-1": "Claude Fable 5.1",
+  "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v4-pro": "DeepSeek V4 Pro",
   "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
@@ -1547,11 +1548,15 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
       }) ?? "Default model"
     );
   }
-  if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
+  const friendlyName = Object.hasOwn(FRIENDLY_MODEL_NAMES, model)
+    ? FRIENDLY_MODEL_NAMES[model]
+    : undefined;
+  if (friendlyName !== undefined) return friendlyName;
   const normalizedModel = model.replace(/^(?:anthropic|openai|google)\//, "");
   // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD].
-  const claude = normalizedModel.match(
-    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
+  const undatedModel = normalizedModel.replace(/-\d{8,}$/, "");
+  const claude = undatedModel.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);

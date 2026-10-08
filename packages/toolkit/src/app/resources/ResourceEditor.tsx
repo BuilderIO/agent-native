@@ -1,5 +1,5 @@
 import {
-  CURRENT_CLAUDE_MODEL_OPTIONS,
+  CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS,
   getClaudeModelOptionLabel,
 } from "@agent-native/core/agent/model-config";
 import { agentNativePath } from "@agent-native/core/client/api-path";
@@ -178,13 +178,13 @@ function FrontmatterBar({
             }}
           >
             <option value="inherit">Default model</option>
-            {CURRENT_CLAUDE_MODEL_OPTIONS.map((option) => (
+            {CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
             {model !== "inherit" &&
-              !CURRENT_CLAUDE_MODEL_OPTIONS.some(
+              !CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS.some(
                 (option) => option.value === model,
               ) && (
                 <option value={model}>

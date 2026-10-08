@@ -215,23 +215,22 @@ export const BUILDER_CLAUDE_SONNET_MODEL_ID = CLAUDE_SONNET_MODEL_ID;
 export const BUILDER_CLAUDE_SONNET_MODEL_LABEL = CLAUDE_SONNET_MODEL_LABEL;
 const OPENROUTER_CLAUDE_SONNET_MODEL_ID = "anthropic/claude-sonnet-5.5";
 
-export const CURRENT_CLAUDE_MODEL_OPTIONS = [
+export const CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS = [
   { value: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
   { value: CLAUDE_SONNET_MODEL_ID, label: CLAUDE_SONNET_MODEL_LABEL },
   { value: "claude-opus-5-5", label: "Claude Opus 5.5" },
-  { value: "claude-fable-5-1", label: "Claude Fable 5.1" },
 ] as const;
 
 export function getClaudeModelOptionLabel(modelId: string): string {
-  const currentModel = CURRENT_CLAUDE_MODEL_OPTIONS.find(
+  const currentModel = CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS.find(
     (option) => option.value === modelId,
   );
   if (currentModel) return currentModel.label;
 
-  const match =
-    /^claude-(haiku|sonnet|opus|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/i.exec(
-      modelId,
-    );
+  const undatedModelId = modelId.replace(/-\d{8,}$/, "");
+  const match = /^claude-(haiku|sonnet|opus|fable)-(\d+)(?:[-.](\d+))?$/i.exec(
+    undatedModelId,
+  );
   if (!match) return modelId;
 
   const family = match[1][0].toUpperCase() + match[1].slice(1);

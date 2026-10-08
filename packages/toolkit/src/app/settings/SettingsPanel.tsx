@@ -612,10 +612,14 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
 };
 
 export function friendlyModelName(model: string): string {
-  if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
+  const friendlyName = Object.hasOwn(FRIENDLY_MODEL_NAMES, model)
+    ? FRIENDLY_MODEL_NAMES[model]
+    : undefined;
+  if (friendlyName !== undefined) return friendlyName;
   const normalizedModel = model.replace(/^(?:anthropic|openai)\//, "");
-  const claude = normalizedModel.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
+  const undatedModel = normalizedModel.replace(/-\d{8,}$/, "");
+  const claude = undatedModel.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);

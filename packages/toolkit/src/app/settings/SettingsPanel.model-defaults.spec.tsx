@@ -4,7 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AppDefaultModelField } from "./SettingsPanel.js";
+import { AppDefaultModelField, friendlyModelName } from "./SettingsPanel.js";
 
 const BUILDER_MODELS = [
   "auto",
@@ -19,6 +19,14 @@ const BUILDER_MODELS = [
   "gemini-3-5-flash-lite",
   "gemini-3-1-flash-lite",
 ];
+
+describe("friendlyModelName", () => {
+  it("keeps custom model ids safe and formats dated Claude ids", () => {
+    expect(friendlyModelName("toString")).toBe("toString");
+    expect(friendlyModelName("claude-haiku-4-20251001")).toBe("Haiku 4");
+    expect(friendlyModelName("claude-fable-5-1")).toBe("Fable 5.1");
+  });
+});
 
 describe("AppDefaultModelField", () => {
   let container: HTMLDivElement;

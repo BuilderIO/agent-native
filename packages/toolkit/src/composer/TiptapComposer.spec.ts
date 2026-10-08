@@ -137,6 +137,8 @@ describe("createTiptapComposerExtensions", () => {
     );
     expect(compactComposerModelName("google/gemini-3.8-flash")).toBe("Flash");
     expect(compactComposerModelName("qwen/qwen3.8-max-0902")).toBe("Max");
+    expect(compactComposerModelName("qwen3-coder")).toBe("Coder");
+    expect(compactComposerModelName("constructor")).toBe("constructor");
     expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet");
     expect(compactComposerModelName("claude-sonnet-5-5")).toBe("Sonnet");
     expect(compactComposerModelName("anthropic/claude-opus-5.5")).toBe("Opus");

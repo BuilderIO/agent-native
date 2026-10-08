@@ -1,5 +1,5 @@
 import {
-  CURRENT_CLAUDE_MODEL_OPTIONS,
+  CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS,
   getClaudeModelOptionLabel,
 } from "@agent-native/core/agent/model-config";
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -235,7 +235,7 @@ type CreateMenuView =
 
 const AGENT_MODEL_OPTIONS = [
   { value: "inherit", label: "Default model" },
-  ...CURRENT_CLAUDE_MODEL_OPTIONS,
+  ...CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS,
 ] as const;
 
 export function slugifyName(value: string): string {

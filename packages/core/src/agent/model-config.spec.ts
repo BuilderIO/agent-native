@@ -5,6 +5,7 @@ import {
   AI_SDK_MODEL_CONFIG,
   ANTHROPIC_MODEL_CONFIG,
   BUILDER_CLAUDE_SONNET_MODEL_ID,
+  CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS,
   BUILDER_MODEL_CONFIG,
   CLAUDE_SONNET_MODEL_ID,
   DEFAULT_ANTHROPIC_MODEL,
@@ -99,6 +100,18 @@ describe("agent model config catalog", () => {
     );
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-fable-5",
+    );
+  });
+
+  it("keeps Builder custom-agent choices within the Builder catalog", () => {
+    expect(
+      CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS.map(({ value }) => value),
+    ).toEqual(["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]);
+    expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain(
+      "claude-fable-5-1",
+    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-fable-5-1",
     );
   });
 
@@ -314,6 +327,9 @@ describe("agent model config catalog", () => {
     expect(getClaudeModelOptionLabel("claude-fable-5")).toBe("Claude Fable 5");
     expect(getClaudeModelOptionLabel("claude-haiku-4-5-20251001")).toBe(
       "Claude Haiku 4.5",
+    );
+    expect(getClaudeModelOptionLabel("claude-haiku-4-20251001")).toBe(
+      "Claude Haiku 4",
     );
     expect(getClaudeModelOptionLabel("claude-haiku-5-5")).toBe(
       "Claude Haiku 5.5",
