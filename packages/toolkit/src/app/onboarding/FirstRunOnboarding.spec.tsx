@@ -1337,6 +1337,13 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("lets Clips skip provider setup and finish first-run onboarding", async () => {
+    let resolveCompletion: (() => void) | undefined;
+    mocks.completeFirstRun.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
     mocks.useOnboarding.mockReturnValue({
       firstRun: true,
       loading: false,
@@ -1369,10 +1376,25 @@ describe("FirstRunOnboarding", () => {
     );
     expect(skipSetupButton?.textContent).toBe("Skip for now");
 
-    await act(async () => {
+    act(() => {
       skipSetupButton?.dispatchEvent(
         new MouseEvent("click", { bubbles: true }),
       );
+      skipSetupButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    expect(
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([event, properties]) =>
+          event === "onboarding_step_skipped" &&
+          (properties as Record<string, unknown>).step_id === "choice",
+      ),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      resolveCompletion?.();
       await Promise.resolve();
     });
 
