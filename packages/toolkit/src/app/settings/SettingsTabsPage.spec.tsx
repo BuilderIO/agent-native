@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
 
+import {
+  setCustomKeyOnboardingAttempt,
+  trackCustomKeyOnboardingOutcome,
+} from "@agent-native/core/client/onboarding/use-onboarding";
 import { SIGN_OUT_SEARCH_TERMS } from "@agent-native/core/client/sign-out";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
@@ -78,6 +82,30 @@ function captureAnimationFrame() {
 }
 
 let activeQueryClient: QueryClient | null = null;
+let restoreLocalStorage: (() => void) | null = null;
+
+function installTestLocalStorage() {
+  const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+  const values = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      get length() {
+        return values.size;
+      },
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      key: (index: number) => [...values.keys()][index] ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, String(value)),
+    } satisfies Storage,
+  });
+  restoreLocalStorage = () => {
+    if (descriptor) Object.defineProperty(window, "localStorage", descriptor);
+    else Reflect.deleteProperty(window, "localStorage");
+    restoreLocalStorage = null;
+  };
+}
 
 function createQueryClientWithLabs(labs: Record<string, unknown>) {
   const queryClient = new QueryClient({
@@ -104,6 +132,7 @@ describe("SettingsTabsPage", () => {
     act(() => root.unmount());
     activeQueryClient?.clear();
     activeQueryClient = null;
+    restoreLocalStorage?.();
     container.remove();
     document.body.innerHTML = "";
     vi.unstubAllGlobals();
@@ -254,6 +283,54 @@ describe("SettingsTabsPage", () => {
     });
 
     expect(document.activeElement).toBe(teamTab);
+  });
+
+  it("keeps an onboarding attempt through legacy settings tab navigation", () => {
+    installTestLocalStorage();
+    expect(setCustomKeyOnboardingAttempt("legacy-settings-nav")).toBe("stored");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+          redesign={false}
+        />,
+      );
+    });
+
+    const teamTab =
+      container.querySelector<HTMLButtonElement>("#settings-tab-team");
+    expect(teamTab).not.toBeNull();
+    act(() => teamTab!.click());
+
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
+  });
+
+  it("records abandonment when a legacy settings route exits", async () => {
+    installTestLocalStorage();
+    expect(setCustomKeyOnboardingAttempt("legacy-settings-exit")).toBe(
+      "stored",
+    );
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+          redesign={false}
+        />,
+      );
+    });
+
+    const renderedRoot = root;
+    await act(async () => {
+      renderedRoot.unmount();
+      await Promise.resolve();
+    });
+    root = createRoot(container);
+
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("missing");
   });
 
   it("opens general settings by default when the route has no hash", () => {

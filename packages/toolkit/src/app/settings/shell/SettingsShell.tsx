@@ -11,7 +11,6 @@ import {
 import { useFeatureFlags } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabStates } from "@agent-native/core/client/labs/use-lab";
-import { useCustomKeyOnboardingAttemptLifecycle } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import { STANDARD_APP_ROUTES } from "@agent-native/core/navigation";
 import {
@@ -314,8 +313,6 @@ function revealSettingsAnchor(anchor: string, flash: boolean): () => void {
  * core, the page registry, and today's `SettingsTabsPage` props (the bridge).
  */
 export function SettingsShell(props: SettingsShellProps) {
-  useCustomKeyOnboardingAttemptLifecycle();
-
   const initialValueRef = useRef(
     "initialValue" in props ? props.initialValue : props.value,
   );

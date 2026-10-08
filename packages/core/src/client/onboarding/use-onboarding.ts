@@ -49,7 +49,10 @@ interface CustomKeyOnboardingAttempt {
 
 type CustomKeyAttemptRead =
   | { kind: "available"; attempt: CustomKeyOnboardingAttempt | null }
-  | { kind: "stale" }
+  | {
+      kind: "stale";
+      attempt: Pick<CustomKeyOnboardingAttempt, "id" | "sessionId">;
+    }
   | { kind: "unavailable" };
 
 type CustomKeyOutcomeResult =
@@ -91,7 +94,10 @@ function readCustomKeyOnboardingAttempt(): CustomKeyAttemptRead {
       return { kind: "unavailable" };
     }
     if (attempt.documentId !== getOnboardingDocumentId()) {
-      return { kind: "stale" };
+      return {
+        kind: "stale",
+        attempt: { id: attempt.id, sessionId: attempt.sessionId },
+      };
     }
     return {
       kind: "available",
@@ -125,10 +131,28 @@ export function trackCustomKeyOnboardingOutcome(
   const stored = readCustomKeyOnboardingAttempt();
   if (stored.kind === "unavailable") return "unavailable";
   if (stored.kind === "stale") {
+    const belongsToCurrentSession =
+      stored.attempt.sessionId === getAnalyticsSessionId();
+    const outcomeKey = `${stored.attempt.id}:credential_abandoned`;
+    if (
+      belongsToCurrentSession &&
+      !locallyTrackedCustomKeyOutcomes.has(outcomeKey)
+    ) {
+      trackOnboardingEvent("onboarding_method_outcome", {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+        onboarding_attempt_id: stored.attempt.id,
+        outcome: "credential_abandoned",
+      });
+      locallyTrackedCustomKeyOutcomes.add(outcomeKey);
+    }
     try {
       window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
     } catch {
-      return "unavailable";
+      return belongsToCurrentSession
+        ? "tracked_storage_unavailable"
+        : "unavailable";
     }
     return "stale";
   }
@@ -199,6 +223,9 @@ export function useCustomKeyOnboardingAttemptLifecycle(): void {
 
   useEffect(() => {
     mountedRef.current = true;
+    if (readCustomKeyOnboardingAttempt().kind === "stale") {
+      trackCustomKeyOnboardingOutcome("credential_abandoned");
+    }
     const handlePageHide = (event: PageTransitionEvent) => {
       if (!event.persisted) {
         trackCustomKeyOnboardingOutcome("credential_abandoned");
