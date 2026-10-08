@@ -4975,7 +4975,9 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
         if (
           !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name) &&
           (hasExternalSsrRuntimeReference(source, name) ||
-            source.includes(`node_modules/${name}/`))
+            ["/", '"', "'", "`"].some((boundary) =>
+              source.includes(`node_modules/${name}${boundary}`),
+            ))
         )
           retained.add(name);
       }

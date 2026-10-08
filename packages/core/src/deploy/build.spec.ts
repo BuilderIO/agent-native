@@ -3914,6 +3914,7 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     'import value from "imported"; console.log(value);',
     'import value from "./node_modules/imported/index.js"; console.log(value);',
     'const value = require("imported/subpath"); console.log(value);',
+    'const value = require("./node_modules/imported"); console.log(value);',
   ])(
     "prunes browser-installer dependencies while retaining runtime reference %s",
     (entry) => {
