@@ -10,19 +10,30 @@ export async function readFileUploadStatus(
 ): Promise<FileUploadStatus> {
   if (!response.ok) return { state: "unavailable" };
 
-  const body = (await response.json().catch(() => null)) as {
-    configured?: unknown;
-    builderReauthorizationRequired?: unknown;
-  } | null;
-  if (typeof body?.configured !== "boolean") {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
     return { state: "unavailable" };
   }
-  return body.configured
+
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    typeof (body as { configured?: unknown }).configured !== "boolean"
+  ) {
+    return { state: "unavailable" };
+  }
+  const status = body as {
+    configured: boolean;
+    builderReauthorizationRequired?: unknown;
+  };
+  return status.configured
     ? { state: "configured" }
     : {
         state: "missing",
         builderReauthorizationRequired:
-          body.builderReauthorizationRequired === true,
+          status.builderReauthorizationRequired === true,
       };
 }
 

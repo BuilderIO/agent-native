@@ -525,7 +525,7 @@ async function fetchWithAbortTimeout(
 async function hasConfiguredVideoStorage(
   serverUrl: string,
   account: string | null,
-): Promise<VideoStorageProbe> {
+): Promise<FileUploadStatusProbe> {
   const base = serverUrl.replace(/\/+$/, "");
 
   const probeEndpoint = async (

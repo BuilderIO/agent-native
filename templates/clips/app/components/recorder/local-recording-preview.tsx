@@ -65,7 +65,7 @@ export function LocalRecordingPreview({
           playsInline
           preload="metadata"
           aria-label={t("recordRoute.localRecordingPreview")}
-          className="aspect-video w-full rounded-lg border border-border bg-black"
+          className="aspect-video w-full rounded-lg border border-border bg-muted"
         />
       ) : preview.status === "unavailable" ? (
         <p className="text-sm text-muted-foreground" role="status">

@@ -47,7 +47,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { useLocation, useNavigate } from "react-router";
+import { Navigate, useLocation, useNavigate } from "react-router";
 
 import { LocalRecordingPreview } from "@/components/recorder/local-recording-preview";
 import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
@@ -1188,6 +1188,8 @@ export default function RecordRoute() {
     : storageQuery.isLoading || storageQuery.isError
       ? null
       : (storageQuery.data?.configured ?? null);
+  const storageSetupRequested =
+    !clipIntake && (pendingUploadFile || connectStorageRequested);
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
       queryClient.setQueryData<VideoStorageStatus>(
@@ -3690,21 +3692,21 @@ export default function RecordRoute() {
   // to hold) does, and so do the desktop app's and extension's "Connect
   // storage" links (`?connectStorage=1`).
   const showStorageSetupFirst =
-    !clipIntake &&
-    storageConfigured === false &&
-    (pendingUploadFile || connectStorageRequested);
+    storageConfigured === false && storageSetupRequested;
   const canSkipStorageSetup =
     !clipIntake && !pendingUploadFile && connectStorageRequested;
   const showStorageStatusUnavailable =
-    !clipIntake &&
-    storageQuery.isError &&
-    (pendingUploadFile || connectStorageRequested);
+    storageQuery.isError && storageSetupRequested;
   const skipStorageSetup = () => {
     const params = new URLSearchParams(location.search);
     params.delete("connectStorage");
     const search = params.toString();
     void navigate(`/record${search ? `?${search}` : ""}`, { replace: true });
   };
+
+  if (storageSetupRequested && storageConfigured === true) {
+    return <Navigate to="/home" replace />;
+  }
 
   return (
     <div className="relative min-h-[100dvh] overflow-x-clip bg-background text-foreground">
@@ -3741,10 +3743,7 @@ export default function RecordRoute() {
             <div className="min-w-0">
               {showStorageSetupFirst ? (
                 <StorageSetupCard
-                  onConfigured={() => {
-                    markStorageConfigured();
-                    void navigate("/home");
-                  }}
+                  onConfigured={markStorageConfigured}
                   onSkip={canSkipStorageSetup ? skipStorageSetup : undefined}
                   connectSource="clips_record_storage_setup_card"
                   connectFlow="record"
