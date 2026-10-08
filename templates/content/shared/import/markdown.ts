@@ -274,22 +274,14 @@ function readFrontmatter(
   };
   if (raw === null) return fields;
 
-  let data: unknown;
-  try {
-    data = raw.trim() ? parseYaml(raw, { maxAliasCount: 50 }) : {};
-  } catch {
+  const record = frontmatterRecord(raw);
+  if (record === "unreadable") {
     fields.unreadable = raw;
     notes.add("frontmatter-unreadable", raw.split("\n")[0]);
     return fields;
   }
-  if (data === null || data === undefined) return fields;
-  if (typeof data !== "object" || Array.isArray(data)) {
-    fields.unreadable = raw;
-    notes.add("frontmatter-unreadable", raw.split("\n")[0]);
-    return fields;
-  }
+  if (record === null) return fields;
 
-  const record = JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
   const unmapped: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
     const name = key.toLowerCase();
@@ -321,6 +313,26 @@ function readFrontmatter(
   }
   fields.unmapped = Object.keys(unmapped).length ? unmapped : null;
   return fields;
+}
+
+/**
+ * The frontmatter as a JSON record, null when it is empty, or "unreadable"
+ * when it is not a YAML mapping JSON can hold. An alias inside its own anchor
+ * parses to a cycle, so the JSON copy fails inside the same try as the parse.
+ */
+function frontmatterRecord(
+  raw: string,
+): Record<string, unknown> | null | "unreadable" {
+  try {
+    const data: unknown = raw.trim()
+      ? parseYaml(raw, { maxAliasCount: 50 })
+      : {};
+    if (data === null || data === undefined) return null;
+    if (typeof data !== "object" || Array.isArray(data)) return "unreadable";
+    return JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
+  } catch {
+    return "unreadable";
+  }
 }
 
 function takeTitle(

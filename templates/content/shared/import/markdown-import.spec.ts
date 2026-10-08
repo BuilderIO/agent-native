@@ -529,6 +529,16 @@ describe("Markdown import", () => {
     expect(unreadable.content).toBe("Body");
   });
 
+  it("keeps frontmatter whose aliases loop as unreadable", () => {
+    const raw = "loop: &loop\n  name: Garden\n  self: *loop";
+    const page = importMarkdown(`---\n${raw}\n---\nBody`);
+
+    expect(page.frontmatter).toEqual({ unmapped: null, unreadable: raw });
+    expect(noteKinds(page)).toEqual(["frontmatter-unreadable"]);
+    expect(JSON.stringify(page.report)).not.toContain("Garden");
+    expect(page.content).toBe("Body");
+  });
+
   it("keeps a footnote reference with no definition as written", () => {
     const page = importMarkdown("A claim.[^missing]");
 
