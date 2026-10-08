@@ -444,6 +444,7 @@ jobs:
             changed-4,
             changed-5,
             changed-6,
+            screen-history,
           ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -465,10 +466,11 @@ jobs:
         run: pnpm exec playwright install --only-shell chromium
 
       - name: Run focused Screen selection history regressions
+        if: matrix.shard == 'screen-history'
         working-directory: templates/design
-        timeout-minutes: 10
+        timeout-minutes: 6
         env:
-          E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}
+          E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
           pnpm exec playwright test \
             e2e/parity-selection-history-delete-screen.spec.ts \
@@ -476,6 +478,7 @@ jobs:
             --workers=1
 
       - name: Run focused Design regression cases
+        if: matrix.shard != 'screen-history'
         working-directory: templates/design
         timeout-minutes: 4
         env:

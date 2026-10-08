@@ -571,6 +571,30 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
+  const screenSelectionRegressions = step(
+    "Run focused Screen selection history regressions",
+  );
+  assert.match(
+    screenSelectionRegressions,
+    /^        if: matrix\.shard == 'screen-history'$/m,
+    "Screen-selection regressions must run once on their dedicated shard",
+  );
+  assert.match(
+    regressionCases,
+    /^        if: matrix\.shard != 'screen-history'$/m,
+    "the focused regression selectors must not run on the Screen-history shard",
+  );
+  assert.match(
+    screenSelectionRegressions,
+    /^        timeout-minutes: 6$/m,
+    "Screen-selection tests need a six-minute cap inside the nine-minute job",
+  );
+  assert.ok(
+    screenSelectionRegressions.includes(
+      "E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+    "each Screen-history shard needs isolated application state",
+  );
   assert.deepEqual(
     [...regressionCases.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
       Number(count),
@@ -615,7 +639,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,\s*screen-history,?\s*\]/,
   );
   const fixedLocations = (start: number, end: number) =>
     [
