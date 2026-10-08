@@ -207,6 +207,27 @@ describe("extractThreadMeta", () => {
     },
   );
 
+  it("chooses the first visible prompt after a context-only user message", () => {
+    expect(
+      extractThreadMeta({
+        messages: [
+          {
+            role: "user",
+            content: "<context>Private instructions only</context>",
+          },
+          {
+            role: "user",
+            content: "Find flights to <context>private note</context>Tokyo",
+          },
+          { role: "user", content: "Book a return flight" },
+        ],
+      }),
+    ).toEqual({
+      title: "Find flights to Tokyo",
+      preview: "Book a return flight",
+    });
+  });
+
   it("hides nested legacy blocks and ambiguous text between them", () => {
     const prompt =
       "Before\n<context>Outer private </context>\nCopied private between blocks\n<context>Inner private</context>\nAfter";

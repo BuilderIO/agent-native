@@ -407,6 +407,100 @@ describe("chat thread store", () => {
     ]);
   });
 
+  it("seeds blank snapshot metadata from the first visible merged prompt", async () => {
+    row!.title = "";
+    row!.preview = "  Saved   preview  ";
+    const contextOnlyMessage = {
+      message: {
+        id: "context-only-prompt",
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<context>Private instructions only</context>",
+          },
+        ],
+      },
+      parentId: null,
+    };
+    const visiblePrompt = {
+      message: {
+        id: "visible-prompt",
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Find flights to <context>private note</context>Tokyo",
+          },
+        ],
+      },
+      parentId: "context-only-prompt",
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [contextOnlyMessage],
+      agentKit: { messages: [] },
+    });
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [visiblePrompt],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "",
+      "",
+      2,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("Find flights to Tokyo");
+    expect(row!.preview).toBe("  Saved   preview  ");
+  });
+
+  it("preserves exact nonblank snapshot title and preview strings", async () => {
+    row!.title = "  Manual   title  ";
+    row!.preview = "  Saved   preview  ";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [userMessage],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Generated title",
+      "Generated preview",
+      1,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("  Manual   title  ");
+    expect(row!.preview).toBe("  Saved   preview  ");
+  });
+
+  it("lets explicit metadata preservation win over snapshot title seeding", async () => {
+    row!.title = "";
+    row!.preview = "";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [userMessage],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Generated title",
+      "Generated preview",
+      2,
+      {
+        preserveCurrentMetadata: true,
+        preserveCurrentTitleAndPreview: true,
+      },
+    );
+
+    expect(row!.title).toBe("");
+    expect(row!.preview).toBe("");
+    expect(row!.message_count).toBe(1);
+  });
+
   it("seeds a blank title from the first prompt without replacing it on later saves", async () => {
     row!.title = "";
     row!.thread_data = "{}";

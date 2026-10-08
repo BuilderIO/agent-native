@@ -1464,9 +1464,19 @@ export async function updateThreadData(
       const preserveCurrentTitleAndPreview =
         options.preserveCurrentMetadata ||
         options.preserveCurrentTitleAndPreview;
-      const nextTitle = preserveCurrentTitleAndPreview
+      const snapshotTitleForBlankField =
+        !options.preserveCurrentMetadata &&
+        options.preserveCurrentTitleAndPreview &&
+        !current.title.trim()
+          ? extractThreadMeta(merged).title
+          : undefined;
+      const nextTitle = options.preserveCurrentMetadata
         ? current.title
-        : title || current.title || extractThreadMeta(merged).title;
+        : options.preserveCurrentTitleAndPreview
+          ? current.title.trim()
+            ? current.title
+            : snapshotTitleForBlankField || current.title
+          : title || current.title || extractThreadMeta(merged).title;
       const nextPreview = preserveCurrentTitleAndPreview
         ? current.preview
         : typeof transformed === "object" && transformed.preview !== undefined
