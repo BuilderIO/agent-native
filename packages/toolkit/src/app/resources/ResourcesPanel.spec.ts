@@ -24,12 +24,10 @@ const storageMocks = vi.hoisted(() => ({
   dismiss: null as (() => void) | null,
   setup: null as (() => void) | null,
 }));
+const modelCatalogMocks = vi.hoisted(() => ({ load: vi.fn() }));
 
 vi.mock("@agent-native/core/client/use-chat-models", () => ({
-  loadChatModelCatalog: async () => ({
-    state: "unavailable",
-    enginesUnavailable: true,
-  }),
+  loadChatModelCatalog: modelCatalogMocks.load,
 }));
 
 vi.mock("@agent-native/core/client/uploads/use-file-upload-status", () => ({
@@ -470,6 +468,11 @@ describe("ResourcesPanel storage retries", () => {
     storageMocks.retry = null;
     storageMocks.dismiss = null;
     storageMocks.setup = null;
+    modelCatalogMocks.load.mockReset();
+    modelCatalogMocks.load.mockResolvedValue({
+      state: "unavailable",
+      enginesUnavailable: true,
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -819,6 +822,54 @@ describe("ResourcesPanel storage retries", () => {
         textContent: "Claude Fable 5",
       }),
     );
+  });
+
+  it("loads the model catalog only after opening the custom-agent form", async () => {
+    modelCatalogMocks.load.mockResolvedValue({
+      state: "available",
+      groups: [],
+      modelEngines: {},
+      currentModelEngine: {
+        name: "anthropic",
+        label: "Anthropic",
+        defaultModel: "claude-sonnet-5-5",
+        supportedModels: ["claude-haiku-5-5", "claude-sonnet-5-5"],
+        selectableModels: ["claude-haiku-5-5", "claude-sonnet-5-5"],
+      },
+      defaultModel: "claude-sonnet-5-5",
+      loadLiveGroups: async () => null,
+    });
+    renderPanel("agents");
+    expect(modelCatalogMocks.load).not.toHaveBeenCalled();
+
+    const addAgent = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add agent"),
+    );
+    expect(addAgent).toBeDefined();
+    act(() => addAgent!.click());
+    const createAgent = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Create Custom Agent"),
+    );
+    expect(createAgent).toBeDefined();
+    act(() => createAgent!.click());
+    expect(modelCatalogMocks.load).not.toHaveBeenCalled();
+
+    const fillForm = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Fill Form"),
+    );
+    expect(fillForm).toBeDefined();
+    await act(async () => {
+      fillForm!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(modelCatalogMocks.load).toHaveBeenCalledOnce();
+    expect(
+      Array.from(document.querySelector("select")!.options).map(
+        (option) => option.value,
+      ),
+    ).toContain("claude-haiku-5-5");
   });
 });
 

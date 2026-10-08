@@ -24,6 +24,8 @@ export interface ModelEngineConfig {
   label?: string;
   defaultModel: string;
   supportedModels: readonly string[];
+  /** Models currently offered in the picker, which may be a user-selected subset. */
+  selectableModels?: readonly string[];
   acceptsCustomModels?: boolean;
   preserveCustomModels?: boolean;
 }
@@ -203,7 +205,7 @@ function displayModelName(model: string): string {
 export function getModelOptionLabel(
   model: string,
   engine?: ModelEngineConfig,
-  builderFallbackLabel = "Builder fallback",
+  builderFallbackLabel?: string,
 ): string {
   if (!engine) return displayModelName(model);
 
@@ -214,13 +216,22 @@ export function getModelOptionLabel(
     engine.name === "builder"
       ? builderFallbackLabel
       : (engine.label ?? engine.name);
-  return `${displayModelName(model)} → ${effectiveLabel} · ${engineLabel}`;
+  return engineLabel
+    ? `${displayModelName(model)} → ${effectiveLabel} · ${engineLabel}`
+    : `${displayModelName(model)} → ${effectiveLabel}`;
 }
 
-export function getBuilderModelOptionLabel(model: string): string {
-  return getModelOptionLabel(model, {
-    name: "builder",
-    label: "Builder",
-    ...BUILDER_MODEL_CONFIG,
-  });
+export function getBuilderModelOptionLabel(
+  model: string,
+  builderFallbackLabel?: string,
+): string {
+  return getModelOptionLabel(
+    model,
+    {
+      name: "builder",
+      label: "Builder",
+      ...BUILDER_MODEL_CONFIG,
+    },
+    builderFallbackLabel,
+  );
 }

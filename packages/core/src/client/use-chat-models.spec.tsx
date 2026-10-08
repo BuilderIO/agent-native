@@ -169,6 +169,39 @@ describe("useChatModels", () => {
     });
   });
 
+  it("keeps runtime models separate from the user-selected picker subset", async () => {
+    stubCatalog({
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+      engines: [
+        {
+          name: "anthropic",
+          label: "Anthropic",
+          defaultModel: "claude-sonnet-5-5",
+          supportedModels: ["claude-haiku-5-5"],
+          runtimeSupportedModels: ["claude-haiku-5-5", "claude-fable-5"],
+          modelSelection: { state: "selected" },
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      current: { engine: "anthropic", model: "claude-fable-5" },
+    });
+
+    const catalog = await loadChatModelCatalog();
+
+    expect(catalog.state).toBe("available");
+    if (catalog.state !== "available") return;
+    expect(
+      catalog.groups
+        .filter((group) => group.engine === "anthropic")
+        .flatMap((group) => group.models),
+    ).toEqual(["claude-haiku-5-5"]);
+    expect(catalog.currentModelEngine).toMatchObject({
+      name: "anthropic",
+      supportedModels: ["claude-haiku-5-5", "claude-fable-5"],
+      selectableModels: ["claude-haiku-5-5"],
+    });
+  });
+
   it("does not probe framework model endpoints when disabled", async () => {
     await act(async () => {
       root.render(<ChatModelsProbe enabled={false} />);

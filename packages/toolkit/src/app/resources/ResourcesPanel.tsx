@@ -47,7 +47,6 @@ import {
 import { useFileUploadStatus } from "@agent-native/core/client/uploads/use-file-upload-status";
 import { useUploadResource } from "@agent-native/core/client/uploads/use-upload-resource";
 import { actionErrorMessage } from "@agent-native/core/client/use-action";
-import { loadChatModelCatalog } from "@agent-native/core/client/use-chat-models";
 import type { OrgInfo } from "@agent-native/core/org/types";
 import { serializeFrontmatter } from "@agent-native/core/resources/metadata";
 import { RESOURCE_PACK_MAX_BODY_BYTES } from "@agent-native/core/resources/pack-constants";
@@ -95,7 +94,10 @@ import {
   type FileStorageSetupCloseReason,
 } from "../chat/FileStorageSetupPopover.js";
 import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
-import { getCustomAgentModelOptions } from "./custom-agent-model-options.js";
+import {
+  getCustomAgentModelOptions,
+  useCustomAgentModelEngine,
+} from "./custom-agent-model-options.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 import { McpServerDetail } from "./McpServerDetail.js";
 import { ResourceEditor } from "./ResourceEditor.js";
@@ -461,10 +463,22 @@ function CreateMenu({
   modelEngine?: ModelEngineConfig | null;
 }) {
   const t = useT();
-  const agentModelOptions = getCustomAgentModelOptions(modelEngine);
   const [open, setOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [view, setView] = useState<CreateMenuView>("menu");
+  const modelEngineLoad = useCustomAgentModelEngine(
+    modelEngine,
+    open && view === "agent-form",
+  );
+  const effectiveModelEngine = modelEngineLoad.engine;
+  const modelLabels = {
+    defaultModel: t("agentResources.defaultModel"),
+    builderFallback: t("agentResources.builderModelFallback"),
+  };
+  const agentModelOptions = getCustomAgentModelOptions(
+    effectiveModelEngine,
+    modelLabels,
+  );
   const showMcpIntegrations = useMemo(
     () => hasAvailableMcpIntegrations(mcpIntegrations),
     [mcpIntegrations],
@@ -1107,6 +1121,11 @@ The job will run automatically on the schedule. Make the instructions specific â
                       {option.label}
                     </option>
                   ))}
+                  {modelEngineLoad.state === "unavailable" && (
+                    <option value="__model-options-unavailable" disabled>
+                      {t("agentResources.modelOptionsUnavailable")}
+                    </option>
+                  )}
                   {agentModel !== "inherit" &&
                     !agentModelOptions.some(
                       (option) => option.value === agentModel,
@@ -1114,8 +1133,8 @@ The job will run automatically on the schedule. Make the instructions specific â
                       <option value={agentModel}>
                         {getModelOptionLabel(
                           agentModel,
-                          modelEngine ?? undefined,
-                          t("agentResources.builderModelFallback"),
+                          effectiveModelEngine ?? undefined,
+                          modelLabels.builderFallback,
                         )}
                       </option>
                     )}
@@ -1361,27 +1380,7 @@ export function ResourcesPanel({
   const t = useT();
   const { data: org } = useOrg();
   const canEditOrg = canEditOrganizationResources(org);
-  const [catalogModelEngine, setCatalogModelEngine] =
-    useState<ModelEngineConfig | null>(null);
-  useEffect(() => {
-    if (showMcpServers || modelEngine !== undefined) return;
-    let cancelled = false;
-    void loadChatModelCatalog().then((catalog) => {
-      if (cancelled) return;
-      setCatalogModelEngine(
-        catalog.state === "available" ? catalog.currentModelEngine : null,
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [modelEngine, showMcpServers]);
-  const effectiveModelEngine =
-    modelEngine !== undefined
-      ? modelEngine
-      : showMcpServers
-        ? null
-        : catalogModelEngine;
+  const effectiveModelEngine = modelEngine;
   const [activeScope, setActiveScope] = useState<ResourceScope>(() =>
     resolveInitialResourceScope(requestedScope, canEditOrg),
   );

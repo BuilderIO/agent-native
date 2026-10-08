@@ -1121,21 +1121,35 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
   it("keeps a host-supplied model catalog instead of the discovered one", async () => {
     stubCatalog(ANTHROPIC_ENGINES, ["ANTHROPIC_API_KEY"]);
+    const storageKey = "host-catalog-test";
+    window.localStorage.setItem(
+      chatModelSelectionStorageKey(storageKey),
+      JSON.stringify({ model: "host-model", engine: "host" }),
+    );
+    let activeEngine: {
+      name: string;
+      defaultModel: string;
+      supportedModels: readonly string[];
+      selectableModels?: readonly string[];
+    } | null = null;
     const el = document.createElement("div");
     document.body.appendChild(el);
     const localRoot = createRoot(el);
     await act(async () => {
       localRoot.render(
         <MultiTabAssistantChat
-          storageKey="host-catalog-test"
+          storageKey={storageKey}
           availableModels={[
             {
               engine: "host",
               label: "Host",
-              models: ["host-model"],
+              models: ["host-model", "host-model-2"],
               configured: true,
             },
           ]}
+          onActiveModelEngineChange={(engine) => {
+            activeEngine = engine;
+          }}
         />,
       );
     });
@@ -1149,6 +1163,12 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-model-catalog"),
     ).toBe("host:true");
+    expect(activeEngine).toMatchObject({
+      name: "host",
+      defaultModel: "host-model",
+      supportedModels: ["host-model", "host-model-2"],
+      selectableModels: ["host-model", "host-model-2"],
+    });
 
     await act(async () => localRoot.unmount());
     el.remove();

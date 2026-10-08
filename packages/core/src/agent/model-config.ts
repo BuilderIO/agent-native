@@ -137,6 +137,8 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "deepseek-flash": 393_216,
   "deepseek-v4-1-flash": 393_216,
   "deepseek/deepseek-v4.1-flash": 393_216,
+  "deepseek-v3-1": 32_768,
+  "deepseek/deepseek-chat-v3.1": 32_768,
 
   "gpt-5-6-sol": 40_000,
   "gpt-5-6-terra": 40_000,

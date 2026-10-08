@@ -373,6 +373,12 @@ describe("getContextWindowForModel", () => {
     }
   });
 
+  it("caps DeepSeek V3.1 output at its documented completion limit", () => {
+    for (const model of ["deepseek-v3-1", "deepseek/deepseek-chat-v3.1"]) {
+      expect(getMaxOutputTokensForModel(model)).toBe(32_768);
+    }
+  });
+
   it("returns 1M for Claude Fable 5, Sonnet 5.5/4.6, and Opus 4.6+", () => {
     expect(getContextWindowForModel("claude-fable-5")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-sonnet-5")).toBe(1_000_000);

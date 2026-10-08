@@ -1297,14 +1297,35 @@ export function MultiTabAssistantChat({
       selection?.engine ??
       availableModels.find((group) => group.models.includes(selectedModel))
         ?.engine;
+    const hostEngineGroups = hostManagedModels
+      ? availableModels.filter((group) => group.engine === engineName)
+      : [];
+    const hostSelectableModels = [
+      ...new Set(hostEngineGroups.flatMap((group) => group.models)),
+    ];
+    const hostModelEngine =
+      engineName && hostSelectableModels.length > 0
+        ? {
+            name: engineName,
+            label: hostEngineGroups[0]?.label ?? engineName,
+            defaultModel: hostSelectableModels.includes(selectedModel)
+              ? selectedModel
+              : hostSelectableModels[0]!,
+            supportedModels: hostSelectableModels,
+            selectableModels: hostSelectableModels,
+          }
+        : null;
     onActiveModelEngineChange(
-      engineName ? (discoveredModelEngines[engineName] ?? null) : null,
+      engineName
+        ? (discoveredModelEngines[engineName] ?? hostModelEngine)
+        : null,
     );
   }, [
     activeThreadId,
     availableModels,
     defaultModel,
     discoveredModelEngines,
+    hostManagedModels,
     onActiveModelEngineChange,
     resolveThreadModelSelection,
   ]);
@@ -1467,6 +1488,7 @@ export function MultiTabAssistantChat({
                   next[group.engine] = {
                     ...engine,
                     supportedModels: group.models,
+                    selectableModels: group.models,
                   };
                 }
               }

@@ -5,6 +5,18 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sharedEditorProps = vi.hoisted(() => ({ current: null as any }));
+const modelCatalogMocks = vi.hoisted(() => ({ load: vi.fn() }));
+const resourceI18nMocks = vi.hoisted(() => ({
+  labels: {} as Record<string, string>,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => resourceI18nMocks.labels[key] ?? key,
+}));
+
+vi.mock("@agent-native/core/client/use-chat-models", () => ({
+  loadChatModelCatalog: modelCatalogMocks.load,
+}));
 
 vi.mock("@agent-native/toolkit/editor/SharedRichEditor", async () => {
   const React = await import("react");
@@ -61,6 +73,16 @@ describe("ResourceEditor markdown editing", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    resourceI18nMocks.labels = {
+      "agentResources.defaultModel": "Default model",
+      "agentResources.builderModelFallback": "Builder fallback",
+      "agentResources.modelOptionsUnavailable": "Model options unavailable",
+    };
+    modelCatalogMocks.load.mockReset();
+    modelCatalogMocks.load.mockResolvedValue({
+      state: "unavailable",
+      enginesUnavailable: true,
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -178,6 +200,8 @@ describe("ResourceEditor markdown editing", () => {
   });
 
   it("shows the saved model label outside its curated options", () => {
+    resourceI18nMocks.labels["agentResources.builderModelFallback"] =
+      "Modelo alternativo";
     act(() => {
       root.render(
         <ResourceEditor
@@ -200,7 +224,73 @@ describe("ResourceEditor markdown editing", () => {
       Array.from(modelPicker.options).find(
         (option) => option.value === "claude-fable-5",
       )?.textContent,
-    ).toBe("Claude Fable 5 → GPT-6 Luna · Builder fallback");
+    ).toBe("Claude Fable 5 → GPT-6 Luna · Modelo alternativo");
+  });
+
+  it("keeps an unchecked but runtime-supported model from showing a false fallback", () => {
+    act(() => {
+      root.render(
+        <ResourceEditor
+          resource={{
+            ...resource,
+            path: "agents/researcher.md",
+            content:
+              "---\nname: Researcher\nmodel: claude-fable-5\n---\n# Research\n",
+          }}
+          onSave={vi.fn()}
+          view="visual"
+          modelEngine={{
+            name: "anthropic",
+            label: "Anthropic",
+            defaultModel: "claude-sonnet-5-5",
+            supportedModels: [
+              "claude-haiku-5-5",
+              "claude-sonnet-5-5",
+              "claude-fable-5",
+            ],
+            selectableModels: ["claude-haiku-5-5"],
+          }}
+        />,
+      );
+    });
+
+    const modelOption = Array.from(
+      container.querySelector("select")!.options,
+    ).find((option) => option.value === "claude-fable-5");
+    expect(modelOption?.textContent).toBe("Claude Fable 5");
+  });
+
+  it("loads model choices when a standalone custom-agent editor opens", async () => {
+    modelCatalogMocks.load.mockResolvedValue({
+      state: "available",
+      groups: [],
+      modelEngines: { anthropic: anthropicModelEngine },
+      currentModelEngine: anthropicModelEngine,
+      defaultModel: "claude-sonnet-5-5",
+      loadLiveGroups: async () => null,
+    });
+    await act(async () => {
+      root.render(
+        <ResourceEditor
+          resource={{
+            ...resource,
+            path: "agents/researcher.md",
+            content: "---\nname: Researcher\nmodel: inherit\n---\n# Research\n",
+          }}
+          onSave={vi.fn()}
+          view="visual"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(modelCatalogMocks.load).toHaveBeenCalledOnce();
+    expect(
+      Array.from(container.querySelector("select")!.options).map(
+        (option) => option.value,
+      ),
+    ).toContain("claude-haiku-5-5");
   });
 
   it("offers Anthropic Fable and labels it without a Builder fallback", () => {

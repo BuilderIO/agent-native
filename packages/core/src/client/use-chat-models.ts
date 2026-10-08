@@ -170,9 +170,13 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
   const modelEngines = Object.fromEntries(
     enginesData.engines.flatMap((engine) => {
       if (!engine.defaultModel) return [];
-      const supportedModels = groups
+      const selectableModels = groups
         .filter((group) => group.engine === engine.name)
         .flatMap((group) => group.models);
+      const supportedModels =
+        engine.runtimeSupportedModels ??
+        engine.supportedModels ??
+        selectableModels;
       if (supportedModels.length === 0) return [];
       return [
         [
@@ -182,6 +186,7 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
             label: engine.label,
             defaultModel: engine.defaultModel,
             supportedModels,
+            selectableModels,
             ...(engine.acceptsCustomModels
               ? { acceptsCustomModels: true }
               : {}),

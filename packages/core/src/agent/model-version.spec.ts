@@ -70,12 +70,26 @@ describe("getModelOptionLabel", () => {
 
   it("makes an unsupported saved model's Builder fallback explicit", () => {
     expect(
+      getModelOptionLabel(
+        "claude-fable-5",
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          ...BUILDER_MODEL_CONFIG,
+        },
+        "Builder fallback",
+      ),
+    ).toBe("Claude Fable 5 → GPT-6 Luna · Builder fallback");
+  });
+
+  it("does not invent untranslated fallback copy when no label is provided", () => {
+    expect(
       getModelOptionLabel("claude-fable-5", {
         name: "builder",
         label: "Builder.io Gateway",
         ...BUILDER_MODEL_CONFIG,
       }),
-    ).toBe("Claude Fable 5 → GPT-6 Luna · Builder fallback");
+    ).toBe("Claude Fable 5 → GPT-6 Luna");
   });
 
   it("does not show a Builder fallback for an Anthropic-supported model", () => {

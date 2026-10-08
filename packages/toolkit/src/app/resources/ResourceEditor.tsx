@@ -3,6 +3,7 @@ import {
   type ModelEngineConfig,
 } from "@agent-native/core/agent/model-version";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import type { Resource } from "@agent-native/core/client/resources/use-resources";
 import {
   type ParsedFrontmatter,
@@ -24,7 +25,10 @@ import React, {
   useMemo,
 } from "react";
 
-import { getCustomAgentModelOptions } from "./custom-agent-model-options.js";
+import {
+  getCustomAgentModelOptions,
+  useCustomAgentModelEngine,
+} from "./custom-agent-model-options.js";
 
 export interface ResourceEditorProps {
   resource: Resource;
@@ -101,10 +105,21 @@ function FrontmatterBar({
   const description = getField("description");
   const isUserInvocable = getField("user-invocable") === "true";
   const model = getField("model") || "inherit";
-  const modelOptions = getCustomAgentModelOptions(modelEngine);
   const tools = getField("tools") || "inherit";
   const isCustomAgent = isCustomAgentPath(resourcePath);
   const isSkill = isSkillPath(resourcePath);
+  const t = useT();
+  const modelEngineLoad = useCustomAgentModelEngine(
+    modelEngine,
+    !readOnly && isCustomAgent,
+  );
+  const effectiveModelEngine = modelEngineLoad.engine;
+  const effectiveBuilderFallbackLabel =
+    builderFallbackLabel ?? t("agentResources.builderModelFallback");
+  const modelOptions = getCustomAgentModelOptions(effectiveModelEngine, {
+    defaultModel: t("agentResources.defaultModel"),
+    builderFallback: effectiveBuilderFallbackLabel,
+  });
 
   return (
     <div
@@ -191,13 +206,18 @@ function FrontmatterBar({
                 {option.label}
               </option>
             ))}
+            {modelEngineLoad.state === "unavailable" && (
+              <option value="__model-options-unavailable" disabled>
+                {t("agentResources.modelOptionsUnavailable")}
+              </option>
+            )}
             {model !== "inherit" &&
               !modelOptions.some((option) => option.value === model) && (
                 <option value={model}>
                   {getModelOptionLabel(
                     model,
-                    modelEngine ?? undefined,
-                    builderFallbackLabel,
+                    effectiveModelEngine ?? undefined,
+                    effectiveBuilderFallbackLabel,
                   )}
                 </option>
               )}
