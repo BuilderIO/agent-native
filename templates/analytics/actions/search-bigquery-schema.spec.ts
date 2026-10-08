@@ -2,15 +2,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getAccessToken: vi.fn(),
-  getBigQueryProjectId: vi.fn(),
+  getCredentialContext: vi.fn(),
+  resolveCredential: vi.fn(),
   fetch: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (definition: unknown) => definition,
 }));
-vi.mock("../server/lib/bigquery", () => ({
-  getBigQueryProjectId: mocks.getBigQueryProjectId,
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => ({ execute: vi.fn() }),
+}));
+vi.mock("@agent-native/core/server", () => ({
+  getCredentialContext: mocks.getCredentialContext,
+  getRequestRunContext: () => undefined,
+}));
+vi.mock("../server/lib/credentials", () => ({
+  resolveCredential: mocks.resolveCredential,
 }));
 vi.mock("../server/lib/gcloud", () => ({
   getAccessToken: mocks.getAccessToken,
@@ -27,10 +35,17 @@ function jsonResponse(value: unknown, status = 200) {
 
 beforeEach(() => {
   mocks.getAccessToken.mockReset();
-  mocks.getBigQueryProjectId.mockReset();
+  mocks.getCredentialContext.mockReset();
+  mocks.resolveCredential.mockReset();
   mocks.fetch.mockReset();
   mocks.getAccessToken.mockResolvedValue("test-token");
-  mocks.getBigQueryProjectId.mockResolvedValue("test-project");
+  mocks.getCredentialContext.mockReturnValue({
+    userEmail: "test@example.com",
+    orgId: null,
+  });
+  mocks.resolveCredential.mockImplementation(async (key: string) =>
+    key === "BIGQUERY_PROJECT_ID" ? "test-project" : null,
+  );
   vi.stubGlobal("fetch", mocks.fetch);
 
   mocks.fetch.mockImplementation(async (input: URL | string) => {

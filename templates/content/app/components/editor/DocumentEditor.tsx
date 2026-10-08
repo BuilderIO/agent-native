@@ -7,6 +7,7 @@ import {
   emailToName,
   type CollabUser,
 } from "@agent-native/core/client/collab";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   actionErrorMessage,
   callAction,
@@ -37,6 +38,7 @@ import type {
   Document,
   DocumentSyncStatus,
 } from "@shared/api";
+import { LIVE_BODY_SHADOW_FLAG } from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import {
@@ -2424,6 +2426,7 @@ function PageEditorSessionBody({
     t,
   ]);
   const updateDocument = useUpdateDocument();
+  const observeLiveBody = useFeatureFlag(LIVE_BODY_SHADOW_FLAG.key);
   const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
   const updatePreviewDocumentDraftRef = useRef(
@@ -8914,6 +8917,7 @@ function PageEditorSessionBody({
                                   ? ydoc
                                   : null
                               }
+                              observeLiveBody={observeLiveBody}
                               collabSynced={
                                 collabEditorEnabled ? collabSynced : true
                               }

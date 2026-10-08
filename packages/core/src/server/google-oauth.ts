@@ -43,6 +43,7 @@ import {
   normalizeOrigin,
   WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
 } from "./origin-allowlist.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 function safeReturnPath(raw: string | null | undefined): string {
@@ -997,9 +998,6 @@ export function oauthCallbackResponse(
     opts.returnUrl,
     opts.sessionToken,
   );
-  setResponseStatus(event, 302);
-  setResponseHeader(event, "Location", location);
-  setResponseHeader(event, "Referrer-Policy", "no-referrer");
   const headers = new Headers({
     Location: location,
     "Referrer-Policy": "no-referrer",
@@ -1007,7 +1005,16 @@ export function oauthCallbackResponse(
   for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
     headers.append("set-cookie", cookie);
   }
-  return new Response(null, { status: 302, headers });
+  const response = queryEchoSafeRedirect(
+    event,
+    new Response(null, { status: 302, headers }),
+  );
+  if (response.status === 302) {
+    setResponseStatus(event, 302);
+    setResponseHeader(event, "Location", location);
+  }
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  return response;
 }
 
 export function oauthErrorPage(message: string, status = 400): Response {

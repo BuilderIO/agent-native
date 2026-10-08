@@ -1325,6 +1325,18 @@ export function generateWorkerEntry(
         { status: 405, headers: { "Content-Type": "application/json" } }
       );
     }
+    const actionSession = ${varName}.requiresAuth === true
+      ? await getGeneratedSession(event)
+      : undefined;
+    const actionContext = uiActionContext ?? (actionSession?.email
+      ? { userEmail: actionSession.email, orgId: actionSession.orgId ?? null }
+      : undefined);
+    if (${varName}.requiresAuth === true && !actionContext?.userEmail) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
+    }
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
       const caller =
@@ -1335,16 +1347,11 @@ export function generateWorkerEntry(
         caller,
         requestHeaders: event.req.headers,
         actionName: ${JSON.stringify(a.name)},
-        ...(uiActionContext
-          ? {
-              userEmail: uiActionContext.userEmail,
-              orgId: uiActionContext.orgId ?? null,
-            }
-          : {}),
+        ...(actionContext ?? {}),
       };
       const runAction = () => ${varName}.run(params, actionRunContext);
-      const result = actionIsUiOnly
-        ? await runWithGeneratedRequestContext(uiActionContext, runAction)
+      const result = actionContext
+        ? await runWithGeneratedRequestContext(actionContext, runAction)
         : await runAction();
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;

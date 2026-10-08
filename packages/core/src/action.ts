@@ -352,6 +352,7 @@ export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
   destructiveHint: boolean;
   openWorldHint: boolean;
+  idempotentHint?: boolean;
 }
 
 interface DefineActionWithSchema<
@@ -592,25 +593,21 @@ export function defineAction<
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
+  // Converting a schema to JSON Schema is the dominant module-scope cost of an
+  // action-heavy app's cold start, so convert only the schema the agent sees.
   let toolParameters: ActionTool["parameters"];
   if (hasSchema) {
-    toolParameters = schemaToJsonSchema(options.schema, options.description);
+    toolParameters = schemaToJsonSchema(
+      options.agentInputSchema && "~standard" in options.agentInputSchema
+        ? options.agentInputSchema
+        : options.schema,
+      options.description,
+    );
   } else if (options.parameters) {
     toolParameters = {
       type: "object" as const,
       properties: options.parameters,
     };
-  }
-
-  if (
-    hasSchema &&
-    options.agentInputSchema &&
-    "~standard" in options.agentInputSchema
-  ) {
-    toolParameters = schemaToJsonSchema(
-      options.agentInputSchema,
-      options.description,
-    );
   }
 
   const guardedRun =
@@ -690,11 +687,13 @@ export function defineAction(options: any) {
           !Array.isArray(options.mcpAnnotations) &&
           typeof options.mcpAnnotations.readOnlyHint === "boolean" &&
           typeof options.mcpAnnotations.destructiveHint === "boolean" &&
-          typeof options.mcpAnnotations.openWorldHint === "boolean"
+          typeof options.mcpAnnotations.openWorldHint === "boolean" &&
+          (options.mcpAnnotations.idempotentHint === undefined ||
+            typeof options.mcpAnnotations.idempotentHint === "boolean")
         ? options.mcpAnnotations
         : (() => {
             throw new TypeError(
-              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values.",
+              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values; idempotentHint is an optional boolean.",
             );
           })();
   const deferLoading: boolean | undefined =

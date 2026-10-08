@@ -1440,6 +1440,33 @@ export default { run: async () => ({ ok: true }) };
     );
   });
 
+  it("passes authenticated caller context to generated action handlers", () => {
+    const source = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [
+        {
+          name: "create-org-service-token",
+          absPath: "/tmp/action.ts",
+          method: "post",
+        },
+      ],
+    );
+
+    expect(source).toContain(
+      "const actionSession = action_0.requiresAuth === true",
+    );
+    expect(source).toContain("await getGeneratedSession(event)");
+    expect(source).toContain("action_0.requiresAuth === true");
+    expect(source).toContain('JSON.stringify({ error: "Unauthorized" })');
+    expect(source).toContain("userEmail: actionSession.email");
+    expect(source).toContain("orgId: actionSession.orgId ?? null");
+    expect(source).toContain(
+      "runWithGeneratedRequestContext(actionContext, runAction)",
+    );
+  });
+
   it("mounts the generated UI capability route when actions are discovered", async () => {
     const dir = makeTempDir();
     const actionPath = path.join(dir, "delete-action.mjs");

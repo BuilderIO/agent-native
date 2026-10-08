@@ -562,6 +562,43 @@ describe("tool-search", () => {
     });
   });
 
+  describe("loading tools by name", () => {
+    // Names a prompt can advertise must load in one call, whichever form the
+    // model uses, with the named tool ahead of anything that merely mentions it.
+    const registry = {
+      "bigquery-query": action("Run a BigQuery SQL query"),
+      "bigquery-query-history": action(
+        "List past bigquery query runs. Use bigquery query history to review a bigquery query.",
+        { query: { type: "string", description: "bigquery query text" } },
+      ),
+      "search-analytics-query-catalog": action(
+        "Search saved analytics queries",
+      ),
+      "list-dashboards": action("List dashboards"),
+    };
+
+    it("ranks an exact-name query ahead of longer names that mention it", () => {
+      const result = searchToolRegistry(registry, {
+        query: "bigquery-query",
+        limit: 1,
+      });
+
+      expect(result.results.map((r) => r.name)).toEqual(["bigquery-query"]);
+    });
+
+    it("loads several advertised names, with schemas, in a single call", () => {
+      const result = searchToolRegistry(registry, {
+        names: ["bigquery-query", "search-analytics-query-catalog"],
+      });
+
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "bigquery-query",
+        "search-analytics-query-catalog",
+      ]);
+      expect(result.message).toBeUndefined();
+    });
+  });
+
   describe("batched search", () => {
     const registry = {
       "send-email": action("Send an email message"),

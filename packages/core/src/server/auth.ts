@@ -267,6 +267,7 @@ import {
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
@@ -6490,7 +6491,9 @@ async function mountBetterAuthRoutes(
         setFirstRunOnboardingCookie(event);
       }
 
-      return response;
+      return isResponse
+        ? queryEchoSafeRedirect(event, response as Response)
+        : response;
     }),
   );
 
@@ -6573,7 +6576,10 @@ async function mountBetterAuthRoutes(
         ? query.return[0]
         : query.return;
       setFirstRunOnboardingCookie(event);
-      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302),
+      );
     }),
   );
 
