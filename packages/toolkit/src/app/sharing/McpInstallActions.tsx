@@ -72,42 +72,46 @@ export function McpInstallActions({
       <div className="text-xs font-medium text-muted-foreground">{heading}</div>
       <div className="-mx-1.5 flex flex-col gap-0.5">
         {identityState.status === "ready" ? (
-          clients.map((client) => {
-            const link = buildMcpInstallLink(client, {
-              serverName: identityState.identity.serverName,
-              mcpUrl: identityState.identity.mcpUrl,
-            });
-            const label = labels.get(client);
-            if (!label) throw new Error(`No MCP install guide for ${client}`);
-            return (
-              <Button
-                key={client}
-                asChild
-                variant="ghost"
-                className={ROW_CLASS}
-              >
-                <a
-                  href={link.href}
-                  onClick={() => onInstall?.(client)}
-                  {...(link.opensWebPage
-                    ? { target: "_blank", rel: "noopener noreferrer" }
-                    : {})}
+          // Without OAuth discovery an installed client cannot sign in, so
+          // only the Other agents row, with its token steps, is offered.
+          identityState.identity.oauth ? (
+            clients.map((client) => {
+              const link = buildMcpInstallLink(client, {
+                serverName: identityState.identity.serverName,
+                mcpUrl: identityState.identity.mcpUrl,
+              });
+              const label = labels.get(client);
+              if (!label) throw new Error(`No MCP install guide for ${client}`);
+              return (
+                <Button
+                  key={client}
+                  asChild
+                  variant="ghost"
+                  className={ROW_CLASS}
                 >
-                  <IconPlug
-                    aria-hidden="true"
-                    className="size-4 text-muted-foreground"
-                  />
-                  {label}
-                  {link.opensWebPage ? (
-                    <IconExternalLink
+                  <a
+                    href={link.href}
+                    onClick={() => onInstall?.(client)}
+                    {...(link.opensWebPage
+                      ? { target: "_blank", rel: "noopener noreferrer" }
+                      : {})}
+                  >
+                    <IconPlug
                       aria-hidden="true"
-                      className="ms-auto size-3.5 text-muted-foreground"
+                      className="size-4 text-muted-foreground"
                     />
-                  ) : null}
-                </a>
-              </Button>
-            );
-          })
+                    {label}
+                    {link.opensWebPage ? (
+                      <IconExternalLink
+                        aria-hidden="true"
+                        className="ms-auto size-3.5 text-muted-foreground"
+                      />
+                    ) : null}
+                  </a>
+                </Button>
+              );
+            })
+          ) : null
         ) : identityState.status === "error" ? (
           <div
             role="alert"

@@ -14,6 +14,7 @@ const IDENTITY = {
   appUrl: "https://beta.content.agent-native.com",
   mcpUrl: "https://beta.content.agent-native.com/mcp",
   environment: "beta",
+  oauth: true,
 };
 
 function stubFetch(identity: { ok: boolean; body?: unknown }) {
@@ -285,6 +286,32 @@ describe("McpAccessSettings localization", () => {
       type: "http",
       url: "https://beta.content.agent-native.com/mcp",
     });
+  });
+
+  it("keeps the manual steps but offers no install links when the server has no OAuth sign-in", async () => {
+    stubFetch({ ok: true, body: { ...IDENTITY, oauth: false } });
+    window.history.replaceState({}, "", "/settings/mcp?guide=cursor");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings appName="Content" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    await waitForGuides(container);
+
+    const cursorPanel = container.querySelector("#mcp-guide-panel-cursor");
+    expect(cursorPanel?.querySelectorAll("li").length).toBeGreaterThan(0);
+    expect(
+      Array.from(container.querySelectorAll("a")).some((link) =>
+        link.textContent?.includes("Add to Cursor"),
+      ),
+    ).toBe(false);
   });
 
   it("shows a retryable error instead of guessing a server name when the identity fails", async () => {

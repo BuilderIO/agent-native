@@ -196,7 +196,8 @@ Goose, Postman, MCPJam 및 기타 클라이언트는 빌드가 OAuth를 사용�
 배포에는 `agent-native-mail-beta`처럼 환경이 붙으므로 한 클라이언트에 프로덕션
 항목과 베타 항목을 나란히 둘 수 있습니다. 스크립트는
 `GET /mcp/connect/identity`에서 이름을 읽을 수 있습니다. 이 엔드포인트는 로그인이
-필요 없으며 서버 이름, 앱 이름, 앱 URL, MCP URL, 환경을 반환합니다.
+필요 없으며 서버 이름, 앱 이름, 앱 URL, MCP URL, 환경과 함께 `mcp.connect`가
+꺼져 있으면 `false`가 되는 `oauth` 플래그를 반환합니다.
 
 ### 빠른 테스트 프롬프트 {#quick-test}
 

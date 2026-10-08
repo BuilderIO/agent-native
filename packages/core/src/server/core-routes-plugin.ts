@@ -2861,6 +2861,7 @@ export function mountMcpConnectRoutes(
     appId: mcpConnect.appId,
     appName: mcpConnect.appName,
     serverName: mcpConnect.serverName,
+    connect: mcpConnect.connect,
   };
   if (mcpConnect.connect) {
     app.use(

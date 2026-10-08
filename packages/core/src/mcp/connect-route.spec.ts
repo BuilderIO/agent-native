@@ -1458,6 +1458,7 @@ describe("connect identity", () => {
       appUrl: "https://content.agent-native.com",
       mcpUrl: "https://content.agent-native.com/mcp",
       environment: "production",
+      oauth: true,
     });
   });
 

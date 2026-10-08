@@ -13,12 +13,13 @@ const IDENTITY = {
   appUrl: "https://beta.content.agent-native.com",
   mcpUrl: "https://beta.content.agent-native.com/mcp",
   environment: "beta",
+  oauth: true,
 };
 
-function stubIdentity(ok: boolean) {
+function stubIdentity(ok: boolean, identity = IDENTITY) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     if (String(input).endsWith("/mcp/connect/identity") && ok) {
-      return { ok: true, status: 200, json: async () => IDENTITY };
+      return { ok: true, status: 200, json: async () => identity };
     }
     return { ok: false, status: 500, json: async () => ({}) };
   });
@@ -126,6 +127,18 @@ describe("McpInstallActions", () => {
     expect(other.getAttribute("href")).toBe("/settings/mcp");
     await act(async () => other.click());
     expect(onNavigate).toHaveBeenCalledWith("/settings/mcp");
+  });
+
+  it("offers only the other-agents path when the server has no OAuth sign-in", async () => {
+    stubIdentity(true, { ...IDENTITY, oauth: false });
+    await render();
+    await vi.waitFor(() =>
+      expect(container.querySelector('[aria-busy="true"]')).toBeNull(),
+    );
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(link("Add to Cursor")).toBeUndefined();
+    expect(link("Add to VS Code")).toBeUndefined();
+    expect(link("Other agents")).toBeDefined();
   });
 
   it("shows a retryable error and keeps the other-agents path when the identity fails", async () => {

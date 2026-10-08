@@ -37,6 +37,12 @@ export interface McpConnectIdentity {
   appUrl: string;
   mcpUrl: string;
   environment: McpConnectEnvironment;
+  /**
+   * False when `mcp.connect` is off: the identity route still answers, but
+   * no OAuth discovery is mounted, so a client installed from a link cannot
+   * sign in.
+   */
+  oauth: boolean;
 }
 
 export type McpInstallClient = "cursor" | "vscode" | "vscode-insiders";

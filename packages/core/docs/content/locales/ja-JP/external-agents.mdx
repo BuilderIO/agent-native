@@ -197,7 +197,8 @@ Goose、Postman、MCPJam などのクライアントは、そのビルドが OAu
 プレビュー、ローカルのデプロイでは `agent-native-mail-beta` のように環境名が付くため、
 1 つのクライアントに本番とベータのエントリを並べて保持できます。スクリプトは
 `GET /mcp/connect/identity` で名前を取得できます。このエンドポイントはサインイン不要で、
-サーバー名、アプリ名、アプリ URL、MCP URL、環境を返します。
+サーバー名、アプリ名、アプリ URL、MCP URL、環境に加えて、`mcp.connect` がオフのときに
+`false` になる `oauth` フラグを返します。
 
 ### クイック テスト プロンプト {#quick-test}
 

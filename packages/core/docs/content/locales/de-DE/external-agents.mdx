@@ -205,7 +205,8 @@ Zusatz, etwa `agent-native-mail`. Beta-, Vorschau- und lokale Deployments
 hängen die Umgebung an, etwa `agent-native-mail-beta`, damit ein Client einen
 Produktions- und einen Beta-Eintrag nebeneinander behalten kann. Skripte können
 den Namen über `GET /mcp/connect/identity` lesen; der Endpunkt braucht keine
-Anmeldung und liefert Servername, App-Name, App-URL, MCP-URL und Umgebung.
+Anmeldung und liefert Servername, App-Name, App-URL, MCP-URL und Umgebung
+sowie das Flag `oauth`, das `false` ist, wenn `mcp.connect` ausgeschaltet ist.
 
 ### Schnelltestaufforderung {#quick-test}
 

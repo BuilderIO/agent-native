@@ -18,7 +18,8 @@ function isMcpConnectIdentity(value: unknown): value is McpConnectIdentity {
     typeof candidate.appUrl === "string" &&
     typeof candidate.mcpUrl === "string" &&
     candidate.mcpUrl.length > 0 &&
-    typeof candidate.environment === "string"
+    typeof candidate.environment === "string" &&
+    typeof candidate.oauth === "boolean"
   );
 }
 

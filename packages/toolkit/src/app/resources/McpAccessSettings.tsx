@@ -33,6 +33,7 @@ interface AccessUrls {
   appUrl: string;
   mcpUrl: string;
   serverName: string;
+  oauth: boolean;
   connectUrl: string;
   agentCardUrl: string;
 }
@@ -106,14 +107,16 @@ type McpConnectGuide = ReturnType<typeof getMcpConnectGuides>[number];
 function McpGuidePanel({
   guide,
   templateValues,
+  installLinks,
 }: {
   guide: McpConnectGuide;
   templateValues: McpConnectTemplateValues;
+  installLinks: boolean;
 }) {
   const t = useT();
   return (
     <>
-      {guide.install?.length ? (
+      {installLinks && guide.install?.length ? (
         <div className="flex flex-wrap gap-2">
           {guide.install.map((option, index) => {
             const link = buildMcpInstallLink(option.client, {
@@ -253,6 +256,7 @@ export function McpAccessSettings({
       appUrl: identity.appUrl,
       mcpUrl: identity.mcpUrl,
       serverName: identity.serverName,
+      oauth: identity.oauth,
       connectUrl: connectUrl.toString(),
       agentCardUrl: new URL(
         appPath("/.well-known/agent-card.json"),
@@ -358,6 +362,7 @@ export function McpAccessSettings({
                         <McpGuidePanel
                           guide={item}
                           templateValues={templateValues}
+                          installLinks={urls?.oauth === true}
                         />
                       </TabsContent>
                     ))

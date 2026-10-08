@@ -227,7 +227,8 @@ Production uses the bare name, such as `agent-native-mail`. Beta, preview, and
 local deployments add the environment, such as `agent-native-mail-beta`, so one
 client can keep a production entry and a beta entry side by side. Scripts can
 read the name from `GET /mcp/connect/identity`, which needs no sign-in and
-returns the server name, app name, app URL, MCP URL, and environment.
+returns the server name, app name, app URL, MCP URL, and environment, plus an
+`oauth` flag that is `false` when `mcp.connect` is off.
 
 ### Quick test prompt {#quick-test}
 

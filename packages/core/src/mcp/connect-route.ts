@@ -80,6 +80,8 @@ export interface McpConnectRouteOptions {
   appId?: string;
   appName?: string;
   serverName?: string;
+  /** False when only the identity route is mounted (`mcp.connect: false`). */
+  connect?: boolean;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -185,6 +187,7 @@ export function resolveMcpConnectIdentity(
     appUrl,
     mcpUrl: mcpResourceUrl(appUrl),
     environment,
+    oauth: options.connect !== false,
   };
 }
 

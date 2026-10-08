@@ -87,6 +87,7 @@ describe("mountMcpConnectRoutes", () => {
       expect(await identity.json()).toMatchObject({
         serverName: expect.stringMatching(/^agent-native-mail/),
         mcpUrl: "https://mail.example.test/mcp",
+        oauth: false,
       });
       expect((await app.fetch(request(`${prefix}/connect`))).status).toBe(404);
     }
