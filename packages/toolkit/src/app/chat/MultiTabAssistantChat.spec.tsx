@@ -116,6 +116,7 @@ const assistantChatMockState = vi.hoisted(() => ({
 
 const threadMocks = vi.hoisted(() => ({
   activeThreadId: "thread-1" as string | null,
+  isLoading: false,
   evictedThreadIds: [] as string[],
   threads: [
     {
@@ -353,6 +354,8 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         composerDisabled?: boolean;
         composerDisabledPlaceholder?: string;
         isActiveComposer?: boolean;
+        isNewThread?: boolean;
+        isThreadStateLoading?: boolean;
         contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
@@ -403,6 +406,10 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           }
           data-disabled-placeholder={props.composerDisabledPlaceholder}
           data-composer-active={props.isActiveComposer ? "true" : "false"}
+          data-new-thread={props.isNewThread ? "true" : "false"}
+          data-thread-state-loading={
+            props.isThreadStateLoading ? "true" : "false"
+          }
           data-context-scope={
             props.contextScope
               ? `${props.contextScope.type}:${props.contextScope.id}`
@@ -427,6 +434,7 @@ function resetThreadMocks() {
   assistantChatMockState.onSaveThread = undefined;
   assistantChatMockState.branchNavigation = undefined;
   threadMocks.activeThreadId = "thread-1";
+  threadMocks.isLoading = false;
   threadMocks.evictedThreadIds = [];
   threadMocks.threads = [
     {
@@ -1467,6 +1475,32 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       tabId: "thread-1",
     });
     window.removeEventListener("agentNative.chatSubmitTarget", onTarget);
+  });
+
+  it("shows a known-new chat while the separate thread list is loading", () => {
+    threadMocks.isLoading = true;
+    threadMocks.isNewThread.mockReturnValue(true);
+
+    act(() => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+
+    const chat = container.querySelector("[data-testid='assistant-chat']");
+    expect(chat?.getAttribute("data-new-thread")).toBe("true");
+    expect(chat?.getAttribute("data-thread-state-loading")).toBe("false");
+  });
+
+  it("keeps existing thread restoration loading while the thread list loads", () => {
+    threadMocks.isLoading = true;
+    threadMocks.isNewThread.mockReturnValue(false);
+
+    act(() => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+
+    const chat = container.querySelector("[data-testid='assistant-chat']");
+    expect(chat?.getAttribute("data-new-thread")).toBe("false");
+    expect(chat?.getAttribute("data-thread-state-loading")).toBe("true");
   });
 
   it("creates a foreground tab when the active chat has messages", async () => {
