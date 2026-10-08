@@ -7,6 +7,7 @@ const mockDeleteOrphanedVideoAssetCleanup = vi.hoisted(() => vi.fn());
 const mockListOrphanedVideoAssetCleanups = vi.hoisted(() => vi.fn());
 const mockValues = vi.hoisted(() => vi.fn());
 const mockSelectLimit = vi.hoisted(() => vi.fn());
+const mockDeleteWhere = vi.hoisted(() => vi.fn());
 const mockEq = vi.hoisted(() => vi.fn((...args: unknown[]) => args));
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
@@ -44,6 +45,7 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
 vi.mock("../db/index.js", () => ({
   getDb: () => ({
     insert: () => ({ values: mockValues }),
+    delete: () => ({ where: mockDeleteWhere }),
     select: () => ({
       from: () => ({ where: () => ({ limit: mockSelectLimit }) }),
     }),
@@ -83,6 +85,8 @@ beforeEach(() => {
   mockValues.mockResolvedValue(undefined);
   mockSelectLimit.mockReset();
   mockSelectLimit.mockResolvedValue([]);
+  mockDeleteWhere.mockReset();
+  mockDeleteWhere.mockResolvedValue(undefined);
   mockEq.mockClear();
   mockGetRequestOrgId.mockReset();
   mockGetRequestOrgId.mockReturnValue(undefined);
@@ -1003,6 +1007,81 @@ describe("uploaded video validation", () => {
       id: "duplicate-provider-object",
       url: "https://cdn.example.com/duplicate.mp4",
     });
+  });
+
+  it("keeps an asset when its insert committed but its acknowledgement was lost", async () => {
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockSelectLimit.mockResolvedValueOnce([]);
+    mockValues.mockImplementationOnce(
+      async (inserted: Record<string, unknown>) => {
+        mockSelectLimit.mockResolvedValueOnce([
+          {
+            id: inserted.id,
+            filename: inserted.filename,
+            url: inserted.url,
+            type: inserted.type,
+            size: inserted.size,
+            provider: inserted.provider,
+          },
+        ]);
+        throw new Error("insert acknowledgement was lost");
+      },
+    );
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+        uploadSessionId: "session-1",
+      }),
+    ).resolves.toMatchObject({
+      filename: "clip.mp4",
+      type: "video/mp4",
+      url: "https://cdn.builder.io/logo.svg",
+    });
+
+    expect(mockRecordOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("removes a discarded asset row before retrying its object cleanup", async () => {
+    mockListOrphanedVideoAssetCleanups.mockResolvedValueOnce([
+      {
+        key: "cleanup-1",
+        cleanup: {
+          version: 1,
+          ownerEmail: "owner@example.com",
+          orgId: "active-org",
+          assetId: "asset-1",
+          provider: "s3",
+          providerObjectId: "provider-object-1",
+          url: "https://cdn.example.com/clip.mp4",
+          uploadSessionId: null,
+          createdAt: "2026-10-07T00:00:00.000Z",
+        },
+      },
+    ]);
+    mockDeleteUploadedFile.mockResolvedValueOnce(false);
+
+    await uploadVideoAsset({
+      email: "owner@example.com",
+      orgId: "active-org",
+      originalName: "clip.mp4",
+      data: mp4,
+    });
+
+    expect(mockDeleteWhere).toHaveBeenCalledTimes(1);
+    expect(mockDeleteWhere).toHaveBeenCalledWith([
+      ["uploaded_assets.id", "asset-1"],
+      ["uploaded_assets.owner_email", "owner@example.com"],
+      ["uploaded_assets.org_id", "active-org"],
+    ]);
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "provider-object-1",
+      url: "https://cdn.example.com/clip.mp4",
+    });
+    expect(mockDeleteOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
   });
 
   it("keeps retryable cleanup metadata when duplicate object deletion fails", async () => {

@@ -44,6 +44,7 @@ export interface OrphanedVideoAssetCleanup {
   version: 1;
   ownerEmail: string;
   orgId: string | null;
+  assetId?: string;
   provider: string;
   providerObjectId: string | null;
   url: string;

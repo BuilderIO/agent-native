@@ -1576,6 +1576,24 @@ function uploadedVideoError(
   return Object.assign(new Error(message), { statusCode });
 }
 
+async function deleteUploadedVideoAssetRow(
+  id: string,
+  ownerEmail: string,
+  orgId: string | null | undefined,
+): Promise<void> {
+  await getDb()
+    .delete(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, id),
+        eq(schema.uploadedAssets.ownerEmail, ownerEmail),
+        orgId
+          ? eq(schema.uploadedAssets.orgId, orgId)
+          : isNull(schema.uploadedAssets.orgId),
+      ),
+    );
+}
+
 export async function reapOrphanedVideoAssetObjects(
   ownerEmail: string,
   orgId: string | undefined,
@@ -1604,12 +1622,19 @@ export async function reapOrphanedVideoAssetObjects(
         (cleanup.orgId ?? null) !== (orgId ?? null) ||
         !cleanup.provider ||
         !cleanup.url ||
+        (cleanup.assetId !== undefined &&
+          (typeof cleanup.assetId !== "string" || !cleanup.assetId)) ||
         (cleanup.providerObjectId !== null &&
           typeof cleanup.providerObjectId !== "string")
       ) {
         return;
       }
       try {
+        if (cleanup.assetId) {
+          await runWithRequestContext(requestContext, () =>
+            deleteUploadedVideoAssetRow(cleanup.assetId!, ownerEmail, orgId),
+          );
+        }
         const deleted = await runWithRequestContext(requestContext, () =>
           deleteUploadedFile(cleanup.provider, {
             id: cleanup.providerObjectId ?? undefined,
@@ -1721,6 +1746,8 @@ export async function uploadVideoAsset(args: {
         // even when the database cannot answer the idempotency lookup.
       }
     }
+
+    if (completed?.id === asset.id) return completed;
 
     const cleanupKey = `${args.uploadSessionId ?? asset.id}`;
     let cleanupRecord: string | undefined;
@@ -1902,33 +1929,68 @@ export const discardUploadedVideoAsset = defineEventHandler(async (event) => {
   }
 
   const provider = asset.provider;
-  const deleted = await runWithRequestContext(
-    {
-      userEmail: session.email,
-      ...(asset.orgId ? { orgId: asset.orgId } : {}),
-    },
-    () =>
-      deleteUploadedFile(provider, {
-        id: asset.providerObjectId ?? undefined,
+  const requestContext = {
+    userEmail: session.email,
+    ...(asset.orgId ? { orgId: asset.orgId } : {}),
+  };
+  let cleanupKey: string;
+  try {
+    cleanupKey = await runWithRequestContext(requestContext, () =>
+      recordOrphanedVideoAssetCleanup({
+        version: 1,
+        ownerEmail: session.email,
+        orgId: asset.orgId ?? null,
+        assetId: asset.id,
+        provider,
+        providerObjectId: asset.providerObjectId ?? null,
         url: asset.url,
+        uploadSessionId: null,
+        createdAt: new Date().toISOString(),
       }),
-  );
-  if (!deleted) {
+    );
+  } catch (error) {
+    console.warn("[slides-upload] could not record discarded video cleanup", {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
     setResponseStatus(event, 503);
     return { error: "Could not discard uploaded video" };
   }
 
-  await db
-    .delete(schema.uploadedAssets)
-    .where(
-      and(
-        eq(schema.uploadedAssets.id, asset.id),
-        eq(schema.uploadedAssets.ownerEmail, session.email),
-        asset.orgId
-          ? eq(schema.uploadedAssets.orgId, asset.orgId)
-          : isNull(schema.uploadedAssets.orgId),
-      ),
+  try {
+    await deleteUploadedVideoAssetRow(asset.id, session.email, asset.orgId);
+  } catch (error) {
+    console.warn("[slides-upload] could not remove discarded video record", {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    setResponseStatus(event, 503);
+    return { error: "Could not discard uploaded video" };
+  }
+
+  try {
+    const deleted = await runWithRequestContext(requestContext, () =>
+      deleteUploadedFile(provider, {
+        id: asset.providerObjectId ?? undefined,
+        url: asset.url,
+      }),
     );
+    if (deleted) {
+      await runWithRequestContext(requestContext, () =>
+        deleteOrphanedVideoAssetCleanup(cleanupKey),
+      );
+    } else {
+      console.warn("[slides-upload] discarded video cleanup queued", {
+        assetId: asset.id,
+      });
+    }
+  } catch (error) {
+    console.warn("[slides-upload] discarded video cleanup queued", {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   return { success: true };
 });
 

@@ -331,6 +331,134 @@ describe("uploadSlideVideo", () => {
     ).toBe(false);
   });
 
+  it("bounds recovery when storage keeps failing while the session is uploading", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/uploads-chunked/start")) {
+        return new Response(
+          JSON.stringify({
+            sessionId: "session-1",
+            maxChunkBytes: 4 * 1024 * 1024,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("index=0&isFinal=0")) {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (url.endsWith("/status")) {
+        return new Response(JSON.stringify({ status: "uploading" }), {
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({ error: "Video storage is unavailable" }),
+        {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+
+    const upload = uploadSlideVideo(largeVideoFile());
+    const rejected = expect(upload).rejects.toMatchObject({
+      message: "Video storage is unavailable",
+      status: 503,
+    });
+    await vi.runAllTimersAsync();
+    await rejected;
+
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/status")),
+    ).toHaveLength(24);
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("index=1&isFinal=1"),
+      ),
+    ).toHaveLength(25);
+  });
+
+  it("does not retry a malformed successful final response", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "session-1",
+            maxChunkBytes: 4 * 1024 * 1024,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(uploadSlideVideo(largeVideoFile())).rejects.toMatchObject({
+      message: "Video upload response was invalid",
+      status: 200,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    [
+      "missing",
+      new Response(JSON.stringify({ error: "Upload session was not found" }), {
+        status: 404,
+      }),
+    ],
+    [
+      "expired",
+      new Response(JSON.stringify({ status: "expired" }), { status: 200 }),
+    ],
+  ])(
+    "preserves the finalization error when the session is %s",
+    async (_kind, statusResponse) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              sessionId: "session-1",
+              maxChunkBytes: 4 * 1024 * 1024,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ ok: true }), { status: 200 }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ error: "No object storage is connected" }),
+            {
+              status: 503,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        )
+        .mockResolvedValueOnce(statusResponse);
+      vi.stubGlobal("fetch", fetchMock);
+      vi.useFakeTimers();
+
+      const upload = uploadSlideVideo(largeVideoFile());
+      const rejected = expect(upload).rejects.toMatchObject({
+        message: "No object storage is connected",
+        status: 503,
+      });
+      await vi.runAllTimersAsync();
+      await rejected;
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    },
+  );
+
   it("surfaces an unreadable response as an error", async () => {
     vi.stubGlobal(
       "fetch",

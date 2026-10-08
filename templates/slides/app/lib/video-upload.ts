@@ -1,6 +1,7 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
+const MAX_FINAL_CHUNK_RECOVERY_ATTEMPTS = 24;
 
 interface VideoUploadResponse {
   id?: unknown;
@@ -69,8 +70,7 @@ function canRetryFinalChunk(error: unknown): boolean {
     status === 409 ||
     status === 425 ||
     status === 429 ||
-    status >= 500 ||
-    (status >= 200 && status < 300)
+    status >= 500
   );
 }
 
@@ -151,25 +151,29 @@ async function resolveFinalChunk(
   sendChunk: () => Promise<{ data: VideoUploadResponse; response: Response }>,
   initialError: unknown,
 ): Promise<UploadedSlideVideo> {
-  let attempt = 0;
   let retryAfterMs: number | undefined;
   if (!canRetryFinalChunk(initialError)) throw initialError;
-  while (true) {
-    await waitForFinalChunkRetry(attempt++, retryAfterMs);
+  for (
+    let attempt = 0;
+    attempt < MAX_FINAL_CHUNK_RECOVERY_ATTEMPTS;
+    attempt++
+  ) {
+    await waitForFinalChunkRetry(attempt, retryAfterMs);
     retryAfterMs = undefined;
 
     let status: ChunkedUploadStatus;
     try {
       status = await readChunkedUploadStatus(sessionId);
     } catch (error) {
+      if ((error as { status?: unknown } | null)?.status === 404) {
+        throw initialError;
+      }
       if (!canRetryFinalChunk(error)) throw error;
       continue;
     }
 
     if (status.status === "complete") return status.video;
-    if (status.status === "expired") {
-      throw uploadError("Video upload session expired", 410);
-    }
+    if (status.status === "expired") throw initialError;
     if (status.status === "processing") {
       retryAfterMs = status.retryAfterMs;
       continue;
@@ -182,6 +186,8 @@ async function resolveFinalChunk(
       if (!canRetryFinalChunk(error)) throw error;
     }
   }
+
+  throw initialError;
 }
 
 async function uploadVideoMultipart(file: File): Promise<UploadedSlideVideo> {
