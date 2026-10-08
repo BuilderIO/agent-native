@@ -1478,17 +1478,20 @@ export function startRun(
         await persistenceChain;
       } catch (error) {
         eventPersistenceError = error;
-        run.status = "errored";
-        pendingTerminalEvent = {
-          seq: run.events.length,
-          event: {
-            type: "error",
-            error: "Agent run ended unexpectedly",
-            errorCode: "run_event_persistence_failed",
-          },
-        };
+        if (run.status !== "aborted") {
+          run.status = "errored";
+          pendingTerminalEvent = {
+            seq: run.events.length,
+            event: {
+              type: "error",
+              error: "Agent run ended unexpectedly",
+              errorCode: "run_event_persistence_failed",
+            },
+          };
+        }
       }
       const resolveTerminalEventForCompletion = () => {
+        if (run.status === "aborted") return null;
         if (eventPersistenceError) return pendingTerminalEvent;
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
@@ -1559,14 +1562,15 @@ export function startRun(
       if (unfinishedTurnContinuationEvent) {
         terminalEvent = unfinishedTurnContinuationEvent;
       }
-      const terminalReason = eventPersistenceError
-        ? "error:run_event_persistence_failed"
-        : terminalReasonForRun(
-            finalStatus,
-            terminalEvent,
-            run.abortReason,
-            completionError,
-          );
+      const terminalReason =
+        eventPersistenceError && finalStatus !== "aborted"
+          ? "error:run_event_persistence_failed"
+          : terminalReasonForRun(
+              finalStatus,
+              terminalEvent,
+              run.abortReason,
+              completionError,
+            );
       const persistedStatus =
         finalStatus === "completed" &&
         isContinuationTerminalReason(terminalReason)

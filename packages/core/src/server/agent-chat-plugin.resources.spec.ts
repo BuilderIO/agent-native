@@ -1198,21 +1198,23 @@ describe("loadResourcesForPrompt", () => {
   });
 
   it("assembles the same inherited workspace context for every app without sync writes", async () => {
-    const analyticsPrompt = await loadResourcesForPrompt(
-      "user@example.test",
-      false,
-      "analytics",
+    const analyticsPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () => loadResourcesForPrompt("user@example.test", false, "analytics"),
     );
-    const mailPrompt = await loadResourcesForPrompt(
-      "user@example.test",
-      false,
-      "mail",
+    const mailPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () => loadResourcesForPrompt("user@example.test", false, "mail"),
     );
 
     expect(analyticsPrompt).toBe(mailPrompt);
     expect(mocks.resourcePut).not.toHaveBeenCalled();
-    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics");
-    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail");
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics", {
+      includePersonalAgents: true,
+    });
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail", {
+      includePersonalAgents: true,
+    });
 
     expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
       "__workspace__",

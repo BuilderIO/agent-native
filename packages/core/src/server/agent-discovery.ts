@@ -27,7 +27,11 @@ import {
 } from "../workspace-app-config.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
 import { readBuiltinAgentsConfig } from "./builtin-agents.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "./request-context.js";
 import { findWorkspaceRoot, readJson } from "./workspace-root.js";
 
 export { isBuiltinAgentCatalogId, normalizeAgentId };
@@ -51,6 +55,7 @@ export interface DiscoveredAgent {
 export interface DiscoverAgentsOptions {
   preferLocalUrls?: boolean;
   requireReadableAgentSources?: boolean;
+  includePersonalAgents?: boolean;
 }
 
 export type OrgDirectoryDiscoveryResult =
@@ -385,7 +390,16 @@ export async function discoverAgents(
       await import("../resources/metadata.js");
 
     const activeOwner = sharedResourceOwner(getRequestOrgId());
-    const owners = [...new Set([SHARED_OWNER, activeOwner])];
+    const userEmail = options?.includePersonalAgents
+      ? getRequestContext()?.userEmail
+      : undefined;
+    const owners = [
+      ...new Set([
+        ...(options?.includePersonalAgents && userEmail ? [userEmail] : []),
+        SHARED_OWNER,
+        activeOwner,
+      ]),
+    ];
     const resources: Array<{ id: string; path: string }> = [];
     const seenResources = new Set<string>();
     for (const owner of owners) {

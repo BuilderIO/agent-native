@@ -6290,7 +6290,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             sources.push(
               (async () => {
                 try {
-                  const agents = await discoverAgents(options?.appId);
+                  const agents = await discoverAgents(options?.appId, {
+                    includePersonalAgents: true,
+                  });
                   flush(
                     agents.map((agent) => ({
                       id: `agent:${agent.id}`,

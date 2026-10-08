@@ -713,6 +713,7 @@ export async function run(
   let agent: DiscoveredAgent | undefined;
   try {
     agent = await findAgent(agentIdOrName, selfAppId, {
+      includePersonalAgents: true,
       requireReadableAgentSources: true,
     });
   } catch (error) {
@@ -742,7 +743,7 @@ export async function run(
   if (!agent) {
     throw unresolvableAgentTargetError(
       agentIdOrName,
-      await discoverAgents(selfAppId),
+      await discoverAgents(selfAppId, { includePersonalAgents: true }),
       selfAppId,
       buildDelegationCorrelation(context, selfAppId),
       action ? "direct_action" : taskId ? "task_poll" : "message",

@@ -26,6 +26,8 @@ export interface AgentTeamRunPayload {
   parentRunId?: string;
   name?: string;
   allowedActionNames?: string[];
+  noProgressCount?: number;
+  transcriptRunIds?: string[];
   turnId: string;
 }
 
@@ -228,13 +230,20 @@ export async function bumpAgentTeamContinuation(
 export async function requeueAgentTeamRunContinuation(
   taskId: string,
   claimedAttempts: number,
+  payload?: AgentTeamRunPayload,
 ): Promise<boolean> {
   await ensureTable();
   const result = await getDbExec().execute({
-    sql: `UPDATE agent_team_run_queue
+    sql: payload
+      ? `UPDATE agent_team_run_queue
+            SET status = 'queued', payload = ?, updated_at = ?
+          WHERE task_id = ? AND status = 'running' AND attempts = ?`
+      : `UPDATE agent_team_run_queue
             SET status = 'queued', updated_at = ?
           WHERE task_id = ? AND status = 'running' AND attempts = ?`,
-    args: [Date.now(), taskId, claimedAttempts],
+    args: payload
+      ? [JSON.stringify(payload), Date.now(), taskId, claimedAttempts]
+      : [Date.now(), taskId, claimedAttempts],
   });
   return getAffectedRowCount(result) > 0;
 }
@@ -280,14 +289,25 @@ export async function completeAgentTeamRun(
   taskId: string,
   status: "done" | "failed",
   claimedAttempts?: number,
+  payload?: AgentTeamRunPayload,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const result =
     claimedAttempts !== undefined
       ? await client.execute({
-          sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ? AND status IN ('queued', 'running') AND attempts = ?`,
-          args: [status, Date.now(), taskId, claimedAttempts],
+          sql: payload
+            ? `UPDATE agent_team_run_queue SET status = ?, payload = ?, updated_at = ? WHERE task_id = ? AND status IN ('queued', 'running') AND attempts = ?`
+            : `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ? AND status IN ('queued', 'running') AND attempts = ?`,
+          args: payload
+            ? [
+                status,
+                JSON.stringify(payload),
+                Date.now(),
+                taskId,
+                claimedAttempts,
+              ]
+            : [status, Date.now(), taskId, claimedAttempts],
         })
       : await client.execute({
           sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ?`,

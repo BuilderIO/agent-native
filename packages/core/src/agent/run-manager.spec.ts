@@ -4593,6 +4593,60 @@ describe("run manager soft timeout", () => {
     },
   );
 
+  it("keeps user cancellation when a pending event write permanently fails", async () => {
+    let rejectFirstWrite!: (error: Error) => void;
+    let seqZeroAttempts = 0;
+    const writeError = new Error("permanent event persistence failure");
+    const onComplete = vi.fn();
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+      if (seq === 0 && seqZeroAttempts++ === 0) {
+        await new Promise<void>((_resolve, reject) => {
+          rejectFirstWrite = reject;
+        });
+      }
+      throw writeError;
+    });
+
+    const run = startRun(
+      "run-abort-during-event-persistence",
+      "thread-abort-during-event-persistence",
+      async (send, signal) => {
+        send({ type: "text", text: "pending event" });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => expect(rejectFirstWrite).toBeTypeOf("function"));
+    expect(abortRun(run.runId, "user")).toBe(true);
+    rejectFirstWrite(writeError);
+    await run.finalized;
+
+    expect(run.status).toBe("aborted");
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "aborted",
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({ type: "done" }),
+          }),
+        ]),
+      }),
+    );
+    expect(setRunError).not.toHaveBeenCalledWith(
+      run.runId,
+      "run_event_persistence_failed",
+      expect.anything(),
+    );
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      run.runId,
+      "aborted:user",
+    );
+  });
+
   describe("no-progress backstop", () => {
     it("exports foreground and background backstop constants", () => {
       expect(RUN_NO_PROGRESS_HARD_TIMEOUT_MS).toBe(150_000);

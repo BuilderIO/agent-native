@@ -172,6 +172,7 @@ export interface AgentTask {
   hitContinuationLimit?: boolean;
   terminalEffectsVersion?: 1;
   terminalEffectsReconciled?: boolean;
+  terminalProgressStatus?: TerminalProgressStatus;
 }
 
 export interface AgentTeamOwnerScope {
@@ -568,6 +569,14 @@ function applyDispatchMetadataToTask(
   if (name && !task.name) {
     task.name = name;
   }
+  if (dispatch.payload.transcriptRunIds) {
+    task.transcriptRunIds = [
+      ...new Set([
+        ...(task.transcriptRunIds ?? []),
+        ...dispatch.payload.transcriptRunIds,
+      ]),
+    ];
+  }
   return task;
 }
 
@@ -586,6 +595,7 @@ async function completeReconciledTask(
     task.completedAt = Date.now();
     task.terminalEffectsVersion = 1;
     task.terminalEffectsReconciled = false;
+    task.terminalProgressStatus = "succeeded";
     task.parentCompletionEnqueued = !task.parentThreadId;
     if (task.parentThreadId) {
       await appendParentCompletionInjection(task.parentThreadId, task, {
@@ -645,6 +655,7 @@ async function failReconciledTask(
     task.completedAt = Date.now();
     task.terminalEffectsVersion = 1;
     task.terminalEffectsReconciled = false;
+    task.terminalProgressStatus = progressStatus;
     task.parentCompletionEnqueued = !task.parentThreadId;
     if (task.parentThreadId) {
       await appendParentCompletionInjection(task.parentThreadId, task, {
@@ -742,7 +753,12 @@ async function refireStuckAgentTeamRunIfNeeded(
   await dispatchAgentTeamRun({
     event,
     taskId: task.taskId,
-    body: { mode: dispatch.continuationCount > 0 ? "continue" : "start" },
+    body: {
+      mode: dispatch.continuationCount > 0 ? "continue" : "start",
+      ...(dispatch.payload.noProgressCount !== undefined
+        ? { noProgressCount: dispatch.payload.noProgressCount }
+        : {}),
+    },
   });
 }
 
@@ -956,6 +972,18 @@ function taskRunChunkId(
   return `${taskRunId(taskId)}${attempt === undefined ? "" : `-a${attempt}`}-c${chunk}`;
 }
 
+function transcriptRunIdsForAttempt(
+  task: AgentTask,
+  runId: string,
+  continuationCount: number,
+): string[] {
+  const legacyIds = [taskRunId(task.taskId)];
+  for (let i = 0; i <= continuationCount; i += 1) {
+    legacyIds.push(taskRunChunkId(task.taskId, i));
+  }
+  return [...new Set([...legacyIds, ...(task.transcriptRunIds ?? []), runId])];
+}
+
 function taskIdFromBackgroundRunId(runId: string): string {
   const taskId = runId.startsWith("run-task-")
     ? runId.slice("run-task-".length)
@@ -1121,7 +1149,8 @@ async function reconcileTerminalProgress(
     return await completeTaskProgressRun(
       task,
       ownerEmail,
-      task.status === "completed" ? "succeeded" : "failed",
+      task.terminalProgressStatus ??
+        (task.status === "completed" ? "succeeded" : "failed"),
       task.summary || task.error || "Task finished.",
     );
   } catch (error) {
@@ -1139,7 +1168,16 @@ async function ensureTaskCompletionNotification(
   hitContinuationLimit = false,
 ): Promise<boolean> {
   try {
-    const { insertNotification } = await import("../notifications/store.js");
+    const { hasNotificationWithMetadata, insertNotification } =
+      await import("../notifications/store.js");
+    if (
+      await hasNotificationWithMetadata(ownerEmail, {
+        kind: "agent-team-complete",
+        taskId: task.taskId,
+      })
+    ) {
+      return true;
+    }
     const name = task.name ?? task.description.slice(0, 60);
     const statusLabel =
       task.status === "completed"
@@ -1760,7 +1798,7 @@ async function persistTaskThreadData(
   return assistantText;
 }
 
-async function failAgentTeamRunAfterTranscriptSaveError(
+async function failAgentTeamRunAfterActionPersistenceError(
   task: AgentTask,
   claimedAttempts: number,
   summaryText: string,
@@ -1768,7 +1806,7 @@ async function failAgentTeamRunAfterTranscriptSaveError(
   hitContinuationLimit = false,
 ): Promise<void> {
   console.warn(
-    `[agent-teams] transcript save failed for task ${task.taskId}; completed actions will not be retried:`,
+    `[agent-teams] result persistence failed for task ${task.taskId}; completed actions will not be retried:`,
     describeDbError(error),
   );
   if (!(await completeAgentTeamRun(task.taskId, "failed", claimedAttempts))) {
@@ -1778,7 +1816,7 @@ async function failAgentTeamRunAfterTranscriptSaveError(
   }
 
   const failure =
-    "Sub-agent transcript could not be saved. Automatic retry was stopped to avoid repeating completed actions.";
+    "Sub-agent result could not be saved. Automatic retry was stopped to avoid repeating completed actions.";
   const summary = summaryText.trim() || task.preview.trim() || failure;
   task.status = "errored";
   task.summary = summary.slice(-TASK_SUMMARY_MAX_CHARS);
@@ -1801,7 +1839,7 @@ async function failAgentTeamRunAfterTranscriptSaveError(
   }
 }
 
-async function stopAgentTeamRunAfterTranscriptSaveError(
+async function stopAgentTeamRunAfterActionPersistenceError(
   task: AgentTask,
   claimedAttempts: number,
   summaryText: string,
@@ -1809,7 +1847,7 @@ async function stopAgentTeamRunAfterTranscriptSaveError(
   ownerEmail: string | null,
   hitContinuationLimit = false,
 ): Promise<void> {
-  await failAgentTeamRunAfterTranscriptSaveError(
+  await failAgentTeamRunAfterActionPersistenceError(
     task,
     claimedAttempts,
     summaryText,
@@ -1830,12 +1868,11 @@ async function finalizeAgentTeamRun(
   options: {
     hitContinuationLimit?: boolean;
     claimedAttempts: number;
+    continuationCount: number;
+    payload: AgentTeamRunPayload;
     runId: string;
   },
 ): Promise<void> {
-  let progressReconciled = true;
-  let transcriptSaveFailed = false;
-  let transcriptSaveError: unknown;
   const result = await withCurrentAgentTeamRunAttempt(
     task.taskId,
     options.claimedAttempts,
@@ -1845,83 +1882,72 @@ async function finalizeAgentTeamRun(
           requeue: false,
         });
       }
-      let transcriptText: string;
-      try {
-        transcriptText = await persistTaskThreadData(
-          task,
-          task.description,
-          run,
-          options.runId,
-          run.turnId,
-        );
-      } catch (error) {
-        transcriptSaveFailed = true;
-        transcriptSaveError = error;
-        throw error;
-      }
+      const transcriptText = await persistTaskThreadData(
+        task,
+        task.description,
+        run,
+        options.runId,
+        run.turnId,
+      );
       const terminal = resolveTaskCompletion(run, transcriptText || fullText, {
         hitContinuationLimit: options.hitContinuationLimit,
       });
+      const transcriptRunIds = transcriptRunIdsForAttempt(
+        task,
+        options.runId,
+        options.continuationCount,
+      );
       const completed = await completeAgentTeamRun(
         task.taskId,
         terminal.taskStatus === "completed" ? "done" : "failed",
         options.claimedAttempts,
+        { ...options.payload, transcriptRunIds },
       );
-      if (!completed) return null;
-
-      task.status = terminal.taskStatus;
-      task.summary = terminal.summary;
-      task.error = terminal.error;
-      task.currentStep = "";
-      task.completedAt = Date.now();
-      task.hitContinuationLimit = options.hitContinuationLimit ?? false;
-      task.terminalEffectsVersion = 1;
-      task.terminalEffectsReconciled = false;
-      task.transcriptRunIds = [
-        ...new Set([...(task.transcriptRunIds ?? []), options.runId]),
-      ];
-      task.parentCompletionEnqueued = !task.parentThreadId;
-      if (task.parentThreadId) {
-        await appendParentCompletionInjection(task.parentThreadId, task, {
-          taskStatus: terminal.taskStatus,
-          summary: terminal.summary,
-          hitContinuationLimit: options.hitContinuationLimit,
-        });
-        task.parentCompletionEnqueued = true;
-      }
-      await saveTask(task);
-      if (ownerEmail) {
-        progressReconciled = await completeTaskProgressRun(
-          task,
-          ownerEmail,
-          terminal.progressStatus,
-          terminal.progressStep,
-        );
-      }
-      return true;
+      return completed ? { terminal, transcriptRunIds } : null;
     },
   ).catch(async (error) => {
-    if (!transcriptSaveFailed) throw error;
-    await stopAgentTeamRunAfterTranscriptSaveError(
+    await stopAgentTeamRunAfterActionPersistenceError(
       task,
       options.claimedAttempts,
       fullText,
-      transcriptSaveError ?? error,
+      error,
       ownerEmail,
       options.hitContinuationLimit,
     );
     return { current: false as const };
   });
   if (!result.current || !result.value) return;
-  const notificationReconciled = ownerEmail
-    ? await ensureTaskCompletionNotification(
-        task,
-        ownerEmail,
-        options.hitContinuationLimit,
-      )
-    : true;
-  if (progressReconciled && notificationReconciled) {
-    await markTerminalTaskEffectsReconciled(task, options.claimedAttempts);
+  const { terminal, transcriptRunIds } = result.value;
+  task.status = terminal.taskStatus;
+  task.summary = terminal.summary;
+  task.error = terminal.error;
+  task.currentStep = "";
+  task.completedAt = Date.now();
+  task.hitContinuationLimit = options.hitContinuationLimit ?? false;
+  task.terminalEffectsVersion = 1;
+  task.terminalEffectsReconciled = false;
+  task.terminalProgressStatus = terminal.progressStatus;
+  task.transcriptRunIds = transcriptRunIds;
+  task.parentCompletionEnqueued = !task.parentThreadId;
+  try {
+    await saveTask(task);
+  } catch (error) {
+    console.warn(
+      `[agent-teams] terminal task projection failed for ${task.taskId}; queue state prevents action replay:`,
+      describeDbError(error),
+    );
+    return;
+  }
+  try {
+    const dispatch = await getAgentTeamRunDispatchState(task.taskId);
+    if (dispatch) {
+      await reconcileTerminalTaskEffects(task, dispatch, ownerEmail);
+    }
+  } catch (error) {
+    console.warn(
+      `[agent-teams] terminal effect reconciliation failed for ${task.taskId}; queue state prevents action replay:`,
+      describeDbError(error),
+    );
   }
 }
 
@@ -2029,6 +2055,14 @@ export async function processAgentTeamRun(
       if (!task) {
         await completeAgentTeamRun(opts.taskId, "failed", claimed.attempts);
         return { ok: true, skipped: "task-missing" };
+      }
+      if (claimed.payload.transcriptRunIds) {
+        task.transcriptRunIds = [
+          ...new Set([
+            ...(task.transcriptRunIds ?? []),
+            ...claimed.payload.transcriptRunIds,
+          ]),
+        ];
       }
       if (task.status !== "running") {
         await completeAgentTeamRun(
@@ -2138,7 +2172,8 @@ export async function processAgentTeamRun(
       let accumulatedText = "";
       let lastProgressSent = 0;
       const PROGRESS_INTERVAL_MS = 2000;
-      let consecutiveNoProgressChunks = opts.noProgressCount ?? 0;
+      let consecutiveNoProgressChunks =
+        claimed.payload.noProgressCount ?? opts.noProgressCount ?? 0;
 
       let chunkUsage:
         | import("../agent/production-agent.js").AgentLoopUsage
@@ -2345,8 +2380,6 @@ export async function processAgentTeamRun(
                 claimed.continuationCount + 1 <= MAX_AGENT_TEAM_CONTINUATIONS &&
                 !hitNoProgressLimit;
               if (canContinue) {
-                let transcriptSaveFailed = false;
-                let transcriptSaveError: unknown;
                 const continuation = await withCurrentAgentTeamRunAttempt(
                   opts.taskId,
                   claimedAttempts,
@@ -2364,59 +2397,66 @@ export async function processAgentTeamRun(
                         "The agent task continuation changed before it could be saved.",
                       );
                     }
-                    let fullText: string;
-                    try {
-                      fullText = await persistTaskThreadData(
-                        task,
-                        payload.description,
-                        run,
-                        runId,
-                        turnId,
-                      );
-                    } catch (error) {
-                      transcriptSaveFailed = true;
-                      transcriptSaveError = error;
-                      throw error;
-                    }
-                    task.transcriptRunIds = [
-                      ...new Set([...(task.transcriptRunIds ?? []), runId]),
-                    ];
+                    const fullText = await persistTaskThreadData(
+                      task,
+                      payload.description,
+                      run,
+                      runId,
+                      turnId,
+                    );
+                    const transcriptRunIds = transcriptRunIdsForAttempt(
+                      task,
+                      runId,
+                      claimed.continuationCount,
+                    );
+                    task.transcriptRunIds = transcriptRunIds;
                     task.currentStep = "Continuing sub-agent";
                     task.preview = (fullText || accumulatedText).slice(-800);
                     if (
                       !(await requeueAgentTeamRunContinuation(
                         opts.taskId,
                         claimedAttempts,
+                        {
+                          ...payload,
+                          noProgressCount: consecutiveNoProgressChunks,
+                          transcriptRunIds,
+                        },
                       ))
                     ) {
                       throw new Error(
                         "The agent task continuation could not be requeued.",
                       );
                     }
-                    await saveTask(task);
-                    if (ownerEmail) {
-                      await updateTaskProgressRun(task, ownerEmail);
-                    }
+                    return { fullText, transcriptRunIds };
                   },
                 ).catch(async (error) => {
-                  if (!transcriptSaveFailed) throw error;
-                  await stopAgentTeamRunAfterTranscriptSaveError(
+                  await stopAgentTeamRunAfterActionPersistenceError(
                     task,
                     claimedAttempts,
                     accumulatedText,
-                    transcriptSaveError ?? error,
+                    error,
                     ownerEmail,
                   );
-                  return {
-                    current: false as const,
-                    transcriptSaveFailed: true as const,
-                  };
+                  return { current: false as const };
                 });
-                if ("transcriptSaveFailed" in continuation) return;
                 if (!continuation.current) {
                   markLeaseLost();
                   return;
                 }
+                task.transcriptRunIds = continuation.value.transcriptRunIds;
+                task.currentStep = "Continuing sub-agent";
+                task.preview = (
+                  continuation.value.fullText || accumulatedText
+                ).slice(-800);
+                try {
+                  await saveTask(task);
+                } catch (error) {
+                  console.warn(
+                    `[agent-teams] continuation task projection failed for ${task.taskId}; queued state prevents action replay:`,
+                    describeDbError(error),
+                  );
+                }
+                if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
                 continuationDispatch = {
                   noProgressCount: consecutiveNoProgressChunks,
                 };
@@ -2430,6 +2470,8 @@ export async function processAgentTeamRun(
                 {
                   hitContinuationLimit: true,
                   claimedAttempts,
+                  continuationCount: claimed.continuationCount,
+                  payload,
                   runId,
                 },
               );
@@ -2441,7 +2483,12 @@ export async function processAgentTeamRun(
               run,
               ownerEmail || null,
               accumulatedText,
-              { claimedAttempts, runId },
+              {
+                claimedAttempts,
+                continuationCount: claimed.continuationCount,
+                payload,
+                runId,
+              },
             );
           },
           {
@@ -2627,13 +2674,8 @@ async function transcriptRunIdsForTask(
     ids = [...task.transcriptRunIds];
   } else {
     const baseRunId = taskRunId(taskId);
-    let continuationCount = 0;
-    try {
-      continuationCount =
-        (await getAgentTeamRunDispatchState(taskId))?.continuationCount ?? 0;
-    } catch {
-      continuationCount = 0;
-    }
+    const continuationCount =
+      (await getAgentTeamRunDispatchState(taskId))?.continuationCount ?? 0;
 
     ids = [baseRunId];
     for (let i = 0; i <= continuationCount; i += 1) {
@@ -2642,17 +2684,10 @@ async function transcriptRunIdsForTask(
   }
 
   if (task?.status === "running") {
-    try {
-      const dispatch = await getAgentTeamRunDispatchState(taskId);
-      if (dispatch?.status === "queued" || dispatch?.status === "running") {
-        ids.push(
-          taskRunChunkId(taskId, dispatch.continuationCount, dispatch.attempts),
-        );
-      }
-    } catch (error) {
-      console.warn(
-        `[agent-teams] could not read active transcript attempt for task ${taskId}:`,
-        describeDbError(error),
+    const dispatch = await getAgentTeamRunDispatchState(taskId);
+    if (dispatch?.status === "queued" || dispatch?.status === "running") {
+      ids.push(
+        taskRunChunkId(taskId, dispatch.continuationCount, dispatch.attempts),
       );
     }
   }

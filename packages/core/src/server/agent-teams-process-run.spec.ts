@@ -2,18 +2,30 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { completeProgressRunMock, getProgressRunMock, insertNotificationMock } =
-  vi.hoisted(() => ({
-    completeProgressRunMock: vi.fn(),
-    getProgressRunMock: vi.fn(),
-    insertNotificationMock: vi.fn(),
-  }));
+const {
+  completeProgressRunMock,
+  getProgressRunMock,
+  hasNotificationWithMetadataMock,
+  insertNotificationMock,
+} = vi.hoisted(() => ({
+  completeProgressRunMock: vi.fn(),
+  getProgressRunMock: vi.fn(),
+  hasNotificationWithMetadataMock: vi.fn(),
+  insertNotificationMock: vi.fn(),
+}));
 
 let queueRows: Record<string, any>[] = [];
 let failNextDispatchStateRead = false;
+let failDispatchStateReadAt: number | null = null;
+let dispatchStateReadCount = 0;
 let reclaimAfterNextDispatchStateRead = false;
 let failParentCompletionReadFor: string | null = null;
 let rejectNextThreadDataUpdate = false;
+let failTaskProjectionFor: {
+  taskId: string;
+  status?: string;
+  step?: string;
+} | null = null;
 let transactionTail: Promise<void> = Promise.resolve();
 const transactionContext = new AsyncLocalStorage<{ aborted: boolean }>();
 function affected(n: number) {
@@ -93,6 +105,20 @@ const queueDb = {
       }
       return affected(0);
     }
+    if (s.includes("SET status = 'queued', payload = ?, updated_at = ?")) {
+      const [payload, updatedAt, taskId, claimedAttempts] = args;
+      const row = queueRows.find(
+        (candidate) =>
+          candidate.task_id === taskId &&
+          candidate.status === "running" &&
+          candidate.attempts === claimedAttempts,
+      );
+      if (!row) return affected(0);
+      row.status = "queued";
+      row.payload = payload;
+      row.updated_at = updatedAt;
+      return affected(1);
+    }
     if (s.includes("SET status = 'queued', updated_at = ?")) {
       const [updatedAt, taskId, claimedAttempts] = args;
       const row = queueRows.find(
@@ -103,6 +129,21 @@ const queueDb = {
       );
       if (!row) return affected(0);
       row.status = "queued";
+      row.updated_at = updatedAt;
+      return affected(1);
+    }
+    if (s.includes("SET status = ?, payload = ?, updated_at = ?")) {
+      const [status, payload, updatedAt, taskId, claimedAttempts] = args;
+      const row = queueRows.find(
+        (candidate) =>
+          candidate.task_id === taskId &&
+          (claimedAttempts === undefined ||
+            candidate.attempts === claimedAttempts) &&
+          (candidate.status === "running" || candidate.status === "queued"),
+      );
+      if (!row) return affected(0);
+      row.status = status;
+      row.payload = payload;
       row.updated_at = updatedAt;
       return affected(1);
     }
@@ -231,8 +272,13 @@ const queueDb = {
       };
     }
     if (s.includes("SELECT * FROM agent_team_run_queue WHERE task_id = ?")) {
-      if (failNextDispatchStateRead) {
+      dispatchStateReadCount += 1;
+      if (
+        failNextDispatchStateRead ||
+        dispatchStateReadCount === failDispatchStateReadAt
+      ) {
         failNextDispatchStateRead = false;
+        failDispatchStateReadAt = null;
         throw new Error("dispatch state read unavailable");
       }
       const r = queueRows.find((x) => x.task_id === args[0]);
@@ -307,6 +353,17 @@ vi.mock("../application-state/script-helpers.js", () => ({
   }),
   writeAppState: vi.fn(async (k: string, v: any) => {
     requireMockRequestContext();
+    if (
+      failTaskProjectionFor &&
+      k === `agent-task:${failTaskProjectionFor.taskId}` &&
+      (failTaskProjectionFor.status === undefined ||
+        v.status === failTaskProjectionFor.status) &&
+      (failTaskProjectionFor.step === undefined ||
+        v.currentStep === failTaskProjectionFor.step)
+    ) {
+      failTaskProjectionFor = null;
+      throw new Error("task projection write unavailable");
+    }
     appState.set(k, structuredClone(v));
   }),
   deleteAppState: vi.fn(async (k: string) => {
@@ -522,6 +579,7 @@ vi.mock("../progress/registry.js", () => ({
 }));
 
 vi.mock("../notifications/store.js", () => ({
+  hasNotificationWithMetadata: hasNotificationWithMetadataMock,
   insertNotification: insertNotificationMock,
 }));
 
@@ -623,9 +681,12 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     startRunWork.length = 0;
     queueRows = [];
     failNextDispatchStateRead = false;
+    failDispatchStateReadAt = null;
+    dispatchStateReadCount = 0;
     reclaimAfterNextDispatchStateRead = false;
     failParentCompletionReadFor = null;
     rejectNextThreadDataUpdate = false;
+    failTaskProjectionFor = null;
     transactionTail = Promise.resolve();
     appState.clear();
     threadData.clear();
@@ -653,6 +714,8 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     getProgressRunMock.mockResolvedValue({ status: "succeeded" });
     insertNotificationMock.mockReset();
     insertNotificationMock.mockResolvedValue({ id: "notification-1" });
+    hasNotificationWithMetadataMock.mockReset();
+    hasNotificationWithMetadataMock.mockResolvedValue(false);
     fireInternalDispatchMock.mockReset();
     fireInternalDispatchMock.mockImplementation(async (o: any) => {
       dispatches.push({ taskId: o.taskId, body: o.body, event: o.event });
@@ -687,6 +750,56 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
+
+  it("keeps completed actions terminal when the task projection fails", async () => {
+    let completedActionCount = 0;
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      completedActionCount += 1;
+      opts.send({ type: "text", text: "the action completed" });
+    });
+    await seedTask("terminal-projection-failure");
+    failTaskProjectionFor = {
+      taskId: "terminal-projection-failure",
+      status: "completed",
+    };
+
+    await processAgentTeamRun({
+      taskId: "terminal-projection-failure",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    const dispatch = await queue.getAgentTeamRunDispatchState(
+      "terminal-projection-failure",
+    );
+    expect(dispatch?.status).toBe("done");
+    expect(dispatch?.payload.transcriptRunIds).toEqual(
+      expect.arrayContaining([
+        "run-task-terminal-projection-failure",
+        "run-task-terminal-projection-failure-c0",
+        "run-task-terminal-projection-failure-a1-c0",
+      ]),
+    );
+    expect(appState.get("agent-task:terminal-projection-failure").status).toBe(
+      "running",
+    );
+
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "terminal-projection-failure",
+    );
+    if (!row) throw new Error("missing terminal queue row");
+    row.updated_at = Date.now() - queue.RUN_PROCESSING_STUCK_AFTER_MS - 1;
+    await expect(reconcileStaleAgentTeamRuns()).resolves.toEqual({
+      examined: 0,
+      failed: 0,
+    });
+
+    const repaired = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("terminal-projection-failure"),
+    );
+    expect(repaired?.status).toBe("completed");
+    expect(completedActionCount).toBe(1);
+  });
 
   it("does not replay completed actions when terminal transcript persistence fails", async () => {
     let completedActionCount = 0;
@@ -775,6 +888,69 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     await expect(reconcileStaleAgentTeamRuns()).resolves.toEqual({
       examined: 0,
       failed: 0,
+    });
+    expect(completedActionCount).toBe(1);
+  });
+
+  it("keeps the continuation and no-progress budget durable if projection fails", async () => {
+    let completedActionCount = 0;
+    let chunkCount = 0;
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      chunkCount += 1;
+      if (chunkCount === 1) {
+        completedActionCount += 1;
+      }
+      opts.send({ type: "auto_continue", reason: "run_timeout" });
+    });
+    await seedTask("continuation-projection-failure");
+    failTaskProjectionFor = {
+      taskId: "continuation-projection-failure",
+      step: "Continuing sub-agent",
+    };
+
+    await processAgentTeamRun({
+      taskId: "continuation-projection-failure",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    let dispatch = await queue.getAgentTeamRunDispatchState(
+      "continuation-projection-failure",
+    );
+    expect(dispatch).toMatchObject({
+      status: "queued",
+      continuationCount: 1,
+      payload: { noProgressCount: 1 },
+    });
+    expect(completedActionCount).toBe(1);
+
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "continuation-projection-failure",
+    );
+    if (!row) throw new Error("missing continuation queue row");
+    row.updated_at = Date.now() - queue.RUN_DISPATCH_STUCK_AFTER_MS - 1;
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("continuation-projection-failure"),
+    );
+    expect(dispatches.at(-1)).toMatchObject({
+      body: { mode: "continue", noProgressCount: 1 },
+    });
+
+    await processAgentTeamRun({
+      taskId: "continuation-projection-failure",
+      mode: "continue",
+      resolveConfig: async () => resolveConfig(),
+    });
+    dispatch = await queue.getAgentTeamRunDispatchState(
+      "continuation-projection-failure",
+    );
+    expect(dispatch).toMatchObject({
+      status: "queued",
+      continuationCount: 2,
+      payload: { noProgressCount: 2 },
+    });
+    expect(dispatches.at(-1)).toMatchObject({
+      body: { mode: "continue", noProgressCount: 2 },
     });
     expect(completedActionCount).toBe(1);
   });
@@ -1405,6 +1581,55 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     ]);
   });
 
+  it("preserves legacy transcript chunks when recording the first attempt ID", async () => {
+    const taskId = "legacy-transcript-migration";
+    await seedTask(taskId);
+    getRunEventsSinceMock.mockImplementation(async (runId: string) => {
+      const message =
+        runId === `run-task-${taskId}`
+          ? "legacy base transcript"
+          : runId === `run-task-${taskId}-c0`
+            ? "legacy chunk transcript"
+            : runId === `run-task-${taskId}-a1-c0`
+              ? "current attempt transcript"
+              : null;
+      return message
+        ? [
+            {
+              seq: 0,
+              eventData: JSON.stringify({ type: "text", text: message }),
+            },
+          ]
+        : [];
+    });
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      opts.send({ type: "text", text: "current attempt transcript" });
+    });
+
+    await processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    const task = appState.get(`agent-task:${taskId}`);
+    expect(task.transcriptRunIds).toEqual(
+      expect.arrayContaining([
+        `run-task-${taskId}`,
+        `run-task-${taskId}-c0`,
+        `run-task-${taskId}-a1-c0`,
+      ]),
+    );
+    const events = await runWithRequestContext({ userEmail: OWNER }, () =>
+      listAgentTeamBackgroundTranscriptEvents(`run-task-${taskId}`),
+    );
+    expect(events.map((event) => event.message)).toEqual([
+      "legacy base transcript",
+      "legacy chunk transcript",
+      "current attempt transcript",
+    ]);
+  });
+
   it("includes the claimed attempt when reading a live task transcript", async () => {
     await seedTask("active-transcript");
     const task = appState.get("agent-task:active-transcript");
@@ -1444,6 +1669,30 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
   });
 
+  it("fails a live transcript read when active queue state is unreadable", async () => {
+    await seedTask("active-transcript-read-failure");
+    const task = appState.get("agent-task:active-transcript-read-failure");
+    task.transcriptRunIds = ["run-task-active-transcript-read-failure-a2-c1"];
+    appState.set("agent-task:active-transcript-read-failure", task);
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "active-transcript-read-failure",
+    );
+    if (!row) throw new Error("missing queued task row");
+    row.status = "running";
+    row.attempts = 3;
+    row.continuation_count = 2;
+    row.updated_at = Date.now();
+    failDispatchStateReadAt = 2;
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        listAgentTeamBackgroundTranscriptEvents(
+          "run-task-active-transcript-read-failure",
+        ),
+      ),
+    ).rejects.toThrow("dispatch state read unavailable");
+  });
+
   it("repairs a terminal queue row whose task projection missed completion", async () => {
     await seedTask("reconcile-completion");
     const task = appState.get("agent-task:reconcile-completion");
@@ -1469,6 +1718,35 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       taskId: "reconcile-completion",
       status: "completed",
     });
+  });
+
+  it("does not duplicate a legacy task completion notification", async () => {
+    await seedTask("legacy-completion-notification");
+    const task = appState.get("agent-task:legacy-completion-notification");
+    Object.assign(task, {
+      status: "completed",
+      summary: "finished before notification idempotency was added",
+      terminalEffectsReconciled: false,
+      parentCompletionEnqueued: true,
+    });
+    appState.set("agent-task:legacy-completion-notification", task);
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "legacy-completion-notification",
+    );
+    if (!row) throw new Error("missing queued task row");
+    row.status = "done";
+    hasNotificationWithMetadataMock.mockResolvedValue(true);
+
+    const reconciled = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("legacy-completion-notification"),
+    );
+
+    expect(reconciled?.terminalEffectsReconciled).toBe(true);
+    expect(hasNotificationWithMetadataMock).toHaveBeenCalledWith(OWNER, {
+      kind: "agent-team-complete",
+      taskId: "legacy-completion-notification",
+    });
+    expect(insertNotificationMock).not.toHaveBeenCalled();
   });
 
   it("skips terminal-effect writes after reconciliation succeeds", async () => {

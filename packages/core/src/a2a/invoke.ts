@@ -103,6 +103,8 @@ export interface AgentInvocationRuntime {
 export interface ResolveAgentInvocationTargetOptions {
   selfAppId?: string;
   selfUrl?: string;
+  userEmail?: string;
+  orgId?: string;
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
@@ -176,9 +178,34 @@ export async function resolveAgentInvocationTarget(
   const findAgent = options.runtime?.findAgent ?? defaultFindAgent;
   const discoverAgents =
     options.runtime?.discoverAgents ?? defaultDiscoverAgents;
-  const agent = await findAgent(cleanTarget, options.selfAppId);
+  const discoveryOptions = { includePersonalAgents: true };
+  const requestContext = getRequestContext();
+  const resolveWithCaller = async <T>(read: () => Promise<T>): Promise<T> => {
+    if (
+      !requestContext &&
+      options.userEmail === undefined &&
+      options.orgId === undefined
+    ) {
+      return read();
+    }
+    return await runWithRequestContext(
+      {
+        ...(requestContext ?? {}),
+        ...(options.userEmail !== undefined
+          ? { userEmail: options.userEmail }
+          : {}),
+        ...(options.orgId !== undefined ? { orgId: options.orgId } : {}),
+      },
+      read,
+    );
+  };
+  const agent = await resolveWithCaller(() =>
+    findAgent(cleanTarget, options.selfAppId, discoveryOptions),
+  );
   if (!agent) {
-    const availableAgents = await discoverAgents(options.selfAppId);
+    const availableAgents = await resolveWithCaller(() =>
+      discoverAgents(options.selfAppId, discoveryOptions),
+    );
     const available = availableAgents.map((a) => a.name).join(", ");
     throw new AgentInvocationError(
       "not-found",
@@ -217,6 +244,8 @@ export async function invokeAgent(
   const target = await resolveAgentInvocationTarget(options.target, {
     selfAppId: options.selfAppId,
     selfUrl: options.selfUrl,
+    userEmail: options.userEmail,
+    orgId: options.orgId,
     runtime: options.runtime,
   });
 
@@ -347,6 +376,8 @@ export async function invokeAgentAction(
   const target = await resolveAgentInvocationTarget(options.target, {
     selfAppId: options.selfAppId,
     selfUrl: options.selfUrl,
+    userEmail: options.userEmail,
+    orgId: options.orgId,
     runtime: options.runtime,
   });
   const providerKind = invocationProviderKindByTarget.get(target);

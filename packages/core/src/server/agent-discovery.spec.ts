@@ -27,6 +27,7 @@ const resourceListContentByOwnersAndPrefixesMock = vi.hoisted(() => vi.fn());
 const getSettingMock = vi.hoisted(() => vi.fn());
 const DISCOVERY_ENV_KEYS = [
   "NODE_ENV",
+  "AGENT_USER_EMAIL",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
   "WORKSPACE_GATEWAY_URL",
   "VITE_WORKSPACE_GATEWAY_URL",
@@ -499,6 +500,106 @@ describe("agent discovery", () => {
         }),
       ]),
     );
+  });
+
+  it("discovers personal agents only for the authenticated user", async () => {
+    resourceListMock.mockImplementation(async (owner: string, prefix: string) =>
+      prefix === "remote-agents/" && owner === "alice@example.test"
+        ? [{ id: "personal-resource", path: "remote-agents/personal.json" }]
+        : [],
+    );
+    resourceGetMock.mockResolvedValue({
+      id: "personal-resource",
+      content: JSON.stringify({
+        id: "personal-agent",
+        name: "Personal Agent",
+        url: "https://personal.example.com",
+      }),
+    });
+
+    const aliceAgents = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    const bobAgents = await runWithRequestContext(
+      { userEmail: "bob@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    const unscopedAgents = await runWithRequestContext(
+      { orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    const directoryAgents = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch"),
+    );
+
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "alice@example.test",
+      "remote-agents/",
+    );
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "bob@example.test",
+      "remote-agents/",
+    );
+    expect(aliceAgents).toContainEqual(
+      expect.objectContaining({
+        id: "personal-agent",
+        url: "https://personal.example.com",
+      }),
+    );
+    expect(bobAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+    expect(unscopedAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+    expect(directoryAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+
+    process.env.AGENT_USER_EMAIL = "alice@example.test";
+    const ambientOnlyAgents = await runWithRequestContext(
+      { orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    expect(ambientOnlyAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+  });
+
+  it("keeps shared and organization agents ahead of personal agents", async () => {
+    resourceListMock.mockImplementation(async (owner: string, prefix: string) =>
+      prefix === "remote-agents/"
+        ? [{ id: `${owner}-resource`, path: "remote-agents/same-agent.json" }]
+        : [],
+    );
+    resourceGetMock.mockImplementation(async (id: string) => {
+      const owner = id.slice(0, id.indexOf("-resource"));
+      return {
+        id,
+        content: JSON.stringify({
+          id: "same-agent",
+          name: owner,
+          url:
+            owner === "__organization__:org-123"
+              ? "https://org.example.com"
+              : owner === "__shared__"
+                ? "https://shared.example.com"
+                : "https://personal.example.com",
+        }),
+      };
+    });
+
+    const agents = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+
+    expect(agents.find((agent) => agent.id === "same-agent")).toMatchObject({
+      name: "__organization__:org-123",
+      url: "https://org.example.com",
+    });
   });
 
   it("prefers the organization manifest and reads each scoped resource once", async () => {

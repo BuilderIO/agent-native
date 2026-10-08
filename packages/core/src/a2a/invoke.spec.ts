@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getRequestUserEmail } from "../server/request-context.js";
 import { ANTHROPIC_MANAGED_AGENTS_METADATA_KEY } from "./anthropic-managed-agents.js";
 import {
   AgentInvocationError,
@@ -101,7 +102,9 @@ describe("invokeAgent", () => {
       runtime: rt,
     });
 
-    expect(rt.findAgent).toHaveBeenCalledWith("mail", "calendar");
+    expect(rt.findAgent).toHaveBeenCalledWith("mail", "calendar", {
+      includePersonalAgents: true,
+    });
     expect(rt.callAgent).toHaveBeenCalledWith(
       "https://mail.agent-native.test",
       expect.stringContaining("Draft the update"),
@@ -112,6 +115,35 @@ describe("invokeAgent", () => {
       id: "mail",
       name: "Mail",
       url: "https://mail.agent-native.test",
+    });
+  });
+
+  it("resolves personal agents within the invocation caller scope", async () => {
+    const rt = runtime({
+      findAgent: vi.fn(async (_target, _selfAppId, options) => {
+        expect(getRequestUserEmail()).toBe("alice@example.test");
+        expect(options).toEqual({ includePersonalAgents: true });
+        return {
+          id: "personal-agent",
+          name: "Personal Agent",
+          description: "",
+          url: "https://personal.example.com",
+          color: "#000000",
+        };
+      }),
+    });
+
+    const result = await invokeAgent({
+      target: "personal-agent",
+      prompt: "Do the thing",
+      userEmail: "alice@example.test",
+      orgId: "org-123",
+      runtime: rt,
+    });
+
+    expect(result.target).toMatchObject({
+      id: "personal-agent",
+      url: "https://personal.example.com",
     });
   });
 
