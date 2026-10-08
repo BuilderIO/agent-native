@@ -172,6 +172,9 @@ export function ContentImportDialog({
   // The import whose toast still owns the published state; a newer dialog
   // session takes it over so a closing toast cannot erase that session.
   const toastImportId = useRef<string | null>(null);
+  // One key per pick or drop, kept when the same files are planned again, so
+  // an import that already created pages finishes instead of duplicating them.
+  const idempotencyKey = useRef("");
   // A retry under the same key must send the same image urls, which the
   // key's fingerprint includes, so each picked image uploads once per key.
   const uploadedUrls = useRef(new Map<File, string>());
@@ -181,7 +184,6 @@ export function ContentImportDialog({
   const [plan, setPlan] = useState<ImportContentResult | null>(null);
   const [phase, setPhase] = useState<ImportPhase>("choosing");
   const [error, setError] = useState<string | null>(null);
-  const [idempotencyKey, setIdempotencyKey] = useState("");
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const open = request !== null;
   const destinationTitle = parentTitle.trim();
@@ -221,15 +223,13 @@ export function ContentImportDialog({
     [destinationTitle, parentId],
   );
 
-  const planFiles = useCallback(
+  const previewFiles = useCallback(
     async (picked: File[]) => {
       const requestId = ++planRequest.current;
+      const key = idempotencyKey.current;
       setFiles(picked);
       setPlan(null);
       setError(null);
-      const key = crypto.randomUUID();
-      setIdempotencyKey(key);
-      uploadedUrls.current = new Map();
       if (picked.length === 0) {
         setPhase("choosing");
         publishState("choosing");
@@ -274,6 +274,15 @@ export function ContentImportDialog({
       }
     },
     [importContent, parentId, publishState, t],
+  );
+
+  const planFiles = useCallback(
+    (picked: File[]) => {
+      idempotencyKey.current = crypto.randomUUID();
+      uploadedUrls.current = new Map();
+      return previewFiles(picked);
+    },
+    [previewFiles],
   );
 
   const planFilesRef = useRef(planFiles);
@@ -339,7 +348,7 @@ export function ContentImportDialog({
         ),
         parentId,
         dryRun: false,
-        idempotencyKey,
+        idempotencyKey: idempotencyKey.current,
       });
       const created = result.pages.flatMap((page) =>
         page.urlPath ? [page] : [],
@@ -420,7 +429,6 @@ export function ContentImportDialog({
     }
   }, [
     files,
-    idempotencyKey,
     importContent,
     navigate,
     onClose,
@@ -609,7 +617,7 @@ export function ContentImportDialog({
         onOpenChange={(next, reason) => {
           setStorageSetupOpen(next);
           if (!next && reason === "connected" && files.length > 0) {
-            void planFiles(files);
+            void previewFiles(files);
           }
         }}
       />
