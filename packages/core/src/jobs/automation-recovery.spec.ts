@@ -647,13 +647,32 @@ describe("automation worker recovery", () => {
         startedAt: startedAt + 1,
       },
     ]);
+    expect(
+      await inspectAutomationRecovery(
+        resource,
+        { ...meta, lastHistoryId: undefined },
+        now,
+      ),
+    ).toMatchObject({
+      state: "unrecoverable",
+      status: "error",
+      errorCode: "automation_recovery_history_ambiguous",
+      deliveryNote: expect.stringContaining("Delivery outcome is unknown"),
+    });
+    expect(mocks.reap).not.toHaveBeenCalled();
+    expect(mocks.get).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed legacy history read retryable", async () => {
+    const failure = new Error("history database unavailable");
+    mocks.list.mockRejectedValue(failure);
     await expect(
       inspectAutomationRecovery(
         resource,
         { ...meta, lastHistoryId: undefined },
         now,
       ),
-    ).rejects.toThrow();
+    ).rejects.toBe(failure);
     expect(mocks.reap).not.toHaveBeenCalled();
   });
 

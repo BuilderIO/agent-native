@@ -503,6 +503,53 @@ describe("stale automation run-lock recovery across trigger types", () => {
     },
   );
 
+  it("settles ambiguous legacy history once without selecting or replaying either firing", async () => {
+    const fixture = interruptedScheduledJob();
+    fixture.resource.content = fixture.resource.content.replace(
+      /lastHistoryId:.*\n/,
+      "",
+    );
+    const other = {
+      ...fixture.history,
+      id: "other-firing",
+      runId: "other-worker",
+    };
+    const list = vi
+      .spyOn(runHistory, "listAutomationRuns")
+      .mockResolvedValue([fixture.history, other] as any);
+    const finish = vi.spyOn(runHistory, "finishAutomationRun");
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(resourcePutMock).toHaveBeenCalledOnce();
+      const content = resourcePutMock.mock.calls[0]![2];
+      const settled = parseJobResource(content).meta;
+      expect(settled).toMatchObject({
+        enabled: true,
+        lastStatus: "error",
+        lastErrorCode: "automation_recovery_history_ambiguous",
+        consecutiveFailures: 1,
+      });
+      expect(settled.lastError).toContain("Delivery outcome is unknown");
+      expect(settled.lastError).not.toContain("No delivery was confirmed");
+      expect(Date.parse(settled.nextRun!)).toBeGreaterThan(Date.now());
+      fixture.resource.content = content;
+      await processRecurringJobs(recoveryDeps);
+      expect(resourcePutMock).toHaveBeenCalledOnce();
+      expect(list).toHaveBeenCalledOnce();
+      expect(finish).not.toHaveBeenCalled();
+      expect(runHistory.getAutomationRun).not.toHaveBeenCalled();
+      expect(runStore.reapIfStale).not.toHaveBeenCalled();
+      expect(startRunMock).not.toHaveBeenCalled();
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      expect(fixture.history.finishedAt).toBeNull();
+      expect(other.finishedAt).toBeNull();
+    } finally {
+      finish.mockRestore();
+      list.mockRestore();
+      fixture.restore();
+    }
+  });
+
   it("preserves manual scheduling and failure streak when firing history is absent", async () => {
     const fixture = interruptedScheduledJob();
     const nextRun = new Date(Date.now() + 3_600_000).toISOString();

@@ -34,3 +34,5 @@ Settle permanently unreadable journals with an unknown-delivery error while retr
 Durably settle malformed no-op evidence as an explicit unknown-delivery error, restore no-op declarations from their original journal result, and prevent replayed no-op acknowledgements from counting as completed work.
 
 Use the resource-scoped automation history ownership helper for atomic admission and recovery, preserving personal history when execution carries an organization context.
+
+Settle ambiguous legacy firing markers as explicit unknown-evidence errors without choosing, finishing, or replaying either history, while retaining transient history-read failures for retry.

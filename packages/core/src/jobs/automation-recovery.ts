@@ -88,6 +88,20 @@ export function automationDeliveryNote(
   return withDeliveryNote(message, deliveryNoteForEvents(events));
 }
 
+function unrecoverableHistory(
+  message: string,
+  errorCode = "automation_recovery_history_unavailable",
+): Extract<AutomationRecovery, { state: "unrecoverable" }> {
+  const deliveryNote = deliveryNoteForEvents(null);
+  return {
+    state: "unrecoverable",
+    status: "error",
+    error: withDeliveryNote(message, deliveryNote),
+    errorCode,
+    deliveryNote,
+  };
+}
+
 export async function inspectAutomationRecovery(
   resource: Resource,
   meta: JobFrontmatter,
@@ -100,17 +114,7 @@ export async function inspectAutomationRecovery(
   const lastRun = meta.lastRun ? Date.parse(meta.lastRun) : Number.NaN;
   if (!Number.isFinite(lastRun)) {
     if (!meta.lastHistoryId) return null;
-    const deliveryNote = deliveryNoteForEvents(null);
-    return {
-      state: "unrecoverable",
-      status: "error",
-      error: withDeliveryNote(
-        automationRecoveryMessagesForLocale().stopped,
-        deliveryNote,
-      ),
-      errorCode: "automation_recovery_history_unavailable",
-      deliveryNote,
-    };
+    return unrecoverableHistory(automationRecoveryMessagesForLocale().stopped);
   }
   const { owner } = automationRunOwnership(
     resource.owner,
@@ -128,17 +132,9 @@ export async function inspectAutomationRecovery(
       history.path !== resource.path ||
       (history.appId && history.appId !== appId)
     ) {
-      const deliveryNote = deliveryNoteForEvents(null);
-      return {
-        state: "unrecoverable",
-        status: "error",
-        error: withDeliveryNote(
-          automationRecoveryMessagesForLocale().historyUnavailable,
-          deliveryNote,
-        ),
-        errorCode: "automation_recovery_history_unavailable",
-        deliveryNote,
-      };
+      return unrecoverableHistory(
+        automationRecoveryMessagesForLocale().historyUnavailable,
+      );
     }
   } else {
     if ((meta.triggerType ?? "schedule") !== "schedule") return null;
@@ -159,7 +155,10 @@ export async function inspectAutomationRecovery(
         run.startedAt >= lastRun,
     );
     if (candidates.length > 1)
-      throw new Error(automationRecoveryMessagesForLocale().unreadable);
+      return unrecoverableHistory(
+        automationRecoveryMessagesForLocale().stopped,
+        "automation_recovery_history_ambiguous",
+      );
     history = candidates[0] ?? null;
   }
   if (!history) return null;
