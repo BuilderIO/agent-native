@@ -431,6 +431,85 @@ describe("ChatGPT directory template profiles", () => {
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );
 
+  it.each(templateProfiles)(
+    "$appId read tools deliver their result payload to the model",
+    async ({ appId, profile }) => {
+      const { actions, productionActions } = await loadTemplateActions(appId);
+      const mcpOptions = resolveAgentChatMcpOptions({
+        mcp: { directoryProfile: profile },
+      });
+      const readNames = profile.connectorCatalog.filter(
+        (name) => productionActions[name]?.http?.method === "GET",
+      );
+      expect(readNames.length).toBeGreaterThan(0);
+      const payload = {
+        id: "resource-1",
+        title: "Quarterly Planning Demo",
+        items: [{ id: "item-1", title: "Priorities" }],
+      };
+      const stubbedActions = {
+        ...productionActions,
+        ...Object.fromEntries(
+          readNames.map((name) => [
+            name,
+            { ...productionActions[name]!, run: async () => payload },
+          ]),
+        ),
+      };
+      const serverConfig = {
+        name: `agent-native-${appId}`,
+        appId,
+        description: "ChatGPT directory profile validation",
+        catalogMode: "directory" as const,
+        connectorCatalog: profile.connectorCatalog,
+        widgetDomain: profile.widgetDomain,
+        actions: stubbedActions,
+        productionActions: stubbedActions,
+        widgetReadActions: selectMcpDirectoryWidgetReadActions(
+          mcpOptions.directoryProfile,
+          actions,
+        ),
+        directoryProfile: mcpOptions.directoryProfile,
+      };
+      const server = await createMCPServerForRequest(
+        serverConfig,
+        {
+          userEmail: "reviewer@example.test",
+          identityAssurance: "user",
+          orgId: null,
+          orgDomain: undefined,
+        },
+        { origin: profile.widgetDomain, transport: "http" },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({
+        name: "directory-profile-spec",
+        version: "1",
+      });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      try {
+        for (const name of readNames) {
+          const result = await client.callTool({ name, arguments: {} });
+          const text = (result.content as Array<{ text?: string }>)
+            .map((block) => block.text ?? "")
+            .join("\n");
+          expect(result.isError, name).not.toBe(true);
+          expect(text, name).toContain("Priorities");
+          expect(result.structuredContent, name).toMatchObject({
+            items: [{ title: "Priorities" }],
+          });
+        }
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+      }
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
   it("validates names against the plugin's MCP action surface", () => {
     const annotations = {
       readOnlyHint: true,
