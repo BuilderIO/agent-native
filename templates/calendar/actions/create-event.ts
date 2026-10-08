@@ -217,7 +217,14 @@ function eventDeepLink(
 }
 
 export default defineAction({
-  description: "Create a calendar event on Google Calendar",
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
+  description:
+    "Create an event on an owned Google account's primary calendar. Supply start/end times and a title for ordinary events; pass accountEmail when multiple accounts are connected. Returns the event id and accountEmail for later writes.",
   schema: z.object({
     title: z
       .string()
