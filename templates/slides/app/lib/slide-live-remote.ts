@@ -66,9 +66,25 @@ export function applyRemoteHtmlUnderEdit(
   nextHtml: string,
 ): LiveRemoteApplyResult {
   const doc = root.ownerDocument;
-  const prevEls = elementsOf(parse(doc, prevHtml));
-  const nextEls = elementsOf(parse(doc, nextHtml));
+  const prevFragment = parse(doc, prevHtml);
+  const nextFragment = parse(doc, nextHtml);
+  const prevEls = elementsOf(prevFragment);
+  const nextEls = elementsOf(nextFragment);
   if (prevEls.length !== nextEls.length) return "unsupported";
+  // Text between top-level elements belongs to no element a delta can name.
+  if (prevFragment.childNodes.length !== nextFragment.childNodes.length) {
+    return "unsupported";
+  }
+  for (let i = 0; i < prevFragment.childNodes.length; i++) {
+    const before = prevFragment.childNodes[i];
+    const after = nextFragment.childNodes[i];
+    if (
+      before.nodeType !== after.nodeType ||
+      (before.nodeType !== 1 && before.nodeValue !== after.nodeValue)
+    ) {
+      return "unsupported";
+    }
+  }
 
   const deltas: Delta[] = [];
   let overlap = false;

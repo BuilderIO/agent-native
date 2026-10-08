@@ -126,6 +126,21 @@ describe("applyRemoteHtmlUnderEdit", () => {
     expect(root.querySelectorAll("b")[0].textContent).toBe("Bold");
   });
 
+  it("does not apply a change to text outside every element", () => {
+    const prev = `Intro${slide(box(1, "a", "Alpha"), box(2, "b", "Beta"))}`;
+    const next = `Intro by remote${slide(box(1, "a", "Alpha"), box(2, "b", "Beta by remote"))}`;
+    const root = mount(prev);
+    const edited = startEditing(root, "a");
+
+    expect(applyRemoteHtmlUnderEdit(root, edited, prev, next)).toBe(
+      "unsupported",
+    );
+    expect(root.firstChild?.nodeValue).toBe("Intro");
+    expect(root.querySelector('[data-slide-object-id="b"]')!.textContent).toBe(
+      "Beta",
+    );
+  });
+
   it("reports an overlap and writes nothing when the edited text changed too", () => {
     const prev = slide(box(1, "a", "Alpha"), box(2, "b", "Beta"));
     const next = slide(
