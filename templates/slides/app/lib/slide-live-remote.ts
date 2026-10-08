@@ -197,8 +197,10 @@ export function applyRemoteHtmlUnderEdit(
         for (const token of after) {
           if (!before.has(token)) live.classList.add(token);
         }
-        // An empty class attribute the remote kept stays; one it dropped goes.
-        if (next === null) live.removeAttribute("class");
+        // Live-only classes must survive a remote removal of the attribute.
+        if (next === null && live.classList.length === 0) {
+          live.removeAttribute("class");
+        }
       } else if (next === null) {
         live.removeAttribute(name);
       } else {

@@ -157,6 +157,22 @@ describe("applyRemoteHtmlUnderEdit", () => {
     ).toBe(false);
   });
 
+  it("preserves live-only classes when the remote removes the class attribute", () => {
+    const withClass = (n: number, id: string, attr: string) =>
+      `<div ${attr} data-slide-object-id="${id}" ${stamp(n)}>${id}</div>`;
+    const prev = slide(box(1, "a", "Alpha"), withClass(2, "b", 'class="x y"'));
+    const next = slide(box(1, "a", "Alpha"), withClass(2, "b", ""));
+    const root = mount(prev);
+    const other = root.querySelector<HTMLElement>(
+      '[data-slide-object-id="b"]',
+    )!;
+    other.classList.add("live-only");
+    const edited = startEditing(root, "a");
+
+    expect(applyRemoteHtmlUnderEdit(root, edited, prev, next)).toBe("applied");
+    expect(other.getAttribute("class")).toBe("live-only");
+  });
+
   it("does not apply a change to text outside every element", () => {
     const prev = `Intro${slide(box(1, "a", "Alpha"), box(2, "b", "Beta"))}`;
     const next = `Intro by remote${slide(box(1, "a", "Alpha"), box(2, "b", "Beta by remote"))}`;
