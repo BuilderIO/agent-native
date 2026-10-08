@@ -419,16 +419,41 @@ test.describe.serial("rare-but-real unique paths", () => {
     ).toBe(true);
   });
 
+  // oracle: none — preserves the reported workflow; this test does not assert native Figma output.
   test("Alt-hovering another object while one is selected shows a measurement overlay between them", async ({
     page,
   }) => {
+    const beta = await frameNode(page, "Beta Button");
+    await beta.evaluate((element) => {
+      // Shrink the fixture row's gap so Beta overlaps Alpha's margin hit region.
+      (element as HTMLElement).style.marginLeft = "-8px";
+    });
     await selectByText(page, "Alpha Button");
-    const betaBox = (await (
-      await frameNode(page, "Beta Button")
-    ).boundingBox())!;
+    const betaBox = (await beta.boundingBox())!;
     const measurementOverlay = designFrame(page).locator(
       "[data-agent-native-measurement-overlay]",
     );
+    const spacingRegion = designFrame(page).locator(
+      '[data-agent-native-spacing-region="margin"][data-spacing-key="margin:right"]',
+    );
+    await expect(spacingRegion).toBeVisible();
+    const spacingRegionBox = (await spacingRegion.boundingBox())!;
+    const spacingLeft = Math.max(spacingRegionBox.x, betaBox.x);
+    const spacingRight = Math.min(
+      spacingRegionBox.x + spacingRegionBox.width,
+      betaBox.x + betaBox.width,
+    );
+    const spacingTop = Math.max(spacingRegionBox.y, betaBox.y);
+    const spacingBottom = Math.min(
+      spacingRegionBox.y + spacingRegionBox.height,
+      betaBox.y + betaBox.height,
+    );
+    expect(spacingRight).toBeGreaterThan(spacingLeft);
+    expect(spacingBottom).toBeGreaterThan(spacingTop);
+    const spacingPoint = {
+      x: (spacingLeft + spacingRight) / 2,
+      y: (spacingTop + spacingBottom) / 2,
+    };
     await designFrame(page)
       .locator("body")
       .evaluate((body) => {
@@ -479,15 +504,13 @@ test.describe.serial("rare-but-real unique paths", () => {
     );
     await expect(measurementOverlay).toHaveCSS("display", "none");
 
-    await page.mouse.move(betaBox.x - 20, betaBox.y - 20);
-    await page.keyboard.down("Alt");
     await page.mouse.move(
       betaBox.x + betaBox.width / 2,
       betaBox.y + betaBox.height / 2,
-      {
-        steps: 5,
-      },
     );
+    await expect(measurementOverlay).toHaveCSS("display", "none");
+    await page.keyboard.down("Alt");
+    await page.mouse.move(spacingPoint.x, spacingPoint.y, { steps: 2 });
     await expect(measurementOverlay).toHaveCSS("display", "block");
     const readAltSpacingEvents = () =>
       designFrame(page)
@@ -516,6 +539,8 @@ test.describe.serial("rare-but-real unique paths", () => {
       altSpacingEvents.every((event) => event.display === "block"),
       `measurement overlay should remain visible after spacing hits: ${JSON.stringify(altSpacingEvents)}`,
     ).toBe(true);
+    await page.waitForTimeout(160);
+    await expect(measurementOverlay).toHaveCSS("display", "block");
     await expect(measurementOverlay.locator("div")).not.toHaveCount(0);
     await page.keyboard.up("Alt");
     await expect(measurementOverlay).toHaveCSS("display", "none");

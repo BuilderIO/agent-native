@@ -2895,20 +2895,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             importedFrom.concat(importedUrl.href),
             depth + 1,
           );
-          var importedDataUrl: string = await new Promise(
-            function (resolve, reject) {
-              var reader = new FileReader();
-              reader.onload = function () {
-                resolve(typeof reader.result === "string" ? reader.result : "");
-              };
-              reader.onerror = function () {
-                reject(reader.error || new Error("stylesheet encoding failed"));
-              };
-              reader.readAsDataURL(
-                new Blob([importedCss], { type: "text/css;charset=utf-8" }),
-              );
-            },
-          );
+          var importedDataUrl: string = await new Promise(function (
+            resolve,
+            reject,
+          ) {
+            var reader = new FileReader();
+            reader.onload = function () {
+              resolve(typeof reader.result === "string" ? reader.result : "");
+            };
+            reader.onerror = function () {
+              reject(reader.error || new Error("stylesheet encoding failed"));
+            };
+            reader.readAsDataURL(
+              new Blob([importedCss], { type: "text/css;charset=utf-8" }),
+            );
+          });
           if (!importedDataUrl) throw new Error("stylesheet encoding failed");
           var importQualifier = String(importMatch[3] || "").trim();
           result +=
@@ -27307,6 +27308,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   function handleShieldPointerMove(e) {
     if (readOnly || interactionMode) return;
+    var isAltSpacingRegionPointerMove = Boolean(
+      e.altKey &&
+      spacingKeyFromTarget(
+        e.target && e.target.nodeType === 1 ? e.target : null,
+      ),
+    );
+    if (isAltSpacingRegionPointerMove) clearSpacingHoverTimer();
     stopNativeInteraction(e);
     hoveredEl = resolveHoverTarget(
       e.clientX,
@@ -27315,7 +27323,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     if (!hoveredEl) {
       highlightOverlay.style.display = "none";
-      if (!spacingDrag) {
+      if (!spacingDrag && !isAltSpacingRegionPointerMove) {
         scheduleSpacingHoverClear(e);
       }
       hideMeasurements();
@@ -27343,7 +27351,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           updateSpacingOverlay(selectedEl);
         }
       } else {
-        scheduleSpacingHoverClear(e);
+        if (!isAltSpacingRegionPointerMove) scheduleSpacingHoverClear(e);
       }
     }
     if (hoveredEl === selectedEl) {

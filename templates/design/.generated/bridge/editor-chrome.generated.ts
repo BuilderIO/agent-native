@@ -2950,20 +2950,18 @@ export const editorChromeBridgeScript: string = `"use strict";
               importedFrom.concat(importedUrl.href),
               depth + 1
             );
-            var importedDataUrl = await new Promise(
-              function(resolve, reject) {
-                var reader = new FileReader();
-                reader.onload = function() {
-                  resolve(typeof reader.result === "string" ? reader.result : "");
-                };
-                reader.onerror = function() {
-                  reject(reader.error || new Error("stylesheet encoding failed"));
-                };
-                reader.readAsDataURL(
-                  new Blob([importedCss], { type: "text/css;charset=utf-8" })
-                );
-              }
-            );
+            var importedDataUrl = await new Promise(function(resolve, reject) {
+              var reader = new FileReader();
+              reader.onload = function() {
+                resolve(typeof reader.result === "string" ? reader.result : "");
+              };
+              reader.onerror = function() {
+                reject(reader.error || new Error("stylesheet encoding failed"));
+              };
+              reader.readAsDataURL(
+                new Blob([importedCss], { type: "text/css;charset=utf-8" })
+              );
+            });
             if (!importedDataUrl) throw new Error("stylesheet encoding failed");
             var importQualifier = String(importMatch[3] || "").trim();
             result += '@import url("' + importedDataUrl + '")' + (importQualifier ? " " + importQualifier : "") + ";";
@@ -21318,6 +21316,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     function handleShieldPointerMove(e) {
       if (readOnly || interactionMode) return;
+      var isAltSpacingRegionPointerMove = Boolean(
+        e.altKey && spacingKeyFromTarget(
+          e.target && e.target.nodeType === 1 ? e.target : null
+        )
+      );
+      if (isAltSpacingRegionPointerMove) clearSpacingHoverTimer();
       stopNativeInteraction(e);
       hoveredEl = resolveHoverTarget(
         e.clientX,
@@ -21326,7 +21330,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       if (!hoveredEl) {
         highlightOverlay.style.display = "none";
-        if (!spacingDrag) {
+        if (!spacingDrag && !isAltSpacingRegionPointerMove) {
           scheduleSpacingHoverClear(e);
         }
         hideMeasurements();
@@ -21351,7 +21355,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             updateSpacingOverlay(selectedEl);
           }
         } else {
-          scheduleSpacingHoverClear(e);
+          if (!isAltSpacingRegionPointerMove) scheduleSpacingHoverClear(e);
         }
       }
       if (hoveredEl === selectedEl) {
