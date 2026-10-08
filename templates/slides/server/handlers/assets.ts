@@ -50,7 +50,7 @@ async function readBoundedMultipartFormData(
 
   await assertBodySize(event, limit);
   const body = await readRawBody(h3Event, false);
-  if (!body) return undefined;
+  if (!body || body.byteLength === 0) return undefined;
 
   const headers = new Headers();
   if (contentType) headers.set("content-type", contentType);

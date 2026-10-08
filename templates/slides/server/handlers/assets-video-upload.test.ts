@@ -107,6 +107,27 @@ describe("asset upload request size limit", () => {
     expect(mockReadMultipartFormData).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["image", uploadAsset],
+    ["video", uploadVideoAssetHandler],
+  ] as const)("rejects an empty %s multipart body", async (_kind, handler) => {
+    mockReadRawBody.mockResolvedValueOnce(new Uint8Array(0));
+    const event = {
+      req: new Request("https://slides.example.test/api/assets/upload", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=test" },
+      }),
+    };
+
+    const result = await handler(event as never);
+
+    expect(result).toEqual({
+      error: _kind === "image" ? "No file uploaded" : "No video uploaded",
+    });
+    expect(mockReadMultipartFormData).not.toHaveBeenCalled();
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 400);
+  });
+
   it("does not read an unauthenticated request body", async () => {
     mockResolveSlidesRequestAuth.mockResolvedValueOnce({
       ok: false,

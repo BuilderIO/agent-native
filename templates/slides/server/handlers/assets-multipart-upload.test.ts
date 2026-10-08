@@ -39,7 +39,12 @@ vi.mock("h3", async (importOriginal) => {
 
 import { getResponseStatus, mockEvent } from "h3";
 
-import { MAX_ASSET_REQUEST_SIZE, uploadAsset } from "./assets";
+import {
+  MAX_ASSET_REQUEST_SIZE,
+  MAX_VIDEO_ASSET_REQUEST_SIZE,
+  uploadAsset,
+  uploadVideoAssetHandler,
+} from "./assets";
 
 beforeEach(() => {
   mocks.uploadFile.mockReset();
@@ -108,6 +113,32 @@ it("returns 413 when an image multipart request exceeds the real body limit", as
   );
 
   await uploadAsset(event as never);
+
+  expect(getResponseStatus(event as never)).toBe(413);
+  expect(mocks.uploadFile).not.toHaveBeenCalled();
+  expect(mocks.insertAsset).not.toHaveBeenCalled();
+});
+
+it("returns 413 when a video multipart request exceeds the real body limit", async () => {
+  let remaining = MAX_VIDEO_ASSET_REQUEST_SIZE + 1;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const size = Math.min(1024 * 1024, remaining);
+      controller.enqueue(new Uint8Array(size));
+      remaining -= size;
+      if (remaining === 0) controller.close();
+    },
+  });
+  const event = mockEvent(
+    new Request("https://slides.example.test/api/assets/upload-video", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=upload" },
+      body,
+      duplex: "half",
+    } as RequestInit),
+  );
+
+  await uploadVideoAssetHandler(event as never);
 
   expect(getResponseStatus(event as never)).toBe(413);
   expect(mocks.uploadFile).not.toHaveBeenCalled();
