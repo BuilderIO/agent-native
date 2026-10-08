@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createMutate: vi.fn(),
+  createPending: false,
   replyMutate: vi.fn(),
   reactMutate: vi.fn(),
   resolveMutate: vi.fn(),
@@ -114,7 +115,7 @@ vi.mock("@agent-native/core/client/review", async () => {
     ...actual,
     useCreateReviewComment: () => ({
       mutate: mocks.createMutate,
-      isPending: false,
+      isPending: mocks.createPending,
     }),
     useDeleteReviewComment: () => ({
       mutate: vi.fn(),
@@ -276,6 +277,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     mocks.useRealComposer = false;
     mocks.createMutate.mockReset();
+    mocks.createPending = false;
     mocks.replyMutate.mockReset();
     mocks.reactMutate.mockReset();
     mocks.resolveMutate.mockReset();
@@ -549,6 +551,72 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       },
       resolutionTarget: "human",
     });
+  });
+
+  it("does not number a submitted draft again while its optimistic comment is visible", async () => {
+    const renderPins = () =>
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    await act(async () => renderPins());
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 200,
+            clientY: 180,
+          }),
+        );
+    });
+    expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+        ?.click();
+    });
+    expect(mocks.createMutate).toHaveBeenCalledOnce();
+
+    reviewComments = [
+      comment,
+      {
+        ...comment,
+        id: "rev_comment_pending",
+        threadId: "thread-pending",
+        anchor: { point: { xPct: 75, yPct: 75 } },
+      },
+    ];
+    mocks.createPending = true;
+    await act(async () => renderPins());
+    expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+    expect(document.querySelector("[data-review-test-textarea]")).toBeNull();
+    expect(
+      [
+        ...document.querySelectorAll<HTMLButtonElement>("[data-review-pin]"),
+      ].map((pin) => pin.getAttribute("aria-label")),
+    ).toEqual(["Review comment 1", "Review comment 2"]);
+
+    reviewComments = [comment];
+    mocks.createPending = false;
+    await act(async () => renderPins());
+    expect(
+      document.querySelector("[data-review-test-textarea]"),
+    ).not.toBeNull();
   });
 
   it("repositions a screen pin when its owning frame shell moves", async () => {

@@ -2435,7 +2435,7 @@ export function ReviewCanvasPins({
           );
         });
       })}
-      {draftPin && draftPinPosition ? (
+      {draftPin && draftPinPosition && !createComment.isPending ? (
         <ReviewPin
           key={draftPin.id}
           index={visibleThreads.length}
