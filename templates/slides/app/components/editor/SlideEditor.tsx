@@ -229,6 +229,7 @@ import {
   isLayoutSpacer,
   isSlideObjectGroup,
   isSlideTableStructureElement,
+  resolveMultiSelectableElement,
   isValidSlideClipboardRoot,
   readSlideObjectSelectionFrame,
   readSlideObjectClipboardId,
@@ -285,7 +286,6 @@ import {
   ungroupSlideObject,
 } from "./slide-object-interactions";
 import {
-  clampRangeToTextRoot,
   clampSelectionToTextRoot,
   firstTextLeaf,
   resolveSlidePointerTarget,
@@ -980,17 +980,19 @@ function writeReparentedHeight(element: HTMLElement, height: number) {
 const SELECTION_SYNC_DEBOUNCE_MS = 250;
 let pendingSelectionWrite: {
   timer: ReturnType<typeof setTimeout>;
+  owner: object;
 } | null = null;
 
 /**
  * Publishes the selection locally and writes it to application state. Typing
- * fires this per keystroke, so `debounce` leaves one write per pause; any
- * immediate sync (the end of the edit session included) supersedes the
- * pending one, so the last state always lands.
+ * fires this per keystroke, so `debounce` (with the editor instance that owns
+ * the write) leaves one write per pause; any immediate sync (the end of the
+ * edit session included) supersedes the pending one, so the last state always
+ * lands.
  */
 function syncSelectionToAppState(
   state: SlidesSelectionState | null,
-  { debounce = false }: { debounce?: boolean } = {},
+  { debounce }: { debounce?: object } = {},
 ) {
   if (pendingSelectionWrite) {
     clearTimeout(pendingSelectionWrite.timer);
@@ -1002,11 +1004,19 @@ function syncSelectionToAppState(
     return;
   }
   pendingSelectionWrite = {
+    owner: debounce,
     timer: setTimeout(() => {
       pendingSelectionWrite = null;
       writeSelectionToAppState(state);
     }, SELECTION_SYNC_DEBOUNCE_MS),
   };
+}
+
+/** An unmounted editor must not publish its selection after its successor wrote its own. */
+function cancelPendingSelectionWrite(owner: object) {
+  if (pendingSelectionWrite?.owner !== owner) return;
+  clearTimeout(pendingSelectionWrite.timer);
+  pendingSelectionWrite = null;
 }
 
 function writeSelectionToAppState(state: SlidesSelectionState | null) {
@@ -2681,6 +2691,8 @@ export default function SlideEditor({
       restoreMarkdownTree?: () => void;
       restoreDescendants?: () => void;
     } | null => {
+      // Freezing a cell or row would pull it out of its table.
+      if (isSlideTableStructureElement(element)) return null;
       if (window.getComputedStyle(element).position === "absolute") {
         ensureSlideObjectId(element);
         return { element };
@@ -3308,6 +3320,12 @@ export default function SlideEditor({
     };
   }, [deckId, editingEl, slide.id]);
 
+  const [selectionWriteOwner] = useState(() => ({}));
+  useEffect(
+    () => () => cancelPendingSelectionWrite(selectionWriteOwner),
+    [selectionWriteOwner],
+  );
+
   // Keep canvas gesture handlers from stealing the browser's native text
   // selection stream once an inline edit has started.
   useEffect(() => {
@@ -3365,7 +3383,7 @@ export default function SlideEditor({
             richTextSelectionRef.current?.toString(),
           ),
         ]),
-        { debounce: true },
+        { debounce: selectionWriteOwner },
       );
     };
 
@@ -3753,6 +3771,16 @@ export default function SlideEditor({
       // the same object-selection mode.
       if (ids.size > 0 && editingElRef.current) exitInlineEdit();
       const slideContent = getSlideContent();
+      // Table rows and cells are not movable objects; they select as their table.
+      const members = new Set<string>();
+      for (const id of ids) {
+        const element = slideContent?.querySelector<HTMLElement>(
+          `[data-builder-id="${id}"]`,
+        );
+        const owner = element ? resolveMultiSelectableElement(element) : null;
+        const ownerId = element ? owner?.getAttribute("data-builder-id") : id;
+        if (ownerId) members.add(ownerId);
+      }
       const rects = new Map<
         string,
         { rect: DOMRect; text: string; selector: string }
@@ -3760,7 +3788,7 @@ export default function SlideEditor({
       const items: SlideSelectionItem[] = [];
       const styleSnapshots: SlideStyleSnapshot[] = [];
       if (slideContent) {
-        ids.forEach((id) => {
+        members.forEach((id) => {
           const el = slideContent.querySelector(
             `[data-builder-id="${id}"]`,
           ) as HTMLElement | null;
@@ -3777,9 +3805,9 @@ export default function SlideEditor({
           items.push(selectionItemForElement(el, runtimeSelector));
         });
       }
-      setMultiSelection(ids);
+      setMultiSelection(members);
       setMultiSelectionRects(rects);
-      if (ids.size > 0) {
+      if (members.size > 0) {
         clearSelectedElement();
         setSelectedStyleSnapshot(mergeSlideStyleSnapshots(styleSnapshots));
         setSelectedImg(null);
@@ -3857,6 +3885,9 @@ export default function SlideEditor({
       if (!slideContent || !element) return;
 
       if (additive) {
+        const owner = resolveMultiSelectableElement(element);
+        const ownerId = owner?.getAttribute("data-builder-id");
+        if (!ownerId) return;
         const next = new Set(multiSelection);
         if (next.size === 0) {
           const selected = resolveSlideClipboardElement(
@@ -3864,11 +3895,14 @@ export default function SlideEditor({
             selectedImg,
             slideContent,
           );
-          const selectedId = selected?.getAttribute("data-builder-id");
-          if (selectedId && selectedId !== id) next.add(selectedId);
+          const selectedOwner = selected
+            ? resolveMultiSelectableElement(selected)
+            : null;
+          const selectedId = selectedOwner?.getAttribute("data-builder-id");
+          if (selectedId && selectedId !== ownerId) next.add(selectedId);
         }
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
+        if (next.has(ownerId)) next.delete(ownerId);
+        else next.add(ownerId);
         if (next.size === 0) clearMultiSelection();
         else applyMultiSelection(next);
         return;
@@ -6048,7 +6082,6 @@ export default function SlideEditor({
 
       const promoteForDrag = () => {
         if (origin) return true;
-        if (isSlideTableStructureElement(element)) return false;
         const frozen = freezeElementForFreeformSelection(element);
         if (!frozen) {
           return false;
@@ -8417,6 +8450,19 @@ export default function SlideEditor({
         if (isSlideCanvasShell(el)) return;
         if (isInlineTextElement(el)) return;
         if (isTransparentLayoutWrapper(el, { root: slideContent })) return;
+        // A table is one object: any of its cells under the marquee selects it.
+        if (isSlideTableStructureElement(el)) {
+          const table = resolveMultiSelectableElement(el);
+          const tableId = table?.getAttribute("data-builder-id");
+          if (
+            table &&
+            tableId &&
+            rectsIntersect(marqueeRect, table.getBoundingClientRect())
+          ) {
+            hits.add(tableId);
+          }
+          return;
+        }
         const selectable =
           el.tagName === "IMG" || el.classList.contains("fmd-img-placeholder")
             ? (findPersistedImageObject(el, slideContent) ?? el)
@@ -9006,14 +9052,8 @@ export default function SlideEditor({
         )
       ) {
         const selection = window.getSelection();
-        if (selection?.rangeCount === 1) {
-          const clamped = clampRangeToTextRoot(
-            selection.getRangeAt(0),
-            pressedObject.textRoot,
-          );
-          selection.removeAllRanges();
-          selection.addRange(clamped);
-        }
+        if (selection)
+          clampSelectionToTextRoot(selection, pressedObject.textRoot);
         if (multiSelection.size > 0) clearMultiSelection();
         setSelectedImg(null);
         setImageOverlay(null);
@@ -9043,17 +9083,26 @@ export default function SlideEditor({
 
       // --- Shift / Cmd / Ctrl click → toggle membership in the multi-selection
       if (additive) {
-        const id = hit?.object.getAttribute("data-builder-id");
+        const id = hit
+          ? resolveMultiSelectableElement(hit.object)?.getAttribute(
+              "data-builder-id",
+            )
+          : null;
         if (!id) return;
         e.preventDefault();
         e.stopPropagation();
         const next = new Set(multiSelection);
         if (next.size === 0) {
-          const selectedId = resolveSlideClipboardElement(
+          const selected = resolveSlideClipboardElement(
             resolveSelectedElement(),
             selectedImg,
             slideContent,
-          )?.getAttribute("data-builder-id");
+          );
+          const selectedId = selected
+            ? resolveMultiSelectableElement(selected)?.getAttribute(
+                "data-builder-id",
+              )
+            : null;
           if (selectedId && selectedId !== id) next.add(selectedId);
         }
         if (next.has(id)) next.delete(id);

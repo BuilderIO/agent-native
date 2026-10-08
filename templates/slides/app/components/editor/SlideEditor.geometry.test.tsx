@@ -598,6 +598,24 @@ describe("outline while typing", () => {
     expect(writes).toBe(4);
   });
 
+  it("drops a pending application-state write when the editor unmounts", async () => {
+    const editor = await mountEditor(FIT_SLIDE);
+    editor.click("box", { x: 110, y: 110 });
+    const box = editor.el("box");
+    window.getSelection()!.collapse(box.firstChild!, 5);
+    type(box, "!");
+    await wait(320);
+    setClientAppState.mockClear();
+
+    type(box, "x");
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(setClientAppState).not.toHaveBeenCalled();
+
+    editor.unmount();
+    await wait(320);
+    expect(setClientAppState).not.toHaveBeenCalled();
+  });
+
   it("keeps the outline up after a draft capture changes the slide content", async () => {
     const editor = await mountEditor(FIT_SLIDE);
     editor.click("box", { x: 110, y: 110 });

@@ -406,17 +406,3 @@ export function clampSelectionToTextRoot(
     nextFocusOffset,
   );
 }
-
-/** Keeps a native selection range inside the text root the press started in. */
-export function clampRangeToTextRoot(range: Range, root: HTMLElement): Range {
-  const clamped = range.cloneRange();
-  const bounds = root.ownerDocument.createRange();
-  bounds.selectNodeContents(root);
-  if (clamped.compareBoundaryPoints(Range.START_TO_START, bounds) < 0) {
-    clamped.setStart(bounds.startContainer, bounds.startOffset);
-  }
-  if (clamped.compareBoundaryPoints(Range.END_TO_END, bounds) > 0) {
-    clamped.setEnd(bounds.endContainer, bounds.endOffset);
-  }
-  return clamped;
-}
