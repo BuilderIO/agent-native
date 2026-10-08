@@ -1004,6 +1004,78 @@ describe("useBuilderConnectFlow", () => {
       expect(container.textContent).toContain("configured idle resolved");
     });
 
+    it("ignores a failed credential refresh after a newer attempt starts", async () => {
+      let statusReads = 0;
+      let activationPosts = 0;
+      let rejectRefresh: (() => void) | null = null;
+      let resolveNewActivation: ((response: Response) => void) | null = null;
+      let newActivationComplete = false;
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          activationPosts += 1;
+          if (activationPosts === 1) {
+            return activationResponse(403, {
+              ok: false,
+              code: "provision_token_invalid",
+              message: "This activation link is expired.",
+            });
+          }
+          return new Promise<Response>((resolve) => {
+            resolveNewActivation = resolve;
+          });
+        }
+
+        statusReads += 1;
+        if (statusReads === 1) return jsonResponse(activationStatus);
+        if (statusReads === 2) {
+          return new Promise<Response>((_, reject) => {
+            rejectRefresh = () => reject(new TypeError("Failed to fetch"));
+          });
+        }
+        return jsonResponse(
+          newActivationComplete ? connectedBuilderStatus : activationStatus,
+        );
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(rejectRefresh).not.toBeNull();
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+          ?.click();
+      });
+      await clickConnect();
+      expect(activationPosts).toBe(2);
+      expect(container.textContent).toContain("not-configured connecting");
+
+      await act(async () => {
+        rejectRefresh?.();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(container.textContent).toContain("not-configured connecting");
+      expect(
+        container.querySelector('[data-testid="status-unavailable"]')
+          ?.textContent,
+      ).toBe("available");
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("");
+
+      await act(async () => {
+        newActivationComplete = true;
+        resolveNewActivation?.(activationResponse(200, { ok: true }));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      expect(container.textContent).toContain("configured idle resolved");
+    });
+
     it("refreshes both tokens before the first request when the signed connect URL is stale", async () => {
       let refreshed = false;
       const posts: Array<{ provisioningToken: string; connectToken: string }> =

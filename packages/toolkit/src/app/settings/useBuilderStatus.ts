@@ -1285,6 +1285,7 @@ export function useBuilderConnectFlow(
         const freshProvisioningCredentials = async () => {
           // coercion-ok: no fresh token is sent as none and refused as provision_token_invalid
           const status = await fetchStatus();
+          if (!isCurrentAttempt()) return null;
           if (!status) {
             markStatusUnavailable();
             return null;
@@ -1316,6 +1317,7 @@ export function useBuilderConnectFlow(
               : null;
           const credentials =
             cachedCredentials ?? (await freshProvisioningCredentials());
+          if (!isCurrentAttempt()) return;
           if (!credentials) {
             connectStartedAtRef.current = null;
             setConnecting(false);
