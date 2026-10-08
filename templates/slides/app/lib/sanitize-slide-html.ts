@@ -251,6 +251,9 @@ function sanitizeStyle(style: string): string {
 const EXISTING_SCOPE_PREFIX =
   /^(?:\[data-slide-content-scope(?:=(?:"[^"]*"|'[^']*'|[^\]\s]*))?\](?:\s+|$))+/;
 
+/** `from`, `to`, `50%`: the only selectors valid inside `@keyframes`, never scopable. */
+const KEYFRAME_SELECTOR = /^(?:from|to|\d*\.?\d+%)$/i;
+
 function scopeCssSelector(selector: string, scopeSelector?: string): string {
   const trimmed = selector.trim();
   if (!scopeSelector || !trimmed || trimmed.startsWith("@")) return trimmed;
@@ -262,6 +265,7 @@ function scopeCssSelector(selector: string, scopeSelector?: string): string {
       const item = scoped.replace(EXISTING_SCOPE_PREFIX, "").trim();
       if (!scoped) return "";
       if (!item) return scopeSelector;
+      if (KEYFRAME_SELECTOR.test(item)) return item;
       if (item === "*") return `${scopeSelector}, ${scopeSelector} *`;
       if (/^(?:html|body|:root)\b/i.test(item)) {
         return item.replace(/^(?:html|body|:root)\b/i, scopeSelector);
