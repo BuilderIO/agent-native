@@ -44,7 +44,9 @@ export type WorkflowJob = {
   name: string;
   status: string;
   conclusion: string | null;
+  started_at: string | null;
   completed_at: string | null;
+  runner_name: string | null;
   steps: WorkflowStep[];
 };
 
@@ -302,6 +304,17 @@ function parseWorkflowJob(value: unknown, context: string): WorkflowJob {
     "completed_at",
     context,
   );
+  const startedAt = record.started_at;
+  if (
+    startedAt !== null &&
+    (typeof startedAt !== "string" || !Number.isFinite(Date.parse(startedAt)))
+  ) {
+    return invalid(context, `workflow job ${id} has invalid started_at`);
+  }
+  const runnerName = record.runner_name;
+  if (runnerName !== null && typeof runnerName !== "string") {
+    return invalid(context, `workflow job ${id} has invalid runner_name`);
+  }
   if (record.status === "completed" && !completedAt) {
     return invalid(
       context,
@@ -317,7 +330,9 @@ function parseWorkflowJob(value: unknown, context: string): WorkflowJob {
     name: requiredString(record.name, "name", context),
     status: requiredString(record.status, "status", context),
     conclusion: jobConclusion,
+    started_at: startedAt,
     completed_at: completedAt,
+    runner_name: runnerName,
     steps,
   };
 }
@@ -474,6 +489,22 @@ export function buildCiRedRows(
       RED_CONCLUSIONS.has(job.conclusion ?? ""),
     );
     if (failedJobs.length === 0) {
+      if (
+        jobs.length > 0 &&
+        jobs.some((job) => job.conclusion === "cancelled") &&
+        jobs.every(
+          (job) =>
+            job.conclusion === "cancelled" || job.conclusion === "skipped",
+        ) &&
+        jobs.every(
+          (job) =>
+            job.conclusion !== "cancelled" ||
+            // GitHub may set started_at before a queued job acquires a runner.
+            ((job.runner_name === null || job.runner_name.trim() === "") &&
+              job.steps.length === 0),
+        )
+      )
+        continue;
       rows.push(
         rowFor(
           run,
