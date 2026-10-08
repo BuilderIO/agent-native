@@ -247,6 +247,7 @@ export interface ElementSelectionIntent {
   metaKey?: boolean;
   ctrlKey?: boolean;
   selectedScreenIds?: string[];
+  marqueeSelectedScreenIds?: string[];
 }
 
 export interface CanvasLayerHitCandidate {

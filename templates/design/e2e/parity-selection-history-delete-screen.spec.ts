@@ -606,6 +606,75 @@ test("Shift-reselecting an owner Screen makes Delete target the Screen", async (
   }
 });
 
+// oracle: none — this checks explicit Screen intent from additive marquee selection, not a Figma observation.
+test("Shift-marquee reselecting an owner Screen makes Delete target the Screen", async ({
+  page,
+}) => {
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    const blueBoxId = await blueBoxButton.getAttribute("data-layer-node-id");
+    expect(blueBoxId).toBeTruthy();
+    await blueBoxButton.click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+
+    const homeTitle = page.locator(
+      `[data-frame-id="${homeId}"] [data-frame-title]`,
+    );
+    await homeTitle.click({ modifiers: ["Shift"] });
+    await page.waitForTimeout(550);
+    await homeTitle.click({ modifiers: ["Shift"] });
+
+    const frame = page.locator(`[data-frame-id="${homeId}"]`);
+    const frameBox = await frame.boundingBox();
+    const canvas = await page
+      .locator("[data-multi-screen-canvas-surface]")
+      .boundingBox();
+    expect(frameBox).not.toBeNull();
+    expect(canvas).not.toBeNull();
+
+    const from = { x: frameBox!.x - 16, y: frameBox!.y - 16 };
+    const to = {
+      x: frameBox!.x + frameBox!.width + 16,
+      y: frameBox!.y + frameBox!.height + 16,
+    };
+    expect(from.x).toBeGreaterThanOrEqual(canvas!.x);
+    expect(from.y).toBeGreaterThanOrEqual(canvas!.y);
+    expect(to.x).toBeLessThanOrEqual(canvas!.x + canvas!.width);
+    expect(to.y).toBeLessThanOrEqual(canvas!.y + canvas!.height);
+
+    const shiftMarqueeHome = async () => {
+      await page.keyboard.down("Shift");
+      try {
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(to.x, to.y, { steps: 12 });
+        await page.mouse.up();
+      } finally {
+        await page.keyboard.up("Shift");
+      }
+      await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+    };
+
+    await shiftMarqueeHome();
+    await page.waitForTimeout(550);
+    await shiftMarqueeHome();
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Home")).toHaveCount(0);
+    await expect(layerRow(page, "Blue Box")).toHaveCount(0);
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 // oracle: none — this checks app selection history and deletion behavior, not a Figma observation.
 test("undoing a canvas element click restores its explicit Screen target for Delete", async ({
   page,

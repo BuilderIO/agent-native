@@ -24391,7 +24391,10 @@ function DesignEditor() {
     (
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
-      options: { clearExplicitScreenSelection?: boolean } = {},
+      options: {
+        clearExplicitScreenSelection?: boolean;
+        marqueeSelectedScreenIds?: string[];
+      } = {},
     ) => {
       if (!intent.cancelled) selectionRevisionRef.current += 1;
       recordMarqueeSelectionHistoryAroundChange(() => {
@@ -24400,6 +24403,26 @@ function DesignEditor() {
           (intent.source !== "marquee" || options.clearExplicitScreenSelection)
         ) {
           explicitOverviewScreenSelectionRef.current = [];
+        }
+        if (
+          !intent.cancelled &&
+          intent.final === true &&
+          options.marqueeSelectedScreenIds
+        ) {
+          const selectedScreenIds = new Set(intent.selectedScreenIds ?? []);
+          const explicitScreenIds =
+            explicitOverviewScreenSelectionRef.current.filter((screenId) =>
+              selectedScreenIds.has(screenId),
+            );
+          for (const screenId of options.marqueeSelectedScreenIds) {
+            if (
+              selectedScreenIds.has(screenId) &&
+              !explicitScreenIds.includes(screenId)
+            ) {
+              explicitScreenIds.push(screenId);
+            }
+          }
+          explicitOverviewScreenSelectionRef.current = explicitScreenIds;
         }
         runLayerMarqueeSelectionChange(
           {
@@ -24448,6 +24471,9 @@ function DesignEditor() {
             intent.metaKey === true ||
             intent.ctrlKey === true ||
             intent.selectedScreenIds?.length === 0),
+        marqueeSelectedScreenIds: intent.final
+          ? intent.marqueeSelectedScreenIds
+          : undefined,
       }),
     [handleLayerMarqueeSelectionChange],
   );
