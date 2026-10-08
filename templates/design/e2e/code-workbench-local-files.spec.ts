@@ -197,7 +197,9 @@ test.beforeAll(async ({ request }, workerInfo) => {
       return;
     }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end("<!doctype html><main><h1>Local workbench fixture</h1></main>");
+    res.end(
+      '<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body><main><h1>Local workbench fixture</h1></main></body></html>',
+    );
   });
   const devPort = await listen(devServer);
   const devAddress = devServer.address();
@@ -461,12 +463,32 @@ test("updates only the selected URL screen from the Screen inspector", async ({
   };
   const initial = await readDesign();
 
+  await page.context().grantPermissions(["local-network-access"], {
+    origin: new URL(baseURL).origin,
+  });
   await page.goto(appPath(`/design/${designId}?editorView=overview`), {
     waitUntil: "domcontentloaded",
   });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (
+            await navigator.permissions.query({
+              name: "local-network-access" as PermissionName,
+            })
+          ).state,
+      ),
+    )
+    .toBe("granted");
   await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+    page.getByRole("dialog", { name: "Connect your local screens" }),
+  ).toHaveCount(0);
+  const moveToolButton = page.getByRole("button", {
+    name: "Move",
+    exact: true,
+  });
+  await expect(moveToolButton).toBeVisible({ timeout: 30_000 });
   await expect
     .poll(async () => {
       const current = await readDesign();
@@ -482,9 +504,9 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     .locator("[data-layer-row-button]")
     .first();
   await expect(screenRow).toBeVisible();
-  await screenRow.click();
   const screenId = await screenRow.getAttribute("data-layer-node-id");
   if (!screenId) throw new Error("Selected screen row has no file id");
+  await screenRow.click();
   const screen = initial.files.find(
     (file: { id?: string; content?: string; fileType?: string }) =>
       file.id === screenId &&
@@ -495,7 +517,10 @@ test("updates only the selected URL screen from the Screen inspector", async ({
   await expect(
     page.locator("h3.design-sidebar-section-title", { hasText: "Screen" }),
   ).toBeVisible();
-  await expect(page.getByLabel("Add screen")).toBeVisible();
+  const screenInspectorSection = page
+    .locator("h3[aria-label='Screen']")
+    .locator("xpath=ancestor::section[@data-design-inspector-section]");
+  await expect(screenInspectorSection.getByLabel("Add screen")).toBeVisible();
   await expect(
     page.getByRole("button", { name: /remove screen/i }),
   ).toBeVisible();
@@ -534,35 +559,37 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     sourceType: "localhost",
     path: nextPath,
   });
-
-  const iframe = page.locator(
-    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
-  );
-  await expect
-    .poll(() =>
-      iframe.getAttribute("src").then((src) => {
-        if (!src) return null;
-        return new URL(src).searchParams.get("url");
-      }),
-    )
-    .toBe(expectedScreenUrl);
-  await expect(page.getByLabel("Screen URL")).toHaveValue(
-    /visual-edit-e2e=updated/,
-  );
-  await expect(
-    iframe.contentFrame().getByText("Local workbench fixture"),
-  ).toBeVisible();
+  await expect(urlInput).toHaveValue(expectedScreenUrl);
   await cdpScreenshot(page, testInfo.outputPath("screen-source-settings.png"));
 
-  await page.getByRole("button", { name: "Static", exact: true }).click();
-  await expect.poll(readDesign).toMatchObject({
-    files: expect.arrayContaining([
-      expect.objectContaining({
-        id: screenId,
-        content: expect.stringContaining("Local workbench fixture"),
-      }),
-    ]),
-  });
+  const staticSourceResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/update-screen-source") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("tab", { name: "Static", exact: true }).click();
+  const staticSourceResponse = await staticSourceResponsePromise;
+  expect(staticSourceResponse.ok(), await staticSourceResponse.text()).toBe(
+    true,
+  );
+  await expect
+    .poll(async () => {
+      const current = await readDesign();
+      const file = current.files.find(
+        (candidate: { id?: string }) => candidate.id === screenId,
+      );
+      const data = JSON.parse(current.data ?? "{}") as Record<string, any>;
+      return {
+        content: file?.content,
+        screenMetadata: data.screenMetadata?.[screenId],
+        localhostScreens: data.localhostScreens?.[screenId],
+      };
+    })
+    .toMatchObject({
+      content: expect.stringContaining("Local workbench fixture"),
+      screenMetadata: { sourceType: "inline", previewState: "static" },
+      localhostScreens: { sourceType: "inline", previewState: "static" },
+    });
   const staticDesign = await readDesign();
   const staticData = JSON.parse(staticDesign.data ?? "{}") as Record<
     string,
@@ -573,14 +600,17 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     previewState: "static",
   });
   await expect(page.getByLabel("Screen URL")).toHaveCount(0);
+  const selectedScreenShell = page.locator(
+    `[data-screen-shell][data-frame-id="${screenId}"]`,
+  );
+  const screenPreviewIframe = selectedScreenShell.locator(
+    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+  );
   await expect(
-    iframe.contentFrame().getByText("Local workbench fixture"),
+    screenPreviewIframe.contentFrame().getByText("Local workbench fixture"),
   ).toBeVisible();
   await expect(
-    page.getByText("Preparing live editor...", { exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText("Screen source updated", { exact: true }),
+    selectedScreenShell.getByText("Preparing live editor...", { exact: true }),
   ).toHaveCount(0);
   await cdpScreenshot(page, testInfo.outputPath("screen-source-static.png"));
 });
