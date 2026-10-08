@@ -576,12 +576,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     screenSelectionRegressions,
-    /^        if: matrix\.shard == 'screen-history'$/m,
-    "Screen-selection regressions must run once on their dedicated shard",
+    /^        if: startsWith\(matrix\.shard, 'screen-history-'\)$/m,
+    "Screen-selection regressions must run only on their dedicated shards",
   );
   assert.match(
     regressionCases,
-    /^        if: matrix\.shard != 'screen-history'$/m,
+    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
     "the focused regression selectors must not run on the Screen-history shard",
   );
   assert.match(
@@ -595,6 +595,29 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     "each Screen-history shard needs isolated application state",
   );
+  const screenHistoryCases = [
+    "deleting a selected child layer keeps its owning Screen",
+    "undo restores a child layer with its additive Screen selection",
+    "marquee-selecting child elements after a Screen pick deletes only the elements",
+    "undoing a canvas element click restores its explicit Screen target for Delete",
+    "failed Screen deletion keeps the explicit Screen target for retry",
+    "a newer layer selection survives failed Screen deletion settlement",
+    "Shift-marquee adds a hit Screen to the existing Delete selection",
+    "a newer Screen pick survives failed Screen deletion settlement",
+    "a newer sidebar Screen selection survives failed Screen deletion settlement",
+    "Select All Screens survives failed Screen deletion settlement",
+    "marquee selection persists and deletes Screens after a prior layer selection",
+    "deep-select marquee over a Screen deletes only the child",
+    "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
+    "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
+  ];
+  for (const title of screenHistoryCases) {
+    assert.equal(
+      screenSelectionRegressions.split(title).length - 1,
+      1,
+      `Screen-history case must be selected exactly once: ${title}`,
+    );
+  }
   assert.deepEqual(
     [...regressionCases.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
       Number(count),
@@ -639,7 +662,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,\s*screen-history,?\s*\]/,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,\s*screen-history-1,\s*screen-history-2,\s*screen-history-3,?\s*\]/,
   );
   const fixedLocations = (start: number, end: number) =>
     [
