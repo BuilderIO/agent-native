@@ -819,7 +819,6 @@ describe("resolveSlidePointerTarget on slide-number digits", () => {
       point: { x: 106, y: 20 },
       stack: [token, footer, root],
     });
-    expect(target.hit).toBe("text");
-    expect(target.textRoot).toBe(footer);
+    expect(target).toMatchObject({ hit: "text", textRoot: footer });
   });
 });
