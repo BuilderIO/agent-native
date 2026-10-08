@@ -1525,7 +1525,7 @@ export function createHttpAgentChatRuntime<
     };
 
     const continueTurn = options.continueTurn
-      ? async (continuation: AgentChatRuntimeContinueInput = {}) => {
+      ? (continuation: AgentChatRuntimeContinueInput = {}) => {
           let previousTurnId = continuation.turnId;
           const previousTurn = previousTurnId
             ? previousTurns.get(previousTurnId)
@@ -1538,16 +1538,18 @@ export function createHttpAgentChatRuntime<
               }
             }
           }
-          const continuedTurn = await options.continueTurn!({
+          const continuedTurn = options.continueTurn!({
             session: summary,
             continuation,
             previousTurn,
             startTurn,
           });
-          if (previousTurn && previousTurnId) {
-            forgetTurnContext(previousTurnId, previousTurn);
-          }
-          return continuedTurn;
+          return Promise.resolve(continuedTurn).then((result) => {
+            if (previousTurn && previousTurnId) {
+              forgetTurnContext(previousTurnId, previousTurn);
+            }
+            return result;
+          });
         }
       : undefined;
 
