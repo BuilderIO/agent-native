@@ -1299,6 +1299,7 @@ function ElementSelectionOutline({
   allowBodyMove = true,
   onRotateStart,
   parent = false,
+  resizable = true,
 }: {
   rect: DOMRect;
   frame?: SelectionOverlayMeasurement["frame"];
@@ -1309,6 +1310,8 @@ function ElementSelectionOutline({
   onRotateStart?: (e: React.PointerEvent) => void;
   /** The group of the selected member: same frame, drawn gray, no gestures. */
   parent?: boolean;
+  /** False for a table cell or row: it is styled in place, never resized. */
+  resizable?: boolean;
 }) {
   const pad = 2;
   const left = frame?.left ?? rect.left;
@@ -1392,94 +1395,110 @@ function ElementSelectionOutline({
             </span>
           </>
         )}
-        <span
-          data-slide-resize-handle="nw"
-          onPointerDown={(e) => onResizeStart?.("nw", e)}
-          className={handleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "nwse-resize",
-            zIndex: 2,
-          }}
-        />
-        <span
-          data-slide-resize-handle="ne"
-          onPointerDown={(e) => onResizeStart?.("ne", e)}
-          className={handleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "nesw-resize",
-            zIndex: 2,
-          }}
-        />
-        <span
-          data-slide-resize-handle="sw"
-          onPointerDown={(e) => onResizeStart?.("sw", e)}
-          className={handleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "nesw-resize",
-            zIndex: 2,
-          }}
-        />
-        <span
-          data-slide-resize-handle="se"
-          onPointerDown={(e) => onResizeStart?.("se", e)}
-          className={handleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "nwse-resize",
-            zIndex: 2,
-          }}
-        />
-        <span
-          data-slide-resize-handle="n"
-          onPointerDown={(e) => onResizeStart?.("n", e)}
-          className={edgeHandleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "ns-resize",
-            zIndex: 1,
-          }}
-        >
-          <span data-slide-resize-handle-bar="true" className={edgeBarClass} />
-        </span>
-        <span
-          data-slide-resize-handle="e"
-          onPointerDown={(e) => onResizeStart?.("e", e)}
-          className={edgeHandleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "ew-resize",
-            zIndex: 1,
-          }}
-        >
-          <span data-slide-resize-handle-bar="true" className={edgeBarClass} />
-        </span>
-        <span
-          data-slide-resize-handle="s"
-          onPointerDown={(e) => onResizeStart?.("s", e)}
-          className={edgeHandleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "ns-resize",
-            zIndex: 1,
-          }}
-        >
-          <span data-slide-resize-handle-bar="true" className={edgeBarClass} />
-        </span>
-        <span
-          data-slide-resize-handle="w"
-          onPointerDown={(e) => onResizeStart?.("w", e)}
-          className={edgeHandleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "ew-resize",
-            zIndex: 1,
-          }}
-        >
-          <span data-slide-resize-handle-bar="true" className={edgeBarClass} />
-        </span>
+        {resizable && (
+          <>
+            <span
+              data-slide-resize-handle="nw"
+              onPointerDown={(e) => onResizeStart?.("nw", e)}
+              className={handleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "nwse-resize",
+                zIndex: 2,
+              }}
+            />
+            <span
+              data-slide-resize-handle="ne"
+              onPointerDown={(e) => onResizeStart?.("ne", e)}
+              className={handleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "nesw-resize",
+                zIndex: 2,
+              }}
+            />
+            <span
+              data-slide-resize-handle="sw"
+              onPointerDown={(e) => onResizeStart?.("sw", e)}
+              className={handleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "nesw-resize",
+                zIndex: 2,
+              }}
+            />
+            <span
+              data-slide-resize-handle="se"
+              onPointerDown={(e) => onResizeStart?.("se", e)}
+              className={handleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "nwse-resize",
+                zIndex: 2,
+              }}
+            />
+            <span
+              data-slide-resize-handle="n"
+              onPointerDown={(e) => onResizeStart?.("n", e)}
+              className={edgeHandleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "ns-resize",
+                zIndex: 1,
+              }}
+            >
+              <span
+                data-slide-resize-handle-bar="true"
+                className={edgeBarClass}
+              />
+            </span>
+            <span
+              data-slide-resize-handle="e"
+              onPointerDown={(e) => onResizeStart?.("e", e)}
+              className={edgeHandleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "ew-resize",
+                zIndex: 1,
+              }}
+            >
+              <span
+                data-slide-resize-handle-bar="true"
+                className={edgeBarClass}
+              />
+            </span>
+            <span
+              data-slide-resize-handle="s"
+              onPointerDown={(e) => onResizeStart?.("s", e)}
+              className={edgeHandleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "ns-resize",
+                zIndex: 1,
+              }}
+            >
+              <span
+                data-slide-resize-handle-bar="true"
+                className={edgeBarClass}
+              />
+            </span>
+            <span
+              data-slide-resize-handle="w"
+              onPointerDown={(e) => onResizeStart?.("w", e)}
+              className={edgeHandleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "ew-resize",
+                zIndex: 1,
+              }}
+            >
+              <span
+                data-slide-resize-handle-bar="true"
+                className={edgeBarClass}
+              />
+            </span>
+          </>
+        )}
       </div>
     </SelectionOverlayPortal>
   );
@@ -6216,7 +6235,12 @@ export default function SlideEditor({
       const slideCanvas = element?.closest(
         ".fmd-slide, [data-slide-canvas]",
       ) as HTMLElement | null;
-      if (!element || !slideCanvas || isSlideCanvasShell(element)) {
+      if (
+        !element ||
+        !slideCanvas ||
+        isSlideCanvasShell(element) ||
+        isSlideTableStructureElement(element)
+      ) {
         return;
       }
       e.preventDefault();
@@ -7095,7 +7119,9 @@ export default function SlideEditor({
           metaKey: moveEvent.metaKey,
           ctrlKey: moveEvent.ctrlKey,
         });
-        if (update.phase === "active") moveEvent.preventDefault();
+        if (update.phase !== "active") return;
+        moveEvent.preventDefault();
+        window.getSelection()?.removeAllRanges();
       };
 
       const onUp = (upEvent: PointerEvent) => {
@@ -7271,7 +7297,9 @@ export default function SlideEditor({
             ? (findPersistedImageObject(selectedImg, slideContent) ??
               selectedImg)
             : null);
-        if (!promotionSource) return;
+        if (!promotionSource || isSlideTableStructureElement(promotionSource)) {
+          return;
+        }
       }
 
       e.preventDefault();
@@ -8162,6 +8190,9 @@ export default function SlideEditor({
       if (multiSelection.size > 0 && hit.kind === "object") {
         const id = hit.object.getAttribute("data-builder-id");
         if (id && multiSelection.has(id)) {
+          // An additive press may still toggle on click; the click is
+          // delivered either way, so only the native text selection is held.
+          if (!additive) e.preventDefault();
           startGroupDrag(e, multiSelection);
           return;
         }
@@ -9798,6 +9829,9 @@ export default function SlideEditor({
     selectionRoot &&
     findSlideShapeOwner(selectedForDrag, selectionRoot) === selectedForDrag,
   );
+  const selectedIsTableStructure = Boolean(
+    selectedForDrag && isSlideTableStructureElement(selectedForDrag),
+  );
   const objectOperationSelection = getObjectOperationSelection();
   const hasClipboardSelection = getClipboardSelection() !== null;
   const objectSelectionCount = objectOperationSelection?.elements.length ?? 0;
@@ -10408,13 +10442,14 @@ export default function SlideEditor({
               ? (e) => startElementDrag(e, selectedForDrag)
               : undefined
           }
+          resizable={!selectedIsTableStructure}
           onResizeStart={
             !readOnly && isSelectedElementDraggable && selectedElementFrame
               ? startElementResize
               : undefined
           }
           onRotateStart={
-            !readOnly && selectedElementFrame
+            !readOnly && selectedElementFrame && !selectedIsTableStructure
               ? (e) => startRotateSelection(e, selectedElementRect)
               : undefined
           }
