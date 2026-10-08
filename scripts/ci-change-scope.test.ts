@@ -598,7 +598,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /shard:\s*\[\s*inspector,\s*drag-1,\s*drag-2,\s*position,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*drag-1,\s*drag-2,\s*position,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
   );
   assert.ok(
     regressionCases.includes(
@@ -641,6 +641,71 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/canvas-invariants.spec.ts",
       1320,
       "basic authoring raises no uncaught page errors",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      176,
+      "text fills hide and restore without losing the original color",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      238,
+      "selection hide and Appearance visibility stay in sync with opacity",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      314,
+      "text gradient apply and removal survive reselection; box gradient editor persists",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      426,
+      "style layer row actions stay visible and toggle visibility state",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      452,
+      "typography edits update size and spacing inputs",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      541,
+      "search selects Lato Medium and keeps custom font names offline",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      610,
+      "numeric scrub handles use terse tooltips and drag from compact labels",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      667,
+      "numeric input applies Figma math and starts an Option scrub drag",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      737,
+      "appearance controls use droplet blend menu and inline independent corners",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      798,
+      "export rows add, remove, and reset when selection changes",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      833,
+      "resizing a selected element emits a visual-style-change payload",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      880,
+      "pointercancel restores a scrubbed value without adding a history step",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      999,
+      "can capture a screenshot of inspector coverage via CDP",
     ],
     [
       "e2e/drag-and-drop.drag-feedback.spec.ts",
@@ -741,7 +806,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     )[line - 1];
     assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
   }
-  assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts"));
 });
 
 test("a deleted Design E2E path runs the focused interaction suite", () => {

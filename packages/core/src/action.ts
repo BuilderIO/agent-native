@@ -16,6 +16,7 @@ import {
   assertRegisteredActionAccess,
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
+import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export type ActionCaller =
@@ -669,7 +670,9 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(auditConfig, readOnly)
     ? wrapRunWithAudit(run, auditConfig)
     : run;
-  const trackedRun = wrapRunWithActionTracking(finalRun, readOnly);
+  const trackedRun = wrapRunWithServicePrincipalGrant(
+    wrapRunWithActionTracking(finalRun, readOnly),
+  );
 
   const toolCallable: boolean | undefined =
     typeof options.toolCallable === "boolean"
@@ -872,6 +875,30 @@ function wrapRunWithAccess(
       }
     }
     return run(args, ctx);
+  };
+}
+
+/**
+ * Outermost wrapper, so a refused call is audited once as a denial and never
+ * as a failed run of the action. Every route to running an action as a service
+ * identity (MCP, HTTP, delegated agent runs, sandbox bridges) passes here.
+ */
+function wrapRunWithServicePrincipalGrant(
+  run: (args: any, ctx?: ActionRunContext) => any,
+): (args: any, ctx?: ActionRunContext) => any {
+  return function grantCheckedRun(args: any, ctx?: ActionRunContext) {
+    if (!parseServiceIdentityEmail(ctx?.userEmail)) return run(args, ctx);
+    return import("./org/service-principal-guard.js")
+      .then(({ enforceServicePrincipalActionGrant }) =>
+        enforceServicePrincipalActionGrant({
+          email: ctx!.userEmail,
+          orgId: ctx!.orgId,
+          // A missing name only passes an unrestricted grant.
+          actionName: ctx!.actionName ?? "",
+          caller: ctx!.caller,
+        }),
+      )
+      .then(() => run(args, ctx));
   };
 }
 
