@@ -495,6 +495,76 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockRelayChunk).not.toHaveBeenCalled();
   });
 
+  it.each(["initial", "retry"])(
+    "continues resumable upload when the %s attribution state read fails",
+    async (failedRead) => {
+      const attemptState = {
+        recordingId: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      };
+      mockSelectRows.rows[0] = {
+        ...mockSelectRows.rows[0],
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      };
+      mockGetHeader.mockImplementation((_, name) =>
+        name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
+      );
+      mockGetResumableSession.mockResolvedValueOnce({
+        providerId: "s3",
+        sessionId: "sess-1",
+        meta: { objectKey: "clips/rec-1.webm" },
+        bytesUploaded: 0,
+        lastCommittedIndex: -1,
+      });
+      if (failedRead === "initial") {
+        mockReadAppState.mockRejectedValueOnce(
+          new Error("state read unavailable"),
+        );
+      } else {
+        mockReadAppState
+          .mockResolvedValueOnce(attemptState)
+          .mockRejectedValueOnce(new Error("state read unavailable"));
+        mockCompareAndSetAppState.mockResolvedValueOnce(false);
+      }
+      setRequest({
+        query: {
+          index: "0",
+          mimeType: "video/webm",
+          attemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+        },
+        body: new Uint8Array([1]),
+      });
+      const consoleWarn = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+
+      try {
+        await expect(handler({} as any)).resolves.toMatchObject({
+          ok: true,
+          finalized: false,
+          index: 0,
+          bytes: 1,
+        });
+      } finally {
+        consoleWarn.mockRestore();
+      }
+
+      expect(mockRelayChunk).toHaveBeenCalledOnce();
+      expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+        expect.objectContaining({ browserSessionId: "browser-session-1" }),
+        expect.any(Function),
+      );
+      expect(mockSetResponseStatus).not.toHaveBeenCalledWith({}, 503);
+      expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(
+        failedRead === "initial" ? 0 : 1,
+      );
+    },
+  );
+
   it("accepts a browser session already persisted during CAS contention", async () => {
     const attemptState = {
       recordingId: "rec-1",

@@ -79,8 +79,27 @@ async function persistRecordingUploadSession(params: {
   | { outcome: "persisted" }
   | { outcome: "stale_attempt" }
   | { outcome: "contention" }
+  | { outcome: "unavailable" }
 > {
-  let currentState = await readAppState(params.key);
+  const readCurrentState = async (): Promise<
+    { readable: true; state: unknown } | { readable: false }
+  > => {
+    try {
+      return { readable: true, state: await readAppState(params.key) };
+    } catch (error) {
+      console.warn(
+        "[chunk] failed to read upload state while persisting browser session attribution; continuing with request session:",
+        {
+          recordingId: params.attempt.recordingId,
+          err: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return { readable: false };
+    }
+  };
+  const initialState = await readCurrentState();
+  if (!initialState.readable) return { outcome: "unavailable" };
+  let currentState = initialState.state;
   for (let retry = 0; retry < 3; retry += 1) {
     const nextState = recordingUploadStateForAttemptIfCurrent({
       state: currentState,
@@ -92,10 +111,23 @@ async function persistRecordingUploadSession(params: {
       currentState && typeof currentState === "object"
         ? (currentState as Record<string, unknown>)
         : null;
-    if (await compareAndSetAppState(params.key, expectedState, nextState)) {
-      return { outcome: "persisted" };
+    try {
+      if (await compareAndSetAppState(params.key, expectedState, nextState)) {
+        return { outcome: "persisted" };
+      }
+    } catch (error) {
+      console.warn(
+        "[chunk] failed to persist browser session attribution; continuing with request session:",
+        {
+          recordingId: params.attempt.recordingId,
+          err: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return { outcome: "unavailable" };
     }
-    currentState = await readAppState(params.key);
+    const retryState = await readCurrentState();
+    if (!retryState.readable) return { outcome: "unavailable" };
+    currentState = retryState.state;
   }
   const sameAttempt = recordingUploadStateForAttemptIfCurrent({
     state: currentState,
@@ -723,6 +755,12 @@ export async function handleRecordingChunk(
         if (persistence.outcome === "contention") {
           setResponseStatus(event, 503);
           return;
+        }
+        if (persistence.outcome === "unavailable") {
+          debugLog(
+            "[chunk] continuing resumable upload without persisted browser session attribution",
+            { recordingId },
+          );
         }
       }
       return handleResumableChunk(
