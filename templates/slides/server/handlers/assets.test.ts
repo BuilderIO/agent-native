@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
+const mockDeleteUploadedFile = vi.hoisted(() => vi.fn());
+const mockRecordOrphanedVideoAssetCleanup = vi.hoisted(() => vi.fn());
+const mockDeleteOrphanedVideoAssetCleanup = vi.hoisted(() => vi.fn());
+const mockListOrphanedVideoAssetCleanups = vi.hoisted(() => vi.fn());
 const mockValues = vi.hoisted(() => vi.fn());
 const mockSelectLimit = vi.hoisted(() => vi.fn());
 const mockEq = vi.hoisted(() => vi.fn((...args: unknown[]) => args));
@@ -14,11 +18,13 @@ const mockUploadedAssets = vi.hoisted(() => ({
   size: "uploaded_assets.size",
   provider: "uploaded_assets.provider",
   uploadSessionId: "uploaded_assets.upload_session_id",
+  orgId: "uploaded_assets.org_id",
   ownerEmail: "uploaded_assets.owner_email",
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: mockUploadFile,
+  deleteUploadedFile: mockDeleteUploadedFile,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -45,6 +51,12 @@ vi.mock("../db/index.js", () => ({
   schema: { uploadedAssets: mockUploadedAssets },
 }));
 
+vi.mock("../lib/chunked-upload-session.js", () => ({
+  recordOrphanedVideoAssetCleanup: mockRecordOrphanedVideoAssetCleanup,
+  deleteOrphanedVideoAssetCleanup: mockDeleteOrphanedVideoAssetCleanup,
+  listOrphanedVideoAssetCleanups: mockListOrphanedVideoAssetCleanups,
+}));
+
 import {
   canSaveAsUploadedAsset,
   canSaveAsUploadedVideoAsset,
@@ -59,6 +71,14 @@ beforeEach(() => {
     provider: "builder",
     url: "https://cdn.builder.io/logo.svg",
   });
+  mockDeleteUploadedFile.mockReset();
+  mockDeleteUploadedFile.mockResolvedValue(true);
+  mockRecordOrphanedVideoAssetCleanup.mockReset();
+  mockRecordOrphanedVideoAssetCleanup.mockResolvedValue("cleanup-1");
+  mockDeleteOrphanedVideoAssetCleanup.mockReset();
+  mockDeleteOrphanedVideoAssetCleanup.mockResolvedValue(undefined);
+  mockListOrphanedVideoAssetCleanups.mockReset();
+  mockListOrphanedVideoAssetCleanups.mockResolvedValue([]);
   mockValues.mockReset();
   mockValues.mockResolvedValue(undefined);
   mockSelectLimit.mockReset();
@@ -826,6 +846,7 @@ describe("uploaded video validation", () => {
       expect.objectContaining({
         id: uploaded.id,
         providerObjectId: "uploads/provider-object-1.mp4",
+        orgId: "active-org",
       }),
     );
 
@@ -887,6 +908,7 @@ describe("uploaded video validation", () => {
   });
 
   it("scopes completed upload lookup to the authenticated owner", async () => {
+    mockGetRequestOrgId.mockReturnValue("active-org");
     mockSelectLimit.mockResolvedValueOnce([]);
 
     await uploadVideoAsset({
@@ -905,5 +927,109 @@ describe("uploaded video validation", () => {
       mockUploadedAssets.uploadSessionId,
       "session-1",
     );
+    expect(mockEq).toHaveBeenCalledWith(mockUploadedAssets.orgId, "active-org");
+  });
+
+  it("cleans a provider object when the asset row insert fails", async () => {
+    const insertError = new Error("asset row insert failed");
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "provider-object-1",
+      url: "https://cdn.example.com/clip.mp4",
+    });
+    mockValues.mockRejectedValueOnce(insertError);
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+        uploadSessionId: "session-1",
+      }),
+    ).rejects.toBe(insertError);
+
+    expect(mockRecordOrphanedVideoAssetCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+        provider: "s3",
+        providerObjectId: "provider-object-1",
+        uploadSessionId: "session-1",
+      }),
+    );
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "provider-object-1",
+      url: "https://cdn.example.com/clip.mp4",
+    });
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "active-org" },
+      expect.any(Function),
+    );
+    expect(mockDeleteOrphanedVideoAssetCleanup).toHaveBeenCalledWith(
+      "cleanup-1",
+    );
+  });
+
+  it("returns the winning upload when a concurrent insert already committed", async () => {
+    const completed = {
+      id: "video-asset-1",
+      filename: "clip.mp4",
+      url: "https://cdn.example.com/clip.mp4",
+      type: "video/mp4",
+      size: 4,
+      provider: "s3",
+    };
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockSelectLimit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([completed]);
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "duplicate-provider-object",
+      url: "https://cdn.example.com/duplicate.mp4",
+    });
+    mockValues.mockRejectedValueOnce(new Error("unique constraint conflict"));
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+        uploadSessionId: "session-1",
+      }),
+    ).resolves.toEqual(completed);
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "duplicate-provider-object",
+      url: "https://cdn.example.com/duplicate.mp4",
+    });
+  });
+
+  it("keeps retryable cleanup metadata when duplicate object deletion fails", async () => {
+    const completed = {
+      id: "video-asset-1",
+      filename: "clip.mp4",
+      url: "https://cdn.example.com/clip.mp4",
+      type: "video/mp4",
+      size: 4,
+      provider: "s3",
+    };
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockSelectLimit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([completed]);
+    mockValues.mockRejectedValueOnce(new Error("unique constraint conflict"));
+    mockDeleteUploadedFile.mockResolvedValue(false);
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+        uploadSessionId: "session-1",
+      }),
+    ).resolves.toEqual(completed);
+    expect(mockRecordOrphanedVideoAssetCleanup).toHaveBeenCalledTimes(1);
+    expect(mockDeleteOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
   });
 });

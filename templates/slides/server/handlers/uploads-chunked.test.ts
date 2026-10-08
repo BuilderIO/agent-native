@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   compareAndSetSession: vi.fn(),
   deleteBlob: vi.fn(),
   deleteOrphanedChunkCleanup: vi.fn(),
+  deleteOrphanedVideoAssetCleanup: vi.fn(),
   deleteSession: vi.fn(),
   getHeader: vi.fn(),
   getQuery: vi.fn(),
@@ -13,8 +14,10 @@ const mocks = vi.hoisted(() => ({
   isHosted: vi.fn(),
   listSessions: vi.fn(),
   listOrphanedChunkCleanups: vi.fn(),
+  listOrphanedVideoAssetCleanups: vi.fn(),
   putBlob: vi.fn(),
   recordOrphanedChunkCleanup: vi.fn(),
+  recordOrphanedVideoAssetCleanup: vi.fn(),
   readBody: vi.fn(),
   readBlob: vi.fn(),
   readRawBody: vi.fn(),
@@ -42,6 +45,16 @@ vi.mock("@agent-native/core/private-blob", async (importOriginal) => ({
   readPrivateBlob: (...args: unknown[]) => mocks.readBlob(...args),
 }));
 
+vi.mock("@agent-native/core/file-upload", () => ({
+  deleteUploadedFile: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  runWithRequestContext: vi.fn((_context: unknown, callback: () => unknown) =>
+    callback(),
+  ),
+}));
+
 vi.mock("../lib/tenant-files.js", () => ({
   isHostedSlidesRuntime: () => mocks.isHosted(),
 }));
@@ -53,15 +66,21 @@ vi.mock("../lib/chunked-upload-session.js", () => ({
     mocks.createSession(...args),
   deleteOrphanedChunkCleanup: (...args: unknown[]) =>
     mocks.deleteOrphanedChunkCleanup(...args),
+  deleteOrphanedVideoAssetCleanup: (...args: unknown[]) =>
+    mocks.deleteOrphanedVideoAssetCleanup(...args),
   deleteChunkedUploadSession: (...args: unknown[]) =>
     mocks.deleteSession(...args),
   getChunkedUploadSession: (...args: unknown[]) => mocks.getSession(...args),
   listOrphanedChunkCleanups: (...args: unknown[]) =>
     mocks.listOrphanedChunkCleanups(...args),
+  listOrphanedVideoAssetCleanups: (...args: unknown[]) =>
+    mocks.listOrphanedVideoAssetCleanups(...args),
   listChunkedUploadSessions: (...args: unknown[]) =>
     mocks.listSessions(...args),
   recordOrphanedChunkCleanup: (...args: unknown[]) =>
     mocks.recordOrphanedChunkCleanup(...args),
+  recordOrphanedVideoAssetCleanup: (...args: unknown[]) =>
+    mocks.recordOrphanedVideoAssetCleanup(...args),
 }));
 
 vi.mock("./request-auth-context.js", () => ({
@@ -89,6 +108,7 @@ vi.mock("./assets.js", () => ({
 
 import {
   abortChunkedUpload,
+  getChunkedUploadStatus,
   startChunkedUpload,
   uploadChunkedChunk,
 } from "./uploads-chunked";
@@ -122,7 +142,9 @@ describe("chunked reference uploads", () => {
     });
     mocks.listSessions.mockResolvedValue([]);
     mocks.listOrphanedChunkCleanups.mockResolvedValue([]);
+    mocks.listOrphanedVideoAssetCleanups.mockResolvedValue([]);
     mocks.recordOrphanedChunkCleanup.mockResolvedValue("orphan-1");
+    mocks.recordOrphanedVideoAssetCleanup.mockResolvedValue("video-orphan-1");
     mocks.findUploadedVideoAssetForSession.mockResolvedValue(null);
     mocks.readBody.mockResolvedValue({
       filename: "deck.pptx",
@@ -191,6 +213,26 @@ describe("chunked reference uploads", () => {
       maxChunkBytes: 4 * 1024 * 1024,
     });
     expect(mocks.createSession).toHaveBeenCalled();
+  });
+
+  it("does not reap expired sessions from another organization", async () => {
+    mocks.listSessions.mockResolvedValueOnce([
+      {
+        sessionId: "other-org-session",
+        session: session({
+          uploadType: "video",
+          ownerEmail: "owner@example.com",
+          orgId: "org-2",
+          expiresAt: new Date(0).toISOString(),
+        }),
+      },
+    ]);
+
+    await expect(startChunkedUpload({} as never)).resolves.toMatchObject({
+      sessionId: expect.any(String),
+    });
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+    expect(mocks.deleteSession).not.toHaveBeenCalled();
   });
 
   it("keeps a finalizing session while its lease is active", async () => {
@@ -363,6 +405,35 @@ describe("chunked reference uploads", () => {
     expect(mocks.compareAndSetSession.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.deleteBlob.mock.invocationCallOrder[0],
     );
+  });
+
+  it("records a replaced chunk when provider deletion fails", async () => {
+    const oldHandle = {
+      id: "old",
+      provider: "public-upload:builder",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.getSession.mockResolvedValue(
+      session({ chunks: { "0": oldHandle }, chunkSizes: { "0": 4 } }),
+    );
+    mocks.deleteBlob
+      .mockResolvedValueOnce({ deleted: false })
+      .mockResolvedValueOnce({ deleted: false });
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+      ok: true,
+    });
+    expect(mocks.recordOrphanedChunkCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        uploadSessionId: "session-1",
+        chunkIndex: 0,
+        handle: oldHandle,
+      }),
+    );
+    expect(mocks.deleteOrphanedChunkCleanup).not.toHaveBeenCalled();
   });
 
   it("preserves the prior chunk when the replacement loses its session CAS", async () => {
@@ -649,6 +720,7 @@ describe("chunked reference uploads", () => {
     expect(mocks.findUploadedVideoAssetForSession).toHaveBeenCalledWith(
       "owner@example.com",
       "session-1",
+      "org-1",
     );
     expect(mocks.setStatus).not.toHaveBeenCalled();
     expect(mocks.uploadVideoAsset).not.toHaveBeenCalled();
@@ -663,6 +735,113 @@ describe("chunked reference uploads", () => {
 
     await expect(uploadChunkedChunk({} as never)).resolves.toEqual(video);
     expect(mocks.uploadVideoAsset).not.toHaveBeenCalled();
+  });
+
+  it("reports processing while a scoped video session is finalizing", async () => {
+    mocks.getSession.mockResolvedValue(
+      session({
+        uploadType: "video",
+        finalizingAt: new Date().toISOString(),
+        finalizationLeaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    );
+
+    await expect(getChunkedUploadStatus({} as never)).resolves.toEqual({
+      status: "processing",
+      retryAfterMs: 1500,
+    });
+    expect(mocks.findUploadedVideoAssetForSession).toHaveBeenCalledWith(
+      "owner@example.com",
+      "session-1",
+      "org-1",
+    );
+  });
+
+  it("expires a finalization whose lease elapsed", async () => {
+    mocks.getSession
+      .mockResolvedValueOnce(
+        session({
+          uploadType: "video",
+          finalizingAt: new Date(0).toISOString(),
+          finalizationLeaseExpiresAt: new Date(0).toISOString(),
+        }),
+      )
+      .mockResolvedValueOnce(null);
+
+    await expect(getChunkedUploadStatus({} as never)).resolves.toEqual({
+      status: "expired",
+    });
+    expect(mocks.compareAndSetSession).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteSession).toHaveBeenCalledWith("session-1");
+  });
+
+  it("keeps polling when an expired finalization lease was renewed concurrently", async () => {
+    mocks.getSession
+      .mockResolvedValueOnce(
+        session({
+          uploadType: "video",
+          finalizingAt: new Date(0).toISOString(),
+          finalizationLeaseExpiresAt: new Date(0).toISOString(),
+        }),
+      )
+      .mockResolvedValueOnce(
+        session({
+          uploadType: "video",
+          finalizingAt: new Date().toISOString(),
+          finalizationLeaseExpiresAt: new Date(
+            Date.now() + 60_000,
+          ).toISOString(),
+        }),
+      );
+    mocks.compareAndSetSession.mockResolvedValueOnce(false);
+
+    await expect(getChunkedUploadStatus({} as never)).resolves.toEqual({
+      status: "processing",
+      retryAfterMs: 1500,
+    });
+    expect(mocks.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("returns a completed video receipt from upload status", async () => {
+    const video = { id: "asset-1", url: "https://media.example.com/clip.mp4" };
+    mocks.getSession.mockResolvedValue(
+      session({ uploadType: "video", finalizingAt: new Date().toISOString() }),
+    );
+    mocks.findUploadedVideoAssetForSession.mockResolvedValueOnce(video);
+
+    await expect(getChunkedUploadStatus({} as never)).resolves.toEqual({
+      status: "complete",
+      video,
+    });
+  });
+
+  it("reports a missing session as expired only after checking its receipt", async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    await expect(getChunkedUploadStatus({} as never)).resolves.toEqual({
+      status: "expired",
+    });
+    expect(mocks.findUploadedVideoAssetForSession).toHaveBeenCalledWith(
+      "owner@example.com",
+      "session-1",
+      "org-1",
+    );
+  });
+
+  it("does not reveal video status across organizations", async () => {
+    mocks.resolveAuth.mockResolvedValueOnce({
+      ok: true,
+      context: { email: "owner@example.com", orgId: "org-2" },
+    });
+    mocks.getSession.mockResolvedValue(
+      session({ uploadType: "video", filename: "clip.mp4" }),
+    );
+
+    await expect(getChunkedUploadStatus({} as never)).resolves.toEqual({
+      error: "Upload session belongs to another user",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 403);
+    expect(mocks.findUploadedVideoAssetForSession).not.toHaveBeenCalled();
   });
 
   it("returns a conflict when expiry cleanup loses a race to finalization", async () => {
@@ -906,5 +1085,121 @@ describe("chunked reference uploads", () => {
     );
     expect(mocks.uploadVideoAsset).not.toHaveBeenCalled();
     expect(mocks.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("continues finalization when a rejected CAS actually committed", async () => {
+    const initial = session({
+      uploadType: "video",
+      filename: "clip.mp4",
+      mimeType: "video/mp4",
+      declaredSize: 4,
+    });
+    const next = {
+      ...initial,
+      chunks: {
+        "0": {
+          id: "blob-1",
+          provider: "public-upload:builder",
+          opaque: true,
+          encrypted: true,
+        },
+      },
+      chunkSizes: { "0": 4 },
+      finalizingAt: new Date().toISOString(),
+      finalizationLeaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    mocks.getQuery.mockReturnValue({ index: "0", isFinal: "1" });
+    mocks.getSession.mockResolvedValueOnce(initial).mockResolvedValueOnce(next);
+    mocks.compareAndSetSession.mockRejectedValueOnce(
+      new Error("CAS response was lost"),
+    );
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toMatchObject({
+      url: "https://media.example.com/clip.mp4",
+    });
+    expect(mocks.uploadVideoAsset).toHaveBeenCalledTimes(1);
+    expect(mocks.recordOrphanedChunkCleanup).not.toHaveBeenCalled();
+    expect(mocks.uploadVideoAsset.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.deleteBlob.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("records and removes a chunk when a rejected CAS lost to abort", async () => {
+    const casError = new Error("CAS response was lost");
+    mocks.getSession
+      .mockResolvedValueOnce(
+        session({ uploadType: "video", filename: "clip.mp4" }),
+      )
+      .mockResolvedValueOnce(
+        session({
+          uploadType: "video",
+          filename: "clip.mp4",
+          cleanupState: "aborting",
+        }),
+      );
+    mocks.compareAndSetSession.mockRejectedValueOnce(casError);
+
+    await expect(uploadChunkedChunk({} as never)).rejects.toBe(casError);
+    expect(mocks.recordOrphanedChunkCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadSessionId: "session-1",
+        chunkIndex: 0,
+        orgId: "org-1",
+      }),
+    );
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "blob-1" }),
+    );
+  });
+
+  it("retains an uncertain chunk receipt when CAS readback also fails", async () => {
+    const casError = new Error("CAS failed");
+    mocks.getSession
+      .mockResolvedValueOnce(
+        session({ uploadType: "video", filename: "clip.mp4" }),
+      )
+      .mockRejectedValueOnce(new Error("readback failed"));
+    mocks.compareAndSetSession.mockRejectedValueOnce(casError);
+
+    await expect(uploadChunkedChunk({} as never)).rejects.toBe(casError);
+    expect(mocks.recordOrphanedChunkCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({ uncertain: true }),
+    );
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+  });
+
+  it("keeps an uncertain cleanup receipt when its session still owns the blob", async () => {
+    const handle = {
+      id: "blob-1",
+      provider: "public-upload:builder",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.listOrphanedChunkCleanups.mockResolvedValueOnce([
+      {
+        key: "orphan-1",
+        cleanup: {
+          version: 1,
+          ownerEmail: "owner@example.com",
+          orgId: "org-1",
+          uploadSessionId: "session-1",
+          chunkIndex: 0,
+          handle,
+          createdAt: new Date().toISOString(),
+          uncertain: true,
+        },
+      },
+    ]);
+    mocks.getSession.mockResolvedValueOnce(
+      session({
+        chunks: { "0": handle },
+        chunkSizes: { "0": 4 },
+      }),
+    );
+
+    await startChunkedUpload({} as never);
+
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+    expect(mocks.deleteOrphanedChunkCleanup).toHaveBeenCalledWith("orphan-1");
   });
 });

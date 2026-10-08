@@ -72,6 +72,7 @@ export const uploadedAssets = table(
     provider: text("provider"),
     providerObjectId: text("provider_object_id"),
     uploadSessionId: text("upload_session_id"),
+    orgId: text("org_id"),
     ownerEmail: text("owner_email").notNull(),
     createdAt: text("created_at").notNull().default(now()),
   },

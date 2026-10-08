@@ -26,6 +26,7 @@ export interface ChunkedUploadSession {
 
 const PREFIX = "slides-upload-chunks-";
 const ORPHAN_PREFIX = "slides-upload-orphan-chunk-";
+const ORPHAN_VIDEO_ASSET_PREFIX = "slides-upload-orphan-video-asset-";
 const key = (sessionId: string) => `${PREFIX}${sessionId}`;
 
 export interface OrphanedChunkCleanup {
@@ -35,6 +36,18 @@ export interface OrphanedChunkCleanup {
   uploadSessionId: string;
   chunkIndex: number;
   handle: PrivateBlobHandle;
+  createdAt: string;
+  uncertain?: boolean;
+}
+
+export interface OrphanedVideoAssetCleanup {
+  version: 1;
+  ownerEmail: string;
+  orgId: string | null;
+  provider: string;
+  providerObjectId: string | null;
+  url: string;
+  uploadSessionId: string | null;
   createdAt: string;
 }
 
@@ -106,5 +119,32 @@ export async function listOrphanedChunkCleanups(): Promise<
 }
 
 export async function deleteOrphanedChunkCleanup(key: string): Promise<void> {
+  await deleteAppState(key);
+}
+
+export async function recordOrphanedVideoAssetCleanup(
+  cleanup: OrphanedVideoAssetCleanup,
+): Promise<string> {
+  const cleanupKey = `${ORPHAN_VIDEO_ASSET_PREFIX}${nanoid()}`;
+  await writeAppState(
+    cleanupKey,
+    cleanup as unknown as Record<string, unknown>,
+  );
+  return cleanupKey;
+}
+
+export async function listOrphanedVideoAssetCleanups(): Promise<
+  Array<{ key: string; cleanup: OrphanedVideoAssetCleanup }>
+> {
+  const entries = await listAppState(ORPHAN_VIDEO_ASSET_PREFIX);
+  return entries.map(({ key: entryKey, value }) => ({
+    key: entryKey,
+    cleanup: value as unknown as OrphanedVideoAssetCleanup,
+  }));
+}
+
+export async function deleteOrphanedVideoAssetCleanup(
+  key: string,
+): Promise<void> {
   await deleteAppState(key);
 }

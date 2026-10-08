@@ -154,7 +154,7 @@ describe("uploadSlideVideo", () => {
     expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: "DELETE" });
   });
 
-  it("retries a final chunk after a lost response and does not abort the session", async () => {
+  it("recovers a lost final response through upload status", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -175,7 +175,10 @@ describe("uploadSlideVideo", () => {
       .mockRejectedValueOnce(new TypeError("connection lost"))
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ id: "asset-1", url: "/assets/clip.mp4" }),
+          JSON.stringify({
+            status: "complete",
+            video: { id: "asset-1", url: "/assets/clip.mp4" },
+          }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
       );
@@ -191,16 +194,16 @@ describe("uploadSlideVideo", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(fetchMock.mock.calls[2][0]).toContain("index=1&isFinal=1");
-    expect(fetchMock.mock.calls[3][0]).toBe(fetchMock.mock.calls[2][0]);
-    expect(fetchMock.mock.calls[3][1]?.body).toBe(
-      fetchMock.mock.calls[2][1]?.body,
+    expect(fetchMock.mock.calls[3][0]).toContain(
+      "/api/uploads-chunked/session-1/status",
     );
+    expect(fetchMock.mock.calls[3][1]?.method).toBeUndefined();
     expect(
       fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE"),
     ).toBe(false);
   });
 
-  it("retries a finalizing response until the completed video is available", async () => {
+  it("polls a finalizing response until the completed video is available", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -229,7 +232,16 @@ describe("uploadSlideVideo", () => {
       )
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ id: "asset-1", url: "/assets/clip.mp4" }),
+          JSON.stringify({ status: "processing", retryAfterMs: 1500 }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: "complete",
+            video: { id: "asset-1", url: "/assets/clip.mp4" },
+          }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
       );
@@ -243,23 +255,25 @@ describe("uploadSlideVideo", () => {
       id: "asset-1",
       url: "/assets/clip.mp4",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock.mock.calls[3][0]).toContain("/status");
+    expect(fetchMock.mock.calls[4][0]).toContain("/status");
     expect(
       fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE"),
     ).toBe(false);
   });
 
-  it("leaves an ambiguous final chunk for server cleanup after bounded retries", async () => {
-    const conflict = () =>
+  it("keeps polling beyond the old retry window while finalization is active", async () => {
+    const processing = () =>
       new Response(
-        JSON.stringify({ error: "Upload session is already finalizing" }),
+        JSON.stringify({ status: "processing", retryAfterMs: 1500 }),
         {
-          status: 409,
+          status: 200,
           headers: { "Content-Type": "application/json" },
         },
       );
-    const fetchMock = vi
-      .fn()
+    const fetchMock = vi.fn();
+    fetchMock
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -275,21 +289,42 @@ describe("uploadSlideVideo", () => {
           headers: { "Content-Type": "application/json" },
         }),
       )
-      .mockImplementation(async () => conflict());
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Commit still running" }), {
+          status: 504,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    for (let i = 0; i < 7; i++) {
+      fetchMock.mockResolvedValueOnce(processing());
+    }
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: "complete",
+          video: { id: "asset-1", url: "/assets/clip.mp4" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     vi.useFakeTimers();
 
     const upload = uploadSlideVideo(largeVideoFile());
-    const uploadResult = upload.then(
-      (value) => ({ value }),
-      (error) => ({ error }),
-    );
     await vi.runAllTimersAsync();
 
-    await expect(uploadResult).resolves.toMatchObject({
-      error: { status: 409 },
+    await expect(upload).resolves.toEqual({
+      id: "asset-1",
+      url: "/assets/clip.mp4",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(18);
+    const finalChunkCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("index=1&isFinal=1"),
+    );
+    const statusCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/status"),
+    );
+    expect(finalChunkCalls).toHaveLength(1);
+    expect(statusCalls).toHaveLength(8);
     expect(
       fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE"),
     ).toBe(false);

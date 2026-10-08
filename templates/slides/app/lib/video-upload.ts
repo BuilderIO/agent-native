@@ -1,7 +1,6 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
-const MAX_FINAL_CHUNK_RETRIES = 15;
 
 interface VideoUploadResponse {
   id?: unknown;
@@ -12,6 +11,9 @@ interface VideoUploadResponse {
   maxChunkBytes?: unknown;
   uploadMode?: unknown;
   ok?: unknown;
+  status?: unknown;
+  retryAfterMs?: unknown;
+  video?: unknown;
 }
 
 export interface UploadedSlideVideo {
@@ -72,9 +74,114 @@ function canRetryFinalChunk(error: unknown): boolean {
   );
 }
 
-function waitForFinalChunkRetry(attempt: number): Promise<void> {
-  const delay = Math.min(250 * 2 ** (attempt - 1), 1500);
+function waitForFinalChunkRetry(
+  attempt: number,
+  retryAfterMs?: number,
+): Promise<void> {
+  const delay = Math.min(
+    Math.max(retryAfterMs ?? 0, 500 * 2 ** Math.min(attempt, 3)),
+    5000,
+  );
   return new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+type ChunkedUploadStatus =
+  | { status: "complete"; video: UploadedSlideVideo }
+  | { status: "processing"; retryAfterMs?: number }
+  | { status: "uploading" }
+  | { status: "expired" };
+
+async function readChunkedUploadStatus(
+  sessionId: string,
+): Promise<ChunkedUploadStatus> {
+  const response = await fetch(
+    `${appBasePath()}/api/uploads-chunked/${sessionId}/status`,
+    { credentials: "include" },
+  );
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch {
+    throw uploadError("Video upload status was unreadable", response.status);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw uploadError("Video upload status was invalid", response.status);
+  }
+  if (!response.ok) {
+    const data = parsed as VideoUploadResponse;
+    throw uploadError(
+      typeof data.error === "string"
+        ? data.error
+        : "Could not read video upload status",
+      response.status,
+    );
+  }
+
+  const data = parsed as VideoUploadResponse;
+  if (
+    data.status === "complete" &&
+    data.video &&
+    typeof data.video === "object"
+  ) {
+    return {
+      status: "complete",
+      video: readUploadedSlideVideo(
+        data.video as VideoUploadResponse,
+        response,
+      ),
+    };
+  }
+  if (data.status === "processing") {
+    return {
+      status: "processing",
+      ...(typeof data.retryAfterMs === "number" &&
+      Number.isSafeInteger(data.retryAfterMs) &&
+      data.retryAfterMs > 0
+        ? { retryAfterMs: data.retryAfterMs }
+        : {}),
+    };
+  }
+  if (data.status === "uploading") return { status: "uploading" };
+  if (data.status === "expired") return { status: "expired" };
+  throw uploadError("Video upload status was invalid", response.status);
+}
+
+async function resolveFinalChunk(
+  sessionId: string,
+  sendChunk: () => Promise<{ data: VideoUploadResponse; response: Response }>,
+  initialError: unknown,
+): Promise<UploadedSlideVideo> {
+  let attempt = 0;
+  let retryAfterMs: number | undefined;
+  if (!canRetryFinalChunk(initialError)) throw initialError;
+  while (true) {
+    await waitForFinalChunkRetry(attempt++, retryAfterMs);
+    retryAfterMs = undefined;
+
+    let status: ChunkedUploadStatus;
+    try {
+      status = await readChunkedUploadStatus(sessionId);
+    } catch (error) {
+      if (!canRetryFinalChunk(error)) throw error;
+      continue;
+    }
+
+    if (status.status === "complete") return status.video;
+    if (status.status === "expired") {
+      throw uploadError("Video upload session expired", 410);
+    }
+    if (status.status === "processing") {
+      retryAfterMs = status.retryAfterMs;
+      continue;
+    }
+
+    try {
+      const { data, response } = await sendChunk();
+      return readUploadedSlideVideo(data, response);
+    } catch (error) {
+      if (!canRetryFinalChunk(error)) throw error;
+    }
+  }
 }
 
 async function uploadVideoMultipart(file: File): Promise<UploadedSlideVideo> {
@@ -141,19 +248,12 @@ async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
 
       if (isFinal) {
         finalChunkAttempted = true;
-        for (let attempt = 0; ; attempt++) {
-          try {
-            const { data, response } = await sendChunk();
-            return readUploadedSlideVideo(data, response);
-          } catch (error) {
-            if (
-              attempt >= MAX_FINAL_CHUNK_RETRIES ||
-              !canRetryFinalChunk(error)
-            ) {
-              throw error;
-            }
-            await waitForFinalChunkRetry(attempt + 1);
-          }
+        try {
+          const { data, response } = await sendChunk();
+          return readUploadedSlideVideo(data, response);
+        } catch (error) {
+          if (!canRetryFinalChunk(error)) throw error;
+          return resolveFinalChunk(startData.sessionId, sendChunk, error);
         }
       }
 

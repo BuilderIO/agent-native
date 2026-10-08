@@ -151,6 +151,7 @@ describe("Slides share migrations", () => {
       expect.arrayContaining([
         expect.objectContaining({ name: "provider_object_id" }),
         expect.objectContaining({ name: "upload_session_id" }),
+        expect.objectContaining({ name: "org_id" }),
       ]),
     );
 

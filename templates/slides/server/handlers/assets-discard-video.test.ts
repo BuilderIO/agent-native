@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   uploadedAssets: {
     id: "asset-id",
     ownerEmail: "owner-email",
+    orgId: "org-id",
     provider: "provider",
     providerObjectId: "provider-object-id",
     type: "type",
@@ -29,6 +30,7 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
+  isNull: (...args: unknown[]) => ["isNull", ...args],
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -50,17 +52,18 @@ import { discardUploadedVideoAsset } from "./assets";
 
 function assetDatabase(asset: Record<string, unknown> | null) {
   const deleteWhere = vi.fn().mockResolvedValue(undefined);
+  const selectWhere = vi.fn(() => ({
+    limit: vi.fn().mockResolvedValue(asset ? [asset] : []),
+  }));
   const db = {
     delete: vi.fn(() => ({ where: deleteWhere })),
     select: vi.fn(() => ({
       from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: vi.fn().mockResolvedValue(asset ? [asset] : []),
-        })),
+        where: selectWhere,
       })),
     })),
   };
-  return { db, deleteWhere };
+  return { db, deleteWhere, selectWhere };
 }
 
 describe("discardUploadedVideoAsset", () => {
@@ -84,6 +87,7 @@ describe("discardUploadedVideoAsset", () => {
       url: "https://media.example.com/clip.mp4",
       provider: "builder",
       type: "video/mp4",
+      orgId: "org-1",
     });
     mocks.getDb.mockReturnValue(db);
 
@@ -100,6 +104,11 @@ describe("discardUploadedVideoAsset", () => {
       url: "https://media.example.com/clip.mp4",
     });
     expect(deleteWhere).toHaveBeenCalled();
+    expect(deleteWhere).toHaveBeenCalledWith([
+      ["asset-id", "asset-1"],
+      ["owner-email", "owner@example.com"],
+      ["org-id", "org-1"],
+    ]);
   });
 
   it("treats an already missing asset as cleaned up", async () => {
@@ -108,6 +117,21 @@ describe("discardUploadedVideoAsset", () => {
     await expect(discardUploadedVideoAsset({} as never)).resolves.toEqual({
       success: true,
     });
+    expect(mocks.deleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("does not delete an asset that belongs to another organization", async () => {
+    const { db, selectWhere } = assetDatabase(null);
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(discardUploadedVideoAsset({} as never)).resolves.toEqual({
+      success: true,
+    });
+    expect(selectWhere).toHaveBeenCalledWith([
+      ["asset-id", "asset-1"],
+      ["owner-email", "owner@example.com"],
+      ["org-id", "org-1"],
+    ]);
     expect(mocks.deleteUploadedFile).not.toHaveBeenCalled();
   });
 
