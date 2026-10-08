@@ -38,6 +38,22 @@ describe("scrubUrl", () => {
     expect(relative).not.toContain(encodeURIComponent(query));
   });
 
+  it("redacts the signed agent_access token from pageview and replay URLs", () => {
+    const secret = "signed.agent.token";
+    const absolute = scrubUrl(
+      `https://analytics.agent-native.com/sessions/rec_1?frame=1&agent_access=${secret}`,
+    );
+    const relative = scrubUrl(`/sessions/rec_1?agent_access=${secret}&frame=1`);
+
+    expect(absolute).toBe(
+      "https://analytics.agent-native.com/sessions/rec_1?frame=1&agent_access=%3Credacted%3E",
+    );
+    expect(relative).toBe(
+      "/sessions/rec_1?agent_access=%3Credacted%3E&frame=1",
+    );
+    expect(`${absolute}${relative}`).not.toContain(secret);
+  });
+
   it("leaves other apps' q parameters unchanged by default", () => {
     const url = "https://example.com/search?q=public-topic";
     expect(scrubUrl(url)).toBe(url);
