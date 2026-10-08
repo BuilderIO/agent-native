@@ -1017,7 +1017,8 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.slides_authoring_fuzz_soak == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # A 500-step seed can take about 17 minutes; five seeds need headroom.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 4
