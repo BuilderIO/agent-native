@@ -147,7 +147,6 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.checks.slides_chat_e2e, true, path);
     assert.equal(scope.checks.slides_authoring_e2e, true, path);
-    assert.equal(scope.checks.slides_authoring_fuzz_soak, true, path);
   }
 
   const agentkit = classifyChangedPaths([
@@ -155,7 +154,6 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
   ]);
   assert.equal(agentkit.checks.slides_chat_e2e, true);
   assert.equal(agentkit.checks.slides_authoring_e2e, false);
-  assert.equal(agentkit.checks.slides_authoring_fuzz_soak, false);
 
   for (const path of [
     "templates/content/app/routes/index.tsx",
@@ -165,24 +163,36 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.checks.slides_chat_e2e, false, path);
     assert.equal(scope.checks.slides_authoring_e2e, false, path);
-    assert.equal(scope.checks.slides_authoring_fuzz_soak, false, path);
   }
 
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
   assert.equal(full.checks.slides_chat_e2e, true);
   assert.equal(full.checks.slides_authoring_e2e, true);
-  assert.equal(full.checks.slides_authoring_fuzz_soak, true);
 });
 
-test("wires the Slides authoring soak to its dedicated change-scope output", () => {
-  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
-  assert.match(
-    workflow,
-    /slides_authoring_fuzz_soak:\s*\$\{\{\s*steps\.scope\.outputs\.slides_authoring_fuzz_soak\s*\}\}/u,
+test("keeps the Slides authoring smoke small and the full soak manual", () => {
+  const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const soakWorkflow = readFileSync(
+    ".github/workflows/slides-authoring-fuzz-soak.yml",
+    "utf8",
   );
+
+  for (const browser of ["chromium", "webkit", "firefox"]) {
+    assert.match(
+      ciWorkflow,
+      new RegExp(
+        `--authoring-fuzz\\s+--seed 16 --steps 80 --browser ${browser}`,
+        "u",
+      ),
+    );
+  }
+  assert.doesNotMatch(ciWorkflow, /slides-authoring-fuzz-soak:/u);
+  assert.match(soakWorkflow, /^name: Slides authoring fuzz soak$/mu);
+  assert.match(soakWorkflow, /workflow_dispatch:/u);
+  assert.doesNotMatch(soakWorkflow, /^\s+pull_request:/mu);
   assert.match(
-    workflow,
-    /if:\s*needs\.change-scope\.outputs\.slides_authoring_fuzz_soak\s*==\s*'true'/u,
+    soakWorkflow,
+    /--seed\s+\$\{\{ matrix\.seed_start \}\}[\s\S]*--seeds 5 --steps 500/u,
   );
 });
 

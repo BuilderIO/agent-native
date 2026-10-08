@@ -146,7 +146,6 @@ const CHECK_NAMES = [
   "design_canvas_interaction_e2e",
   "slides_chat_e2e",
   "slides_authoring_e2e",
-  "slides_authoring_fuzz_soak",
   "changeset",
 ] as const;
 
@@ -696,7 +695,6 @@ function buildChecks(
     design_canvas_interaction_e2e: designCanvasInteractionE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
-    slides_authoring_fuzz_soak: slidesE2eChanged,
     changeset: changedPaths.some(isChangesetPath),
   };
 }
