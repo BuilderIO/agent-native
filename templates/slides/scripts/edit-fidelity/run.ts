@@ -72,8 +72,10 @@ import {
 import { isRetryableInfraError } from "./retry-infra.ts";
 import { readValueOption } from "./run-options.ts";
 import {
+  ActionTransportError,
   CouldNotRun,
   rethrowIfCouldNotRun,
+  runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
 } from "./run-outcomes.ts";
 
@@ -670,11 +672,17 @@ async function action<T = any>(
         headers: { "Content-Type": "application/json" },
         body: method === "GET" ? undefined : JSON.stringify(body),
         signal: controller.signal,
-      }).then(async (response) => ({
-        ok: response.ok,
-        status: response.status,
-        text: await response.text(),
-      }));
+      })
+        .then(async (response) => ({
+          ok: response.ok,
+          status: response.status,
+          text: await response.text(),
+        }))
+        .catch((error) => ({
+          ok: false,
+          status: 0,
+          text: `transport failure: ${String(error)}`,
+        }));
       const timeout = new Promise<{
         ok: false;
         status: 0;
@@ -698,11 +706,12 @@ async function action<T = any>(
     { name, body, method, timeoutMs },
   );
   if (!res.ok) {
-    throw new Error(
-      res.status === 0
-        ? `${method === "GET" ? "GET " : ""}${name} request ${res.text}`
-        : `${name} returned HTTP ${res.status}`,
-    );
+    if (res.status === 0) {
+      throw new ActionTransportError(
+        `${method === "GET" ? "GET " : ""}${name} request ${res.text}`,
+      );
+    }
+    throw new Error(`${name} returned HTTP ${res.status}`);
   }
   try {
     return JSON.parse(res.text);
@@ -878,14 +887,29 @@ async function openSlide(
   deckId: string,
   index: number,
   slideId: string,
-  options: { canvasTimeoutMs?: number; skipPointerMove?: boolean } = {},
+  options: {
+    canvasTimeoutMs?: number;
+    navigationFailureAsSetup?: boolean;
+    skipPointerMove?: boolean;
+  } = {},
 ) {
   for (let attempt = 0; ; attempt++) {
+    let failedStage: "navigation" | "canvas" = "navigation";
     try {
-      await page.goto(`${base}/deck/${deckId}?slide=${index + 1}`, {
-        waitUntil: "domcontentloaded",
-        timeout: 90_000,
-      });
+      const navigate = () =>
+        page.goto(`${base}/deck/${deckId}?slide=${index + 1}`, {
+          waitUntil: "domcontentloaded",
+          timeout: 90_000,
+        });
+      if (options.navigationFailureAsSetup) {
+        await runSetupAsCouldNotRun(
+          "could not navigate to authoring fuzz slide",
+          navigate,
+        );
+      } else {
+        await navigate();
+      }
+      failedStage = "canvas";
       await page.waitForSelector(canvasSelector(slideId), {
         timeout: options.canvasTimeoutMs ?? 45_000,
       });
@@ -917,9 +941,11 @@ async function openSlide(
       } catch (diagnosticError) {
         pageState = `unavailable: ${String(diagnosticError)}`;
       }
-      throw new Error(
-        `${String(error)}\nCanvas wait page state: ${JSON.stringify(pageState)}`,
-      );
+      const detail = `${String(error)}\nCanvas wait page state: ${JSON.stringify(pageState)}`;
+      if (error instanceof CouldNotRun && failedStage === "navigation") {
+        throw new CouldNotRun(`${error.message}\n${detail}`);
+      }
+      throw new Error(detail);
     }
   }
   if (!options.skipPointerMove) await page.mouse.move(0, 0);
@@ -4997,23 +5023,31 @@ async function runAuthoringFuzzQa(
             : { width: 1600, height: 1000 },
         ),
       );
-      const created = await action(activePage, "create-deck", {
-        title: `[edit-fidelity] authoring fuzz ${seed}`,
-        ...(profile?.corpusCase.aspectRatio
-          ? { aspectRatio: profile.corpusCase.aspectRatio }
-          : {}),
-        slides: [
-          {
-            id: slideId,
-            content:
-              profile?.slide.content ??
-              `<div class="fmd-slide"><p>Fuzz seed ${seed} starts here.</p></div>`,
-            ...(profile?.slide.layout ? { layout: profile.slide.layout } : {}),
-          },
-        ],
-      });
+      const created = await runSetupActionAsCouldNotRun(
+        "could not create authoring fuzz deck",
+        () =>
+          action(activePage, "create-deck", {
+            title: `[edit-fidelity] authoring fuzz ${seed}`,
+            ...(profile?.corpusCase.aspectRatio
+              ? { aspectRatio: profile.corpusCase.aspectRatio }
+              : {}),
+            slides: [
+              {
+                id: slideId,
+                content:
+                  profile?.slide.content ??
+                  `<div class="fmd-slide"><p>Fuzz seed ${seed} starts here.</p></div>`,
+                ...(profile?.slide.layout
+                  ? { layout: profile.slide.layout }
+                  : {}),
+              },
+            ],
+          }),
+      );
       deckId = String(created.id ?? created.deckId);
-      await openSlide(activePage, base, deckId, 0, slideId);
+      await openSlide(activePage, base, deckId, 0, slideId, {
+        navigationFailureAsSetup: true,
+      });
       if (profile?.kind === "scaled") {
         const scale = await activePage
           .locator(canvasSelector(slideId))

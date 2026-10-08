@@ -21,8 +21,10 @@ import {
 } from "./authoring-fuzz.ts";
 import type { Snapshot } from "./lib/in-page.ts";
 import {
+  ActionTransportError,
   CouldNotRun,
   rethrowIfCouldNotRun,
+  runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
 } from "./run-outcomes.ts";
 
@@ -64,6 +66,42 @@ it("classifies authoring sign-in transport failures as setup errors", async () =
     message:
       "could not sign in authoring fuzz page: TypeError: Failed to fetch",
   });
+});
+
+it("classifies authoring action transport failures without masking HTTP errors", async () => {
+  const setupFailure = await runSetupActionAsCouldNotRun(
+    "could not create authoring fuzz deck",
+    async () => {
+      throw new ActionTransportError(
+        "create-deck request timed out after 30000ms",
+      );
+    },
+  ).catch((error) => error);
+  expect(setupFailure).toBeInstanceOf(CouldNotRun);
+  expect(setupFailure).toMatchObject({
+    message:
+      "could not create authoring fuzz deck: Error: create-deck request timed out after 30000ms",
+  });
+
+  const applicationError = new Error("create-deck returned HTTP 500");
+  await expect(
+    runSetupActionAsCouldNotRun(
+      "could not create authoring fuzz deck",
+      async () => {
+        throw applicationError;
+      },
+    ),
+  ).rejects.toBe(applicationError);
+
+  const unexpectedError = new Error("unexpected action failure");
+  await expect(
+    runSetupActionAsCouldNotRun(
+      "could not create authoring fuzz deck",
+      async () => {
+        throw unexpectedError;
+      },
+    ),
+  ).rejects.toBe(unexpectedError);
 });
 
 it("requires a markdown shortcut to add its result markup", () => {
