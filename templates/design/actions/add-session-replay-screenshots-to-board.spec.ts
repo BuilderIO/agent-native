@@ -7,8 +7,8 @@ const mocks = vi.hoisted(() => ({
   deleteVisualEditSnapshotBlobs: vi.fn(),
   deletePrivateBlob: vi.fn(),
   generatedId: 0,
-  getActivePrivateBlobProviderForRequest: vi.fn(),
   getDb: vi.fn(),
+  isPrivateBlobConfiguredForRequest: vi.fn(),
   getRequestUserEmail: vi.fn(),
   migrateBoardObjectsToFile: vi.fn(),
   putPrivateBlob: vi.fn(),
@@ -29,8 +29,7 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/private-blob", () => ({
   ATTACHMENT_REF_MAX_CHARS: 1_024,
   deletePrivateBlob: mocks.deletePrivateBlob,
-  getActivePrivateBlobProviderForRequest:
-    mocks.getActivePrivateBlobProviderForRequest,
+  isPrivateBlobConfiguredForRequest: mocks.isPrivateBlobConfiguredForRequest,
   putPrivateBlob: mocks.putPrivateBlob,
   resolveAttachment: mocks.resolveAttachment,
 }));
@@ -126,9 +125,7 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     vi.clearAllMocks();
     mocks.generatedId = 0;
     mocks.getRequestUserEmail.mockReturnValue("designer@example.test");
-    mocks.getActivePrivateBlobProviderForRequest.mockResolvedValue({
-      id: "private-provider",
-    });
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(true);
     mocks.resolveAttachment.mockResolvedValue({
       status: "ok",
       file: { data: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]) },
@@ -197,6 +194,76 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     );
     expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
     expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(blobHandle);
+  });
+
+  it("accepts encrypted private upload fallback handles", async () => {
+    const fallbackHandle = {
+      id: "public-upload:v1:encrypted-descriptor",
+      provider: "public-upload:builder-storage",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.putPrivateBlob.mockResolvedValue(fallbackHandle);
+
+    await expect(
+      action.run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      ),
+    ).rejects.toThrow("board setup failed");
+
+    expect(mocks.createDesign).toHaveBeenCalledOnce();
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(fallbackHandle);
+  });
+
+  it("fails before resolving screenshots when private storage is unavailable", async () => {
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(false);
+
+    await expect(
+      action.run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      ),
+    ).rejects.toThrow(
+      "Design requires configured private storage for replay screenshots.",
+    );
+
+    expect(mocks.resolveAttachment).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
   });
 
   it("queues persisted screenshot blobs atomically before draining on an existing Design rollback", async () => {

@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import {
   ATTACHMENT_REF_MAX_CHARS,
   deletePrivateBlob,
-  getActivePrivateBlobProviderForRequest,
+  isPrivateBlobConfiguredForRequest,
   putPrivateBlob,
   resolveAttachment,
   type PrivateBlobHandle,
@@ -298,7 +298,7 @@ function attachmentFailureMessage(status: string): string {
 
 export default defineAction({
   description:
-    "Add up to nine private Analytics session-replay screenshots to a Design board. Each image is copied into the active private blob provider, while replay metadata is stored separately and the board HTML references only authenticated image routes. Pass a Design ID to append to an existing board, or omit it to create a Design.",
+    "Add up to nine private Analytics session-replay screenshots to a Design board. Each image is copied to configured private storage, including the encrypted upload fallback when available. Replay metadata is stored separately, and board HTML references only authenticated image routes. Pass a Design ID to append to an existing board, or omit it to create a Design.",
   requiresAuth: true,
   maxBodyBytes: MAX_SCREENSHOTS * (ATTACHMENT_REF_MAX_CHARS + 3_200) + 16_384,
   schema: inputSchema,
@@ -321,10 +321,9 @@ export default defineAction({
       : undefined;
     const blobOwnerEmail =
       initialDesignAccess?.resource.ownerEmail ?? ownerEmail;
-    const provider = await getActivePrivateBlobProviderForRequest();
-    if (!provider) {
+    if (!(await isPrivateBlobConfiguredForRequest())) {
       fail(
-        "Design requires a configured private blob provider for replay screenshots.",
+        "Design requires configured private storage for replay screenshots.",
         {
           errorCode: "private_blob_provider_required",
           statusCode: 503,
@@ -333,6 +332,7 @@ export default defineAction({
     }
 
     const uploaded: UploadedScreenshot[] = [];
+    let storageProviderId: string | undefined;
     let totalBytes = 0;
     let createdDesignId: string | undefined;
     let screenshotMetadataInsertAttempted = false;
@@ -407,15 +407,36 @@ export default defineAction({
           );
         }
         uploaded.push({ id, screenshot, blobHandle, mimeType, sizeBytes });
-        if (blobHandle.provider !== provider.id || blobHandle.opaque !== true) {
+        const usesPublicUploadFallback =
+          blobHandle.id.startsWith("public-upload:v1:") ||
+          blobHandle.provider.startsWith("public-upload:");
+        const validHandle =
+          blobHandle.opaque === true &&
+          (usesPublicUploadFallback
+            ? blobHandle.id.startsWith("public-upload:v1:") &&
+              blobHandle.provider.startsWith("public-upload:") &&
+              blobHandle.encrypted === true
+            : !blobHandle.id.startsWith("public-upload:v1:") &&
+              !blobHandle.provider.startsWith("public-upload:"));
+        if (!validHandle) {
           fail(
-            "Replay screenshots must be stored by the active private blob provider.",
+            "Replay screenshots must use an opaque private storage handle.",
             {
               errorCode: "private_blob_provider_mismatch",
               statusCode: 503,
             },
           );
         }
+        if (storageProviderId && blobHandle.provider !== storageProviderId) {
+          fail(
+            "Replay screenshots in one batch must use the same private storage provider.",
+            {
+              errorCode: "private_blob_provider_mismatch",
+              statusCode: 503,
+            },
+          );
+        }
+        storageProviderId = blobHandle.provider;
       }
 
       if (!requestedDesignId) {
