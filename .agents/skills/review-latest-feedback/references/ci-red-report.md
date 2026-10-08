@@ -24,9 +24,10 @@ boundary.
 Search open PRs and tracking issues for every run id, workflow, or fingerprint.
 For non-E2E rows, keep one tracking issue per fingerprint and reuse it across
 runs. A run-ID-only match owns only that occurrence; keep other unowned run IDs
-actionable. Mark an item **Owned elsewhere** only when an open item names its
-workflow or fingerprint, and link it. Close an issue only when issue closure is
-explicitly authorized.
+actionable. Mark an item **Owned elsewhere** only when an open issue body names
+its exact fingerprint or its run URL/id together with the workflow; a workflow
+name alone does not cover every failure in it. Link the matching issue. Close
+an issue only when issue closure is explicitly authorized.
 
 For E2E rows, track the complete failure set in one aggregate issue covering
 all E2E workflows, tests, shards, fingerprints, and runs in the report. Keep
