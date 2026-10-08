@@ -427,7 +427,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
       headers: { Authorization: authorization.authorization },
     });
     if (response.ok) return true;
-    if (response.status === 404) return false;
+    if (response.status === 404) return true;
     await assertOk(response, "Builder.io asset delete failed");
     return false;
   },

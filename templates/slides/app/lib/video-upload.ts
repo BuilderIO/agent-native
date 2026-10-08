@@ -1,6 +1,7 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
+const MAX_FINAL_CHUNK_RETRIES = 15;
 
 interface VideoUploadResponse {
   id?: unknown;
@@ -58,6 +59,24 @@ function readUploadedSlideVideo(
   return { id: data.id, url: data.url };
 }
 
+function canRetryFinalChunk(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (typeof status !== "number") return true;
+  return (
+    status === 408 ||
+    status === 409 ||
+    status === 425 ||
+    status === 429 ||
+    status >= 500 ||
+    (status >= 200 && status < 300)
+  );
+}
+
+function waitForFinalChunkRetry(attempt: number): Promise<void> {
+  const delay = Math.min(250 * 2 ** (attempt - 1), 1500);
+  return new Promise((resolve) => setTimeout(resolve, delay));
+}
+
 async function uploadVideoMultipart(file: File): Promise<UploadedSlideVideo> {
   const body = new FormData();
   body.append("file", file);
@@ -100,25 +119,45 @@ async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
       ? Math.min(startData.maxChunkBytes, CHUNK_SIZE_BYTES)
       : CHUNK_SIZE_BYTES;
   const totalChunks = Math.ceil(file.size / chunkSize);
+  let finalChunkAttempted = false;
   try {
     for (let index = 0; index < totalChunks; index++) {
       const isFinal = index === totalChunks - 1;
-      const chunkResponse = await fetch(
-        `${appBasePath()}/api/uploads-chunked/${startData.sessionId}/chunk?index=${index}&isFinal=${isFinal ? "1" : "0"}`,
-        {
+      const chunkUrl = `${appBasePath()}/api/uploads-chunked/${startData.sessionId}/chunk?index=${index}&isFinal=${isFinal ? "1" : "0"}`;
+      const body = file.slice(
+        index * chunkSize,
+        Math.min((index + 1) * chunkSize, file.size),
+      );
+      const sendChunk = async () => {
+        const response = await fetch(chunkUrl, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/octet-stream" },
-          body: file.slice(
-            index * chunkSize,
-            Math.min((index + 1) * chunkSize, file.size),
-          ),
-        },
-      );
-      const chunkData = await readVideoUploadResponse(chunkResponse);
+          body,
+        });
+        const data = await readVideoUploadResponse(response);
+        return { data, response };
+      };
+
       if (isFinal) {
-        return readUploadedSlideVideo(chunkData, chunkResponse);
+        finalChunkAttempted = true;
+        for (let attempt = 0; ; attempt++) {
+          try {
+            const { data, response } = await sendChunk();
+            return readUploadedSlideVideo(data, response);
+          } catch (error) {
+            if (
+              attempt >= MAX_FINAL_CHUNK_RETRIES ||
+              !canRetryFinalChunk(error)
+            ) {
+              throw error;
+            }
+            await waitForFinalChunkRetry(attempt + 1);
+          }
+        }
       }
+
+      const { data: chunkData, response: chunkResponse } = await sendChunk();
       if (chunkData.ok !== true) {
         throw uploadError(
           "Video upload response was invalid",
@@ -127,23 +166,25 @@ async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
       }
     }
   } catch (error) {
-    try {
-      const cleanupResponse = await fetch(
-        `${appBasePath()}/api/uploads-chunked/${startData.sessionId}`,
-        { method: "DELETE", credentials: "include" },
-      );
-      if (!cleanupResponse.ok) {
+    if (!finalChunkAttempted) {
+      try {
+        const cleanupResponse = await fetch(
+          `${appBasePath()}/api/uploads-chunked/${startData.sessionId}`,
+          { method: "DELETE", credentials: "include" },
+        );
+        if (!cleanupResponse.ok) {
+          console.warn("Failed to clean up incomplete video upload session", {
+            status: cleanupResponse.status,
+          });
+        }
+      } catch (cleanupError) {
         console.warn("Failed to clean up incomplete video upload session", {
-          status: cleanupResponse.status,
+          error:
+            cleanupError instanceof Error
+              ? cleanupError.message
+              : String(cleanupError),
         });
       }
-    } catch (cleanupError) {
-      console.warn("Failed to clean up incomplete video upload session", {
-        error:
-          cleanupError instanceof Error
-            ? cleanupError.message
-            : String(cleanupError),
-      });
     }
     throw error;
   }

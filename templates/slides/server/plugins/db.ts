@@ -325,6 +325,13 @@ ALTER TABLE decks ADD COLUMN IF NOT EXISTS last_write_revision TEXT`,
       name: "slides-uploaded-assets-provider-object-id",
       sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS provider_object_id TEXT`,
     },
+    {
+      version: 33,
+      name: "slides-uploaded-assets-upload-session-id",
+      sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS upload_session_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS uploaded_assets_owner_upload_session_uidx
+ON uploaded_assets (owner_email, upload_session_id)`,
+    },
   ],
   { table: "slides_migrations" },
 );

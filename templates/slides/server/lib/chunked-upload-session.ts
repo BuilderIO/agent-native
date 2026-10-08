@@ -6,6 +6,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import type { PrivateBlobHandle } from "@agent-native/core/private-blob";
+import { nanoid } from "nanoid";
 
 export interface ChunkedUploadSession {
   uploadType?: "reference" | "video";
@@ -24,7 +25,18 @@ export interface ChunkedUploadSession {
 }
 
 const PREFIX = "slides-upload-chunks-";
+const ORPHAN_PREFIX = "slides-upload-orphan-chunk-";
 const key = (sessionId: string) => `${PREFIX}${sessionId}`;
+
+export interface OrphanedChunkCleanup {
+  version: 1;
+  ownerEmail: string;
+  orgId: string | null;
+  uploadSessionId: string;
+  chunkIndex: number;
+  handle: PrivateBlobHandle;
+  createdAt: string;
+}
 
 export async function createChunkedUploadSession(
   sessionId: string,
@@ -70,4 +82,29 @@ export async function deleteChunkedUploadSession(
   sessionId: string,
 ): Promise<void> {
   await deleteAppState(key(sessionId));
+}
+
+export async function recordOrphanedChunkCleanup(
+  cleanup: OrphanedChunkCleanup,
+): Promise<string> {
+  const cleanupKey = `${ORPHAN_PREFIX}${nanoid()}`;
+  await writeAppState(
+    cleanupKey,
+    cleanup as unknown as Record<string, unknown>,
+  );
+  return cleanupKey;
+}
+
+export async function listOrphanedChunkCleanups(): Promise<
+  Array<{ key: string; cleanup: OrphanedChunkCleanup }>
+> {
+  const entries = await listAppState(ORPHAN_PREFIX);
+  return entries.map(({ key: entryKey, value }) => ({
+    key: entryKey,
+    cleanup: value as unknown as OrphanedChunkCleanup,
+  }));
+}
+
+export async function deleteOrphanedChunkCleanup(key: string): Promise<void> {
+  await deleteAppState(key);
 }

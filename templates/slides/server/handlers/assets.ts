@@ -1563,17 +1563,33 @@ export function canSaveAsUploadedVideoAsset(args: {
   return ext === ".webm" && hasValidWebmVideo(args.data);
 }
 
+function uploadedVideoError(
+  message: string,
+  statusCode: number,
+): Error & { statusCode: number } {
+  return Object.assign(new Error(message), { statusCode });
+}
+
 export async function uploadVideoAsset(args: {
   email: string;
   orgId?: string | null;
   originalName: string;
   data: Uint8Array;
+  uploadSessionId?: string;
 }): Promise<UploadedVideoAsset> {
   if (args.data.length > MAX_VIDEO_ASSET_FILE_SIZE) {
-    throw new Error("Video too large (max 50 MB)");
+    throw uploadedVideoError("Video too large (max 50 MB)", 413);
   }
   if (!canSaveAsUploadedVideoAsset(args)) {
-    throw new Error("Only valid MP4 and WebM videos are allowed");
+    throw uploadedVideoError("Only valid MP4 and WebM videos are allowed", 400);
+  }
+
+  if (args.uploadSessionId) {
+    const completed = await findUploadedVideoAssetForSession(
+      args.email,
+      args.uploadSessionId,
+    );
+    if (completed) return completed;
   }
 
   const ext = path.extname(args.originalName).toLowerCase();
@@ -1619,11 +1635,45 @@ export async function uploadVideoAsset(args: {
       size: asset.size,
       provider: asset.provider ?? null,
       providerObjectId: result.id ?? null,
+      uploadSessionId: args.uploadSessionId ?? null,
       ownerEmail: args.email,
       createdAt: new Date().toISOString(),
     });
 
   return asset;
+}
+
+export async function findUploadedVideoAssetForSession(
+  email: string,
+  uploadSessionId: string,
+): Promise<UploadedVideoAsset | null> {
+  const [asset] = await getDb()
+    .select({
+      id: schema.uploadedAssets.id,
+      filename: schema.uploadedAssets.filename,
+      url: schema.uploadedAssets.url,
+      type: schema.uploadedAssets.type,
+      size: schema.uploadedAssets.size,
+      provider: schema.uploadedAssets.provider,
+    })
+    .from(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.ownerEmail, email),
+        eq(schema.uploadedAssets.uploadSessionId, uploadSessionId),
+      ),
+    )
+    .limit(1);
+
+  if (!asset || !asset.type.startsWith("video/")) return null;
+  return {
+    id: asset.id,
+    filename: asset.filename,
+    url: asset.url,
+    type: asset.type,
+    size: asset.size,
+    provider: asset.provider ?? undefined,
+  };
 }
 
 export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
@@ -1652,7 +1702,7 @@ export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
       data: filePart.data,
     });
   } catch (error) {
-    const status = (error as { statusCode?: number })?.statusCode ?? 400;
+    const status = (error as { statusCode?: number })?.statusCode ?? 500;
     setResponseStatus(event, status);
     return {
       error: error instanceof Error ? error.message : "Video upload failed",

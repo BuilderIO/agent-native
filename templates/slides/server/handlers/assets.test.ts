@@ -2,8 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
 const mockValues = vi.hoisted(() => vi.fn());
+const mockSelectLimit = vi.hoisted(() => vi.fn());
+const mockEq = vi.hoisted(() => vi.fn((...args: unknown[]) => args));
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
+const mockUploadedAssets = vi.hoisted(() => ({
+  id: "uploaded_assets.id",
+  filename: "uploaded_assets.filename",
+  url: "uploaded_assets.url",
+  type: "uploaded_assets.type",
+  size: "uploaded_assets.size",
+  provider: "uploaded_assets.provider",
+  uploadSessionId: "uploaded_assets.upload_session_id",
+  ownerEmail: "uploaded_assets.owner_email",
+}));
 
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: mockUploadFile,
@@ -15,11 +27,22 @@ vi.mock("@agent-native/core/server", () => ({
     mockRunWithRequestContext(...args),
 }));
 
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
+  and: (...args: unknown[]) => args,
+  desc: (...args: unknown[]) => args,
+  eq: (...args: unknown[]) => mockEq(...args),
+  notLike: (...args: unknown[]) => args,
+}));
+
 vi.mock("../db/index.js", () => ({
   getDb: () => ({
     insert: () => ({ values: mockValues }),
+    select: () => ({
+      from: () => ({ where: () => ({ limit: mockSelectLimit }) }),
+    }),
   }),
-  schema: { uploadedAssets: {} },
+  schema: { uploadedAssets: mockUploadedAssets },
 }));
 
 import {
@@ -38,6 +61,9 @@ beforeEach(() => {
   });
   mockValues.mockReset();
   mockValues.mockResolvedValue(undefined);
+  mockSelectLimit.mockReset();
+  mockSelectLimit.mockResolvedValue([]);
+  mockEq.mockClear();
   mockGetRequestOrgId.mockReset();
   mockGetRequestOrgId.mockReturnValue(undefined);
   mockRunWithRequestContext.mockReset();
@@ -814,6 +840,70 @@ describe("uploaded video validation", () => {
     expect(mockRunWithRequestContext).toHaveBeenCalledWith(
       { userEmail: "owner@example.com", orgId: "active-org" },
       expect.any(Function),
+    );
+  });
+
+  it("returns the existing uploaded video for a completed upload session", async () => {
+    const completed = {
+      id: "video-asset-1",
+      filename: "clip.mp4",
+      url: "https://cdn.example.com/clip.mp4",
+      type: "video/mp4",
+      size: 4,
+      provider: "s3",
+    };
+    mockSelectLimit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([completed]);
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "uploads/provider-object-1.mp4",
+      url: completed.url,
+    });
+
+    const first = await uploadVideoAsset({
+      email: "owner@example.com",
+      originalName: "clip.mp4",
+      data: mp4,
+      uploadSessionId: "session-1",
+    });
+    const replay = await uploadVideoAsset({
+      email: "owner@example.com",
+      originalName: "clip.mp4",
+      data: mp4,
+      uploadSessionId: "session-1",
+    });
+
+    expect(replay).toEqual(completed);
+    expect(mockUploadFile).toHaveBeenCalledTimes(1);
+    expect(mockValues).toHaveBeenCalledTimes(1);
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: first.id,
+        ownerEmail: "owner@example.com",
+        uploadSessionId: "session-1",
+      }),
+    );
+  });
+
+  it("scopes completed upload lookup to the authenticated owner", async () => {
+    mockSelectLimit.mockResolvedValueOnce([]);
+
+    await uploadVideoAsset({
+      email: "owner@example.com",
+      originalName: "clip.mp4",
+      data: mp4,
+      uploadSessionId: "session-1",
+    });
+
+    expect(mockSelectLimit).toHaveBeenCalledTimes(1);
+    expect(mockEq).toHaveBeenCalledWith(
+      mockUploadedAssets.ownerEmail,
+      "owner@example.com",
+    );
+    expect(mockEq).toHaveBeenCalledWith(
+      mockUploadedAssets.uploadSessionId,
+      "session-1",
     );
   });
 });

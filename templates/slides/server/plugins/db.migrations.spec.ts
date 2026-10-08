@@ -150,8 +150,19 @@ describe("Slides share migrations", () => {
     expect(uploadedAssetColumns).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "provider_object_id" }),
+        expect.objectContaining({ name: "upload_session_id" }),
       ]),
     );
+
+    const { rows: uploadSessionIndexes } = await exec.execute(
+      `SELECT indexname AS name
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND indexname = 'uploaded_assets_owner_upload_session_uidx'`,
+    );
+    expect(uploadSessionIndexes).toEqual([
+      { name: "uploaded_assets_owner_upload_session_uidx" },
+    ]);
 
     const { rows } = await exec.execute(
       `SELECT id, resource_id, principal_type, principal_id, role

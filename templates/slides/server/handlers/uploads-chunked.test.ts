@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   compareAndSetSession: vi.fn(),
   deleteBlob: vi.fn(),
+  deleteOrphanedChunkCleanup: vi.fn(),
   deleteSession: vi.fn(),
   getHeader: vi.fn(),
   getQuery: vi.fn(),
@@ -11,13 +12,16 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   isHosted: vi.fn(),
   listSessions: vi.fn(),
+  listOrphanedChunkCleanups: vi.fn(),
   putBlob: vi.fn(),
+  recordOrphanedChunkCleanup: vi.fn(),
   readBody: vi.fn(),
   readBlob: vi.fn(),
   readRawBody: vi.fn(),
   saveFile: vi.fn(),
   setStatus: vi.fn(),
   resolveAuth: vi.fn(),
+  findUploadedVideoAssetForSession: vi.fn(),
   uploadVideoAsset: vi.fn(),
 }));
 
@@ -47,11 +51,17 @@ vi.mock("../lib/chunked-upload-session.js", () => ({
     mocks.compareAndSetSession(...args),
   createChunkedUploadSession: (...args: unknown[]) =>
     mocks.createSession(...args),
+  deleteOrphanedChunkCleanup: (...args: unknown[]) =>
+    mocks.deleteOrphanedChunkCleanup(...args),
   deleteChunkedUploadSession: (...args: unknown[]) =>
     mocks.deleteSession(...args),
   getChunkedUploadSession: (...args: unknown[]) => mocks.getSession(...args),
+  listOrphanedChunkCleanups: (...args: unknown[]) =>
+    mocks.listOrphanedChunkCleanups(...args),
   listChunkedUploadSessions: (...args: unknown[]) =>
     mocks.listSessions(...args),
+  recordOrphanedChunkCleanup: (...args: unknown[]) =>
+    mocks.recordOrphanedChunkCleanup(...args),
 }));
 
 vi.mock("./request-auth-context.js", () => ({
@@ -72,6 +82,8 @@ vi.mock("./uploads.js", () => ({
 
 vi.mock("./assets.js", () => ({
   MAX_VIDEO_ASSET_FILE_SIZE: 50 * 1024 * 1024,
+  findUploadedVideoAssetForSession: (...args: unknown[]) =>
+    mocks.findUploadedVideoAssetForSession(...args),
   uploadVideoAsset: (...args: unknown[]) => mocks.uploadVideoAsset(...args),
 }));
 
@@ -109,6 +121,9 @@ describe("chunked reference uploads", () => {
       context: { email: "owner@example.com", orgId: "org-1" },
     });
     mocks.listSessions.mockResolvedValue([]);
+    mocks.listOrphanedChunkCleanups.mockResolvedValue([]);
+    mocks.recordOrphanedChunkCleanup.mockResolvedValue("orphan-1");
+    mocks.findUploadedVideoAssetForSession.mockResolvedValue(null);
     mocks.readBody.mockResolvedValue({
       filename: "deck.pptx",
       mimetype:
@@ -373,6 +388,111 @@ describe("chunked reference uploads", () => {
     expect(mocks.deleteBlob).not.toHaveBeenCalledWith(oldHandle);
   });
 
+  it("records a conflicted chunk before deleting it and keeps the record when deletion fails", async () => {
+    mocks.compareAndSetSession.mockResolvedValueOnce(false);
+    mocks.deleteBlob.mockResolvedValueOnce({
+      deleted: false,
+      provider: "public-upload:builder",
+    });
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+      error: "Upload session changed while saving the chunk",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mocks.recordOrphanedChunkCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        version: 1,
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        uploadSessionId: "session-1",
+        chunkIndex: 0,
+        handle: expect.objectContaining({ id: "blob-1" }),
+      }),
+    );
+    expect(
+      mocks.recordOrphanedChunkCleanup.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.deleteBlob.mock.invocationCallOrder[0]);
+    expect(mocks.deleteOrphanedChunkCleanup).not.toHaveBeenCalled();
+  });
+
+  it("reports cleanup persistence failure when the conflicted blob also cannot be deleted", async () => {
+    mocks.compareAndSetSession.mockResolvedValueOnce(false);
+    mocks.recordOrphanedChunkCleanup.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    mocks.deleteBlob.mockResolvedValueOnce({
+      deleted: false,
+      provider: "public-upload:builder",
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+        error: "Conflicted upload chunk cleanup could not be recorded",
+      });
+      expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 503);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("retries orphaned chunk cleanup only in the matching organization", async () => {
+    mocks.listOrphanedChunkCleanups.mockResolvedValueOnce([
+      {
+        key: "orphan-1",
+        cleanup: {
+          version: 1,
+          ownerEmail: "owner@example.com",
+          orgId: "org-1",
+          uploadSessionId: "session-old",
+          chunkIndex: 0,
+          handle: { id: "orphan-blob", provider: "private", opaque: true },
+        },
+      },
+      {
+        key: "orphan-other-org",
+        cleanup: {
+          version: 1,
+          ownerEmail: "owner@example.com",
+          orgId: "org-2",
+          uploadSessionId: "session-old",
+          chunkIndex: 0,
+          handle: { id: "other-blob", provider: "private", opaque: true },
+        },
+      },
+    ]);
+    mocks.deleteBlob.mockResolvedValueOnce({
+      deleted: false,
+      provider: "private",
+    });
+    await startChunkedUpload({} as never);
+    expect(mocks.deleteBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "orphan-blob" }),
+    );
+    expect(mocks.deleteOrphanedChunkCleanup).not.toHaveBeenCalled();
+
+    mocks.listOrphanedChunkCleanups.mockResolvedValueOnce([
+      {
+        key: "orphan-1",
+        cleanup: {
+          version: 1,
+          ownerEmail: "owner@example.com",
+          orgId: "org-1",
+          uploadSessionId: "session-old",
+          chunkIndex: 0,
+          handle: { id: "orphan-blob", provider: "private", opaque: true },
+        },
+      },
+    ]);
+    mocks.deleteBlob.mockResolvedValueOnce({
+      deleted: true,
+      provider: "private",
+    });
+    await startChunkedUpload({} as never);
+    expect(mocks.deleteOrphanedChunkCleanup).toHaveBeenCalledWith("orphan-1");
+  });
+
   it("returns committed success when temporary cleanup fails", async () => {
     mocks.getQuery.mockReturnValue({ index: "0", isFinal: "1" });
     mocks.getSession.mockResolvedValue(session({ declaredSize: 4 }));
@@ -382,6 +502,39 @@ describe("chunked reference uploads", () => {
       { path: "slides-upload:v1:final" },
     ]);
     expect(mocks.saveFile).toHaveBeenCalled();
+  });
+
+  it("preserves the finalization error when chunk cleanup also fails", async () => {
+    mocks.getQuery.mockReturnValue({ index: "0", isFinal: "1" });
+    mocks.getSession.mockResolvedValue(
+      session({
+        uploadType: "video",
+        filename: "clip.mp4",
+        mimeType: "video/mp4",
+        declaredSize: 4,
+      }),
+    );
+    mocks.uploadVideoAsset.mockRejectedValueOnce(
+      Object.assign(new Error("storage unavailable"), { statusCode: 503 }),
+    );
+    mocks.deleteBlob.mockRejectedValueOnce(new Error("cleanup failed"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+        error: "storage unavailable",
+      });
+      expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 503);
+      expect(error).toHaveBeenCalledWith(
+        "[slides-upload] failed finalization cleanup failed",
+        expect.objectContaining({
+          error: "storage unavailable",
+          cleanupError: "cleanup failed",
+        }),
+      );
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("stores a completed video through the uploaded-assets path", async () => {
@@ -408,6 +561,7 @@ describe("chunked reference uploads", () => {
       orgId: "org-1",
       originalName: "clip.mp4",
       data: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      uploadSessionId: "session-1",
     });
     expect(mocks.saveFile).not.toHaveBeenCalled();
     expect(mocks.compareAndSetSession).toHaveBeenCalledWith(
@@ -483,6 +637,62 @@ describe("chunked reference uploads", () => {
     expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 403);
     expect(mocks.readRawBody).not.toHaveBeenCalled();
     expect(mocks.putBlob).not.toHaveBeenCalled();
+    expect(mocks.findUploadedVideoAssetForSession).not.toHaveBeenCalled();
+  });
+
+  it("returns the completed video when a replay arrives after session cleanup", async () => {
+    const video = { id: "asset-1", url: "https://media.example.com/clip.mp4" };
+    mocks.getSession.mockResolvedValue(null);
+    mocks.findUploadedVideoAssetForSession.mockResolvedValueOnce(video);
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual(video);
+    expect(mocks.findUploadedVideoAssetForSession).toHaveBeenCalledWith(
+      "owner@example.com",
+      "session-1",
+    );
+    expect(mocks.setStatus).not.toHaveBeenCalled();
+    expect(mocks.uploadVideoAsset).not.toHaveBeenCalled();
+  });
+
+  it("returns the completed video while the session is still finalizing", async () => {
+    const video = { id: "asset-1", url: "https://media.example.com/clip.mp4" };
+    mocks.getSession.mockResolvedValue(
+      session({ uploadType: "video", finalizingAt: new Date().toISOString() }),
+    );
+    mocks.findUploadedVideoAssetForSession.mockResolvedValueOnce(video);
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual(video);
+    expect(mocks.uploadVideoAsset).not.toHaveBeenCalled();
+  });
+
+  it("returns a conflict when expiry cleanup loses a race to finalization", async () => {
+    mocks.getSession
+      .mockResolvedValueOnce(session({ expiresAt: new Date(0).toISOString() }))
+      .mockResolvedValueOnce(
+        session({ finalizingAt: new Date().toISOString() }),
+      );
+    mocks.compareAndSetSession.mockResolvedValueOnce(false);
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+      error: "Upload session is already finalizing",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 409);
+  });
+
+  it("returns a conflict when size cleanup loses a race to finalization", async () => {
+    mocks.getHeader.mockReturnValue("9");
+    mocks.readRawBody.mockResolvedValue(new Uint8Array(9));
+    mocks.getSession
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(
+        session({ finalizingAt: new Date().toISOString() }),
+      );
+    mocks.compareAndSetSession.mockResolvedValueOnce(false);
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+      error: "Upload session is already finalizing",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 409);
   });
 
   it("rejects a final upload whose bytes do not equal declaredSize", async () => {
