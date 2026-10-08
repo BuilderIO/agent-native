@@ -3067,6 +3067,41 @@ describe("recap check — outcome mapper", () => {
     expect(out.detailsUrl).toBe(`${app}/recaps/abc123`);
   });
 
+  it("treats an explicitly empty --shot-ok as a failed capture", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(textResponse("", 204));
+
+    try {
+      await runRecap([
+        "check",
+        "complete",
+        "--repo",
+        "BuilderIO/example",
+        "--token",
+        "fake-github-token",
+        "--check-run-id",
+        "123",
+        "--plan-ok",
+        "true",
+        "--plan-url",
+        `${app}/recaps/abc123`,
+        "--app-url",
+        app,
+        "--shot-ok",
+        "",
+        "--workflow-url",
+        workflowUrl,
+      ]);
+
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+      expect(body.conclusion).toBe("failure");
+      expect(body.output.title).toBe("Visual recap screenshot failed");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("success: a huge diff gets the summarized summary", () => {
     const out = recapCheckOutcome({
       ...base,

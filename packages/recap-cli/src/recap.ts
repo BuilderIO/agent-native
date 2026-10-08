@@ -4286,9 +4286,9 @@ async function runCheckComplete(
     "";
   const checkRunId = optionalArg(args, "check-run-id") ?? "";
   const planOk = boolFlag(args, "plan-ok");
-  const screenshotOkArg = optionalArg(args, "shot-ok");
-  const screenshotOk =
-    screenshotOkArg === undefined ? undefined : boolFlag(args, "shot-ok");
+  const screenshotOk = Object.hasOwn(args, "shot-ok")
+    ? boolFlag(args, "shot-ok")
+    : undefined;
   const huge = boolFlag(args, "huge");
   const tiny = boolFlag(args, "tiny");
   const suppressed = boolFlag(args, "suppressed");
