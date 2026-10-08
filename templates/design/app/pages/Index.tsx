@@ -1459,7 +1459,7 @@ export default function Index() {
                 ) : (
                   <>
                     {isSelectingDesigns ? (
-                      <div className="-mt-4 mb-3 flex w-full flex-wrap items-center justify-between gap-3 px-1 py-1 sm:-mt-6">
+                      <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-3 px-1 py-1">
                         <div className="text-sm text-muted-foreground">
                           <span className="font-medium text-foreground">
                             {t("home.selected", { count: selectedDesignCount })}
