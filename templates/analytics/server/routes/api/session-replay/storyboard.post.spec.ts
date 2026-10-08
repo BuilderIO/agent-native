@@ -1,14 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  deleteAttachment: vi.fn(),
-  isPrivateBlobConfiguredForRequest: vi.fn(),
+  fetch: vi.fn(),
   getSessionReplaySummary: vi.fn(),
-  invokeAgent: vi.fn(),
   invokeAgentAction: vi.fn(),
-  mintAttachmentRef: vi.fn(),
   readMultipartFormData: vi.fn(),
   resolveA2ACallerAuth: vi.fn(),
+  resolveAgentInvocationTarget: vi.fn(),
 }));
 
 vi.mock("h3", async (importOriginal) => {
@@ -22,17 +20,9 @@ vi.mock("h3", async (importOriginal) => {
 });
 
 vi.mock("@agent-native/core/a2a", () => ({
-  invokeAgent: mocks.invokeAgent,
   invokeAgentAction: mocks.invokeAgentAction,
   resolveA2ACallerAuth: mocks.resolveA2ACallerAuth,
-}));
-
-vi.mock("@agent-native/core/private-blob", () => ({
-  ATTACHMENT_REF_MAX_CHARS: 2_048,
-  deleteAttachment: mocks.deleteAttachment,
-  isPrivateBlobConfiguredForRequest: mocks.isPrivateBlobConfiguredForRequest,
-  isPrivateBlobError: () => false,
-  mintAttachmentRef: mocks.mintAttachmentRef,
+  resolveAgentInvocationTarget: mocks.resolveAgentInvocationTarget,
 }));
 
 vi.mock("../../../lib/credentials", () => ({
@@ -48,10 +38,8 @@ vi.mock("../../../lib/session-replay", () => ({
 
 import handler from "./storyboard.post";
 
-const boundary = "replay-storyboard-test-boundary";
 const designId = "design-123";
 const designUrl = "https://design.example.test";
-let confirmationBoardContent: string;
 const screenshot = {
   recordingId: "sr_123",
   offsetMs: 1_250,
@@ -71,35 +59,32 @@ function pngBytes(): Buffer {
   return bytes;
 }
 
-function multipartBody(): Buffer {
-  const manifest = {
-    designId,
-    cohortTotal: 1,
-    selectedReplayCount: 1,
-    screenshots: [screenshot],
-  };
-  return Buffer.concat([
-    Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="manifest"\r\n\r\n${JSON.stringify(manifest)}\r\n` +
-        `--${boundary}\r\nContent-Disposition: form-data; name="screenshot-0"; filename="replay.png"\r\nContent-Type: image/png\r\n\r\n`,
-    ),
-    pngBytes(),
-    Buffer.from(`\r\n--${boundary}--\r\n`),
-  ]);
+function makeFormData() {
+  const form = new FormData();
+  form.set(
+    "manifest",
+    JSON.stringify({
+      designId,
+      cohortTotal: 1,
+      selectedReplayCount: 1,
+      screenshots: [screenshot],
+    }),
+  );
+  form.append(
+    "screenshot-0",
+    new Blob([new Uint8Array(pngBytes()).buffer as ArrayBuffer], {
+      type: "image/png",
+    }),
+    "replay.png",
+  );
+  return form;
 }
 
-function makeEvent(body: Uint8Array, contentLength?: string) {
+function makeEvent(body: BodyInit) {
   return {
     req: new Request(
       "http://analytics.example.test/api/session-replay/storyboard",
-      {
-        method: "POST",
-        headers: {
-          "content-type": `multipart/form-data; boundary=${boundary}`,
-          ...(contentLength ? { "content-length": contentLength } : {}),
-        },
-        body: body as BodyInit,
-      },
+      { method: "POST", body },
     ),
   };
 }
@@ -119,49 +104,35 @@ function designOutput(boardContent?: string): string {
 }
 
 function matchingBoardContent(): string {
-  return `<img src="/api/design-board-replay-screenshots/screenshot_123" data-session-replay-id="${screenshot.recordingId}" data-session-replay-captured-at="${screenshot.capturedAt}" data-session-replay-app="clips" data-session-replay-route="${screenshot.route}" data-session-replay-offset-ms="${screenshot.offsetMs}" data-session-replay-event-count="${screenshot.eventCount}" width="${screenshot.viewportWidth}" height="${screenshot.viewportHeight}" />`;
+  return `<img src="/api/design-board-replay-screenshots/screenshot_123" data-session-replay-id="${screenshot.recordingId}" data-session-replay-captured-at="${screenshot.capturedAt}" data-session-replay-app="clips" data-session-replay-route="${screenshot.route}" data-session-replay-offset-ms="${screenshot.offsetMs}" data-session-replay-event-count="${screenshot.eventCount}" data-session-replay-viewport-width="${screenshot.viewportWidth}" data-session-replay-viewport-height="${screenshot.viewportHeight}" />`;
 }
 
 describe("POST /api/session-replay/storyboard", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
-    confirmationBoardContent = matchingBoardContent();
-    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(true);
+    vi.stubGlobal("fetch", mocks.fetch);
     mocks.getSessionReplaySummary.mockResolvedValue({
       id: screenshot.recordingId,
       app: "clips",
       durationMs: 10_000,
       eventCount: screenshot.eventCount,
     });
-    mocks.mintAttachmentRef.mockResolvedValue({
-      status: "ok",
-      ref: "private-attachment-ref",
-      handle: { provider: "private-provider", opaque: true },
-    });
-    mocks.deleteAttachment.mockResolvedValue({ status: "ok", deleted: true });
+    mocks.resolveAgentInvocationTarget.mockResolvedValue({ url: designUrl });
     mocks.resolveA2ACallerAuth.mockResolvedValue({ apiKey: "test-a2a-token" });
-    mocks.invokeAgent.mockResolvedValue({
-      target: { url: designUrl },
-      responseText: "Design saved.",
-    });
-    mocks.invokeAgentAction.mockImplementation(async () => {
+    mocks.invokeAgentAction.mockImplementation(async ({ input }: any) => {
       const callIndex = mocks.invokeAgentAction.mock.calls.length;
-      const input =
-        mocks.invokeAgentAction.mock.calls[
-          mocks.invokeAgentAction.mock.calls.length - 1
-        ]?.[0]?.input;
-      const boardContent =
+      const content =
         input?.includeFileContent === false
           ? undefined
           : callIndex === 2
             ? ""
-            : confirmationBoardContent;
+            : matchingBoardContent();
       return {
         target: { url: designUrl },
         result: {
           action: "get-design",
           status: "completed",
-          output: designOutput(boardContent),
+          output: designOutput(content),
         },
       };
     });
@@ -180,88 +151,84 @@ describe("POST /api/session-replay/storyboard", () => {
         ),
       );
     });
+    mocks.fetch.mockImplementation(async (url: string, init: RequestInit) => {
+      const form = init.body as FormData;
+      expect(url).toBe(`${designUrl}/api/session-replay-storyboard`);
+      expect(new Headers(init.headers).get("authorization")).toBe(
+        "Bearer test-a2a-token",
+      );
+      expect(form.get("manifest")).toContain('"replayId":"sr_123"');
+      expect(form.get("screenshot-0")).toBeInstanceOf(Blob);
+      return Response.json({
+        response: "Added one screenshot.",
+        boardUrl: "https://design.example.test/design/design-123",
+        designId,
+        screenshotCount: 1,
+      });
+    });
   });
 
-  it("confirms the Design write from structured board data, not the agent reply URL", async () => {
-    const result = await (handler as any)(makeEvent(multipartBody()));
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("uploads validated replay pixels directly to Design without Analytics blob storage", async () => {
+    const result = await (handler as any)(makeEvent(makeFormData()));
 
     expect(result.screenshotCount).toBe(1);
     expect(result.cleanupPending).toBe(false);
+    expect(result.response).toBe("Added one screenshot.");
     expect(new URL(result.boardUrl).searchParams.get("designId")).toBe(
       designId,
     );
-    expect(mocks.invokeAgentAction).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "get-design",
-        input: expect.objectContaining({ id: designId }),
-      }),
-    );
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
     expect(mocks.invokeAgentAction).toHaveBeenCalledTimes(4);
   });
 
-  it("accepts the encrypted file-upload fallback for private screenshot storage", async () => {
-    mocks.mintAttachmentRef.mockResolvedValue({
-      status: "ok",
-      ref: "private-attachment-ref",
-      handle: { provider: "public-upload:s3", opaque: true, encrypted: true },
-    });
-
-    const result = await (handler as any)(makeEvent(multipartBody()));
-
-    expect(result.screenshotCount).toBe(1);
-  });
-
-  it("rejects screenshot export when neither private storage path is configured", async () => {
-    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(false);
+  it("shows the Design storage error instead of masking it with a boolean", async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      Response.json(
+        {
+          error: true,
+          statusMessage: "Design private screenshot storage is unavailable",
+        },
+        { status: 503 },
+      ),
+    );
 
     await expect(
-      (handler as any)(makeEvent(multipartBody())),
+      (handler as any)(makeEvent(makeFormData())),
     ).rejects.toMatchObject({
       statusCode: 503,
-      statusMessage:
-        "Private screenshot storage is not configured for Analytics",
+      statusMessage: "Design private screenshot storage is unavailable",
     });
-    expect(mocks.readMultipartFormData).not.toHaveBeenCalled();
   });
 
-  it("reports a timed-out mutation as successful only when read-back proves the write", async () => {
-    mocks.invokeAgent.mockRejectedValue(new Error("request timed out"));
-
-    const result = await (handler as any)(makeEvent(multipartBody()));
-
-    expect(result.screenshotCount).toBe(1);
-    expect(result.cleanupPending).toBe(false);
-  });
-
-  it("reports an ambiguous timed-out mutation when read-back cannot prove the write", async () => {
-    mocks.invokeAgent.mockRejectedValue(new Error("request timed out"));
-    confirmationBoardContent = "";
+  it("does not report an ambiguous save as complete when read-back misses the new image", async () => {
+    mocks.invokeAgentAction.mockImplementation(async () => ({
+      target: { url: designUrl },
+      result: {
+        action: "get-design",
+        status: "completed",
+        output: designOutput(""),
+      },
+    }));
 
     await expect(
-      (handler as any)(makeEvent(multipartBody())),
+      (handler as any)(makeEvent(makeFormData())),
     ).rejects.toMatchObject({
-      status: 502,
-      statusText: expect.stringContaining("check Design before retrying"),
+      statusCode: 502,
+      statusMessage: expect.stringContaining("check Design before retrying"),
     });
   });
 
-  it("rejects an oversized streamed body even when Content-Length understates it", async () => {
+  it("rejects an oversized streamed body before parsing or handing off", async () => {
     const overLimit = new Uint8Array(20 * 1024 * 1024 + 96_001);
 
-    await expect(
-      (handler as any)(makeEvent(overLimit, "1")),
-    ).rejects.toMatchObject({
+    await expect((handler as any)(makeEvent(overLimit))).rejects.toMatchObject({
       statusCode: 413,
     });
     expect(mocks.readMultipartFormData).not.toHaveBeenCalled();
-    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
-  });
-
-  it("does not report cleanup as complete when the provider keeps the attachment", async () => {
-    mocks.deleteAttachment.mockResolvedValue({ status: "ok", deleted: false });
-
-    const result = await (handler as any)(makeEvent(multipartBody()));
-
-    expect(result.cleanupPending).toBe(true);
+    expect(mocks.fetch).not.toHaveBeenCalled();
   });
 });

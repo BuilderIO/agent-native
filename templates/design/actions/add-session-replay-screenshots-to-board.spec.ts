@@ -233,6 +233,93 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(fallbackHandle);
   });
 
+  it("lays replay screenshots out in compact rows while preserving their viewport ratios", async () => {
+    const file = {
+      id: "board-file-123",
+      designId: "design-id",
+      filename: "index.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+      createdAt: null,
+      updatedAt: null,
+    };
+    const insertValues = vi.fn().mockResolvedValue(undefined);
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        id: "design-id",
+        ownerEmail: "designer@example.test",
+        visibility: "private",
+        orgId: null,
+      },
+    });
+    mocks.migrateBoardObjectsToFile.mockResolvedValue({
+      boardFileId: file.id,
+    });
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => selectChain([file])),
+      insert: vi.fn(() => ({ values: insertValues })),
+    });
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: file.content,
+      versionHash: "version-before",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValue({
+      versionHash: "version-after",
+    });
+
+    const result = await action.run(
+      {
+        designId: "design-id",
+        cohortTotal: 50,
+        selectedReplayCount: 1,
+        screenshots: [
+          {
+            attachmentRef: "desktop-ref",
+            replayId: "replay-id",
+            capturedAt: "2026-10-07T12:00:00.000Z",
+            app: "clips",
+            route: "/library",
+            offsetMs: 1_000,
+            viewportWidth: 1536,
+            viewportHeight: 864,
+            eventCount: 12,
+          },
+          {
+            attachmentRef: "mobile-ref",
+            replayId: "replay-id",
+            capturedAt: "2026-10-07T12:00:00.000Z",
+            app: "clips",
+            route: "/record",
+            offsetMs: 2_000,
+            viewportWidth: 390,
+            viewportHeight: 844,
+            eventCount: 12,
+          },
+        ],
+      } as never,
+      {
+        caller: "frontend",
+        actionName: "add-session-replay-screenshots-to-board",
+      } as never,
+    );
+
+    expect(result.summary.screenshotCount).toBe(2);
+    expect(insertValues).toHaveBeenCalledOnce();
+    const boardContent = mocks.writeInlineSourceFile.mock.calls[0]?.[0]
+      ?.content as string;
+    expect(boardContent).toContain(
+      'data-session-replay-viewport-width="1536" data-session-replay-viewport-height="864"',
+    );
+    expect(boardContent).toContain('width="360" height="203" loading="lazy"');
+    expect(boardContent).toContain(
+      'data-session-replay-viewport-width="390" data-session-replay-viewport-height="844"',
+    );
+    expect(boardContent).toContain(
+      "left:420px;top:144px;width:296px;height:640px",
+    );
+  });
+
   it("fails before resolving screenshots when private storage is unavailable", async () => {
     mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(false);
 

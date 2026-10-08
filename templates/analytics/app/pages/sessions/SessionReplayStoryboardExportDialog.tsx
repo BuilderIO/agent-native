@@ -389,7 +389,7 @@ export function SessionReplayStoryboardExportDialog({
             viewportWidth: dimensions.width,
             viewportHeight: dimensions.height,
             eventCount: playback.recording.eventCount,
-            capturedAt: new Date().toISOString(),
+            capturedAt: target.recording.startedAt,
           });
         }
         replayer.pause?.();
@@ -446,8 +446,9 @@ export function SessionReplayStoryboardExportDialog({
         response?: string;
         boardUrl?: string;
         cleanupPending?: boolean;
-        error?: string;
+        error?: string | boolean;
         message?: string;
+        statusMessage?: string;
       } | null;
       try {
         result = (await upload.json()) as typeof result;
@@ -455,9 +456,12 @@ export function SessionReplayStoryboardExportDialog({
         throw new Error(t("sessions.storyboardUnexpectedResponse"));
       }
       if (!upload.ok) {
-        throw new Error(
-          result?.error ?? result?.message ?? `HTTP ${upload.status}`,
-        );
+        const errorMessage =
+          (typeof result?.error === "string" && result.error.trim()) ||
+          result?.statusMessage?.trim() ||
+          result?.message?.trim() ||
+          `HTTP ${upload.status}`;
+        throw new Error(errorMessage);
       }
       if (!result?.response?.trim() || !result.boardUrl?.trim()) {
         throw new Error(t("sessions.storyboardNoDesignResponse"));

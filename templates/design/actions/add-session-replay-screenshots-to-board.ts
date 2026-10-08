@@ -151,6 +151,12 @@ function screenshotLabel(screenshot: ScreenshotInput): string {
   return `${screenshot.app} · ${screenshot.route} · replay ${screenshot.replayId} · ${screenshot.capturedAt} · +${screenshot.offsetMs} ms · ${screenshot.eventCount} events · ${screenshot.viewportWidth}×${screenshot.viewportHeight}`;
 }
 
+function screenshotCaption(screenshot: ScreenshotInput): string {
+  const date = screenshot.capturedAt.slice(0, 10);
+  const seconds = (screenshot.offsetMs / 1_000).toFixed(1).replace(/\.0$/, "");
+  return `${screenshot.app} · ${screenshot.route} · ${date} · +${seconds}s`;
+}
+
 function maxBoardBottom(html: string): number {
   let bottom = 0;
   const styleAttributes = html.matchAll(/\bstyle\s*=\s*(["'])(.*?)\1/gis);
@@ -172,16 +178,49 @@ function screenshotMarkup(
   screenshots: readonly UploadedScreenshot[],
   initialTop: number,
 ): string {
-  let top = initialTop;
+  const columnCount = 3;
+  const columnWidth = 420;
+  const rowGap = 80;
+  const renderSize = (screenshot: ScreenshotInput) => {
+    const scale = Math.min(
+      1,
+      360 / screenshot.viewportWidth,
+      640 / screenshot.viewportHeight,
+    );
+    return {
+      width: Math.max(1, Math.round(screenshot.viewportWidth * scale)),
+      height: Math.max(1, Math.round(screenshot.viewportHeight * scale)),
+    };
+  };
+  const rowHeights = Array.from(
+    { length: Math.ceil(screenshots.length / columnCount) },
+    (_, row) =>
+      Math.max(
+        ...screenshots
+          .slice(row * columnCount, (row + 1) * columnCount)
+          .map(({ screenshot }) => renderSize(screenshot).height),
+      ) + 56,
+  );
+  const rowTops = rowHeights.map((_, row) =>
+    rowHeights
+      .slice(0, row)
+      .reduce((total, height) => total + height + rowGap, initialTop),
+  );
+
   return screenshots
-    .map(({ id, screenshot }) => {
+    .map(({ id, screenshot }, index) => {
       const label = screenshotLabel(screenshot);
+      const captionText = screenshotCaption(screenshot);
       const labelNodeId = `${id}-label`;
       const layerName = `Replay ${screenshot.replayId}`;
-      const imageTop = top + 48;
-      const image = `<img data-agent-native-node-id="${id}" data-agent-native-layer-name="${escapeHtml(layerName)}" data-an-primitive="image" data-session-replay-id="${escapeHtml(screenshot.replayId)}" data-session-replay-captured-at="${escapeHtml(screenshot.capturedAt)}" data-session-replay-app="${escapeHtml(screenshot.app)}" data-session-replay-route="${escapeHtml(screenshot.route)}" data-session-replay-offset-ms="${screenshot.offsetMs}" data-session-replay-event-count="${screenshot.eventCount}" alt="${escapeHtml(label)}" title="${escapeHtml(label)}" width="${screenshot.viewportWidth}" height="${screenshot.viewportHeight}" loading="lazy" decoding="async" src="/api/design-board-replay-screenshots/${id}" style="position:absolute;left:0px;top:${imageTop}px;width:${screenshot.viewportWidth}px;height:${screenshot.viewportHeight}px;object-fit:contain" />`;
-      const caption = `<div data-agent-native-node-id="${labelNodeId}" data-agent-native-layer-name="${escapeHtml(layerName)} label" data-an-primitive="text" title="${escapeHtml(label)}" style="position:absolute;left:0px;top:${top}px;width:${screenshot.viewportWidth}px;height:40px;overflow:hidden;white-space:pre-wrap;font:12px/18px sans-serif;color:inherit">${escapeHtml(label)}</div>`;
-      top = imageTop + screenshot.viewportHeight + 64;
+      const size = renderSize(screenshot);
+      const column = index % columnCount;
+      const row = Math.floor(index / columnCount);
+      const left = column * columnWidth;
+      const captionTop = rowTops[row]!;
+      const imageTop = captionTop + 48;
+      const image = `<img data-agent-native-node-id="${id}" data-agent-native-layer-name="${escapeHtml(layerName)}" data-an-primitive="image" data-session-replay-id="${escapeHtml(screenshot.replayId)}" data-session-replay-captured-at="${escapeHtml(screenshot.capturedAt)}" data-session-replay-app="${escapeHtml(screenshot.app)}" data-session-replay-route="${escapeHtml(screenshot.route)}" data-session-replay-offset-ms="${screenshot.offsetMs}" data-session-replay-event-count="${screenshot.eventCount}" data-session-replay-viewport-width="${screenshot.viewportWidth}" data-session-replay-viewport-height="${screenshot.viewportHeight}" alt="${escapeHtml(label)}" title="${escapeHtml(label)}" width="${size.width}" height="${size.height}" loading="lazy" decoding="async" src="/api/design-board-replay-screenshots/${id}" style="position:absolute;left:${left}px;top:${imageTop}px;width:${size.width}px;height:${size.height}px;object-fit:contain" />`;
+      const caption = `<div data-agent-native-node-id="${labelNodeId}" data-agent-native-layer-name="${escapeHtml(layerName)} label" data-an-primitive="text" title="${escapeHtml(label)}" style="position:absolute;left:${left}px;top:${captionTop}px;width:360px;height:40px;overflow:hidden;white-space:pre-wrap;font:12px/18px sans-serif;color:inherit">${escapeHtml(captionText)}</div>`;
       return `${caption}\n${image}`;
     })
     .join("\n");

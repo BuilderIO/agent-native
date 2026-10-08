@@ -1,15 +1,8 @@
 import {
-  invokeAgent,
   invokeAgentAction,
   resolveA2ACallerAuth,
+  resolveAgentInvocationTarget,
 } from "@agent-native/core/a2a";
-import {
-  ATTACHMENT_REF_MAX_CHARS,
-  deleteAttachment,
-  isPrivateBlobConfiguredForRequest,
-  isPrivateBlobError,
-  mintAttachmentRef,
-} from "@agent-native/core/private-blob";
 import { createError, defineEventHandler, readMultipartFormData } from "h3";
 
 import { runApiHandlerWithContext } from "../../../lib/credentials";
@@ -42,7 +35,6 @@ type ManifestInput = {
 };
 
 type HandoffScreenshot = Omit<ScreenshotInput, "recordingId"> & {
-  attachmentRef: string;
   app: string;
   replayId: string;
 };
@@ -168,33 +160,6 @@ function multipartFile(
     return badRequest(`Screenshot file ${name} is missing`);
   }
   return matches[0];
-}
-
-function designIdFromResponse(responseText: string): string | null {
-  const candidate = responseText
-    .match(/https?:\/\/[^\s<>"')]+/i)?.[0]
-    ?.replace(/[.,!?;]+$/, "");
-  if (!candidate || !URL.canParse(candidate)) return null;
-  const url = new URL(candidate);
-  const route = url.searchParams.get("to");
-  const designId = url.searchParams.get("designId");
-  const routeDesignId = route?.match(/^\/design\/([^/?#]+)$/)?.[1];
-  if (
-    (url.protocol !== "https:" &&
-      !(
-        url.protocol === "http:" &&
-        ["localhost", "127.0.0.1"].includes(url.hostname)
-      )) ||
-    !url.pathname.endsWith("/_agent-native/open") ||
-    url.searchParams.get("app") !== "design" ||
-    url.searchParams.get("view") !== "editor" ||
-    !designId ||
-    !routeDesignId ||
-    routeDesignId !== encodeURIComponent(designId)
-  ) {
-    return null;
-  }
-  return designId;
 }
 
 async function readBoundedMultipartBody(
@@ -385,8 +350,8 @@ function screenshotAttributes(screenshot: HandoffScreenshot): string[] {
     `data-session-replay-route="${escapeHtml(screenshot.route)}"`,
     `data-session-replay-offset-ms="${screenshot.offsetMs}"`,
     `data-session-replay-event-count="${screenshot.eventCount}"`,
-    `width="${screenshot.viewportWidth}"`,
-    `height="${screenshot.viewportHeight}"`,
+    `data-session-replay-viewport-width="${screenshot.viewportWidth}"`,
+    `data-session-replay-viewport-height="${screenshot.viewportHeight}"`,
   ];
 }
 
@@ -445,11 +410,33 @@ function designBoardUrl(baseUrl: string, designId: string): string {
   return url.toString();
 }
 
+function designScreenshotUploadUrl(baseUrl: string): string {
+  const url = new URL(baseUrl);
+  const basePath = url.pathname.replace(/\/+$/, "");
+  url.pathname = `${basePath}/api/session-replay-storyboard`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function createDesignUploadForm(
+  manifest: Record<string, unknown>,
+  screenshotBytes: readonly Uint8Array[],
+): FormData {
+  const form = new FormData();
+  form.set("manifest", JSON.stringify(manifest));
+  screenshotBytes.forEach((bytes, index) => {
+    form.append(
+      `screenshot-${index}`,
+      new Blob([Buffer.from(bytes)], { type: "image/png" }),
+      `replay-${index}.png`,
+    );
+  });
+  return form;
+}
+
 export default defineEventHandler(async (event) =>
   runApiHandlerWithContext(event, async (ctx) => {
-    const mintedRefs: string[] = [];
-    let storageProviderId: string | undefined;
-    let cleanupPending = false;
     let responseBody:
       | {
           response: string;
@@ -457,16 +444,10 @@ export default defineEventHandler(async (event) =>
           screenshotCount: number;
           selectedReplayCount: number;
           cohortTotal: number;
+          cleanupPending?: boolean;
         }
       | undefined;
     try {
-      if (!(await isPrivateBlobConfiguredForRequest())) {
-        badRequest(
-          "Private screenshot storage is not configured for Analytics",
-          503,
-        );
-      }
-
       const parts = await readBoundedMultipartFormData(event);
       if (!parts) {
         badRequest("Screenshot export payload is missing");
@@ -517,6 +498,7 @@ export default defineEventHandler(async (event) =>
 
       let totalBytes = 0;
       const handoffScreenshots: HandoffScreenshot[] = [];
+      const screenshotBytes: Uint8Array[] = [];
       for (let index = 0; index < manifest.screenshots.length; index += 1) {
         const screenshot = manifest.screenshots[index]!;
         const recording = recordings.get(screenshot.recordingId);
@@ -547,39 +529,8 @@ export default defineEventHandler(async (event) =>
         }
 
         const app = recording.app ?? recording.template ?? "unknown";
-        const minted = await mintAttachmentRef({
-          data: bytes,
-          filename: `${recording.id}-${String(screenshot.offsetMs).padStart(8, "0")}.png`,
-          mimeType: "image/png",
-          ownerEmail: ctx.userEmail,
-          orgId: null,
-          metadata: {
-            appId: "analytics",
-            resourceType: "session-replay-screenshot-handoff",
-            resourceId: recording.id,
-            replayId: recording.id,
-            offsetMs: screenshot.offsetMs,
-          },
-        });
-        if (minted.status !== "ok") {
-          badRequest(
-            "Private screenshot storage could not save this batch",
-            503,
-          );
-        }
-        mintedRefs.push(minted.ref);
-        if (minted.ref.length > ATTACHMENT_REF_MAX_CHARS) {
-          badRequest("Screenshot handoff reference is too large", 413);
-        }
-        if (minted.handle.opaque !== true) {
-          badRequest("Private screenshot storage provider changed", 503);
-        }
-        if (storageProviderId && minted.handle.provider !== storageProviderId) {
-          badRequest("Private screenshot storage provider changed", 503);
-        }
-        storageProviderId = minted.handle.provider;
+        screenshotBytes.push(bytes);
         handoffScreenshots.push({
-          attachmentRef: minted.ref,
           replayId: recording.id,
           capturedAt: screenshot.capturedAt,
           app,
@@ -591,9 +542,14 @@ export default defineEventHandler(async (event) =>
         });
       }
 
-      const caller = await resolveA2ACallerAuth();
+      const designTarget = await resolveAgentInvocationTarget("design", {
+        selfAppId: "analytics",
+      });
+      const caller = await resolveA2ACallerAuth({
+        audience: designTarget.url,
+      });
       let previousBoardContent = "";
-      let designTargetUrl = "design";
+      let designTargetUrl = designTarget.url;
       if (manifest.designId) {
         const previous = await readDesignStoryboard(
           "design",
@@ -610,38 +566,63 @@ export default defineEventHandler(async (event) =>
         designTargetUrl = previous.targetUrl;
         previousBoardContent = previous.content;
       }
-      const actionInput = {
+      const designManifest = {
         ...(manifest.designId ? { designId: manifest.designId } : {}),
         ...(manifest.title ? { title: manifest.title } : {}),
         cohortTotal: manifest.cohortTotal,
         selectedReplayCount: manifest.selectedReplayCount,
         screenshots: handoffScreenshots,
       };
-      let responseText = "";
-      try {
-        const result = await invokeAgent({
-          target: "design",
-          selfAppId: "analytics",
-          userEmail: ctx.userEmail,
-          ...(caller.apiKey ? { apiKey: caller.apiKey } : {}),
-          ...(caller.orgDomain ? { orgDomain: caller.orgDomain } : {}),
-          ...(caller.orgSecret ? { orgSecret: caller.orgSecret } : {}),
-          timeoutMs: 240_000,
-          prompt:
-            "Add these Analytics session replay screenshots to a Design storyboard. Call the Design action `add-session-replay-screenshots-to-board` exactly once with the complete JSON input below. Preserve every exact timestamp, route, replay ID, app, and viewport dimension. Use the supplied attachment refs as the image source. Do not put screenshot bytes or refs into board HTML. If the action fails, report the failure and do not claim success. On success, include the exact full `boardUrl` returned by the action and its screenshot count in your reply.\n\n" +
-            JSON.stringify(actionInput),
-        });
-        responseText = result.responseText;
-        designTargetUrl = result.target.url;
-      } catch {
-        if (!manifest.designId) {
-          badRequest(
-            "Design may have saved the storyboard, but its ID could not be recovered after the request failed. Check Design before retrying.",
-            502,
-          );
+      const uploadTokens = [
+        caller.apiKey,
+        ...(caller.apiKeyFallbacks ?? []),
+      ].filter((token): token is string => Boolean(token));
+      if (uploadTokens.length === 0) {
+        badRequest("Analytics could not authenticate the Design upload", 401);
+      }
+      let uploadResponse: Response | undefined;
+      for (const token of uploadTokens) {
+        uploadResponse = await fetch(
+          designScreenshotUploadUrl(designTargetUrl),
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: createDesignUploadForm(designManifest, screenshotBytes),
+          },
+        );
+        if (uploadResponse.status !== 401 && uploadResponse.status !== 403) {
+          break;
         }
       }
-      const designId = manifest.designId ?? designIdFromResponse(responseText);
+      if (!uploadResponse) {
+        badRequest("Design screenshot upload did not return a response", 502);
+      }
+      let uploadResult: {
+        response?: string;
+        boardUrl?: string;
+        designId?: string;
+        screenshotCount?: number;
+        cleanupPending?: boolean;
+        message?: string;
+        statusMessage?: string;
+      };
+      try {
+        uploadResult = (await uploadResponse.json()) as typeof uploadResult;
+      } catch {
+        badRequest(
+          "Design returned an unexpected screenshot upload response",
+          502,
+        );
+      }
+      if (!uploadResponse.ok) {
+        badRequest(
+          uploadResult.message ??
+            uploadResult.statusMessage ??
+            "Design screenshot upload failed",
+          uploadResponse.status,
+        );
+      }
+      const designId = uploadResult.designId ?? manifest.designId;
       if (!designId) {
         badRequest(
           "Design may have saved the storyboard, but its ID could not be recovered. Check Design before retrying.",
@@ -677,12 +658,13 @@ export default defineEventHandler(async (event) =>
       }
       responseBody = {
         response:
-          responseText.trim() ||
+          uploadResult.response?.trim() ||
           `Added ${handoffScreenshots.length} session replay screenshots to Design.`,
         boardUrl: designBoardUrl(confirmation.targetUrl, designId),
         screenshotCount: handoffScreenshots.length,
         selectedReplayCount: manifest.selectedReplayCount,
         cohortTotal: manifest.cohortTotal,
+        cleanupPending: uploadResult.cleanupPending ?? false,
       };
     } catch (error) {
       const knownStatus =
@@ -693,43 +675,17 @@ export default defineEventHandler(async (event) =>
           ? error.statusCode
           : 0;
       if (knownStatus) throw error;
-      if (isPrivateBlobError(error)) {
-        throw createError({
-          statusCode: 503,
-          statusMessage: "Private screenshot storage is unavailable",
-        });
-      }
       throw createError({
         statusCode: 502,
         statusMessage:
           error instanceof Error
-            ? `Design handoff failed: ${error.message}`
-            : "Design handoff failed",
+            ? `Design screenshot upload failed: ${error.message}`
+            : "Design screenshot upload failed",
       });
-    } finally {
-      for (const ref of mintedRefs) {
-        try {
-          const deleted = await deleteAttachment(ref, {
-            ownerEmail: ctx.userEmail,
-            orgId: null,
-          });
-          if (deleted.status === "ok" && deleted.deleted === true) continue;
-          cleanupPending = true;
-          console.error(
-            "[session-replay/storyboard] Failed to remove temporary private screenshot attachment",
-            { status: deleted.status },
-          );
-        } catch {
-          cleanupPending = true;
-          console.error(
-            "[session-replay/storyboard] Failed to remove temporary private screenshot attachment",
-          );
-        }
-      }
     }
     if (!responseBody) {
       badRequest("Design did not confirm a storyboard", 502);
     }
-    return { ...responseBody, cleanupPending };
+    return responseBody;
   }),
 );
