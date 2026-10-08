@@ -10254,6 +10254,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       e.target && e.target.nodeType === 1 ? e.target : null,
     );
     if (!spacingKey) return;
+    if (e.altKey) {
+      handleShieldPointerMove(e);
+      return;
+    }
     stopNativeInteraction(e);
     activateSpacingHandle(spacingKey);
   }

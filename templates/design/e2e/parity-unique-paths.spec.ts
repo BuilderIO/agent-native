@@ -429,6 +429,49 @@ test.describe.serial("rare-but-real unique paths", () => {
     const measurementOverlay = designFrame(page).locator(
       "[data-agent-native-measurement-overlay]",
     );
+    await designFrame(page)
+      .locator("body")
+      .evaluate((body) => {
+        type AltSpacingEvent = {
+          spacingKey: string;
+          display: string;
+          x: number;
+          y: number;
+        };
+        const tracedWindow = body.ownerDocument.defaultView as
+          | (Window & { __testAltSpacingEvents?: AltSpacingEvent[] })
+          | null;
+        if (!tracedWindow) throw new Error("preview window is unavailable");
+        tracedWindow.__testAltSpacingEvents = [];
+        body.ownerDocument.addEventListener(
+          "pointermove",
+          (event) => {
+            if (!(event instanceof PointerEvent) || !event.altKey) return;
+            const target = event.target;
+            if (!(target instanceof Element)) return;
+            const spacingRegion = target.closest(
+              "[data-agent-native-spacing-region]",
+            );
+            const spacingKey = spacingRegion?.getAttribute("data-spacing-key");
+            if (!spacingKey) return;
+            const x = event.clientX;
+            const y = event.clientY;
+            const measurementOverlay =
+              body.ownerDocument.querySelector<HTMLElement>(
+                "[data-agent-native-measurement-overlay]",
+              );
+            tracedWindow.requestAnimationFrame(() => {
+              tracedWindow.__testAltSpacingEvents?.push({
+                spacingKey,
+                display: measurementOverlay?.style.display ?? "missing",
+                x,
+                y,
+              });
+            });
+          },
+          true,
+        );
+      });
     await page.mouse.move(
       betaBox.x + betaBox.width / 2,
       betaBox.y + betaBox.height / 2,
@@ -446,6 +489,33 @@ test.describe.serial("rare-but-real unique paths", () => {
       },
     );
     await expect(measurementOverlay).toHaveCSS("display", "block");
+    const readAltSpacingEvents = () =>
+      designFrame(page)
+        .locator("body")
+        .evaluate(
+          (body) =>
+            (
+              body.ownerDocument.defaultView as
+                | (Window & {
+                    __testAltSpacingEvents?: Array<{
+                      spacingKey: string;
+                      display: string;
+                      x: number;
+                      y: number;
+                    }>;
+                  })
+                | null
+            )?.__testAltSpacingEvents ?? [],
+        );
+    await expect
+      .poll(async () => (await readAltSpacingEvents()).length)
+      .toBeGreaterThan(0);
+    const altSpacingEvents = await readAltSpacingEvents();
+    expect(altSpacingEvents).not.toHaveLength(0);
+    expect(
+      altSpacingEvents.every((event) => event.display === "block"),
+      `measurement overlay should remain visible after spacing hits: ${JSON.stringify(altSpacingEvents)}`,
+    ).toBe(true);
     await expect(measurementOverlay.locator("div")).not.toHaveCount(0);
     await page.keyboard.up("Alt");
     await expect(measurementOverlay).toHaveCSS("display", "none");

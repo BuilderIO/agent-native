@@ -8221,6 +8221,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         e.target && e.target.nodeType === 1 ? e.target : null
       );
       if (!spacingKey) return;
+      if (e.altKey) {
+        handleShieldPointerMove(e);
+        return;
+      }
       stopNativeInteraction(e);
       activateSpacingHandle(spacingKey);
     }
