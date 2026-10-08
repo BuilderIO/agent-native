@@ -14,6 +14,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
 
 import {
+  isStorageStatusUnavailable,
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
@@ -91,9 +92,14 @@ describe("record route lifecycle shell", () => {
   });
 
   it("offers the first-run choice and Skip when storage status is unavailable", () => {
+    const storageConfigured = null;
+    const storageStatusUnavailable = isStorageStatusUnavailable({
+      storageConfigured,
+      readFailed: true,
+    });
     const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
-      storageConfigured: null,
-      storageStatusUnavailable: true,
+      storageConfigured,
+      storageStatusUnavailable,
       dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
@@ -110,6 +116,27 @@ describe("record route lifecycle shell", () => {
         isClipIntake: false,
       }),
     ).toBe(true);
+  });
+
+  it("keeps cached configured storage out of first-run setup after a refetch error", () => {
+    const storageConfigured = true;
+
+    expect(
+      isStorageStatusUnavailable({
+        storageConfigured,
+        readFailed: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured,
+        storageStatusUnavailable: true,
+        dismissal: "not-dismissed",
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(false);
   });
 
   it("preserves first-run setup intent while storage status refreshes", () => {
