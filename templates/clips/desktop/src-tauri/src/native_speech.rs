@@ -358,6 +358,17 @@ pub(crate) mod macos {
             && guard.owner_stop_generation == current_owner_stop_generation
     }
 
+    fn superseded_start_result(
+        start_owner_stop_generation: u64,
+        current_owner_stop_generation: u64,
+    ) -> Result<(), &'static str> {
+        if start_owner_stop_generation != current_owner_stop_generation {
+            Ok(())
+        } else {
+            Err("speech-engine-start-superseded")
+        }
+    }
+
     fn put_session_if_current_generation<T>(
         slot: &mut Option<T>,
         session: T,
@@ -1718,7 +1729,11 @@ pub(crate) mod macos {
 
             // SAFETY: `cancel()` is a fire-and-forget ObjC call.
             unsafe { session.task.cancel() };
-            return Err("speech-engine-start-superseded".into());
+            return superseded_start_result(
+                my_stop_gen,
+                owner_stop_generation(owner).load(Ordering::SeqCst),
+            )
+            .map_err(str::to_owned);
         }
 
         Ok(())
@@ -2045,9 +2060,9 @@ pub(crate) mod macos {
         use super::{
             native_speech_voice_processing_mode, put_session_if_current_generation,
             restart_guard_is_current, restart_setup_is_current, restore_stopped_session,
-            retain_session_until_callback, take_sessions_if_generation_matches,
-            MicVoiceProcessingMode, RestartGuard, SessionOwner, SessionRegistry,
-            StoppedSessionDisposition,
+            retain_session_until_callback, superseded_start_result,
+            take_sessions_if_generation_matches, MicVoiceProcessingMode, RestartGuard,
+            SessionOwner, SessionRegistry, StoppedSessionDisposition,
         };
         use std::sync::Arc;
 
@@ -2270,6 +2285,15 @@ pub(crate) mod macos {
             assert!(restart_setup_is_current(guard, Some(5), 5, 2));
             assert!(!restart_setup_is_current(guard, Some(5), 5, 3));
             assert!(!restart_setup_is_current(guard, Some(5), 6, 2));
+        }
+
+        #[test]
+        fn explicit_stop_during_start_is_a_clean_cancellation() {
+            assert_eq!(superseded_start_result(2, 3), Ok(()));
+            assert_eq!(
+                superseded_start_result(2, 2),
+                Err("speech-engine-start-superseded")
+            );
         }
 
         #[test]
