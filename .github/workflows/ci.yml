@@ -432,7 +432,8 @@ jobs:
             inspector,
             drag-1,
             drag-2,
-            position,
+            position-1,
+            position-2,
             changed-1,
             changed-2,
             changed-3,
@@ -461,7 +462,7 @@ jobs:
 
       - name: Run focused Design regression cases
         working-directory: templates/design
-        timeout-minutes: 7
+        timeout-minutes: 5
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -521,13 +522,17 @@ jobs:
                 e2e/parity-selection.spec.ts:572 \
               )
               ;;
-            position)
+            position-1)
               fixed_specs=( \
                 e2e/pasted-svg-image-inspector.spec.ts:656 \
                 e2e/pasted-svg-image-inspector.spec.ts:693 \
                 e2e/position-alignment.spec.ts:361 \
                 e2e/position-alignment.spec.ts:431 \
                 e2e/position-alignment.spec.ts:509 \
+              )
+              ;;
+            position-2)
+              fixed_specs=( \
                 e2e/position-alignment.spec.ts:570 \
                 e2e/position-alignment.spec.ts:615 \
                 e2e/position-alignment.spec.ts:661 \
