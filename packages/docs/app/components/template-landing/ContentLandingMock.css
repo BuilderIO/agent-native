@@ -1076,7 +1076,7 @@
   }
 }
 
-@container content-preview (max-width: 950px) {
+@container content-preview (max-width: 1100px) {
   .content-doc-content {
     padding-inline: 18px;
   }
