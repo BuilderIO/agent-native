@@ -99,6 +99,40 @@ describe("server captureError", () => {
     }
   });
 
+  it("puts only the sanitized run error code in the failure context", () => {
+    resetCaptureErrorStateForTests();
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "run-packet-privacy",
+      track: (event) => {
+        events.push(event);
+      },
+    });
+    const unregister = registerErrorCaptureProvider(
+      "run-packet-privacy",
+      captureException,
+    );
+    try {
+      captureError(new Error("Run failed"), {
+        route: "/_agent-native/agent-chat",
+        errorMessagePolicy: "omit",
+        tags: { errorCode: "Jane Doe's notes are locked" },
+      });
+      expect(events).toHaveLength(1);
+      expect(JSON.stringify(events)).not.toContain("Jane Doe");
+      expect(events[0]?.properties?.exceptionTags).toMatchObject({
+        errorCode: "unknown",
+      });
+      expect(events[0]?.properties?.exceptionExtra).toMatchObject({
+        failureContext: { errorCode: "unknown" },
+      });
+    } finally {
+      unregister();
+      unregisterTrackingProvider("run-packet-privacy");
+      resetCaptureErrorStateForTests();
+    }
+  });
+
   it("no-ops when no capture provider is registered", () => {
     expect(captureError(new Error("boom"))).toBeUndefined();
   });

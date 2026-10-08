@@ -18,8 +18,10 @@ export function runErrorTelemetryProperties(
 export function runTelemetryException(error: unknown, code: string): Error {
   const original = error instanceof Error ? error : undefined;
   const exception = new Error("Internal Server Error");
+  // Code can set any name, so only class-shaped names are trusted.
   exception.name =
-    original && /^[a-zA-Z][a-zA-Z0-9_.]{0,99}$/.test(original.name)
+    original &&
+    /^[A-Za-z][A-Za-z0-9_]{0,90}(?:Error|Exception)$/.test(original.name)
       ? original.name
       : "Error";
   const frames = original ? stackFrames(original) : [];

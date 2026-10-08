@@ -3,6 +3,20 @@ import { describe, expect, it } from "vitest";
 import { runTelemetryException } from "./error-telemetry.js";
 
 describe("runTelemetryException", () => {
+  it.each([
+    ["EngineError", "EngineError"],
+    ["AI_APICallError", "AI_APICallError"],
+    ["DOMException", "DOMException"],
+    ["JaneDoe", "Error"],
+    ["QuarterlyPlanningNotes", "Error"],
+    ["Jane Doe Error", "Error"],
+  ])("reports the name %s as %s", (name, expected) => {
+    const error = new Error("Jane Doe's notes are locked");
+    error.name = name;
+
+    expect(runTelemetryException(error, "provider_error").name).toBe(expected);
+  });
+
   it("keeps frames but not message lines shaped like frames", () => {
     const error = new Error(
       "Jane Doe's notes are locked\n    at line 3 of Jane Doe's notes\n    at Jane Doe (/notes/quarterly.md:3:1)",

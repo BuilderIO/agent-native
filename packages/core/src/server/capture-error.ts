@@ -411,8 +411,7 @@ export function captureError(
     if (errorCode && context.tags?.errorCode === undefined) {
       outgoing = { ...context, tags: { ...context.tags, errorCode } };
     }
-    const cls = classifyFloodClass(error, outgoing);
-    outgoing = withPacket(outgoing, { errorCode, failureClass: cls });
+    // The failure packet copies the code tag, so it must be sanitized first.
     if (context.errorMessagePolicy === "omit") {
       const properties = runErrorTelemetryProperties(
         outgoing.tags?.errorCode,
@@ -428,6 +427,8 @@ export function captureError(
         },
       };
     }
+    const cls = classifyFloodClass(error, outgoing);
+    outgoing = withPacket(outgoing, { errorCode, failureClass: cls });
     if (cls) {
       const admitted = admitFloodEvent(cls, reportedError, outgoing);
       if (!admitted) return undefined;
@@ -438,6 +439,10 @@ export function captureError(
     outgoing = context;
     if (context.errorMessagePolicy === "omit") {
       reportedError = runTelemetryException(error, "unknown");
+      outgoing = {
+        ...context,
+        tags: { ...context.tags, errorCode: "unknown" },
+      };
     }
   }
   return emit(reportedError, outgoing);
