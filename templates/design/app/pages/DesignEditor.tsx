@@ -280,7 +280,10 @@ import {
   DesignExtensionsPanel,
   type DesignExtensionSlotContext,
 } from "@/components/design/DesignExtensionsPanel";
-import { DesignImportPanel } from "@/components/design/DesignImportPanel";
+import {
+  DesignImportPanel,
+  type DesignImportPanelHandle,
+} from "@/components/design/DesignImportPanel";
 import { componentInstanceHasLocalOverrides } from "@/components/design/edit-panel/component-section";
 import {
   rewriteSelectionFillStyles,
@@ -445,6 +448,16 @@ import {
 } from "@/components/editor/FigmaLinkComposerBubble";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenuGroup,
@@ -4465,6 +4478,11 @@ function DesignEditor() {
   const applyTweaksMutation = useActionMutation("apply-tweaks");
   const applyTweaksAsync = applyTweaksMutation.mutateAsync;
   const duplicateDesignMutation = useActionMutation("duplicate-design");
+  const deleteDesignMutation = useActionMutation("delete-design");
+  const [trashDialogOpen, setTrashDialogOpen] = useState(false);
+  const importPanelRef = useRef<DesignImportPanelHandle | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const suppressFileMenuReturnFocusRef = useRef(false);
   const saveDesignAsTemplateMutation = useActionMutation(
     "save-design-as-template",
   );
@@ -26073,6 +26091,42 @@ function DesignEditor() {
     if (!id) void navigate("/home");
   }, [id, navigate]);
 
+  const handleDuplicateDesign = useCallback(() => {
+    if (!id) return;
+    duplicateDesignMutation
+      .mutateAsync({ id } as any)
+      .then((result: any) => {
+        if (!result?.id) throw new Error("Missing copied design id");
+        void navigate(`/design/${result.id}`);
+      })
+      .catch(() => toast.error(t("designEditor.toasts.saveCopyError")));
+  }, [duplicateDesignMutation, id, navigate, t]);
+
+  const handleMoveToTrash = useCallback(() => {
+    if (!id) return;
+    setTrashDialogOpen(false);
+    deleteDesignMutation
+      .mutateAsync({ id } as any)
+      .then(() => {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        });
+        void navigate("/home");
+      })
+      .catch(() => toast.error(t("designEditor.fileMenu.deleteError")));
+  }, [deleteDesignMutation, id, navigate, queryClient, t]);
+
+  const handleImportFileChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      setActiveLeftPanel("import");
+      importPanelRef.current?.importFile(file);
+    },
+    [],
+  );
+
   if (!id) return null;
 
   if (
@@ -26183,6 +26237,63 @@ function DesignEditor() {
     </div>
   );
 
+  const exportSubmenuContent = (
+    <DropdownMenuSubContent className="design-editor-app-menu-content w-56">
+      <DropdownMenuItem
+        onClick={handleDownloadHtml}
+        disabled={!activeFile || exportHtmlMutation.isPending}
+      >
+        <IconCode className="mr-2 h-4 w-4" />
+        {t("designEditor.downloadHtml")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => void handleDownloadPng()}
+        disabled={!activeFile || pngExporting}
+      >
+        <IconPhoto className="mr-2 h-4 w-4" />
+        {t("designEditor.downloadPng")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => void handleDownloadSvg()}
+        disabled={!activeFile || svgExporting}
+      >
+        <IconCode className="mr-2 h-4 w-4" />
+        {t("designEditor.downloadSvg")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => void handleDownloadFigmaSvg()}
+        disabled={!activeFile || figmaSvgExporting}
+      >
+        <IconFileExport className="mr-2 h-4 w-4" />
+        {t("designEditor.downloadFigmaSvg")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={handleDownloadZip}
+        disabled={!activeFile || exportZipMutation.isPending}
+      >
+        <IconArchive className="mr-2 h-4 w-4" />
+        {t("designEditor.downloadZip")}
+      </DropdownMenuItem>
+      {viewMode === "overview" && overviewScreens.length >= 2 ? (
+        <DropdownMenuItem
+          onClick={() => void handleDownloadAllScreensPdf()}
+          disabled={pngExporting}
+        >
+          <IconFileStack className="mr-2 h-4 w-4" />
+          {t("designEditor.downloadPdfAllScreens")}
+        </DropdownMenuItem>
+      ) : null}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        onClick={handleCopyCodingHandoff}
+        disabled={!activeFile || codingHandoffLoading}
+      >
+        <IconDownload className="mr-2 h-4 w-4" />
+        {t("designEditor.copyCodingHandoff")}
+      </DropdownMenuItem>
+    </DropdownMenuSubContent>
+  );
+
   const projectMenu = (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -26229,60 +26340,7 @@ function DesignEditor() {
             <IconFileExport className="h-4 w-4" />
             {t("designEditor.export")}
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="design-editor-app-menu-content w-56">
-            <DropdownMenuItem
-              onClick={handleDownloadHtml}
-              disabled={!activeFile || exportHtmlMutation.isPending}
-            >
-              <IconCode className="mr-2 h-4 w-4" />
-              {t("designEditor.downloadHtml")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => void handleDownloadPng()}
-              disabled={!activeFile || pngExporting}
-            >
-              <IconPhoto className="mr-2 h-4 w-4" />
-              {t("designEditor.downloadPng")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => void handleDownloadSvg()}
-              disabled={!activeFile || svgExporting}
-            >
-              <IconCode className="mr-2 h-4 w-4" />
-              {t("designEditor.downloadSvg")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => void handleDownloadFigmaSvg()}
-              disabled={!activeFile || figmaSvgExporting}
-            >
-              <IconFileExport className="mr-2 h-4 w-4" />
-              {t("designEditor.downloadFigmaSvg")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={handleDownloadZip}
-              disabled={!activeFile || exportZipMutation.isPending}
-            >
-              <IconArchive className="mr-2 h-4 w-4" />
-              {t("designEditor.downloadZip")}
-            </DropdownMenuItem>
-            {viewMode === "overview" && overviewScreens.length >= 2 ? (
-              <DropdownMenuItem
-                onClick={() => void handleDownloadAllScreensPdf()}
-                disabled={pngExporting}
-              >
-                <IconFileStack className="mr-2 h-4 w-4" />
-                {t("designEditor.downloadPdfAllScreens")}
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={handleCopyCodingHandoff}
-              disabled={!activeFile || codingHandoffLoading}
-            >
-              <IconDownload className="mr-2 h-4 w-4" />
-              {t("designEditor.copyCodingHandoff")}
-            </DropdownMenuItem>
-          </DropdownMenuSubContent>
+          {exportSubmenuContent}
         </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
@@ -26400,23 +26458,68 @@ function DesignEditor() {
         className="-mx-1 h-7 min-w-0 flex-1 border-transparent bg-[var(--design-editor-panel-raised-bg)] px-1 py-0 text-[13px] font-medium text-foreground shadow-none ring-offset-0 focus-visible:border-[var(--design-editor-control-border)] focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
       />
     ) : canEditDesign ? (
-      <Tooltip>
-        <TooltipTrigger asChild>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
           <button
             type="button"
-            onClick={() => {
-              if (!canEditDesign) return;
-              setTitleDraft(design.title);
-              setTitleEditing(true);
-            }}
-            disabled={!canEditDesign}
-            className="-mx-1 min-w-0 flex-1 cursor-text truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
+            className="-mx-1 min-w-0 flex-1 cursor-pointer truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
           >
             {design.title}
           </button>
-        </TooltipTrigger>
-        <TooltipContent>{t("designEditor.clickToRename")}</TooltipContent>
-      </Tooltip>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="design-editor-app-menu-content w-[220px]"
+          onCloseAutoFocus={(event) => {
+            if (!suppressFileMenuReturnFocusRef.current) return;
+            event.preventDefault();
+            suppressFileMenuReturnFocusRef.current = false;
+          }}
+        >
+          <DropdownMenuItem
+            onClick={() => {
+              suppressFileMenuReturnFocusRef.current = true;
+              setTitleDraft(design.title);
+              setTitleEditing(true);
+            }}
+          >
+            {t("designEditor.fileMenu.rename")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={handleDuplicateDesign}
+            disabled={duplicateDesignMutation.isPending}
+          >
+            {t("designEditor.fileMenu.duplicate")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
+            {t("designEditor.fileMenu.versionHistory")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => setSaveTemplateOpen(true)}
+            disabled={files.length === 0}
+          >
+            {t("designEditor.saveAsTemplate")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => importFileInputRef.current?.click()}>
+            {t("designEditor.fileMenu.import")}
+          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              {t("designEditor.export")}
+            </DropdownMenuSubTrigger>
+            {exportSubmenuContent}
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => setTrashDialogOpen(true)}
+            disabled={!canShareDesign}
+          >
+            {t("designEditor.fileMenu.delete")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     ) : (
       <span className="-mx-1 min-w-0 flex-1 truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90">
         {design.title}
@@ -27349,11 +27452,24 @@ function DesignEditor() {
               >
                 <div
                   data-design-chrome-region="left-header"
-                  className="flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]"
+                  className={cn(
+                    "flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] px-[var(--design-baseline-unit)]",
+                    hostEmbeddedEditor && "border-b border-border",
+                  )}
                 >
                   {projectTitleControl}
                   {minimalUiToggle}
                 </div>
+                {hostEmbeddedEditor ? null : (
+                  <div className="-mt-1.5 flex shrink-0 items-center border-b border-border px-[var(--design-baseline-unit)] pb-1.5">
+                    <Link
+                      to="/home"
+                      className="-mx-1 rounded px-1 text-[11px] leading-4 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    >
+                      {t("designEditor.fileMenu.designs")}
+                    </Link>
+                  </div>
+                )}
                 <div className="min-h-0 flex-1">
                   <LayersPanel
                     ref={layersPanelRef}
@@ -27506,6 +27622,7 @@ function DesignEditor() {
               >
                 {canEditDesign ? (
                   <DesignImportPanel
+                    ref={importPanelRef}
                     context={designExtensionContext}
                     onImport={(result) => {
                       const count = result.unresolvedImageRefCount ?? 0;
@@ -29384,6 +29501,34 @@ function DesignEditor() {
         />
       ) : null}
 
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept=".fig,.html,.htm"
+        className="hidden"
+        onChange={handleImportFileChange}
+      />
+      <AlertDialog open={trashDialogOpen} onOpenChange={setTrashDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("home.deleteDesignTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("home.deleteDesignDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("home.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleMoveToTrash}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
+            >
+              {t("home.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <SaveTemplateDialog
         open={saveTemplateOpen}
         onOpenChange={setSaveTemplateOpen}
