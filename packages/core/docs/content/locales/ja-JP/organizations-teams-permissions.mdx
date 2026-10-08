@@ -26,6 +26,7 @@ const formsAccess = defineAppRoles(
   {
     appId: "forms",
     roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
     permissions: {
       "forms.edit": ["editor"],
       "forms.review": ["editor", "reviewer"],
@@ -41,6 +42,8 @@ const formsAccess = defineAppRoles(
 これらのオプションが影響するのは `requirePermission` と `assertPermission` だけです。`resolve`、`requireAny`、`assertAny` は引き続き明示的な割り当てを使用し、`defaultRole` は表示専用です。オプションを省略すると厳格なポリシーが維持されます。どちらもリソースの認可を置き換えません。`accessFilter` と `assertAccess` のチェックを維持してください。
 
 Forms は、ロール未割り当ての既存メンバーの編集アクセスを維持します。明示的に割り当てられた Reviewer は送信内容をレビューできますが、フォームは編集できません。Editor は両方を行えます。アクセスできるフォームと送信内容は、引き続きリソース共有によって決まります。
+
+組織が所有するフォームの編集と送信内容のレビューには、そのフォームの組織の有効なメンバーであることが必要です。ただし、共有システムが呼び出し元をフォームの所有者として認識する場合は例外です。直接共有されているだけでは、このアプリ権限チェックを通過できません。
 
 ## ユーザーグループ {#user-groups}
 

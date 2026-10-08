@@ -26,6 +26,7 @@ const formsAccess = defineAppRoles(
   {
     appId: "forms",
     roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
     permissions: {
       "forms.edit": ["editor"],
       "forms.review": ["editor", "reviewer"],
@@ -41,6 +42,8 @@ const formsAccess = defineAppRoles(
 Ces options ne concernent que `requirePermission` et `assertPermission`. `resolve`, `requireAny` et `assertAny` conservent leur fonctionnement fondé sur des attributions explicites ; `defaultRole` reste réservé à l’affichage. Sans ces options, la politique stricte reste en vigueur. Aucune ne remplace l’autorisation des ressources : conservez les contrôles `accessFilter` et `assertAccess`.
 
 Forms conserve les droits de modification des membres existants sans rôle attribué. Un Reviewer explicitement attribué peut examiner les soumissions, mais pas modifier les formulaires ; Editor peut faire les deux. Le partage détermine toujours les formulaires et soumissions accessibles.
+
+Pour les formulaires appartenant à une organisation, la modification et l’examen des soumissions exigent d’en être membre actif, sauf si le système de partage reconnaît la personne comme propriétaire du formulaire. Un partage direct ne suffit pas à satisfaire ce contrôle de permission applicative.
 
 ## Groupes d’utilisateurs {#user-groups}
 

@@ -26,6 +26,7 @@ const formsAccess = defineAppRoles(
   {
     appId: "forms",
     roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
     permissions: {
       "forms.edit": ["editor"],
       "forms.review": ["editor", "reviewer"],
@@ -41,6 +42,8 @@ const formsAccess = defineAppRoles(
 这些选项仅影响 `requirePermission` 和 `assertPermission`。`resolve`、`requireAny` 和 `assertAny` 仍使用显式分配；`defaultRole` 仍仅用于显示。省略选项时保留严格策略。两者都不替代资源授权：请保留 `accessFilter` 和 `assertAccess` 检查。
 
 Forms 保留现有未分配角色成员的编辑权限。显式分配的 Reviewer 可以审核提交，但不能编辑表单；Editor 可以执行两种操作。资源共享仍决定他们能访问哪些表单和提交。
+
+编辑组织所属的表单或审核其提交，要求调用者是该表单所在组织的有效成员，除非共享系统将调用者识别为表单所有者。仅有直接共享权限并不足以通过此应用权限检查。
 
 ## 用户组 {#user-groups}
 

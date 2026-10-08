@@ -26,6 +26,7 @@ const formsAccess = defineAppRoles(
   {
     appId: "forms",
     roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
     permissions: {
       "forms.edit": ["editor"],
       "forms.review": ["editor", "reviewer"],
@@ -41,6 +42,8 @@ const formsAccess = defineAppRoles(
 تؤثر هذه الخيارات فقط في `requirePermission` و`assertPermission`. تظل `resolve` و`requireAny` و`assertAny` تعتمد على التعيينات الصريحة؛ ويبقى `defaultRole` للعرض فقط. يؤدي حذف الخيارات إلى الإبقاء على السياسة الصارمة. ولا يحل أي منهما محل تفويض الموارد: احتفظ بعمليات التحقق `accessFilter` و`assertAccess`.
 
 يحافظ Forms على صلاحية التحرير للأعضاء الحاليين الذين ليس لديهم دور مُعيّن. يستطيع Reviewer المُعيّن صراحةً مراجعة الردود، لكنه لا يستطيع تحرير النماذج؛ ويستطيع Editor تنفيذ الأمرين. تظل مشاركة الموارد هي التي تحدد النماذج والردود التي يمكنهم الوصول إليها.
+
+يتطلب تحرير النماذج التابعة لمؤسسة ومراجعة ردودها عضوية نشطة في مؤسسة النموذج، إلا إذا تعرّف نظام المشاركة على المستدعي بوصفه مالك النموذج. المشاركة المباشرة وحدها لا تكفي لاجتياز هذا التحقق من إذن التطبيق.
 
 ## مجموعات المستخدمين {#user-groups}
 

@@ -13,6 +13,8 @@ Forms enforces the Team page roles through shared permission guards. Reviewer ca
 
 Organization-owned forms always use that organization's role policy, even when personal scope or a different organization is selected. Changing a form's visibility also requires edit permission.
 
+For organization-owned forms, editing and submission review require active membership in the form's organization unless the sharing system recognizes the caller as its owner. A direct share alone does not satisfy this app-permission check.
+
 - For tables or charts in chat, use typed action results. `response-insights`
   is the first-party path for native response tables and submission charts, but
   do not include both unless the user asked for both; iframe/MCP App rendering

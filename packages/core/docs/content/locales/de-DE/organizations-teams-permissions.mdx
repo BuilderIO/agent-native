@@ -26,6 +26,7 @@ const formsAccess = defineAppRoles(
   {
     appId: "forms",
     roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
     permissions: {
       "forms.edit": ["editor"],
       "forms.review": ["editor", "reviewer"],
@@ -41,6 +42,8 @@ const formsAccess = defineAppRoles(
 Diese Optionen wirken nur auf `requirePermission` und `assertPermission`. `resolve`, `requireAny` und `assertAny` verwenden weiterhin explizite Zuweisungen; `defaultRole` dient nur der Anzeige. Ohne diese Optionen bleibt die strikte Richtlinie erhalten. Keine Option ersetzt die Ressourcenautorisierung: Behalten Sie die Prüfungen mit `accessFilter` und `assertAccess` bei.
 
 Forms bewahrt den Bearbeitungszugriff bestehender Mitglieder ohne zugewiesene Rolle. Ein ausdrücklich zugewiesener Reviewer kann Einsendungen prüfen, aber keine Formulare bearbeiten; Editor kann beides. Die Ressourcenfreigabe bestimmt weiterhin, welche Formulare und Einsendungen zugänglich sind.
+
+Bei organisationseigenen Formularen erfordern die Bearbeitung und die Prüfung von Einsendungen eine aktive Mitgliedschaft in der Organisation des Formulars, sofern das Freigabesystem die aufrufende Person nicht als dessen Eigentümer erkennt. Eine direkte Freigabe allein genügt für diese App-Berechtigungsprüfung nicht.
 
 ## Benutzergruppen {#user-groups}
 

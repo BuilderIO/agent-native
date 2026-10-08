@@ -26,6 +26,7 @@ const formsAccess = defineAppRoles(
   {
     appId: "forms",
     roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
     permissions: {
       "forms.edit": ["editor"],
       "forms.review": ["editor", "reviewer"],
@@ -41,6 +42,8 @@ const formsAccess = defineAppRoles(
 Essas opções afetam apenas `requirePermission` e `assertPermission`. `resolve`, `requireAny` e `assertAny` continuam usando atribuições explícitas; `defaultRole` serve apenas para exibição. Sem essas opções, a política estrita permanece. Nenhuma substitui a autorização de recursos: mantenha as verificações `accessFilter` e `assertAccess`.
 
 O Forms mantém o acesso de edição dos membros existentes sem função atribuída. Um Reviewer explicitamente atribuído pode revisar envios, mas não editar formulários; Editor pode fazer ambos. O compartilhamento continua determinando quais formulários e envios podem ser acessados.
+
+Para formulários pertencentes a uma organização, editar e revisar envios exige participação ativa nessa organização, a menos que o sistema de compartilhamento reconheça a pessoa como proprietária do formulário. Um compartilhamento direto, por si só, não satisfaz essa verificação de permissão de aplicativo.
 
 ## Grupos de usuários {#user-groups}
 

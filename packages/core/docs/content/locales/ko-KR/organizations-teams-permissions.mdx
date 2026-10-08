@@ -26,6 +26,7 @@ const formsAccess = defineAppRoles(
   {
     appId: "forms",
     roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
     permissions: {
       "forms.edit": ["editor"],
       "forms.review": ["editor", "reviewer"],
@@ -41,6 +42,8 @@ const formsAccess = defineAppRoles(
 이 옵션은 `requirePermission`과 `assertPermission`에만 영향을 줍니다. `resolve`, `requireAny`, `assertAny`는 명시적 할당을 사용하는 동작을 유지하며, `defaultRole`은 표시 전용입니다. 옵션을 생략하면 엄격한 정책이 유지됩니다. 어느 옵션도 리소스 권한 검사를 대체하지 않습니다. `accessFilter`와 `assertAccess` 검사를 유지하세요.
 
 Forms는 역할이 할당되지 않은 기존 구성원의 편집 권한을 유지합니다. 명시적으로 할당된 Reviewer는 제출 내용을 검토할 수 있지만 폼을 편집할 수는 없습니다. Editor는 둘 다 할 수 있습니다. 접근 가능한 폼과 제출 내용은 계속 리소스 공유로 결정됩니다.
+
+조직 소유 폼을 편집하거나 제출 내용을 검토하려면 해당 폼의 조직에 활성 구성원으로 속해 있어야 합니다. 단, 공유 시스템이 호출자를 폼 소유자로 인식하는 경우는 예외입니다. 직접 공유만으로는 이 앱 권한 검사를 통과할 수 없습니다.
 
 ## 사용자 그룹 {#user-groups}
 

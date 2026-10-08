@@ -218,44 +218,6 @@ invent a new permission key from the UI. The organization owner or admin still
 controls these settings, and changing an app role never grants organization
 administration.
 
-### Opt-in permission policies
-
-By default, permission guards require an assigned app role. Pass an optional
-second argument to `defineAppRoles` to change that policy on the server. Forms
-uses:
-
-```ts
-const formsAccess = defineAppRoles(
-  {
-    appId: "forms",
-    roles: ["editor", "reviewer"] as const,
-    permissions: {
-      "forms.edit": ["editor"],
-      "forms.review": ["editor", "reviewer"],
-    },
-  },
-  { unassignedRole: "editor", allowOrgAdmins: true },
-);
-```
-
-- `unassignedRole` uses a declared role's permissions for active members with
-  no app-role assignments. Permission overrides still apply. It does not
-  create an assignment or apply to removed members or assignments containing
-  only retired roles. Clearing all assignments restores this fallback.
-- `allowOrgAdmins: true` lets active organization owners and admins pass any
-  declared app-permission guard, regardless of their app roles or permission
-  overrides. It does not grant organization administration to app admins.
-
-These options affect only `requirePermission` and `assertPermission`.
-`resolve`, `requireAny`, and `assertAny` retain their explicit-assignment
-semantics, and `defaultRole` remains display only. Both options are opt-in;
-omitting them keeps the strict permission policy. Neither option replaces
-resource authorization: keep `accessFilter` and `assertAccess` checks.
-
-Forms keeps existing unassigned members' editing access. An explicitly assigned
-Reviewer can review submissions but cannot edit forms; Editor can do both.
-Resource sharing still determines which forms and submissions they can access.
-
 ```ts
 // actions/archive-plan.ts
 export default defineAction({
@@ -331,6 +293,47 @@ disclosure only. Every guarded operation re-resolves the role on the server, so
 a client that shows the wrong affordance still cannot perform the operation.
 See [Actions → Authorization](/docs/actions-access-control#authorize) for how `authorize`
 differs from `needsApproval` and from row-level access guards.
+
+### Opt-in permission policies
+
+By default, permission guards require an assigned app role. Pass an optional
+second argument to `defineAppRoles` to change that policy on the server. Forms
+uses:
+
+```ts
+const formsAccess = defineAppRoles(
+  {
+    appId: "forms",
+    roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
+    permissions: {
+      "forms.edit": ["editor"],
+      "forms.review": ["editor", "reviewer"],
+    },
+  },
+  { unassignedRole: "editor", allowOrgAdmins: true },
+);
+```
+
+- `unassignedRole` uses a declared role's permissions for active members with
+  no app-role assignments. Permission overrides still apply. It does not
+  create an assignment or apply to removed members or assignments containing
+  only retired roles. Clearing all assignments restores this fallback.
+- `allowOrgAdmins: true` lets active organization owners and admins pass any
+  declared app-permission guard, regardless of their app roles or permission
+  overrides. It does not grant organization administration to app admins.
+
+These options affect only `requirePermission` and `assertPermission`.
+`resolve`, `requireAny`, and `assertAny` retain their explicit-assignment
+semantics, and `defaultRole` remains display only. Both options are opt-in;
+omitting them keeps the strict permission policy. Neither option replaces
+resource authorization: keep `accessFilter` and `assertAccess` checks.
+
+Forms keeps existing unassigned members' editing access. An explicitly assigned
+Reviewer can review submissions but cannot edit forms; Editor can do both.
+Resource sharing still determines which forms and submissions they can access.
+
+For organization-owned forms, editing and submission review require active membership in the form's organization unless the sharing system recognizes the caller as its owner. A direct share alone does not satisfy this app-permission check.
 
 ## Resource permissions (sharing RBAC)
 

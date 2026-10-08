@@ -26,6 +26,7 @@ const formsAccess = defineAppRoles(
   {
     appId: "forms",
     roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
     permissions: {
       "forms.edit": ["editor"],
       "forms.review": ["editor", "reviewer"],
@@ -41,6 +42,8 @@ const formsAccess = defineAppRoles(
 這些選項僅影響 `requirePermission` 和 `assertPermission`。`resolve`、`requireAny` 和 `assertAny` 仍使用明確指派；`defaultRole` 仍僅用於顯示。省略選項時保留嚴格政策。兩者都不取代資源授權：請保留 `accessFilter` 和 `assertAccess` 檢查。
 
 Forms 保留現有未指派角色成員的編輯權限。明確指派的 Reviewer 可以審查提交內容，但不能編輯表單；Editor 可以執行兩種操作。資源分享仍決定他們能存取哪些表單和提交內容。
+
+編輯組織所屬的表單或審查其提交內容，要求呼叫者是該表單所在組織的有效成員，除非分享系統將呼叫者識別為表單擁有者。僅有直接分享權限並不足以通過此應用程式權限檢查。
 
 ## 使用者群組 {#user-groups}
 
