@@ -1363,6 +1363,8 @@ const messages = {
     burningRedactions: "Aplicando as tarjas ao vídeo…",
     burningRedactionsPercent: "Aplicando as tarjas ao vídeo… {{percent}}%",
     editFailed: "Não foi possível salvar essa edição",
+    refreshFailed:
+      "Não foi possível carregar as edições mais recentes. Tente novamente antes de editar.",
     autoSaveHint: "As edições são salvas automaticamente neste clipe",
     savingChanges: "Salvando alterações…",
     changesSaved: "Alterações salvas neste clipe",

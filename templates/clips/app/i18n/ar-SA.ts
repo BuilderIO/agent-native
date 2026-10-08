@@ -1345,6 +1345,8 @@ const messages = {
     burningRedactions: "جارٍ تثبيت مناطق الإخفاء في الفيديو…",
     burningRedactionsPercent: "جارٍ تثبيت مناطق الإخفاء في الفيديو… {{percent}}%",
     editFailed: "تعذّر حفظ هذا التعديل",
+    refreshFailed:
+      "تعذر تحميل أحدث التعديلات. حاول مرة أخرى قبل متابعة التحرير.",
     autoSaveHint: "تُحفَظ التعديلات في هذا المقطع تلقائيًا",
     savingChanges: "جارٍ حفظ التغييرات…",
     changesSaved: "تم حفظ التغييرات في هذا المقطع",

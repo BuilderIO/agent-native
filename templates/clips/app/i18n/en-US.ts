@@ -1270,6 +1270,7 @@ const messages = {
     burningRedactionsPercent:
       "Rendering the redactions into the video… {{percent}}%",
     editFailed: "Could not save that edit",
+    refreshFailed: "Couldn't load the latest edits. Try again before editing.",
     autoSaveHint: "Edits save to this clip automatically",
     savingChanges: "Saving changes…",
     changesSaved: "Changes saved to this clip",

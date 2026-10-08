@@ -1370,6 +1370,8 @@ const messages = {
     burningRedactionsPercent:
       "Aplicando las difuminaciones al vídeo… {{percent}} %",
     editFailed: "No se ha podido guardar ese cambio",
+    refreshFailed:
+      "No se pudieron cargar los cambios más recientes. Vuelve a intentarlo antes de editar.",
     autoSaveHint: "Los cambios se guardan automáticamente en este clip",
     savingChanges: "Guardando cambios…",
     changesSaved: "Cambios guardados en este clip",

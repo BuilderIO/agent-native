@@ -1352,6 +1352,8 @@ const messages = {
     burningRedactions: "マスクを動画に焼き込んでいます…",
     burningRedactionsPercent: "マスクを動画に焼き込んでいます… {{percent}}%",
     editFailed: "その編集を保存できませんでした",
+    refreshFailed:
+      "最新の編集内容を読み込めませんでした。編集を続ける前にもう一度お試しください。",
     autoSaveHint: "編集内容はこのクリップに自動保存されます",
     savingChanges: "変更を保存中…",
     changesSaved: "このクリップに変更を保存しました",
