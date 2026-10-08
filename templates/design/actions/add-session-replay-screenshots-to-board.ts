@@ -243,8 +243,9 @@ function appendToBoard(html: string, markup: string): string {
 
 async function cleanupUploadedScreenshots(
   handles: readonly PrivateBlobHandle[],
-): Promise<boolean> {
-  if (handles.length === 0) return false;
+): Promise<{ pending: boolean; failed: boolean; unknown: boolean }> {
+  const complete = { pending: false, failed: false, unknown: false };
+  if (handles.length === 0) return complete;
   const pendingHandles = (
     await Promise.all(
       handles.map(async (handle) => {
@@ -257,11 +258,12 @@ async function cleanupUploadedScreenshots(
       }),
     )
   ).filter((handle): handle is PrivateBlobHandle => handle !== null);
-  if (pendingHandles.length === 0) return false;
+  if (pendingHandles.length === 0) return complete;
   try {
-    return await deleteVisualEditSnapshotBlobs(
+    const pending = await deleteVisualEditSnapshotBlobs(
       pendingHandles.map((handle) => JSON.stringify(handle)),
     );
+    return { pending, failed: false, unknown: false };
   } catch (error) {
     console.warn(
       "[design-replay-screenshots] Private blob cleanup remains pending:",
@@ -279,18 +281,43 @@ async function cleanupUploadedScreenshots(
         }),
       )
     ).filter((handle): handle is PrivateBlobHandle => handle !== null);
-    if (!remainingHandles.length) return false;
+    if (!remainingHandles.length) return complete;
     try {
       await queueVisualEditSnapshotBlobCleanup(
         remainingHandles.map((handle) => JSON.stringify(handle)),
       );
+      return { pending: true, failed: false, unknown: false };
     } catch (queueError) {
       console.warn(
         "[design-replay-screenshots] Could not queue screenshot cleanup for retry:",
         queueError,
       );
+      try {
+        const values = [
+          ...new Set(remainingHandles.map((handle) => JSON.stringify(handle))),
+        ];
+        const table = schema.designVisualEditSnapshotBlobCleanup;
+        const queued = await getDb()
+          .select({ blobHandle: table.blobHandle })
+          .from(table)
+          .where(inArray(table.blobHandle, values))
+          .limit(values.length);
+        const queuedHandles = new Set(
+          queued.map(({ blobHandle }) => blobHandle),
+        );
+        return {
+          pending: queuedHandles.size > 0,
+          failed: queuedHandles.size < values.length,
+          unknown: false,
+        };
+      } catch (readError) {
+        console.warn(
+          "[design-replay-screenshots] Could not verify queued screenshot cleanup:",
+          readError,
+        );
+        return { pending: false, failed: false, unknown: true };
+      }
     }
-    return true;
   }
 }
 
@@ -364,7 +391,12 @@ function attachmentFailureMessage(status: string): string {
 
 function actionFailureWithRollbackState(
   error: unknown,
-  state: { cleanupPending?: true; saveOutcomeUnknown?: true },
+  state: {
+    cleanupFailed?: true;
+    cleanupPending?: true;
+    cleanupUnknown?: true;
+    saveOutcomeUnknown?: true;
+  },
 ): ActionContractError {
   const failure =
     error && typeof error === "object"
@@ -666,6 +698,8 @@ export default defineAction({
         !screenshotMetadataInsertAttempted;
       let rollbackQueuedBlobHandles: string[] = [];
       let cleanupPending = false;
+      let cleanupFailed = false;
+      let cleanupUnknown = false;
       let saveOutcomeUnknown = false;
 
       if (uploaded.length && screenshotMetadataInsertAttempted) {
@@ -693,7 +727,7 @@ export default defineAction({
               "[design-replay-screenshots] Screenshot metadata rollback retry failed:",
               retryError,
             );
-            cleanupPending = true;
+            cleanupUnknown = true;
             saveOutcomeUnknown = true;
           }
         }
@@ -755,7 +789,7 @@ export default defineAction({
         }
       }
       if (createdDesignId && !screenshotMetadataRollbackCommitted) {
-        cleanupPending = true;
+        cleanupUnknown = true;
         saveOutcomeUnknown = true;
       }
       if (boardWrite && !createdDesignDeleted) {
@@ -771,21 +805,30 @@ export default defineAction({
       }
       if (uploaded.length && !screenshotMetadataInsertAttempted) {
         try {
-          cleanupPending =
-            (await cleanupUploadedScreenshots(
-              uploaded.map(({ blobHandle }) => blobHandle),
-            )) || cleanupPending;
+          const cleanupState = await cleanupUploadedScreenshots(
+            uploaded.map(({ blobHandle }) => blobHandle),
+          );
+          cleanupPending = cleanupState.pending || cleanupPending;
+          cleanupFailed = cleanupState.failed || cleanupFailed;
+          cleanupUnknown = cleanupState.unknown || cleanupUnknown;
         } catch (cleanupError) {
-          cleanupPending = true;
+          cleanupUnknown = true;
           console.warn(
             "[design-replay-screenshots] Uploaded screenshot cleanup could not be confirmed:",
             cleanupError,
           );
         }
       }
-      if (cleanupPending || saveOutcomeUnknown) {
+      if (
+        cleanupPending ||
+        cleanupFailed ||
+        cleanupUnknown ||
+        saveOutcomeUnknown
+      ) {
         throw actionFailureWithRollbackState(error, {
+          ...(cleanupFailed ? { cleanupFailed: true as const } : {}),
           ...(cleanupPending ? { cleanupPending: true as const } : {}),
+          ...(cleanupUnknown ? { cleanupUnknown: true as const } : {}),
           ...(saveOutcomeUnknown ? { saveOutcomeUnknown: true as const } : {}),
         });
       }

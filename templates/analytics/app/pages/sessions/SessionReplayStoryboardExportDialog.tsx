@@ -450,8 +450,15 @@ export function SessionReplayStoryboardExportDialog({
       let result: {
         response?: string;
         boardUrl?: string;
+        cleanupFailed?: boolean;
         cleanupPending?: boolean;
-        data?: { cleanupPending?: boolean; saveOutcomeUnknown?: boolean };
+        cleanupUnknown?: boolean;
+        data?: {
+          cleanupFailed?: boolean;
+          cleanupPending?: boolean;
+          cleanupUnknown?: boolean;
+          saveOutcomeUnknown?: boolean;
+        };
         error?: string | boolean;
         message?: string;
         statusMessage?: string;
@@ -461,9 +468,23 @@ export function SessionReplayStoryboardExportDialog({
       } catch {
         throw new Error(t("sessions.storyboardSaveOutcomeUnknown"));
       }
-      if (result?.cleanupPending || result?.data?.cleanupPending) {
+      const cleanupFailed =
+        result?.cleanupFailed === true || result?.data?.cleanupFailed === true;
+      const cleanupUnknown =
+        result?.cleanupUnknown === true ||
+        result?.data?.cleanupUnknown === true;
+      if (
+        cleanupFailed ||
+        cleanupUnknown ||
+        result?.cleanupPending ||
+        result?.data?.cleanupPending
+      ) {
         const storyboardWasConfirmed = Boolean(
-          upload.ok && result?.response?.trim() && result?.boardUrl?.trim(),
+          !cleanupFailed &&
+          !cleanupUnknown &&
+          upload.ok &&
+          result?.response?.trim() &&
+          result?.boardUrl?.trim(),
         );
         setWarning(
           t(

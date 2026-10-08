@@ -98,6 +98,9 @@ vi.mock("../server/db/index.js", () => ({
       id: "screenshots.id",
     },
     designs: { id: "designs.id" },
+    designVisualEditSnapshotBlobCleanup: {
+      blobHandle: "cleanup.blobHandle",
+    },
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
@@ -306,6 +309,113 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
         encrypted: true,
       }),
     ]);
+  });
+
+  it("reports untracked blobs when durable cleanup queue insertion fails", async () => {
+    mocks.deletePrivateBlob
+      .mockResolvedValueOnce({ deleted: false })
+      .mockResolvedValueOnce({ deleted: false });
+    mocks.deleteVisualEditSnapshotBlobs.mockRejectedValueOnce(
+      new Error("cleanup queue insert failed"),
+    );
+    mocks.queueVisualEditSnapshotBlobCleanup.mockRejectedValueOnce(
+      new Error("durable retry queue unavailable"),
+    );
+
+    const error = await action
+      .run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      actionContractError: true,
+      message: "board setup failed",
+      details: { cleanupFailed: true },
+    });
+    expect(error).not.toMatchObject({
+      details: { cleanupPending: true },
+    });
+    expect(mocks.queueVisualEditSnapshotBlobCleanup).toHaveBeenCalledWith([
+      JSON.stringify({
+        id: "blob-id",
+        provider: "private-provider",
+        opaque: true,
+        encrypted: true,
+      }),
+    ]);
+  });
+
+  it("reports unknown cleanup state when the queue cannot be read after insert failure", async () => {
+    mocks.deletePrivateBlob
+      .mockResolvedValueOnce({ deleted: false })
+      .mockResolvedValueOnce({ deleted: false });
+    mocks.deleteVisualEditSnapshotBlobs.mockRejectedValueOnce(
+      new Error("cleanup queue insert failed"),
+    );
+    mocks.queueVisualEditSnapshotBlobCleanup.mockRejectedValueOnce(
+      new Error("durable retry queue unavailable"),
+    );
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockRejectedValue(new Error("queue read failed")),
+          })),
+        })),
+      })),
+    });
+
+    const error = await action
+      .run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      actionContractError: true,
+      message: "board setup failed",
+      details: { cleanupUnknown: true },
+    });
+    expect(error).not.toMatchObject({
+      details: { cleanupFailed: true },
+    });
   });
 
   it("reports private blob cleanup that remains pending after an action failure", async () => {
@@ -924,7 +1034,7 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
   });
 
-  it("reports pending metadata cleanup and an uncertain board after rollback failures", async () => {
+  it("reports failed metadata cleanup and an uncertain board after rollback failures", async () => {
     const boardFile = {
       id: "board-file",
       designId: "existing-design",
@@ -985,7 +1095,7 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     ).rejects.toMatchObject({
       actionContractError: true,
       message: "metadata insert failed",
-      details: { cleanupPending: true, saveOutcomeUnknown: true },
+      details: { cleanupUnknown: true, saveOutcomeUnknown: true },
     });
     expect(mocks.withDesignSourceMutationTransaction).toHaveBeenCalledTimes(2);
     expect(mocks.writeInlineSourceFile).toHaveBeenCalledTimes(2);

@@ -665,4 +665,30 @@ describe("POST /api/session-replay/storyboard", () => {
       },
     });
   });
+
+  it("preserves cleanup failure when Design could not queue blob retries", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(
+      Response.json(
+        {
+          statusMessage: "The Design action failed",
+          data: {
+            action: "add-session-replay-screenshots-to-board",
+            cleanupFailed: true,
+          },
+        },
+        { status: 409 },
+      ),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      statusMessage: "The Design action failed",
+      data: {
+        action: "add-session-replay-screenshots-to-board",
+        cleanupFailed: true,
+      },
+    });
+  });
 });

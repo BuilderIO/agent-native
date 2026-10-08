@@ -54,7 +54,9 @@ type DesignUploadResult = {
   boardUrl?: string;
   designId?: string;
   screenshotCount?: number;
+  cleanupFailed?: boolean;
   cleanupPending?: boolean;
+  cleanupUnknown?: boolean;
   message?: string;
   statusMessage?: string;
   data?: Record<string, unknown>;
@@ -102,8 +104,12 @@ function isDesignUploadResult(value: unknown): value is DesignUploadResult {
     (result.screenshotCount === undefined ||
       (typeof result.screenshotCount === "number" &&
         Number.isSafeInteger(result.screenshotCount))) &&
+    (result.cleanupFailed === undefined ||
+      typeof result.cleanupFailed === "boolean") &&
     (result.cleanupPending === undefined ||
       typeof result.cleanupPending === "boolean") &&
+    (result.cleanupUnknown === undefined ||
+      typeof result.cleanupUnknown === "boolean") &&
     (result.data === undefined ||
       (result.data !== null &&
         typeof result.data === "object" &&
@@ -556,6 +562,8 @@ export default defineEventHandler(async (event) =>
         }
       | undefined;
     let cleanupPending = false;
+    let cleanupFailed = false;
+    let cleanupUnknown = false;
     try {
       const parts = await readBoundedMultipartFormData(event);
       if (!parts) {
@@ -808,11 +816,23 @@ export default defineEventHandler(async (event) =>
       cleanupPending =
         uploadResult.cleanupPending === true ||
         uploadResult.data?.cleanupPending === true;
+      cleanupFailed =
+        uploadResult.cleanupFailed === true ||
+        uploadResult.data?.cleanupFailed === true;
+      cleanupUnknown =
+        uploadResult.cleanupUnknown === true ||
+        uploadResult.data?.cleanupUnknown === true;
       if (!uploadResponse.ok) {
         const data = {
           ...uploadResult.data,
+          ...(uploadResult.cleanupFailed || uploadResult.data?.cleanupFailed
+            ? { cleanupFailed: true }
+            : {}),
           ...(uploadResult.cleanupPending || uploadResult.data?.cleanupPending
             ? { cleanupPending: true }
+            : {}),
+          ...(uploadResult.cleanupUnknown || uploadResult.data?.cleanupUnknown
+            ? { cleanupUnknown: true }
             : {}),
         };
         throw createError({
@@ -885,7 +905,12 @@ export default defineEventHandler(async (event) =>
           ? (errorDetails.data as Record<string, unknown>)
           : {};
       if (knownStatus) {
-        if (!cleanupPending || existingData.cleanupPending === true)
+        if (
+          (!cleanupPending && !cleanupFailed && !cleanupUnknown) ||
+          existingData.cleanupPending === true ||
+          existingData.cleanupFailed === true ||
+          existingData.cleanupUnknown === true
+        )
           throw error;
         throw createError({
           statusCode: knownStatus,
@@ -895,7 +920,12 @@ export default defineEventHandler(async (event) =>
               : error instanceof Error
                 ? error.message
                 : "Design screenshot upload failed",
-          data: { ...existingData, cleanupPending: true },
+          data: {
+            ...existingData,
+            ...(cleanupPending ? { cleanupPending: true } : {}),
+            ...(cleanupFailed ? { cleanupFailed: true } : {}),
+            ...(cleanupUnknown ? { cleanupUnknown: true } : {}),
+          },
           cause: error,
         });
       }
@@ -905,8 +935,15 @@ export default defineEventHandler(async (event) =>
           error instanceof Error
             ? `Design screenshot upload failed: ${error.message}`
             : "Design screenshot upload failed",
-        ...(cleanupPending
-          ? { data: { ...existingData, cleanupPending: true } }
+        ...(cleanupPending || cleanupFailed || cleanupUnknown
+          ? {
+              data: {
+                ...existingData,
+                ...(cleanupPending ? { cleanupPending: true } : {}),
+                ...(cleanupFailed ? { cleanupFailed: true } : {}),
+                ...(cleanupUnknown ? { cleanupUnknown: true } : {}),
+              },
+            }
           : {}),
         cause: error,
       });
