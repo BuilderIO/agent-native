@@ -254,6 +254,7 @@ import {
   keepAbsoluteDescendantsInPlace,
   MIN_SLIDE_OBJECT_SIZE,
   releaseSlideObjectFromLeftBoxes,
+  removeSlideObjectLayoutSpacer,
   setSlideObjectDimension,
   setSlideObjectRotation,
   SLIDE_OBJECT_PASTE_OFFSET,
@@ -2346,20 +2347,7 @@ export default function SlideEditor({
       const html = readCurrentSlideContentHtmlRef.current();
       if (html !== null) {
         if (crop.frozen.restoreMarkdownTree) {
-          const objectId = crop.frame.getAttribute("data-slide-object-id");
-          if (objectId) {
-            const owner = crop.frame.parentElement ?? crop.frame.ownerDocument;
-            owner
-              .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
-              .forEach((spacer) => {
-                if (
-                  spacer.getAttribute("data-slide-layout-spacer-for") ===
-                  objectId
-                ) {
-                  spacer.remove();
-                }
-              });
-          }
+          removeSlideObjectLayoutSpacer(crop.frame);
           crop.frozen.restoreMarkdownTree();
         }
         onUpdateSlideRef.current({ content: html }, undefined, {
@@ -4877,19 +4865,7 @@ export default function SlideEditor({
     const html = readCurrentSlideContentHtml();
 
     if (frozen.restoreMarkdownTree) {
-      const objectId = element.getAttribute("data-slide-object-id");
-      if (objectId) {
-        const owner = element.parentElement ?? element.ownerDocument;
-        owner
-          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
-          .forEach((spacer) => {
-            if (
-              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
-            ) {
-              spacer.remove();
-            }
-          });
-      }
+      removeSlideObjectLayoutSpacer(element);
       frozen.restoreMarkdownTree();
     }
     if (html !== null) onUpdateSlideRef.current({ content: html });
@@ -5956,24 +5932,10 @@ export default function SlideEditor({
         return true;
       };
 
-      const removeFreeformLayoutSpacer = () => {
-        const objectId = element.getAttribute("data-slide-object-id");
-        if (!objectId) return;
-        const spacer = Array.from(
-          element.parentElement?.querySelectorAll<HTMLElement>(
-            "[data-slide-layout-spacer-for]",
-          ) ?? [],
-        ).find(
-          (candidate) =>
-            candidate.getAttribute("data-slide-layout-spacer-for") === objectId,
-        );
-        spacer?.remove();
-      };
-
       const restorePromotedElement = () => {
         if (!promotedToFreeform) return;
         promotedToFreeform = false;
-        removeFreeformLayoutSpacer();
+        removeSlideObjectLayoutSpacer(element);
         restoreDescendants?.();
         const restoreTree = restoreMarkdownTree;
         restoreMarkdownTree = undefined;
@@ -6116,7 +6078,7 @@ export default function SlideEditor({
           // serialization and before the state write so React can reconcile
           // the switch to persisted raw HTML cleanly.
           if (restoreMarkdownTree) {
-            removeFreeformLayoutSpacer();
+            removeSlideObjectLayoutSpacer(element);
             restoreMarkdownTree();
             restoreMarkdownTree = undefined;
           }
@@ -6243,25 +6205,10 @@ export default function SlideEditor({
       let restoreDescendants: (() => void) | undefined;
       let promotedToFreeform = false;
 
-      const removeFreeformLayoutSpacer = () => {
-        const objectId = element.getAttribute("data-slide-object-id");
-        if (!objectId) return;
-        const owner = element.parentElement ?? element.ownerDocument;
-        owner
-          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
-          .forEach((spacer) => {
-            if (
-              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
-            ) {
-              spacer.remove();
-            }
-          });
-      };
-
       const restorePromotedElement = () => {
         if (!promotedToFreeform) return;
         promotedToFreeform = false;
-        removeFreeformLayoutSpacer();
+        removeSlideObjectLayoutSpacer(element);
         restoreDescendants?.();
         const restoreTree = restoreMarkdownTree;
         restoreMarkdownTree = undefined;
@@ -6509,7 +6456,7 @@ export default function SlideEditor({
           if (promotedToFreeform) preserveSlideObjectLayoutSpacer(element);
           const html = readCurrentSlideContentHtml();
           if (restoreMarkdownTree) {
-            removeFreeformLayoutSpacer();
+            removeSlideObjectLayoutSpacer(element);
             restoreMarkdownTree();
             restoreMarkdownTree = undefined;
           }
@@ -6828,26 +6775,12 @@ export default function SlideEditor({
       let groupPositioningLayer: HTMLElement | null = null;
       let groupContainingBlock: HTMLElement | null = null;
 
-      const removeFreeformLayoutSpacer = (element: HTMLElement) => {
-        const objectId = element.getAttribute("data-slide-object-id");
-        if (!objectId) return;
-        const spacer = Array.from(
-          element.parentElement?.querySelectorAll<HTMLElement>(
-            "[data-slide-layout-spacer-for]",
-          ) ?? [],
-        ).find(
-          (candidate) =>
-            candidate.getAttribute("data-slide-layout-spacer-for") === objectId,
-        );
-        spacer?.remove();
-      };
-
       const restoreGroupPromotions = () => {
         if (promotionsRestored) return;
         promotionsRestored = true;
 
         for (const promotion of promotions) {
-          removeFreeformLayoutSpacer(promotion.element);
+          removeSlideObjectLayoutSpacer(promotion.element);
         }
 
         const restoredMarkdownTrees = new Set<() => void>();
@@ -7044,7 +6977,7 @@ export default function SlideEditor({
           }
           const html = readCurrentSlideContentHtml();
           for (const promotion of promotions) {
-            removeFreeformLayoutSpacer(promotion.element);
+            removeSlideObjectLayoutSpacer(promotion.element);
           }
           const restoredMarkdownTrees = new Set<() => void>();
           for (const promotion of promotions) {
@@ -7233,23 +7166,9 @@ export default function SlideEditor({
         restoreDescendants?: () => void;
         wasFlow: boolean;
       } | null = null;
-      const removeFreeformLayoutSpacer = (element: HTMLElement) => {
-        const objectId = element.getAttribute("data-slide-object-id");
-        if (!objectId) return;
-        const owner = element.parentElement ?? element.ownerDocument;
-        owner
-          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
-          .forEach((spacer) => {
-            if (
-              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
-            ) {
-              spacer.remove();
-            }
-          });
-      };
       const restorePromotion = () => {
         if (!promotion) return;
-        removeFreeformLayoutSpacer(promotion.element);
+        removeSlideObjectLayoutSpacer(promotion.element);
         promotion.restoreDescendants?.();
         if (promotion.restoreMarkdownTree) {
           promotion.restoreMarkdownTree();
@@ -7463,7 +7382,7 @@ export default function SlideEditor({
           return;
         }
         if (promotion?.restoreMarkdownTree) {
-          removeFreeformLayoutSpacer(promotion.element);
+          removeSlideObjectLayoutSpacer(promotion.element);
           promotion.restoreMarkdownTree();
         }
         if (multiSelection.size > 0) {
@@ -7616,25 +7535,11 @@ export default function SlideEditor({
           restoreDescendants?: () => void;
         }> = [];
         let promotionsRestored = false;
-        const removeFreeformLayoutSpacer = (element: HTMLElement) => {
-          const objectId = element.getAttribute("data-slide-object-id");
-          if (!objectId) return;
-          const owner = element.parentElement ?? element.ownerDocument;
-          owner
-            .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
-            .forEach((spacer) => {
-              if (
-                spacer.getAttribute("data-slide-layout-spacer-for") === objectId
-              ) {
-                spacer.remove();
-              }
-            });
-        };
         const restorePromotions = () => {
           if (promotionsRestored) return;
           promotionsRestored = true;
           for (const promotion of promotions) {
-            removeFreeformLayoutSpacer(promotion.element);
+            removeSlideObjectLayoutSpacer(promotion.element);
           }
           const restoredMarkdownTrees = new Set<() => void>();
           for (const promotion of promotions) {
@@ -7738,7 +7643,7 @@ export default function SlideEditor({
           return;
         }
         for (const promotion of promotions) {
-          removeFreeformLayoutSpacer(promotion.element);
+          removeSlideObjectLayoutSpacer(promotion.element);
         }
         const restoredMarkdownTrees = new Set<() => void>();
         for (const promotion of promotions) {
@@ -7802,20 +7707,7 @@ export default function SlideEditor({
       const html = readCurrentSlideContentHtml();
 
       if (frozen.restoreMarkdownTree) {
-        const objectId = frozen.element.getAttribute("data-slide-object-id");
-        if (objectId) {
-          const owner =
-            frozen.element.parentElement ?? frozen.element.ownerDocument;
-          owner
-            .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
-            .forEach((spacer) => {
-              if (
-                spacer.getAttribute("data-slide-layout-spacer-for") === objectId
-              ) {
-                spacer.remove();
-              }
-            });
-        }
+        removeSlideObjectLayoutSpacer(frozen.element);
         frozen.restoreMarkdownTree();
       }
       if (html !== null) onUpdateSlideRef.current({ content: html });
@@ -8676,19 +8568,7 @@ export default function SlideEditor({
             [image.offsetHeight, cropStartGeometry.image.height],
           ].some(([current, initial]) => Math.abs(current! - initial!) >= 0.5),
         cancel: () => {
-          const objectId = frame.getAttribute("data-slide-object-id");
-          if (objectId) {
-            slideContent
-              .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
-              .forEach((spacer) => {
-                if (
-                  spacer.getAttribute("data-slide-layout-spacer-for") ===
-                  objectId
-                ) {
-                  spacer.remove();
-                }
-              });
-          }
+          removeSlideObjectLayoutSpacer(frame, slideContent);
           if (frozen.restoreMarkdownTree) {
             if (frameIsPersistedImage) frame.replaceWith(originalFrame!);
             else frame.replaceWith(image);

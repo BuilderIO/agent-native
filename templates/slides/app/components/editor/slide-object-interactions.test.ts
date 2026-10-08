@@ -43,6 +43,7 @@ import {
   preserveSlideObjectLayoutSpacer,
   persistSlideObjectZOrderFromDom,
   removeSlideObjectAndLayoutSpacer,
+  removeSlideObjectLayoutSpacer,
   resolveSlideObjectContainingBlock,
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
@@ -475,6 +476,40 @@ describe("slide object interactions", () => {
     removeSlideObjectAndLayoutSpacer(text);
     expect(layer.querySelector(".fmd-layout-spacer")).toBeNull();
     layer.remove();
+  });
+
+  it("removes only the spacer owned by the object, within the given scope", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div id="card">
+        <div class="fmd-layout-spacer" data-slide-layout-spacer-for="a"></div>
+        <div id="a" data-slide-object-id="a" style="position:absolute"></div>
+      </div>
+      <div class="fmd-layout-spacer" data-slide-layout-spacer-for="b"></div>
+      <div id="b" data-slide-object-id="b"></div>
+    `;
+    document.body.append(root);
+    const a = root.querySelector<HTMLElement>("#a")!;
+    const b = root.querySelector<HTMLElement>("#b")!;
+    const spacerFor = (id: string) =>
+      root.querySelector(`[data-slide-layout-spacer-for="${id}"]`);
+
+    removeSlideObjectLayoutSpacer(a);
+    expect(spacerFor("a")).toBeNull();
+    expect(spacerFor("b")).not.toBeNull();
+    expect(a.isConnected).toBe(true);
+
+    // A spacer outside the object's parent needs the wider owner to be found.
+    const stray = document.createElement("div");
+    stray.setAttribute("data-slide-layout-spacer-for", "a");
+    root.insertBefore(stray, b);
+    removeSlideObjectLayoutSpacer(a);
+    expect(spacerFor("a")).not.toBeNull();
+    removeSlideObjectLayoutSpacer(a, root);
+    expect(spacerFor("a")).toBeNull();
+    removeSlideObjectLayoutSpacer(b);
+    expect(spacerFor("b")).toBeNull();
+    root.remove();
   });
 
   it("keeps an object dropped inside its box as the box's child", () => {

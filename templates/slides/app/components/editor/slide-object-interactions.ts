@@ -1080,6 +1080,22 @@ export function preserveSlideObjectLayoutSpacer(element: HTMLElement): void {
   }
 }
 
+/** Drop the hidden spacer that reserves `element`'s slot in flow layout. */
+export function removeSlideObjectLayoutSpacer(
+  element: HTMLElement,
+  owner: ParentNode = element.parentElement ?? element.ownerDocument,
+): void {
+  const objectId = element.getAttribute("data-slide-object-id");
+  if (!objectId) return;
+  for (const spacer of Array.from(
+    owner.querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]"),
+  )) {
+    if (spacer.getAttribute("data-slide-layout-spacer-for") === objectId) {
+      spacer.remove();
+    }
+  }
+}
+
 function preserveSlideElementLayoutSlot(element: HTMLElement): void {
   const computed = window.getComputedStyle(element);
   freezeSlideElementForFreeform(
@@ -1113,20 +1129,12 @@ export function removeSlideObjectAndLayoutSpacer(
     preserveSlideElementLayoutSlot(element);
     return;
   }
-  const objectId = element.getAttribute("data-slide-object-id");
-  if (objectId) {
-    const owner =
-      element.closest<HTMLElement>(".fmd-slide, [data-slide-canvas]") ??
+  removeSlideObjectLayoutSpacer(
+    element,
+    element.closest<HTMLElement>(".fmd-slide, [data-slide-canvas]") ??
       element.parentElement ??
-      element.ownerDocument;
-    for (const spacer of Array.from(
-      owner.querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]"),
-    )) {
-      if (spacer.getAttribute("data-slide-layout-spacer-for") === objectId) {
-        spacer.remove();
-      }
-    }
-  }
+      element.ownerDocument,
+  );
   element.remove();
 }
 

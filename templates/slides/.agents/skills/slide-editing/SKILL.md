@@ -333,6 +333,9 @@ objects the way Google Slides does, so write markup that maps cleanly:
 - Ids belong to freeform objects only. Never stamp `data-slide-object-id` on a
   flow region: any id marks an object freeform and `export-pptx` rejects it.
   Preserve existing ids when rewriting a slide.
+- An empty hidden `.fmd-layout-spacer[data-slide-layout-spacer-for="ID"]`
+  reserves the flow slot of a hand-moved object. Keep it while its owner
+  exists and delete both together.
 
 ## Image Placeholders
 
