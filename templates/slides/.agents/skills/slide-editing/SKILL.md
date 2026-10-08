@@ -336,6 +336,9 @@ objects the way Google Slides does, so write markup that maps cleanly:
 - An empty hidden `.fmd-layout-spacer[data-slide-layout-spacer-for="ID"]`
   reserves the flow slot of a hand-moved object. Keep it while its owner
   exists and delete both together.
+- Keep the empty `<span data-slide-number></span>` and
+  `<span data-slide-total></span>` tokens when restyling or rewriting a footer.
+  They are empty in the saved HTML on purpose; never type digits over them.
 
 ## Image Placeholders
 

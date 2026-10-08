@@ -65,11 +65,18 @@ export const SLIDE_NUMBER_CSS = `[data-slide-count] {
   content: counter(slide-total, decimal-leading-zero);
 }`;
 
+function tokenText(value: number, padAttr: string | null): string {
+  const text = String(value);
+  return padAttr === "pad" ? text.padStart(2, "0") : text;
+}
+
 /**
  * Writes digits into the tokens under a slide canvas root. Only for throwaway
  * export clones: exporters such as dom-to-pptx read DOM text and cannot see
- * pseudo-element content. A root with no position (a deck-less surface) is
- * left with empty tokens, matching what the CSS renders there.
+ * pseudo-element content. The position attributes come off the root afterwards
+ * so the counter rules no longer match and the pseudo-element cannot add the
+ * digits a second time. A root with no position (a deck-less surface) is left
+ * with empty tokens, matching what the CSS renders there.
  */
 export function materializeSlideNumberTokens(root: HTMLElement): void {
   const number = positionAttr(root, INDEX_ATTR);
@@ -79,10 +86,34 @@ export function materializeSlideNumberTokens(root: HTMLElement): void {
     `[${NUMBER_ATTR}],[${TOTAL_ATTR}]`,
   )) {
     const attr = token.hasAttribute(NUMBER_ATTR) ? NUMBER_ATTR : TOTAL_ATTR;
-    const value = String(attr === NUMBER_ATTR ? number : count);
-    token.textContent =
-      token.getAttribute(attr) === "pad" ? value.padStart(2, "0") : value;
+    token.textContent = tokenText(
+      attr === NUMBER_ATTR ? number : count,
+      token.getAttribute(attr),
+    );
   }
+  root.removeAttribute(INDEX_ATTR);
+  root.removeAttribute(COUNT_ATTR);
+}
+
+const EMPTY_TOKEN_RE =
+  /(<([a-z][a-z0-9]*)\b[^>]*\sdata-slide-(number|total)\b(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*)))?[^>]*>)(<\/\2>)/gi;
+
+/**
+ * Fills empty tokens in saved slide HTML for server-side exports that have no
+ * DOM and no stylesheet to render the counters.
+ */
+export function fillSlideNumberTokensInHtml(
+  html: string,
+  position: SlidePosition,
+): string {
+  return html.replace(
+    EMPTY_TOKEN_RE,
+    (_match, open, _tag, kind, dq, sq, bare, close) =>
+      `${open}${tokenText(
+        kind.toLowerCase() === "number" ? position.number : position.count,
+        dq ?? sq ?? bare ?? null,
+      )}${close}`,
+  );
 }
 
 function positionAttr(root: HTMLElement, name: string): number | null {

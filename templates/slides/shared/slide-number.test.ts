@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  fillSlideNumberTokensInHtml,
   materializeSlideNumberTokens,
   SLIDE_NUMBER_CSS,
   slideNumberInlineStyle,
@@ -74,5 +75,37 @@ describe("materializeSlideNumberTokens", () => {
     const root = canvas(footer);
     materializeSlideNumberTokens(root);
     expect(root.textContent).toBe(" /  ·  of ");
+  });
+});
+
+describe("materializeSlideNumberTokens root cleanup", () => {
+  it("drops the position attributes so the counter rules stop matching", () => {
+    const root = canvas(
+      "<span data-slide-number></span>",
+      'data-slide-index="2" data-slide-count="3"',
+    );
+    materializeSlideNumberTokens(root);
+    expect(root.hasAttribute("data-slide-index")).toBe(false);
+    expect(root.hasAttribute("data-slide-count")).toBe(false);
+  });
+});
+
+describe("fillSlideNumberTokensInHtml", () => {
+  const position = { number: 4, count: 12 };
+
+  it("fills plain and padded tokens in saved HTML", () => {
+    expect(
+      fillSlideNumberTokensInHtml(
+        '<p><span data-slide-number="pad"></span> / <span class="t" data-slide-total="pad" style="x:y"></span> · <span data-slide-number></span> of <span data-slide-total></span></p>',
+        position,
+      ),
+    ).toBe(
+      '<p><span data-slide-number="pad">04</span> / <span class="t" data-slide-total="pad" style="x:y">12</span> · <span data-slide-number>4</span> of <span data-slide-total>12</span></p>',
+    );
+  });
+
+  it("leaves tokens that already hold content alone", () => {
+    const html = "<span data-slide-number>7</span>";
+    expect(fillSlideNumberTokensInHtml(html, position)).toBe(html);
   });
 });
