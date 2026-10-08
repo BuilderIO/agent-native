@@ -622,6 +622,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
     "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
   ];
+  // source-read-ok: ensures workflow grep selectors name real Screen-history Playwright cases.
   const screenHistorySpec = readFileSync(
     "templates/design/e2e/parity-selection-history-delete-screen.spec.ts",
     "utf8",
