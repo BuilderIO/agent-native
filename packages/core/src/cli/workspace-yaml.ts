@@ -73,7 +73,11 @@ function findWorkspaceYamlSection(
   yaml: string,
   section: string,
 ): WorkspaceYamlSection | undefined {
-  const sectionHeader = new RegExp(`^${escapeRegExp(section)}:[ \\t]*`, "m");
+  const name = escapeRegExp(section);
+  const sectionHeader = new RegExp(
+    `^(?:${name}|"${name}"|'${name}'):[ \\t]*`,
+    "m",
+  );
   const match = sectionHeader.exec(yaml);
   if (!match) return undefined;
 
@@ -419,8 +423,9 @@ export function mergeWorkspaceYamlListItems(
 /**
  * Add `item` to `minimumReleaseAgeExclude` when the workspace turns on pnpm's
  * `minimumReleaseAge` gate. Returns the input unchanged when the gate is off
- * or the item is already listed; throws when the YAML cannot be parsed or the
- * section is not a list.
+ * or the item is already listed; throws when the YAML cannot be parsed, the
+ * section is not a list, or the edited text would not parse to a list that
+ * holds the item.
  */
 export function addMinimumReleaseAgeExclude(
   yaml: string,
@@ -428,7 +433,34 @@ export function addMinimumReleaseAgeExclude(
 ): string {
   const parsed: unknown = parseYaml(yaml);
   if (!isPlainRecord(parsed) || !parsed.minimumReleaseAge) return yaml;
-  return mergeWorkspaceYamlListItems(yaml, "minimumReleaseAgeExclude", [item]);
+  const value = normalizeYamlScalar(item);
+  if (listsReleaseAgeExclude(parsed, value)) return yaml;
+  const updated = mergeWorkspaceYamlListItems(
+    yaml,
+    "minimumReleaseAgeExclude",
+    [item],
+  );
+  let reparsed: unknown;
+  try {
+    reparsed = parseYaml(updated);
+  } catch (error) {
+    throw new Error(
+      `Adding ${item} to minimumReleaseAgeExclude would leave pnpm-workspace.yaml invalid.`,
+      { cause: error },
+    );
+  }
+  if (!listsReleaseAgeExclude(reparsed, value)) {
+    throw new Error(
+      `Could not add ${item} to minimumReleaseAgeExclude in pnpm-workspace.yaml.`,
+    );
+  }
+  return updated;
+}
+
+function listsReleaseAgeExclude(parsed: unknown, value: string): boolean {
+  if (!isPlainRecord(parsed)) return false;
+  const exclude = parsed.minimumReleaseAgeExclude;
+  return Array.isArray(exclude) && exclude.includes(value);
 }
 
 function escapeRegExp(value: string): string {

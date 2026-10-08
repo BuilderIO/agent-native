@@ -1198,12 +1198,15 @@ describe("runUpgrade", () => {
     ].join("\n");
     const skipArgs = ["--skip-install", "--skip-skills", "--skip-verify"];
 
-    function makeOlderWorkspace(workspaceYaml = olderWorkspaceYaml): string {
+    function makeOlderWorkspace(
+      workspaceYaml = olderWorkspaceYaml,
+      coreSpec = "latest",
+    ): string {
       return makeTempProject({
         kind: "workspace",
         rootPkg: {
           name: "old-workspace",
-          dependencies: { "@agent-native/core": "latest" },
+          dependencies: { "@agent-native/core": coreSpec },
         },
         workspaceYaml,
       });
@@ -1263,6 +1266,78 @@ describe("runUpgrade", () => {
         fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
       ).toBe(workspaceYaml);
       expect(out.join("\n")).not.toContain("release-age");
+    });
+
+    it("recognizes a quoted minimumReleaseAgeExclude key", async () => {
+      const quotedYaml = olderWorkspaceYaml.replace(
+        "minimumReleaseAgeExclude:",
+        '"minimumReleaseAgeExclude":',
+      );
+      const root = makeOlderWorkspace(quotedYaml);
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(
+        quotedYaml.replace(
+          '"minimumReleaseAgeExclude":\n',
+          '"minimumReleaseAgeExclude":\n  - "@agent-native/*"\n',
+        ),
+      );
+    });
+
+    it("stops before editing manifests when the exclude list cannot be updated", async () => {
+      const workspaceYaml = [
+        "minimumReleaseAge: 1440",
+        'minimumReleaseAgeExclude: ["@agent-native/core", # first-party',
+        '  "typescript"]',
+        "",
+      ].join("\n");
+      const root = makeOlderWorkspace(workspaceYaml, "^0.190.0");
+      const packageJson = fs.readFileSync(
+        path.join(root, "package.json"),
+        "utf-8",
+      );
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(1);
+
+      expect(out.join("\n")).toContain("[failed] release-age");
+      expect(fs.readFileSync(path.join(root, "package.json"), "utf-8")).toBe(
+        packageJson,
+      );
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(workspaceYaml);
+    });
+
+    it("stops before editing manifests when the workspace file cannot be written", async () => {
+      const root = makeOlderWorkspace(olderWorkspaceYaml, "^0.190.0");
+      const packageJson = fs.readFileSync(
+        path.join(root, "package.json"),
+        "utf-8",
+      );
+      const writeFileSync = fs.writeFileSync;
+      vi.spyOn(fs, "writeFileSync").mockImplementation(
+        (file, data, options) => {
+          if (path.basename(String(file)) === "pnpm-workspace.yaml") {
+            throw new Error("EACCES: permission denied");
+          }
+          writeFileSync(file, data, options);
+        },
+      );
+      const { io, out, err } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(1);
+
+      expect(out.join("\n")).toContain("[failed] release-age");
+      expect(err.join("\n")).toContain("EACCES: permission denied");
+      expect(fs.readFileSync(path.join(root, "package.json"), "utf-8")).toBe(
+        packageJson,
+      );
     });
   });
 });

@@ -666,19 +666,21 @@ function alignReleaseAgeExclude(
 ): UpgradeRunResult["steps"][number] | null {
   const file = path.join(project.root, "pnpm-workspace.yaml");
   if (!fs.existsSync(file)) return null;
-  const current = fs.readFileSync(file, "utf-8");
+  const failed = (error: unknown): UpgradeRunResult["steps"][number] => ({
+    id: "release-age",
+    status: "failed",
+    detail: `Could not update pnpm-workspace.yaml (${error instanceof Error ? error.message : String(error)}). Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude by hand, then re-run upgrade.`,
+  });
+  let current: string;
   let updated: string;
   try {
+    current = fs.readFileSync(file, "utf-8");
     updated = addMinimumReleaseAgeExclude(
       current,
       AGENT_NATIVE_RELEASE_AGE_EXCLUDE,
     );
   } catch (error) {
-    return {
-      id: "release-age",
-      status: "skipped",
-      detail: `Could not update pnpm-workspace.yaml (${error instanceof Error ? error.message : String(error)}); add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude by hand`,
-    };
+    return failed(error);
   }
   if (updated === current) return null;
   if (dryRun) {
@@ -688,7 +690,11 @@ function alignReleaseAgeExclude(
       detail: `Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in pnpm-workspace.yaml`,
     };
   }
-  fs.writeFileSync(file, updated);
+  try {
+    fs.writeFileSync(file, updated);
+  } catch (error) {
+    return failed(error);
+  }
   return {
     id: "release-age",
     status: "ok",
@@ -1135,6 +1141,20 @@ export async function runUpgrade(
         : "No framework overrides/patches",
   });
 
+  // Before any manifest edit: if the exclusion cannot be written, the install
+  // would hit the same release-age gate, so stop with the workspace untouched.
+  const releaseAgeStep = alignReleaseAgeExclude(project, dryRun);
+  if (releaseAgeStep) {
+    result.steps.push(releaseAgeStep);
+    if (releaseAgeStep.status === "failed") {
+      result.ok = false;
+      result.exitCode = 1;
+      result.message = releaseAgeStep.detail ?? "";
+      emitResult(io, opts, result);
+      return result.exitCode;
+    }
+  }
+
   let dependencyAdditions: UpgradeDependencyAddition[];
   try {
     dependencyAdditions = planMigrationDependencyAdditions(project);
@@ -1228,9 +1248,6 @@ export async function runUpgrade(
       detail: `Updated ${doctor.bumps.length} @agent-native/* dependency pin(s)`,
     });
   }
-
-  const releaseAgeStep = alignReleaseAgeExclude(project, dryRun);
-  if (releaseAgeStep) result.steps.push(releaseAgeStep);
 
   let codemodPlan:
     | {
