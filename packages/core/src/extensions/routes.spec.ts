@@ -124,3 +124,51 @@ describe("createExtensionsHandler extension creation capability", () => {
     expect(mocks.createExtension).not.toHaveBeenCalled();
   });
 });
+
+describe("createExtensionsHandler iframe display sources", () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const { resetAppConfigForTests } = await import("../app-config/index.js");
+    resetAppConfigForTests();
+    mocks.getSession.mockResolvedValue({
+      email: "viewer@example.test",
+      orgId: "org-1",
+    });
+    mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
+  });
+
+  function displaySourcesEvent() {
+    return {
+      method: "GET",
+      url: new URL("http://app.test/iframe/display-sources"),
+      status: 200,
+    };
+  }
+
+  it("serves the configured img-src and media-src for client-rendered frames", async () => {
+    const { defineAppConfig } = await import("../app-config/index.js");
+    defineAppConfig({
+      extensions: {
+        iframeImageSources: ["'self'", "https:"],
+        iframeMediaSources: ["'self'", "blob:"],
+      },
+    });
+
+    const event = displaySourcesEvent();
+    await expect(createExtensionsHandler()(event as never)).resolves.toEqual({
+      imageSources: ["'self'", "https:"],
+      mediaSources: ["'self'", "blob:"],
+    });
+    expect(event.status).toBe(200);
+  });
+
+  it("requires a session like every other extension route", async () => {
+    mocks.getSession.mockResolvedValue(null);
+    const event = displaySourcesEvent();
+
+    await expect(createExtensionsHandler()(event as never)).resolves.toEqual({
+      error: "Authentication required",
+    });
+    expect(event.status).toBe(401);
+  });
+});

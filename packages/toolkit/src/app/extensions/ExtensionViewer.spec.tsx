@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExtensionViewer } from "./ExtensionViewer.js";
+import { resetExtensionIframeMetaCspForTests } from "./iframe-display-sources.js";
 
 const embedState = vi.hoisted(() => ({ active: false }));
 const chatMocks = vi.hoisted(() => ({
@@ -87,6 +88,11 @@ const extensionResponse = {
   canDelete: true,
 };
 
+const displaySourcesResponse = {
+  imageSources: ["'self'", "https://cdn.example.com"],
+  mediaSources: ["'self'", "blob:"],
+};
+
 describe("ExtensionViewer MCP embeds", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -96,8 +102,15 @@ describe("ExtensionViewer MCP embeds", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json(extensionResponse)),
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes(
+          "/_agent-native/extensions/iframe/display-sources",
+        )
+          ? Response.json(displaySourcesResponse)
+          : Response.json(extensionResponse),
+      ),
     );
+    resetExtensionIframeMetaCspForTests();
     embedState.active = false;
     chatMocks.sendToAgentChat.mockReset();
     queryClient = new QueryClient({
@@ -150,13 +163,29 @@ describe("ExtensionViewer MCP embeds", () => {
     const iframe = await renderViewer();
 
     expect(iframe.getAttribute("src")).toBeNull();
-    expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+    await vi.waitFor(() => {
+      expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+    });
     expect(iframe.getAttribute("srcdoc")).toContain(
       "agent-native-extension-binding",
     );
     expect(iframe.getAttribute("sandbox")).toBe(
       "allow-scripts allow-forms allow-popups allow-downloads",
     );
+  });
+
+  it("applies the configured img-src and media-src to the MCP embed srcdoc", async () => {
+    embedState.active = true;
+    const iframe = await renderViewer();
+
+    await vi.waitFor(() => {
+      expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+    });
+    const srcDoc = iframe.getAttribute("srcdoc") ?? "";
+    expect(srcDoc).toContain("img-src 'self' https://cdn.example.com;");
+    expect(srcDoc).toContain("media-src 'self' blob:;");
+    expect(srcDoc).toContain("connect-src 'self';");
+    expect(iframe.getAttribute("src")).toBeNull();
   });
 
   it("does not flash not-found while a cached null extension is refetching", async () => {

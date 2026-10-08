@@ -15,10 +15,13 @@ import {
   EXTENSION_FRAME_ANCESTORS,
   EXTENSION_IFRAME_CSP,
   EXTENSION_IFRAME_META_CSP,
+  extensionIframeCspBase,
+  extensionIframeMetaCspFromDisplaySources,
 } from "./html-shell.js";
 import {
   buildExtensionIframeCsp,
   buildExtensionIframeMetaCsp,
+  getExtensionIframeDisplaySources,
 } from "./iframe-csp.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -372,6 +375,94 @@ describe("extension iframe display-only media sources", () => {
       "blob:",
     ]);
     expect(buildExtensionIframeMetaCsp()).toBe(EXTENSION_IFRAME_META_CSP);
+  });
+
+  // SECURITY: getAppConfig() returns the cached resolved config, which a caller
+  // can mutate after the schema validated it. The CSP builder revalidates.
+  it("refuses a resolved config that was mutated after validation", () => {
+    defineAppConfig({
+      extensions: { iframeImageSources: ["'self'", "https:"] },
+    });
+    getAppConfig().extensions.iframeImageSources.push("'self'; connect-src *");
+    expect(() => buildExtensionIframeMetaCsp()).toThrow(/img-src/);
+    expect(() => buildExtensionIframeCsp()).toThrow(/img-src/);
+    expect(() => getExtensionIframeDisplaySources()).toThrow(/img-src/);
+
+    resetAppConfigForTests();
+    defineAppConfig({});
+    getAppConfig().extensions.iframeMediaSources.splice(
+      0,
+      Infinity,
+      "'none'",
+      "https:",
+    );
+    expect(() => buildExtensionIframeMetaCsp()).toThrow(/media-src/);
+
+    resetAppConfigForTests();
+    defineAppConfig({});
+    getAppConfig().extensions.iframeImageSources.length = 0;
+    expect(() => buildExtensionIframeMetaCsp()).toThrow(/img-src/);
+  });
+
+  it("validates both lists wherever the policy is built", () => {
+    for (const bad of [
+      ["'self'; connect-src *"],
+      ["'self' https://a.example"],
+      ["'none'", "https:"],
+      [],
+    ]) {
+      expect(() => extensionIframeCspBase(bad, ["'self'"])).toThrow(TypeError);
+      expect(() => extensionIframeCspBase(["'self'"], bad)).toThrow(TypeError);
+    }
+    expect(() =>
+      extensionIframeCspBase([42 as unknown as string], ["'self'"]),
+    ).toThrow(TypeError);
+  });
+
+  it("serves copies of the configured lists to client-rendered frames", () => {
+    defineAppConfig({
+      extensions: {
+        iframeImageSources: ["'self'", "https://cdn.example.com"],
+        iframeMediaSources: ["'self'", "blob:"],
+      },
+    });
+    const served = getExtensionIframeDisplaySources();
+    expect(served).toEqual({
+      imageSources: ["'self'", "https://cdn.example.com"],
+      mediaSources: ["'self'", "blob:"],
+    });
+    served.imageSources.push("'self'; connect-src *");
+    expect(getAppConfig().extensions.iframeImageSources).toEqual([
+      "'self'",
+      "https://cdn.example.com",
+    ]);
+  });
+
+  it("builds the client meta CSP from served lists and fails closed", () => {
+    const csp = extensionIframeMetaCspFromDisplaySources({
+      imageSources: ["'self'", "https:"],
+      mediaSources: ["'self'", "data:"],
+    });
+    expect(sources(csp, "img-src")).toEqual(["'self'", "https:"]);
+    expect(sources(csp, "media-src")).toEqual(["'self'", "data:"]);
+    expect(sources(csp, "connect-src")).toEqual(["'self'"]);
+
+    for (const body of [
+      null,
+      "https:",
+      {},
+      { imageSources: ["'self'"] },
+      { imageSources: "https:", mediaSources: ["'self'"] },
+      {
+        imageSources: ["'self'; connect-src *"],
+        mediaSources: ["'self'"],
+      },
+      { imageSources: ["'none'", "https:"], mediaSources: ["'self'"] },
+    ]) {
+      expect(extensionIframeMetaCspFromDisplaySources(body)).toBe(
+        EXTENSION_IFRAME_META_CSP,
+      );
+    }
   });
 
   it("applies each directive's own list rather than one shared list", () => {

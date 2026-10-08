@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { DEFAULT_EXTENSION_DISPLAY_SOURCES } from "./extension-display-sources.js";
+import {
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+  EXTENSION_DISPLAY_SOURCE_MESSAGE,
+  EXTENSION_DISPLAY_SOURCE_NONE_MESSAGE,
+  EXTENSION_DISPLAY_SOURCE_PATTERN,
+} from "./extension-display-sources.js";
 
 /**
  * SECURITY — these values are interpolated into the sandboxed extension
@@ -15,10 +20,7 @@ import { DEFAULT_EXTENSION_DISPLAY_SOURCES } from "./extension-display-sources.j
  */
 const cspSource = z
   .string()
-  .regex(
-    /^(?:'self'|'none'|(?:https?|data|blob|mediastream):|https?:\/\/(?:\*\.)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*(?::\d{1,5})?)$/,
-    "must be one CSP source expression: 'self', 'none', a scheme such as https: or blob:, or an http(s) origin such as https://cdn.example.com",
-  );
+  .regex(EXTENSION_DISPLAY_SOURCE_PATTERN, EXTENSION_DISPLAY_SOURCE_MESSAGE);
 
 // The iframe shell builds its default CSP from this same list, so the declared
 // default and the shipped policy cannot drift apart. It lives in an
@@ -37,9 +39,7 @@ function displaySources(doc: string) {
       // say what the config says.
       .refine(
         (sources) => !sources.includes("'none'") || sources.length === 1,
-        {
-          error: "'none' must be the only source in the list",
-        },
+        { error: EXTENSION_DISPLAY_SOURCE_NONE_MESSAGE },
       )
       // A fresh copy per parse: the shared default is frozen, and a caller
       // mutating its resolved config must not reach the next parse.

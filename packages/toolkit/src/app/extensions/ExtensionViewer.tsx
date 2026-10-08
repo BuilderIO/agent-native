@@ -58,6 +58,7 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 const THEME_CSS_VARS = [
@@ -165,6 +166,7 @@ function serializeChatValue(value: unknown): string | undefined {
 function buildExtensionViewerSrcDoc(
   extension: Extension,
   isDark: boolean,
+  metaCsp: string,
 ): string {
   const role = extensionRole(extension.role);
   return buildExtensionHtml(
@@ -180,6 +182,7 @@ function buildExtensionViewerSrcDoc(
       source: extension.source?.mode,
       permissions: extension.source?.permissions,
     },
+    metaCsp,
   );
 }
 
@@ -1036,10 +1039,14 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       ),
     [extensionId, extension?.updatedAt, refreshKey],
   );
+  const usesSrcDoc = !!extension?.content && isEmbedMcpChatBridgeActive();
+  // The srcDoc frame applies the deployment's configured img-src / media-src,
+  // fetched from the server; wait for it rather than loading the frame twice.
+  const iframeMetaCsp = useExtensionIframeMetaCsp(usesSrcDoc);
   const iframeSrcDoc = useMemo(() => {
-    if (!extension?.content || !isEmbedMcpChatBridgeActive()) return undefined;
-    return buildExtensionViewerSrcDoc(extension, isDark);
-  }, [extension, isDark]);
+    if (!extension || !usesSrcDoc || !iframeMetaCsp) return undefined;
+    return buildExtensionViewerSrcDoc(extension, isDark, iframeMetaCsp);
+  }, [extension, iframeMetaCsp, isDark, usesSrcDoc]);
   const unavailableStatus = extensionLoadErrorStatus(
     extensionError ?? extensionFailureReason,
   );
@@ -1268,7 +1275,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
             ref={iframeRef}
             key={`${extension.updatedAt}-${refreshKey}`}
-            src={iframeSrcDoc ? undefined : iframeSrc}
+            src={usesSrcDoc ? undefined : iframeSrc}
             srcDoc={iframeSrcDoc}
             className="h-full w-full border-0"
             sandbox={EXTENSION_IFRAME_SANDBOX}

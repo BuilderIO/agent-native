@@ -29,6 +29,7 @@ import { buildExtensionHtml } from "./html-shell.js";
 import {
   buildExtensionIframeCsp,
   buildExtensionIframeMetaCsp,
+  getExtensionIframeDisplaySources,
 } from "./iframe-csp.js";
 import {
   getLocalExtension,
@@ -142,6 +143,18 @@ async function dispatch(
   parts: string[],
   userEmail: string,
 ): Promise<unknown> {
+  // The configured img-src / media-src for client-rendered srcDoc frames
+  // (EXTENSION_IFRAME_DISPLAY_SOURCES_PATH). Two segments, and no extension
+  // route uses `display-sources`, so this cannot shadow an extension id.
+  if (
+    method === "GET" &&
+    parts.length === 2 &&
+    parts[0] === "iframe" &&
+    parts[1] === "display-sources"
+  ) {
+    return getExtensionIframeDisplaySources();
+  }
+
   if (
     method === "POST" &&
     parts.length === 2 &&

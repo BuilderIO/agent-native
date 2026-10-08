@@ -15,6 +15,26 @@ export function buildExtensionIframeMetaCsp(): string {
   return extensionIframeCspBase(iframeImageSources, iframeMediaSources);
 }
 
+export interface ExtensionIframeDisplaySources {
+  imageSources: string[];
+  mediaSources: string[];
+}
+
+/**
+ * The configured img-src / media-src lists for the client-rendered frames,
+ * served at `EXTENSION_IFRAME_DISPLAY_SOURCES_PATH`. Validated through the same
+ * CSP builder before they leave the server, and copied so the response cannot
+ * alias the cached resolved config.
+ */
+export function getExtensionIframeDisplaySources(): ExtensionIframeDisplaySources {
+  const { iframeImageSources, iframeMediaSources } = getAppConfig().extensions;
+  extensionIframeCspBase(iframeImageSources, iframeMediaSources);
+  return {
+    imageSources: [...iframeImageSources],
+    mediaSources: [...iframeMediaSources],
+  };
+}
+
 /** The header CSP the render route sets: the meta CSP plus `frame-ancestors`. */
 export function buildExtensionIframeCsp(): string {
   return `${buildExtensionIframeMetaCsp()} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
