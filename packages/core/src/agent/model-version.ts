@@ -203,13 +203,18 @@ function displayModelName(model: string): string {
 export function getModelOptionLabel(
   model: string,
   engine?: ModelEngineConfig,
+  builderFallbackLabel = "Builder fallback",
 ): string {
   if (!engine) return displayModelName(model);
 
   const effectiveModel = normalizeModelForEngine(engine, model);
   const effectiveLabel = displayModelName(effectiveModel);
   if (effectiveModel === model) return effectiveLabel;
-  return `${displayModelName(model)} → ${effectiveLabel} · ${engine.label ?? engine.name}`;
+  const engineLabel =
+    engine.name === "builder"
+      ? builderFallbackLabel
+      : (engine.label ?? engine.name);
+  return `${displayModelName(model)} → ${effectiveLabel} · ${engineLabel}`;
 }
 
 export function getBuilderModelOptionLabel(model: string): string {

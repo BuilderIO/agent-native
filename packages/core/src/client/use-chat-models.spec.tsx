@@ -9,7 +9,11 @@ const actionMocks = vi.hoisted(() => ({ callAction: vi.fn() }));
 vi.mock("./use-action.js", () => actionMocks);
 
 import { invalidateClientStatusRequests } from "./client-status-requests.js";
-import { useChatModels, type UseChatModelsOptions } from "./use-chat-models.js";
+import {
+  loadChatModelCatalog,
+  useChatModels,
+  type UseChatModelsOptions,
+} from "./use-chat-models.js";
 
 function stubCatalog(options: {
   engines: unknown[];
@@ -137,6 +141,32 @@ describe("useChatModels", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("returns the server-selected BYOK engine catalog for resource surfaces", async () => {
+    stubCatalog({
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+      engines: [
+        {
+          name: "anthropic",
+          label: "Anthropic",
+          defaultModel: "claude-sonnet-5-5",
+          supportedModels: ["claude-sonnet-5-5", "claude-fable-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      current: { engine: "anthropic", model: "claude-sonnet-5-5" },
+    });
+
+    const catalog = await loadChatModelCatalog();
+
+    expect(catalog.state).toBe("available");
+    if (catalog.state !== "available") return;
+    expect(catalog.currentModelEngine).toMatchObject({
+      name: "anthropic",
+      defaultModel: "claude-sonnet-5-5",
+      supportedModels: ["claude-sonnet-5-5", "claude-fable-5"],
+    });
   });
 
   it("does not probe framework model endpoints when disabled", async () => {

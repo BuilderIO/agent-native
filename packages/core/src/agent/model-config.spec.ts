@@ -362,6 +362,17 @@ describe("getContextWindowForModel", () => {
     );
   });
 
+  it("returns DeepSeek V4.1 Flash provider context and output limits", () => {
+    for (const model of [
+      "deepseek-flash",
+      "deepseek-v4-1-flash",
+      "deepseek/deepseek-v4.1-flash",
+    ]) {
+      expect(getContextWindowForModel(model)).toBe(1_048_576);
+      expect(getMaxOutputTokensForModel(model)).toBe(393_216);
+    }
+  });
+
   it("returns 1M for Claude Fable 5, Sonnet 5.5/4.6, and Opus 4.6+", () => {
     expect(getContextWindowForModel("claude-fable-5")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-sonnet-5")).toBe(1_000_000);

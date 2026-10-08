@@ -25,6 +25,13 @@ const storageMocks = vi.hoisted(() => ({
   setup: null as (() => void) | null,
 }));
 
+vi.mock("@agent-native/core/client/use-chat-models", () => ({
+  loadChatModelCatalog: async () => ({
+    state: "unavailable",
+    enginesUnavailable: true,
+  }),
+}));
+
 vi.mock("@agent-native/core/client/uploads/use-file-upload-status", () => ({
   useFileUploadStatus: () => ({
     ...storageMocks.status,
@@ -92,6 +99,7 @@ vi.mock("../chat/FileStorageSetupPopover.js", () => ({
   },
 }));
 
+import type { ModelEngineConfig } from "@agent-native/core/agent/model-version";
 import type { TreeNode } from "@agent-native/core/client/resources/use-resources";
 
 import { isResourceRowReadOnly } from "./ResourceSettingsGroups.js";
@@ -476,6 +484,7 @@ describe("ResourcesPanel storage retries", () => {
 
   function renderPanel(
     resourceFilter: "instructions" | "agents" = "instructions",
+    modelEngine?: ModelEngineConfig | null,
   ) {
     act(() =>
       root.render(
@@ -484,6 +493,7 @@ describe("ResourcesPanel storage retries", () => {
           showOnlyRequestedScope: true,
           resourceFilter,
           showMcpServers: false,
+          modelEngine,
         }),
       ),
     );
@@ -762,7 +772,16 @@ describe("ResourcesPanel storage retries", () => {
   });
 
   it("offers the current Claude models when creating custom agents", () => {
-    renderPanel("agents");
+    renderPanel("agents", {
+      name: "anthropic",
+      label: "Anthropic",
+      defaultModel: "claude-sonnet-5-5",
+      supportedModels: [
+        "claude-haiku-5-5",
+        "claude-sonnet-5-5",
+        "claude-fable-5",
+      ],
+    });
     const addAgent = Array.from(document.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Add agent"),
     );
@@ -792,6 +811,12 @@ describe("ResourcesPanel storage retries", () => {
       expect.objectContaining({
         value: "claude-haiku-5-5",
         textContent: "Claude Haiku 5.5",
+      }),
+    );
+    expect(Array.from(modelPicker.options)).toContainEqual(
+      expect.objectContaining({
+        value: "claude-fable-5",
+        textContent: "Claude Fable 5",
       }),
     );
   });

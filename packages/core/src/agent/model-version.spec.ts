@@ -68,6 +68,27 @@ describe("getModelOptionLabel", () => {
     ).toBe("GPT-5.6 Luna → Claude Sonnet 5.5 · Anthropic");
   });
 
+  it("makes an unsupported saved model's Builder fallback explicit", () => {
+    expect(
+      getModelOptionLabel("claude-fable-5", {
+        name: "builder",
+        label: "Builder.io Gateway",
+        ...BUILDER_MODEL_CONFIG,
+      }),
+    ).toBe("Claude Fable 5 → GPT-6 Luna · Builder fallback");
+  });
+
+  it("does not show a Builder fallback for an Anthropic-supported model", () => {
+    expect(
+      getModelOptionLabel("claude-fable-5", {
+        name: "anthropic",
+        label: "Anthropic",
+        defaultModel: "claude-sonnet-5-5",
+        supportedModels: ["claude-fable-5", "claude-sonnet-5-5"],
+      }),
+    ).toBe("Claude Fable 5");
+  });
+
   it("formats malformed GPT IDs without throwing", () => {
     expect(getModelOptionLabel("gpt-5--luna")).toBe("gpt-5--luna");
   });

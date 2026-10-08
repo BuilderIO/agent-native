@@ -1,5 +1,7 @@
-import { CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS } from "@agent-native/core/agent/model-config";
-import { getModelOptionLabel } from "@agent-native/core/agent/model-version";
+import {
+  getModelOptionLabel,
+  type ModelEngineConfig,
+} from "@agent-native/core/agent/model-version";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import type { Resource } from "@agent-native/core/client/resources/use-resources";
 import {
@@ -22,6 +24,8 @@ import React, {
   useMemo,
 } from "react";
 
+import { getCustomAgentModelOptions } from "./custom-agent-model-options.js";
+
 export interface ResourceEditorProps {
   resource: Resource;
   onSave: (content: string) => void;
@@ -29,6 +33,8 @@ export interface ResourceEditorProps {
   onViewChange?: (v: "visual" | "code") => void;
   hideToolbar?: boolean;
   readOnly?: boolean;
+  modelEngine?: ModelEngineConfig | null;
+  builderFallbackLabel?: string;
 }
 
 const CONTROL_STYLE = { fontSize: 12, lineHeight: 1 } as const;
@@ -65,11 +71,15 @@ function FrontmatterBar({
   frontmatter,
   onChange,
   readOnly,
+  modelEngine,
+  builderFallbackLabel,
 }: {
   resourcePath: string;
   frontmatter: ParsedFrontmatter;
   onChange: (updated: ParsedFrontmatter) => void;
   readOnly?: boolean;
+  modelEngine?: ModelEngineConfig | null;
+  builderFallbackLabel?: string;
 }) {
   const getField = (key: string) => getFrontmatterValue(frontmatter, key) ?? "";
 
@@ -91,6 +101,7 @@ function FrontmatterBar({
   const description = getField("description");
   const isUserInvocable = getField("user-invocable") === "true";
   const model = getField("model") || "inherit";
+  const modelOptions = getCustomAgentModelOptions(modelEngine);
   const tools = getField("tools") || "inherit";
   const isCustomAgent = isCustomAgentPath(resourcePath);
   const isSkill = isSkillPath(resourcePath);
@@ -175,16 +186,21 @@ function FrontmatterBar({
               padding: "2px 6px",
             }}
           >
-            <option value="inherit">Default model</option>
-            {CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS.map((option) => (
+            {modelOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
             {model !== "inherit" &&
-              !CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS.some(
-                (option) => option.value === model,
-              ) && <option value={model}>{getModelOptionLabel(model)}</option>}
+              !modelOptions.some((option) => option.value === model) && (
+                <option value={model}>
+                  {getModelOptionLabel(
+                    model,
+                    modelEngine ?? undefined,
+                    builderFallbackLabel,
+                  )}
+                </option>
+              )}
           </select>
         ) : null}
       </div>
@@ -368,11 +384,15 @@ function VisualMarkdownEditor({
   onChange,
   resourcePath,
   readOnly,
+  modelEngine,
+  builderFallbackLabel,
 }: {
   content: string;
   onChange: (md: string) => void;
   resourcePath: string;
   readOnly?: boolean;
+  modelEngine?: ModelEngineConfig | null;
+  builderFallbackLabel?: string;
 }) {
   const parsed = useMemo(() => parseFrontmatter(content), [content]);
   const frontmatterRef = useRef(parsed);
@@ -394,6 +414,8 @@ function VisualMarkdownEditor({
           resourcePath={resourcePath}
           frontmatter={parsed}
           readOnly={readOnly}
+          modelEngine={modelEngine}
+          builderFallbackLabel={builderFallbackLabel}
           onChange={(updated) => {
             if (readOnly) return;
             frontmatterRef.current = updated;
@@ -570,6 +592,8 @@ export function ResourceEditor({
   onViewChange,
   hideToolbar,
   readOnly,
+  modelEngine,
+  builderFallbackLabel,
 }: ResourceEditorProps) {
   const [content, setContent] = useState(resource.content);
   const [internalView, setInternalView] = useState<"visual" | "code">(
@@ -688,6 +712,8 @@ export function ResourceEditor({
               onChange={handleChange}
               resourcePath={resource.path}
               readOnly={readOnly}
+              modelEngine={modelEngine}
+              builderFallbackLabel={builderFallbackLabel}
             />
           </div>
         ) : (

@@ -1,5 +1,7 @@
-import { CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS } from "@agent-native/core/agent/model-config";
-import { getModelOptionLabel } from "@agent-native/core/agent/model-version";
+import {
+  getModelOptionLabel,
+  type ModelEngineConfig,
+} from "@agent-native/core/agent/model-version";
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
@@ -45,6 +47,7 @@ import {
 import { useFileUploadStatus } from "@agent-native/core/client/uploads/use-file-upload-status";
 import { useUploadResource } from "@agent-native/core/client/uploads/use-upload-resource";
 import { actionErrorMessage } from "@agent-native/core/client/use-action";
+import { loadChatModelCatalog } from "@agent-native/core/client/use-chat-models";
 import type { OrgInfo } from "@agent-native/core/org/types";
 import { serializeFrontmatter } from "@agent-native/core/resources/metadata";
 import { RESOURCE_PACK_MAX_BODY_BYTES } from "@agent-native/core/resources/pack-constants";
@@ -92,6 +95,7 @@ import {
   type FileStorageSetupCloseReason,
 } from "../chat/FileStorageSetupPopover.js";
 import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
+import { getCustomAgentModelOptions } from "./custom-agent-model-options.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 import { McpServerDetail } from "./McpServerDetail.js";
 import { ResourceEditor } from "./ResourceEditor.js";
@@ -230,11 +234,6 @@ type CreateMenuView =
   | "agent-mode"
   | "agent-prompt"
   | "agent-form";
-
-const AGENT_MODEL_OPTIONS = [
-  { value: "inherit", label: "Default model" },
-  ...CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS,
-] as const;
 
 export function slugifyName(value: string): string {
   return (
@@ -425,6 +424,7 @@ function CreateMenu({
   triggerVariant = "icon",
   triggerLabel,
   initialView = "menu",
+  modelEngine,
 }: {
   scope: ResourceScope;
   resourceFilter?: ResourceView;
@@ -458,8 +458,10 @@ function CreateMenu({
   triggerVariant?: "icon" | "outline";
   triggerLabel?: string;
   initialView?: CreateMenuView;
+  modelEngine?: ModelEngineConfig | null;
 }) {
   const t = useT();
+  const agentModelOptions = getCustomAgentModelOptions(modelEngine);
   const [open, setOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [view, setView] = useState<CreateMenuView>("menu");
@@ -1100,17 +1102,21 @@ The job will run automatically on the schedule. Make the instructions specific â
                   onChange={(e) => setAgentModel(e.target.value)}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none focus:ring-1 focus:ring-accent"
                 >
-                  {AGENT_MODEL_OPTIONS.map((option) => (
+                  {agentModelOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                   {agentModel !== "inherit" &&
-                    !AGENT_MODEL_OPTIONS.some(
+                    !agentModelOptions.some(
                       (option) => option.value === agentModel,
                     ) && (
                       <option value={agentModel}>
-                        {getModelOptionLabel(agentModel)}
+                        {getModelOptionLabel(
+                          agentModel,
+                          modelEngine ?? undefined,
+                          t("agentResources.builderModelFallback"),
+                        )}
                       </option>
                     )}
                 </select>
@@ -1240,6 +1246,8 @@ export interface ResourcesPanelProps {
   openResourceRef?: { current: ((id: string) => void) | null };
   /** Called when the editor opens or closes, so a page can yield to it. */
   onEditingChange?: (editing: boolean) => void;
+  /** Exact selected chat engine, when this panel is paired with a chat. */
+  modelEngine?: ModelEngineConfig | null;
 }
 
 /** Owners, admins, and solo deployments (no organization) edit org resources. */
@@ -1348,11 +1356,32 @@ export function ResourcesPanel({
   settingsGroups,
   openResourceRef,
   onEditingChange,
+  modelEngine,
 }: ResourcesPanelProps = {}) {
   const t = useT();
   const { data: org } = useOrg();
   const canEditOrg = canEditOrganizationResources(org);
-
+  const [catalogModelEngine, setCatalogModelEngine] =
+    useState<ModelEngineConfig | null>(null);
+  useEffect(() => {
+    if (showMcpServers || modelEngine !== undefined) return;
+    let cancelled = false;
+    void loadChatModelCatalog().then((catalog) => {
+      if (cancelled) return;
+      setCatalogModelEngine(
+        catalog.state === "available" ? catalog.currentModelEngine : null,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [modelEngine, showMcpServers]);
+  const effectiveModelEngine =
+    modelEngine !== undefined
+      ? modelEngine
+      : showMcpServers
+        ? null
+        : catalogModelEngine;
   const [activeScope, setActiveScope] = useState<ResourceScope>(() =>
     resolveInitialResourceScope(requestedScope, canEditOrg),
   );
@@ -1918,6 +1947,7 @@ export function ResourcesPanel({
     return (
       <CreateMenu
         scope={targetScope}
+        modelEngine={effectiveModelEngine}
         resourceFilter={resourceFilter}
         personalMcpOnly={mode === "personal-mcp"}
         onCreateFile={(name) => handleCreateFromToolbar(targetScope, name)}
@@ -1962,6 +1992,7 @@ export function ResourcesPanel({
       return (
         <CreateMenu
           scope={targetScope}
+          modelEngine={effectiveModelEngine}
           resourceFilter={resourceFilter}
           personalMcpOnly={mode === "personal-mcp"}
           onCreateFile={(name) => handleCreateFromToolbar(targetScope, name)}
@@ -2232,6 +2263,7 @@ export function ResourcesPanel({
             (!resourceFilter || resourceFilter === "files") && (
               <CreateMenu
                 scope={activeScope}
+                modelEngine={effectiveModelEngine}
                 resourceFilter={resourceFilter}
                 personalMcpOnly={activeCreateMenuMode === "personal-mcp"}
                 onCreateFile={(name) =>
@@ -2349,6 +2381,8 @@ export function ResourcesPanel({
                 onViewChange={setEditorView}
                 hideToolbar
                 readOnly={selectedResourceReadOnly}
+                modelEngine={effectiveModelEngine}
+                builderFallbackLabel={t("agentResources.builderModelFallback")}
               />
             </div>
           ) : resourceQuery.isError ? (

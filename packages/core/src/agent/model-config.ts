@@ -14,6 +14,9 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "anthropic/claude-haiku-5.5": 1_000_000,
   "deepseek-v4-pro": 1_048_576,
   "deepseek/deepseek-v4-pro": 1_048_576,
+  "deepseek-flash": 1_048_576,
+  "deepseek-v4-1-flash": 1_048_576,
+  "deepseek/deepseek-v4.1-flash": 1_048_576,
 
   "gpt-5-6-sol": 1_050_000,
   "gpt-5-6-terra": 1_050_000,
@@ -131,6 +134,9 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "anthropic/claude-haiku-5.5": 128_000,
   "deepseek-v4-pro": 393_216,
   "deepseek/deepseek-v4-pro": 393_216,
+  "deepseek-flash": 393_216,
+  "deepseek-v4-1-flash": 393_216,
+  "deepseek/deepseek-v4.1-flash": 393_216,
 
   "gpt-5-6-sol": 40_000,
   "gpt-5-6-terra": 40_000,

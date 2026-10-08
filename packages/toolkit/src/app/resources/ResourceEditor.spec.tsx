@@ -20,9 +20,22 @@ vi.mock("@agent-native/toolkit/editor/SharedRichEditor", async () => {
   };
 });
 
+import { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
 import type { Resource } from "@agent-native/core/client/resources/use-resources";
 
 import { ResourceEditor } from "./ResourceEditor.js";
+
+const builderModelEngine = {
+  name: "builder",
+  label: "Builder.io Gateway",
+  ...BUILDER_MODEL_CONFIG,
+};
+const anthropicModelEngine = {
+  name: "anthropic",
+  label: "Anthropic",
+  defaultModel: "claude-sonnet-5-5",
+  supportedModels: ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5"],
+};
 
 const resource: Resource = {
   id: "resource-1",
@@ -109,6 +122,7 @@ describe("ResourceEditor markdown editing", () => {
           }}
           onSave={onSave}
           view="visual"
+          modelEngine={builderModelEngine}
         />,
       );
     });
@@ -141,6 +155,7 @@ describe("ResourceEditor markdown editing", () => {
           }}
           onSave={vi.fn()}
           view="visual"
+          modelEngine={builderModelEngine}
         />,
       );
     });
@@ -151,7 +166,8 @@ describe("ResourceEditor markdown editing", () => {
       Array.from(modelPicker.options).some(
         (option) =>
           option.value === "claude-haiku-4-5-20251001" &&
-          option.textContent === "Claude Haiku 4.5",
+          option.textContent ===
+            "Claude Haiku 4.5 → Claude Haiku 5.5 · Builder fallback",
       ),
     ).toBe(true);
     expect(
@@ -173,6 +189,7 @@ describe("ResourceEditor markdown editing", () => {
           }}
           onSave={vi.fn()}
           view="visual"
+          modelEngine={builderModelEngine}
         />,
       );
     });
@@ -183,6 +200,33 @@ describe("ResourceEditor markdown editing", () => {
       Array.from(modelPicker.options).find(
         (option) => option.value === "claude-fable-5",
       )?.textContent,
-    ).toBe("Claude Fable 5");
+    ).toBe("Claude Fable 5 → GPT-6 Luna · Builder fallback");
+  });
+
+  it("offers Anthropic Fable and labels it without a Builder fallback", () => {
+    act(() => {
+      root.render(
+        <ResourceEditor
+          resource={{
+            ...resource,
+            path: "agents/researcher.md",
+            content:
+              "---\nname: Researcher\nmodel: claude-fable-5\n---\n# Research\n",
+          }}
+          onSave={vi.fn()}
+          view="visual"
+          modelEngine={anthropicModelEngine}
+        />,
+      );
+    });
+
+    const modelPicker = container.querySelector("select")!;
+    expect(
+      Array.from(modelPicker.options).some(
+        (option) =>
+          option.value === "claude-fable-5" &&
+          option.textContent === "Claude Fable 5",
+      ),
+    ).toBe(true);
   });
 });

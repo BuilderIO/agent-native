@@ -13,6 +13,7 @@ export interface EngineModelGroup {
 export interface ChatModelEngineEntry {
   name: string;
   label: string;
+  defaultModel?: string;
   supportedModels?: readonly string[];
   modelDisplayNames?: Readonly<Record<string, string>>;
   acceptsCustomModels?: boolean;

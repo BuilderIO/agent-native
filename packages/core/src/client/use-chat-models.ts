@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
-import { upgradeModelForProvider } from "../agent/model-version.js";
+import {
+  upgradeModelForProvider,
+  type ModelEngineConfig,
+} from "../agent/model-version.js";
 
 export { DEFAULT_MODEL };
 import {
@@ -103,6 +106,10 @@ export type ChatModelCatalogLoad =
   | {
       state: "available";
       groups: EngineModelGroup[];
+      /** Runtime normalization config for the engines represented in groups. */
+      modelEngines: Readonly<Record<string, ModelEngineConfig>>;
+      /** The server-selected engine, independent of a persisted chat choice. */
+      currentModelEngine: ModelEngineConfig | null;
       /** The server's current model, or `DEFAULT_MODEL` when it names none. */
       defaultModel: string;
       /**
@@ -160,6 +167,35 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
       currentModel,
     });
   const groups = build(enginesData.engines);
+  const modelEngines = Object.fromEntries(
+    enginesData.engines.flatMap((engine) => {
+      if (!engine.defaultModel) return [];
+      const supportedModels = groups
+        .filter((group) => group.engine === engine.name)
+        .flatMap((group) => group.models);
+      if (supportedModels.length === 0) return [];
+      return [
+        [
+          engine.name,
+          {
+            name: engine.name,
+            label: engine.label,
+            defaultModel: engine.defaultModel,
+            supportedModels,
+            ...(engine.acceptsCustomModels
+              ? { acceptsCustomModels: true }
+              : {}),
+            ...(engine.preserveCustomModels
+              ? { preserveCustomModels: true }
+              : {}),
+          },
+        ],
+      ];
+    }),
+  ) as Record<string, ModelEngineConfig>;
+  const currentModelEngine = currentEngineName
+    ? (modelEngines[currentEngineName] ?? null)
+    : null;
   const currentEngineModels = groups
     .filter((group) => group.engine === currentEngineName)
     .flatMap((group) => group.models);
@@ -176,6 +212,8 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
   return {
     state: "available",
     groups,
+    modelEngines,
+    currentModelEngine,
     defaultModel,
     loadLiveGroups: async () => {
       // Gated on Ollama actually being the current engine (not merely present
