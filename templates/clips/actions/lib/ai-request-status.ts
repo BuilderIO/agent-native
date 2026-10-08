@@ -181,6 +181,19 @@ export async function consumeAiRequest(
   return true;
 }
 
+/** Drops a request that can never start and records why. */
+export async function failAiRequest(
+  identity: AiRequestIdentity,
+  message: string,
+): Promise<boolean> {
+  const key = aiRequestKey(identity.recordingId);
+  const current = await readAppState(key);
+  if (matchesIdentity(current, identity)) {
+    await compareAndSetAppState(key, current, null);
+  }
+  return settleAiRequestStatus(identity, "failed", message);
+}
+
 /**
  * Writes a terminal status only while the same request is still queued or
  * working; a newer request or an agent-reported result always wins.

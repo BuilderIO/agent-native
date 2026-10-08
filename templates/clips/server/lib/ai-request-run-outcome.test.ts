@@ -15,7 +15,11 @@ const identity = {
   kind: "remove-filler-words" as const,
   requestedAt,
 };
-const threadId = aiRequestTabId(identity.recordingId, identity.kind, requestedAt);
+const threadId = aiRequestTabId(
+  identity.recordingId,
+  identity.kind,
+  requestedAt,
+);
 
 describe("settleAiRequestRunOutcome", () => {
   beforeEach(() => vi.clearAllMocks());

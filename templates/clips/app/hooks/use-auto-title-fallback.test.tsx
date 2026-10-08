@@ -284,6 +284,38 @@ describe("AI request claims", () => {
     );
   });
 
+  it("fails a request the server permanently rejects instead of retrying it", async () => {
+    mocks.startBackgroundAgentSession.mockImplementationOnce(
+      (options: { threadId?: string }) => ({
+        threadId: options.threadId,
+        accepted: Promise.reject(
+          Object.assign(
+            new Error(
+              "Background agent session was rejected (HTTP 403): Connect an AI provider",
+            ),
+            { status: 403 },
+          ),
+        ),
+      }),
+    );
+    await renderWith(queued);
+
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith("claim-ai-request", {
+        operation: "fail",
+        recordingId: "rec_claim",
+        kind: "remove-filler-words",
+        requestedAt: "2026-09-28T11:59:30.000Z",
+        message: "Connect an AI provider",
+      }),
+    );
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "claim-ai-request",
+      expect.objectContaining({ operation: "release" }),
+    );
+    expect(mocks.startBackgroundAgentSession).toHaveBeenCalledOnce();
+  });
+
   it("consumes the request once its run is accepted, on a stable thread", async () => {
     await renderWith(queued);
 

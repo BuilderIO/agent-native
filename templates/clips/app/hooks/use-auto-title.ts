@@ -99,17 +99,19 @@ async function claimAiRequestRun(
 }
 
 async function finishAiRequestClaim(
-  operation: "consume" | "release",
+  operation: "consume" | "release" | "fail",
   identity: AiRequestIdentity,
+  message?: string,
 ): Promise<boolean> {
   try {
     const result = (await callAction(
       "claim-ai-request" as any,
-      { operation, ...identity } as any,
-    )) as { consumed?: boolean; released?: boolean } | null;
-    return operation === "consume"
-      ? result?.consumed === true
-      : result?.released === true;
+      { operation, ...identity, ...(message ? { message } : {}) } as any,
+    )) as { consumed?: boolean; released?: boolean; failed?: boolean } | null;
+    if (operation === "consume") return result?.consumed === true;
+    return operation === "release"
+      ? result?.released === true
+      : result?.failed === true;
   } catch (error) {
     console.warn(`[clips] could not ${operation} AI request`, {
       ...identity,
@@ -308,11 +310,18 @@ export function useAutoTitleBridge(): void {
             identity.kind,
             identity.requestedAt,
           );
-          const started =
+          const start: AiRequestStart =
             request.openInChat === true
               ? (await dispatchAiRequest(request, threadId)).delivered
+                ? { started: true }
+                : { started: false, rejection: null }
               : await startAiRequestSession(request, threadId);
-          if (!started) {
+          if (!start.started) {
+            if (start.rejection) {
+              dispatched.current.add(dispatchKey);
+              await finishAiRequestClaim("fail", identity, start.rejection);
+              continue;
+            }
             await finishAiRequestClaim("release", identity);
             retrySoon();
             continue;
@@ -518,10 +527,32 @@ function requestIdFromTab(tabId: string) {
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 
+type AiRequestStart =
+  | { started: true }
+  /** `rejection` is set when retrying the same request can never succeed. */
+  | { started: false; rejection: string | null };
+
+const RETRYABLE_REJECTION_STATUSES = new Set([408, 409, 425, 429]);
+
+function permanentRejection(error: unknown): string | null {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (
+    typeof status !== "number" ||
+    status < 400 ||
+    status >= 500 ||
+    RETRYABLE_REJECTION_STATUSES.has(status)
+  ) {
+    return null;
+  }
+  const message = error instanceof Error ? error.message : "";
+  const detail = message.match(/\(HTTP \d+\): ([\s\S]+)$/)?.[1]?.trim();
+  return (detail || message || `HTTP ${status}`).slice(0, 500);
+}
+
 async function startAiRequestSession(
   request: QueuedAiRequest,
   threadId: string,
-): Promise<boolean> {
+): Promise<AiRequestStart> {
   const options = buildAiRequestChatOptions(request);
   try {
     // A repeated operationId + threadId reattaches to the existing run, so a
@@ -537,14 +568,14 @@ async function startAiRequestSession(
       usageLabel: `clips:${request.kind}`,
     });
     await session.accepted;
-    return true;
+    return { started: true };
   } catch (error) {
     console.warn("[clips] background AI request did not start", {
       recordingId: request.recordingId,
       kind: request.kind,
       error,
     });
-    return false;
+    return { started: false, rejection: permanentRejection(error) };
   }
 }
 

@@ -2,8 +2,8 @@
 name: ai-video-tools
 description: >-
   All AI features in Clips — titles, summaries, chapters, tags, filler-word
-  removal — delegate to the agent chat via sendToAgentChat except the narrow
-  media pipeline path: transcription. Use when adding any
+  removal — run through the agent as background sessions, except
+  transcription and deterministic edits like silence removal. Use when adding any
   AI-powered feature.
 ---
 
@@ -33,7 +33,8 @@ The agent is already the user's primary interface — it has full project contex
 | Summary / description     | Transcript becomes ready, or user clicks "Summarize" / "Regenerate description"       | The automatic metadata handoff or `regenerate-summary` asks the agent to write `update-recording --description=...`. Existing user-authored descriptions are preserved. With Include full video, the agent must watch the clip, not transcript alone |
 | Chapters                  | User clicks "Add chapters" or transcript > 3 minutes                                  | `generate-chapters --id=<id>` / `regenerate-chapters` → agent writes `chapters_json` (same full-video preference) |
 | Tags                      | On upload complete                                                                    | `generate-ai-metadata --id=<id> --kind=tags` → agent inserts `recording_tags` rows                    |
-| Filler-word removal       | User clicks "Remove ums and uhs"                                                      | `generate-filler-removal --id=<id>` → agent writes proposed cuts into `editor-draft` for user review  |
+| Filler-word removal | User clicks "Remove filler words" | `remove-filler-words --recordingId=<id>` queues a background agent run that estimates filler ranges per segment and calls `trim-recording` for each |
+| Silence removal | User clicks "Remove silences" | `remove-silences --recordingId=<id>` trims transcript gaps directly; no agent run |
 | Comment auto-reply        | User types "reply with …" in the agent chat                                           | agent calls `add-comment` directly                                                                    |
 | **Transcription**         | On upload complete (automatic) + live during recording                                | `request-transcript` → native (Web Speech / macOS SFSpeech) first, then cloud fallback Builder.io managed Gemini → Groq; `save-browser-transcript` for instant Web Speech result — see "Transcription" section below |
 
@@ -66,60 +67,17 @@ shared user-prefs object and keep delegation through the agent chat.
 
 ## The delegation pattern
 
-From an action, kick work over to the agent chat in **background mode** so the user doesn't see a new message bubble mid-playback:
+Agent-backed recording-page requests (`regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `remove-filler-words`) are queued by their action and started by the browser bridge as isolated background agent sessions. Nothing depends on a chat panel being on screen.
 
-```ts
-import { defineAction, sendToAgentChat } from "@agent-native/core";
-import { z } from "zod";
-import { getRecordingOrThrow } from "../server/lib/recordings.js";
+1. The action calls `queueAiRequest` (`actions/lib/ai-request-status.ts`). It writes `clips-ai-request-status-<recordingId>` as `queued`, then the payload to `clips-ai-request-<recordingId>`. A second request while one is still live fails with `request_busy`; it never overwrites the first.
+2. `useAutoTitleBridge` (`app/hooks/use-auto-title.ts`) calls `claim-ai-request --operation=claim` so only one tab starts it. It then calls `startBackgroundAgentSession` with `threadId` = `operationId` = `aiRequestTabId(recordingId, kind, requestedAt)`, so a retry reattaches to the same run instead of starting a second one. `openInChat` requests use the visible recording Agent panel instead.
+3. Once the run is accepted, `consume` deletes the payload only if it is still the same request, and moves the status to `working`. A failed start calls `release`.
+4. The agent reports with `update-ai-request-status` (`working`, then `completed` or `failed`). When the run ends without that report, `onAgentRunComplete` (`server/lib/ai-request-run-outcome.ts`) settles it from the real outcome: aborted means `cancelled`; errored, truncated, or finished without reporting means `failed`.
+5. A status still `queued` after `AI_REQUEST_STALL_MS` was never started. The recording page shows "Couldn't start this request" with Retry, and the menu re-enables.
 
-export default defineAction({
-  description:
-    "Generate AI metadata for a recording. Delegates to the agent chat in the background so it can use its full toolchain.",
-  schema: z.object({
-    id: z.string(),
-    kind: z
-      .string()
-      .default("title,summary")
-      .describe("Comma-separated: title, summary, tags"),
-  }),
-  run: async ({ id, kind }) => {
-    const rec = await getRecordingOrThrow(id);
-    const kinds = kind.split(",").map((s) => s.trim());
+Do not delegate deterministic work. `remove-silences` computes gaps between transcript segments (`shared/silence-ranges.ts`) and trims them in one write through `applyTrims`. Call it directly; never compute silences yourself or call `trim-recording` per gap.
 
-    await sendToAgentChat({
-      background: true,
-      message: `Generate ${kinds.join(" + ")} for recording "${rec.title}" (${id}). Read the transcript via \`get-transcript --id=${id}\` and write results via \`update-recording --id=${id} --title=... --description=...\`.`,
-      context: {
-        recordingId: id,
-        title: rec.title,
-        durationMs: rec.durationMs,
-        kinds,
-      },
-      submit: true,
-    });
-
-    return { queued: true, kinds };
-  },
-});
-```
-
-Key rules:
-
-- **`background: true`** — the request runs in a hidden agent thread. The user's main chat is untouched.
-- **`context`** — structured data the agent gets but the user doesn't see. Keep it small — ids, titles, durations. Don't dump the whole transcript; the agent can fetch it via `get-transcript`.
-- **`submit: true`** — auto-submit. These are routine, user-approved operations.
-- **Never `await` the agent's response from an action.** Fire and forget. The agent will write results back via other actions (`update-recording`, `apply-edit`), and `refresh-signal` will push them to the UI.
-
-For UI-triggered AI — **no wand, no sparkles, no robot icons** (all three are overplayed clichés for AI). Prefer plain text with a caret (`IconChevronDown`) on a dropdown, or a neutral verb icon like `IconBolt` only if an icon is truly needed. Call the same action via `useActionMutation`:
-
-```tsx
-const generate = useActionMutation("generate-ai-metadata");
-<Button onClick={() => generate.mutate({ id: rec.id, kind: "title,summary" })}>
-  Suggest
-  <IconChevronDown className="ml-2 h-4 w-4" />
-</Button>
-```
+For UI-triggered AI — **no wand, no sparkles, no robot icons** (all three are overplayed clichés for AI). Prefer plain text with a caret (`IconChevronDown`) on a dropdown, or a neutral verb icon like `IconBolt` only if an icon is truly needed.
 
 ## Media-pipeline exception
 

@@ -1,5 +1,5 @@
-import { parseAiRequestTabId } from "../../shared/ai-request-status.js";
 import { settleAiRequestStatus } from "../../actions/lib/ai-request-status.js";
+import { parseAiRequestTabId } from "../../shared/ai-request-status.js";
 
 interface FinishedRun {
   threadId: string;

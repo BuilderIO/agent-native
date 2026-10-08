@@ -58,9 +58,9 @@ describe("claim-ai-request", () => {
 
   it("lets exactly one of two concurrent claims win", async () => {
     const results = await Promise.all([run("claim"), run("claim")]);
-    expect(results.filter((r) => (r as { claimed: boolean }).claimed)).toEqual(
-      [{ claimed: true }],
-    );
+    expect(results.filter((r) => (r as { claimed: boolean }).claimed)).toEqual([
+      { claimed: true },
+    ]);
   });
 
   it("lets a claim through once the previous lease expired", async () => {
@@ -91,6 +91,18 @@ describe("claim-ai-request", () => {
     expect(store.get("clips-ai-request-status-rec_1")).toMatchObject({
       status: "working",
       requestedAt,
+    });
+  });
+
+  it("drops a request that can never start and records why", async () => {
+    await run("claim");
+    await expect(
+      run("fail", { message: "Connect an AI provider" }),
+    ).resolves.toEqual({ failed: true });
+    expect(store.has("clips-ai-request-rec_1")).toBe(false);
+    expect(store.get("clips-ai-request-status-rec_1")).toMatchObject({
+      status: "failed",
+      message: "Connect an AI provider",
     });
   });
 

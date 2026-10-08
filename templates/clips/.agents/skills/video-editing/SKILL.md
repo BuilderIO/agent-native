@@ -52,7 +52,7 @@ All of these append to `edits_json`. The action validates non-overlapping ranges
 
 Users love editing by text — click a filler word in the transcript, remove it. The editor uses `recording_transcripts.segments_json` to map words to `{ startMs, endMs }` ranges; clicking a segment creates a `cut` edit for that range.
 
-"Remove the filler words" is **not** solved inline — it delegates to the agent. See the `ai-video-tools` skill. The agent analyzes the transcript, proposes a list of cuts, writes them to `editor-draft` for review, and the user one-click approves.
+"Remove filler words" delegates to a background agent run that calls `trim-recording` for each filler (see `ai-video-tools`). "Remove silences" is deterministic: `remove-silences` trims gaps between transcript segments in one edit.
 
 ## Export
 

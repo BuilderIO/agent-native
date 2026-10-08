@@ -1,4 +1,6 @@
+import { fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import {
@@ -18,11 +20,11 @@ export interface ApplyTrimsResult {
   trimCount: number;
 }
 
-/** Callers must assert editor access before applying trims. */
 export async function applyTrims(
   recordingId: string,
   ranges: readonly TrimRange[],
 ): Promise<ApplyTrimsResult> {
+  await assertAccess("recording", recordingId, "editor");
   const db = getDb();
 
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
@@ -31,7 +33,10 @@ export async function applyTrims(
       .from(schema.recordings)
       .where(eq(schema.recordings.id, recordingId));
     if (!existing) {
-      throw new Error(`Recording not found: ${recordingId}`);
+      fail(`Recording not found: ${recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
     }
     assertNativeRecordingMedia(existing);
 
@@ -68,7 +73,8 @@ export async function applyTrims(
     // against the now-current value.
   }
 
-  throw new Error(
+  fail(
     `Could not trim recording ${recordingId} after ${MAX_CAS_ATTEMPTS} concurrent attempts.`,
+    { errorCode: "trim_conflict", statusCode: 409 },
   );
 }

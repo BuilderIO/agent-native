@@ -49,10 +49,7 @@ export default defineAction({
       };
     }
 
-    const { editsJson, trimCount } = await applyTrims(
-      args.recordingId,
-      ranges,
-    );
+    const { editsJson, trimCount } = await applyTrims(args.recordingId, ranges);
     const removedMs = ranges.reduce(
       (total, range) => total + range.endMs - range.startMs,
       0,

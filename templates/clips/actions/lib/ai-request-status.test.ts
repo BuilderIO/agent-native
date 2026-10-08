@@ -96,10 +96,9 @@ describe("AI request status lifecycle", () => {
       request: { kind: "remove-filler-words" },
     });
 
-    expect(mockWriteAppState).toHaveBeenCalledWith(
-      "clips-ai-request-rec_123",
-      { kind: "remove-filler-words" },
-    );
+    expect(mockWriteAppState).toHaveBeenCalledWith("clips-ai-request-rec_123", {
+      kind: "remove-filler-words",
+    });
   });
 
   it("loses a concurrent queue race as busy instead of overwriting", async () => {

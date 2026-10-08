@@ -56,7 +56,9 @@ export const AI_REQUEST_WORKING_LEASE_MS = 15 * 60_000;
 
 function statusAgeMs(status: ClipsAiRequestStatus, now: number): number {
   const updatedAt = Date.parse(status.updatedAt ?? status.requestedAt ?? "");
-  return Number.isFinite(updatedAt) ? now - updatedAt : Number.POSITIVE_INFINITY;
+  return Number.isFinite(updatedAt)
+    ? now - updatedAt
+    : Number.POSITIVE_INFINITY;
 }
 
 export function isAiRequestStalled(
@@ -64,7 +66,8 @@ export function isAiRequestStalled(
   now = Date.now(),
 ): boolean {
   return (
-    status?.status === "queued" && statusAgeMs(status, now) > AI_REQUEST_STALL_MS
+    status?.status === "queued" &&
+    statusAgeMs(status, now) > AI_REQUEST_STALL_MS
   );
 }
 

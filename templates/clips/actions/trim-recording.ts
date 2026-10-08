@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { applyTrims } from "./lib/apply-trims.js";
@@ -24,8 +23,6 @@ export default defineAction({
     if (args.endMs <= args.startMs) {
       throw new Error("endMs must be greater than startMs");
     }
-
-    await assertAccess("recording", args.recordingId, "editor");
 
     const { editsJson, trimCount } = await applyTrims(args.recordingId, [
       { startMs: args.startMs, endMs: args.endMs },
