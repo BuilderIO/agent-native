@@ -2346,13 +2346,25 @@ describe("published recap readback workflow", () => {
   async function executeReadback(
     script: string,
     input: { planUrl: string; appUrl: string },
-    response: Response,
+    responses: Response | Array<Response | Error>,
   ) {
     const writes: string[] = [];
-    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(response);
+    const fetchFn = vi.fn<typeof fetch>();
+    for (const response of Array.isArray(responses) ? responses : [responses]) {
+      if (response instanceof Error) {
+        fetchFn.mockRejectedValueOnce(response);
+      } else {
+        fetchFn.mockResolvedValueOnce(response);
+      }
+    }
     runInNewContext(script, {
       URL,
       AbortSignal,
+      TypeError,
+      setTimeout: (callback: () => void) => {
+        callback();
+        return 0;
+      },
       fetch: fetchFn,
       process: {
         env: {
@@ -2438,6 +2450,34 @@ describe("published recap readback workflow", () => {
     expect(new Headers(init?.headers).get("authorization")).toBe(
       "Bearer recap-token",
     );
+  });
+
+  it("retries transient readback failures at most twice", async () => {
+    const script = readbackScript(workflowFiles[0]!);
+    const input = {
+      planUrl: "https://plan.agent-native.com/recaps/recap_123",
+      appUrl: "https://plan.agent-native.com",
+    };
+    const { result, fetchFn } = await executeReadback(script, input, [
+      new TypeError("network unavailable"),
+      textResponse("temporary server error", 503),
+      textResponse(JSON.stringify({ planId: "recap_123" })),
+    ]);
+
+    expect(result).toEqual({ ok: true, reason: "" });
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+
+    const exhausted = await executeReadback(script, input, [
+      textResponse("temporary server error", 503),
+      textResponse("temporary server error", 503),
+      textResponse("temporary server error", 503),
+    ]);
+    expect(exhausted.result).toEqual({
+      ok: false,
+      reason:
+        "get-visual-plan returned HTTP 503 after 3 attempts; the Plan read action returned an error",
+    });
+    expect(exhausted.fetchFn).toHaveBeenCalledTimes(3);
   });
 
   it("reports a rejected read without logging response details or the token", async () => {

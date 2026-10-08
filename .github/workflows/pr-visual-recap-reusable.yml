@@ -939,6 +939,7 @@ jobs:
           READBACK_JSON=$(node <<'NODE'
           void (async () => {
             const emit = (value) => process.stdout.write(JSON.stringify(value));
+            let requestAttempts = 0;
             try {
               const base = new URL(process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
               const recap = new URL(process.env.PLAN_URL || "");
@@ -965,17 +966,32 @@ jobs:
               actionUrl.searchParams.set("id", match[1]);
               actionUrl.searchParams.set("includeHtml", "false");
               actionUrl.searchParams.set("includeMdx", "false");
-              const response = await fetch(actionUrl, {
-                headers: { authorization: `Bearer ${process.env.PLAN_RECAP_TOKEN || ""}` },
-                signal: AbortSignal.timeout(15000),
-              });
+              let response;
+              for (requestAttempts = 1; requestAttempts <= 3; requestAttempts++) {
+                try {
+                  response = await fetch(actionUrl, {
+                    headers: { authorization: `Bearer ${process.env.PLAN_RECAP_TOKEN || ""}` },
+                    signal: AbortSignal.timeout(15000),
+                  });
+                } catch (error) {
+                  const retryable = error?.name === "TimeoutError" || error instanceof TypeError;
+                  if (!retryable || requestAttempts === 3) throw error;
+                  await new Promise((resolve) => setTimeout(resolve, requestAttempts * 250));
+                  continue;
+                }
+                const retryableStatus = response.status === 408 || response.status === 429 || response.status >= 500;
+                if (!retryableStatus || requestAttempts === 3) break;
+                await new Promise((resolve) => setTimeout(resolve, requestAttempts * 250));
+              }
               if (!response.ok) {
+                const retryableStatus = response.status === 408 || response.status === 429 || response.status >= 500;
                 const hint = response.status === 401 || response.status === 403
                   ? "the configured token cannot read this published recap"
                   : response.status === 404
                     ? "the Plan read action or published recap is not available"
                     : "the Plan read action returned an error";
-                emit({ ok: false, reason: `get-visual-plan returned HTTP ${response.status}; ${hint}` });
+                const attempts = retryableStatus ? ` after ${requestAttempts} attempts` : "";
+                emit({ ok: false, reason: `get-visual-plan returned HTTP ${response.status}${attempts}; ${hint}` });
                 return;
               }
               const payload = await response.json();
@@ -986,9 +1002,10 @@ jobs:
               }
               emit({ ok: true, reason: "" });
             } catch (error) {
+              const attempts = requestAttempts > 1 ? ` after ${requestAttempts} attempts` : "";
               const reason = error?.name === "TimeoutError"
-                ? "get-visual-plan readback timed out"
-                : "get-visual-plan readback request failed";
+                ? `get-visual-plan readback timed out${attempts}`
+                : `get-visual-plan readback request failed${attempts}`;
               emit({ ok: false, reason });
             }
           })();
