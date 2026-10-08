@@ -1094,6 +1094,20 @@ export function resumeThreadHistoryForRequest(
   };
 }
 
+/**
+ * The turn the thread's newest prompt was sent in, when the server stamped
+ * it. A prompt whose run was refused before it started has no run row, so
+ * this is how a continuation learns a newer prompt is waiting.
+ */
+export function latestPromptTurnId(
+  threadData: string | Record<string, unknown>,
+): string | undefined {
+  const data =
+    typeof threadData === "string" ? JSON.parse(threadData) : threadData;
+  const turnId = latestStoredUser(data)?.metadata?.custom?.submittedTurnId;
+  return typeof turnId === "string" ? turnId : undefined;
+}
+
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;
 const MAX_INTEGRATION_ARTIFACT_FIELD_CHARS = 500;
 
@@ -1804,6 +1818,26 @@ function latestStoredUser(repo: any): any {
     .findLast((message: any) => message?.role === "user");
 }
 
+/**
+ * Whether a stored user message is the prompt this run answers, rather than
+ * one sent after it started. Messages saved without the server's turn stamp
+ * fall back to their creation time.
+ */
+export function isRunPrompt(
+  user: any,
+  run: { runId: string; turnId?: string | null; startedAt: number },
+): boolean {
+  const userContext = user?.metadata?.custom;
+  if (userContext?.submittedTurnId) {
+    return userContext.submittedTurnId === run.turnId;
+  }
+  return (
+    userContext?.submittedRunId === run.runId ||
+    !user?.createdAt ||
+    new Date(user.createdAt).getTime() <= run.startedAt
+  );
+}
+
 function clearThreadSuggestions(repo: any): any {
   return repo.agentKit
     ? { ...repo, agentKit: { ...repo.agentKit, suggestions: [] } }
@@ -1825,17 +1859,7 @@ export function foldThreadRunSuggestions(
   repo: any,
   run: ThreadSuggestionRun,
 ): any {
-  const user = latestStoredUser(repo);
-  const userContext = user?.metadata?.custom;
-  if (
-    userContext?.submittedTurnId
-      ? userContext.submittedTurnId !== run.turnId
-      : userContext?.submittedRunId !== run.runId &&
-        user?.createdAt &&
-        new Date(user.createdAt).getTime() > run.startedAt
-  ) {
-    return repo;
-  }
+  if (!isRunPrompt(latestStoredUser(repo), run)) return repo;
   const previous = repo.agentKit ?? {};
   const latest = latestSnapshotRun(previous.runs);
   const startedAt = new Date(run.startedAt).toISOString();
@@ -3699,6 +3723,11 @@ export function foldAssistantTurn(
     mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
   }
   if (incomingCustom.continued !== true) delete mergedCustom.continued;
+  // A turn's failure is its newest run's: a run that continued past an
+  // earlier stop clears the stop's error instead of inheriting it.
+  if (!runAlreadyFolded && incomingCustom.runError === undefined) {
+    delete mergedCustom.runError;
+  }
 
   const mergedMessage = {
     ...lastMsg,
@@ -3717,6 +3746,26 @@ export function foldAssistantTurn(
   nextRepo.messages[lastIndex] = { ...lastEntry, message: mergedMessage };
   nextRepo.headId = mergedMessage.id ?? nextRepo.headId;
   return nextRepo;
+}
+
+export function foldAgentChatRunCompletion(
+  repo: unknown,
+  assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
+  run: ThreadSuggestionRun &
+    Pick<
+      ActiveRun,
+      "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
+    >,
+) {
+  const folded = assistantMsg
+    ? foldAssistantTurn(repo, assistantMsg, {
+        runId: run.runId,
+        turnId: run.turnId,
+        parentId: run.parentId,
+        agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
+      })
+    : repo;
+  return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);
 }
 
 /**

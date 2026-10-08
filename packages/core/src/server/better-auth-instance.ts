@@ -50,6 +50,7 @@ import {
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  onDbClientsClosing,
 } from "../db/client.js";
 import {
   CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
@@ -859,6 +860,7 @@ export interface BetterAuthConfig {
 
 let _auth: BetterAuthInstance | undefined;
 let _initPromise: Promise<BetterAuthInstance> | undefined;
+let _authInitGeneration = 0;
 let _neonAuthPool: any;
 
 const pgAuthSchema = {
@@ -1250,12 +1252,24 @@ export async function getBetterAuth(
   if (_auth) return _auth;
   if (_initPromise) return _initPromise;
 
-  _initPromise = createBetterAuthInstance(config).catch((error) => {
-    _initPromise = undefined;
-    throw error;
-  });
-  _auth = await _initPromise;
-  return _auth;
+  const generation = _authInitGeneration;
+  let initPromise: Promise<BetterAuthInstance>;
+  initPromise = createBetterAuthInstance(config)
+    .then((auth) => {
+      if (generation !== _authInitGeneration) {
+        throw new Error(
+          "Better Auth initialization was invalidated before it completed.",
+        );
+      }
+      _auth = auth;
+      return auth;
+    })
+    .catch((error) => {
+      if (_initPromise === initPromise) _initPromise = undefined;
+      throw error;
+    });
+  _initPromise = initPromise;
+  return initPromise;
 }
 
 export function getBetterAuthSync(): BetterAuthInstance | undefined {
@@ -1953,27 +1967,38 @@ export async function ensureGoogleAuthIdentityWithAdapter(
 }
 
 export async function resetBetterAuth(): Promise<void> {
+  _authInitGeneration++;
   _auth = undefined;
   _initPromise = undefined;
   _neonAuthPool = undefined;
 }
 
 let _poolCloseHookRegistered = false;
+let _dbExecCloseHookRegistered = false;
+function resetAuthInstanceState(): void {
+  _authInitGeneration++;
+  _auth = undefined;
+  _initPromise = undefined;
+  _neonAuthPool = undefined;
+}
+
 function resetAuthOnPoolClose(driver?: string, url?: string): void {
   if (_poolCloseHookRegistered) return;
   _poolCloseHookRegistered = true;
-  onSharedDbPoolsClosed(() => {
-    _auth = undefined;
-    _initPromise = undefined;
-    _neonAuthPool = undefined;
-  });
+  onSharedDbPoolsClosed(resetAuthInstanceState);
   if (driver && url) {
-    onSharedDbPoolReplaced(driver, url, () => {
-      _auth = undefined;
-      _initPromise = undefined;
-      _neonAuthPool = undefined;
-    });
+    onSharedDbPoolReplaced(driver, url, resetAuthInstanceState);
   }
+}
+
+function resetAuthOnDbExecClose(): void {
+  if (_dbExecCloseHookRegistered) return;
+  _dbExecCloseHookRegistered = true;
+  // Nitro can close this worker's PGlite client before the process exits.
+  onDbClientsClosing(() => {
+    resetAuthInstanceState();
+    _dbExecCloseHookRegistered = false;
+  });
 }
 
 async function createBetterAuthInstance(
@@ -2592,6 +2617,7 @@ export async function buildDatabaseConfig(): Promise<
   } = await import("../db/create-get-db.js");
 
   if (isPgliteUrl(url)) {
+    resetAuthOnDbExecClose();
     const { drizzle } = await loadPgliteDrizzle();
     const client = await getPgliteClient(url);
     const db = drizzle({

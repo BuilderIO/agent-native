@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
     common: { retry: "重试" },
+    onboarding: { skipForNow: "暂时跳过" },
   },
   timelineTrack: {
     helpOtherSide: "先点击那一段，再把红线向右拖。",
@@ -1391,14 +1392,22 @@ const messages = {
   storageSetup: {
     builderConnectPopupError:
       "无法打开 Builder.io。如果此应用嵌入在聊天中，请在浏览器标签页中打开；否则请重试。",
-    builderConnectError: "无法设置 Builder.io。请重试或联系支持团队。",
+    builderConnectError: "Builder.io 设置未完成。请重试，或选择 S3 兼容存储。",
+    builderConnectErrorAskAdmin:
+      "Builder.io 设置未完成。请重试，或请所有者或管理员设置存储。",
+    builderStatusReadError: "连接状态暂时不可用。请重试以再次检查。",
+    builderUploadGrantMissing:
+      "Builder.io 已连接 AI 服务，但此连接无法上传剪辑。请授予上传权限后重新连接 Builder.io，或向所有者或管理员寻求帮助。",
+    builderGrantAskAdmin:
+      "请所有者或管理员连接具有剪辑上传权限的 Builder.io 账户。",
+    statusUnavailable: "无法检查视频存储是否已就绪。",
     checkingBuilderConnection: "正在检查 Builder 连接…",
-    builderTimeout: "5 分钟内未收到 Builder 响应，请重试。",
+    builderTimeout: "无法确认 Builder.io 存储已就绪，请重试。",
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",
     description:
       "使用 Builder.io 或兼容 S3 的存储来保存录制的视频。Builder.io 包含免费托管和 AI 额度。",
-    createBuilderAccount: "创建 Builder.io 账户",
+    createBuilderAccount: "使用 Builder.io",
     signInWithBuilderAccount: "使用 Builder.io 账户登录",
     free: "免费",
     whyPrompt: "为什么会看到这个？",
@@ -1744,6 +1753,8 @@ const messages = {
     pendingStorageDescription: "连接存储后，Clips 会立即上传。",
     storageConnectedUploading: "存储已连接。正在上传你的录制…",
     downloadCopy: "下载副本",
+    localRecordingPreview: "本地录制预览",
+    localPreviewUnavailable: "本地预览不可用。你仍可下载副本。",
     localRecordingOpenElsewhere: "该录制仍在另一个 Clips 标签页中打开。",
     uploadWaitingForConnection: "上传已暂停。Clips 会自动重试。",
     uploadDidNotFinish: "上传未完成。",

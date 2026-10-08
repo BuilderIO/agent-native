@@ -22,6 +22,7 @@ A few entry points:
 - `writing-agent-instructions` — read before editing instructions, skills, or
   tool/action descriptions.
 - `verifying-changes` — exercise the broken path before reporting a fix done.
+- `design-figma-parity` — read before making or reviewing Design parity claims.
 - `adding-tests-and-ci` — read before adding a test, CI job, or workflow
   trigger.
 - `reporting-progress` — read during long runs and before asking for status.
@@ -368,6 +369,12 @@ instructions, and application state.
   improvement, behavior-affecting fix)? Record it from that app with
   `agent-native changelog add "<one sentence>" --type <added|improved|fixed>`.
   Skip refactors, tooling, and tests. See the `changelog` skill.
+- The Builder Code starter (`packages/core/src/templates/builder-code-starter`) is patches
+  over `templates/chat`. After editing Chat, run `pnpm guard:template-layers`.
+  If a patch fails, run `pnpm template-layer rebase builder-code-starter --out
+  .tmp/fs`, resolve conflicts keeping the starter's intent, then
+  `pnpm template-layer diff builder-code-starter --from .tmp/fs`. Never delete a
+  failing patch.
 
 ## Extensions
 

@@ -120,7 +120,7 @@ const messages = {
     firstSlidesDescription: "每张幻灯片生成后，演示文稿将开始显示在这里。",
     googleOAuthNotConfigured: "此部署未配置 Google OAuth。",
     googlePickerNeedsKeys:
-      "Google Picker 需要 GOOGLE_PICKER_API_KEY 和 GOOGLE_PICKER_APP_ID。",
+      "Google Drive 文件选择器尚未配置。你仍可粘贴文档链接进行导入。",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
       "连接对象存储以上传图片：连接 Builder.io（免费），或在“设置 → 文件上传”中添加你自己的 S3 兼容存储密钥。",
@@ -245,6 +245,16 @@ const messages = {
     generateImage: "生成图片",
     assetLibrary: "素材库",
     imageOptions: "图片选项",
+    videoPlayback: "视频播放",
+    autoplayVideo: "自动播放",
+    loopVideo: "循环播放视频",
+    videoUploading: "正在上传视频…",
+    videoAdded: "已添加视频",
+    videoUploadFailed: "视频上传失败",
+    videoUploadError: "无法上传此视频。",
+    videoFormatUnsupported: "仅支持 MP4 和 WebM 视频。",
+    videoTooLarge: "视频大小不能超过 50 MB。",
+    videoUploadNeedsBuilder: "尚未配置视频存储。",
     cropImage: "裁剪图片",
     cropHandle: "裁剪图片{{position}}",
     diagrams: "图表",
@@ -296,6 +306,9 @@ const messages = {
     downloadBackup: "下载备份",
     conflictStatus: "文本冲突",
     conflictStatusDescription: "请先检查冲突的文本，再保存其他更改。",
+    accessLost: "访问权限已失效",
+    accessLostDescription:
+      "你对此演示文稿的访问权限已变更。你的修改仍保留在屏幕上；恢复访问后可重试，或下载备份。",
     reviewConflict: "查看冲突",
     conflictTitle: "第 {{number}} 张幻灯片存在文本冲突",
     conflictDescription: "编辑文本期间，另一版本更改了此幻灯片。",
@@ -741,6 +754,9 @@ const messages = {
     exportFailed: "导出失败",
     agentRunFailed:
       "代理在创建任何幻灯片之前运行失败。请查看聊天中的详情，然后重试。",
+    generationFailed: "未能创建幻灯片。请查看聊天中的详情，然后重试。",
+    generationOutcomeUnresolved:
+      "无法确认幻灯片是否已创建。请检查演示文稿或聊天，然后重试。",
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

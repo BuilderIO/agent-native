@@ -107,6 +107,7 @@ function planLinkedDuplicateSelection(args: {
 export interface DuplicateSelectionArgs {
   activeFile: DesignFile;
   applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
+  clearExplicitOverviewScreenSelection?: () => void;
   designId: string | undefined;
   applyFileContentUpdate: (
     fileId: string,
@@ -180,6 +181,7 @@ export interface DuplicateSelectionArgs {
 export function runDuplicateSelection({
   activeFile,
   applyLinkedComponentEdit,
+  clearExplicitOverviewScreenSelection,
   designId,
   applyFileContentUpdate,
   applyLocalContentUpdate,
@@ -235,6 +237,7 @@ export function runDuplicateSelection({
       operation: { kind: "duplicate" },
     });
     if (edit.status === "written") {
+      clearExplicitOverviewScreenSelection?.();
       applyLocalContentUpdate(edit.content, {
         forcePreviewFullDocument: true,
       });
@@ -295,6 +298,7 @@ export function runDuplicateSelection({
         runtimeStructureInsertRevisionRef &&
         setRuntimeStructureInsertRequest
       ) {
+        clearExplicitOverviewScreenSelection?.();
         const anchorSelector =
           selectedElement?.runtimeSelector ??
           selectedCanvasSelector ??
@@ -378,6 +382,7 @@ export function runDuplicateSelection({
           onUnsupportedStructure,
         });
         if (plan) {
+          clearExplicitOverviewScreenSelection?.();
           applyLinkedComponentEdit(
             file.id,
             plan.targetNodeId,
@@ -473,6 +478,7 @@ export function runDuplicateSelection({
     }
 
     if (selectedIds.length > 0) {
+      clearExplicitOverviewScreenSelection?.();
       setSelectedLayerIdsState(selectedIds);
       setSelectedElement(
         lastActiveNode ? elementInfoFromCodeLayerNode(lastActiveNode) : null,
@@ -546,6 +552,7 @@ export function runDuplicateSelection({
     });
     if (structureUnsupported) return;
     if (nextContent) {
+      clearExplicitOverviewScreenSelection?.();
       applyLocalContentUpdate(nextContent, {
         forcePreviewFullDocument: true,
       });

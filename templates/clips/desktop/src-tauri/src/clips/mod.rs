@@ -701,6 +701,7 @@ fn close_monitor_picker_windows(app: &AppHandle) {
             let _ = window.close();
         }
     }
+    crate::shortcuts::set_monitor_picker_escape(app, false);
 }
 
 #[cfg(target_os = "macos")]
@@ -730,6 +731,7 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
             return Ok(false);
         }
         let total = monitors.len();
+        crate::shortcuts::set_monitor_picker_escape(&app, true);
         let mut last_window: Option<WebviewWindow> = None;
         for (index, monitor) in monitors.iter().enumerate() {
             let pos = monitor.position();
@@ -1456,9 +1458,6 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         .and_then(|state| state.0.lock().ok().map(|g| *g))
         .unwrap_or(false);
     if voice_woken {
-        return Ok(());
-    }
-    if is_recording_active(&app) {
         return Ok(());
     }
     if let Some(w) = app.get_webview_window("popover") {

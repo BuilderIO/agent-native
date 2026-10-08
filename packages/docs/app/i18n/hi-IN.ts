@@ -2671,6 +2671,7 @@ const hiIN = {
     planAutomations: "इवेंट और स्वचालन",
     planLocalAndDesktop: "लोकल फ़ाइलें और डेस्कटॉप",
     planDevelopers: "डेवलपर गाइड",
+    turnIntoApp: "ऐप में बदलें",
     prVisualRecap: "PR visual recap",
     planPluginMarketplace: "Plan plugin और marketplace",
     slides: "स्लाइड",

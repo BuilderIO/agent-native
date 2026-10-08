@@ -112,6 +112,64 @@ static COUNTDOWN_SHORTCUTS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static COUNTDOWN_SHORTCUTS_GENERATION: AtomicU64 = AtomicU64::new(0);
 static COUNTDOWN_SHORTCUTS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static DICTATION_ESCAPE_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
+static MONITOR_PICKER_ESCAPE_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Escape has several owners (popover, countdown, dictation, monitor picker).
+/// Every register/unregister runs under this lock, and an owner stores its own
+/// flag before taking it, so a release can never unregister a shortcut another
+/// owner just claimed.
+static ESCAPE_SHORTCUT_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_escape() -> std::sync::MutexGuard<'static, ()> {
+    ESCAPE_SHORTCUT_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn claim_escape(app: &AppHandle, label: &str) {
+    let _escape = lock_escape();
+    register_escape(app, label);
+}
+
+fn release_escape_if_unowned(app: &AppHandle) {
+    let _escape = lock_escape();
+    unregister_escape_if_unowned(app);
+}
+
+/// Follows `owner_flag` as it is under the lock, not as it was when the caller
+/// stored it: workers can run out of order.
+fn sync_escape_with_flag(app: &AppHandle, owner_flag: &AtomicBool, label: &str) {
+    let _escape = lock_escape();
+    if owner_flag.load(Ordering::SeqCst) {
+        register_escape(app, label);
+    } else {
+        unregister_escape_if_unowned(app);
+    }
+}
+
+fn register_escape(app: &AppHandle, label: &str) {
+    let shortcut = escape_shortcut();
+    let gs = app.global_shortcut();
+    if !gs.is_registered(shortcut) {
+        if let Err(err) = gs.register(shortcut) {
+            eprintln!("[clips-tray] failed to register {label} Escape: {err}");
+        }
+    }
+}
+
+fn unregister_escape_if_unowned(app: &AppHandle) {
+    if POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
+        || COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
+        || DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
+        || MONITOR_PICKER_ESCAPE_ACTIVE.load(Ordering::SeqCst)
+    {
+        return;
+    }
+    let shortcut = escape_shortcut();
+    let gs = app.global_shortcut();
+    if gs.is_registered(shortcut) {
+        let _ = gs.unregister(shortcut);
+    }
+}
 
 #[derive(Default)]
 struct PendingVoiceStart {
@@ -473,19 +531,10 @@ pub fn install_popover_dismiss_handler(app: &tauri::App) {
             let picker_active = crate::native_screen::window_picker_active();
             let recording_flow_active = is_recording_active(&handle);
             POPOVER_DISMISS_SHORTCUT_ACTIVE.store(visible, Ordering::SeqCst);
-            let shortcut = escape_shortcut();
-            let gs = handle.global_shortcut();
             if visible || picker_active || recording_flow_active {
-                if !gs.is_registered(shortcut) {
-                    if let Err(err) = gs.register(shortcut) {
-                        eprintln!("[clips-tray] failed to register Escape: {err}");
-                    }
-                }
-            } else if !COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
-                && !DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
-                && gs.is_registered(shortcut)
-            {
-                let _ = gs.unregister(shortcut);
+                claim_escape(&handle, "popover");
+            } else {
+                release_escape_if_unowned(&handle);
             }
         });
     });
@@ -532,6 +581,7 @@ fn install_window_picker_escape_monitor(app: &tauri::App) {
 pub(crate) async fn arm_window_picker_escape(app: &AppHandle) -> Result<(), String> {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _escape = lock_escape();
         let shortcut = escape_shortcut();
         let gs = app.global_shortcut();
         if gs.is_registered(shortcut) {
@@ -542,6 +592,16 @@ pub(crate) async fn arm_window_picker_escape(app: &AppHandle) -> Result<(), Stri
     })
     .await
     .map_err(|error| format!("Window picker Escape registration worker stopped: {error}"))?
+}
+
+/// The monitor picker's webviews only see Esc while one of them is focused, so
+/// Esc is claimed globally for as long as the picker is open.
+pub(crate) fn set_monitor_picker_escape(app: &AppHandle, active: bool) {
+    MONITOR_PICKER_ESCAPE_ACTIVE.store(active, Ordering::SeqCst);
+    let app = app.clone();
+    thread::spawn(move || {
+        sync_escape_with_flag(&app, &MONITOR_PICKER_ESCAPE_ACTIVE, "monitor picker");
+    });
 }
 
 pub fn set_dictation_active_and_sync_escape(app: &AppHandle, active: bool) {
@@ -558,22 +618,7 @@ pub fn set_dictation_escape_active(app: AppHandle, active: bool) -> Result<(), S
 fn sync_dictation_escape_shortcut(app: AppHandle, active: bool) {
     DICTATION_ESCAPE_SHORTCUT_ACTIVE.store(active, Ordering::SeqCst);
     thread::spawn(move || {
-        let gs = app.global_shortcut();
-        let shortcut = escape_shortcut();
-        if active {
-            if !gs.is_registered(shortcut) {
-                if let Err(err) = gs.register(shortcut) {
-                    eprintln!("[clips-tray] failed to register dictation-cancel Escape: {err}");
-                }
-            }
-            return;
-        }
-        if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
-            && !COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
-            && gs.is_registered(shortcut)
-        {
-            let _ = gs.unregister(shortcut);
-        }
+        sync_escape_with_flag(&app, &DICTATION_ESCAPE_SHORTCUT_ACTIVE, "dictation-cancel");
     });
 }
 
@@ -585,6 +630,7 @@ pub(crate) async fn prepare_countdown_shortcuts(app: AppHandle) -> Result<u64, S
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let generation = COUNTDOWN_SHORTCUTS_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
         COUNTDOWN_SHORTCUTS_ACTIVE.store(true, Ordering::SeqCst);
+        let _escape = lock_escape();
         let gs = app.global_shortcut();
         let mut newly_registered = Vec::new();
         for shortcut in countdown_shortcuts() {
@@ -624,13 +670,7 @@ pub(crate) async fn finish_countdown_shortcuts(
                 let _ = gs.unregister(shortcut);
             }
         }
-        let escape = escape_shortcut();
-        if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
-            && !DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
-            && gs.is_registered(escape)
-        {
-            let _ = gs.unregister(escape);
-        }
+        release_escape_if_unowned(&app);
     })
     .await
     .map_err(|error| format!("countdown shortcut cleanup worker stopped unexpectedly: {error}"))
@@ -746,6 +786,10 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             }
             if crate::native_screen::window_picker_active() {
                 crate::native_screen::cancel_window_picker(app);
+                return;
+            }
+            if MONITOR_PICKER_ESCAPE_ACTIVE.load(Ordering::SeqCst) {
+                let _ = app.emit("clips:monitor-picker-cancelled", ());
                 return;
             }
             if is_dictation_active(app) {

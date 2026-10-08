@@ -9,7 +9,9 @@ import { getActiveEmbeddingSet } from "@agent-native/creative-context/store";
 
 import {
   candidateTrustTier,
+  relevanceTerms,
   searchAnalyticsQueryCatalog,
+  searchTerms,
   type AnalyticsQueryCatalogCandidate,
 } from "./analytics-query-catalog";
 import { renderDataDictionary } from "./data-dictionary-context";
@@ -30,9 +32,18 @@ export interface AnalyticsPromptCandidate {
   content: string;
 }
 
+/** `empty` is a completed lookup that found nothing; `timed_out` and `failed`
+ *  are lookups that did not complete (`failed` includes one that returned hits
+ *  while a source was unavailable), so "nothing relevant" is never inferred. */
+export type AnalyticsPrefetchStatus = "ok" | "empty" | "timed_out" | "failed";
+
+/** What the outcome event records; `unrecorded` is a run that reported no status. */
+export type AnalyticsRunPrefetchStatus = AnalyticsPrefetchStatus | "unrecorded";
+
 export interface AnalyticsPromptReferences {
   jevPromptCandidates: AnalyticsPromptCandidate[];
   jevFallbackCandidateIds: string[];
+  prefetchStatus: AnalyticsPrefetchStatus;
 }
 
 const CATALOG_TOOL_NAMES = new Set([
@@ -65,8 +76,9 @@ const NON_QUERY_GROUNDING_ACTION_NAMES = new Set([
 export function summarizeAnalyticsRun(input: {
   events: readonly unknown[];
   preloadedReferenceCount: number;
+  prefetchStatus: AnalyticsRunPrefetchStatus;
   groundingActionNames: readonly string[];
-}): Record<string, number | boolean> {
+}): Record<string, number | boolean | string> {
   type ToolEvent = {
     type: "tool_start" | "tool_done";
     tool: string;
@@ -115,11 +127,12 @@ export function summarizeAnalyticsRun(input: {
   const toolSearchCalls = startedTools.filter((event) =>
     /^tool[-_]search(?:$|[-_])/.test(String(event.tool)),
   ).length;
-  const properties: Record<string, number | boolean> = {
+  const properties: Record<string, number | boolean | string> = {
     preloaded_reference_count: Math.max(
       0,
       Math.floor(input.preloadedReferenceCount),
     ),
+    prefetch_status: input.prefetchStatus,
     tool_search_calls: toolSearchCalls,
     catalog_calls: startedTools.filter((event) =>
       CATALOG_TOOL_NAMES.has(String(event.tool)),
@@ -425,8 +438,52 @@ type RankedCandidate = {
   lexicalScore?: number;
 };
 
-function emptyPromptReferences(): AnalyticsPromptReferences {
-  return { jevPromptCandidates: [], jevFallbackCandidateIds: [] };
+function noPromptReferences(
+  prefetchStatus: AnalyticsPrefetchStatus,
+): AnalyticsPromptReferences {
+  return {
+    jevPromptCandidates: [],
+    jevFallbackCandidateIds: [],
+    prefetchStatus,
+  };
+}
+
+/** Core frames recent turns with these labels; they are not part of the ask,
+ *  and as search terms ("user", "request") they match unrelated references. */
+function retrievalQuery(request: string): string {
+  return request
+    .replace(/^(?:Recent user requests|Current request):[ \t]*/gm, "")
+    .replace(/^User:[ \t]*/gm, "")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
+}
+
+// Core injects an unranked reference only at this similarity
+// (MIN_ANALYTICS_REFERENCE_SIMILARITY in prompt-resources.ts); the fallback
+// ids this file hands over must clear the same bar.
+const MIN_REFERENCE_SIMILARITY = 0.35;
+
+function candidateTitle(candidate: AnalyticsQueryCatalogCandidate): string {
+  return candidate.kind === "data-dictionary"
+    ? candidate.metric
+    : candidate.panelTitle;
+}
+
+/** Without embeddings, a reference is relevant when it matched two distinct
+ *  terms of the ask. An ask with one term ("what's our NRR") has no second term
+ *  to match, so the reference must be named for it. */
+function clearsRelevanceBar(
+  { candidate, similarity }: RankedCandidate,
+  terms: ReadonlySet<string>,
+): boolean {
+  if (similarity !== undefined) return similarity >= MIN_REFERENCE_SIMILARITY;
+  const matched = candidate.matchedTerms.filter((term) => terms.has(term));
+  if (matched.length >= 2) return true;
+  return (
+    terms.size === 1 &&
+    matched.length === 1 &&
+    searchTerms(candidateTitle(candidate)).includes(matched[0]!)
+  );
 }
 
 async function beforeDeadline<T>(
@@ -459,13 +516,18 @@ export async function retrieveAnalyticsPromptReferences(input: {
   deadlineAt?: number;
 }): Promise<AnalyticsPromptReferences> {
   const deadlineAt = input.deadlineAt ?? Date.now() + 1_300;
+  const request = retrievalQuery(input.request);
   let cacheAllowed = true;
   let searchResults: AnalyticsQueryCatalogCandidate[];
+  // A source that is unavailable, partial, or truncated can hide references
+  // the other source's hits cannot stand in for, so neither "empty" nor "ok"
+  // holds even when this lookup found candidates.
+  let catalogComplete: boolean;
   try {
     const search = await beforeDeadline(
       (signal) =>
         searchAnalyticsQueryCatalog({
-          search: input.request,
+          search: request,
           email: input.email,
           orgId: input.orgId,
           limit: CATALOG_CANDIDATE_LIMIT,
@@ -477,18 +539,23 @@ export async function retrieveAnalyticsPromptReferences(input: {
       console.warn(
         "[analytics] Reference catalog exceeded the context budget.",
       );
-      return emptyPromptReferences();
+      return noPromptReferences("timed_out");
     }
     searchResults = search.value.candidates;
+    catalogComplete =
+      search.value.dashboardSearchStatus === "available" &&
+      search.value.dictionarySearchStatus === "available" &&
+      !search.value.dashboardSearchTruncated &&
+      !search.value.dictionarySearchTruncated;
   } catch (error) {
     console.warn(
       "[analytics] Reference catalog unavailable; continuing without preload.",
       error instanceof Error ? error.message : "unknown error",
     );
-    return emptyPromptReferences();
+    return noPromptReferences("failed");
   }
   if (searchResults.length === 0) {
-    return emptyPromptReferences();
+    return noPromptReferences(catalogComplete ? "empty" : "failed");
   }
 
   let ranked: RankedCandidate[] = searchResults.map((candidate) => ({
@@ -498,7 +565,7 @@ export async function retrieveAnalyticsPromptReferences(input: {
     const semanticRanking = await beforeDeadline(
       (signal) =>
         rankWithEmbeddings(
-          input.request,
+          request,
           searchResults,
           () => cacheAllowed,
           deadlineAt,
@@ -522,9 +589,9 @@ export async function retrieveAnalyticsPromptReferences(input: {
     );
   }
 
-  const jevPromptCandidates = ranked
-    .slice(0, PROMPT_CANDIDATE_LIMIT)
-    .map(({ candidate, similarity }, index) => {
+  const shortlisted = ranked.slice(0, PROMPT_CANDIDATE_LIMIT);
+  const jevPromptCandidates = shortlisted.map(
+    ({ candidate, similarity }, index) => {
       const id = `analytics-reference-${index + 1}`;
       return {
         id,
@@ -541,12 +608,16 @@ export async function retrieveAnalyticsPromptReferences(input: {
         scope: "analytics-catalog",
         content: candidateContent(candidate),
       };
-    });
+    },
+  );
 
+  const terms = new Set(relevanceTerms(request));
   return {
     jevPromptCandidates,
     jevFallbackCandidateIds: jevPromptCandidates
+      .filter((_, index) => clearsRelevanceBar(shortlisted[index]!, terms))
       .slice(0, FALLBACK_CANDIDATE_LIMIT)
       .map((candidate) => candidate.id),
+    prefetchStatus: catalogComplete ? "ok" : "failed",
   };
 }

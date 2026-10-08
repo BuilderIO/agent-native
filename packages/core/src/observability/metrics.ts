@@ -79,6 +79,7 @@ interface Instruments {
   agentRuns: MetricCounter;
   toolCalls: MetricCounter;
   flushFailures: MetricCounter;
+  traceWriteFailures: MetricCounter;
 }
 
 let cachedInstruments: Instruments | undefined;
@@ -128,6 +129,13 @@ function instruments(): Instruments | undefined {
           "Telemetry flushes that timed out or failed; their points were dropped.",
       },
     ),
+    traceWriteFailures: meter.createCounter(
+      "agent_native.observability.trace_write_failures",
+      {
+        description:
+          "Runs whose trace spans or summary could not be persisted; their trace is incomplete or missing.",
+      },
+    ),
   };
   return cachedInstruments;
 }
@@ -142,8 +150,9 @@ export interface HttpServerRequestMetric {
   statusCode: number;
   durationMs: number;
   /**
-   * A low-cardinality route template. Omit rather than pass a raw path:
-   * arbitrary request paths would mint a series each.
+   * A value from the closed set `httpRouteForRequest()` documents, or a
+   * trusted action's declared template. Never a raw path: arbitrary request
+   * paths would mint a series each.
    */
   route?: string;
 }
@@ -265,6 +274,19 @@ export function recordAgentToolCall(call: AgentToolCallMetric): void {
       ? call.toolName
       : "other",
     ...(call.errorType ? { "error.type": call.errorType } : {}),
+  });
+}
+
+export type TraceWriteStage = "spans" | "summary" | "thread_org" | "write";
+
+/** Counted once per failed stage of a run, never per span. */
+export function recordTraceWriteFailure(
+  stage: TraceWriteStage,
+  error: unknown,
+): void {
+  instruments()?.traceWriteFailures.add(1, {
+    "agent_native.observability.stage": stage,
+    "error.type": flushErrorType(error),
   });
 }
 

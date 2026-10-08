@@ -1,0 +1,26 @@
+===================================================================
+--- a/.agents/skills/actions/SKILL.md
++++ b/.agents/skills/actions/SKILL.md
+@@ -156,8 +156,22 @@
+ ```
+ 
+ CLI flags become action input fields (`--key value` or `--key=value`); the runner does not read or write files for `--input` or `--output`. The default template dispatches through core's `runScript()` in `actions/run.ts`. Action names are lowercase-with-hyphens (`pnpm action my-action` → `actions/my-action.ts`).
+ 
++After adding or changing several related actions, smoke-test **once** (one
++happy-path call that proves the wire-up), then typecheck once. Do not run
++`pnpm action …` for every method unless a smoke test failed and you need to
++isolate which action broke.
++
++## CRUD + Drizzle in this starter
++
++Before hunting through `node_modules` for DB helpers, read:
++
++1. `drizzle/START_HERE.md` — where tables live + migrate commands
++2. `drizzle/crud-action-example.ts` — copy-paste list/create/update/delete pattern
++
++DB client: `getDb` / `schema` from `server/db.ts`.
++
+ ## Custom `/api/` Routes
+ 
+ Complete exception list — justified only when the caller isn't your own UI/agent, or the payload isn't JSON: **file uploads** (actions take JSON, not multipart), **streaming** (SSE/chunked needing direct H3 control), **webhooks**, **OAuth callbacks** (fixed redirect URL patterns), **public unauthenticated endpoints** (SEO/OG images, share links), **binary/non-JSON responses**.
+ 

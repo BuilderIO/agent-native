@@ -67,8 +67,19 @@ export function auditAppLabel(app: string): string {
     .join(" ");
 }
 
+const OUTSIDE_AGENT_PROTOCOLS: Record<string, string> = {
+  mcp: "MCP",
+  webmcp: "WebMCP",
+  a2a: "A2A",
+};
+
 function actorLabel(event: AuditEvent, t: Translate): string {
-  if (event.actorKind === "agent") return t("agentChat.common.agent");
+  if (event.actorKind === "agent") {
+    const protocol = OUTSIDE_AGENT_PROTOCOLS[event.caller];
+    return protocol
+      ? t("agentChat.settings.audit.agentVia", { protocol })
+      : t("agentChat.common.agent");
+  }
   if (event.actorKind === "system" || !event.actorEmail) {
     return t("agentChat.settings.audit.system");
   }

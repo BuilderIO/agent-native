@@ -65,7 +65,7 @@ export function DesignBottomToolbar({
   onMediaFiles,
   onCommentPin,
   onModeChange,
-  shortcutsPanelOpen,
+  showModeTabs,
 }: {
   mode: EditorMode;
   pinMode: boolean;
@@ -87,7 +87,12 @@ export function DesignBottomToolbar({
   onMediaFiles: (files: File[]) => void;
   onCommentPin: () => void;
   onModeChange: (mode: EditorMode) => void;
-  shortcutsPanelOpen: boolean;
+  /**
+   * The Interact / Design / Annotate switch lives in the editor top bar. Shells
+   * that do not render that bar (minimal UI, embedded chrome, the visual-edit
+   * route, hidden UI) still render this toolbar, so it carries the switch there.
+   */
+  showModeTabs: boolean;
 }) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
@@ -402,8 +407,7 @@ export function DesignBottomToolbar({
     <div
       data-design-bottom-toolbar
       /* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */
-      className="fixed left-1/2 z-[70] flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur transition-[bottom] duration-150 motion-reduce:transition-none md:max-w-[calc(100%-2rem)] md:overflow-visible"
-      style={{ bottom: shortcutsPanelOpen ? 257 : 16 }}
+      className="fixed bottom-4 left-1/2 z-[70] flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur md:max-w-[calc(100%-2rem)] md:overflow-visible"
     >
       <input
         ref={mediaInputRef}
@@ -444,21 +448,25 @@ export function DesignBottomToolbar({
           : { status: "missing" as const })}
       />
 
-      {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
-      <div className="h-9 w-px shrink-0 bg-white/15" />
+      {showModeTabs ? (
+        <>
+          {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
+          <div className="h-9 w-px shrink-0 bg-white/15" />
 
-      {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
-      <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
-        {modes.map((item) => (
-          <DesignModeTab
-            key={item.key}
-            active={item.active}
-            label={item.label}
-            icon={item.icon}
-            onClick={item.onClick}
-          />
-        ))}
-      </div>
+          {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
+          <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
+            {modes.map((item) => (
+              <DesignModeTab
+                key={item.key}
+                active={item.active}
+                label={item.label}
+                icon={item.icon}
+                onClick={item.onClick}
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
