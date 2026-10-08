@@ -124,10 +124,12 @@ const DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS: AutomationTriggerQueueQueryOptions =
 const EVENT_AUTOMATION_NAMES_TTL_MS = 60_000;
 let _deps: TriggerDispatcherDeps | null = null;
 let _anyEventSubscriptionId: string | null = null;
-// null = not loaded, or the last load failed. Never read as "no automations".
+// null = not loaded, or invalidated by a refresh. Never read as "no automations".
 let _eventAutomationNames: { names: Set<string>; loadedAt: number } | null =
   null;
-let _pendingEventAutomationNames: Promise<Set<string>> | null = null;
+// Bumped by each refresh so a read that started earlier cannot overwrite the
+// newer snapshot when it finishes later.
+let _eventAutomationGeneration = 0;
 let _triggerQueueWorkerStarted = false;
 // ponytail: warm-process backoff resets on cold start; persist only if cold churn warrants it.
 let _triggerQueueIdleBackoffMs = 0;
@@ -308,7 +310,7 @@ export async function initTriggerDispatcher(
   // function any query here outlives the response and the frozen instance
   // thaws into a timeout. Automations load on the first emitted event instead.
   _eventAutomationNames = null;
-  _pendingEventAutomationNames = null;
+  _eventAutomationGeneration += 1;
   if (_anyEventSubscriptionId) unsubscribe(_anyEventSubscriptionId);
   _anyEventSubscriptionId = subscribeAll(handleAnyEvent);
   registerRecurringSweepHandler("automation-trigger-queue", async (context) => {
@@ -664,56 +666,50 @@ async function drainReadyTriggerQueue(
 }
 
 /**
- * Loads are serialized: a snapshot taken before a concurrent define or delete
- * must not land after it and hide the newer automation. The event bus is
- * process-local, so a per-process queue is the whole scope.
+ * Every jobs scan also refreshes the cached event names, unless a refresh
+ * started after it did.
  */
-let _subscriptionRefreshQueue: Promise<unknown> = Promise.resolve();
-
-function loadEventAutomationNames(): Promise<Set<string>> {
-  const load = _subscriptionRefreshQueue.then(readEventAutomationNames);
-  _subscriptionRefreshQueue = load.then(
-    () => undefined,
-    () => undefined,
-  );
-  _pendingEventAutomationNames = load;
-  void load
-    .finally(() => {
-      if (_pendingEventAutomationNames === load) {
-        _pendingEventAutomationNames = null;
-      }
-    })
-    .catch(() => undefined);
-  return load;
+async function listEventAutomationResources(): Promise<Resource[]> {
+  const generation = _eventAutomationGeneration;
+  const jobResources = await resourceListAllOwners("jobs/");
+  if (generation === _eventAutomationGeneration) {
+    _eventAutomationNames = {
+      names: eventAutomationNames(jobResources),
+      loadedAt: Date.now(),
+    };
+  }
+  return jobResources;
 }
 
-async function readEventAutomationNames(): Promise<Set<string>> {
-  try {
-    const jobResources = await resourceListAllOwners("jobs/");
-    const names = new Set<string>();
-    for (const resource of jobResources) {
-      if (!resource.path.endsWith(".md")) continue;
-      const { meta } = parseTriggerFrontmatter(resource.content);
-      if (!jobBelongsToApp(meta, _deps?.appId)) continue;
-      if (meta.triggerType === "event" && meta.event && meta.enabled) {
-        names.add(meta.event);
-      }
+function eventAutomationNames(jobResources: Resource[]): Set<string> {
+  const names = new Set<string>();
+  for (const resource of jobResources) {
+    if (!resource.path.endsWith(".md")) continue;
+    const { meta } = parseTriggerFrontmatter(resource.content);
+    if (!jobBelongsToApp(meta, _deps?.appId)) continue;
+    if (meta.triggerType === "event" && meta.event && meta.enabled) {
+      names.add(meta.event);
     }
-    _eventAutomationNames = { names, loadedAt: Date.now() };
-    return names;
-  } catch (err) {
-    _eventAutomationNames = null;
-    throw err;
   }
+  return names;
+}
+
+function cachedEventAutomationNames(): Set<string> | null {
+  const cached = _eventAutomationNames;
+  return cached && Date.now() - cached.loadedAt < EVENT_AUTOMATION_NAMES_TTL_MS
+    ? cached.names
+    : null;
 }
 
 /**
  * Reloads which events have automations, e.g. after one is defined or
- * deleted. `false` means the load failed; the next emitted event retries it.
+ * deleted. `false` means the load failed; the next event reads fresh.
  */
 export async function refreshEventSubscriptions(): Promise<boolean> {
+  _eventAutomationGeneration += 1;
+  _eventAutomationNames = null;
   try {
-    await loadEventAutomationNames();
+    await listEventAutomationResources();
     return true;
   } catch (err) {
     console.error("[triggers] Failed to refresh event subscriptions:", err);
@@ -723,19 +719,15 @@ export async function refreshEventSubscriptions(): Promise<boolean> {
 
 /**
  * Whether an enabled event automation in this app listens for `eventName`.
- * Rejects when automations cannot be read, so a caller never mistakes an
- * unreadable store for "nobody is listening".
+ * Only a cached `true` is reused: callers act on `false` by discarding work
+ * (Mail advances its history cursor), so `false` always comes from a fresh
+ * read. Rejects when automations cannot be read.
  */
 export async function hasEventAutomation(eventName: string): Promise<boolean> {
-  return (await currentEventAutomationNames()).has(eventName);
-}
-
-function currentEventAutomationNames(): Promise<Set<string>> {
-  const cached = _eventAutomationNames;
-  if (cached && Date.now() - cached.loadedAt < EVENT_AUTOMATION_NAMES_TTL_MS) {
-    return Promise.resolve(cached.names);
-  }
-  return _pendingEventAutomationNames ?? loadEventAutomationNames();
+  if (cachedEventAutomationNames()?.has(eventName)) return true;
+  return eventAutomationNames(await listEventAutomationResources()).has(
+    eventName,
+  );
 }
 
 async function handleAnyEvent(
@@ -743,18 +735,10 @@ async function handleAnyEvent(
   payload: unknown,
   eventMeta: EventMeta,
 ): Promise<void> {
-  if (!_deps) return;
-  let names: Set<string>;
-  try {
-    names = await currentEventAutomationNames();
-  } catch (err) {
-    console.error(
-      `[triggers] Could not load event automations; "${eventName}" was not queued:`,
-      err,
-    );
-    throw err;
-  }
-  if (names.has(eventName)) await handleEvent(eventName, payload, eventMeta);
+  // A cold cache costs no extra read or failure point: handleEvent's own scan
+  // loads it.
+  if (cachedEventAutomationNames()?.has(eventName) === false) return;
+  await handleEvent(eventName, payload, eventMeta);
 }
 
 async function handleEvent(
@@ -766,7 +750,7 @@ async function handleEvent(
   if (!deps) return;
 
   try {
-    const jobResources = await resourceListAllOwners("jobs/");
+    const jobResources = await listEventAutomationResources();
     const matchingTriggers = jobResources.filter((resource) => {
       if (!resource.path.endsWith(".md")) return false;
       const { meta, body } = parseTriggerFrontmatter(resource.content);

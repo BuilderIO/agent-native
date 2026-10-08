@@ -524,6 +524,8 @@ Respond to the concurrent event.`,
     await expect(
       busEventHandler("test.event.fired")({}, meta("event-during-outage")),
     ).rejects.toBe(timeout);
+    // The lookup adds no read of its own, so it adds no new way to lose the event.
+    expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
     expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
     await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
 
@@ -573,7 +575,7 @@ Respond to the concurrent event.`,
     error.mockRestore();
   });
 
-  it("loads automations once for concurrent events and skips events nobody listens for", async () => {
+  it("skips the jobs read for events nobody listens for once automations are loaded", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     await initTriggerDispatcher({
       getActions: () => ({}),
@@ -585,13 +587,26 @@ Respond to the concurrent event.`,
       emittedAt: new Date().toISOString(),
     };
 
-    await Promise.all([
-      busEventHandler("unwatched.event")({}, meta),
-      busEventHandler("other.unwatched.event")({}, meta),
-    ]);
+    await busEventHandler("unwatched.event")({}, meta);
+    await busEventHandler("other.unwatched.event")({}, meta);
 
     expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
     expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("re-reads before reporting no automation so a stale cached negative is never trusted", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    resourceListAllOwnersMock.mockResolvedValueOnce([]);
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(false);
+
+    // Another instance defines the automation; this one's cache is still fresh.
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
   });
 
   it("reloads automations defined by another instance after the cache expires", async () => {
@@ -602,13 +617,23 @@ Respond to the concurrent event.`,
         getActions: () => ({}),
         getSystemPrompt: async () => "system",
       });
+      const meta = (eventId: string) => ({
+        owner: "alice+triggers@agent-native.test",
+        eventId,
+        emittedAt: new Date().toISOString(),
+      });
       resourceListAllOwnersMock.mockResolvedValueOnce([]);
-      await expect(hasEventAutomation("test.event.fired")).resolves.toBe(false);
+      await busEventHandler("test.event.fired")({}, meta("before-define"));
 
       await vi.advanceTimersByTimeAsync(59_000);
-      await expect(hasEventAutomation("test.event.fired")).resolves.toBe(false);
+      await busEventHandler("test.event.fired")({}, meta("cached-negative"));
+      expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
+
       await vi.advanceTimersByTimeAsync(1_000);
-      await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+      await busEventHandler("test.event.fired")({}, meta("after-expiry"));
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "after-expiry" }),
+      );
     } finally {
       vi.useRealTimers();
     }
