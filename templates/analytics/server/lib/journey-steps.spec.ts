@@ -116,6 +116,11 @@ describe("deriveJourneyStep", () => {
         "output:generation_completed",
         "Generation completed",
       ],
+      [
+        row("design_output_created", 1),
+        "output:design_output_created",
+        "Design output created",
+      ],
       [row("recording_ready", 1), "output:recording_ready", "Recording ready"],
     ];
     for (const [input, key, label] of cases) {
@@ -334,6 +339,19 @@ describe("buildSessionSteps", () => {
       ["page:/home", 100],
       ["app:entered", 160],
       ["page:/home", 170],
+    ]);
+  });
+
+  it("orders a renderable design output after generation activity", () => {
+    const steps = buildSessionSteps([
+      row("design_output_created", 110),
+      row("generation_started", 100),
+      row("design_output_created", 120),
+    ]);
+
+    expect(steps.map((step) => [step.key, step.tsMs])).toEqual([
+      ["output:generation_started", 100],
+      ["output:design_output_created", 110],
     ]);
   });
 

@@ -74,6 +74,7 @@ export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "app.first_action",
   "generation_started",
   "generation_completed",
+  "design_output_created",
   "recording_started",
   "recording_ready",
 ];
@@ -100,6 +101,7 @@ const TIE_RANK: Record<string, number> = {
   recording_started: 12,
   generation_completed: 13,
   recording_ready: 13,
+  design_output_created: 14,
 };
 
 function clean(value: string | null): string {
@@ -176,6 +178,11 @@ export function deriveJourneyStep(
       return {
         key: "output:generation_completed",
         label: "Generation completed",
+      };
+    case "design_output_created":
+      return {
+        key: "output:design_output_created",
+        label: "Design output created",
       };
     case "recording_started":
       return { key: "output:recording_started", label: "Recording started" };
