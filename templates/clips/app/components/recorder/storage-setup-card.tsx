@@ -307,9 +307,6 @@ export function StorageSetupCard({
                 {t("settings.s3Title")}
               </a>
             </Button>
-            <p className="text-center text-xs text-muted-foreground">
-              AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
-            </p>
           </>
         ) : null}
         {!connected && !storageSetupHref ? (

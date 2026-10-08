@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor pending source handoff", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const agentHandoffSource = readFileSync(
     "app/pages/design-editor/commands/apply-pending-visual-styles-with-agent.ts",
     "utf8",
@@ -32,7 +34,9 @@ describe("DesignEditor pending source handoff", () => {
     expect(handler).toContain("HOST_TURN_START_TIMEOUT_MS");
     const chatState = source.slice(
       source.indexOf('if (data.type === "design:chatState")'),
-      source.indexOf("const focusDesignInspectorForSelection"),
+      source.indexOf(
+        "useEffect(() => {\n    if (hasSelectedElement) focusDesignInspectorForSelection();",
+      ),
     );
     expect(chatState).toContain('stagedSourceHandoffRef.current = "running";');
     expect(chatState).toContain(
@@ -119,7 +123,9 @@ describe("DesignEditor pending source handoff", () => {
     expect(source).toContain("refetchIntervalInBackground: false");
     const acknowledgementEffect = source.slice(
       source.indexOf("const localPendingCount"),
-      source.indexOf("const visualEditPromptResult"),
+      source.indexOf(
+        'useEffect(() => {\n    if (viewMode === "overview" && !motionDockOpen) return;',
+      ),
     );
     expect(acknowledgementEffect).toContain(
       "isVisualEditHandoffAcknowledged({",

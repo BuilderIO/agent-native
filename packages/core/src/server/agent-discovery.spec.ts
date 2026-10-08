@@ -27,6 +27,7 @@ const resourceListContentByOwnersAndPrefixesMock = vi.hoisted(() => vi.fn());
 const getSettingMock = vi.hoisted(() => vi.fn());
 const DISCOVERY_ENV_KEYS = [
   "NODE_ENV",
+  "AGENT_USER_EMAIL",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
   "WORKSPACE_GATEWAY_URL",
   "VITE_WORKSPACE_GATEWAY_URL",
@@ -111,6 +112,143 @@ describe("agent discovery", () => {
     expect(ids).not.toContain("meeting-notes");
     expect(ids).not.toContain("scheduling");
     expect(ids).not.toContain("voice");
+  });
+
+  it("preserves remote resource read failures for callers that need complete discovery", async () => {
+    resourceListMock.mockRejectedValueOnce(new Error("resource store offline"));
+
+    await expect(
+      discoverAgents("dispatch", { requireReadableAgentSources: true }),
+    ).rejects.toThrow("Unable to read connected agent resources");
+    await expect(discoverAgents("dispatch")).resolves.toEqual(
+      getBuiltinAgents("dispatch"),
+    );
+  });
+
+  it("preserves individual resource read failures for callers that need complete discovery", async () => {
+    resourceListMock.mockResolvedValueOnce([
+      { id: "remote-1", path: "remote-agents/custom.json" },
+    ]);
+    resourceGetMock.mockRejectedValueOnce(new Error("resource unavailable"));
+
+    await expect(
+      discoverAgents("dispatch", { requireReadableAgentSources: true }),
+    ).rejects.toThrow("Unable to read connected agent resources");
+  });
+
+  it("rejects malformed remote manifests for callers that need complete discovery", async () => {
+    resourceListMock.mockResolvedValueOnce([
+      { id: "remote-1", path: "remote-agents/custom.json" },
+    ]);
+    resourceGetMock.mockResolvedValueOnce({ content: "{not-json" });
+
+    await expect(
+      discoverAgents("dispatch", { requireReadableAgentSources: true }),
+    ).rejects.toMatchObject({
+      message: "Unable to read connected agent resources",
+      cause: expect.objectContaining({
+        message: "Invalid remote agent manifest: remote-agents/custom.json",
+      }),
+    });
+    await expect(discoverAgents("dispatch")).resolves.toEqual(
+      getBuiltinAgents("dispatch"),
+    );
+  });
+
+  it("does not use a built-in when its connected-agent manifest is unreadable", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    resourceListMock.mockResolvedValue([
+      { id: "design-resource", path: "remote-agents/design.json" },
+    ]);
+    resourceGetMock.mockRejectedValue(new Error("resource unavailable"));
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "briefs", name: "Briefs", path: "/briefs" }],
+    });
+
+    try {
+      await expect(
+        findAgent("design", "dispatch", { requireReadableAgentSources: true }),
+      ).rejects.toThrow("Unable to read connected agent resources");
+      await expect(
+        findAgent("briefs", "dispatch", { requireReadableAgentSources: true }),
+      ).resolves.toMatchObject({ id: "briefs" });
+      await expect(findAgent("design", "dispatch")).resolves.toMatchObject({
+        id: "design",
+      });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves a built-in after complete strict discovery finds no override", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+
+    try {
+      await expect(
+        findAgent("design", "dispatch", { requireReadableAgentSources: true }),
+      ).resolves.toMatchObject({ id: "design" });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps unreadable workspace manifests distinct from missing agents", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = "{not-json";
+
+    try {
+      await expect(
+        findAgent("briefs", "dispatch", { requireReadableAgentSources: true }),
+      ).rejects.toThrow("Invalid workspace apps environment manifest");
+      await expect(discoverAgents("dispatch")).resolves.toEqual(
+        getBuiltinAgents("dispatch"),
+      );
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps unreadable workspace app metadata distinct from missing agents", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "briefs", name: "Briefs", path: "/briefs" }],
+    });
+    getSettingMock.mockRejectedValue(new Error("settings unavailable"));
+
+    try {
+      await runWithRequestContext({ orgId: "org-123" }, async () => {
+        await expect(
+          findAgent("briefs", "dispatch", {
+            requireReadableAgentSources: true,
+          }),
+        ).rejects.toThrow("settings unavailable");
+
+        getSettingMock.mockResolvedValue(null);
+        await expect(findAgent("briefs", "dispatch")).resolves.toMatchObject({
+          id: "briefs",
+        });
+      });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("exposes the remote-agent visibility predicate used by list views", () => {
@@ -362,6 +500,106 @@ describe("agent discovery", () => {
         }),
       ]),
     );
+  });
+
+  it("discovers personal agents only for the authenticated user", async () => {
+    resourceListMock.mockImplementation(async (owner: string, prefix: string) =>
+      prefix === "remote-agents/" && owner === "alice@example.test"
+        ? [{ id: "personal-resource", path: "remote-agents/personal.json" }]
+        : [],
+    );
+    resourceGetMock.mockResolvedValue({
+      id: "personal-resource",
+      content: JSON.stringify({
+        id: "personal-agent",
+        name: "Personal Agent",
+        url: "https://personal.example.com",
+      }),
+    });
+
+    const aliceAgents = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    const bobAgents = await runWithRequestContext(
+      { userEmail: "bob@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    const unscopedAgents = await runWithRequestContext(
+      { orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    const directoryAgents = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch"),
+    );
+
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "alice@example.test",
+      "remote-agents/",
+    );
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "bob@example.test",
+      "remote-agents/",
+    );
+    expect(aliceAgents).toContainEqual(
+      expect.objectContaining({
+        id: "personal-agent",
+        url: "https://personal.example.com",
+      }),
+    );
+    expect(bobAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+    expect(unscopedAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+    expect(directoryAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+
+    process.env.AGENT_USER_EMAIL = "alice@example.test";
+    const ambientOnlyAgents = await runWithRequestContext(
+      { orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    expect(ambientOnlyAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+  });
+
+  it("keeps shared and organization agents ahead of personal agents", async () => {
+    resourceListMock.mockImplementation(async (owner: string, prefix: string) =>
+      prefix === "remote-agents/"
+        ? [{ id: `${owner}-resource`, path: "remote-agents/same-agent.json" }]
+        : [],
+    );
+    resourceGetMock.mockImplementation(async (id: string) => {
+      const owner = id.slice(0, id.indexOf("-resource"));
+      return {
+        id,
+        content: JSON.stringify({
+          id: "same-agent",
+          name: owner,
+          url:
+            owner === "__organization__:org-123"
+              ? "https://org.example.com"
+              : owner === "__shared__"
+                ? "https://shared.example.com"
+                : "https://personal.example.com",
+        }),
+      };
+    });
+
+    const agents = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+
+    expect(agents.find((agent) => agent.id === "same-agent")).toMatchObject({
+      name: "__organization__:org-123",
+      url: "https://org.example.com",
+    });
   });
 
   it("prefers the organization manifest and reads each scoped resource once", async () => {

@@ -3748,6 +3748,26 @@ export function foldAssistantTurn(
   return nextRepo;
 }
 
+export function foldAgentChatRunCompletion(
+  repo: unknown,
+  assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
+  run: ThreadSuggestionRun &
+    Pick<
+      ActiveRun,
+      "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
+    >,
+) {
+  const folded = assistantMsg
+    ? foldAssistantTurn(repo, assistantMsg, {
+        runId: run.runId,
+        turnId: run.turnId,
+        parentId: run.parentId,
+        agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
+      })
+    : repo;
+  return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);
+}
+
 /**
  * A turn the server refused before any run started (no usable model
  * credential, AI setup missing) still answers in the thread: a typed

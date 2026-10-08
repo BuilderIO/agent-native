@@ -312,6 +312,15 @@ export interface StartRunOptions {
   userId?: string;
   attemptCount?: number;
   recoverChunkBoundaries?: boolean;
+  persistEvent?: (
+    write: () => Promise<void>,
+    metadata: {
+      terminal: boolean;
+      runId: string;
+      seq: number;
+      eventData: string;
+    },
+  ) => Promise<void>;
 }
 
 export interface RunChunkControl {
@@ -1365,6 +1374,19 @@ export function startRun(
     });
   };
 
+  const persistRunEvent = (runEvent: RunEvent): Promise<void> => {
+    const eventData = JSON.stringify(runEvent.event);
+    const write = () => insertRunEvent(runId, runEvent.seq, eventData);
+    return options?.persistEvent
+      ? options.persistEvent(write, {
+          terminal: isTerminalRunEvent(runEvent.event),
+          runId,
+          seq: runEvent.seq,
+          eventData,
+        })
+      : write();
+  };
+
   const emitRunEvent = (
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
@@ -1387,11 +1409,7 @@ export function startRun(
 
     const thisInsert = persistenceChain.then(async () => {
       try {
-        await insertRunEvent(
-          runId,
-          runEvent.seq,
-          JSON.stringify(runEvent.event),
-        );
+        await persistRunEvent(runEvent);
       } catch (error) {
         if (!eventPersistenceErrorCaptured) {
           eventPersistenceErrorCaptured = true;
@@ -1400,11 +1418,7 @@ export function startRun(
             eventType: runEvent.event.type,
           });
         }
-        await insertRunEvent(
-          runId,
-          runEvent.seq,
-          JSON.stringify(runEvent.event),
-        );
+        await persistRunEvent(runEvent);
       }
     });
     persistenceChain = thisInsert;
@@ -1487,17 +1501,20 @@ export function startRun(
         await persistenceChain;
       } catch (error) {
         eventPersistenceError = error;
-        run.status = "errored";
-        pendingTerminalEvent = {
-          seq: run.events.length,
-          event: {
-            type: "error",
-            error: "Agent run ended unexpectedly",
-            errorCode: "run_event_persistence_failed",
-          },
-        };
+        if (run.status !== "aborted") {
+          run.status = "errored";
+          pendingTerminalEvent = {
+            seq: run.events.length,
+            event: {
+              type: "error",
+              error: "Agent run ended unexpectedly",
+              errorCode: "run_event_persistence_failed",
+            },
+          };
+        }
       }
       const resolveTerminalEventForCompletion = () => {
+        if (run.status === "aborted") return null;
         if (eventPersistenceError) return pendingTerminalEvent;
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
@@ -1568,14 +1585,15 @@ export function startRun(
       if (unfinishedTurnContinuationEvent) {
         terminalEvent = unfinishedTurnContinuationEvent;
       }
-      const terminalReason = eventPersistenceError
-        ? "error:run_event_persistence_failed"
-        : terminalReasonForRun(
-            finalStatus,
-            terminalEvent,
-            run.abortReason,
-            completionError,
-          );
+      const terminalReason =
+        eventPersistenceError && finalStatus !== "aborted"
+          ? "error:run_event_persistence_failed"
+          : terminalReasonForRun(
+              finalStatus,
+              terminalEvent,
+              run.abortReason,
+              completionError,
+            );
       const persistedStatus =
         finalStatus === "completed" &&
         isContinuationTerminalReason(terminalReason)
@@ -1621,11 +1639,7 @@ export function startRun(
             );
             if (!eventPersistenceError) {
               try {
-                await insertRunEvent(
-                  runId,
-                  terminal.seq,
-                  JSON.stringify(terminal.event),
-                );
+                await persistRunEvent(terminal);
                 terminalPersistenceError = null;
               } catch (retryError) {
                 terminalPersistenceError = retryError;

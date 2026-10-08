@@ -2079,7 +2079,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io の接続を解除できませんでした。",
   "settingsShell.builder.disconnectTitle": "Builder.io の接続を解除しますか？",
   "settingsShell.builder.grantsFailed":
-    "Builder.io への接続を確認できませんでした。",
+    "接続状態を確認できません。もう一度お試しください。",
   "settingsShell.builder.setupStartFailed":
     "Builder.io のセットアップを開始できませんでした。このページを更新して、もう一度お試しください。",
   "settingsShell.builder.setupHostFailed":
@@ -2515,7 +2515,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "モデルへのアクセス、ブラウザ自動化、ファイルストレージ、ワークスペース ID。無料プランがあります。",
   "settingsShell.integrations.builderStatusFailed":
-    "Builder.io の接続を確認できませんでした。",
+    "接続状態を確認できません。もう一度お試しください。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "デザイン",
   "settingsShell.integrations.category.engineering": "エンジニアリング",
@@ -2670,6 +2670,11 @@ const messages: ToolkitAgentChatTranslation = {
     "デプロイのフォールバックを利用できます。上書きするには、ご自身の Builder.io アカウントを使用してください。",
   "settingsInfra.builderStorageHint":
     "オブジェクトストレージはアップロードしたファイルを保持し、スレッド全体で URL を再利用できるようにします。以下では Builder.io または S3 互換バケットを使用してください。",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io は接続されていますが、まだアップロードしたファイルを保存できません。アップロード権限を付与するため再接続するか、下でバケットを設定してください。",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Builder.io のアップロード権限を確認できませんでした。再試行するか、下でバケットを設定してください。",
+  "settingsInfra.reconnectBuilderUploads": "アップロード権限を付与",
   "settingsInfra.builderUnknown": "Builder.io の接続を確認できませんでした。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "接続",

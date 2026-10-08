@@ -122,15 +122,13 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
+import { readDesignEditorSource } from "../app/pages/design-editor/read-design-editor-source";
 import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import action from "./create-file.js";
 
 function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
-  const source = readFileSync(
-    new URL("../app/pages/DesignEditor.tsx", import.meta.url),
-    "utf8",
-  );
+  const source = readDesignEditorSource();
   const start = source.indexOf(
     "const optimisticallyInsertCreatedFile = useCallback(",
   );
