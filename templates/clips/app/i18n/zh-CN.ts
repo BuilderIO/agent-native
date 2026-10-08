@@ -206,6 +206,7 @@ const messages = {
   recordingPage: {
     back: "后退",
     done: "完成",
+    backToClip: "返回剪辑",
     untitledClip: "无标题剪辑",
     recordingNotFound: "找不到录制",
     noAccess: "您可能无权访问此剪辑。",
@@ -1280,6 +1281,9 @@ const messages = {
     burningRedactions: "正在将遮挡渲染进视频…",
     burningRedactionsPercent: "正在将遮挡渲染进视频… {{percent}}%",
     editFailed: "无法保存该编辑",
+    autoSaveHint: "编辑内容会自动保存到此剪辑",
+    savingChanges: "正在保存更改…",
+    changesSaved: "更改已保存到此剪辑",
     nothingToRedo: "没有可重做的操作",
   },
   transcriptEditor: {

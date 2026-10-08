@@ -211,6 +211,7 @@ const messages = {
   recordingPage: {
     back: "पीछे",
     done: "हो गया",
+    backToClip: "क्लिप पर वापस जाएँ",
     untitledClip: "शीर्षक रहित क्लिप",
     recordingNotFound: "रिकॉर्डिंग नहीं मिली",
     noAccess: "हो सकता है कि आपके पास इस क्लिप तक पहुंच न हो.",
@@ -1317,6 +1318,9 @@ const messages = {
     burningRedactionsPercent:
       "रिडैक्शन को वीडियो में रेंडर किया जा रहा है… {{percent}}%",
     editFailed: "यह बदलाव सहेजा नहीं जा सका",
+    autoSaveHint: "बदलाव इस क्लिप में अपने आप सहेजे जाते हैं",
+    savingChanges: "बदलाव सहेजे जा रहे हैं…",
+    changesSaved: "बदलाव इस क्लिप में सहेज दिए गए",
     nothingToRedo: "दोहराने के लिए कुछ नहीं है",
   },
   transcriptEditor: {
