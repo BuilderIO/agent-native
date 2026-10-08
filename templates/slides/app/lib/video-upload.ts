@@ -74,6 +74,14 @@ function canRetryFinalChunk(error: unknown): boolean {
   );
 }
 
+function canRecoverFinalChunk(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return (
+    canRetryFinalChunk(error) ||
+    (typeof status === "number" && status >= 200 && status < 300)
+  );
+}
+
 function waitForFinalChunkRetry(
   attempt: number,
   retryAfterMs?: number,
@@ -152,7 +160,7 @@ async function resolveFinalChunk(
   initialError: unknown,
 ): Promise<UploadedSlideVideo> {
   let retryAfterMs: number | undefined;
-  if (!canRetryFinalChunk(initialError)) throw initialError;
+  if (!canRecoverFinalChunk(initialError)) throw initialError;
   for (
     let attempt = 0;
     attempt < MAX_FINAL_CHUNK_RECOVERY_ATTEMPTS;
@@ -258,7 +266,7 @@ async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
           const { data, response } = await sendChunk();
           return readUploadedSlideVideo(data, response);
         } catch (error) {
-          if (!canRetryFinalChunk(error)) throw error;
+          if (!canRecoverFinalChunk(error)) throw error;
           return resolveFinalChunk(startData.sessionId, sendChunk, error);
         }
       }

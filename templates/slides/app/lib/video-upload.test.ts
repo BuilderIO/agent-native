@@ -380,7 +380,7 @@ describe("uploadSlideVideo", () => {
     ).toHaveLength(25);
   });
 
-  it("does not retry a malformed successful final response", async () => {
+  it("recovers the committed asset after a malformed successful final response", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -397,14 +397,36 @@ describe("uploadSlideVideo", () => {
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: "complete",
+            video: { id: "asset-1", url: "/assets/clip.mp4" },
+          }),
+          { status: 200 },
+        ),
       );
     vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
 
-    await expect(uploadSlideVideo(largeVideoFile())).rejects.toMatchObject({
-      message: "Video upload response was invalid",
-      status: 200,
+    const upload = uploadSlideVideo(largeVideoFile());
+    const resolved = expect(upload).resolves.toEqual({
+      id: "asset-1",
+      url: "/assets/clip.mp4",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await vi.runAllTimersAsync();
+    await resolved;
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[3][0])).toContain(
+      "/api/uploads-chunked/session-1/status",
+    );
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("index=1&isFinal=1"),
+      ),
+    ).toHaveLength(1);
   });
 
   it.each([

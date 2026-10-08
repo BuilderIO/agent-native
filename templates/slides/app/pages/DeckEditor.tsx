@@ -2722,7 +2722,7 @@ export default function DeckEditor() {
         const message = error instanceof Error ? error.message : "";
         const description = isMissingUploadProviderError(status ?? 0, message)
           ? t("editorToolbar.videoUploadNeedsBuilder")
-          : message.includes("Only valid MP4 and WebM")
+          : message.includes("MP4 and WebM")
             ? t("editorToolbar.videoFormatUnsupported")
             : t("editorToolbar.videoUploadError");
         if (
