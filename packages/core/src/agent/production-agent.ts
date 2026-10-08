@@ -1672,6 +1672,8 @@ export interface PreparedAgentRequest {
 }
 
 export interface ProductionAgentOptions {
+  /** Gate a newly admitted user turn after trusted continuation checks. */
+  assertAiSetupReady: () => Promise<void>;
   actions?: Record<string, ActionEntry>;
   /** @deprecated Use `actions` instead */
   scripts?: Record<string, ActionEntry>;
@@ -8528,6 +8530,60 @@ async function readTurnStartedAt(
   return Number.isFinite(startedAt) && startedAt > 0 ? startedAt : null;
 }
 
+async function isAdmittedQueuedMessagePromotion(opts: {
+  ownerEmail: string | null;
+  orgId: string | null;
+  threadId?: string;
+  messageId: unknown;
+  claimId: unknown;
+  message: string;
+}): Promise<boolean> {
+  const messageId =
+    typeof opts.messageId === "string" ? opts.messageId.trim() : "";
+  const claimId = typeof opts.claimId === "string" ? opts.claimId.trim() : "";
+  if (!opts.ownerEmail || !opts.threadId || !messageId || !claimId) {
+    return false;
+  }
+
+  const { resolveThreadAccess } = await import("../chat-threads/store.js");
+  const thread = await resolveThreadAccess(
+    opts.ownerEmail,
+    opts.threadId,
+    "editor",
+    { orgId: opts.orgId ?? undefined },
+  );
+  if (!thread) return false;
+
+  let repository: unknown;
+  try {
+    repository = JSON.parse(thread.threadData || "{}");
+  } catch {
+    // coercion-ok: malformed persisted queue data cannot authorize a continuation.
+    return false;
+  }
+  if (!hasOwn(repository, "queuedMessages")) return false;
+  const queuedMessages = repository.queuedMessages;
+  if (!Array.isArray(queuedMessages)) return false;
+  const queuedMessage = queuedMessages.find(
+    (candidate) => hasOwn(candidate, "id") && candidate.id === messageId,
+  );
+  if (!queuedMessage || !hasOwn(queuedMessage, "promotionClaim")) {
+    return false;
+  }
+
+  const promotionClaim = queuedMessage.promotionClaim;
+  return (
+    hasOwn(queuedMessage, "text") &&
+    queuedMessage.text === opts.message &&
+    hasOwn(promotionClaim, "id") &&
+    promotionClaim.id === claimId &&
+    hasOwn(promotionClaim, "expiresAt") &&
+    typeof promotionClaim.expiresAt === "number" &&
+    Number.isFinite(promotionClaim.expiresAt) &&
+    promotionClaim.expiresAt > Date.now()
+  );
+}
+
 async function emitRunText(run: ActiveRun, text: string): Promise<void> {
   const runEvent: RunEvent = {
     seq: run.events.length,
@@ -9328,6 +9384,52 @@ export function createProductionAgentHandler(
     if (dispatchToBackground && !turnInitiator) {
       setResponseStatus(event, 401);
       return { error: "Background agent runs require a persisted initiator" };
+    }
+    const requestedApprovedToolCalls =
+      Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
+        ? body.approvedToolCalls
+            .filter((key: unknown): key is string => typeof key === "string")
+            .slice(0, 200)
+        : undefined;
+    const resolvedApprovalTurnId =
+      !isBackgroundWorker &&
+      ownerEmail &&
+      threadId &&
+      requestedApprovedToolCalls?.length
+        ? await resolveAgentToolApprovalTurnId({
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            threadId,
+            requestedTurnId: requestTurnId,
+            approvalKeys: requestedApprovedToolCalls,
+          })
+        : null;
+    // The continuation marker is client-controlled. Defer setup admission only
+    // when the named stop and turn can be checked under the run-slot lock;
+    // that check refuses invalid continuations before model work can start.
+    const canDeferSetupGateForContinuationAdmission = Boolean(
+      continueOf &&
+      typeof threadId === "string" &&
+      threadId.trim() &&
+      typeof requestTurnId === "string" &&
+      requestTurnId.trim(),
+    );
+    const isQueuedPromotion = await isAdmittedQueuedMessagePromotion({
+      ownerEmail,
+      orgId: getRequestOrgId() ?? null,
+      threadId,
+      messageId: queuedMessageId,
+      claimId: queuedMessageClaimId,
+      message: requestMessage,
+    });
+    if (
+      !isBackgroundWorker &&
+      runRequestContext?.agentRunAnonymous !== true &&
+      !resolvedApprovalTurnId &&
+      !canDeferSetupGateForContinuationAdmission &&
+      !isQueuedPromotion
+    ) {
+      await options.assertAiSetupReady();
     }
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
@@ -10336,12 +10438,6 @@ export function createProductionAgentHandler(
       ...historyMessages,
       { role: "user" as const, content: userContent },
     ];
-    const requestedApprovedToolCalls =
-      Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
-        ? body.approvedToolCalls
-            .filter((key: unknown): key is string => typeof key === "string")
-            .slice(0, 200)
-        : undefined;
     // The durable approval row is the authorization boundary. Do not require
     // the client to reproduce the original structured history exactly: the UI
     // may truncate tool arguments and intentionally assigns fresh replay ids.
@@ -10362,19 +10458,6 @@ export function createProductionAgentHandler(
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
-    const resolvedApprovalTurnId =
-      !isBackgroundWorker &&
-      ownerEmail &&
-      threadId &&
-      requestedApprovedToolCalls?.length
-        ? await resolveAgentToolApprovalTurnId({
-            ownerEmail,
-            orgId: getRequestOrgId() ?? null,
-            threadId,
-            requestedTurnId: requestTurnId,
-            approvalKeys: requestedApprovedToolCalls,
-          })
-        : null;
     const effectiveTurnId =
       typeof backgroundRunMarker?.turnId === "string" &&
       backgroundRunMarker.turnId.trim()

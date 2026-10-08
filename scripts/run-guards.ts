@@ -12,6 +12,7 @@ const guards = [
   "guard:no-pnpm-patches",
   "guard:template-layers",
   "guard:chat-first-shared-ui",
+  "guard:chat-send-gate",
   "guard:no-empty-migrations",
   "guard:release-schema-complete",
   "guard:no-unscoped-queries",

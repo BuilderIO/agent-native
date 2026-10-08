@@ -122,7 +122,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     let latest: HookResult | null = null;
     function Harness() {
       latest = useGuidedQuestionFlow({
-        providerStatusChecksEnabled: false,
         ...options,
       });
       return null;
@@ -448,7 +447,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     let latest: HookResult | null = null;
     function Harness() {
       const flow = useGuidedQuestionFlow({
-        providerStatusChecksEnabled: false,
         stateKey: "guided-questions",
         queryKey: ["guided-questions"],
         refetchInterval: false,
@@ -584,7 +582,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     const result = await renderFlow({
       stateKey: "guided-questions",
       queryKey: ["guided-questions"],
-      providerStatusChecksEnabled: true,
       providerStatus: "missing",
       refetchInterval: false,
     });
@@ -611,7 +608,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     const result = await renderFlow({
       stateKey: "guided-questions",
       queryKey: ["guided-questions"],
-      providerStatusChecksEnabled: true,
       providerStatus: "missing",
       refetchInterval: false,
     });

@@ -296,7 +296,7 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     });
 
     expect(agentkitChatMocks.useGuidedQuestionFlow).toHaveBeenCalledWith(
-      expect.objectContaining({ providerStatusChecksEnabled: false }),
+      expect.objectContaining({ engine: "claude-cli" }),
     );
     await cleanup();
   });

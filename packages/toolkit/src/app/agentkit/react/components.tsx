@@ -3031,6 +3031,10 @@ async function forkAndResubmitMessage({
   if (previousMessage === null) {
     throw new Error(messageUnavailable);
   }
+  const engine = metadata?.engine ?? options?.metadata?.engine;
+  await controller.assertAiSetupReady({
+    engine: typeof engine === "string" ? engine : undefined,
+  });
   const forkedThread = await controller.forkThread(
     threadId,
     previousMessage?.id,
@@ -4008,6 +4012,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
     | "requireAgentEngine"
+    | "showMissingApiKeySetup"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
     | "contextButtonTooltipDisabled"
@@ -4021,7 +4026,6 @@ export interface AgentKitComposerProps extends Omit<
     | "inlineTextAttachments"
     | "extraActionButton"
     | "onSubmit"
-    | "onBeforeSubmit"
     | "onSubmissionPendingChange"
     | "onAttachmentError"
     | "interceptBuildRequestsForBuilder"
@@ -4096,7 +4100,7 @@ export function AgentKitComposer({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
-  requireAgentEngine,
+  showMissingApiKeySetup,
   attachmentsEnabled,
   onAttachmentRequest,
   contextButtonTooltipDisabled,
@@ -4106,7 +4110,6 @@ export function AgentKitComposer({
   onRemoveContextItem,
   extraActionButton,
   onSubmit: onSubmitOverride,
-  onBeforeSubmit,
   onSubmissionPendingChange,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
@@ -4358,6 +4361,10 @@ export function AgentKitComposer({
       if (previousMessage === null) {
         throw new Error(labels.messageUnavailable);
       }
+      const selectedEngine = metadata.engine ?? runOptions.metadata?.engine;
+      await controller.assertAiSetupReady({
+        engine: typeof selectedEngine === "string" ? selectedEngine : undefined,
+      });
       const forkedThread = await controller.forkThread(
         threadId,
         previousMessage?.id,
@@ -4454,14 +4461,13 @@ export function AgentKitComposer({
       queuedWhileRunActive: activeAtSubmit,
     });
   };
-  const prepareHostSubmit = async () => {
+  const prepareHostSubmit = () => {
     if (disabled) {
       onDisabledClick?.();
       return false;
     }
     if (submissionDisabled) return false;
-    if (editingMessage) return true;
-    return !onBeforeSubmit || (await onBeforeSubmit());
+    return true;
   };
   const steerQueued: AgentKitQueueRenderProps["onSteer"] =
     !disabled && !submissionDisabled
@@ -4668,7 +4674,8 @@ export function AgentKitComposer({
         onAgentChange={onAgentChange}
         onModelSelectorOpenChange={onModelSelectorOpenChange}
         modelStatusChecksEnabled={modelStatusChecksEnabled}
-        requireAgentEngine={requireAgentEngine}
+        requireAgentEngine
+        showMissingApiKeySetup={showMissingApiKeySetup}
         layoutVariant={layoutVariant}
         toolbarSlot={composerToolbarSlot}
         initialText={composerInitialText}
@@ -4676,7 +4683,6 @@ export function AgentKitComposer({
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
         sendButtonDisabled={submissionPending}
-        onBeforeSubmit={onBeforeSubmit}
         onSubmissionPendingChange={handleSubmissionPendingChange}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         clearOnSubmitImmediately

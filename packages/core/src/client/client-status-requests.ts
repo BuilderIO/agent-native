@@ -16,7 +16,16 @@ type CacheEntry = {
   result: ClientStatusResult<unknown>;
 };
 
+interface ClientStatusRequestOptions {
+  fresh?: boolean;
+  url?: string;
+  fetch?: typeof fetch;
+  headers?: HeadersInit;
+  credentials?: RequestCredentials;
+}
+
 const RESULT_TTL_MS = 500;
+const AGENT_ENGINE_STATUS_TTL_MS = 10_000;
 /**
  * One signed-in session answer serves the whole page load: the shell's
  * bootstrap read, analytics, and every `useSession` consumer share it for this
@@ -28,6 +37,7 @@ const RESULT_TTL_MS = 500;
 export const SESSION_RESULT_LIFETIME_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_STATUS_PATH = "/_agent-native/auth/session";
+const AGENT_ENGINE_STATUS_PATH = "/_agent-native/agent-engine/status";
 const cache = new Map<string, CacheEntry>();
 const requests = new Map<string, Promise<ClientStatusResult<unknown>>>();
 const supersededRequests = new WeakSet<object>();
@@ -49,11 +59,26 @@ function isSignedInSession(value: unknown): boolean {
   );
 }
 
+function statusCacheKey(url: string): string {
+  try {
+    const base =
+      typeof window === "undefined"
+        ? "http://agent-native.invalid"
+        : window.location.href;
+    return new URL(url, base).toString();
+  } catch {
+    return url;
+  }
+}
+
 function expireClientStatusCache(): void {
   statusGeneration += 1;
-  const sessionUrl = agentNativePath(SESSION_STATUS_PATH);
+  const sessionUrl = statusCacheKey(agentNativePath(SESSION_STATUS_PATH));
+  const engineStatusUrl = statusCacheKey(
+    agentNativePath(AGENT_ENGINE_STATUS_PATH),
+  );
   for (const url of cache.keys()) {
-    if (url !== sessionUrl) cache.delete(url);
+    if (url !== sessionUrl && url !== engineStatusUrl) cache.delete(url);
   }
 }
 
@@ -101,18 +126,19 @@ function installInvalidationListeners(): void {
 
 async function fetchClientStatus<T>(
   path: string,
-  options?: { fresh?: boolean },
+  options?: ClientStatusRequestOptions,
 ): Promise<ClientStatusResult<T>> {
   if (agentNativeApiDisabledReason()) return { state: "unavailable" };
   installInvalidationListeners();
-  const url = agentNativePath(path);
-  const cached = cache.get(url);
+  const url = options?.url ?? agentNativePath(path);
+  const key = statusCacheKey(url);
+  const cached = cache.get(key);
   if (!options?.fresh && cached && cached.expiresAt > Date.now()) {
     return cached.result as ClientStatusResult<T>;
   }
-  cache.delete(url);
+  cache.delete(key);
 
-  const pending = requests.get(url);
+  const pending = requests.get(key);
   if (pending && options?.fresh && freshRequests.has(pending)) {
     return pending as Promise<ClientStatusResult<T>>;
   }
@@ -121,14 +147,14 @@ async function fetchClientStatus<T>(
   }
   if (options?.fresh) {
     if (pending) supersededRequests.add(pending);
-    requestGenerations.set(url, (requestGenerations.get(url) ?? 0) + 1);
+    requestGenerations.set(key, (requestGenerations.get(key) ?? 0) + 1);
   }
 
   const sessionRead = path === SESSION_STATUS_PATH;
   const currentGeneration = () =>
     sessionRead ? sessionGeneration : statusGeneration;
   const requestGeneration = currentGeneration();
-  const requestUrlGeneration = requestGenerations.get(url) ?? 0;
+  const requestUrlGeneration = requestGenerations.get(key) ?? 0;
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -145,9 +171,10 @@ async function fetchClientStatus<T>(
   if (bootstrappedSession) delete window.__agentNativeSessionBootstrap;
   const transport =
     bootstrappedSession ??
-    fetch(url, {
+    (options?.fetch ?? fetch)(url, {
       cache: "no-store",
-      credentials: "same-origin",
+      credentials: options?.credentials ?? "same-origin",
+      ...(options?.headers ? { headers: options.headers } : {}),
       ...(controller ? { signal: controller.signal } : {}),
     })
       .then(async (response): Promise<ClientStatusResult<unknown>> => {
@@ -168,15 +195,17 @@ async function fetchClientStatus<T>(
       }
       if (
         currentGeneration() === requestGeneration &&
-        (requestGenerations.get(url) ?? 0) === requestUrlGeneration &&
+        (requestGenerations.get(key) ?? 0) === requestUrlGeneration &&
         result.state === "available"
       ) {
-        cache.set(url, {
+        cache.set(key, {
           expiresAt:
             Date.now() +
             (sessionRead && isSignedInSession(result.value)
               ? SESSION_RESULT_LIFETIME_MS
-              : RESULT_TTL_MS),
+              : path === AGENT_ENGINE_STATUS_PATH
+                ? AGENT_ENGINE_STATUS_TTL_MS
+                : RESULT_TTL_MS),
           result,
         });
       }
@@ -184,30 +213,31 @@ async function fetchClientStatus<T>(
     })
     .finally(() => {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
-      if (requests.get(url) === request) requests.delete(url);
-      if (requestControllers.get(url) === controller) {
-        requestControllers.delete(url);
+      if (requests.get(key) === request) requests.delete(key);
+      if (requestControllers.get(key) === controller) {
+        requestControllers.delete(key);
       }
     });
 
-  requests.set(url, request);
+  requests.set(key, request);
   if (options?.fresh) freshRequests.add(request);
-  if (controller) requestControllers.set(url, controller);
+  if (controller) requestControllers.set(key, controller);
   return request as Promise<ClientStatusResult<T>>;
 }
 
 export function invalidateClientStatusRequest(path: string): void {
   const url = agentNativePath(path);
+  const key = statusCacheKey(url);
   if (path === SESSION_STATUS_PATH && typeof window !== "undefined") {
     delete window.__agentNativeSessionBootstrap;
   }
-  requestGenerations.set(url, (requestGenerations.get(url) ?? 0) + 1);
-  cache.delete(url);
-  const pending = requests.get(url);
+  requestGenerations.set(key, (requestGenerations.get(key) ?? 0) + 1);
+  cache.delete(key);
+  const pending = requests.get(key);
   if (pending) supersededRequests.add(pending);
-  requestControllers.get(url)?.abort();
-  requestControllers.delete(url);
-  requests.delete(url);
+  requestControllers.get(key)?.abort();
+  requestControllers.delete(key);
+  requests.delete(key);
 }
 
 /**
@@ -215,7 +245,7 @@ export function invalidateClientStatusRequest(path: string): void {
  * refreshing on the same event share that read instead of starting another.
  */
 export function expireClientStatusResult(path: string): void {
-  cache.delete(agentNativePath(path));
+  cache.delete(statusCacheKey(agentNativePath(path)));
 }
 
 export function invalidateClientStatusRequests(): void {
@@ -237,6 +267,10 @@ export function invalidateClientStatusRequests(): void {
 
 export function fetchAgentEngineStatus<T = unknown>(options?: {
   fresh?: boolean;
+  url?: string;
+  fetch?: typeof fetch;
+  headers?: HeadersInit;
+  credentials?: RequestCredentials;
 }): Promise<ClientStatusResult<T>> {
   return fetchClientStatus<T>("/_agent-native/agent-engine/status", options);
 }

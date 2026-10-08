@@ -1211,7 +1211,7 @@ describe("buildAssistantMessage", () => {
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
   });
 
-  it("still persists non-recoverable errors", () => {
+  it("keeps missing-provider setup metadata without adding a generic error body", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },
       {
@@ -1226,14 +1226,20 @@ describe("buildAssistantMessage", () => {
 
     const message = buildAssistantMessage(events, "run-missing-key");
 
-    // Persisted from the typed code, so the stored row reads as actionable copy.
     expect(message?.content).toEqual([
       {
         type: "text",
-        text: `checking...\n\nError: ${LLM_MISSING_CREDENTIALS_MESSAGE}`,
+        text: "checking...",
       },
     ]);
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(message?.metadata.custom).toMatchObject({
+      runError: {
+        errorCode: "missing_api_key",
+        message:
+          "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+      },
+    });
   });
 
   it("replaces a non-terminal partial assistant message for the same run", () => {

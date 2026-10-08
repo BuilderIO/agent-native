@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  AgentChatAiSetupRequiredError,
+  agentEngineStatusUrlForChatApi,
+  ensureAgentEngineReadiness,
+  resetAgentEngineReadinessForTests,
+} from "./agent-engine-readiness.js";
+
 const openThread = vi.hoisted(() => vi.fn());
 
 vi.mock("./agent-chat.js", () => ({
@@ -28,17 +35,67 @@ function streamResponse(): Response {
   );
 }
 
+function jsonResponse(data: unknown): Response {
+  return new Response(JSON.stringify(data), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function expectStartRequestIssued(fetchMock = vi.mocked(fetch)) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (
+      fetchMock.mock.calls.some(
+        ([url]) => String(url) === "/_agent-native/agent-chat",
+      )
+    ) {
+      return;
+    }
+    await Promise.resolve();
+  }
+  expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain(
+    "/_agent-native/agent-chat",
+  );
+}
+
 describe("background agent sessions", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     openThread.mockReset();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => streamResponse()),
     );
+    resetAgentEngineReadinessForTests();
+    await ensureAgentEngineReadiness({
+      source: {
+        statusUrl: agentEngineStatusUrlForChatApi("/_agent-native/agent-chat"),
+        fetch: async () =>
+          jsonResponse({ configured: true, chatEligible: true }),
+      },
+    });
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    resetAgentEngineReadinessForTests();
+  });
+
+  it("does not post a background turn when readiness confirms no AI provider", async () => {
+    resetAgentEngineReadinessForTests();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/_agent-native/agent-engine/status")
+        ? jsonResponse({ configured: false, chatEligible: false })
+        : streamResponse(),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const handle = startBackgroundAgentSession({ message: "Blocked" });
+    await expect(handle.accepted).rejects.toBeInstanceOf(
+      AgentChatAiSetupRequiredError,
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
   });
 
   it("starts fresh isolated threads without touching the foreground chat UI", async () => {
@@ -186,6 +243,7 @@ describe("background agent sessions", () => {
       operationId: "operation-5",
       threadId: "thread-5",
     });
+    await expectStartRequestIssued(fetchMock);
     const cancellation = handle.cancel("dismissed");
     await cancellation;
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -215,6 +273,7 @@ describe("background agent sessions", () => {
       operationId: "operation-6",
       threadId: "thread-6",
     });
+    await expectStartRequestIssued(fetchMock);
     await expect(handle.status()).resolves.toEqual({
       operationId: "operation-6",
       threadId: "thread-6",
@@ -251,6 +310,7 @@ describe("background agent sessions", () => {
       operationId: "operation-before-ack",
       threadId: "thread-before-ack",
     });
+    await expectStartRequestIssued(fetchMock);
 
     await expect(handle.status()).resolves.toEqual({
       operationId: "operation-before-ack",
@@ -276,6 +336,7 @@ describe("background agent sessions", () => {
         threadId: "thread-timeout",
       });
 
+      await expectStartRequestIssued(fetchMock);
       await expect(handle.status()).resolves.toMatchObject({
         status: "queued",
       });
@@ -355,6 +416,7 @@ describe("background agent sessions", () => {
         threadId: "thread-conflict",
       });
 
+      await expectStartRequestIssued();
       await vi.advanceTimersByTimeAsync(30_000);
       await expect(handle.accepted).rejects.toThrow(
         "Background agent session was rejected (HTTP 409)",
@@ -380,6 +442,7 @@ describe("background agent sessions", () => {
         threadId: "thread-late-visible",
       });
 
+      await expectStartRequestIssued();
       await vi.advanceTimersByTimeAsync(50);
       await expect(handle.accepted).resolves.toMatchObject({
         operationId: "operation-late-visible",
@@ -469,6 +532,7 @@ describe("background agent sessions", () => {
         threadId: "thread-delayed-cancel",
       });
 
+      await expectStartRequestIssued(fetchMock);
       const cancellation = handle.cancel("dismissed");
       await vi.advanceTimersByTimeAsync(6_000);
       expect(

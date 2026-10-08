@@ -1,6 +1,20 @@
 import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
 
+import {
+  AgentChatAiSetupRequiredError,
+  agentEngineStatusUrlForChatApi,
+  ensureAgentEngineReadiness,
+  resetAgentEngineReadinessForTests,
+} from "../agent-engine-readiness.js";
 import {
   subscribeChatFirstOpenApp,
   subscribeChatFirstOpenBrowser,
@@ -62,6 +76,12 @@ function sseResponse(events: unknown[], runId = "run-runtime"): Response {
       },
     },
   );
+}
+
+function jsonResponse(data: unknown): Response {
+  return new Response(JSON.stringify(data), {
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
@@ -595,6 +615,21 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
+  beforeEach(async () => {
+    resetAgentEngineReadinessForTests();
+    await ensureAgentEngineReadiness({
+      source: {
+        statusUrl: agentEngineStatusUrlForChatApi("/_agent-native/agent-chat"),
+        fetch: async () =>
+          jsonResponse({ configured: true, chatEligible: true }),
+      },
+    });
+  });
+
+  afterEach(() => {
+    resetAgentEngineReadinessForTests();
+  });
+
   it("sends the browser analytics session with agent-run requests", async () => {
     const storage = new Map<string, string>([
       ["agent-native.session_id", "browser-session-42"],
@@ -611,11 +646,14 @@ describe("createAgentNativeChatRuntime", () => {
       },
     });
     try {
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const apiUrl = "/_agent-native/agent-chat";
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("/agent-engine/status")
+          ? jsonResponse({ configured: true, chatEligible: true })
+          : sseResponse([{ type: "done" }]),
+      );
       const runtime = createAgentNativeChatRuntime({
-        apiUrl: "/_agent-native/agent-chat",
+        apiUrl,
         fetch: fetchMock as typeof fetch,
       });
       const session = await runtime.createSession();
@@ -624,7 +662,10 @@ describe("createAgentNativeChatRuntime", () => {
       );
 
       expect(
-        new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
+        new Headers(
+          fetchMock.mock.calls.find(([input]) => String(input) === apiUrl)?.[1]
+            ?.headers,
+        ).get(
           "x-agent-native-session-id",
         ),
       ).toBe("browser-session-42");
@@ -650,9 +691,11 @@ describe("createAgentNativeChatRuntime", () => {
     });
     try {
       const apiUrl = "https://chat.example.test/_agent-native/agent-chat";
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("/agent-engine/status")
+          ? jsonResponse({ configured: true, chatEligible: true })
+          : sseResponse([{ type: "done" }]),
+      );
       const runtime = createAgentNativeChatRuntime({
         apiUrl,
         fetch: fetchMock as typeof fetch,
@@ -671,6 +714,30 @@ describe("createAgentNativeChatRuntime", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("checks AI readiness before posting a new turn", async () => {
+    resetAgentEngineReadinessForTests();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return jsonResponse({ configured: false, chatEligible: false });
+      }
+      return sseResponse([{ type: "done" }]);
+    });
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-readiness-gate",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+
+    await expect(
+      session.startTurn({ prompt: "Blocked" }),
+    ).rejects.toBeInstanceOf(AgentChatAiSetupRequiredError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
   });
 
   it("sends prior tool activity as structured history without duplicating the current prompt", async () => {

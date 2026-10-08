@@ -41,7 +41,6 @@ import {
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
-import { BuilderBMark } from "./BuilderBMark.js";
 import {
   searchComposerContextActions,
   type ComposerContextMenuItem,
@@ -1047,6 +1046,8 @@ export interface TiptapComposerProps {
   submissionDisabled?: boolean;
   /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
+  /** Show progress in the send control while a pre-submit check is running. */
+  sendButtonBusy?: boolean;
   /** Prevent submission while a host request is in flight. */
   submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
@@ -2404,9 +2405,7 @@ function ModelSelector({
                                     aria-hidden="true"
                                     className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary"
                                   />
-                                ) : (
-                                  <BuilderBMark className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                )}
+                                ) : null}
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-[12px] font-medium text-foreground">
                                     {builderFlow.connecting
@@ -2754,6 +2753,7 @@ export function TiptapComposer({
   contextControlsDisabled = false,
   submissionDisabled = false,
   sendButtonDisabled = false,
+  sendButtonBusy = false,
   submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
@@ -6146,10 +6146,15 @@ export function TiptapComposer({
                     }
                     disabled={!canSend || sendButtonDisabled}
                     aria-label={sendButtonTooltip}
+                    aria-busy={sendButtonBusy || undefined}
                     data-agent-composer-slot="send-button"
                     className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    <IconArrowUp className="h-3.5 w-3.5" />
+                    {sendButtonBusy ? (
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <IconArrowUp className="h-3.5 w-3.5" />
+                    )}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>{sendButtonTooltip}</TooltipContent>

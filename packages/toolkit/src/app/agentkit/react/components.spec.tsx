@@ -70,6 +70,10 @@ describe("AgentConnectionErrorView replay privacy", () => {
   });
 });
 
+function withAiReadiness(transport: AgentTransport): AgentTransport {
+  return { ...transport, assertAiSetupReady: async () => {} };
+}
+
 describe("AgentMessageActions request IDs", () => {
   it("prefers an explicit request ID and never uses the local message ID", () => {
     expect(
@@ -289,7 +293,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Prepare the release",
@@ -519,7 +525,7 @@ describe("AgentKitChat", () => {
       "...(options.steer ? { interruptActiveRun: true } : {}),",
     );
     expect(source).toContain("control.removeQueued(item.id)");
-    expect(source).toContain("await onBeforeSubmit()");
+    expect(source).toContain("control.sendMessage({");
     expect(source).toContain(
       "await onSubmitOverride(text, files, references, submitOptions)",
     );
@@ -640,7 +646,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Review the release",
@@ -737,7 +745,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Search the docs and Slack",
@@ -781,7 +791,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
 
     const html = renderToStaticMarkup(
@@ -946,7 +958,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
     const run = await client.sendMessage({
       threadId: "thread-1",
@@ -1035,7 +1049,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
 
     const htmlWithoutNavigation = renderToStaticMarkup(
@@ -1282,7 +1298,9 @@ describe("AgentKitChat", () => {
         </output>
       );
     }
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-tool-result",
       text: "Search the docs",
@@ -1392,7 +1410,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-slots");
 
     const html = renderToStaticMarkup(
@@ -1490,7 +1510,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-design-system");
     const CustomIconButton = vi.fn(({ label, icon }: IconButtonProps) => (
       <button type="button" aria-label={label} data-design-system="icon">
@@ -1563,7 +1585,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
 
     const html = renderToStaticMarkup(
@@ -1804,7 +1828,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Run the dashboard checks",
@@ -1920,7 +1946,10 @@ describe("AgentKitChat", () => {
         async cancelRun() {},
       };
       let clock = "2026-10-05T17:00:00.000Z";
-      const client = new AgentKitClient({ transport, now: () => clock });
+      const client = new AgentKitClient({
+        transport: withAiReadiness(transport),
+        now: () => clock,
+      });
       await (
         await client.sendMessage({ threadId: "thread-1", text: "First turn" })
       ).completed;

@@ -1127,6 +1127,8 @@ describe("controlled composer context", () => {
                       gate === "provider" && blocked ? "missing" : "configured",
                     missing: gate === "provider" && blocked,
                   }),
+                  fetchAgentEngineConfiguredState: async () =>
+                    gate === "provider" && blocked ? "missing" : "configured",
                   BuilderSetupCard: () => <div data-testid="provider-setup" />,
                 },
               }}
@@ -1139,6 +1141,7 @@ describe("controlled composer context", () => {
                 placeholder="Prepare your prompt"
                 showModelSelector={false}
                 modelStatusChecksEnabled={gate === "provider"}
+                requireAgentEngine={gate === "provider"}
                 attachmentsEnabled={!(gate === "provider" && blocked)}
                 onAttachmentRequest={onAttachmentRequest}
                 includeDefaultSlashSkills={false}
@@ -1171,7 +1174,7 @@ describe("controlled composer context", () => {
           container.querySelector('[data-testid="provider-setup"]'),
         ).not.toBeNull();
         expect(
-          container.querySelector('[contenteditable="true"]'),
+          container.querySelector('[contenteditable="false"]'),
         ).not.toBeNull();
         const uploadTrigger = container.querySelector<HTMLButtonElement>(
           'button[aria-label="Add context"]',
@@ -1482,90 +1485,257 @@ describe("controlled composer context", () => {
     ).toBe("Keep the editable draft");
   });
 
-  it("keeps the draft editable and blocks submission while provider status is unresolved", async () => {
+  it.each(["configured", "missing", "unavailable"] as const)(
+    "waits for fresh provider readiness before submitting (%s)",
+    async (resultingState) => {
+      let resolveReadiness!: (
+        state: "configured" | "missing" | "unavailable",
+      ) => void;
+      let publishReadiness!: (
+        state: "configured" | "missing" | "unavailable",
+      ) => void;
+      const readiness = new Promise<"configured" | "missing" | "unavailable">(
+        (resolve) => {
+          resolveReadiness = resolve;
+        },
+      );
+      const composerRef = React.createRef<TiptapComposerHandle>();
+      const onSubmit = vi.fn();
+      function ReadinessComposer() {
+        const [state, setState] = React.useState<
+          "unknown" | "configured" | "missing" | "unavailable"
+        >("unknown");
+        publishReadiness = setState;
+        return (
+          <ComposerRuntimeAdaptersProvider
+            adapters={{
+              models: {
+                useAgentEngineConfigured: () => ({
+                  state,
+                  missing: state === "missing",
+                }),
+                fetchAgentEngineConfiguredState: () => readiness,
+                BuilderSetupCard: () => <div data-testid="provider-setup" />,
+              },
+            }}
+          >
+            <PromptComposer
+              composerRef={composerRef}
+              onSubmit={onSubmit}
+              initialText="Keep my draft"
+              initialTextKey="gate"
+              showModelSelector={false}
+              requireAgentEngine
+              includeDefaultSlashSkills={false}
+            />
+          </ComposerRuntimeAdaptersProvider>
+        );
+      }
+      await act(async () => root.render(<ReadinessComposer />));
+
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      )!;
+      const sendButton = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )!;
+      await act(async () => sendButton.click());
+
+      expect(editor.getAttribute("contenteditable")).toBe("true");
+      expect(sendButton.disabled).toBe(true);
+      expect(sendButton.getAttribute("aria-busy")).toBe("true");
+      expect(sendButton.querySelector(".animate-spin")).not.toBeNull();
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await act(async () =>
+        composerRef.current!.setText("Typed while readiness was checking"),
+      );
+      await act(async () => {
+        resolveReadiness(resultingState);
+        publishReadiness(resultingState);
+        await readiness;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      if (resultingState === "configured") {
+        expect(onSubmit).toHaveBeenCalledOnce();
+        expect(onSubmit.mock.calls[0]?.[0]).toBe(
+          "Typed while readiness was checking",
+        );
+        expect(container.querySelector('[data-testid="provider-setup"]')).toBe(
+          null,
+        );
+      } else if (resultingState === "missing") {
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(
+          container.querySelector('[data-testid="provider-setup"]'),
+        ).not.toBeNull();
+        expect(editor.getAttribute("contenteditable")).toBe("false");
+        expect(editor.textContent).toBe("Typed while readiness was checking");
+      } else {
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(
+          container.querySelector('[data-testid="provider-setup"]'),
+        ).toBeNull();
+        expect(editor.getAttribute("contenteditable")).toBe("true");
+        expect(editor.textContent).toBe("Typed while readiness was checking");
+        expect(sendButton.disabled).toBe(false);
+        expect(sendButton.getAttribute("aria-busy")).toBeNull();
+      }
+    },
+  );
+
+  it("resumes an unchanged draft after a blocked send becomes configured", async () => {
     const composerRef = React.createRef<TiptapComposerHandle>();
     const onSubmit = vi.fn();
-    await act(async () =>
-      root.render(
+    let publishReadiness!: (
+      state: "unknown" | "configured" | "missing",
+    ) => void;
+    let readiness: "missing" | "configured" = "missing";
+
+    function ReadinessComposer() {
+      const [state, setState] = React.useState<
+        "unknown" | "configured" | "missing"
+      >("unknown");
+      publishReadiness = setState;
+      const fetchReadiness = async () => {
+        const result = readiness;
+        setState(result);
+        return result;
+      };
+      return (
         <ComposerRuntimeAdaptersProvider
           adapters={{
             models: {
               useAgentEngineConfigured: () => ({
-                state: "unknown",
-                missing: false,
+                state,
+                missing: state === "missing",
               }),
+              fetchAgentEngineConfiguredState: fetchReadiness,
+              BuilderSetupCard: () => <div data-testid="provider-setup" />,
             },
           }}
         >
           <PromptComposer
             composerRef={composerRef}
             onSubmit={onSubmit}
-            initialText="Keep my draft"
-            initialTextKey="gate"
+            initialText="Keep this prompt"
+            initialTextKey="held-provider-draft"
             showModelSelector={false}
+            requireAgentEngine
             includeDefaultSlashSkills={false}
           />
-        </ComposerRuntimeAdaptersProvider>,
-      ),
-    );
-    await act(async () =>
-      expect(await composerRef.current!.submitWithText("Quick start")).toBe(
-        false,
-      ),
-    );
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(
-      container.querySelector('[contenteditable="true"]')?.textContent,
-    ).toBe("Keep my draft");
-    expect(container.querySelector('[role="status"]')).toBeNull();
-    expect(container.textContent).not.toContain("checkingProvider");
+        </ComposerRuntimeAdaptersProvider>
+      );
+    }
+
+    await act(async () => root.render(<ReadinessComposer />));
     const sendButton = container.querySelector<HTMLButtonElement>(
       '[data-agent-composer-slot="send-button"]',
+    )!;
+    await act(async () => sendButton.click());
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="provider-setup"]')).not.toBe(
+      null,
     );
-    expect(sendButton?.disabled).toBe(true);
-    expect(sendButton?.getAttribute("aria-busy")).toBeNull();
-    expect(sendButton?.getAttribute("aria-label")).not.toBe("common.loading");
-    expect(sendButton?.querySelector(".animate-spin")).toBeNull();
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+      "Keep this prompt",
+    );
+
+    readiness = "configured";
+    await act(async () => {
+      publishReadiness("configured");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[0]).toBe("Keep this prompt");
   });
 
-  it("lets a host queue submissions while provider status is unresolved", async () => {
+  it("does not resume a blocked draft after the user edits it", async () => {
     const composerRef = React.createRef<TiptapComposerHandle>();
-    const onBeforeSubmit = vi.fn(async () => true);
     const onSubmit = vi.fn();
-    await act(async () =>
-      root.render(
+    let publishReadiness!: (
+      state: "unknown" | "configured" | "missing",
+    ) => void;
+    let readiness: "missing" | "configured" = "missing";
+
+    function ReadinessComposer() {
+      const [state, setState] = React.useState<
+        "unknown" | "configured" | "missing"
+      >("unknown");
+      publishReadiness = setState;
+      const fetchReadiness = async () => {
+        const result = readiness;
+        setState(result);
+        return result;
+      };
+      return (
         <ComposerRuntimeAdaptersProvider
           adapters={{
             models: {
               useAgentEngineConfigured: () => ({
-                state: "unknown",
-                missing: false,
+                state,
+                missing: state === "missing",
               }),
+              fetchAgentEngineConfiguredState: fetchReadiness,
+              BuilderSetupCard: () => <div data-testid="provider-setup" />,
             },
           }}
         >
           <PromptComposer
             composerRef={composerRef}
-            onBeforeSubmit={onBeforeSubmit}
             onSubmit={onSubmit}
-            initialText="Queue this message"
-            initialTextKey="queued-provider-submit"
-            requireAgentEngine={false}
+            initialText="Keep this prompt"
+            initialTextKey="edited-provider-draft"
             showModelSelector={false}
+            requireAgentEngine
             includeDefaultSlashSkills={false}
           />
-        </ComposerRuntimeAdaptersProvider>,
-      ),
+        </ComposerRuntimeAdaptersProvider>
+      );
+    }
+
+    await act(async () => root.render(<ReadinessComposer />));
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    )!;
+    await act(async () => sendButton.click());
+    expect(container.querySelector('[data-testid="provider-setup"]')).not.toBe(
+      null,
     );
 
-    await act(async () =>
+    await act(async () => composerRef.current!.setText("Edited while blocked"));
+    readiness = "configured";
+    await act(async () => {
+      publishReadiness("configured");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+      "Edited while blocked",
+    );
+  });
+
+  it("lets a raw host composer submit while its agent provider status is unresolved", async () => {
+    const { composerRef, onSubmit } = await mount({
+      requireAgentEngine: false,
+      modelStatusChecksEnabled: false,
+    });
+
+    await act(async () => {
       expect(
-        await composerRef.current!.submitWithText("Queue this message"),
-      ).toBe(true),
-    );
+        await composerRef.current!.submitWithText("Queue while unresolved"),
+      ).toBe(true);
+    });
 
-    expect(onBeforeSubmit).toHaveBeenCalledOnce();
     expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[0]).toBe("Queue while unresolved");
+    expect(
+      container.querySelector('[data-testid="provider-setup"]'),
+    ).toBeNull();
   });
 
   it("submits edits made while an async readiness check is pending", async () => {

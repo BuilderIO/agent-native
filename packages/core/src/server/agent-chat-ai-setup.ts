@@ -1,17 +1,25 @@
 import { createError } from "h3";
 
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../agent/chatgpt-subscription-contract.js";
+import type { AgentEngineStatusResult } from "../agent/engine-status.js";
 import {
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
   PROVIDER_ENV_VARS,
 } from "../agent/engine/provider-env-vars.js";
+import { getAgentEngineEntry } from "../agent/engine/registry.js";
+import type { AgentEngineEntry } from "../agent/engine/registry.js";
+import { getMemoizedAgentEngineStatus } from "./agent-engine-status-cache.js";
+import { hasUsableBuilderOAuthSessionForReadiness } from "./builder-oauth.js";
 import {
   assertCredentialStoreReadable,
   getProviderCredentialAuthFailure,
   prefetchSecrets,
-  resolveHasBuilderGatewayCredential,
+  resolveBuilderGatewayCredentialsDetailed,
+  resolveBuilderPrivateKey,
   resolveSecretDetailed,
 } from "./credential-provider.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 export const AGENT_CHAT_AI_SETUP_REQUIRED_CODE =
   "AGENT_CHAT_AI_SETUP_REQUIRED" as const;
@@ -22,73 +30,107 @@ export const AGENT_CHAT_AI_SETUP_REQUIRED_CODE =
  * not readiness: ChatGPT subscription auth and untyped engine names do not
  * qualify.
  */
-export async function isAgentChatAiSetupReady(): Promise<boolean> {
-  if (await resolveHasBuilderGatewayCredential()) return true;
+export async function isAgentChatAiSetupReady(input?: {
+  status?: AgentEngineStatusResult;
+  detectFromUserSecrets?: () => Promise<AgentEngineEntry | null>;
+}): Promise<boolean> {
+  if (input?.status && input.detectFromUserSecrets) {
+    const entry = input.status.engine
+      ? getAgentEngineEntry(input.status.engine)
+      : undefined;
+    if (input.status.configured && isChatSetupProviderEntry(entry)) return true;
+    if (input.status.openAiBaseUrlConfigured) return true;
+    const ollama = await resolveSecretDetailed(OLLAMA_BASE_URL_ENV_VAR);
+    assertCredentialStoreReadable(ollama);
+    if (ollama.value?.trim()) return true;
+    return isChatSetupProviderEntry(await input.detectFromUserSecrets());
+  }
+
+  const ownerEmail = getRequestUserEmail();
+  const orgId = getRequestOrgId();
+  const identity = ownerEmail ? { userEmail: ownerEmail, orgId } : undefined;
+  if (
+    ownerEmail &&
+    (await hasUsableBuilderOAuthSessionForReadiness(ownerEmail, orgId))
+  ) {
+    return true;
+  }
+  const builderCredentials =
+    await resolveBuilderGatewayCredentialsDetailed(identity);
+  assertCredentialStoreReadable(builderCredentials);
+  if (
+    builderCredentials.privateKey?.trim() &&
+    builderCredentials.publicKey?.trim()
+  ) {
+    return true;
+  }
+  const legacyBuilderKey = await resolveBuilderPrivateKey(identity);
+  if (legacyBuilderKey?.trim()) return true;
 
   const customEndpointKeys = [
     OPENAI_BASE_URL_ENV_VAR,
     OLLAMA_BASE_URL_ENV_VAR,
   ] as const;
   await prefetchSecrets([...PROVIDER_ENV_VARS, ...customEndpointKeys]);
-  for (const key of PROVIDER_ENV_VARS) {
-    const resolved = await resolveSecretDetailed(key);
-    const value = resolved.value?.trim();
-    if (
-      !value ||
-      (resolved.source !== "user" &&
-        resolved.source !== "org" &&
-        resolved.source !== "workspace" &&
-        resolved.source !== "env")
-    ) {
-      if (resolved.lookupFailed) {
-        assertCredentialStoreReadable(resolved);
-        throw createError({
-          statusCode: 503,
-          statusMessage:
-            "Could not read saved AI connections. Try again shortly.",
-        });
-      }
-      continue;
-    }
+  const resolved = await Promise.all(
+    [...PROVIDER_ENV_VARS, ...customEndpointKeys].map((key) =>
+      resolveSecretDetailed(key).then((value) => ({ key, value })),
+    ),
+  );
+  const providerCandidates = resolved.filter(
+    ({ key, value }) =>
+      PROVIDER_ENV_VARS.includes(key) &&
+      Boolean(value.value?.trim()) &&
+      (value.source === "user" ||
+        value.source === "org" ||
+        value.source === "workspace" ||
+        value.source === "env"),
+  );
+  const providerReadiness = await Promise.all(
+    providerCandidates.map(async ({ key, value }) => ({
+      key,
+      resolved: value,
+      usable: !(await getProviderCredentialAuthFailure({
+        key,
+        value: value.value!.trim(),
+      })),
+    })),
+  );
+  if (providerReadiness.some((candidate) => candidate.usable)) return true;
+  const customEndpointIsConfigured = resolved.some(
+    ({ key, value }) =>
+      !PROVIDER_ENV_VARS.includes(key) &&
+      Boolean(value.value?.trim()) &&
+      (value.source === "user" ||
+        value.source === "org" ||
+        value.source === "workspace" ||
+        value.source === "env"),
+  );
+  if (customEndpointIsConfigured) return true;
 
-    // `resolveSecretDetailed` only returns source `env` after applying the
-    // request's deploy-credential fallback policy. This keeps local and
-    // self-hosted setup working while hosted workspace provider env keys stay
-    // unavailable to tenant users.
-    if (!(await getProviderCredentialAuthFailure({ key, value }))) return true;
-
-    if (resolved.lookupFailed) {
-      assertCredentialStoreReadable(resolved);
-      throw createError({
-        statusCode: 503,
-        statusMessage:
-          "Could not read saved AI connections. Try again shortly.",
-      });
-    }
-  }
-
-  for (const key of customEndpointKeys) {
-    const resolved = await resolveSecretDetailed(key);
-    if (resolved.lookupFailed) {
-      assertCredentialStoreReadable(resolved);
-      throw createError({
-        statusCode: 503,
-        statusMessage:
-          "Could not read saved AI connections. Try again shortly.",
-      });
-    }
-    if (
-      resolved.value?.trim() &&
-      (resolved.source === "user" ||
-        resolved.source === "org" ||
-        resolved.source === "workspace" ||
-        resolved.source === "env")
-    ) {
-      return true;
-    }
+  const unreadable = resolved.find(({ value }) => value.lookupFailed)?.value;
+  if (unreadable) {
+    assertCredentialStoreReadable(unreadable);
+    throw createError({
+      statusCode: 503,
+      statusMessage: "Could not read saved AI connections. Try again shortly.",
+    });
   }
 
   return false;
+}
+
+function isChatSetupProviderEntry(
+  entry: Pick<AgentEngineEntry, "name" | "requiredEnvVars"> | undefined | null,
+): boolean {
+  return (
+    entry !== undefined &&
+    entry !== null &&
+    entry.name !== CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+    entry.name !== "ai-sdk:ollama" &&
+    (entry.name === "builder" ||
+      entry.requiredEnvVars.some((key) => PROVIDER_ENV_VARS.includes(key)))
+  );
 }
 
 export function isAgentChatAiSetupRequiredError(
@@ -100,7 +142,18 @@ export function isAgentChatAiSetupRequiredError(
 }
 
 export async function requireAgentChatAiSetup(): Promise<void> {
-  if (await isAgentChatAiSetupReady()) return;
+  const ownerEmail = getRequestUserEmail();
+  const cachedStatus = ownerEmail
+    ? await getMemoizedAgentEngineStatus<{
+        chatEligible?: unknown;
+      }>({ userEmail: ownerEmail, orgId: getRequestOrgId() })
+    : undefined;
+  const cachedChatEligibility = cachedStatus?.chatEligible;
+  const isReady =
+    typeof cachedChatEligibility === "boolean"
+      ? cachedChatEligibility
+      : await isAgentChatAiSetupReady();
+  if (isReady) return;
 
   throw createError({
     statusCode: 403,

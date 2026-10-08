@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import {
   afterEach,
   beforeEach,
@@ -10,10 +8,22 @@ import {
   vi,
 } from "vitest";
 
+import {
+  getAgentEngineEntry,
+  registerAgentEngine,
+  unregisterAgentEngine,
+  type AgentEngineEntry,
+} from "../agent/engine/registry.js";
+import {
+  invalidateAgentEngineStatusCache,
+  memoizeAgentEngineStatus,
+} from "./agent-engine-status-cache.js";
 import type { AgentEngineStatusResponse } from "./core-routes-plugin.js";
 
 const credentialMocks = vi.hoisted(() => ({
   builderReady: vi.fn<() => Promise<boolean>>(),
+  builderCredentials: vi.fn<() => Promise<any>>(),
+  legacyBuilderKey: vi.fn<() => Promise<string | null>>(),
   resolveSecret: vi.fn<(key: string) => Promise<any>>(),
   authFailure:
     vi.fn<(args: { key: string; value: string }) => Promise<unknown>>(),
@@ -24,8 +34,20 @@ vi.mock("./credential-provider.js", () => ({
   getProviderCredentialAuthFailure: (args: { key: string; value: string }) =>
     credentialMocks.authFailure(args),
   prefetchSecrets: vi.fn(async () => undefined),
-  resolveHasBuilderGatewayCredential: () => credentialMocks.builderReady(),
+  resolveBuilderGatewayCredentialsDetailed: () =>
+    credentialMocks.builderCredentials(),
+  resolveBuilderPrivateKey: () => credentialMocks.legacyBuilderKey(),
   resolveSecretDetailed: (key: string) => credentialMocks.resolveSecret(key),
+}));
+
+vi.mock("./builder-oauth.js", () => ({
+  hasUsableBuilderOAuthSessionForReadiness: () =>
+    credentialMocks.builderReady(),
+}));
+
+vi.mock("./request-context.js", () => ({
+  getRequestOrgId: () => "test-org",
+  getRequestUserEmail: () => "steve@example.com",
 }));
 
 import {
@@ -36,9 +58,74 @@ import {
   requireAgentChatAiSetup,
 } from "./agent-chat-ai-setup.js";
 
+const testStatusEngineEntries: AgentEngineEntry[] = [
+  {
+    name: "builder",
+    label: "Builder",
+    description: "Test Builder engine",
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    defaultModel: "builder-test-model",
+    supportedModels: ["builder-test-model"],
+    requiredEnvVars: [],
+    create: () => {
+      throw new Error("The readiness test never creates an engine");
+    },
+  },
+  {
+    name: "ai-sdk:openai",
+    label: "OpenAI",
+    description: "Test OpenAI engine",
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    defaultModel: "openai-test-model",
+    supportedModels: ["openai-test-model"],
+    requiredEnvVars: ["OPENAI_API_KEY"],
+    create: () => {
+      throw new Error("The readiness test never creates an engine");
+    },
+  },
+  {
+    name: "chatgpt-subscription",
+    label: "ChatGPT subscription",
+    description: "Test subscription engine",
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    defaultModel: "subscription-test-model",
+    supportedModels: ["subscription-test-model"],
+    requiredEnvVars: [],
+    create: () => {
+      throw new Error("The readiness test never creates an engine");
+    },
+  },
+];
+
 describe("Agent-Native chat AI setup gate", () => {
   beforeEach(() => {
+    invalidateAgentEngineStatusCache();
+    for (const entry of testStatusEngineEntries) registerAgentEngine(entry);
     credentialMocks.builderReady.mockResolvedValue(false);
+    credentialMocks.builderCredentials.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      lookupFailed: false,
+    });
+    credentialMocks.legacyBuilderKey.mockResolvedValue(null);
     credentialMocks.resolveSecret.mockResolvedValue({
       value: null,
       lookupFailed: false,
@@ -47,6 +134,9 @@ describe("Agent-Native chat AI setup gate", () => {
   });
 
   afterEach(() => {
+    invalidateAgentEngineStatusCache();
+    for (const entry of testStatusEngineEntries)
+      unregisterAgentEngine(entry.name);
     vi.clearAllMocks();
   });
 
@@ -62,11 +152,82 @@ describe("Agent-Native chat AI setup gate", () => {
     expect(isAgentChatAiSetupRequiredError(new Error("other"))).toBe(false);
   });
 
-  it("accepts a usable Builder gateway or OAuth credential", async () => {
+  it("accepts a usable saved Builder OAuth credential", async () => {
     credentialMocks.builderReady.mockResolvedValue(true);
 
     await expect(isAgentChatAiSetupReady()).resolves.toBe(true);
     expect(credentialMocks.resolveSecret).not.toHaveBeenCalled();
+  });
+
+  it("reuses the status route snapshot for the server dispatch gate", async () => {
+    await memoizeAgentEngineStatus(
+      { userEmail: "steve@example.com", orgId: "test-org" },
+      async () => ({ chatEligible: true }),
+    );
+
+    await expect(requireAgentChatAiSetup()).resolves.toBeUndefined();
+    expect(credentialMocks.builderReady).not.toHaveBeenCalled();
+    expect(credentialMocks.resolveSecret).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Builder OAuth", "builder", true],
+    ["Builder keys", "builder", true],
+    ["BYOK", "ai-sdk:openai", true],
+    ["ChatGPT subscription only", "chatgpt-subscription", false],
+  ] as const)(
+    "uses the shared eligibility policy for %s status (%s)",
+    async (_label, engine, expected) => {
+      const entry = getAgentEngineEntry(engine);
+      if (!entry) throw new Error(`Test engine ${engine} is not registered`);
+      const result = await isAgentChatAiSetupReady({
+        status: { configured: true, engine },
+        detectFromUserSecrets: async () => null,
+      });
+      expect(result).toBe(expected);
+    },
+  );
+
+  it.each([
+    ["OpenAI-compatible endpoint", "OPENAI_BASE_URL"],
+    ["Ollama endpoint", "OLLAMA_BASE_URL"],
+  ] as const)(
+    "accepts the shared status policy for a %s",
+    async (_label, key) => {
+      credentialMocks.resolveSecret.mockImplementation(async (candidate) =>
+        candidate === key
+          ? {
+              value:
+                key === "OLLAMA_BASE_URL"
+                  ? "http://localhost:11434"
+                  : "https://ai-gateway.example/v1",
+              source: "user",
+              lookupFailed: false,
+            }
+          : { value: null, lookupFailed: false },
+      );
+      const result = await isAgentChatAiSetupReady({
+        status: {
+          configured: false,
+          ...(key === "OPENAI_BASE_URL"
+            ? { openAiBaseUrlConfigured: true }
+            : {}),
+        },
+        detectFromUserSecrets: async () => null,
+      });
+      expect(result).toBe(true);
+    },
+  );
+
+  it("does not accept an engine when setup detection rejects its key", async () => {
+    const rejected = getAgentEngineEntry("ai-sdk:openai");
+    expect(rejected).toBeDefined();
+    await expect(
+      isAgentChatAiSetupReady({
+        status: { configured: false },
+        detectFromUserSecrets: async () => null,
+      }),
+    ).resolves.toBe(false);
   });
 
   it.each(["user", "org", "workspace"] as const)(
@@ -228,50 +389,9 @@ describe("Agent-Native chat AI setup gate", () => {
     ).toBe(true);
   });
 
-  it("wires the same strict gate before interactive dispatch and queue additions", () => {
-    const plugin = readFileSync(
-      new URL("./agent-chat-plugin.ts", import.meta.url),
-      "utf8",
-    );
-    const invokeStart = plugin.indexOf("const invokeAgentChatHandler");
-    const invokeEnd = plugin.indexOf("// A Function URL", invokeStart);
-    const invokeBlock = plugin.slice(invokeStart, invokeEnd);
-    expect(
-      invokeBlock.indexOf("await requireAgentChatAiSetup();"),
-    ).toBeGreaterThan(-1);
-    expect(
-      invokeBlock.indexOf("await requireAgentChatAiSetup();"),
-    ).toBeLessThan(invokeBlock.indexOf("return handler(event);"));
-    // A refused turn is answered in its thread before the 403 is rethrown.
-    expect(
-      invokeBlock.indexOf("await recordSetupRequiredTurn(event, error);"),
-    ).toBeGreaterThan(invokeBlock.indexOf("await requireAgentChatAiSetup();"));
-    expect(
-      invokeBlock.indexOf("await recordSetupRequiredTurn(event, error);"),
-    ).toBeLessThan(invokeBlock.indexOf("throw error;"));
-
-    const queueStart = plugin.indexOf("// POST /threads/:id/queued");
-    const queueEnd = plugin.indexOf('isThreadSubroute("rename")', queueStart);
-    const queueBlock = plugin.slice(queueStart, queueEnd);
-    expect(queueBlock).toContain('mutation.type === "append"');
-    expect(queueBlock).toContain('mutation.type === "moveToTop"');
-    const mutationIndex = queueBlock.indexOf(
-      "mutateThreadQueuedMessages(threadId, mutation)",
-    );
-    expect(mutationIndex).toBeGreaterThan(-1);
-    expect(queueBlock.indexOf("requireAgentChatAiSetup()")).toBeLessThan(
-      mutationIndex,
-    );
-  });
-
-  it("exposes strict chat eligibility on the existing engine status response", () => {
-    const routes = readFileSync(
-      new URL("./core-routes-plugin.ts", import.meta.url),
-      "utf8",
-    );
+  it("exposes strict chat eligibility on the engine status response", () => {
     expectTypeOf<
       AgentEngineStatusResponse["chatEligible"]
     >().toEqualTypeOf<boolean>();
-    expect(routes).toContain("isAgentChatAiSetupReady()");
   });
 });

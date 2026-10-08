@@ -43,10 +43,13 @@ const chatMocks = vi.hoisted(() => ({
   composerProps: null as any,
   resumeProps: null as any,
   failureProps: null as any,
+  failurePropsHistory: [] as unknown[],
   failureError: { code: "test-error", message: "Run failed" } as any,
   failureCopies: 1,
+  failureRunIds: ["run-1"] as string[],
   connectionError: null as any,
   setupCardProps: null as any,
+  setupCardPropsHistory: [] as unknown[],
   providerGateProps: null as any,
   suggestionBarProps: null as any,
   dynamicSuggestionOptions: null as any,
@@ -151,7 +154,7 @@ vi.mock("../agentkit/react/index.js", async () => {
               React.createElement(Failure, {
                 key: copy,
                 error: chatMocks.failureError,
-                runId: "run-1",
+                runId: chatMocks.failureRunIds[copy] ?? "run-1",
                 threadId: chatMocks.threadId,
               }),
             )
@@ -246,6 +249,17 @@ vi.mock("../agentkit/react/index.js", async () => {
             controller: {
               getThread: () => chatMocks.readThread(),
               persistThreadSnapshot: chatMocks.persistThreadSnapshot,
+              assertAiSetupReady: async () => {
+                const state = await chatMocks.fetchProviderState();
+                if (state === "configured") return;
+                throw Object.assign(
+                  new Error("AI setup is required before sending."),
+                  {
+                    code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+                    state,
+                  },
+                );
+              },
             },
           },
     useAgentKitControl: () =>
@@ -387,9 +401,32 @@ vi.mock("./agentkit-chat/history.js", async () => {
 
 vi.mock("./agentkit-chat/index.js", async () => {
   const React = await import("react");
+  const { ComposerRuntimeAdaptersProvider } =
+    await import("../../composer/runtime-adapters.js");
   return {
     CoreComposerRuntimeProvider: ({ children }: any) =>
-      React.createElement(React.Fragment, null, children),
+      React.createElement(
+        ComposerRuntimeAdaptersProvider,
+        {
+          adapters: {
+            models: {
+              useChatModels: () => ({
+                selectedModel: "auto",
+                selectedEngine: "openai",
+                selectedEffort: "medium",
+                availableModels: [],
+                isLoading: false,
+                onModelChange: () => {},
+                onEffortChange: () => {},
+              }),
+              useAgentEngineConfigured: () => chatMocks.readiness,
+              fetchAgentEngineConfiguredState: async () =>
+                chatMocks.fetchProviderState(),
+            },
+          },
+        },
+        children,
+      ),
     createAgentNativeAgentKitTransport: chatMocks.createTransport,
     findMcpConnectionSuggestionIntegration: () => null,
     GuidedQuestionProviderGate: (props: any) => {
@@ -493,6 +530,10 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
     useDevMode: () => ({ isDevMode: true }),
     useAgentEngineConfigured: () => chatMocks.readiness,
     fetchAgentEngineConfiguredState: chatMocks.fetchProviderState,
+    isLocalRuntimeEngine: (engine?: string) =>
+      ["codex-cli", "claude-cli", "pi-cli", "opencode-cli"].includes(
+        engine ?? "",
+      ),
     filterAgentChatContextItems: (items: unknown[]) => items,
     formatAgentChatContextItemsForPrompt:
       actual.formatAgentChatContextItemsForPrompt,
@@ -509,10 +550,14 @@ vi.mock("./chat/run-recovery.js", async (importOriginal) => ({
   ).isMissingLlmProviderRunError,
   RunErrorRecoveryCard: (props: unknown) => {
     chatMocks.failureProps = props;
-    return null;
+    chatMocks.failurePropsHistory.push(props);
+    return React.createElement("div", {
+      "data-testid": "run-error-recovery-card",
+    });
   },
   BuilderSetupCard: (props: unknown) => {
     chatMocks.setupCardProps = props;
+    chatMocks.setupCardPropsHistory.push(props);
     return React.createElement("div", { "data-testid": "builder-setup-card" });
   },
   LoopLimitContinueCard: () => null,
@@ -707,7 +752,6 @@ function baseProps(
   return {
     threadId: chatMocks.threadId,
     isNewThread: true,
-    providerStatusChecksEnabled: false,
     ...overrides,
   };
 }
@@ -752,10 +796,13 @@ beforeEach(() => {
   chatMocks.composerProps = null;
   chatMocks.resumeProps = null;
   chatMocks.failureProps = null;
+  chatMocks.failurePropsHistory = [];
   chatMocks.failureError = { code: "test-error", message: "Run failed" };
   chatMocks.failureCopies = 1;
+  chatMocks.failureRunIds = ["run-1"];
   chatMocks.connectionError = null;
   chatMocks.setupCardProps = null;
+  chatMocks.setupCardPropsHistory = [];
   chatMocks.providerGateProps = null;
   chatMocks.suggestionBarProps = null;
   chatMocks.dynamicSuggestionOptions = null;
@@ -1181,6 +1228,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         }),
         startRun,
         subscribeToRun,
+        assertAiSetupReady: async () => undefined,
         cancelRun: transportOverrides.cancelRun ?? (async () => {}),
       },
     });
@@ -1693,7 +1741,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.pendingFiles).toEqual([file]);
   });
 
-  it("keeps preflight from disabling its own submission before onSubmit", async () => {
+  it("locks the submission only while dispatching the message", async () => {
     const release = vi.fn();
     chatMocks.history = {
       isSubmissionInFlight: false,
@@ -1704,9 +1752,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     const props = baseProps();
     await mount(props);
-    await act(async () => {
-      expect(await chatMocks.composerProps.onBeforeSubmit()).toBe(true);
-    });
+    expect(chatMocks.history.beginSubmission).not.toHaveBeenCalled();
     await act(async () => root.render(<AgentKitAssistantChat {...props} />));
     expect(chatMocks.composerProps.disabled).toBe(false);
     expect(chatMocks.history.beginSubmission).not.toHaveBeenCalled();
@@ -1881,7 +1927,6 @@ describe("AgentKitAssistantChat host behavior", () => {
         chatMocks.composerProps.onTextChange("Use source");
       });
       await act(async () => {
-        expect(await chatMocks.composerProps.onBeforeSubmit()).toBe(true);
         await expect(
           chatMocks.composerProps.onSubmit("Use source", [], [], {
             intent: "immediate",
@@ -1996,7 +2041,6 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
     const props = baseProps({
       composerContextProvider: Provider,
-      providerStatusChecksEnabled: true,
     });
     await mount(props);
     let rejected!: Promise<unknown>;
@@ -2004,7 +2048,6 @@ describe("AgentKitAssistantChat host behavior", () => {
       chatMocks.composerProps.onTextChange("Use source");
     });
     await act(async () => {
-      expect(await chatMocks.composerProps.onBeforeSubmit()).toBe(true);
       rejected = expect(
         chatMocks.composerProps.onSubmit("Use source", [], [], {
           intent: "immediate",
@@ -2073,7 +2116,6 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     await mount(
       baseProps({
-        providerStatusChecksEnabled: true,
         modelListError: true,
         onRetryModelList,
       }),
@@ -2097,7 +2139,6 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     await mount(
       baseProps({
-        providerStatusChecksEnabled: true,
         modelListError: true,
         onRetryModelList,
       }),
@@ -2121,304 +2162,45 @@ describe("AgentKitAssistantChat host behavior", () => {
     dispatchEvent.mockRestore();
   });
 
-  it("keeps typing available and shows a busy send state during fresh readiness checks", async () => {
+  it("leaves an unknown provider editable without a checking-state banner", async () => {
     chatMocks.readiness = {
       canChat: false,
       missing: false,
       state: "unknown",
     };
-    let resolveReadiness!: (state: "configured" | "missing") => void;
-    const pendingReadiness = new Promise<"configured" | "missing">(
-      (resolve) => {
-        resolveReadiness = resolve;
-      },
-    );
-    chatMocks.fetchProviderState.mockReturnValueOnce(pendingReadiness);
-    await mount(baseProps({ providerStatusChecksEnabled: true }));
+    await mount(baseProps());
 
     expect(chatMocks.composerProps.disabled).toBe(false);
     expect(chatMocks.composerProps.submissionDisabled).toBe(false);
-    expect(chatMocks.composerProps.requireAgentEngine).toBe(false);
-    await act(async () => {
-      chatMocks.composerProps.onTextChange("Draft while checking");
-    });
-
-    let preflight!: Promise<boolean>;
-    await act(async () => {
-      preflight = chatMocks.composerProps.onBeforeSubmit();
-      chatMocks.composerProps.onSubmissionPendingChange(true);
-      await Promise.resolve();
-    });
-    expect(chatMocks.fetchProviderState).toHaveBeenCalledOnce();
-    expect(chatMocks.fetchProviderState).toHaveBeenCalledWith(true, {
-      fresh: true,
-    });
-    expect(
-      container.querySelector('[data-testid="provider-preflight-pending"]'),
-    ).not.toBeNull();
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
-
-    await act(async () => {
-      resolveReadiness("configured");
-      await expect(preflight).resolves.toBe(true);
-      chatMocks.composerProps.onSubmissionPendingChange(false);
-    });
-    await act(async () => {
-      await chatMocks.composerProps.onSubmit(
-        "Draft while checking",
-        [],
-        [],
-        {},
-      );
-    });
-
     expect(
       container.querySelector('[data-testid="provider-preflight-pending"]'),
     ).toBeNull();
-    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
-    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]?.text).toBe(
-      "Draft while checking",
-    );
-    expect(
-      [...chatMocks.appState.keys()].some((key) =>
-        key.startsWith("agentkit-deferred-provider-submissions:"),
-      ),
-    ).toBe(false);
+    expect(chatMocks.composerProps.onBeforeSubmit).toBeUndefined();
   });
 
-  it("blocks stale configured readiness and retains the draft when fresh status is missing", async () => {
-    chatMocks.readiness = {
-      canChat: true,
-      missing: false,
-      state: "configured",
-    };
-    chatMocks.fetchProviderState.mockResolvedValue("missing");
-    await mount(baseProps({ providerStatusChecksEnabled: true }));
-
-    await act(async () => {
-      chatMocks.composerProps.onTextChange("Keep this draft disconnected");
-    });
-    expect(chatMocks.composerProps.disabled).toBe(false);
-
-    await act(async () => {
-      await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(
-        false,
-      );
-    });
+  it("disables the composer and attaches one setup card after confirmed missing status", async () => {
+    chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+    await mount(baseProps());
 
     expect(chatMocks.composerProps.disabled).toBe(true);
     expect(chatMocks.composerProps.submissionDisabled).toBe(true);
     expect(chatMocks.setupCardProps).toMatchObject({ attached: true });
     expect(
-      container.querySelector('[data-testid="builder-setup-card"]'),
-    ).not.toBeNull();
-    expect(chatMocks.composerDrafts.get("thread-1")).toBe(
-      "Keep this draft disconnected",
-    );
+      container.querySelectorAll('[data-testid="builder-setup-card"]'),
+    ).toHaveLength(1);
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
-    expect(
-      [...chatMocks.appState.keys()].some((key) =>
-        key.startsWith("agentkit-deferred-provider-submissions:"),
-      ),
-    ).toBe(false);
-  });
-
-  it("submits when the fresh result is configured even if passive readiness is unknown", async () => {
-    chatMocks.readiness = {
-      canChat: false,
-      missing: false,
-      state: "unknown",
-    };
-    chatMocks.fetchProviderState.mockResolvedValue("configured");
-    await mount(baseProps({ providerStatusChecksEnabled: true }));
-
-    await act(async () => {
-      await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(
-        true,
-      );
-    });
-    await act(async () => {
-      await chatMocks.composerProps.onSubmit(
-        "Send after discovery",
-        [],
-        [],
-        {},
-      );
-    });
-
-    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
-    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]?.text).toBe(
-      "Send after discovery",
-    );
-    expect(
-      [...chatMocks.appState.keys()].some((key) =>
-        key.startsWith("agentkit-deferred-provider-submissions:"),
-      ),
-    ).toBe(false);
-  });
-
-  it("clears a stale missing submission result after passive readiness confirms reconnection", async () => {
-    chatMocks.readiness = {
-      canChat: false,
-      missing: false,
-      state: "unknown",
-    };
-    chatMocks.fetchProviderState.mockResolvedValue("missing");
-    const props = baseProps({ providerStatusChecksEnabled: true });
-    await mount(props);
-
-    await act(async () => {
-      await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(
-        false,
-      );
-    });
-    expect(chatMocks.composerProps.disabled).toBe(true);
-    expect(chatMocks.setupCardProps).not.toBeNull();
-
-    chatMocks.readiness = {
-      canChat: true,
-      missing: false,
-      state: "configured",
-    };
-    await act(async () => {
-      root.render(<AgentKitAssistantChat {...props} />);
-    });
-
-    expect(chatMocks.composerProps.disabled).toBe(false);
-    expect(chatMocks.composerProps.submissionDisabled).toBe(false);
-    expect(container.querySelector('[data-testid="builder-setup-card"]')).toBe(
-      null,
-    );
-  });
-
-  it("waits for the newest readiness result before authorizing a send", async () => {
-    chatMocks.readiness = {
-      canChat: true,
-      missing: false,
-      state: "configured",
-    };
-    let resolveFirst!: (state: "configured" | "missing") => void;
-    let resolveSecond!: (state: "configured" | "missing") => void;
-    chatMocks.fetchProviderState
-      .mockReturnValueOnce(
-        new Promise((resolve) => {
-          resolveFirst = resolve;
-        }),
-      )
-      .mockReturnValueOnce(
-        new Promise((resolve) => {
-          resolveSecond = resolve;
-        }),
-      );
-    await mount(baseProps({ providerStatusChecksEnabled: true }));
-
-    let firstPreflight!: Promise<boolean>;
-    let secondPreflight!: Promise<boolean>;
-    await act(async () => {
-      firstPreflight = chatMocks.composerProps.onBeforeSubmit();
-      await Promise.resolve();
-    });
-    chatMocks.readiness = {
-      canChat: false,
-      missing: true,
-      state: "missing",
-    };
-    await act(async () => {
-      root.render(
-        <AgentKitAssistantChat
-          {...baseProps({ providerStatusChecksEnabled: true })}
-        />,
-      );
-    });
-    await act(async () => {
-      secondPreflight = chatMocks.composerProps.onBeforeSubmit();
-      await Promise.resolve();
-    });
-    expect(chatMocks.fetchProviderState).toHaveBeenCalledTimes(2);
-
-    await act(async () => {
-      resolveFirst("configured");
-      await Promise.resolve();
-    });
-    let firstSettled = false;
-    void firstPreflight.then(() => {
-      firstSettled = true;
-    });
-    await flush();
-    expect(firstSettled).toBe(false);
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
-
-    await act(async () => {
-      resolveSecond("missing");
-      await expect(firstPreflight).resolves.toBe(false);
-      await expect(secondPreflight).resolves.toBe(false);
-    });
-
-    expect(chatMocks.composerProps.disabled).toBe(true);
-    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
-    expect(chatMocks.setupCardProps).toMatchObject({ attached: true });
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
-  });
-
-  it("keeps a successful submit preflight through a transient passive failure", async () => {
-    chatMocks.readiness = {
-      canChat: true,
-      missing: false,
-      state: "configured",
-    };
-    let resolveReadiness!: (state: "configured" | "missing") => void;
-    chatMocks.fetchProviderState.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveReadiness = resolve;
-      }),
-    );
-    const props = baseProps({ providerStatusChecksEnabled: true });
-    await mount(props);
-
-    let preflight!: Promise<boolean>;
-    await act(async () => {
-      preflight = chatMocks.composerProps.onBeforeSubmit();
-      await Promise.resolve();
-    });
-    expect(chatMocks.fetchProviderState).toHaveBeenCalledOnce();
-
-    await act(async () => {
-      resolveReadiness("configured");
-      await expect(preflight).resolves.toBe(true);
-    });
-
-    chatMocks.readiness = {
-      canChat: false,
-      missing: false,
-      state: "unavailable",
-    };
-    await act(async () => {
-      root.render(<AgentKitAssistantChat {...props} />);
-    });
-
-    expect(chatMocks.composerProps.disabled).toBe(false);
-    expect(chatMocks.composerProps.submissionDisabled).toBe(false);
-
-    await act(async () =>
-      chatMocks.composerProps.onSubmit("Send", [], [], {
-        intent: "immediate",
-      }),
-    );
-    expect(chatMocks.fetchProviderState).toHaveBeenCalledOnce();
-    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
   });
 
   it("keeps the composer editable when the host blocks submission", async () => {
     await mount(
       baseProps({
-        providerStatusChecksEnabled: false,
         composerSubmissionDisabled: true,
       }),
     );
 
     expect(chatMocks.composerProps.disabled).toBe(false);
     expect(chatMocks.composerProps.submissionDisabled).toBe(true);
-    await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(false);
+    expect(chatMocks.composerProps.onBeforeSubmit).toBeUndefined();
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -2440,7 +2222,6 @@ describe("AgentKitAssistantChat host behavior", () => {
     async (placement) => {
       const props = baseProps({
         ...placement,
-        providerStatusChecksEnabled: true,
         suggestions: ["Explore my apps"],
       });
       await mount(props);
@@ -3187,7 +2968,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    const props = baseProps({ providerStatusChecksEnabled: true });
+    const props = baseProps({});
     await act(async () => {
       root.render(<AgentKitAssistantChat ref={ref} {...props} />);
     });
@@ -3572,12 +3353,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     await act(async () => {
-      root.render(
-        <AgentKitAssistantChat
-          ref={ref}
-          {...baseProps({ providerStatusChecksEnabled: true })}
-        />,
-      );
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps({})} />);
     });
     const results: CustomEvent[] = [];
     const listener = (event: Event) => results.push(event as CustomEvent);
@@ -3628,12 +3404,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       state: "unavailable",
     };
     await act(async () => {
-      root.render(
-        <AgentKitAssistantChat
-          ref={ref}
-          {...baseProps({ providerStatusChecksEnabled: true })}
-        />,
-      );
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps({})} />);
     });
     await act(async () => {
       await expect(
@@ -3654,12 +3425,7 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     chatMocks.fetchProviderState.mockResolvedValue("configured");
     await act(async () => {
-      root.render(
-        <AgentKitAssistantChat
-          ref={ref}
-          {...baseProps({ providerStatusChecksEnabled: true })}
-        />,
-      );
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps({})} />);
       await expect(
         ref.current!.sendMessage("Try again after fresh check"),
       ).resolves.toEqual({ status: "submitted" });
@@ -4521,7 +4287,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         ],
       },
     ];
-    await mount(baseProps({ providerStatusChecksEnabled: true }));
+    await mount(baseProps({}));
 
     await act(async () => {
       chatMocks.failureProps.onRetry();
@@ -4570,7 +4336,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     const onBlocked = (event: Event) =>
       blockedEvents.push(event as CustomEvent);
     window.addEventListener("agent-chat:missing-api-key", onBlocked);
-    await mount(baseProps({ providerStatusChecksEnabled: true }));
+    await mount(baseProps({}));
 
     expect(
       container
@@ -4615,21 +4381,88 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBeNull();
   });
 
-  it("does not repeat the composer setup card in a missing-key run failure", async () => {
+  it("shows one standard inline setup card without raw provider error text", async () => {
     chatMocks.readiness = {
       canChat: false,
       missing: true,
       state: "missing",
     };
     chatMocks.failureError = {
-      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-      message: "An AI provider needs to be connected.",
+      code: "missing_credentials",
+      message:
+        "No LLM provider is connected. Open Settings > Agent > AI providers.",
     };
 
-    await mount(baseProps({ providerStatusChecksEnabled: true }));
+    await mount(baseProps({ showMissingApiKeySetup: false }));
 
     expect(
       container.querySelectorAll('[data-testid="builder-setup-card"]'),
+    ).toHaveLength(1);
+    expect(
+      chatMocks.setupCardPropsHistory.some(
+        (props: any) => props.attached !== true && props.layout === "default",
+      ),
+    ).toBe(true);
+    expect(container.textContent).not.toContain("No LLM provider is connected");
+    expect(container.textContent).not.toContain("Open Settings > Agent");
+  });
+
+  it("shows one credit-limit recovery card for the latest failed run", async () => {
+    chatMocks.failureError = {
+      code: "credits-limit-daily",
+      message: "You've reached your AI credits limit.",
+    };
+    chatMocks.failureCopies = 2;
+    chatMocks.failureRunIds = ["run-1", "run-2"];
+    chatMocks.thread.runs = {
+      "run-1": {
+        id: "run-1",
+        status: "failed",
+        startedAt: "2026-10-01T00:00:00.000Z",
+        error: { code: "credits-limit-daily", message: "limit reached" },
+      },
+      "run-2": {
+        id: "run-2",
+        status: "failed",
+        startedAt: "2026-10-01T00:01:00.000Z",
+        error: { code: "credits-limit-daily", message: "limit reached" },
+      },
+    };
+
+    await mount(baseProps());
+
+    expect(
+      container.querySelectorAll('[data-testid="run-error-recovery-card"]'),
+    ).toHaveLength(1);
+    expect(chatMocks.failureProps.info.errorCode).toBe("credits-limit-daily");
+  });
+
+  it("deduplicates credit-limit cards when failed runs share a timestamp", async () => {
+    chatMocks.failureError = {
+      code: "credits-limit-daily",
+      message: "You've reached your AI credits limit.",
+    };
+    chatMocks.failureCopies = 2;
+    chatMocks.failureRunIds = ["run-1", "run-2"];
+    chatMocks.thread.runs = {
+      "run-1": {
+        id: "run-1",
+        status: "failed",
+        startedAt: "2026-10-01T00:00:00.000Z",
+        error: { code: "credits-limit-daily", message: "limit reached" },
+      },
+      "run-2": {
+        id: "run-2",
+        status: "failed",
+        startedAt: "2026-10-01T00:00:00.000Z",
+        error: { code: "credits-limit-daily", message: "limit reached" },
+      },
+    };
+
+    await mount(baseProps());
+
+    expect(
+      container.querySelectorAll('[data-testid="run-error-recovery-card"]'),
     ).toHaveLength(1);
   });
 
@@ -4646,7 +4479,6 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     await mount(
       baseProps({
-        providerStatusChecksEnabled: true,
         showMissingApiKeySetup: false,
       }),
     );
@@ -4678,7 +4510,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         startedAt: "2026-10-01T00:00:00.000Z",
       },
     };
-    const props = baseProps({ providerStatusChecksEnabled: true });
+    const props = baseProps({});
     await mount(props);
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
 
@@ -4717,7 +4549,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         parts: [{ type: "text", text: "Old prompt" }],
       },
     ];
-    const props = baseProps({ providerStatusChecksEnabled: true });
+    const props = baseProps({});
     await mount(props);
 
     chatMocks.readiness = {
@@ -4849,7 +4681,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         message: "No LLM provider is connected.",
       });
       chatMocks.failureCopies = 2;
-      const props = baseProps({ providerStatusChecksEnabled: true });
+      const props = baseProps({});
       await mount(props);
 
       await connectAi(props);
@@ -4874,7 +4706,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           },
         },
       ];
-      const props = baseProps({ providerStatusChecksEnabled: true });
+      const props = baseProps({});
       await mount(props);
 
       await connectAi(props);
@@ -4891,7 +4723,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         message: "Use Builder.io or a provider API key before chatting.",
       });
       chatMocks.failureCopies = 0;
-      const props = baseProps({ providerStatusChecksEnabled: true });
+      const props = baseProps({});
       await mount(props);
 
       await connectAi(props);
@@ -4944,7 +4776,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
       chatMocks.failureCopies = 0;
       chatMocks.thread.messages = [reloadedRefusal];
-      const props = baseProps({ providerStatusChecksEnabled: true });
+      const props = baseProps({});
       await mount(props);
 
       await connectAi(props);
@@ -4995,7 +4827,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           startedAt: "2026-10-01T00:00:00.000Z",
         },
       };
-      const props = baseProps({ providerStatusChecksEnabled: true });
+      const props = baseProps({});
       await mount(props);
 
       await connectAi(props);
@@ -5042,7 +4874,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           ],
         },
       ];
-      const props = baseProps({ providerStatusChecksEnabled: true });
+      const props = baseProps({});
       await mount(props);
 
       await connectAi(props);
@@ -5061,7 +4893,6 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     await mount(
       baseProps({
-        providerStatusChecksEnabled: true,
         showMissingApiKeySetup: false,
       }),
     );

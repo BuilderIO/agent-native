@@ -86,6 +86,7 @@
     "guard:mcp-registry": "node --experimental-strip-types scripts/mcp-registry.ts --check",
     "guard:no-pnpm-patches": "tsx scripts/guard-no-pnpm-patches.ts",
     "guard:chat-first-shared-ui": "tsx scripts/guard-chat-first-shared-ui.ts",
+    "guard:chat-send-gate": "tsx scripts/guard-chat-send-gate.ts",
     "guard:no-empty-migrations": "tsx scripts/guard-no-empty-migrations.ts",
     "guard:release-schema-complete": "tsx scripts/guard-release-schema-complete.ts",
     "guard:no-unscoped-queries": "node scripts/guard-no-unscoped-queries.mjs",

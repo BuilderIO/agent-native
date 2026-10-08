@@ -192,7 +192,6 @@ describe("standalone follow-up submission", () => {
     async (custom) => {
       const { runtime, upload } = await setup();
       const beforeSend = vi.fn();
-      const preflight = vi.fn(async () => true);
       await act(async () =>
         root.render(
           <AgentKitProvider
@@ -212,7 +211,6 @@ describe("standalone follow-up submission", () => {
           >
             <AgentKitComposer
               autoFocus={false}
-              onBeforeSubmit={preflight}
               beforeSend={beforeSend}
               contextItems={[
                 {
@@ -231,7 +229,6 @@ describe("standalone follow-up submission", () => {
       );
       expect(button).toBeDefined();
       await act(async () => button!.click());
-      expect(preflight).toHaveBeenCalledOnce();
       expect(upload).toHaveBeenCalledOnce();
       expect(beforeSend).toHaveBeenCalledOnce();
       expect(runtime.startRun).toHaveBeenCalledOnce();
