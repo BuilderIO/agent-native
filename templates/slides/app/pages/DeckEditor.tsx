@@ -4244,6 +4244,8 @@ export default function DeckEditor() {
         {showCurrentSlideEditor && currentSlide && (
           <SlideEditor
             slide={editorSlide ?? currentSlide}
+            deckSlides={widgetEmbed ? deck.slides : undefined}
+            onSelectFollowingSlide={handleSlideSelection}
             deckId={id}
             onFlushInlineEdit={() => {
               flushPendingSaves();

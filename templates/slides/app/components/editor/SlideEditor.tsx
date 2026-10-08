@@ -140,6 +140,7 @@ import {
   SLIDE_SHAPE_LABEL_KEYS,
   type SlideShapeType,
 } from "./EditorActionCluster";
+import { FollowingSlideStack } from "./FollowingSlideStack";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
 } from "./ImageCropOverlay";
@@ -1081,6 +1082,12 @@ interface SlideEditorProps {
   comments?: CommentThread[];
   /** Opens the thread anchored to text the user clicked on the canvas. */
   onSelectCommentThread?: (threadId: string) => void;
+  /** MCP App widget only: every slide in the deck. The ones after this one are
+   *  stacked below it at the same width so a slide shorter than the pane is
+   *  followed by the next ones instead of an empty band. */
+  deckSlides?: readonly Slide[];
+  /** Makes a clicked following slide the current slide. */
+  onSelectFollowingSlide?: (slideId: string) => void;
   /** Zero-based index of the current slide */
   slideIndex?: number;
   /** Design system to inject as CSS custom properties on the slide */
@@ -1658,6 +1665,8 @@ export default function SlideEditor({
   onToggleObjectFit,
   onChangeObjectPosition,
   agentActive,
+  deckSlides,
+  onSelectFollowingSlide,
   slideIndex = 0,
   designSystem,
   aspectRatio,
@@ -2006,6 +2015,13 @@ export default function SlideEditor({
       window.removeEventListener("resize", scheduleUpdate);
     };
   }, [dims.width, dims.height, widgetEmbed]);
+
+  // The widget scrolls through the slides that follow this one, so a newly
+  // selected slide starts at the top of the pane.
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (widgetEmbed && scrollContainer) scrollContainer.scrollTop = 0;
+  }, [slide.id, widgetEmbed]);
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
@@ -9890,7 +9906,7 @@ export default function SlideEditor({
                   ref={canvasTrackRef}
                   className={`flex min-h-full w-max min-w-full justify-center ${
                     widgetEmbed
-                      ? "items-start"
+                      ? "flex-col items-center"
                       : "items-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
                   }`}
                   onPointerDown={handleCanvasBackgroundPointerDown}
@@ -10068,6 +10084,16 @@ export default function SlideEditor({
                       </ContextMenuContent>
                     </ContextMenu>
                   </div>
+                  {widgetEmbed && deckSlides && onSelectFollowingSlide ? (
+                    <FollowingSlideStack
+                      slides={deckSlides}
+                      afterSlideId={slide.id}
+                      width={canvasWidth}
+                      aspectRatio={aspectRatio}
+                      designSystem={designSystem}
+                      onSelect={onSelectFollowingSlide}
+                    />
+                  ) : null}
                 </div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -50,12 +50,26 @@ function Providers({ children }: { children: ReactNode }) {
   );
 }
 
-function renderEditor(readOnly = false) {
+const deckSlides = [
+  { ...slide, id: "slide-before" },
+  slide,
+  { ...slide, id: "slide-next" },
+  { ...slide, id: "slide-last" },
+] as Slide[];
+
+function renderEditor(
+  readOnly = false,
+  extra: {
+    deckSlides?: Slide[];
+    onSelectFollowingSlide?: (slideId: string) => void;
+  } = {},
+) {
   const noop = () => {};
   return render(
     <SlideEditor
       slide={slide}
       readOnly={readOnly}
+      {...extra}
       onUpdateSlide={() => undefined}
       onGenerateImage={noop}
       onOpenAssetLibrary={noop}
@@ -120,6 +134,73 @@ describe("SlideEditor inside an MCP App widget", () => {
     stubViewport(524, 860);
     const narrow = renderEditor(true);
     expect(canvasWidth(narrow.container)).toBe("524px");
+  });
+
+  it("stacks the slides after the current one below it at the same width", () => {
+    widget.embed = true;
+    stubViewport(524, 860);
+    const onSelectFollowingSlide = vi.fn();
+    const { container } = renderEditor(true, {
+      deckSlides,
+      onSelectFollowingSlide,
+    });
+
+    const stack = container.querySelector<HTMLElement>(
+      "[data-following-slides='true']",
+    )!;
+    expect(stack.style.width).toBe(canvasWidth(container));
+    expect(
+      Array.from(stack.querySelectorAll("[data-following-slide-id]")).map(
+        (item) => item.getAttribute("data-following-slide-id"),
+      ),
+    ).toEqual(["slide-next", "slide-last"]);
+
+    fireEvent.click(
+      stack.querySelector("[data-following-slide-id='slide-last']")!,
+    );
+    expect(onSelectFollowingSlide).toHaveBeenCalledWith("slide-last");
+  });
+
+  it("starts a newly selected slide at the top of the pane", () => {
+    widget.embed = true;
+    const props = {
+      readOnly: true,
+      onUpdateSlide: () => undefined,
+      onGenerateImage: () => {},
+      onOpenAssetLibrary: () => {},
+      onUploadImage: () => {},
+      onToggleObjectFit: () => {},
+      onChangeObjectPosition: () => {},
+    };
+    const { container, rerender } = render(
+      <SlideEditor {...props} slide={slide} />,
+      { wrapper: Providers },
+    );
+    const scroller = container.querySelector<HTMLElement>(".overflow-auto")!;
+    scroller.scrollTop = 320;
+
+    rerender(<SlideEditor {...props} slide={deckSlides[2]} />);
+
+    expect(scroller.scrollTop).toBe(0);
+  });
+
+  it("shows no stack after the last slide of the deck", () => {
+    widget.embed = true;
+    const { container } = renderEditor(true, {
+      deckSlides: [deckSlides[0], slide],
+      onSelectFollowingSlide: vi.fn(),
+    });
+
+    expect(container.querySelector("[data-following-slides]")).toBeNull();
+  });
+
+  it("never stacks following slides outside a widget", () => {
+    const { container } = renderEditor(false, {
+      deckSlides,
+      onSelectFollowingSlide: vi.fn(),
+    });
+
+    expect(container.querySelector("[data-following-slides]")).toBeNull();
   });
 
   it("still caps a normal editor at 100% instead of scaling up", () => {
