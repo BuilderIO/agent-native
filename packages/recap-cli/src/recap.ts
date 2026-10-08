@@ -4166,27 +4166,26 @@ export function recapCheckOutcome(
   });
   let text = diagnostic ? `### Diagnostic\n\n${diagnostic}` : "";
   let detailsUrl = input.workflowUrl;
+  const recapUrl = canonicalRecapUrl(input.planUrl, input.appUrl);
 
-  if (input.planOk) {
-    const recapUrl = canonicalRecapUrl(input.planUrl, input.appUrl);
+  if (recapUrl && input.screenshotOk === false) {
+    detailsUrl = recapUrl;
+    conclusion = "failure";
+    title = "Visual recap screenshot failed";
+    summary =
+      "The recap was published, but its screenshot could not be captured. This informational check does not block the PR.";
+    text = diagnostic
+      ? `**[Open visual recap](${recapUrl})**\n\n### Diagnostic\n\n${diagnostic}`
+      : `**[Open visual recap](${recapUrl})**\n\nScreenshot capture did not return both theme images.`;
+  } else if (input.planOk) {
     if (recapUrl) {
       detailsUrl = recapUrl;
-      if (input.screenshotOk === false) {
-        conclusion = "failure";
-        title = "Visual recap screenshot failed";
-        summary =
-          "The recap was published, but its screenshot could not be captured. This informational check does not block the PR.";
-        text = diagnostic
-          ? `**[Open visual recap](${recapUrl})**\n\n### Diagnostic\n\n${diagnostic}`
-          : `**[Open visual recap](${recapUrl})**\n\nScreenshot capture did not return both theme images.`;
-      } else {
-        conclusion = "success";
-        title = "Visual recap ready";
-        summary = input.huge
-          ? "A summarized visual recap was generated for this large PR."
-          : "A visual code-review recap was generated for this PR.";
-        text = `**[Open visual recap](${recapUrl})**`;
-      }
+      conclusion = "success";
+      title = "Visual recap ready";
+      summary = input.huge
+        ? "A summarized visual recap was generated for this large PR."
+        : "A visual code-review recap was generated for this PR.";
+      text = `**[Open visual recap](${recapUrl})**`;
     } else {
       title = "Visual recap published";
       summary =

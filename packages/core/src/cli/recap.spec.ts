@@ -3054,6 +3054,19 @@ describe("recap check — outcome mapper", () => {
     );
   });
 
+  it("fails screenshot recaps when the workflow compatibility gate marks plan-ok false", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: false,
+      planUrl: `${app}/recaps/abc123`,
+      screenshotOk: false,
+      shotReason: "get-visual-plan returned HTTP 403",
+    });
+    expect(out.conclusion).toBe("failure");
+    expect(out.title).toBe("Visual recap screenshot failed");
+    expect(out.detailsUrl).toBe(`${app}/recaps/abc123`);
+  });
+
   it("success: a huge diff gets the summarized summary", () => {
     const out = recapCheckOutcome({
       ...base,
@@ -3159,6 +3172,9 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("checks: write");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check start");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check complete");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "SHOT_OK: ${{ steps.shot.outputs.shot_ok }}",
     );
@@ -3936,6 +3952,9 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("RECAP_URL_REASON:");
     expect(content).toContain("--url-reason");
     expect(content).toContain("--image-cache-key");
+    expect(content).toContain(
+      "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
+    );
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
@@ -4260,6 +4279,9 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     const content = fs.readFileSync(forkFile, "utf8");
     expect(content).toContain("RECAP_PLAYWRIGHT");
     expect(content).toContain("--image-cache-key");
+    expect(content).toContain(
+      "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
+    );
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
