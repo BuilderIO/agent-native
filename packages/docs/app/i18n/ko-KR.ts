@@ -1805,7 +1805,6 @@ const koKR = {
       heroDescription:
         "Plans는 다이어그램, 와이어프레임, 주석이 달린 코드로 코딩 에이전트의 접근 방식을 검토하고 피드백을 주고 코드 변경 사항을 이해할 수 있는 무료 오픈소스 시각적 계획 도구입니다.",
       heroCta: "시각적으로 계획하기",
-      heroSecondaryCta: "Plans 열기",
       useCasesHeading: "Plans로 무엇을 할 수 있나요?",
       useCasesBody:
         "구현 방식을 검토하거나, 인터페이스를 함께 살펴보거나, AI 코딩 에이전트와 함께 완료된 변경 사항을 이해해 보세요.",

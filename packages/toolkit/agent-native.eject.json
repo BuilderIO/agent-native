@@ -667,6 +667,7 @@
         "@agent-native/core/client/webmcp",
         "@agent-native/core/notifications/types",
         "@agent-native/core/shared/document-title",
+        "@agent-native/core/shared/mcp-app-widget-embed",
         "@agent-native/core/shared/ssr-beta-redirect",
         "@agent-native/core/shared/ssr-session-bootstrap",
         "@agent-native/core/shared/ssr-session-bootstrap-slot"
@@ -695,6 +696,7 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/auth/auth-page-helpers",
         "@agent-native/core/client/oauth-popup",
@@ -1255,6 +1257,7 @@
         "@agent-native/core/shared/app-status",
         "@agent-native/core/shared/environment-lanes",
         "@agent-native/core/shared/loading-labels",
+        "@agent-native/core/shared/mcp-app-widget-embed",
         "@agent-native/core/shared/runtime-config"
       ]
     },

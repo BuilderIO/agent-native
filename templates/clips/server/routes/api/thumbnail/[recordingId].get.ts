@@ -5,6 +5,8 @@ import {
 import { getOrgContext } from "@agent-native/core/org";
 import {
   captureRouteError,
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
   getSession,
   runWithRequestContext,
   signShortLivedToken,
@@ -20,7 +22,6 @@ import {
   defineEventHandler,
   getCookie,
   getQuery,
-  getRequestURL,
   getRouterParam,
   setCookie,
   setResponseStatus,
@@ -82,7 +83,7 @@ function cookiePath(recordingId: string): string {
 }
 
 function isHttpsRequest(event: H3Event): boolean {
-  const requestUrl = getRequestURL(event);
+  const requestUrl = getForwardedRequestURL(event);
   return (
     requestUrl.protocol === "https:" ||
     process.env.APP_URL?.startsWith("https://") === true
@@ -368,7 +369,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
       let resolvedSourceUrl = sourceUrl;
       if (sourceUrl.startsWith("/")) {
-        resolvedSourceUrl = new URL(sourceUrl, getRequestURL(event).origin)
+        resolvedSourceUrl = new URL(sourceUrl, getForwardedRequestOrigin(event))
           .href;
       }
 

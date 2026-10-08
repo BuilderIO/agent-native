@@ -570,6 +570,35 @@ describe("mountA2A auth", () => {
     expect(event.context.__a2aVerifiedOrgId).toBe("org-builder");
   });
 
+  it("preserves user identity when a user token carries org_id without org_domain", async () => {
+    process.env.A2A_SECRET = "same-secret";
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValueOnce({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await new jose.SignJWT({
+      sub: "alice+qa@builder.io",
+      org_id: "org-builder",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("same-secret"));
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice+qa@builder.io",
+      orgDomain: "builder.io",
+      orgId: "org-builder",
+    });
+    expect(resolveA2AOrganizationMetadataByIdMock).toHaveBeenCalledWith(
+      "org-builder",
+    );
+    expect(
+      resolveA2AOrganizationCredentialsByDomainMock,
+    ).not.toHaveBeenCalled();
+  });
+
   it("does not treat an explicitly verified org secret as proof of its subject", async () => {
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
       orgId: "org-builder",

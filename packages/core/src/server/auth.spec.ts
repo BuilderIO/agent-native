@@ -6199,6 +6199,7 @@ describe("server/auth", () => {
           )}`,
           "x-forwarded-proto": "https",
         },
+        "https://localhost",
       );
       const result = await registerHandler(event);
 
@@ -7157,7 +7158,7 @@ describe("server/auth", () => {
       expect(baHandler).toBeTypeOf("function");
 
       const fullPath = "/docs/_agent-native/auth/ba/sign-in/email";
-      const request = new Request(`http://localhost${fullPath}`, {
+      const request = new Request(`https://localhost${fullPath}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",
@@ -7741,7 +7742,7 @@ describe("server/auth", () => {
       });
       const event = {
         req: request,
-        url: new URL("http://localhost/send-verification-email"),
+        url: new URL("https://localhost/send-verification-email"),
         res: { headers: new Headers(), status: 200 },
         node: {
           req: { headers: {}, url: fullPath, method: "POST" },
@@ -7763,7 +7764,7 @@ describe("server/auth", () => {
 
       expect(forwardedBody).toEqual({
         email: "user@example.com",
-        callbackURL: "http://localhost/",
+        callbackURL: "https://localhost/",
       });
     });
 
@@ -8903,6 +8904,53 @@ describe("server/auth", () => {
         await expect(getSession(createMockEvent())).resolves.toBeNull();
       },
     );
+
+    it("does not fall through to cookie auth for widget app state", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const resolveEmbedSessionFromRequest = vi.fn(async () => ({
+        email: "ticket-owner@example.com",
+        token: "signed-capability",
+        targetPath: "/documents/doc-1",
+        scope: "capability:mcp-directory-widget-read:get-document",
+      }));
+      const auth = {
+        handler: vi.fn(async () => new Response("{}")),
+        api: {
+          getSession: vi.fn(async () => ({
+            user: { email: "cookie-owner@example.com" },
+          })),
+          signOut: vi.fn(async () => ({ headers: new Headers() })),
+        },
+      };
+
+      vi.doMock("./embed-session.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        resolveEmbedSessionFromRequest,
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: vi.fn(async () => auth),
+        getBetterAuthSync: vi.fn(() => auth),
+        resumeIdentityRekeysForEmail: vi.fn(async () => {}),
+      }));
+
+      const { getSession } = await import("./auth.js");
+
+      await expect(
+        getSession(
+          createMockEvent({
+            path: "/_agent-native/application-state/navigation",
+            headers: { cookie: "better-auth.session_token=cookie-session" },
+          }),
+        ),
+      ).resolves.toBeNull();
+      expect(resolveEmbedSessionFromRequest).toHaveBeenCalledOnce();
+      expect(auth.api.getSession).not.toHaveBeenCalled();
+    });
 
     it("returns a shared session when AUTH_DISABLED=1", async () => {
       vi.stubEnv("NODE_ENV", "production");

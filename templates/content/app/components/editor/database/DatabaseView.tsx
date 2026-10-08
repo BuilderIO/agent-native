@@ -6410,10 +6410,78 @@ function DatabaseActiveConstraintsBar({
     ({ filter }) => !isAdvancedDatabaseFilter(filter),
   );
   const hasSortFilterDivider = sorts.length > 0 && filterEntries.length > 0;
+  const showClearAll = hasSearchOrSortConstraints && !hasPersonalQueryChanges;
 
   return (
     <ContentTableConstraintBar
       className={DATABASE_VIEW_CONSTRAINTS_ROW_CLASS_NAME}
+      trailing={
+        showClearAll || showViewActionControls ? (
+          <>
+            {showClearAll ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs text-muted-foreground"
+                onClick={onClearAll}
+              >
+                {dbText("clearAll")}
+              </Button>
+            ) : null}
+            {showViewActionControls ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  disabled={savePending}
+                  onClick={onResetPersonalChanges}
+                >
+                  {dbText("reset")}
+                </Button>
+                <div className="flex h-7 overflow-hidden rounded">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 rounded-none bg-amber-100 px-2 text-xs font-medium text-amber-900 shadow-none hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:hover:bg-amber-500/30"
+                    disabled={savePending}
+                    onClick={onSaveForEveryone}
+                  >
+                    {savePending ? <Spinner className="mr-1 size-3" /> : null}
+                    {dbText("saveForEveryone")}
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 w-7 rounded-none border-l border-amber-200 bg-amber-100 p-0 text-amber-900 shadow-none hover:bg-amber-200 dark:border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-100 dark:hover:bg-amber-500/30"
+                        disabled={savePending}
+                        aria-label={dbText("saveForEveryone")}
+                      >
+                        <IconChevronDown className="size-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          onSaveForEveryone();
+                        }}
+                      >
+                        <IconCheck className="mr-2 size-4 text-muted-foreground" />
+                        {dbText("saveForEveryone")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </>
+            ) : null}
+          </>
+        ) : undefined
+      }
     >
       {sorts.map((sort, index) => (
         <DatabaseInlineSortControl
@@ -6499,69 +6567,6 @@ function DatabaseActiveConstraintsBar({
           onRemove={onClearSearch}
         />
       ) : null}
-      <div className="ml-auto flex items-center gap-1 pl-2">
-        {hasSearchOrSortConstraints && !hasPersonalQueryChanges ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={onClearAll}
-          >
-            {dbText("clearAll")}
-          </Button>
-        ) : null}
-        {showViewActionControls ? (
-          <>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-              disabled={savePending}
-              onClick={onResetPersonalChanges}
-            >
-              {dbText("reset")}
-            </Button>
-            <div className="flex h-7 overflow-hidden rounded">
-              <Button
-                type="button"
-                size="sm"
-                className="h-7 rounded-none bg-amber-100 px-2 text-xs font-medium text-amber-900 shadow-none hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:hover:bg-amber-500/30"
-                disabled={savePending}
-                onClick={onSaveForEveryone}
-              >
-                {savePending ? <Spinner className="mr-1 size-3" /> : null}
-                {dbText("saveForEveryone")}
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="h-7 w-7 rounded-none border-l border-amber-200 bg-amber-100 p-0 text-amber-900 shadow-none hover:bg-amber-200 dark:border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-100 dark:hover:bg-amber-500/30"
-                    disabled={savePending}
-                    aria-label={dbText("saveForEveryone")}
-                  >
-                    <IconChevronDown className="size-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      onSaveForEveryone();
-                    }}
-                  >
-                    <IconCheck className="mr-2 size-4 text-muted-foreground" />
-                    {dbText("saveForEveryone")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </>
-        ) : null}
-      </div>
     </ContentTableConstraintBar>
   );
 }

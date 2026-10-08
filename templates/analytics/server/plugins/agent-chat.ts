@@ -308,6 +308,10 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
     id: "skills",
     text: 'SKILLS — Read the owning skill with `docs-search --slug "skill-<name>"` before the work: `dashboard-management` to create a dashboard or to move, reorder, lay out, or file panels (a small edit of one existing panel needs no skill: `get-sql-dashboard` with `panelIds`, then `mutate-dashboard`); `custom-blocks` for extension panels, which are a one-off exception to native panels; `account-health` for a named customer, QBR, or renewal; `incident-investigation` for a named user\'s sessions, errors, stuck runs, or replay evidence; `analysis-workspace` for CSV, XLSX, or file delivery. Deliver a CSV or file in chat with Download CSV on compact tables; for a durable export load `show-workspace-file`; never finish with only a path. Deferred tools load with one `tool-search` call: `update-dashboard`, `compose-dashboard`, `generate-chart`, `show-workspace-file`, `provider-api-request`.',
   },
+  {
+    id: "acknowledgments",
+    text: "ACKNOWLEDGMENTS: Give at most one brief acknowledgment. Avoid stacked compliments; address the feedback directly.",
+  },
 ];
 
 export function analyticsExtraContext(): string {

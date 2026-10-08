@@ -1,22 +1,29 @@
 import path from "path";
 
-import { uploadFile } from "@agent-native/core/file-upload";
+import { deleteUploadedFile, uploadFile } from "@agent-native/core/file-upload";
 import {
   getRequestOrgId,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { parseBase64DataUrl } from "@agent-native/core/shared";
-import { and, desc, eq, notLike } from "drizzle-orm";
+import { and, desc, eq, isNull, notLike, or } from "drizzle-orm";
 import {
   assertBodySize,
   defineEventHandler,
+  getQuery,
   getRouterParam,
   setResponseStatus,
   readMultipartFormData,
+  readRawBody,
 } from "h3";
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
+import {
+  deleteOrphanedVideoAssetCleanup,
+  listOrphanedVideoAssetCleanups,
+  recordOrphanedVideoAssetCleanup,
+} from "../lib/chunked-upload-session.js";
 import {
   resolveSlidesRequestAuth,
   type SlidesRequestAuthContext,
@@ -32,6 +39,76 @@ export const MAX_ASSET_REQUEST_SIZE =
 export const MAX_VIDEO_ASSET_REQUEST_SIZE =
   MAX_VIDEO_ASSET_FILE_SIZE + MAX_MULTIPART_OVERHEAD_BYTES;
 
+async function readBoundedMultipartFormData(
+  event: Parameters<typeof assertBodySize>[0],
+  limit: number,
+) {
+  const originalRequest = event.req;
+  // Nitro exposes HTTPEvent here, while H3's body readers still require H3Event.
+  const h3Event = event as unknown as Parameters<typeof readRawBody>[0];
+  const contentType = originalRequest.headers.get("content-type");
+
+  await assertBodySize(event, limit);
+  if (
+    contentType?.split(";")[0]?.trim().toLowerCase() !== "multipart/form-data"
+  ) {
+    throw Object.assign(new TypeError("Expected multipart/form-data"), {
+      statusCode: 400,
+    });
+  }
+  const body = await readRawBody(h3Event, false);
+  if (!body || body.byteLength === 0) return undefined;
+
+  const headers = new Headers();
+  if (contentType) headers.set("content-type", contentType);
+  // The body limiter wraps the request stream, which breaks Request.formData().
+  const multipartEvent = Object.assign(
+    Object.create(Object.getPrototypeOf(h3Event)),
+    h3Event,
+    {
+      req: new Request(originalRequest.url, {
+        method: originalRequest.method,
+        headers,
+        body: new Blob([body as Uint8Array<ArrayBuffer>]),
+      }),
+    },
+  ) as typeof h3Event;
+
+  try {
+    return await readMultipartFormData(multipartEvent);
+  } catch (error) {
+    if (
+      error instanceof TypeError &&
+      error.message === "Failed to parse body as FormData."
+    ) {
+      throw Object.assign(error, { statusCode: 400 });
+    }
+    throw error;
+  }
+}
+
+function multipartUploadError(
+  event: Parameters<typeof assertBodySize>[0],
+  error: unknown,
+  fallbackMessage: string,
+) {
+  const statusCode = (error as { statusCode?: unknown })?.statusCode;
+  const status =
+    typeof statusCode === "number" && statusCode >= 400 && statusCode < 600
+      ? statusCode
+      : 500;
+  setResponseStatus(
+    event as unknown as Parameters<typeof setResponseStatus>[0],
+    status,
+  );
+  return {
+    error:
+      status === 413 && error instanceof Error
+        ? error.message
+        : fallbackMessage,
+  };
+}
+
 export interface UploadedAsset {
   url: string;
   filename: string;
@@ -40,12 +117,26 @@ export interface UploadedAsset {
   provider?: string;
 }
 
+export interface UploadedVideoAsset extends UploadedAsset {
+  id: string;
+}
+
 export interface ListedUploadedAsset {
   id: string;
   url: string;
   filename: string;
   size: number;
   createdAt: string;
+}
+
+function imageAssetWorkspaceScope(orgId: string | null | undefined) {
+  if (!orgId) return isNull(schema.uploadedAssets.orgId);
+
+  // Legacy assets have no trustworthy workspace provenance, but remain owner scoped.
+  return or(
+    eq(schema.uploadedAssets.orgId, orgId),
+    isNull(schema.uploadedAssets.orgId),
+  );
 }
 
 async function requireSession(
@@ -1541,6 +1632,7 @@ export async function uploadImageAsset(args: {
     type: asset.type,
     size: asset.size,
     provider: asset.provider ?? null,
+    orgId: orgId ?? null,
     ownerEmail: args.email,
     createdAt: new Date().toISOString(),
   });
@@ -1558,32 +1650,186 @@ export function canSaveAsUploadedVideoAsset(args: {
   return ext === ".webm" && hasValidWebmVideo(args.data);
 }
 
+function uploadedVideoError(
+  message: string,
+  statusCode: number,
+): Error & { statusCode: number } {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+async function deleteUploadedVideoAssetRow(
+  id: string,
+  ownerEmail: string,
+  orgId: string | null | undefined,
+): Promise<void> {
+  await getDb()
+    .delete(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, id),
+        eq(schema.uploadedAssets.ownerEmail, ownerEmail),
+        orgId
+          ? eq(schema.uploadedAssets.orgId, orgId)
+          : isNull(schema.uploadedAssets.orgId),
+      ),
+    );
+}
+
+async function findUploadedVideoAssetById(
+  email: string,
+  assetId: string,
+  requestedOrgId: string | null | undefined,
+): Promise<UploadedVideoAsset | null> {
+  const orgId = requestedOrgId ?? undefined;
+  const [asset] = await getDb()
+    .select({
+      id: schema.uploadedAssets.id,
+      filename: schema.uploadedAssets.filename,
+      url: schema.uploadedAssets.url,
+      type: schema.uploadedAssets.type,
+      size: schema.uploadedAssets.size,
+      provider: schema.uploadedAssets.provider,
+    })
+    .from(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, assetId),
+        eq(schema.uploadedAssets.ownerEmail, email),
+        orgId
+          ? eq(schema.uploadedAssets.orgId, orgId)
+          : isNull(schema.uploadedAssets.orgId),
+      ),
+    )
+    .limit(1);
+  if (!asset || !asset.type.startsWith("video/")) return null;
+  return { ...asset, provider: asset.provider ?? undefined };
+}
+
+async function uploadedVideoAssetRowExists(
+  id: string,
+  ownerEmail: string,
+  orgId: string | null | undefined,
+): Promise<boolean> {
+  return Boolean(await findUploadedVideoAssetById(ownerEmail, id, orgId));
+}
+
+export async function reapOrphanedVideoAssetObjects(
+  ownerEmail: string,
+  orgId: string | undefined,
+): Promise<void> {
+  const requestContext = {
+    userEmail: ownerEmail,
+    ...(orgId === undefined ? {} : { orgId }),
+  };
+  let cleanups: Awaited<ReturnType<typeof listOrphanedVideoAssetCleanups>>;
+  try {
+    cleanups = await runWithRequestContext(requestContext, () =>
+      listOrphanedVideoAssetCleanups(),
+    );
+  } catch (error) {
+    console.warn("[slides-upload] could not read orphaned video receipts", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  await Promise.all(
+    cleanups.map(async ({ key, cleanup }) => {
+      if (
+        cleanup.version !== 1 ||
+        cleanup.ownerEmail !== ownerEmail ||
+        (cleanup.orgId ?? null) !== (orgId ?? null) ||
+        !cleanup.provider ||
+        !cleanup.url ||
+        (cleanup.assetId !== undefined &&
+          (typeof cleanup.assetId !== "string" || !cleanup.assetId)) ||
+        (cleanup.preserveIfAssetExists !== undefined &&
+          (typeof cleanup.preserveIfAssetExists !== "boolean" ||
+            (cleanup.preserveIfAssetExists && !cleanup.assetId))) ||
+        (cleanup.providerObjectId !== null &&
+          typeof cleanup.providerObjectId !== "string")
+      ) {
+        return;
+      }
+      try {
+        if (
+          cleanup.assetId &&
+          cleanup.preserveIfAssetExists &&
+          (await runWithRequestContext(requestContext, () =>
+            uploadedVideoAssetRowExists(cleanup.assetId!, ownerEmail, orgId),
+          ))
+        ) {
+          await runWithRequestContext(requestContext, () =>
+            deleteOrphanedVideoAssetCleanup(key),
+          );
+          return;
+        }
+        if (cleanup.assetId && !cleanup.preserveIfAssetExists) {
+          await runWithRequestContext(requestContext, () =>
+            deleteUploadedVideoAssetRow(cleanup.assetId!, ownerEmail, orgId),
+          );
+        }
+        const deleted = await runWithRequestContext(requestContext, () =>
+          deleteUploadedFile(cleanup.provider, {
+            id: cleanup.providerObjectId ?? undefined,
+            url: cleanup.url,
+          }),
+        );
+        if (deleted) {
+          await runWithRequestContext(requestContext, () =>
+            deleteOrphanedVideoAssetCleanup(key),
+          );
+        }
+      } catch (error) {
+        console.warn("[slides-upload] orphaned video object retry failed", {
+          uploadSessionId: cleanup.uploadSessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }),
+  );
+}
+
 export async function uploadVideoAsset(args: {
   email: string;
   orgId?: string | null;
   originalName: string;
   data: Uint8Array;
-}): Promise<UploadedAsset> {
+  uploadSessionId?: string;
+}): Promise<UploadedVideoAsset> {
   if (args.data.length > MAX_VIDEO_ASSET_FILE_SIZE) {
-    throw new Error("Video too large (max 50 MB)");
+    throw uploadedVideoError("Video too large (max 50 MB)", 413);
   }
   if (!canSaveAsUploadedVideoAsset(args)) {
-    throw new Error("Only valid MP4 and WebM videos are allowed");
+    throw uploadedVideoError("Only valid MP4 and WebM videos are allowed", 400);
+  }
+
+  const orgId =
+    args.orgId === undefined ? getRequestOrgId() : (args.orgId ?? undefined);
+  const requestContext = {
+    userEmail: args.email,
+    ...(orgId === undefined ? {} : { orgId }),
+  };
+  await reapOrphanedVideoAssetObjects(args.email, orgId);
+
+  if (args.uploadSessionId) {
+    const completed = await findUploadedVideoAssetForSession(
+      args.email,
+      args.uploadSessionId,
+      orgId ?? null,
+    );
+    if (completed) return completed;
   }
 
   const ext = path.extname(args.originalName).toLowerCase();
   const mimeType = ext === ".mp4" ? "video/mp4" : "video/webm";
-  const orgId =
-    args.orgId === undefined ? getRequestOrgId() : (args.orgId ?? undefined);
-  const result = await runWithRequestContext(
-    { userEmail: args.email, ...(orgId === undefined ? {} : { orgId }) },
-    () =>
-      uploadFile({
-        data: args.data,
-        filename: args.originalName,
-        mimeType,
-        ownerEmail: args.email,
-      }),
+  const result = await runWithRequestContext(requestContext, () =>
+    uploadFile({
+      data: args.data,
+      filename: args.originalName,
+      mimeType,
+      ownerEmail: args.email,
+    }),
   );
 
   if (!result) {
@@ -1594,7 +1840,9 @@ export async function uploadVideoAsset(args: {
     throw err;
   }
 
-  const asset: UploadedAsset = {
+  const id = nanoid();
+  const asset: UploadedVideoAsset = {
+    id,
     url: result.url,
     filename: args.originalName,
     type: mimeType,
@@ -1602,20 +1850,170 @@ export async function uploadVideoAsset(args: {
     provider: result.provider,
   };
 
-  await getDb()
-    .insert(schema.uploadedAssets)
-    .values({
-      id: nanoid(),
-      filename: asset.filename,
-      url: asset.url,
-      type: asset.type,
-      size: asset.size,
-      provider: asset.provider ?? null,
-      ownerEmail: args.email,
-      createdAt: new Date().toISOString(),
-    });
+  try {
+    await getDb()
+      .insert(schema.uploadedAssets)
+      .values({
+        id: asset.id,
+        filename: asset.filename,
+        url: asset.url,
+        type: asset.type,
+        size: asset.size,
+        provider: asset.provider ?? null,
+        providerObjectId: result.id ?? null,
+        uploadSessionId: args.uploadSessionId ?? null,
+        orgId: orgId ?? null,
+        ownerEmail: args.email,
+        createdAt: new Date().toISOString(),
+      });
+  } catch (insertError) {
+    let committedAsset: UploadedVideoAsset | null = null;
+    let assetLookupFailed = false;
+    try {
+      committedAsset = await findUploadedVideoAssetById(
+        args.email,
+        asset.id,
+        orgId ?? null,
+      );
+    } catch {
+      assetLookupFailed = true;
+    }
+    if (committedAsset) return committedAsset;
+
+    let completed: UploadedVideoAsset | null = null;
+    let sessionLookupFailed = false;
+    if (args.uploadSessionId) {
+      try {
+        completed = await findUploadedVideoAssetForSession(
+          args.email,
+          args.uploadSessionId,
+          orgId ?? null,
+        );
+      } catch {
+        sessionLookupFailed = true;
+      }
+    }
+
+    if (completed?.id === asset.id) return completed;
+    const cleanupUncertain = assetLookupFailed || sessionLookupFailed;
+
+    const cleanupKey = `${args.uploadSessionId ?? asset.id}`;
+    let cleanupRecord: string | undefined;
+    try {
+      cleanupRecord = await runWithRequestContext(requestContext, () =>
+        recordOrphanedVideoAssetCleanup({
+          version: 1,
+          ownerEmail: args.email,
+          orgId: orgId ?? null,
+          ...(cleanupUncertain
+            ? { assetId: asset.id, preserveIfAssetExists: true }
+            : {}),
+          provider: result.provider,
+          providerObjectId: result.id ?? null,
+          url: result.url,
+          uploadSessionId: args.uploadSessionId ?? null,
+          createdAt: new Date().toISOString(),
+        }),
+      );
+    } catch (error) {
+      console.warn("[slides-upload] could not record orphaned video object", {
+        cleanupKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    if (cleanupUncertain) {
+      if (!cleanupRecord) {
+        console.error("[slides-upload] uncertain video object is untracked", {
+          cleanupKey,
+        });
+      }
+      if (completed && cleanupRecord) return completed;
+      throw insertError;
+    }
+
+    let objectDeleted = false;
+    try {
+      const deleted = await runWithRequestContext(requestContext, () =>
+        deleteUploadedFile(result.provider, {
+          id: result.id ?? undefined,
+          url: result.url,
+        }),
+      );
+      objectDeleted = deleted;
+      if (deleted && cleanupRecord) {
+        try {
+          await runWithRequestContext(requestContext, () =>
+            deleteOrphanedVideoAssetCleanup(cleanupRecord!),
+          );
+        } catch (error) {
+          console.warn(
+            "[slides-upload] orphaned video cleanup receipt remains",
+            {
+              cleanupKey,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+      }
+      if (!deleted && !cleanupRecord) {
+        console.error("[slides-upload] orphaned video object is untracked", {
+          cleanupKey,
+        });
+      }
+    } catch (error) {
+      console.warn("[slides-upload] could not delete orphaned video object", {
+        cleanupKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    if (completed && (objectDeleted || cleanupRecord)) return completed;
+    throw insertError;
+  }
 
   return asset;
+}
+
+export async function findUploadedVideoAssetForSession(
+  email: string,
+  uploadSessionId: string,
+  requestedOrgId?: string | null,
+): Promise<UploadedVideoAsset | null> {
+  const orgId =
+    requestedOrgId === undefined
+      ? getRequestOrgId()
+      : (requestedOrgId ?? undefined);
+  const [asset] = await getDb()
+    .select({
+      id: schema.uploadedAssets.id,
+      filename: schema.uploadedAssets.filename,
+      url: schema.uploadedAssets.url,
+      type: schema.uploadedAssets.type,
+      size: schema.uploadedAssets.size,
+      provider: schema.uploadedAssets.provider,
+    })
+    .from(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.ownerEmail, email),
+        eq(schema.uploadedAssets.uploadSessionId, uploadSessionId),
+        orgId
+          ? eq(schema.uploadedAssets.orgId, orgId)
+          : isNull(schema.uploadedAssets.orgId),
+      ),
+    )
+    .limit(1);
+
+  if (!asset || !asset.type.startsWith("video/")) return null;
+  return {
+    id: asset.id,
+    filename: asset.filename,
+    url: asset.url,
+    type: asset.type,
+    size: asset.size,
+    provider: asset.provider ?? undefined,
+  };
 }
 
 export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
@@ -1624,8 +2022,15 @@ export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
     return { error: authError };
   }
 
-  await assertBodySize(event, MAX_VIDEO_ASSET_REQUEST_SIZE);
-  const parts = await readMultipartFormData(event);
+  let parts;
+  try {
+    parts = await readBoundedMultipartFormData(
+      event,
+      MAX_VIDEO_ASSET_REQUEST_SIZE,
+    );
+  } catch (error) {
+    return multipartUploadError(event, error, "Video upload failed");
+  }
   const filePart = parts?.find((part) => part.name === "file");
   if (!filePart?.data) {
     setResponseStatus(event, 400);
@@ -1644,12 +2049,117 @@ export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
       data: filePart.data,
     });
   } catch (error) {
-    const status = (error as { statusCode?: number })?.statusCode ?? 400;
+    const status = (error as { statusCode?: number })?.statusCode ?? 500;
     setResponseStatus(event, status);
     return {
       error: error instanceof Error ? error.message : "Video upload failed",
     };
   }
+});
+
+export const discardUploadedVideoAsset = defineEventHandler(async (event) => {
+  const { session, error } = await requireSession(event);
+  if (!session) return { error };
+
+  const rawId = getQuery(event).id;
+  const id = typeof rawId === "string" ? rawId.trim() : "";
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "Video asset id is required" };
+  }
+
+  const db = getDb();
+  const [asset] = await db
+    .select({
+      id: schema.uploadedAssets.id,
+      url: schema.uploadedAssets.url,
+      provider: schema.uploadedAssets.provider,
+      providerObjectId: schema.uploadedAssets.providerObjectId,
+      type: schema.uploadedAssets.type,
+      orgId: schema.uploadedAssets.orgId,
+    })
+    .from(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, id),
+        eq(schema.uploadedAssets.ownerEmail, session.email),
+        session.orgId
+          ? eq(schema.uploadedAssets.orgId, session.orgId)
+          : isNull(schema.uploadedAssets.orgId),
+      ),
+    )
+    .limit(1);
+
+  if (!asset) return { success: true };
+  if (!asset.type.startsWith("video/") || !asset.provider) {
+    setResponseStatus(event, 404);
+    return { error: "Uploaded video asset was not found" };
+  }
+
+  const provider = asset.provider;
+  const requestContext = {
+    userEmail: session.email,
+    ...(asset.orgId ? { orgId: asset.orgId } : {}),
+  };
+  let cleanupKey: string;
+  try {
+    cleanupKey = await runWithRequestContext(requestContext, () =>
+      recordOrphanedVideoAssetCleanup({
+        version: 1,
+        ownerEmail: session.email,
+        orgId: asset.orgId ?? null,
+        assetId: asset.id,
+        provider,
+        providerObjectId: asset.providerObjectId ?? null,
+        url: asset.url,
+        uploadSessionId: null,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+  } catch (error) {
+    console.warn("[slides-upload] could not record discarded video cleanup", {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    setResponseStatus(event, 503);
+    return { error: "Could not discard uploaded video" };
+  }
+
+  try {
+    await deleteUploadedVideoAssetRow(asset.id, session.email, asset.orgId);
+  } catch (error) {
+    console.warn("[slides-upload] could not remove discarded video record", {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    setResponseStatus(event, 503);
+    return { error: "Could not discard uploaded video" };
+  }
+
+  try {
+    const deleted = await runWithRequestContext(requestContext, () =>
+      deleteUploadedFile(provider, {
+        id: asset.providerObjectId ?? undefined,
+        url: asset.url,
+      }),
+    );
+    if (deleted) {
+      await runWithRequestContext(requestContext, () =>
+        deleteOrphanedVideoAssetCleanup(cleanupKey),
+      );
+    } else {
+      console.warn("[slides-upload] discarded video cleanup queued", {
+        assetId: asset.id,
+      });
+    }
+  } catch (error) {
+    console.warn("[slides-upload] discarded video cleanup queued", {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return { success: true };
 });
 
 export const uploadAsset = defineEventHandler(async (event) => {
@@ -1658,8 +2168,12 @@ export const uploadAsset = defineEventHandler(async (event) => {
     return { error: authError };
   }
 
-  await assertBodySize(event, MAX_ASSET_REQUEST_SIZE);
-  const parts = await readMultipartFormData(event);
+  let parts;
+  try {
+    parts = await readBoundedMultipartFormData(event, MAX_ASSET_REQUEST_SIZE);
+  } catch (error) {
+    return multipartUploadError(event, error, "Image upload failed");
+  }
   const filePart = parts?.find((p) => p.name === "file");
   if (!filePart || !filePart.data) {
     setResponseStatus(event, 400);
@@ -1706,6 +2220,7 @@ export const listAssets = defineEventHandler(async (event) => {
     .where(
       and(
         eq(schema.uploadedAssets.ownerEmail, session.email),
+        imageAssetWorkspaceScope(session.orgId),
         notLike(schema.uploadedAssets.type, "video/%"),
       ),
     )
@@ -1730,6 +2245,7 @@ export const deleteAsset = defineEventHandler(async (event) => {
       and(
         eq(schema.uploadedAssets.id, decodeURIComponent(id)),
         eq(schema.uploadedAssets.ownerEmail, session.email),
+        imageAssetWorkspaceScope(session.orgId),
       ),
     );
   return { success: true };

@@ -65,6 +65,7 @@ import {
   WIREFRAME_REFERENCE_MD,
 } from "./skills-content/index.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
+import { applyTemplateLayer, readTemplateLayer } from "./template-layer.js";
 import { allTemplateNames } from "./templates-meta.js";
 import {
   CLIPS_TEMPLATE_SHARED_SKILLS,
@@ -73,6 +74,7 @@ import {
   DISPATCH_TEMPLATE_SHARED_SKILLS,
   DOMAIN_TEMPLATE_SHARED_SKILLS,
   FACTORY_TEMPLATE_SHARED_SKILLS,
+  BUILDER_CODE_STARTER_SKILLS,
   HEADLESS_TEMPLATE_SHARED_SKILLS,
   WORKSPACE_SKILLS,
 } from "./workspace-skill-policy.js";
@@ -787,7 +789,12 @@ interface SkillInstallState {
 interface ScaffoldGuidanceState {
   kind: "workspace-core" | "standalone";
   displayName: string;
-  templateName: "workspace-core" | "headless" | "default" | "chat";
+  templateName:
+    | "workspace-core"
+    | "headless"
+    | "default"
+    | "chat"
+    | "builder-code-starter";
   path: string;
   sourcePath: string;
   additionalSourcePaths?: string[];
@@ -1776,15 +1783,29 @@ function corePackageRootDir(): string {
   return path.resolve(here, "../..");
 }
 
+const layeredScaffoldSkillsDirs = new Map<string, string>();
+
 function bundledScaffoldSkillsDir(templateName: string): string {
-  return path.join(
+  const templateDir = path.join(
     corePackageRootDir(),
     "src",
     "templates",
     templateName,
-    ".agents",
-    "skills",
   );
+  const layer = readTemplateLayer(templateDir);
+  if (!layer) return path.join(templateDir, ".agents", "skills");
+  // A layer stores its skills as patches over the base's, so the copies
+  // `skills update` installs have to be assembled first.
+  const cached = layeredScaffoldSkillsDirs.get(templateName);
+  if (cached) return cached;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-layer-skills-"));
+  const skillsDir = path.join(root, ".agents", "skills");
+  fs.cpSync(bundledScaffoldSkillsDir(layer.base), skillsDir, {
+    recursive: true,
+  });
+  applyTemplateLayer(templateDir, layer, root, { only: ".agents/skills" });
+  layeredScaffoldSkillsDirs.set(templateName, skillsDir);
+  return skillsDir;
 }
 
 function readJsonRecord(file: string): Record<string, unknown> | undefined {
@@ -1879,6 +1900,13 @@ function markedScaffoldGuidanceTemplate(
       templateName,
       sourceTemplate: "chat",
       skills: CHAT_STARTER_SKILLS,
+    };
+  }
+  if (templateName === "builder-code-starter") {
+    return {
+      templateName,
+      sourceTemplate: "builder-code-starter",
+      skills: BUILDER_CODE_STARTER_SKILLS,
     };
   }
   if (templateName === "dispatch") {

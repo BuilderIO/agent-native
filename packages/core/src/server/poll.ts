@@ -341,7 +341,7 @@ async function readExtensionTargetsForRows(
   );
 }
 
-type ChangeVisibility = "visible" | "hidden" | "pending";
+export type ChangeVisibility = "visible" | "hidden" | "pending";
 
 class SyncEventsTableUnavailableError extends Error {
   constructor() {
@@ -360,6 +360,8 @@ export type ChangeReadResult = {
   events: ChangeEvent[];
   cursor?: string;
   cursorLimited?: boolean;
+  /** Set when the read stopped at an event whose access check is unresolved. */
+  accessPending?: boolean;
 };
 
 export type AccessResolver = (
@@ -858,11 +860,11 @@ export class AppSyncState {
    * `getChangesSinceForUser` loop in this file. Making it async would be
    * invasive. Instead, for the access-aware branch we consult an in-memory
    * cache and, on a miss, fire a NON-BLOCKING background access check and
-   * return `false` for the current event. Because the poll fallback re-evaluates
-   * with the now-populated cache, delivery is eventually guaranteed — the only
-   * cost is that the very first event for a fresh (user, resource) pair goes
-   * over poll instead of push, and every subsequent event within the TTL is
-   * pushed.
+   * return `false` for the current event. Callers that must not lose the event
+   * use `getChangeVisibilityForUser` and wait for the pending check (the SSE
+   * handler and `getCombinedChangesSinceForUser` do); this boolean form alone
+   * would drop the first event for a fresh (user, resource) pair, and a live
+   * stream does not poll to recover it.
    *
    * Security: a cache MISS returns `false`, so we NEVER deliver to a user before
    * their access has been affirmatively confirmed by the resolver — the same
@@ -882,7 +884,52 @@ export class AppSyncState {
     );
   }
 
-  private getChangeVisibilityForUser(
+  private async waitForAccessChecks(
+    checks: Iterable<Promise<void>>,
+    timeoutMs: number,
+  ): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.allSettled(checks),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+
+  /**
+   * Like `getChangeVisibilityForUser`, but a "pending" verdict waits (bounded)
+   * for this event's own access check and answers again, so a caller that
+   * cannot poll later does not lose the event. Still "pending" after the wait
+   * means the check did not finish.
+   */
+  async resolveChangeVisibilityForUser(
+    event: Pick<
+      ChangeEvent,
+      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+    >,
+    userEmail: string,
+    orgId: string | undefined,
+    timeoutMs: number,
+  ): Promise<ChangeVisibility> {
+    const visibility = this.getChangeVisibilityForUser(event, userEmail, orgId);
+    if (visibility !== "pending" || !event.resourceType || !event.resourceId) {
+      return visibility;
+    }
+    const check = this.accessInFlight.get(
+      accessCacheKey(
+        userEmail.trim().toLowerCase(),
+        orgId,
+        event.resourceType,
+        event.resourceId,
+      ),
+    );
+    if (check) await this.waitForAccessChecks([check], timeoutMs);
+    return this.getChangeVisibilityForUser(event, userEmail, orgId);
+  }
+
+  getChangeVisibilityForUser(
     event: Pick<
       ChangeEvent,
       "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
@@ -1218,6 +1265,7 @@ export class AppSyncState {
           version,
           events,
           cursorLimited: true,
+          accessPending: true,
           ...(cursor && lastCursor !== readCursor
             ? { cursor: encodeSyncCursor(lastCursor) }
             : {}),
@@ -1357,6 +1405,7 @@ export class AppSyncState {
             version: Math.max(since, event.version - 1),
             events,
             cursorLimited: true,
+            accessPending: true,
             ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
               ? { cursor: encodeSyncCursor(lastCursor) }
               : {}),
@@ -1410,32 +1459,35 @@ export class AppSyncState {
     useDurableEvents: boolean,
     cursor?: SyncCursor,
   ): Promise<ChangeReadResult> {
-    const result = await this.readCombinedChangesSinceForUser(
+    const first = await this.readCombinedChangesSinceForUser(
       since,
       userEmail,
       orgId,
       useDurableEvents,
       cursor,
     );
-    if (!result.cursorLimited || this.accessInFlight.size === 0) return result;
+    // Only an unresolved access check is worth waiting for; a row-limit
+    // truncation (also `cursorLimited`) is not blocked on one.
+    if (!first.accessPending || this.accessInFlight.size === 0) {
+      const { accessPending: _pending, ...result } = first;
+      return result;
+    }
     // A read stopped at an event whose access check had not finished. The
     // check is already running, so waiting for it here (bounded) delivers the
     // event now instead of one poll interval later.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      Promise.allSettled(this.accessInFlight.values()),
-      new Promise((resolve) => {
-        timer = setTimeout(resolve, ACCESS_CHECK_WAIT_MS);
-      }),
-    ]);
-    clearTimeout(timer);
-    return this.readCombinedChangesSinceForUser(
-      since,
-      userEmail,
-      orgId,
-      useDurableEvents,
-      cursor,
+    await this.waitForAccessChecks(
+      this.accessInFlight.values(),
+      ACCESS_CHECK_WAIT_MS,
     );
+    const { accessPending: _pending, ...result } =
+      await this.readCombinedChangesSinceForUser(
+        since,
+        userEmail,
+        orgId,
+        useDurableEvents,
+        cursor,
+      );
+    return result;
   }
 
   private async readCombinedChangesSinceForUser(
@@ -1482,10 +1534,21 @@ export class AppSyncState {
         const boundary = limitedCursors.reduce((minimum, value) =>
           compareSyncCursors(value, minimum) < 0 ? value : minimum,
         );
+        // A check pending beyond the boundary the other read stopped at is
+        // filtered out of this response, so waiting on it delivers nothing.
+        const accessPending = [memory, durable].some(
+          (result) =>
+            result.accessPending &&
+            compareSyncCursors(
+              decodeSyncCursor(result.cursor) ?? cursor,
+              boundary,
+            ) <= 0,
+        );
         return {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
+          ...(accessPending ? { accessPending } : {}),
           events: events.filter(
             (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
           ),
@@ -1514,6 +1577,10 @@ export class AppSyncState {
     const limitedVersions = [memory, durable]
       .filter((result) => result.cursorLimited)
       .map((result) => result.version);
+    const accessPending = [memory, durable].some(
+      (result) =>
+        result.accessPending && result.version <= Math.min(...limitedVersions),
+    );
     return {
       version:
         limitedVersions.length > 0
@@ -1526,6 +1593,7 @@ export class AppSyncState {
             )
           : events,
       ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
+      ...(accessPending ? { accessPending } : {}),
     };
   }
 

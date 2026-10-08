@@ -64,12 +64,18 @@ Merging another person's PR requires separate authorization to merge that exact
 PR. Repeat the live checks immediately before each push and merge, and push only
 to the verified head repository and branch with a normal fast-forward.
 
-Review replies are a separate authorization. Required concise replies on the
-active user's own PR need no extra authorization. On another person's PR, post
-a reply only when the current request explicitly authorizes that communication
-on the exact PR; permission to review, monitor, fix, push, or merge is not
-enough. Without that authorization, draft the reply, leave the feedback
-unresolved, and do not merge.
+Determine comment authorization from the live PR author before drafting or
+posting any PR communication. On the active user's own PR, concise replies in
+existing review threads and a concise top-level recap when feedback appears
+only in a review body are routine dispositions and need no extra authorization.
+This covers only comments needed to fix, decline, or otherwise disposition
+review feedback; do not add proactive or unrelated comments, tags, assignments,
+or mentions without an explicit request. On another person's PR, do not post any
+comment, including an inline reply or review-body recap, unless the current
+request explicitly authorizes commenting on that exact PR. Permission to review,
+monitor, fix, push, or merge does not authorize comments. Without that
+authorization, draft the response, leave the feedback unresolved, and do not
+merge.
 
 ## Fast-path contract
 
@@ -175,7 +181,9 @@ isolated safely, preserve all state and report the exact paths or commits.
      or rerun and its narrow recovery check passed as described above;
    - all nonignored local changes are pushed, with only the routine exclusions
      remaining;
-   - every review item has a fix or an explicit reply;
+   - every review item has a fix, a reply permitted by the comment-authorization
+     rule, or a valid terminal disposition; feedback that cannot be replied to
+     under that rule remains unresolved and blocks merging;
    - the PR is not conflicting; and
    - the user has explicitly authorized this `/ship-now` invocation; when the
      existing PR is authored by someone else, the current request separately
@@ -235,7 +243,8 @@ isolated safely, preserve all state and report the exact paths or commits.
   branch; for fork or differently named PR heads, follow `babysit-pr`'s verified
   head remote/ref procedure.
 - Never silently skip a review comment, CI failure, package release failure,
-  or production deploy failure.
+  or production deploy failure. Fix it, reply when the comment gate permits it,
+  or keep it as a blocker.
 - Never treat a Netlify lock as the production promotion mechanism or remove it
   manually to force a promotion.
 - Never create a fresh branch before verifying that `origin/main` contains the

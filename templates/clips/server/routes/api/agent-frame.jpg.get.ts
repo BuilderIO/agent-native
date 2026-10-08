@@ -5,12 +5,14 @@
  * screenshot, the picture itself in its stored format.
  */
 
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  getForwardedRequestURL,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { isImageRecording } from "@shared/recording-kind";
 import {
   defineEventHandler,
   getQuery,
-  getRequestURL,
   setResponseHeader,
   setResponseStatus,
   type H3Event,
@@ -136,7 +138,7 @@ function redirectToResolvedFrame(
   access: PublicAgentAccess,
   atMs: number,
 ): Response {
-  const location = getRequestURL(event);
+  const location = getForwardedRequestURL(event);
   location.search = "";
   location.searchParams.set("id", access.recording.id);
   location.searchParams.set("atMs", String(atMs));

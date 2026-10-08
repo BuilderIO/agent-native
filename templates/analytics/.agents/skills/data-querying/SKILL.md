@@ -215,9 +215,11 @@ definitions the user confirms after the thread has been idle. State corrections
 plainly. Before asking for confirmation, restate the complete proposed metric
 definition in plain language, including its key conditions and time window or
 grain when applicable; a bare “yes” to a metric-name-only question is not
-confirmation. Captures stay private to the user and, when learned in an
-organization, are retrieved only in that same organization. Do not call
-`save-memory` again for those same items.
+confirmation. These automatic captures stay private to the user. Do not call
+`save-memory` again for those same items. Before writing anything to shared
+`LEARNINGS.md` or organization memory, check its audience and ask the user for
+approval of that shared write. Keep setup-specific findings in personal memory
+or the current analysis.
 
 Use `save-memory` for other verified, durable personal Analytics knowledge,
 with a short actionable description; read the existing entry first when
@@ -228,7 +230,8 @@ finding is uncertain or only applies to the current analysis, leave it in the
 answer instead of creating a memory.
 
 For entries not suitable for personal memory, use the project `LEARNINGS.md`
-only when it contains genuinely reusable, non-sensitive guidance:
+only after the user approves that shared write and when it contains genuinely
+reusable, non-sensitive guidance:
 
 ```
 resources(action: "read", path: "LEARNINGS.md")  -- read first to merge

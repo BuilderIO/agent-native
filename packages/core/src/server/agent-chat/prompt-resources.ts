@@ -37,6 +37,7 @@ import { discoverAgents } from "../agent-discovery.js";
 import type { BuilderGatewayAuth } from "../credential-provider.js";
 import {
   getRequestOrgId,
+  getRequestContext,
   getRequestRunContext,
   getRequestUserEmail,
 } from "../request-context.js";
@@ -1816,7 +1817,7 @@ export async function loadResourcesForPrompt(
       addSection(block);
     }
     addSection(
-      `<context-note>Organization learnings above and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool. Save durable team facts and routing conventions to shared LEARNINGS.md; keep personal preferences in save-memory.</context-note>`,
+      `<context-note>\`resources\` reads personal memory (memory/MEMORY.md) and organization learnings. Keep setup findings personal; shared LEARNINGS.md or organization-memory writes require approval. "Remember this" alone is not approval.</context-note>`,
       "required",
     );
   } else {
@@ -1886,7 +1887,13 @@ export async function loadResourcesForPrompt(
       opts?.disabledFrameworkGroups,
       "workspaceApps",
     )
-      ? (await discoverAgents(selfAppId)).slice(0, 30)
+      ? (
+          await discoverAgents(selfAppId, {
+            includePersonalAgents:
+              owner !== SHARED_OWNER &&
+              getRequestContext()?.userEmail === owner,
+          })
+        ).slice(0, 30)
       : [];
     if (agents.length > 0) {
       const lines = agents.map(

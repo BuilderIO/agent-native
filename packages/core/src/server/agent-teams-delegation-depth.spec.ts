@@ -116,6 +116,19 @@ describe("agent-teams delegation-depth guardrail", () => {
     FIRST_AGENT_TEAMS_IMPORT_TIMEOUT_MS,
   );
 
+  it("keeps an enqueued spawn running when the initial dispatch rejects", async () => {
+    const { spawnTask } = await import("./agent-teams.js");
+    fireInternalDispatchMock.mockRejectedValueOnce(
+      new Error("dispatch connection lost"),
+    );
+
+    const task = await spawnTask(baseSpawnOptions());
+
+    expect(task.status).toBe("running");
+    expect(appState.get(`agent-task:${task.taskId}`)?.status).toBe("running");
+    expect(enqueueAgentTeamRunMock).toHaveBeenCalledTimes(1);
+  });
+
   it("persists the exact spawned action surface for durable execution", async () => {
     const { spawnTask } = await import("./agent-teams.js");
     requestContextState.allowedActionNames = ["agent-teams"];

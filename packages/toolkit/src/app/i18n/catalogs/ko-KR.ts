@@ -124,7 +124,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderCreateAccount": "Builder.io 사용",
-  "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
+  "onboarding.builderSignInWithAccount": "Builder.io 사용",
   "onboarding.builderActivateDescription":
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
@@ -152,7 +152,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "서비스 약관",
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
-  "onboarding.builderExistingAccount": "Builder.io 계정이 있습니다",
+  "onboarding.builderExistingAccount": "Builder.io 사용",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":
@@ -201,7 +201,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder 스토리지 또는 S3 호환 버킷",
   "onboarding.capability.clipsObjectStorage.why":
-    "녹화한 동영상은 재생하거나 공유하기 전에 영구 오브젝트 스토리지가 필요합니다.",
+    "저장소 없이도 Clips를 녹화하고 미리 보고 다운로드할 수 있습니다. 영구 오브젝트 스토리지를 연결하면 여러 기기에서 녹화를 확인하고 공유할 수 있습니다.",
   "onboarding.capability.clipsTranscription.keySummary":
     "음성 텍스트 변환 제공업체 키",
   "onboarding.capability.about": "{{label}} 정보",
@@ -1132,6 +1132,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io 설정 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
+  "recovery.continueUnavailable":
+    "이 실행은 더 이상 계속할 수 없습니다. 계속하려면 메시지를 보내세요.",
   "recovery.retryAttachmentUnavailable":
     "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",
   "recovery.deferredSubmissionFailed":
@@ -2041,7 +2043,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed":
     "Builder.io 연결을 해제하지 못했습니다.",
   "settingsShell.builder.disconnectTitle": "Builder.io 연결을 해제할까요?",
-  "settingsShell.builder.grantsFailed": "Builder.io 연결을 읽지 못했습니다.",
+  "settingsShell.builder.grantsFailed":
+    "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
   "settingsShell.builder.setupStartFailed":
     "Builder.io 설정을 시작할 수 없습니다. 이 페이지를 새로고침한 후 다시 시도하세요.",
   "settingsShell.builder.setupHostFailed":
@@ -2469,7 +2472,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "모델 액세스, 브라우저 자동화, 파일 스토리지, 워크스페이스 ID. 무료 요금제가 있습니다.",
   "settingsShell.integrations.builderStatusFailed":
-    "Builder.io 연결을 확인하지 못했습니다.",
+    "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
   "settingsShell.integrations.category.analytics": "분석",
   "settingsShell.integrations.category.design": "디자인",
   "settingsShell.integrations.category.engineering": "엔지니어링",
@@ -2623,6 +2626,11 @@ const messages: ToolkitAgentChatTranslation = {
     "배포 대체 설정을 사용할 수 있습니다. 이를 재정의하려면 내 Builder.io 계정을 사용하세요.",
   "settingsInfra.builderStorageHint":
     "객체 스토리지는 업로드 파일을 보존하고 스레드 전체에서 URL을 재사용할 수 있게 합니다. 아래에서 Builder.io 또는 S3 호환 버킷을 사용하세요.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io가 연결되어 있지만 아직 업로드 파일을 저장할 수 없습니다. 업로드 권한을 부여하려면 다시 연결하거나 아래에서 버킷을 설정하세요.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Builder.io 업로드 권한을 확인할 수 없습니다. 다시 시도하거나 아래에서 버킷을 설정하세요.",
+  "settingsInfra.reconnectBuilderUploads": "업로드 권한 부여",
   "settingsInfra.builderUnknown": "Builder.io 연결을 확인할 수 없습니다.",
   "settingsInfra.manage": "관리",
   "settingsInfra.connect": "연결",

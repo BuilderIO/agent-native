@@ -31,6 +31,7 @@ const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
 const REVIEW_SURFACE_LOADING_SELECTOR =
   "[data-first-run-startup-loading]:visible, [aria-busy='true']:not(.sr-only):visible, .skeleton-shimmer:visible";
 const EMAIL_LINK_LANDING_PATH = "/_agent-native/auth/email-link/landing";
+const MAGIC_LINK_VERIFY_PATH = "/_agent-native/auth/ba/magic-link/verify";
 const SECRETS_ENDPOINTS = new Set([
   "/_agent-native/secrets",
   "/_agent-native/secrets/adhoc",
@@ -186,6 +187,7 @@ function trackNetwork(page: Page, origin: string) {
           parsed.pathname.startsWith("/_agent-native/actions/") ||
           SECRETS_ENDPOINTS.has(parsed.pathname) ||
           parsed.pathname.endsWith(EMAIL_LINK_LANDING_PATH) ||
+          parsed.pathname.endsWith(MAGIC_LINK_VERIFY_PATH) ||
           parsed.pathname === "/_agent-native/auth/magic-link" ||
           parsed.pathname === "/_agent-native/auth/session" ||
           parsed.pathname === "/_agent-native/org/me" ||

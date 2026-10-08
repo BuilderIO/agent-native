@@ -12,6 +12,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Clips sizes Settings and recording views correctly while a recording is active.
+- Clarify Builder storage setup choices and retry guidance
 
 ## 2026-10-06
 

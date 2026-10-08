@@ -37,7 +37,11 @@ const hookState = vi.hoisted(() => ({
   awaitingResponse: undefined as boolean | undefined,
 }));
 
-const abortRunMock = vi.hoisted(() => vi.fn(async () => null));
+const abortRunMock = vi.hoisted(() =>
+  vi.fn(
+    async (_runId: string, _reason?: string): Promise<string | null> => null,
+  ),
+);
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   useRunStuckDetection: (options: { awaitingResponse?: boolean }) => {
@@ -286,6 +290,132 @@ describe("RunStuckBanner", () => {
     );
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
+
+  describe.each([
+    { action: "retry", label: "agentChat.common.retry" },
+    { action: "cancel", label: "agentChat.common.cancel" },
+  ])("when the user clicks $action on a stuck run", ({ action, label }) => {
+    const button = () =>
+      Array.from(container.querySelectorAll("button")).find(
+        (candidate) => candidate.textContent === label,
+      )!;
+    const click = () =>
+      act(async () => {
+        button().click();
+      });
+    const bothButtonsEnabled = () =>
+      Array.from(container.querySelectorAll("button")).every(
+        (candidate) => !candidate.disabled,
+      );
+
+    it("keeps both buttons disabled while the abort is in flight", async () => {
+      let finishAbort: (runId: string | null) => void = () => {};
+      abortRunMock.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishAbort = resolve;
+          }),
+      );
+      await render({ threadId: "thread-1" });
+
+      await click();
+
+      expect(abortRunMock).toHaveBeenCalledTimes(1);
+      expect(button().disabled).toBe(true);
+      expect(container.querySelector(".animate-spin")).not.toBeNull();
+      await act(async () => finishAbort(null));
+    });
+
+    it("re-enables the buttons when the abort fails", async () => {
+      await render({ threadId: "thread-1" });
+
+      await click();
+
+      expect(abortRunMock).toHaveBeenCalledWith(
+        "run-1",
+        `user_stuck_${action}`,
+      );
+      expect(bothButtonsEnabled()).toBe(true);
+      expect(container.querySelector(".animate-spin")).toBeNull();
+    });
+
+    it("aborts again on a second click after a failed abort", async () => {
+      await render({ threadId: "thread-1" });
+
+      await click();
+      await click();
+
+      expect(abortRunMock).toHaveBeenCalledTimes(2);
+      expect(bothButtonsEnabled()).toBe(true);
+    });
+
+    it("stays busy once the abort succeeds, until the run is replaced", async () => {
+      abortRunMock.mockResolvedValueOnce("run-1");
+      const onRetry = vi.fn();
+      await render({ threadId: "thread-1", onRetry });
+
+      await click();
+
+      expect(onRetry).toHaveBeenCalledTimes(action === "retry" ? 1 : 0);
+      expect(button().disabled).toBe(true);
+      expect(container.querySelector(".animate-spin")).not.toBeNull();
+
+      hookState.current = { ...STUCK_STATE, runId: "run-2" };
+      await render({ threadId: "thread-1", onRetry });
+      expect(bothButtonsEnabled()).toBe(true);
+    });
+  });
+
+  it.each([
+    { remount: false, laterMs: 0, where: "in the same mount" },
+    { remount: true, laterMs: 0, where: "after the chat remounts or reloads" },
+    {
+      remount: true,
+      laterMs: 30 * 60_000,
+      where: "after a reload past the five-minute retry lease",
+    },
+  ])(
+    "never auto-retries a run the user cancelled, even when the abort failed, $where",
+    async ({ remount, laterMs }) => {
+      const onRetry = vi.fn();
+      const props = {
+        threadId: "thread-cancelled",
+        autoRetry: true,
+        autoRetryOwnerId: "owner-1",
+        onRetry,
+      };
+      // A server-continued dispatch keeps the banner up but defers auto-retry.
+      hookState.current = { ...STUCK_STATE, dispatchMode: "background" };
+      await render(props);
+      expect(abortRunMock).not.toHaveBeenCalled();
+
+      await act(async () => {
+        Array.from(container.querySelectorAll("button"))
+          .find(
+            (candidate) => candidate.textContent === "agentChat.common.cancel",
+          )!
+          .click();
+      });
+      expect(abortRunMock).toHaveBeenCalledTimes(1);
+      expect(abortRunMock).toHaveBeenCalledWith("run-1", "user_stuck_cancel");
+
+      if (remount) {
+        // A reload drops component state; only the persisted claim remembers.
+        await act(async () => root.unmount());
+        root = createRoot(container);
+      }
+      if (laterMs) vi.setSystemTime(Date.now() + laterMs);
+
+      // The run is still stuck and no longer a continued dispatch: auto-retry is
+      // eligible again, but the user already acted on it.
+      hookState.current = { ...STUCK_STATE };
+      await render(props);
+      await act(async () => {});
+
+      expect(abortRunMock).toHaveBeenCalledTimes(1);
+      expect(onRetry).not.toHaveBeenCalled();
+    },
+  );
 
   it("does not auto-abort a run on a stuck verdict it cannot confirm", async () => {
     const props = {
