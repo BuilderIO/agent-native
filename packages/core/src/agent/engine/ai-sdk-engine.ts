@@ -23,6 +23,7 @@ import {
 import { createFirstEventAbortController } from "./first-event-timeout.js";
 import { limitProviderTools } from "./limit-provider-tools.js";
 import { isCustomOpenAiBaseUrl } from "./openai-compatible-endpoint.js";
+import { createOpenRouterToolFetch } from "./openrouter-tool-fetch.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -362,22 +363,9 @@ class AISDKEngine implements AgentEngine {
 
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
     const providerTools = limitProviderTools(opts.tools);
-    // The Responses API treats an omitted `strict` as strict mode and rewrites
-    // every optional parameter as required, so the model must invent a value
-    // ("" or a guessed id) for each one. Action schemas use omission to mean
-    // "not this mode", so those fillers turn a valid call into a mixed one
-    // that validation rejects on every retry.
-    const usesResponsesApi =
-      this.provider === "openai" &&
-      (this.forceResponses || !isCustomOpenAiBaseUrl(this.baseUrl));
     const aiSdkTools =
       providerTools.length > 0
-        ? engineToolsToAISDK(
-            providerTools,
-            jsonSchema,
-            toolNameMap,
-            usesResponsesApi ? false : undefined,
-          )
+        ? engineToolsToAISDK(providerTools, jsonSchema, toolNameMap)
         : undefined;
     const messages = engineMessagesToAISDK(opts.messages, {
       toolResultImages: this.capabilities.vision,
@@ -643,6 +631,7 @@ class AISDKEngine implements AgentEngine {
     if (this.baseUrl) config.baseURL = this.baseUrl;
     if (this.requestFetch) config.fetch = this.requestFetch;
     if (this.provider === "openrouter") {
+      config.fetch = createOpenRouterToolFetch(this.requestFetch);
       if (this.appName) config.appName = this.appName;
       if (this.appUrl) config.appUrl = this.appUrl;
     }
