@@ -6,6 +6,11 @@ import { describe, expect, it } from "vitest";
 
 const ALLOW_LIST: Array<[string, string, string]> = [
   [
+    "context-menu.tsx",
+    "slides",
+    "Slides menus disable animation and transition for instant opening",
+  ],
+  [
     "toolkit-provider.tsx",
     "chat",
     "AgentKit bootstrap uses the narrow Toolkit provider entrypoint",
@@ -73,6 +78,11 @@ const ALLOW_LIST: Array<[string, string, string]> = [
 const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
   [template: string, primitive: string, reason: string]
 > = [
+  [
+    "slides",
+    "context-menu.tsx",
+    "disables animation and transition so custom menus open instantly",
+  ],
   ["assets", "textarea.tsx", "adds auto-grow behavior for asset forms"],
   [
     "brain",

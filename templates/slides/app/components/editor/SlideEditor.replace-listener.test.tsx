@@ -528,6 +528,17 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     const image =
       container.querySelector<HTMLImageElement>(".slide-content img")!;
 
+    const canvasWrapper = container.querySelector<HTMLElement>(
+      "[data-main-slide-canvas]",
+    )!;
+    const outsideTriggerEvent = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    });
+    act(() => canvasWrapper.dispatchEvent(outsideTriggerEvent));
+    expect(outsideTriggerEvent.defaultPrevented).toBe(true);
+
     const rightClick = () => {
       const event = new MouseEvent("contextmenu", {
         bubbles: true,
