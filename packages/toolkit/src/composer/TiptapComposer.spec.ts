@@ -145,12 +145,6 @@ describe("createTiptapComposerExtensions", () => {
     );
     expect(compactComposerModelName("grok-code-fast")).toBe("Code Fast");
     expect(compactComposerModelName("deepseek-v3-1")).toBe("DeepSeek");
-    expect(compactComposerModelName("deepseek-v4-1-flash")).toBe(
-      "DeepSeek Flash",
-    );
-    expect(compactComposerModelName("z-ai-glm-5-3-flash")).toBe(
-      "GLM 5.3 Flash",
-    );
     expect(compactComposerModelName("codex-cli")).toBe("Codex");
     expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
     expect(compactComposerReasoningEffortLabel("minimal")).toBe("Min");
@@ -4723,8 +4717,6 @@ describe("composerModelCostTier", () => {
     expect(composerModelCostTier("claude-fable-5")).toBe(3);
     expect(composerModelCostTier("gemini-3-1-flash-lite")).toBe(1);
     expect(composerModelCostTier("gemini-3-1-pro")).toBe(3);
-    expect(composerModelCostTier("deepseek-v4-1-flash")).toBe(1);
-    expect(composerModelCostTier("z-ai-glm-5-3-flash")).toBe(1);
   });
 
   it("returns undefined for unmapped models so no cost label renders", () => {

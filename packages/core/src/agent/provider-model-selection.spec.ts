@@ -180,6 +180,22 @@ describe("normalizeSelectedModels", () => {
     );
   });
 
+  it("upgrades retired Builder IDs to the current public catalog", () => {
+    expect(
+      normalizeSelectedModels("builder", [
+        "claude-haiku-4-5",
+        "claude-sonnet-5",
+        "gpt-6.1-sol",
+        "gemini-3-7-flash",
+      ]),
+    ).toEqual([
+      "claude-haiku-5-5",
+      "claude-sonnet-5-5",
+      "gpt-6-1-sol",
+      "gemini-3-8-flash",
+    ]);
+  });
+
   it("refuses ids with whitespace", () => {
     expect(() => normalizeSelectedModels("openai", ["gpt 6"])).toThrow(
       ProviderModelSelectionError,

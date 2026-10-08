@@ -1302,9 +1302,6 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(
-      document.body.querySelector("[data-testid='first-run-setup-skip']"),
-    ).toBeNull();
     expect(completedSteps()).toEqual([]);
     expect(skippedSteps()).toEqual(["role"]);
 
@@ -1334,84 +1331,6 @@ describe("FirstRunOnboarding", () => {
       }),
     );
     window.history.replaceState(null, "", "/");
-  });
-
-  it("lets Clips skip provider setup and finish first-run onboarding", async () => {
-    let resolveCompletion: (() => void) | undefined;
-    mocks.completeFirstRun.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveCompletion = resolve;
-        }),
-    );
-    mocks.useOnboarding.mockReturnValue({
-      firstRun: true,
-      loading: false,
-      error: null,
-      profile: {
-        appId: "clips",
-        appName: "Clips",
-        capabilities: [],
-      },
-      completeFirstRun: mocks.completeFirstRun,
-      completeFirstRunError: null,
-    });
-
-    await act(async () => {
-      root.render(
-        <TooltipProvider>
-          <FirstRunOnboarding />
-        </TooltipProvider>,
-      );
-      await Promise.resolve();
-    });
-    act(() => {
-      document.body
-        .querySelector("[data-testid='first-run-role-skip']")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    const skipSetupButton = document.body.querySelector(
-      "[data-testid='first-run-setup-skip']",
-    );
-    expect(skipSetupButton?.textContent).toBe("Skip for now");
-
-    act(() => {
-      skipSetupButton?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
-      skipSetupButton?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
-    });
-    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
-    expect(
-      mocks.trackOnboardingEvent.mock.calls.filter(
-        ([event, properties]) =>
-          event === "onboarding_step_skipped" &&
-          (properties as Record<string, unknown>).step_id === "choice",
-      ),
-    ).toHaveLength(1);
-
-    await act(async () => {
-      resolveCompletion?.();
-      await Promise.resolve();
-    });
-
-    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
-    expect(window.location.pathname).toBe("/");
-    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
-      "onboarding_step_skipped",
-      expect.objectContaining({
-        flow: "first_run",
-        step_id: "choice",
-        reason: "user_action",
-      }),
-    );
-    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
-      "onboarding_method_clicked",
-      expect.anything(),
-    );
   });
 
   it("does not start duplicate manual setup attempts while completion is pending", async () => {

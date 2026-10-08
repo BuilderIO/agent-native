@@ -8,11 +8,10 @@ export const APPROVED_FIGMA_CHROME_REFERENCE = {
     sectionHeaderHeight: 28,
     action: { width: 20, height: 20, glyph: 12 },
     row: {
-      height: 32,
-      chevron: 16,
-      chevronGlyph: 12,
-      icon: 16,
-      indent: 24,
+      height: 24,
+      chevron: 20,
+      chevronGlyph: 10,
+      icon: 12,
     },
   },
   autoLayout: {

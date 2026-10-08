@@ -72,7 +72,6 @@ import {
   removeRecentUndoRedoOrderKinds,
 } from "../history";
 import { scopedLayerStateId } from "../layer-state-scope";
-import { DEFAULT_LEFT_SIDEBAR_WIDTH } from "../left-sidebar-width";
 import {
   getPendingVisualEditCount,
   pendingLiveEditFrameTargets,
@@ -175,9 +174,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   // it mounts on first open and then stays mounted to keep its state.
   const codeWorkbenchOpenedRef = useRef(false);
   if (activeLeftPanel === "code") codeWorkbenchOpenedRef.current = true;
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
-    DEFAULT_LEFT_SIDEBAR_WIDTH,
-  );
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
   const [isMobileViewport, setIsMobileViewport] = useState(false);

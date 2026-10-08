@@ -761,7 +761,7 @@ describe("ResourcesPanel storage retries", () => {
     ).toBe("current.png");
   });
 
-  it("offers the gateway-compatible Sonnet model when creating custom agents", () => {
+  it("offers the current Claude models when creating custom agents", () => {
     renderPanel("agents");
     const addAgent = Array.from(document.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Add agent"),
@@ -784,8 +784,14 @@ describe("ResourcesPanel storage retries", () => {
     const modelPicker = document.querySelector("select")!;
     expect(Array.from(modelPicker.options)).toContainEqual(
       expect.objectContaining({
-        value: "claude-sonnet-5",
-        textContent: "Claude Sonnet 5",
+        value: "claude-sonnet-5-5",
+        textContent: "Claude Sonnet 5.5",
+      }),
+    );
+    expect(Array.from(modelPicker.options)).toContainEqual(
+      expect.objectContaining({
+        value: "claude-haiku-5-5",
+        textContent: "Claude Haiku 5.5",
       }),
     );
   });

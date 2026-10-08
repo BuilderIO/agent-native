@@ -3,6 +3,11 @@ import {
   IconTemplate,
   IconHistory,
   IconFileExport,
+  IconCode,
+  IconPhoto,
+  IconArchive,
+  IconFileStack,
+  IconDownload,
   IconPencil,
   IconLayoutGrid,
   IconPin,
@@ -37,7 +42,6 @@ import type { EditorLayoutAndStructure } from "../domains/use-editor-layout-and-
 import type { EditorLiveEditsAndPresence } from "../domains/use-editor-live-edits-and-presence";
 import type { EditorModes } from "../domains/use-editor-modes";
 import { overviewSelectionTargetsElement } from "../selection-state";
-import { ExportSubmenuContent } from "./export-submenu-content";
 
 export function renderProjectMenu({
   editorCore,
@@ -69,8 +73,13 @@ export function renderProjectMenu({
   const { t, viewMode, shortcut, selectedElement, isSignedIn } = editorCore;
   const { canUndo, canRedo, overviewSelectedScreenIds, selectedLayerIdsState } =
     editorHistory;
-  const { canEditDesign, canCommentDesign, pinMode } =
-    editorGenerationAndAccess;
+  const {
+    canEditDesign,
+    exportHtmlMutation,
+    exportZipMutation,
+    canCommentDesign,
+    pinMode,
+  } = editorGenerationAndAccess;
   const { files, overviewScreens } = editorFilesAndSaving;
   const { activeFile, handleZoomOut, handleZoomIn, handleOpenMakeReal } =
     editorActiveScreenAndGeometry;
@@ -87,7 +96,19 @@ export function renderProjectMenu({
     handlePinToolToggle,
     handleShowKeyboardShortcutsFromMenu,
   } = editorModes;
-  const {} = editorExportAndHandoff;
+  const {
+    handleDownloadHtml,
+    handleDownloadPng,
+    pngExporting,
+    handleDownloadSvg,
+    svgExporting,
+    handleDownloadFigmaSvg,
+    figmaSvgExporting,
+    handleDownloadZip,
+    handleDownloadAllScreensPdf,
+    handleCopyCodingHandoff,
+    codingHandoffLoading,
+  } = editorExportAndHandoff;
 
   return (
     <DropdownMenu>
@@ -135,13 +156,60 @@ export function renderProjectMenu({
             <IconFileExport className="h-4 w-4" />
             {t("designEditor.export")}
           </DropdownMenuSubTrigger>
-          <ExportSubmenuContent
-            editorCore={editorCore}
-            editorGenerationAndAccess={editorGenerationAndAccess}
-            editorFilesAndSaving={editorFilesAndSaving}
-            editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
-            editorExportAndHandoff={editorExportAndHandoff}
-          />
+          <DropdownMenuSubContent className="design-editor-app-menu-content w-56">
+            <DropdownMenuItem
+              onClick={handleDownloadHtml}
+              disabled={!activeFile || exportHtmlMutation.isPending}
+            >
+              <IconCode className="mr-2 h-4 w-4" />
+              {t("designEditor.downloadHtml")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => void handleDownloadPng()}
+              disabled={!activeFile || pngExporting}
+            >
+              <IconPhoto className="mr-2 h-4 w-4" />
+              {t("designEditor.downloadPng")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => void handleDownloadSvg()}
+              disabled={!activeFile || svgExporting}
+            >
+              <IconCode className="mr-2 h-4 w-4" />
+              {t("designEditor.downloadSvg")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => void handleDownloadFigmaSvg()}
+              disabled={!activeFile || figmaSvgExporting}
+            >
+              <IconFileExport className="mr-2 h-4 w-4" />
+              {t("designEditor.downloadFigmaSvg")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={handleDownloadZip}
+              disabled={!activeFile || exportZipMutation.isPending}
+            >
+              <IconArchive className="mr-2 h-4 w-4" />
+              {t("designEditor.downloadZip")}
+            </DropdownMenuItem>
+            {viewMode === "overview" && overviewScreens.length >= 2 ? (
+              <DropdownMenuItem
+                onClick={() => void handleDownloadAllScreensPdf()}
+                disabled={pngExporting}
+              >
+                <IconFileStack className="mr-2 h-4 w-4" />
+                {t("designEditor.downloadPdfAllScreens")}
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={handleCopyCodingHandoff}
+              disabled={!activeFile || codingHandoffLoading}
+            >
+              <IconDownload className="mr-2 h-4 w-4" />
+              {t("designEditor.copyCodingHandoff")}
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>

@@ -1401,8 +1401,31 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "pi-cli": "Pi",
   "opencode-cli": "OpenCode",
   "claude-fable-5": "Claude Fable 5",
+  "claude-fable-5-1": "Claude Fable 5.1",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
+  "deepseek-v3-1": "DeepSeek v3.1",
+  "z-ai-glm-4-5": "Z-AI GLM 4.5",
+  "z-ai-glm-5-1": "Z-AI GLM 5.1",
+  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
+  "grok-code-fast": "Grok Code Fast",
+  "gpt-6-1-sol": "GPT-6.1 Sol",
+  "gemini-3-1-pro": "Gemini 3.1 Pro",
+  "gemini-3-8-flash": "Gemini 3.8 Flash",
+  "google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+  "google/gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "google/gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
+  "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
+  "deepseek/deepseek-chat-v3.1": "DeepSeek v3.1",
+  "z-ai/glm-4.5": "Z-AI GLM 4.5",
+  "z-ai/glm-5.1": "Z-AI GLM 5.1",
+  "z-ai/glm-5.3-flash": "Z-AI GLM 5.3 Flash",
+  "x-ai/grok-4.7": "Grok 4.7",
+  "qwen/qwen3-coder": "Qwen3 Coder",
+  "moonshotai/kimi-k2.5": "Kimi K2.5",
   "z-ai/glm-5.2": "GLM 5.2",
   "openai/gpt-6-astra": "GPT-6 Astra",
   "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
@@ -1428,13 +1451,6 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "claude-haiku-4-5": "Claude Haiku 4.5",
   "gemini-3-5-flash-lite": "Gemini 3.5 Flash-Lite",
   "gemini-3-1-flash-lite": "Gemini 3.1 Flash-Lite",
-  "grok-code-fast": "Grok Code Fast",
-  "qwen3-coder": "Qwen3 Coder",
-  "deepseek-v3-1": "DeepSeek v3.1",
-  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
-  "z-ai-glm-4-5": "Z-AI GLM 4.5",
-  "z-ai-glm-5-1": "Z-AI GLM 5.1",
-  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
 };
 
 const LOCAL_RUNTIME_ENGINES = new Set([
@@ -1587,12 +1603,13 @@ export function compactComposerModelName(
     .replace(/^Gemini\s+\d+(?:\.\d+)?\s*/i, "")
     .replace(/^Claude\s+/i, "")
     .replace(/^Qwen\s*\d*(?:\.\d+)?\s*/i, "")
-    .replace(/^(DeepSeek)\s+v?\d+(?:\.\d+)?/i, "$1")
+    .replace(/^DeepSeek\s+v?\d+(?:\.\d+)?\s*/i, "")
     .replace(/^Z-AI\s*/i, "")
     .replace(/^Grok\s*/i, "")
     .replace(/\s+[a-z]*\d+(?:\.\d+)*$/i, "")
     .trim();
-  return shortName || fullName;
+  if (shortName) return shortName;
+  return /^deepseek-/i.test(model) ? "DeepSeek" : fullName;
 }
 
 export function compactComposerReasoningEffortLabel(

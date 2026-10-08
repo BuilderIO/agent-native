@@ -939,9 +939,6 @@ export default {
         figmaPasteFailed: "Falha ao importar colagem do Figma",
         uploadFailed: "Falha no upload do arquivo",
         invalidFigFile: "Escolha um arquivo que termine em .fig.",
-        unsupportedFileType: "Escolha um arquivo .fig, .html ou .htm.",
-        importBusy:
-          "Outra importação está em andamento. Conclua ou cancele-a primeiro.",
         figFileTooLarge:
           "Esse .fig é grande demais — os envios são limitados a {{max}} MB. No Figma, copie apenas o frame desejado para um novo arquivo e exporte esse arquivo como .fig, ou use Colar do Figma.",
       },
@@ -981,17 +978,7 @@ export default {
     saveTemplate: "Salvar modelo",
     templateSaved: "Modelo salvo na biblioteca",
     templateSaveFailed: "Não foi possível salvar este modelo",
-    fileMenu: {
-      pendingEditsBlocked:
-        "Aplique ou descarte suas edições visuais pendentes antes de duplicar.",
-      designs: "Designs",
-      rename: "Renomear",
-      duplicate: "Duplicar",
-      versionHistory: "Histórico de versões",
-      import: "Importar…",
-      delete: "Excluir",
-      deleteError: "Não foi possível excluir este design",
-    },
+    clickToRename: "Clique para renomear",
     collaborators: "Colaboradores",
     share: "Compartilhar",
     signUpToSave: "Criar conta",

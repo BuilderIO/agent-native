@@ -5,10 +5,6 @@ import type {
   SetStateAction,
 } from "react";
 
-import {
-  resolveLeftSidebarWidth,
-  snapLeftSidebarDragWidth,
-} from "@/pages/design-editor/left-sidebar-width";
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface StartSidebarResizeArgs {
@@ -38,11 +34,21 @@ export function runStartSidebarResize(
   event.stopPropagation();
   event.currentTarget.setPointerCapture?.(event.pointerId);
   const startX = event.clientX;
+  const codePanelOpen = side === "left" && activeLeftPanel === "code";
+  const leftPanelMinWidth = codePanelOpen
+    ? 520
+    : activeLeftPanel === "agent"
+      ? 320
+      : 220;
   const startWidth =
     side === "left"
-      ? resolveLeftSidebarWidth(leftSidebarWidth, activeLeftPanel)
+      ? codePanelOpen
+        ? Math.max(leftSidebarWidth, 640)
+        : Math.max(Math.min(leftSidebarWidth, 420), leftPanelMinWidth)
       : rightSidebarWidth;
   const setWidth = side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
+  const minWidth = side === "left" ? leftPanelMinWidth : 240;
+  const maxWidth = side === "left" ? (codePanelOpen ? 1100 : 420) : 390;
   const target =
     side === "left"
       ? leftSidebarContentRef.current
@@ -69,10 +75,7 @@ export function runStartSidebarResize(
     moveEvent.preventDefault();
     const delta =
       side === "left" ? moveEvent.clientX - startX : startX - moveEvent.clientX;
-    const next =
-      side === "left"
-        ? snapLeftSidebarDragWidth(startWidth + delta, activeLeftPanel)
-        : Math.min(390, Math.max(240, startWidth + delta));
+    const next = Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
     if (next === latestWidth) return;
     latestWidth = next;
     if (target) {

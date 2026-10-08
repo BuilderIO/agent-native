@@ -1353,7 +1353,7 @@ function LayersPanelImpl(
         ref={layersPanelRef}
         data-layers-panel
         className={cn(
-          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-section-height:28px]",
+          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-row-height:24px] [--design-section-height:28px]",
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[11px] font-normal text-foreground",
           className,
         )}
@@ -1700,8 +1700,8 @@ function LayerRowIndentSlots({
           key={index}
           data-layer-row-indent
           className={cn(
-            "flex h-full w-6 shrink-0 items-center",
-            index === count - 1 ? "justify-start" : "justify-center",
+            "flex h-full shrink-0 items-center justify-center",
+            index === count - 1 ? "w-5" : "w-3",
           )}
         >
           {index === count - 1 ? control : null}
@@ -1722,7 +1722,7 @@ function LayerDropIndicator({
     <span
       data-layer-drop-indicator={placement}
       className={cn(
-        "pointer-events-none absolute left-2.5 right-2 z-10 flex h-px",
+        "pointer-events-none absolute left-0 right-2 z-10 flex h-px",
         placement === "before" ? "top-0" : "bottom-0",
       )}
     >
@@ -2118,7 +2118,7 @@ const LayerRow = memo(function LayerRow({
               activeDrop === "inside" ? "inside" : undefined
             }
             className={cn(
-              "group flex h-[var(--design-row-height)] w-max min-w-full items-center pl-2.5 pr-[var(--design-baseline-half)] text-[11px] [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
+              "group flex h-[var(--design-row-height)] w-max min-w-full items-center pr-[var(--design-baseline-half)] text-[11px] bg-[var(--design-editor-panel-bg)]",
               !isSelected && !isInSelectedSubtree && "rounded-[4px]",
               isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
               isSelectionBlockStart &&
@@ -2160,7 +2160,7 @@ const LayerRow = memo(function LayerRow({
                     data-layer-row-chevron={
                       isExpanded ? "expanded" : "collapsed"
                     }
-                    className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    className="size-5 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                     aria-label={isExpanded ? labels.collapse : labels.expand}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -2172,10 +2172,13 @@ const LayerRow = memo(function LayerRow({
                     }}
                   >
                     {isExpanded ? (
-                      <IconChevronDown className="!size-3" strokeWidth={1.8} />
+                      <IconChevronDown
+                        className="!size-2.5"
+                        strokeWidth={1.8}
+                      />
                     ) : (
                       <IconChevronRight
-                        className="!size-3 rtl:-scale-x-100"
+                        className="!size-2.5 rtl:-scale-x-100"
                         strokeWidth={1.8}
                       />
                     )}
@@ -2190,7 +2193,7 @@ const LayerRow = memo(function LayerRow({
               data-layer-row-button
               data-layer-node-id={node.id}
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                "flex min-w-0 flex-1 items-center gap-[var(--design-baseline-unit)] rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                 selectable ? "cursor-default" : "cursor-default opacity-80",
               )}
               onClick={handlePointerSelect}

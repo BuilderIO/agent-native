@@ -8,14 +8,16 @@ import { AppDefaultModelField } from "./SettingsPanel.js";
 
 const BUILDER_MODELS = [
   "auto",
+  "claude-haiku-5-5",
+  "claude-sonnet-5-5",
   "claude-opus-5-5",
-  "claude-sonnet-5",
-  "claude-haiku-4-5",
-  "gpt-5-6-sol",
+  "gpt-6-1-sol",
   "gpt-5-6-terra",
-  "gpt-5-6-luna",
+  "gpt-6-luna",
   "gemini-3-1-pro",
-  "gemini-3-5-flash",
+  "gemini-3-8-flash",
+  "gemini-3-5-flash-lite",
+  "gemini-3-1-flash-lite",
 ];
 
 describe("AppDefaultModelField", () => {
@@ -42,7 +44,7 @@ describe("AppDefaultModelField", () => {
         <AppDefaultModelField
           engine="builder"
           models={BUILDER_MODELS}
-          value="gpt-5-6-sol"
+          value="gpt-6-1-sol"
           onValueChange={vi.fn()}
         />,
       );
@@ -52,7 +54,7 @@ describe("AppDefaultModelField", () => {
       'button[role="combobox"][aria-label="Model"]',
     );
     expect(trigger).not.toBeNull();
-    expect(trigger?.textContent).toContain("GPT-5.6 Sol");
+    expect(trigger?.textContent).toContain("GPT-6.1 Sol");
     expect(container.querySelector("input[list]")).toBeNull();
 
     act(() => {
@@ -71,14 +73,16 @@ describe("AppDefaultModelField", () => {
     );
     expect(options).toEqual([
       "auto",
+      "Haiku 5.5",
+      "Sonnet 5.5",
       "Opus 5.5",
-      "Sonnet 5",
-      "Haiku 4.5",
-      "GPT-5.6 Sol",
+      "GPT-6.1 Sol",
       "GPT-5.6 Terra",
-      "GPT-5.6 Luna",
+      "GPT-6 Luna",
       "Gemini 3.1 Pro",
-      "Gemini 3.5 Flash",
+      "Gemini 3.8 Flash",
+      "Gemini 3.5 Flash Lite",
+      "Gemini 3.1 Flash Lite",
     ]);
   });
 

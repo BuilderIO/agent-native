@@ -947,9 +947,6 @@ export default {
         figmaPasteFailed: "Échec de l’import du collage Figma",
         uploadFailed: "Échec du téléversement",
         invalidFigFile: "Choisissez un fichier se terminant par .fig.",
-        unsupportedFileType: "Choisissez un fichier .fig, .html ou .htm.",
-        importBusy:
-          "Une autre importation est en cours. Terminez-la ou annulez-la d’abord.",
         figFileTooLarge:
           "Ce .fig est trop volumineux : les téléversements sont limités à {{max}} Mo. Dans Figma, copiez uniquement le frame souhaité dans un nouveau fichier et exportez ce fichier en .fig, ou utilisez Coller depuis Figma.",
       },
@@ -990,17 +987,7 @@ export default {
     saveTemplate: "Enregistrer le modèle",
     templateSaved: "Modèle enregistré dans la bibliothèque",
     templateSaveFailed: "Impossible d’enregistrer ce modèle",
-    fileMenu: {
-      pendingEditsBlocked:
-        "Appliquez ou annulez vos modifications visuelles en attente avant de dupliquer.",
-      designs: "Designs",
-      rename: "Renommer",
-      duplicate: "Dupliquer",
-      versionHistory: "Historique des versions",
-      import: "Importer…",
-      delete: "Supprimer",
-      deleteError: "Impossible de supprimer ce design",
-    },
+    clickToRename: "Cliquer pour renommer",
     collaborators: "Collaborateurs",
     share: "Partager",
     signUpToSave: "S'inscrire",

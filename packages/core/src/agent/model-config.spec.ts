@@ -122,7 +122,7 @@ describe("agent model config catalog", () => {
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-5-5");
   });
 
-  it("uses Claude Sonnet 5.5 directly while Builder keeps its accepted ID", () => {
+  it("uses the current Sonnet 5.5 ID with direct Anthropic and Builder", () => {
     expect(ANTHROPIC_MODEL_CONFIG.defaultModel).toBe("claude-sonnet-5-5");
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain(
       "claude-sonnet-5-5",
@@ -133,32 +133,32 @@ describe("agent model config catalog", () => {
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain(
       BUILDER_CLAUDE_SONNET_MODEL_ID,
     );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
-      "claude-sonnet-5-5",
-    );
+    expect(BUILDER_CLAUDE_SONNET_MODEL_ID).toBe("claude-sonnet-5-5");
   });
 
   it("advertises current Builder model IDs instead of retired aliases", () => {
     expect(BUILDER_MODEL_CONFIG.supportedModels).toEqual([
       "auto",
-      "claude-haiku-4-5",
-      "claude-sonnet-5",
+      "claude-haiku-5-5",
+      "claude-sonnet-5-5",
       "claude-opus-5-5",
       "gpt-5-4",
       "gpt-5-5",
       "gpt-5-4-mini",
       "gpt-5-1-codex-mini",
-      "gpt-6.1-sol",
+      "gpt-6-1-sol",
       "gpt-5-6-terra",
       "gpt-6-luna",
       "gemini-3-1-pro",
       "gemini-3-8-flash",
       "gemini-3-5-flash-lite",
       "gemini-3-1-flash-lite",
+      "grok-code-fast",
       "qwen3-coder",
       "kimi-k2-5",
-      "deepseek-v3-1",
+      "deepseek-v4-pro",
       "deepseek-v4-1-flash",
+      "deepseek-v3-1",
       "z-ai-glm-4-5",
       "z-ai-glm-5-1",
       "z-ai-glm-5-3-flash",
@@ -191,14 +191,18 @@ describe("agent model config catalog", () => {
       "gpt-5-5",
       "gpt-5-4-mini",
       "gpt-5-1-codex-mini",
-      "gpt-6.1-sol",
+      "gpt-6-1-sol",
       "gpt-5-6-terra",
       "gpt-6-luna",
     ]);
     expect(AI_SDK_MODEL_CONFIG.openai.supportedModels).toEqual([
       "gpt-6-luna",
-      "gpt-5.6-terra",
       "gpt-6.1-sol",
+      "gpt-5.6-terra",
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.1-codex-mini",
     ]);
     expect(
       (
@@ -210,15 +214,21 @@ describe("agent model config catalog", () => {
       "openai/gpt-6.1-sol",
       "openai/gpt-6-astra",
       "openai/gpt-6-astra-pro",
+      "openai/gpt-5.5",
+      "openai/gpt-5.4",
+      "openai/gpt-5.4-mini",
+      "openai/gpt-5.1-codex-mini",
     ]);
   });
 
   it("orders Anthropic catalogs from cheapest to most expensive", () => {
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toEqual([
+      "claude-haiku-5-5",
       "claude-haiku-4-5-20251001",
       "claude-sonnet-5-5",
       "claude-opus-5-5",
       "claude-opus-4-8",
+      "claude-fable-5-1",
       "claude-fable-5",
     ]);
     expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toEqual(
@@ -262,12 +272,55 @@ describe("agent model config catalog", () => {
     );
     expect(openrouterModels).toContain("z-ai/glm-5.2");
   });
+
+  it("offers the current Builder model families to matching BYOK providers", () => {
+    expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toContain(
+      "claude-haiku-5-5",
+    );
+    expect(AI_SDK_MODEL_CONFIG.openai.supportedModels).toEqual(
+      expect.arrayContaining([
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.1-codex-mini",
+      ]),
+    );
+    expect(AI_SDK_MODEL_CONFIG.google.supportedModels).toEqual(
+      expect.arrayContaining([
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+      ]),
+    );
+    expect(AI_SDK_MODEL_CONFIG.openrouter.supportedModels).toEqual(
+      expect.arrayContaining([
+        "anthropic/claude-haiku-5.5",
+        "openai/gpt-5.5",
+        "openai/gpt-5.4",
+        "openai/gpt-5.4-mini",
+        "openai/gpt-5.1-codex-mini",
+        "google/gemini-3.8-flash",
+        "google/gemini-3.5-flash-lite",
+        "google/gemini-3.1-flash-lite",
+        "deepseek/deepseek-v4-pro",
+        "deepseek/deepseek-v4.1-flash",
+        "z-ai/glm-5.3-flash",
+      ]),
+    );
+  });
 });
 
 describe("getContextWindowForModel", () => {
   it("returns 200K for standard Claude Haiku models", () => {
     expect(getContextWindowForModel("claude-haiku-4-5")).toBe(200_000);
     expect(getContextWindowForModel("claude-haiku-4-5-20251001")).toBe(200_000);
+  });
+
+  it("returns 1M for Claude Haiku 5.5 direct and OpenRouter IDs", () => {
+    expect(getContextWindowForModel("claude-haiku-5-5")).toBe(1_000_000);
+    expect(getContextWindowForModel("anthropic/claude-haiku-5.5")).toBe(
+      1_000_000,
+    );
   });
 
   it("returns 1M for Claude Fable 5, Sonnet 5.5/4.6, and Opus 4.6+", () => {
@@ -312,10 +365,25 @@ describe("getContextWindowForModel", () => {
     }
   });
 
-  it("returns 1M for Gemini 2.x / 3.x models", () => {
+  it("returns provider context limits for current GPT and Gemini models", () => {
+    expect(getContextWindowForModel("gpt-5.5")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5.4")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5.4-mini")).toBe(400_000);
+    expect(getContextWindowForModel("gpt-5.1-codex-mini")).toBe(400_000);
+    expect(getContextWindowForModel("gpt-5-4-mini")).toBe(400_000);
+    expect(getContextWindowForModel("gpt-5-1-codex-mini")).toBe(400_000);
     expect(getContextWindowForModel("gemini-3.5-flash")).toBe(1_048_576);
-    expect(getContextWindowForModel("gemini-3.1-pro-preview")).toBe(1_048_576);
+    expect(getContextWindowForModel("gemini-3.5-flash-lite")).toBe(1_048_576);
+    expect(getContextWindowForModel("gemini-3.1-flash-lite")).toBe(400_000);
+    expect(getContextWindowForModel("gemini-3.1-pro-preview")).toBe(400_000);
+    expect(getContextWindowForModel("google/gemini-3.1-pro-preview")).toBe(
+      400_000,
+    );
+    expect(getContextWindowForModel("gemini-3-1-pro")).toBe(400_000);
     expect(getContextWindowForModel("gemini-3-5-flash")).toBe(1_048_576);
+    expect(getContextWindowForModel("gemini-3-1-flash-lite")).toBe(400_000);
+    expect(getContextWindowForModel("gemini-3-5-flash-lite")).toBe(1_048_576);
+    expect(getContextWindowForModel("gemini-3-8-flash")).toBe(1_048_576);
     expect(getContextWindowForModel("google/gemini-2.5-flash")).toBe(1_048_576);
   });
 
@@ -343,6 +411,11 @@ describe("getContextWindowForModel", () => {
 describe("getMaxOutputTokensForModel", () => {
   it("returns 128K for Claude flagship models (Fable 5, Opus 4.6+, Sonnet 5.5/4.6)", () => {
     expect(getMaxOutputTokensForModel("claude-fable-5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("claude-fable-5-1")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("claude-haiku-5-5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("anthropic/claude-haiku-5.5")).toBe(
+      128_000,
+    );
     expect(getMaxOutputTokensForModel("claude-opus-5-5")).toBe(128_000);
     expect(getMaxOutputTokensForModel("anthropic/claude-opus-5.5")).toBe(
       128_000,
@@ -379,6 +452,25 @@ describe("getMaxOutputTokensForModel", () => {
     expect(getMaxOutputTokensForModel("openai/gpt-5.6-luna")).toBe(128_000);
   });
 
+  it("returns 40K for current Builder GPT-5 models and BYOK aliases", () => {
+    for (const model of [
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.1-codex-mini",
+      "gpt-5-5",
+      "gpt-5-4",
+      "gpt-5-4-mini",
+      "gpt-5-1-codex-mini",
+      "openai/gpt-5.5",
+      "openai/gpt-5.4",
+      "openai/gpt-5.4-mini",
+      "openai/gpt-5.1-codex-mini",
+    ]) {
+      expect(getMaxOutputTokensForModel(model)).toBe(40_000);
+    }
+  });
+
   it("returns 128K for current GPT-6 models in direct and OpenRouter forms", () => {
     for (const model of [
       "gpt-6-sol",
@@ -410,16 +502,16 @@ describe("resolveFallbackModel", () => {
   it("swaps haiku and sonnet for each other on the Builder catalog", () => {
     expect(
       resolveFallbackModel(
-        "claude-haiku-4-5",
+        "claude-haiku-5-5",
         BUILDER_MODEL_CONFIG.supportedModels,
       ),
-    ).toBe("claude-sonnet-5");
+    ).toBe("claude-sonnet-5-5");
     expect(
       resolveFallbackModel(
-        "claude-sonnet-5",
+        "claude-sonnet-5-5",
         BUILDER_MODEL_CONFIG.supportedModels,
       ),
-    ).toBe("claude-haiku-4-5");
+    ).toBe("claude-haiku-5-5");
   });
 
   it("falls back opus to sonnet on the Builder catalog", () => {
@@ -428,7 +520,7 @@ describe("resolveFallbackModel", () => {
         "claude-opus-5-5",
         BUILDER_MODEL_CONFIG.supportedModels,
       ),
-    ).toBe("claude-sonnet-5");
+    ).toBe("claude-sonnet-5-5");
   });
 
   it("resolves by family against the direct Anthropic engine's dated ids", () => {
@@ -437,7 +529,7 @@ describe("resolveFallbackModel", () => {
         CLAUDE_SONNET_MODEL_ID,
         ANTHROPIC_MODEL_CONFIG.supportedModels,
       ),
-    ).toBe("claude-haiku-4-5-20251001");
+    ).toBe("claude-haiku-5-5");
     expect(
       resolveFallbackModel(
         "claude-haiku-4-5-20251001",

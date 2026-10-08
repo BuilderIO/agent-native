@@ -923,8 +923,6 @@ export default {
         figmaPasteFailed: "فشل استيراد لصق Figma",
         uploadFailed: "فشل رفع الملف",
         invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
-        unsupportedFileType: "اختر ملف ‎.fig‎ أو ‎.html‎ أو ‎.htm‎.",
-        importBusy: "هناك استيراد آخر قيد التنفيذ. أنهِه أو ألغِه أولاً.",
         figFileTooLarge:
           "ملف ‎.fig‎ كبير جدًا — الحد الأقصى للرفع {{max}} ميغابايت. في Figma، انسخ الإطار المطلوب فقط إلى ملف جديد وصدّر ذلك الملف بصيغة ‎.fig‎، أو استخدم اللصق من Figma.",
       },
@@ -962,17 +960,7 @@ export default {
     saveTemplate: "حفظ القالب",
     templateSaved: "تم حفظ القالب في المكتبة",
     templateSaveFailed: "تعذر حفظ هذا القالب",
-    fileMenu: {
-      pendingEditsBlocked:
-        "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
-      designs: "التصاميم",
-      rename: "إعادة التسمية",
-      duplicate: "تكرار",
-      versionHistory: "سجل الإصدارات",
-      import: "استيراد…",
-      delete: "حذف",
-      deleteError: "تعذّر حذف هذا التصميم",
-    },
+    clickToRename: "انقر لإعادة التسمية",
     collaborators: "المتعاونون",
     share: "مشاركة",
     signUpToSave: "سجل",

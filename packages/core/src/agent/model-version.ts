@@ -1,3 +1,5 @@
+import { BUILDER_MODEL_ALIASES } from "./model-config.js";
+
 interface ParsedVersionedModelId {
   family: string;
   version: number[];
@@ -56,6 +58,14 @@ export function findLatestSupportedVersionMatch(
   }
 
   return best?.model;
+}
+
+export function upgradeBuilderModelAlias(
+  candidate: string,
+  supportedModels: readonly string[],
+): string | undefined {
+  const latest = BUILDER_MODEL_ALIASES[candidate];
+  return latest && supportedModels.includes(latest) ? latest : undefined;
 }
 
 export function isNewerVersionedModel(

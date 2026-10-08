@@ -96,7 +96,7 @@ describe("ResourceEditor markdown editing", () => {
     );
   });
 
-  it("offers the gateway-compatible Sonnet model for custom agents", () => {
+  it("offers the current Claude models for custom agents", () => {
     const onSave = vi.fn();
     act(() => {
       root.render(
@@ -105,7 +105,7 @@ describe("ResourceEditor markdown editing", () => {
             ...resource,
             path: "agents/researcher.md",
             content:
-              "---\nname: Researcher\nmodel: claude-sonnet-5\n---\n# Research\n",
+              "---\nname: Researcher\nmodel: claude-sonnet-5-5\n---\n# Research\n",
           }}
           onSave={onSave}
           view="visual"
@@ -114,12 +114,17 @@ describe("ResourceEditor markdown editing", () => {
     });
 
     const modelPicker = container.querySelector("select")!;
-    expect(modelPicker.value).toBe("claude-sonnet-5");
+    expect(modelPicker.value).toBe("claude-sonnet-5-5");
     expect(
       Array.from(modelPicker.options).some(
         (option) =>
-          option.value === "claude-sonnet-5" &&
-          option.textContent === "Claude Sonnet 5",
+          option.value === "claude-sonnet-5-5" &&
+          option.textContent === "Claude Sonnet 5.5",
+      ),
+    ).toBe(true);
+    expect(
+      Array.from(modelPicker.options).some(
+        (option) => option.value === "claude-haiku-5-5",
       ),
     ).toBe(true);
   });

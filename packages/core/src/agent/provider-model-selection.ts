@@ -46,7 +46,10 @@ import {
 } from "./engine/openai-compatible-endpoint.js";
 import { PROVIDER_ENV_META } from "./engine/provider-env-vars.js";
 import { BUILDER_MODEL_CONFIG } from "./model-config.js";
-import { upgradeModelToLatestSupportedVersion } from "./model-version.js";
+import {
+  upgradeBuilderModelAlias,
+  upgradeModelToLatestSupportedVersion,
+} from "./model-version.js";
 
 export const PROVIDER_MODEL_SELECTION_KEY_PREFIX = "agent-provider-models";
 
@@ -194,7 +197,9 @@ export function normalizeSelectedModels(
       [...seen].map((id) =>
         options.preserveCustomModels
           ? id
-          : (upgradeModelToLatestSupportedVersion(id, supportedModels) ?? id),
+          : (upgradeBuilderModelAlias(id, supportedModels) ??
+            upgradeModelToLatestSupportedVersion(id, supportedModels) ??
+            id),
       ),
     ),
   ];
