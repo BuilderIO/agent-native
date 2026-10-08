@@ -58,7 +58,7 @@ export type AutomationRecovery =
     }
   | {
       state: "settle";
-      status: "success" | "error";
+      status: "success" | "error" | "skipped";
       history: AutomationRun;
       error?: string;
       errorCode?: string;
@@ -159,7 +159,10 @@ export async function inspectAutomationRecovery(
   if (history.finishedAt !== null)
     return {
       state: "settle",
-      status: history.status === "success" ? "success" : "error",
+      status:
+        history.status === "success" || history.status === "skipped"
+          ? history.status
+          : "error",
       history,
       ...(history.error ? { error: history.error } : {}),
       ...(history.errorCode ? { errorCode: history.errorCode } : {}),

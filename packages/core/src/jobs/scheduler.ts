@@ -1455,7 +1455,10 @@ async function updateResource(
   meta: JobFrontmatter,
   _body: string,
   extra: JobFrontmatterPatch = {},
-  transaction?: { tx: DbExec; deferNotification: (notify: () => Promise<void>) => void },
+  transaction?: {
+    tx: DbExec;
+    deferNotification: (notify: () => Promise<void>) => void;
+  },
 ): Promise<boolean> {
   const content = patchJobFrontmatterFields(resource.content, {
     lastRun: meta.lastRun,

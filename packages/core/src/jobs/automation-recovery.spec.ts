@@ -305,6 +305,21 @@ describe("automation worker recovery", () => {
     expect(mocks.reap).toHaveBeenCalledWith(history.runId);
   });
 
+  it("retains a finished no-op outcome without treating it as failure", async () => {
+    mocks.history.mockResolvedValue({
+      ...history,
+      status: "skipped",
+      finishedAt: now.getTime(),
+      error: "No work was needed.",
+    });
+    expect(await inspectAutomationRecovery(resource, meta, now)).toMatchObject({
+      state: "settle",
+      status: "skipped",
+      error: "No work was needed.",
+    });
+    expect(mocks.reap).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["missing", null],
     ["another owner", { ...history, owner: "other@example.com" }],

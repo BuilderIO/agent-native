@@ -68,8 +68,8 @@ import {
   withThreadDataLock,
 } from "../chat-threads/store.js";
 import { withDbExec, type DbExec } from "../db/client.js";
-import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
@@ -100,12 +100,12 @@ import {
   withDeliveryNote,
   type AutomationFailure,
 } from "./automation-outcome.js";
-import { effectiveTimezone } from "./cron.js";
 import {
   deliveryNoteForEvents,
   automationHistoryOwner,
   type AutomationResume,
 } from "./automation-recovery.js";
+import { effectiveTimezone } from "./cron.js";
 import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
@@ -1113,7 +1113,8 @@ async function executeBackgroundAutomation(
         now: new Date(),
         timezone: effectiveTimezone(automation.meta.timezone),
       };
-      let executionPrompt = prompt + buildCurrentTimeUserContext(runtimeContext);
+      let executionPrompt =
+        prompt + buildCurrentTimeUserContext(runtimeContext);
       let engineMessages: EngineMessage[] = [
         { role: "user", content: [{ type: "text", text: executionPrompt }] },
       ];

@@ -23,3 +23,4 @@ Keep newly admitted firings retryable after pre-start lease loss and reconcile t
 Report post-commit notification and history-retention failures without aborting an already committed firing admission.
 
 Recover from an absent or mismatched firing-history reference as an explicit error without replaying work or modifying unrelated history; retain scheduled backoff and manual-run policy.
+Preserve completed no-op outcomes when reconciling recovery alongside the shared automation outcome runner, and keep its clock context in the saved request.

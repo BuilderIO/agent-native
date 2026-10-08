@@ -256,10 +256,18 @@ describe("stale automation run-lock recovery across trigger types", () => {
         onComplete?: (run: { status: string }) => void | Promise<void>,
       ) => {
         const abort = new AbortController();
-        const activeRun = { runId, threadId, status: "running", abort };
+        const activeRun = {
+          runId,
+          threadId,
+          status: "running",
+          abort,
+          events: [] as { event: unknown; seq: number }[],
+        };
         void Promise.resolve().then(async () => {
           try {
-            await runFn(vi.fn(), abort.signal);
+            await runFn((event) => {
+              activeRun.events.push({ event, seq: activeRun.events.length });
+            }, abort.signal);
             activeRun.status = "completed";
           } catch {
             activeRun.status = "errored";
@@ -488,6 +496,38 @@ describe("stale automation run-lock recovery across trigger types", () => {
     }
   });
 
+  it("projects a finished skipped firing without advancing its failure streak", async () => {
+    const fixture = interruptedScheduledJob();
+    fixture.resource.content = fixture.resource.content.replace(
+      "enabled: true",
+      "enabled: true\nconsecutiveFailures: 2\nlastErrorCode: http_502",
+    );
+    vi.mocked(runHistory.getAutomationRun).mockResolvedValue({
+      ...fixture.history,
+      status: "skipped",
+      finishedAt: Date.now(),
+      error: "No work was needed.",
+    } as any);
+    const finish = vi.spyOn(runHistory, "finishAutomationRun");
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(
+        parseJobResource(resourcePutMock.mock.calls[0]![2]).meta,
+      ).toMatchObject({
+        enabled: true,
+        lastStatus: "skipped",
+        lastError: "No work was needed.",
+        consecutiveFailures: 2,
+        lastErrorCode: "http_502",
+      });
+      expect(finish).not.toHaveBeenCalled();
+      expect(startRunMock).not.toHaveBeenCalled();
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
   it("retains a firing marker when its history lookup is temporarily unavailable", async () => {
     const fixture = interruptedScheduledJob();
     vi.mocked(runHistory.getAutomationRun).mockRejectedValue(
@@ -604,6 +644,15 @@ describe("stale automation run-lock recovery across trigger types", () => {
 
   it("resumes an interrupted manual firing without a cron schedule", async () => {
     const fixture = interruptedScheduledJob();
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "open-test-ticket",
+        result: "Ticket created",
+        completedSideEffect: true,
+      });
+      return { inputTokens: 100, outputTokens: 25, model: "test-model" };
+    });
     fixture.resource.content = fixture.resource.content.replace(
       'schedule: "*/2 * * * *"\n',
       "lastRunManual: true\nlastRunAdvanceSchedule: false\n",
@@ -1285,6 +1334,15 @@ describe("stale automation run-lock recovery across trigger types", () => {
   });
 
   it("resumes a killed scheduled firing on its next tick with its completed email and original turn", async () => {
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "open-test-ticket",
+        result: "Ticket created",
+        completedSideEffect: true,
+      });
+      return { inputTokens: 100, outputTokens: 25, model: "test-model" };
+    });
     const startedAt = Date.now() - 120_000;
     const lastRun = new Date(startedAt).toISOString();
     const resource = {
