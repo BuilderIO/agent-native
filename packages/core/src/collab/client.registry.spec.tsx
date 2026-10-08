@@ -47,7 +47,14 @@ class FakeEventSource {
 
 function emptyStateResponse(): Response {
   return new Response(
-    JSON.stringify({ state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA" }),
+    JSON.stringify({
+      state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA",
+      activityBaseline: {
+        status: "ready",
+        version: 1,
+        cursor: "1.baseline",
+      },
+    }),
   );
 }
 
@@ -158,6 +165,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           }
@@ -236,6 +248,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           if (!url.endsWith("/update")) return fallback(input);
@@ -322,6 +339,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           if (!url.endsWith("/update")) return fallback(input);
@@ -408,6 +430,69 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(_collabDocRegistrySizeForTests()).toBe(1);
     expect(a?.isSynced).toBe(true);
     expect(b?.isSynced).toBe(true);
+  });
+
+  it("reconciles state before accepting the first poll watermark without a baseline", async () => {
+    const server = new Y.Doc();
+    server.getText("content").insert(0, "seed");
+    const initialState = Buffer.from(Y.encodeStateAsUpdate(server)).toString(
+      "base64",
+    );
+    let stateVectorFetches = 0;
+    const pollUrls: string[] = [];
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) {
+        return new Response(
+          JSON.stringify({
+            state: initialState,
+            activityBaseline: { status: "unavailable" },
+          }),
+        );
+      }
+      if (/\/collab\/[^/]+\/state\?/.test(url)) {
+        stateVectorFetches++;
+        server.getText("content").insert(4, " updated");
+        const stateVector = Buffer.from(
+          new URL(url, window.location.href).searchParams.get("stateVector")!,
+          "base64",
+        );
+        const update = Y.encodeStateAsUpdate(server, stateVector);
+        return new Response(
+          JSON.stringify({ state: Buffer.from(update).toString("base64") }),
+        );
+      }
+      if (url.includes("/_agent-native/poll")) {
+        pollUrls.push(url);
+        return new Response(JSON.stringify({ version: 100, events: [] }));
+      }
+      if (url.includes("/awareness")) {
+        return new Response(JSON.stringify({ states: [] }));
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="unavailable-baseline"
+        onResult={(next) => {
+          result = next;
+        }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pollUrls[0]).toContain("since=0");
+    expect(stateVectorFetches).toBe(1);
+    expect(result?.ydoc?.getText("content").toString()).toBe("seed updated");
+
+    server.destroy();
   });
 
   it("returns a fresh sync receipt after an older transport fetch completes", async () => {

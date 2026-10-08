@@ -119,7 +119,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暫時略過",
   "onboarding.saveRoleError": "無法儲存你的角色。",
-  "onboarding.builderCreateAccount": "建立 Builder.io 帳戶",
+  "onboarding.builderCreateAccount": "使用 Builder.io",
   "onboarding.builderSignInWithAccount": "使用 Builder.io 帳戶登入",
   "onboarding.builderActivateDescription":
     "只要按一下即可建立或重新使用您的 Builder.io 帳戶，並啟用免費額度。",
@@ -640,6 +640,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "不喜歡",
   "feedback.thumbsUp": "喜歡",
   "feedback.tooSlow": "太慢",
+  "feedback.reasonMisread": "誤解了我的請求",
+  "feedback.reasonNotDone": "說已完成，但實際並未完成",
+  "feedback.reasonWrongNumbers": "數字有誤",
+  "feedback.copyDetails": "複製詳細資料",
   "feedback.whatWentWrong": "哪裡出了問題？",
   "feedback.wrongTool": "工具錯誤",
   "header.switchToCli": "切換到 CLI",
@@ -1094,6 +1098,10 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "已有 {{seconds}} 秒沒有進展。代理可能遇到伺服器逾時或連線中斷。",
   "recovery.stuckRetrying": "正在自動重試。",
+  "recovery.statusUnreadable":
+    "無法連線至伺服器檢查此對話，它可能已經完成。我們會持續嘗試。",
+  "recovery.statusMismatch": "伺服器顯示此對話已不再執行。重新載入以查看結果。",
+  "recovery.reload": "重新載入",
   "recovery.statusCheckFailed":
     "無法連線至伺服器以檢查代理是否仍在工作。請重新傳送訊息以重試。",
   "recovery.streamEnded":
@@ -1660,6 +1668,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.retry": "重試",
   "settings.storage.adminOnly": "只有組織擁有者和管理員可以變更檔案儲存空間。",
   "settings.audit.action": "操作",
+  "settings.audit.agentVia": "透過 {{protocol}} 的代理",
   "settings.audit.allApps": "所有應用程式",
   "settings.audit.app": "應用程式",
   "settings.audit.changedBy": "變更者",

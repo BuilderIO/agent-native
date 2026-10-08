@@ -1395,7 +1395,7 @@ const messages = {
     waitingForBuilder: "Waiting for Builder...",
     description:
       "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
-    createBuilderAccount: "Create Builder.io account",
+    createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",
     whyPrompt: "Why am I seeing this?",

@@ -15,7 +15,9 @@ const MAX_INLINE_ASSET_BYTES = 32_000_000;
 const MAX_IMAGE_RESPONSE_BYTES = 12_000_000;
 const MAX_SCREENSHOT_DIMENSION = 8_192;
 const MAX_SCREENSHOT_PIXELS = 16_000_000;
+const MAX_CLIPBOARD_PNG_BYTES = 32_000_000;
 const MAX_REPLAY_IFRAME_DEPTH = 8;
+const VIDEO_READY_STATE_HAVE_CURRENT_DATA = 2;
 const REPLAY_SCREENSHOT_MARKER = "data-replay-screenshot-map";
 
 type ReplayImageResource = { document: Document; url: string };
@@ -567,8 +569,12 @@ function imageResourcesInDocuments(
       (element): element is HTMLVideoElement => element.tagName === "VIDEO",
     )) {
       if (!isElementRendered(video, current)) continue;
-      if (
-        video.poster ||
+      if (video.controls) throw new ReplayScreenshotAssetError();
+      if (hasCurrentVideoFrame(video)) {
+        assertVideoFrameReadable(video);
+      } else if (video.poster) {
+        addUrl(video.poster, current.baseURI, current);
+      } else if (
         video.currentSrc ||
         video.hasAttribute("src") ||
         video.srcObject ||
@@ -629,6 +635,68 @@ function imageResourcesInDocuments(
   return [...urlsByDocument].flatMap(([document, urls]) =>
     [...urls].map((url) => ({ document, url })),
   );
+}
+
+function hasCurrentVideoFrame(video: HTMLVideoElement): boolean {
+  return (
+    video.readyState >= VIDEO_READY_STATE_HAVE_CURRENT_DATA &&
+    video.videoWidth > 0 &&
+    video.videoHeight > 0
+  );
+}
+
+function assertVideoFrameReadable(video: HTMLVideoElement): void {
+  const probe = video.ownerDocument.createElement("canvas");
+  probe.width = 1;
+  probe.height = 1;
+  const context = probe.getContext("2d");
+  if (!context) throw new ReplayScreenshotAssetError();
+  try {
+    context.drawImage(video, 0, 0, 1, 1);
+    context.getImageData(0, 0, 1, 1);
+  } catch {
+    throw new ReplayScreenshotAssetError();
+  }
+}
+
+function copyComputedStyles(
+  source: Element,
+  target: HTMLElement,
+  view: Window,
+): void {
+  const styles = view.getComputedStyle(source);
+  for (let index = 0; index < styles.length; index += 1) {
+    const property = styles.item(index);
+    target.style.setProperty(
+      property,
+      styles.getPropertyValue(property),
+      styles.getPropertyPriority(property),
+    );
+  }
+}
+
+function html2CanvasVideoClone(
+  video: HTMLVideoElement,
+  clonesByMarker: Map<string, Element>,
+): Element | undefined {
+  const parent = video.parentElement;
+  const parentMarker = parent?.getAttribute(REPLAY_SCREENSHOT_MARKER);
+  const clonedParent = parentMarker ? clonesByMarker.get(parentMarker) : null;
+  if (!parent || !clonedParent) return undefined;
+
+  const originalChildren = Array.from(parent.children).filter(
+    (element) => element.tagName !== "SCRIPT",
+  );
+  const videoIndex = originalChildren.indexOf(video);
+  if (videoIndex === -1) return undefined;
+
+  const clonedChildren = Array.from(clonedParent.children).filter(
+    (element) =>
+      element.tagName !== "SCRIPT" &&
+      element.localName !== "html2canvaspseudoelement",
+  );
+  const clone = clonedChildren[videoIndex];
+  return clone?.tagName === "CANVAS" ? clone : undefined;
 }
 
 function imageUrlsInDocuments(documents: Document[]): string[] {
@@ -859,6 +927,17 @@ export function inlineReplayAssets(
     }
   }
 
+  for (const originalElement of originalElements) {
+    if (originalElement.tagName !== "VIDEO") continue;
+    const marker = originalElement.getAttribute(REPLAY_SCREENSHOT_MARKER);
+    if (!marker || clonesByMarker.has(marker)) continue;
+    const clone = html2CanvasVideoClone(
+      originalElement as HTMLVideoElement,
+      clonesByMarker,
+    );
+    if (clone) clonesByMarker.set(marker, clone);
+  }
+
   for (const [documentIndex, original] of originalDocuments.entries()) {
     const rootMarker = original.documentElement.getAttribute(
       REPLAY_SCREENSHOT_MARKER,
@@ -878,9 +957,13 @@ export function inlineReplayAssets(
       if (originalElement.tagName === "SCRIPT") continue;
       const marker = originalElement.getAttribute(REPLAY_SCREENSHOT_MARKER);
       let clonedElement = marker ? clonesByMarker.get(marker) : undefined;
+      const isHtml2CanvasVideoClone =
+        originalElement.tagName === "VIDEO" &&
+        clonedElement?.tagName === "CANVAS";
       if (
         !clonedElement ||
-        (originalElement.tagName !== clonedElement.tagName &&
+        (!isHtml2CanvasVideoClone &&
+          originalElement.tagName !== clonedElement.tagName &&
           !originalElement.localName.includes("-"))
       ) {
         throw new ReplayScreenshotAssetError();
@@ -894,16 +977,29 @@ export function inlineReplayAssets(
           const image = cloned.createElement("img");
           image.alt = "";
           image.src = screenshot;
-          const frameStyles = view.getComputedStyle(originalElement);
-          for (let index = 0; index < frameStyles.length; index += 1) {
-            const property = frameStyles.item(index);
-            image.style.setProperty(
-              property,
-              frameStyles.getPropertyValue(property),
-              frameStyles.getPropertyPriority(property),
-            );
-          }
+          copyComputedStyles(originalElement, image, view);
           image.style.setProperty("object-fit", "fill", "important");
+          clonedElement.replaceWith(image);
+          clonedElement = image;
+          if (marker) clonesByMarker.set(marker, image);
+        }
+      }
+      if (originalElement.tagName === "VIDEO") {
+        const video = originalElement as HTMLVideoElement;
+        if (!hasCurrentVideoFrame(video) && video.poster) {
+          const posterUrl = new URL(video.poster, original.baseURI).href;
+          const poster = documentAssets.get(posterUrl);
+          if (!poster) throw new ReplayScreenshotAssetError();
+          const image = cloned.createElement("img");
+          image.alt = "";
+          image.src = poster;
+          const videoStyles = view.getComputedStyle(video);
+          copyComputedStyles(video, image, view);
+          image.style.setProperty(
+            "object-fit",
+            videoStyles.objectFit || "contain",
+            "important",
+          );
           clonedElement.replaceWith(image);
           clonedElement = image;
           if (marker) clonesByMarker.set(marker, image);
@@ -1084,13 +1180,87 @@ function waitForReplayPaint(signal?: AbortSignal): Promise<void> {
   });
 }
 
-export async function downloadReplayScreenshot(
+export class ReplayScreenshotClipboardError extends Error {
+  constructor() {
+    super("Replay screenshot could not be copied to the clipboard");
+    this.name = "ReplayScreenshotClipboardError";
+  }
+}
+
+export function writeReplayScreenshotToClipboard(
+  screenshot: Blob | Promise<Blob>,
+  clipboard: Pick<Clipboard, "write"> | undefined = globalThis.navigator
+    ?.clipboard,
+  onClipboardWriteFailure?: () => void,
+): Promise<void> {
+  const ClipboardItemConstructor = globalThis.ClipboardItem;
+  const boundedPng = Promise.resolve(screenshot).then((blob) => {
+    if (
+      blob.type !== "image/png" ||
+      blob.size === 0 ||
+      blob.size > MAX_CLIPBOARD_PNG_BYTES
+    ) {
+      throw new ReplayScreenshotClipboardError();
+    }
+    return blob;
+  });
+  const pngResult = boundedPng.then(
+    () => ({ kind: "png-ready" as const }),
+    (error: unknown) => ({ error, kind: "png-failed" as const }),
+  );
+
+  let clipboardWrite: Promise<void>;
+  try {
+    if (!clipboard?.write || !ClipboardItemConstructor) {
+      throw new ReplayScreenshotClipboardError();
+    }
+
+    // Start the clipboard write with the click; the promised PNG can render afterward.
+    const item = new ClipboardItemConstructor({ "image/png": boundedPng });
+    clipboardWrite = Promise.resolve(clipboard.write([item]));
+  } catch (error) {
+    clipboardWrite = Promise.reject(error);
+  }
+
+  const writeResult = clipboardWrite.then(
+    () => ({ kind: "write-succeeded" as const }),
+    () => ({ kind: "write-failed" as const }),
+  );
+
+  return Promise.race([pngResult, writeResult]).then(async (firstResult) => {
+    if (firstResult.kind === "write-failed") {
+      const error = new ReplayScreenshotClipboardError();
+      onClipboardWriteFailure?.();
+      throw error;
+    }
+
+    const finalPngResult =
+      firstResult.kind === "png-ready" || firstResult.kind === "png-failed"
+        ? firstResult
+        : await pngResult;
+    if (finalPngResult.kind === "png-failed") {
+      if (finalPngResult.error instanceof ReplayScreenshotAssetError) {
+        throw finalPngResult.error;
+      }
+      throw new ReplayScreenshotClipboardError();
+    }
+
+    const finalWriteResult =
+      firstResult.kind === "write-succeeded" ? firstResult : await writeResult;
+    if (finalWriteResult.kind === "write-failed") {
+      const error = new ReplayScreenshotClipboardError();
+      onClipboardWriteFailure?.();
+      throw error;
+    }
+  });
+}
+
+export async function captureReplayScreenshot(
   stage: HTMLElement,
   stageRoot: HTMLElement,
   iframe: HTMLIFrameElement,
-  filename: string,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<Blob> {
   const replayWindow = iframe.contentWindow;
   const replayDocument = iframe.contentDocument;
   if (
@@ -1198,13 +1368,7 @@ export async function downloadReplayScreenshot(
     assertScreenshotDimensions(canvas.width, canvas.height);
     const blob = await canvasToBlob(canvas);
     assertCaptureAvailable();
-
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.download = filename;
-    link.href = downloadUrl;
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+    return blob;
   } finally {
     if (previousStageFrameMarker === null) {
       iframe.removeAttribute(REPLAY_SCREENSHOT_MARKER);
@@ -1212,6 +1376,34 @@ export async function downloadReplayScreenshot(
       iframe.setAttribute(REPLAY_SCREENSHOT_MARKER, previousStageFrameMarker);
     }
   }
+}
+
+export function downloadReplayScreenshotBlob(
+  blob: Blob,
+  filename: string,
+): void {
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = downloadUrl;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+}
+
+export async function downloadReplayScreenshot(
+  stage: HTMLElement,
+  stageRoot: HTMLElement,
+  iframe: HTMLIFrameElement,
+  filename: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const screenshot = await captureReplayScreenshot(
+    stage,
+    stageRoot,
+    iframe,
+    signal,
+  );
+  downloadReplayScreenshotBlob(screenshot, filename);
 }
 
 function assertScreenshotDimensions(width: number, height: number): void {

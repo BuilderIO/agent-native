@@ -31,6 +31,7 @@ import {
   MISSING_BROWSER_HINT,
   MISSING_HEADED_BROWSER_HINT,
 } from "./playwright-browser-hint";
+import { originalUserPrompt } from "./qa-standalone-chat-dev-smoke-prompt";
 import {
   isRetryableSessionReadErrorMessage,
   isTransientCommittedNavigationResponse,
@@ -1578,22 +1579,6 @@ async function streamToolCallResponse(
   response.end("data: [DONE]\n\n");
 }
 
-function originalUserPrompt(value: string): string {
-  if (value.trim() === approvedContinuationPrompt) return approvalPrompt;
-  const frameworkSuffixes = [
-    "\n\n<current-time>",
-    "\n\n<current-screen>",
-    "\n\nContinue from where you left off",
-    approvedContinuationPrompt,
-  ];
-  const suffixIndexes = frameworkSuffixes
-    .map((suffix) => value.indexOf(suffix))
-    .filter((index) => index >= 0);
-  const end =
-    suffixIndexes.length > 0 ? Math.min(...suffixIndexes) : value.length;
-  return value.slice(0, end).trim();
-}
-
 async function handleLoopbackCompletion(
   request: IncomingMessage,
   response: ServerResponse,
@@ -1607,7 +1592,11 @@ async function handleLoopbackCompletion(
     ? body.tools.map((item) => jsonRecord(item))
     : [];
   const userMessages = messages.filter((item) => item.role === "user");
-  const prompt = originalUserPrompt(contentText(userMessages.at(-1)?.content));
+  const prompt = originalUserPrompt(
+    contentText(userMessages.at(-1)?.content),
+    approvalPrompt,
+    approvedContinuationPrompt,
+  );
   const toolNames = tools.flatMap((item) => {
     const fn = item.function;
     if (!fn || typeof fn !== "object") return [];
@@ -3018,6 +3007,18 @@ async function assertAgentKitChatAcceptance(
     ),
   });
 
+  // The composer queues only while it counts a run as active, and the stop
+  // button renders from that same check; submitting earlier sends immediately.
+  try {
+    await page
+      .locator('[data-agent-composer-slot="stop-button"]')
+      .waitFor({ state: "visible" });
+  } catch (error) {
+    throw new Error(
+      "The composer no longer counts the run as active while its approval card is pending, so a follow-up would bypass the queue.",
+      { cause: error },
+    );
+  }
   await fillAndSubmitComposer(page, queuedPrompt);
   const queue = page.getByRole("region", { name: "Queued messages" });
   await queue.waitFor({ state: "visible" });

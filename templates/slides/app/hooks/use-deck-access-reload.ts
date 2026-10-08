@@ -8,7 +8,8 @@ import type { DeckReloadStatus } from "@/context/DeckContext";
  *
  * `reload` toggles `loading`, which this effect reads, so the effect re-runs
  * mid-reload. Attempts use a generation that advances with every key change,
- * so a K1 → K2 → K1 transition cannot revive the first K1 attempt.
+ * so a K1 → K2 → K1 transition cannot revive the first K1 attempt. Unmount
+ * advances it too, so a retry loop still receiving `stale` stops reloading.
  */
 export function useDeckAccessReload({
   accessKey,
@@ -32,6 +33,9 @@ export function useDeckAccessReload({
   useLayoutEffect(() => {
     generationRef.current += 1;
     startedGenerationRef.current = null;
+    return () => {
+      generationRef.current += 1;
+    };
   }, [accessKey]);
 
   useEffect(() => {

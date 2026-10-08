@@ -1252,7 +1252,7 @@ describe("AgentKitClient", () => {
       expect(
         messages.find((message) => message.id === "assistant-1")?.parts,
       ).toEqual(finalParts);
-      expect(messages.at(-1)).toMatchObject({
+      expect(messages.at(-2)).toMatchObject({
         role: "assistant",
         parts: [
           {
@@ -1261,9 +1261,35 @@ describe("AgentKitClient", () => {
           },
         ],
       });
-      expect(messages.at(-1)?.id).not.toBe("assistant-1");
+      expect(messages.at(-2)?.id).not.toBe("assistant-1");
     },
   );
+
+  it("keeps the user's prompt last when unorderable tool history is omitted", async () => {
+    const messages = await assistantPartsAfterToolHistory({
+      omitToolStarted: true,
+      afterToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "The release is ready.",
+        },
+      ],
+      finalParts: [{ type: "text", text: "The release is ready." }],
+    });
+
+    expect(messages.map(({ role }) => role)).toEqual([
+      "user",
+      "assistant",
+      "assistant",
+      "user",
+    ]);
+    expect(messages.at(-2)?.id).toMatch(/^agentkit-tool-history-omission/);
+    expect(messages.at(-1)).toMatchObject({
+      role: "user",
+      parts: [{ type: "text", text: "What did you find?" }],
+    });
+  });
 
   it("bounds inspection of reserved tool-history signatures", async () => {
     let descriptorReads = 0;
@@ -1299,7 +1325,7 @@ describe("AgentKitClient", () => {
             (part.data as Record<string, unknown>).id === "call-search",
         ),
     ).toBe(false);
-    expect(messages.at(-1)).toMatchObject({
+    expect(messages.at(-2)).toMatchObject({
       role: "assistant",
       parts: [
         {
@@ -1402,7 +1428,7 @@ describe("AgentKitClient", () => {
               (part.data as Record<string, unknown>).id === "call-search",
           ),
       ).toBe(false);
-      expect(messages.at(-1)).toMatchObject({
+      expect(messages.at(-2)).toMatchObject({
         role: "assistant",
         parts: [
           {
@@ -1538,7 +1564,7 @@ describe("AgentKitClient", () => {
     expect(
       messages.find((message) => message.id === "assistant-1")?.parts,
     ).toEqual(finalParts);
-    expect(messages.at(-1)).toMatchObject({
+    expect(messages.at(-2)).toMatchObject({
       role: "assistant",
       parts: [
         {
@@ -6557,6 +6583,87 @@ describe("AgentKitClient", () => {
       expect(client.getThread("thread-1").queuedMessages).toEqual([]);
     });
     expect(subscriptions).toBe(2);
+  });
+
+  it("waits for a replacement approval run before promoting queued work", async () => {
+    const replacementStarted = Promise.withResolvers<void>();
+    const releaseReplacement = Promise.withResolvers<void>();
+    const queued: AgentQueuedMessage = {
+      id: "queued-after-replacement-approval",
+      threadId: "thread-1",
+      text: "Continue after approval",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const promoted = vi.fn(async () => ({ runId: "run-queued" }));
+    const transport: AgentTransport = {
+      capabilities: { approvals: true, messageQueue: true },
+      async startRun() {
+        return { runId: "run-approval" };
+      },
+      async queueMessage() {
+        return { message: queued };
+      },
+      steerQueuedMessage: promoted,
+      async *subscribeToRun({ runId }) {
+        if (runId === "run-approval") {
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          yield {
+            ...protocolEvent(2, {
+              type: "approval.requested",
+              request: { id: "approval-1", title: "Continue?" },
+            }),
+            runId,
+          };
+          return;
+        }
+        if (runId === "run-resumed") {
+          replacementStarted.resolve();
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          await releaseReplacement.promise;
+          yield {
+            ...protocolEvent(2, {
+              type: "approval.resolved",
+              approvalId: "approval-1",
+              response: { decision: "approve" },
+            }),
+            runId,
+          };
+          yield { ...protocolEvent(3, { type: "run.completed" }), runId };
+          return;
+        }
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+      async resumeRun() {
+        return { runId: "run-resumed" };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    const initialRun = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Wait for approval",
+    });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").runs["run-approval"]?.status).toBe(
+        "awaiting_approval",
+      ),
+    );
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+
+    await client.resolveApproval({
+      threadId: "thread-1",
+      runId: "run-approval",
+      approvalId: "approval-1",
+      response: { decision: "approve" },
+    });
+    await replacementStarted.promise;
+    expect(promoted).not.toHaveBeenCalled();
+
+    releaseReplacement.resolve();
+    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+    await initialRun.completed;
+    await client.dispose();
   });
 
   it("reports replacement-run failures and permits an explicit reattach", async () => {

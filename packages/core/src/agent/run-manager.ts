@@ -5,6 +5,8 @@ import {
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
 import { recordAgentRun } from "../observability/metrics.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -821,14 +823,19 @@ export function startRun(
             : {}),
         }
       : undefined;
+  const servicePrincipalRunStart = Boolean(
+    options?.turnInitiator &&
+    parseServiceIdentityEmail(options.turnInitiator.email),
+  );
   const insertRunPromise = (
-    options?.runRowAlreadyInserted
+    options?.runRowAlreadyInserted && !servicePrincipalRunStart
       ? Promise.resolve()
       : insertOptions
         ? insertRun(runId, threadId, options?.turnId, insertOptions)
         : insertRun(runId, threadId, options?.turnId)
   ).catch((error) => {
     captureRunPersistenceError(error, "insert-run");
+    if (error instanceof ServicePrincipalRefusedError) throw error;
   });
 
   let persistenceChain: Promise<void> = Promise.resolve();
@@ -1428,7 +1435,15 @@ export function startRun(
     void emitRunEvent(runEvent);
   };
 
-  const runPromise = runFn(send, runControl.chunkSignal, runControl)
+  const runPromise = (
+    servicePrincipalRunStart
+      ? insertRunPromise.then(() => {
+          if (!abort.signal.aborted) {
+            return runFn(send, runControl.chunkSignal, runControl);
+          }
+        })
+      : runFn(send, runControl.chunkSignal, runControl)
+  )
     .then(() => {
       settleBoundary(false);
       if (abort.signal.aborted) {

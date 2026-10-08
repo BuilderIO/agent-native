@@ -26,6 +26,7 @@ import {
   oauthErrorPage,
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
+import { queryEchoSafeRedirect } from "../server/query-echo-safe-redirect.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
 import { MCP_OAUTH_FLOW_TTL_SECONDS } from "../shared/mcp-oauth-flow-ttl.js";
@@ -760,9 +761,12 @@ async function handleMcpOAuthCallback(
     console.warn("[mcp-client/oauth] saved server did not reconnect:", error);
   }
   const returnPath = resolveMcpOAuthReturnPath(connected, flow);
-  return redirectWithStagedCookies(
+  return queryEchoSafeRedirect(
     event,
-    getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
+    redirectWithStagedCookies(
+      event,
+      getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
+    ),
   );
 }
 

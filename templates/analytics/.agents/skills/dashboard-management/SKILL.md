@@ -1,7 +1,7 @@
 ---
 name: dashboard-management
 description: >-
-  Create, edit, organize, or share Analytics dashboards and panels: sources, layout, mutate-dashboard edits and verification. Use before any dashboard or panel change.
+  Create, lay out, organize, or share Analytics dashboards and panels: sources, placement, folders, verification. Use to create a dashboard or to move, reorder, or lay out panels; a small edit of one existing panel needs no skill.
 ---
 
 # Dashboard Management
@@ -117,9 +117,9 @@ an ordinary activity scan.
 
 When the user asks for a dashboard:
 
-1. Read the injected `<data-dictionary>` block first (catalog-first). If relevant entries exist, use their `table`, `columns`, `queryTemplate`, and gotchas verbatim.
+1. Start from the preloaded `<resource scope="analytics-catalog">` references (catalog-first), else one `search-analytics-query-catalog`. If a relevant entry exists, use its `table`, `columns`, `queryTemplate`, and gotchas verbatim.
 2. If a metric definition, date range, or grain is ambiguous and the choice would change the panel's numbers, use the `ask-question` clarifying tool once before building. Skip it when the dictionary or the user already settled it.
-3. If a metric is not documented, do not guess column names. Ask for the table/columns or introspect the provider schema, then propose a dictionary entry with `save-data-dictionary-entry`.
+3. If a metric is not documented, do not guess column names and do not ask the user for them. Find the table and columns with `search-bigquery-schema` (or the provider's own schema action), then propose a dictionary entry with `save-data-dictionary-entry`.
 4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
 5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; use `config.extensionId` for ordinary author-selected shared embeds. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot (see "Embedding An Extension As A Panel").
 6. Persist with `update-dashboard` (load it with `tool-search` — it is not on the

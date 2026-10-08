@@ -121,7 +121,7 @@ const messages = {
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
-  "onboarding.builderCreateAccount": "Create Builder.io account",
+  "onboarding.builderCreateAccount": "Use Builder.io",
   "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
@@ -673,6 +673,10 @@ const messages = {
   "feedback.thumbsDown": "Thumbs down",
   "feedback.thumbsUp": "Thumbs up",
   "feedback.tooSlow": "Too slow",
+  "feedback.reasonMisread": "Misread my ask",
+  "feedback.reasonNotDone": "Said done, but wasn't",
+  "feedback.reasonWrongNumbers": "Wrong numbers",
+  "feedback.copyDetails": "Copy details",
   "feedback.whatWentWrong": "What went wrong?",
   "feedback.wrongTool": "Wrong tool",
   "header.switchToCli": "Switch to CLI",
@@ -1161,6 +1165,11 @@ const messages = {
   "recovery.stuckWithDuration":
     "No progress for {{seconds}}s. The agent may have hit a server timeout or lost its connection.",
   "recovery.stuckRetrying": "Retrying automatically now.",
+  "recovery.statusUnreadable":
+    "Can't reach the server to check this chat. It may have finished. We'll keep trying.",
+  "recovery.statusMismatch":
+    "The server says this chat is no longer running. Reload to see its result.",
+  "recovery.reload": "Reload",
   "recovery.statusCheckFailed":
     "Couldn't reach the server to check whether the agent is still working. Send your message again to retry.",
   "recovery.streamEnded":
@@ -1781,6 +1790,7 @@ const messages = {
   "settings.storage.adminOnly":
     "Only organization owners and admins can change file storage.",
   "settings.audit.action": "Action",
+  "settings.audit.agentVia": "Agent via {{protocol}}",
   "settings.audit.allApps": "All apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Changed by",

@@ -57,7 +57,11 @@ import {
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
-import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
+import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
+  normalizeFrameworkRoutePrefix,
+  toPublicFrameworkPath,
+} from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
@@ -440,7 +444,88 @@ export function shimCloudflarePagesModuleTimers(code: string): string {
   return code;
 }
 
-export function generateCloudflareModuleWorkerEntry(): string {
+export const CLOUDFLARE_SWEEP_CRON = "* * * * *";
+
+/**
+ * The URL path a platform scheduler requests. Under a custom framework route
+ * prefix the request boundary 404s `/_agent-native/*` before any route runs,
+ * and the server is mounted under the app base path, so the internal sweep
+ * path alone never reaches the sweep.
+ */
+export function publicRecurringJobsSweepPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const basePath = normalizeAppBasePath(
+    env.VITE_APP_BASE_PATH || env.APP_BASE_PATH,
+  );
+  const publicPath = toPublicFrameworkPath(RECURRING_JOBS_SWEEP_PATH, {
+    publicPrefix: resolveBuildFrameworkRoutePrefix(env),
+  });
+  return `${basePath}${publicPath}`;
+}
+
+// The token format must match verifyInternalToken in
+// integrations/internal-token.ts.
+function cloudflareSweepTriggerScript(sweepPath: string): string {
+  return `const SWEEP_CRON = ${JSON.stringify(CLOUDFLARE_SWEEP_CRON)};
+const SWEEP_PATH = ${JSON.stringify(sweepPath)};
+const SWEEP_TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
+
+async function sweepToken(secret) {
+  const timestamp = Date.now();
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(SWEEP_TOKEN_SUBJECT + ":" + timestamp),
+  );
+  const hex = Array.from(new Uint8Array(signature), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return timestamp + "." + hex;
+}
+
+async function runSweep(h, env, ctx) {
+  const secret = env?.A2A_SECRET;
+  if (!secret) {
+    throw new Error("[recurring-jobs] A2A_SECRET is required for the scheduled sweep");
+  }
+  const request = new Request(
+    new URL(SWEEP_PATH, env.APP_URL || "https://scheduled-sweep.invalid"),
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + (await sweepToken(secret)),
+        "Content-Type": "application/json",
+        "user-agent": "agent-native-cloudflare-cron",
+      },
+      body: "{}",
+    },
+  );
+  if (typeof ctx?.waitUntil === "function") {
+    request.waitUntil = ctx.waitUntil.bind(ctx);
+  }
+  const response = await h.fetch(request, env, ctx);
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      "[recurring-jobs] Scheduled sweep failed (" + response.status + "): " + body.slice(0, 500),
+    );
+  }
+  console.log("[recurring-jobs] Scheduled sweep finished", body.slice(0, 500));
+}`;
+}
+
+export function generateCloudflareModuleWorkerEntry(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   return `let handler;
 
 async function loadHandler() {
@@ -451,6 +536,8 @@ async function loadHandler() {
 ${cloudflareBindingsInitScript()}
 
 ${cloudflareModuleTimerRestoreScript()}
+
+${cloudflareSweepTriggerScript(publicRecurringJobsSweepPath(env))}
 
 export default {
   async fetch(request, env, ctx) {
@@ -466,7 +553,10 @@ export default {
     initializeBindings(env);
     const h = await loadHandler();
     __cfRestoreModuleTimers();
-    return h.scheduled?.(controller, env, ctx);
+    await Promise.all([
+      h.scheduled?.(controller, env, ctx),
+      controller?.cron === SWEEP_CRON ? runSweep(h, env, ctx) : undefined,
+    ]);
   },
   async email(message, env, ctx) {
     initializeBindings(env);
@@ -574,9 +664,19 @@ export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
   const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
     main?: string;
     compatibility_flags?: unknown;
+    triggers?: { crons?: unknown; [key: string]: unknown };
     [key: string]: unknown;
   };
   config.main = CLOUDFLARE_MODULE_WORKER_ENTRY;
+  const crons = Array.isArray(config.triggers?.crons)
+    ? config.triggers.crons.filter(
+        (cron): cron is string => typeof cron === "string",
+      )
+    : [];
+  config.triggers = {
+    ...config.triggers,
+    crons: [...new Set([...crons, CLOUDFLARE_SWEEP_CRON])],
+  };
   const compatibilityFlags = Array.isArray(config.compatibility_flags)
     ? config.compatibility_flags.filter(
         (flag): flag is string => typeof flag === "string",
@@ -1327,6 +1427,18 @@ export function generateWorkerEntry(
         { status: 405, headers: { "Content-Type": "application/json" } }
       );
     }
+    const actionSession = ${varName}.requiresAuth === true
+      ? await getGeneratedSession(event)
+      : undefined;
+    const actionContext = uiActionContext ?? (actionSession?.email
+      ? { userEmail: actionSession.email, orgId: actionSession.orgId ?? null }
+      : undefined);
+    if (${varName}.requiresAuth === true && !actionContext?.userEmail) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
+    }
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
       const caller =
@@ -1337,16 +1449,11 @@ export function generateWorkerEntry(
         caller,
         requestHeaders: event.req.headers,
         actionName: ${JSON.stringify(a.name)},
-        ...(uiActionContext
-          ? {
-              userEmail: uiActionContext.userEmail,
-              orgId: uiActionContext.orgId ?? null,
-            }
-          : {}),
+        ...(actionContext ?? {}),
       };
       const runAction = () => ${varName}.run(params, actionRunContext);
-      const result = actionIsUiOnly
-        ? await runWithGeneratedRequestContext(uiActionContext, runAction)
+      const result = actionContext
+        ? await runWithGeneratedRequestContext(actionContext, runAction)
         : await runAction();
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
@@ -3392,6 +3499,130 @@ export function resolveKeepWarmSchedule(): string {
   return raw;
 }
 
+const DEFAULT_VERCEL_SWEEP_CRON_SCHEDULE = "* * * * *";
+
+// Vercel accepts a narrower grammar than cron-parser, and a schedule outside
+// it fails the deployment rather than the build.
+function vercelCronScheduleProblem(raw: string): string | null {
+  const fields = raw.split(/\s+/);
+  if (fields.length !== 5 || !isValidCron(raw)) {
+    return `must be a 5-field cron expression (minute hour day month weekday); got "${raw}" (${fields.length} field(s))`;
+  }
+  if (!fields.every((field) => /^[\d*,/-]+$/.test(field))) {
+    return `must use numbers, not names such as MON or JAN, on Vercel; got "${raw}"`;
+  }
+  const [, , dayOfMonth, , dayOfWeek] = fields;
+  if (dayOfMonth !== "*" && dayOfWeek !== "*") {
+    return `cannot set both a day of the month and a day of the week on Vercel, so one must be "*"; got "${raw}"`;
+  }
+  const weekdays = dayOfWeek
+    .split(",")
+    .flatMap((part) => part.split("/")[0].split("-"));
+  if (weekdays.some((day) => day !== "*" && Number(day) > 6)) {
+    return `must number weekdays 0-6 (Sunday to Saturday) on Vercel; got "${raw}"`;
+  }
+  return null;
+}
+
+// Vercel Hobby rejects a deployment whose cron runs more than once a day, and
+// the build cannot see the team's plan, so the schedule is the operator's call.
+export function resolveVercelSweepCronSchedule(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const raw = env.AGENT_NATIVE_VERCEL_CRON_SCHEDULE?.trim();
+  if (!raw) return DEFAULT_VERCEL_SWEEP_CRON_SCHEDULE;
+  const problem = vercelCronScheduleProblem(raw);
+  if (problem) {
+    throw new Error(
+      `AGENT_NATIVE_VERCEL_CRON_SCHEDULE ${problem}. ` +
+        `Example: "0 9 * * *" for once a day on Vercel Hobby.`,
+    );
+  }
+  return raw;
+}
+
+export function vercelSweepCrons(
+  sweepPaths: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): Array<{ path: string; schedule: string }> {
+  const schedule = resolveVercelSweepCronSchedule(env);
+  return sweepPaths.map((sweepPath) => ({ path: sweepPath, schedule }));
+}
+
+export function addVercelSweepCron(
+  outputDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const configPath = path.join(outputDir, "config.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`[deploy] Nitro did not generate ${configPath} for vercel`);
+  }
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    crons?: Array<{ path: string; schedule: string }>;
+    [key: string]: unknown;
+  };
+  const [sweepCron] = vercelSweepCrons(
+    [publicRecurringJobsSweepPath(env)],
+    env,
+  );
+  config.crons = [
+    ...(config.crons ?? []).filter((cron) => cron.path !== sweepCron.path),
+    sweepCron,
+  ];
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  console.log(
+    `[build] Added Vercel cron "${sweepCron.schedule}" for ${sweepCron.path}. ` +
+      "Vercel sends CRON_SECRET as its bearer, so set CRON_SECRET in the project." +
+      (env.AGENT_NATIVE_VERCEL_CRON_SCHEDULE?.trim()
+        ? ""
+        : " Hobby only allows daily crons: set AGENT_NATIVE_VERCEL_CRON_SCHEDULE " +
+          'to a daily expression such as "0 9 * * *" there.'),
+  );
+}
+
+const SWEEP_PATH_AFTER_PREFIX = RECURRING_JOBS_SWEEP_PATH.slice(
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX.length,
+);
+
+/**
+ * Reads back the sweep cron `addVercelSweepCron` wrote for an app mounted at
+ * `basePath`. A workspace deploy must reuse it rather than recompute it: the
+ * app's build resolved its framework route prefix from config files the
+ * workspace build never reads.
+ */
+export function readVercelSweepCron(
+  outputDir: string,
+  basePath: string,
+): { path: string; schedule: string } {
+  const configPath = path.join(outputDir, "config.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`[deploy] Expected Vercel build config at ${configPath}`);
+  }
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    crons?: Array<{ path: string; schedule: string }>;
+  };
+  const sweepCrons = (config.crons ?? []).filter((cron) => {
+    if (
+      !cron.path.startsWith(`${basePath}/`) ||
+      !cron.path.endsWith(SWEEP_PATH_AFTER_PREFIX)
+    ) {
+      return false;
+    }
+    const prefix = cron.path.slice(
+      basePath.length,
+      -SWEEP_PATH_AFTER_PREFIX.length,
+    );
+    return /^\/[^/]+$/.test(prefix);
+  });
+  if (sweepCrons.length !== 1) {
+    throw new Error(
+      `[deploy] Expected one recurring-jobs sweep cron under ${basePath} in ${configPath}, found ${sweepCrons.length}. ` +
+        "Build the app with this version of @agent-native/core so its scheduled work runs on Vercel.",
+    );
+  }
+  return sweepCrons[0];
+}
+
 export function emitSingleTemplateNetlifyKeepWarmFunction(
   projectCwd: string,
 ): void {
@@ -5356,6 +5587,10 @@ export default bundle;
 
   if (isCloudflareModulePreset(preset)) {
     configureCloudflareModuleWorkerOutput(nitro.options.output.serverDir);
+  }
+
+  if (preset === "vercel") {
+    addVercelSweepCron(nitro.options.output.dir);
   }
 
   if (

@@ -27,6 +27,7 @@ import {
   WORKSPACE_OWNER,
   workspaceResourceOwner,
 } from "../../resources/store.js";
+import type { ContextStatus } from "../../shared/context-status.js";
 import type {
   ContextGovernanceTier,
   ContextManifestSourceRef,
@@ -1251,7 +1252,18 @@ function recordAnalyticsPreloadedReferenceCount(input: {
   };
 }
 
-export async function preloadJevContextForPrompt(options: {
+export interface JevPreloadResult {
+  context: string;
+  status: ContextStatus;
+}
+
+export async function preloadJevContextForPrompt(
+  options: Parameters<typeof preloadJevContextWithStatus>[0],
+): Promise<string> {
+  return (await preloadJevContextWithStatus(options)).context;
+}
+
+export async function preloadJevContextWithStatus(options: {
   request: string;
   appId?: string;
   owner?: string;
@@ -1266,12 +1278,12 @@ export async function preloadJevContextForPrompt(options: {
   contextPrefetchDeadlineAt?: number;
   dispatchToBackground?: boolean;
   internalContinuation?: boolean;
-}): Promise<string> {
+}): Promise<JevPreloadResult> {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
   const personalApiKey = options.personalApiKey?.trim();
   if (!request || options.maxChars === 0 || options.dispatchToBackground) {
-    return "";
+    return { context: "", status: "empty" };
   }
 
   const deadlineAt =
@@ -1282,6 +1294,13 @@ export async function preloadJevContextForPrompt(options: {
     candidates: JevPromptCandidate[];
     fallbackIds: string[];
   } = { candidates: [], fallbackIds: [] };
+  // A stage that timed out or threw only matters when nothing was injected: an
+  // empty result is then a loss, not an answer, and the model has to be told.
+  let degraded: "timed_out" | "failed" | undefined;
+  const finish = (context: string, injected: number): JevPreloadResult => ({
+    context,
+    status: injected > 0 ? "ok" : (degraded ?? "empty"),
+  });
   try {
     const collection = await withinPromptBudget(
       (signal) =>
@@ -1307,11 +1326,13 @@ export async function preloadJevContextForPrompt(options: {
       runtimeCandidates = collection.value[0];
       memoryContext = collection.value[1];
     } else {
+      degraded = "timed_out";
       console.warn(
         "[agent] Prompt context candidates exceeded the preload budget; keeping Analytics retrieval fallback.",
       );
     }
   } catch (error) {
+    degraded = "failed";
     console.warn(
       "[agent] Prompt context candidates unavailable; keeping Analytics retrieval fallback.",
       error instanceof Error ? error.message : "unknown error",
@@ -1331,7 +1352,7 @@ export async function preloadJevContextForPrompt(options: {
       candidates,
       selectedIds: [],
     });
-    return "";
+    return finish("", 0);
   }
 
   const categoryFor = (candidate: JevPromptCandidate) => {
@@ -1393,17 +1414,27 @@ export async function preloadJevContextForPrompt(options: {
           if (result) rankings.set(category, result);
         }
       } else {
+        degraded ??= "timed_out";
         console.warn(
           "[agent] Jev ranking exceeded the preload budget; using bounded retrieval fallbacks.",
         );
       }
     } catch (error) {
+      degraded ??= "failed";
       console.warn(
         "[agent] Jev ranking unavailable; using bounded retrieval fallbacks.",
         error instanceof Error ? error.message : "unknown error",
       );
     }
   }
+  // A ranking that was attempted and lost is a degraded turn, not an empty
+  // answer; the fallbacks below still run for it.
+  for (const result of rankings.values()) {
+    if (result.status === "failed") degraded = "failed";
+    else if (result.status === "timed_out") degraded ??= "timed_out";
+  }
+  const isRanked = (result: { status: string } | undefined) =>
+    result?.status === "selected" || result?.status === "no-match";
   const jevSelectedIds = [...rankings.values()]
     .filter((result) => result.status === "selected")
     .flatMap((result) => result.ids);
@@ -1429,13 +1460,13 @@ export async function preloadJevContextForPrompt(options: {
       for (const id of options.fallbackCandidateIds ?? []) selected.add(id);
     } else if (highSimilarityReferenceIds.length > 0) {
       for (const id of highSimilarityReferenceIds) selected.add(id);
-    } else if (!referenceRanking || referenceRanking.status === "unavailable") {
+    } else if (!isRanked(referenceRanking)) {
       for (const id of options.fallbackCandidateIds ?? []) selected.add(id);
     }
   }
   const memoryRanking = rankings.get("memory");
   if (
-    (!hasJev || !memoryRanking || memoryRanking.status === "unavailable") &&
+    (!hasJev || !isRanked(memoryRanking)) &&
     memoryContext.fallbackIds.length > 0
   ) {
     for (const id of memoryContext.fallbackIds) selected.add(id);
@@ -1493,7 +1524,7 @@ export async function preloadJevContextForPrompt(options: {
       candidates,
       injectedIds: new Set(),
     });
-    return "";
+    return finish("", 0);
   }
 
   const maxItemChars = options.compact ? 6_000 : JEV_CONTEXT_ITEM_MAX_CHARS;
@@ -1543,8 +1574,11 @@ export async function preloadJevContextForPrompt(options: {
     candidates,
     injectedIds,
   });
-  if (blocks.length === 0) return "";
-  return `${JEV_CONTEXT_PREFIX}${escapeJevContextFence(blocks.join(JEV_CONTEXT_SEPARATOR))}${JEV_CONTEXT_SUFFIX}`;
+  if (blocks.length === 0) return finish("", 0);
+  return finish(
+    `${JEV_CONTEXT_PREFIX}${escapeJevContextFence(blocks.join(JEV_CONTEXT_SEPARATOR))}${JEV_CONTEXT_SUFFIX}`,
+    blocks.length,
+  );
 }
 
 /**

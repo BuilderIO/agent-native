@@ -1517,6 +1517,12 @@ export default {
     savingScreenshot: "正在儲存螢幕截圖…",
     screenshotDownloaded: "螢幕截圖已下載",
     screenshotSaveFailed: "無法儲存螢幕截圖",
+    copyScreenshot: "複製到 Design",
+    copyingScreenshot: "正在複製螢幕截圖…",
+    screenshotCopiedForDesign: "螢幕截圖已複製。請貼到 Design。",
+    screenshotCopyFailed: "無法複製螢幕截圖。請下載後再將 PNG 上傳到 Design。",
+    screenshotCopyUnsupportedAssets:
+      "未複製螢幕截圖：此時包含無法安全擷取的媒體或圖片。請嘗試回放中的其他時刻。",
     screenshotUnsupportedAssets:
       "螢幕截圖未儲存：部分嵌入媒體或圖片無法安全擷取。",
     timeline: "事件時間線",
