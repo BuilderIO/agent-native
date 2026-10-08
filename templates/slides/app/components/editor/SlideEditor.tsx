@@ -229,7 +229,8 @@ import {
   isLayoutSpacer,
   isSlideObjectGroup,
   isSlideTableStructureElement,
-  resolveMultiSelectableElement,
+  resolveSelectionOwner,
+  resolveSelectionOwnerId,
   isValidSlideClipboardRoot,
   readSlideObjectSelectionFrame,
   readSlideObjectClipboardId,
@@ -3771,14 +3772,15 @@ export default function SlideEditor({
       // the same object-selection mode.
       if (ids.size > 0 && editingElRef.current) exitInlineEdit();
       const slideContent = getSlideContent();
-      // Table rows and cells are not movable objects; they select as their table.
       const members = new Set<string>();
       for (const id of ids) {
         const element = slideContent?.querySelector<HTMLElement>(
           `[data-builder-id="${id}"]`,
         );
-        const owner = element ? resolveMultiSelectableElement(element) : null;
-        const ownerId = element ? owner?.getAttribute("data-builder-id") : id;
+        const ownerId =
+          element && slideContent
+            ? resolveSelectionOwnerId(element, slideContent)
+            : id;
         if (ownerId) members.add(ownerId);
       }
       const rects = new Map<
@@ -3885,8 +3887,7 @@ export default function SlideEditor({
       if (!slideContent || !element) return;
 
       if (additive) {
-        const owner = resolveMultiSelectableElement(element);
-        const ownerId = owner?.getAttribute("data-builder-id");
+        const ownerId = resolveSelectionOwnerId(element, slideContent);
         if (!ownerId) return;
         const next = new Set(multiSelection);
         if (next.size === 0) {
@@ -3895,10 +3896,9 @@ export default function SlideEditor({
             selectedImg,
             slideContent,
           );
-          const selectedOwner = selected
-            ? resolveMultiSelectableElement(selected)
+          const selectedId = selected
+            ? resolveSelectionOwnerId(selected, slideContent)
             : null;
-          const selectedId = selectedOwner?.getAttribute("data-builder-id");
           if (selectedId && selectedId !== ownerId) next.add(selectedId);
         }
         if (next.has(ownerId)) next.delete(ownerId);
@@ -8303,7 +8303,7 @@ export default function SlideEditor({
       // Pointer-down on a member of the current multi-selection drags the
       // whole group instead of the single-object flow below.
       if (multiSelection.size > 0 && hit.kind === "object") {
-        const id = hit.object.getAttribute("data-builder-id");
+        const id = resolveSelectionOwnerId(hit.object, slideContent);
         if (id && multiSelection.has(id)) {
           // An additive press may still toggle on click; the click is
           // delivered either way, so only the native text selection is held.
@@ -8460,35 +8460,24 @@ export default function SlideEditor({
         if (isSlideCanvasShell(el)) return;
         if (isInlineTextElement(el)) return;
         if (isTransparentLayoutWrapper(el, { root: slideContent })) return;
-        // A table is one object: any of its cells under the marquee selects it.
-        if (isSlideTableStructureElement(el)) {
-          const table = resolveMultiSelectableElement(el);
-          const tableId = table?.getAttribute("data-builder-id");
-          if (
-            table &&
-            tableId &&
-            rectsIntersect(marqueeRect, table.getBoundingClientRect())
-          ) {
-            hits.add(tableId);
-          }
-          return;
-        }
         const selectable =
           el.tagName === "IMG" || el.classList.contains("fmd-img-placeholder")
             ? (findPersistedImageObject(el, slideContent) ?? el)
             : el;
-        // Groups and painted boxes are the objects a click selects, so the
-        // marquee selects them too instead of the text inside them.
-        const group =
-          resolveSlideObjectGroupRoot(selectable, slideContent) ??
-          findSlideShapeOwner(selectable, slideContent);
-        if (group) {
-          const groupId = group.getAttribute("data-builder-id");
+        // Groups, tables and painted boxes are the objects a click selects, so
+        // the marquee selects them too instead of the text inside them.
+        const owner = resolveSelectionOwner(selectable, slideContent);
+        const region =
+          owner !== selectable || isSlideObjectGroup(owner)
+            ? owner
+            : findSlideShapeOwner(selectable, slideContent);
+        if (region) {
+          const regionId = region.getAttribute("data-builder-id");
           if (
-            groupId &&
-            rectsIntersect(marqueeRect, group.getBoundingClientRect())
+            regionId &&
+            rectsIntersect(marqueeRect, region.getBoundingClientRect())
           ) {
-            hits.add(groupId);
+            hits.add(regionId);
           }
           return;
         }
@@ -9094,9 +9083,7 @@ export default function SlideEditor({
       // --- Shift / Cmd / Ctrl click → toggle membership in the multi-selection
       if (additive) {
         const id = hit
-          ? resolveMultiSelectableElement(hit.object)?.getAttribute(
-              "data-builder-id",
-            )
+          ? resolveSelectionOwnerId(hit.object, slideContent)
           : null;
         if (!id) return;
         e.preventDefault();
@@ -9109,9 +9096,7 @@ export default function SlideEditor({
             slideContent,
           );
           const selectedId = selected
-            ? resolveMultiSelectableElement(selected)?.getAttribute(
-                "data-builder-id",
-              )
+            ? resolveSelectionOwnerId(selected, slideContent)
             : null;
           if (selectedId && selectedId !== id) next.add(selectedId);
         }
@@ -9132,7 +9117,7 @@ export default function SlideEditor({
       // A press on a member started a whole-selection drag; released without
       // travel it leaves the multi-selection as it was (GS 6.4).
       if (multiSelection.size > 0 && !pressedObject) {
-        const memberId = hit.object.getAttribute("data-builder-id");
+        const memberId = resolveSelectionOwnerId(hit.object, slideContent);
         if (memberId && multiSelection.has(memberId)) return;
       }
 
@@ -9212,9 +9197,12 @@ export default function SlideEditor({
 
   const selectContextMenuTarget = useCallback(
     (selectable: HTMLElement) => {
-      const builderId = selectable.getAttribute("data-builder-id");
+      const slideContent = getSlideContent();
+      const ownerId = slideContent
+        ? resolveSelectionOwnerId(selectable, slideContent)
+        : null;
       const isMultiSelectionTarget = Boolean(
-        builderId && multiSelection.has(builderId),
+        ownerId && multiSelection.has(ownerId),
       );
       contextMenuTargetRef.current = isMultiSelectionTarget ? null : selectable;
       if (!isMultiSelectionTarget) {
@@ -9226,7 +9214,12 @@ export default function SlideEditor({
         }
       }
     },
-    [clearMultiSelection, multiSelection, selectElementForStyling],
+    [
+      clearMultiSelection,
+      getSlideContent,
+      multiSelection,
+      selectElementForStyling,
+    ],
   );
 
   const handleLayerContextMenu = useCallback(
