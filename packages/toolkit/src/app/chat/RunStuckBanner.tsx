@@ -160,6 +160,9 @@ export function RunStuckBanner({
   const [busy, setBusy] = useState<BusyState>({ type: "none" });
   const [autoRetriedRunId, setAutoRetriedRunId] = useState<string | null>(null);
   const autoRetriedRunIdsRef = useRef<Set<string>>(new Set());
+  // A run the user already acted on is never auto-retried: a failed Cancel frees
+  // `busy` again, and an auto-retry gated on other state must not then resume it.
+  const userActedRunIdsRef = useRef<Set<string>>(new Set());
   const generatedOwnerIdRef = useRef<string | null>(null);
   if (!generatedOwnerIdRef.current) {
     generatedOwnerIdRef.current = createAutoRetryOwnerId();
@@ -282,7 +285,8 @@ export function RunStuckBanner({
       !isStuck ||
       !state.runId ||
       busy.type !== "none" ||
-      autoRetriedRunIdsRef.current.has(state.runId)
+      autoRetriedRunIdsRef.current.has(state.runId) ||
+      userActedRunIdsRef.current.has(state.runId)
     ) {
       return;
     }
@@ -290,7 +294,7 @@ export function RunStuckBanner({
     const runId = state.runId;
     void claimAutoRetryAttempt(threadId, runId, ownerId).then((claimed) => {
       autoRetriedRunIdsRef.current.add(runId);
-      if (!claimed) return;
+      if (!claimed || userActedRunIdsRef.current.has(runId)) return;
       setBusy({ type: "retry", runId });
       setAutoRetriedRunId(runId);
       trackEvent("agent_chat_stuck_auto_retry", {
@@ -361,6 +365,7 @@ export function RunStuckBanner({
   const handleCancel = async () => {
     if (!state.runId || busy.type !== "none") return;
     const runId = state.runId;
+    userActedRunIdsRef.current.add(runId);
     setBusy({ type: "cancel", runId });
     trackEvent("agent_chat_stuck_cancel", {
       runId,
@@ -384,6 +389,7 @@ export function RunStuckBanner({
       return;
     }
     const runId = state.runId;
+    userActedRunIdsRef.current.add(runId);
     setBusy({ type: "retry", runId });
     trackEvent("agent_chat_stuck_retry", {
       runId,

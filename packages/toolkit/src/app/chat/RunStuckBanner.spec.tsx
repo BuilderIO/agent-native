@@ -366,6 +366,39 @@ describe("RunStuckBanner", () => {
     });
   });
 
+  it("never auto-retries a run the user cancelled, even when the abort failed", async () => {
+    const onRetry = vi.fn();
+    const props = {
+      threadId: "thread-cancelled",
+      autoRetry: true,
+      autoRetryOwnerId: "owner-1",
+      onRetry,
+    };
+    // A server-continued dispatch keeps the banner up but defers auto-retry.
+    hookState.current = { ...STUCK_STATE, dispatchMode: "background" };
+    await render(props);
+    expect(abortRunMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find(
+          (candidate) => candidate.textContent === "agentChat.common.cancel",
+        )!
+        .click();
+    });
+    expect(abortRunMock).toHaveBeenCalledTimes(1);
+    expect(abortRunMock).toHaveBeenCalledWith("run-1", "user_stuck_cancel");
+
+    // The run is still stuck and no longer a continued dispatch: auto-retry is
+    // eligible again, but the user already acted on it.
+    hookState.current = { ...STUCK_STATE };
+    await render(props);
+    await act(async () => {});
+
+    expect(abortRunMock).toHaveBeenCalledTimes(1);
+    expect(onRetry).not.toHaveBeenCalled();
+  });
+
   it("does not auto-abort a run on a stuck verdict it cannot confirm", async () => {
     const props = {
       threadId: "thread-auto-retry",
