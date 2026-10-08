@@ -1724,7 +1724,11 @@ pub(crate) mod macos {
                 }
             };
             let Some(session) = session else {
-                return Ok(());
+                return superseded_start_result(
+                    my_stop_gen,
+                    owner_stop_generation(owner).load(Ordering::SeqCst),
+                )
+                .map_err(str::to_owned);
             };
 
             // SAFETY: `cancel()` is a fire-and-forget ObjC call.
