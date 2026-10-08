@@ -14,6 +14,15 @@ its aspect ratio: 16:9 is 960x540, 1:1 is 1080x1080, 9:16 is 540x960, and 4:5
 is 864x1080. These canonical dimensions come from the shared aspect-ratio
 registry; do not assume a fixed 1920x1080 canvas.
 
+## Read before
+
+| Situation | Read |
+| --- | --- |
+| Changing only colors, borders, shadows, or backgrounds, or matching every slide to one slide's look | `references/style-only-edits.md` |
+| Adding, changing, or removing click-to-reveal animations | `references/animations.md` |
+| Adding, moving, duplicating, or restyling hand-placed text boxes and other freeform objects | `references/freeform-objects.md` |
+| Adding or editing a video | `references/video.md` |
+
 ## Slide HTML Structure
 
 Every slide uses the same `--deck-*` wrapper contract. What changes is where
@@ -39,30 +48,6 @@ The renderer publishes `--ds-bg` from the slide's own background, and nothing
 else, when no system is linked. Every other `var(--ds-*, ...)` reference
 resolves to its fallback, so an unlinked deck that inherits instead of baking
 renders as unstyled browser defaults. Bake the values.
-
-## Video
-
-Slides renders video from MP4 and WebM sources. Prefer dropping a video file on
-the slide so it is uploaded to configured file storage and inserted as a
-positioned `<video>` object. Uploads are limited to 50 MB. For agent edits, use
-`update-slide` and preserve the video's `data-slide-object-id`:
-
-```html
-<video
-  src="https://files.example.com/video.mp4"
-  controls
-  playsinline
-  preload="metadata"
-  data-slide-object-id="video-1"
-  style="position:absolute;left:320px;top:180px;width:320px;height:180px;object-fit:contain;"
-></video>
-```
-
-Videos play on click by default. Set `autoplay` to start playback when the
-presentation reaches the slide; autoplay is muted and inline to satisfy browser
-playback policies. Add `loop` to repeat. Editor thumbnails and PDF rendering
-keep autoplay disabled. Verify the target export before claiming that it
-preserves playable video.
 
 ## Styling Rules
 
@@ -182,72 +167,9 @@ To edit a slide's content:
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
    or visual similarity is not proof of source fidelity.
 
-## Style-Only Edits
-
-For a request that changes appearance and nothing else — colors, borders,
-shadows, background — set `styleOnly: true` on `update-slide`.
-
-`styleOnly` accepts the structured `edits` array and nothing else. `fullContent`
-and the top-level legacy `find` / `replace` / `objectId` fields are rejected in
-this mode, so even a single replacement goes as one `edits` entry:
-
-```jsonc
-{
-  "deckId": "...", "slideId": "...", "styleOnly": true,
-  "baseContentHash": "<contentHash from get-deck>",
-  "edits": [
-    { "find": "background:#111111", "replace": "background:#f4f0e8", "occurrence": 1 }
-  ]
-}
-```
-
-The action then rejects any result that changes text, markup, element order, or
-protected layout CSS (padding, margin, gap, font-size, line-height, dimensions,
-positioning), so the edit can only move the declarations you targeted.
-
-Use `occurrence: 1` rather than `expectedMatches: 1` when a declaration may
-appear more than once on the slide: the `edits` path refuses an ambiguous
-literal outright, so `expectedMatches` turns a repeated declaration into a
-rejection instead of an edit. Reach for `all: true` when every occurrence on
-that slide really should change.
-
-`objectId` is not a style-edit target. It replaces an element's inner content
-and leaves the element's own `style` attribute untouched, so it cannot move the
-declaration you are usually after.
-
-### Copying one slide's look onto the rest of the deck
-
-"Make every slide match slide 1" is a deck-wide restyle, so it goes through
-**one `patch-deck` call** with a `patch-slide` operation per slide. Do not fan
-out one `update-slide` per slide: that is the batching the agent instructions
-rule out, and because the calls issue in parallel, a mistake in the first one
-repeats across all of them before any rejection comes back.
-
-1. Read the reference and targets together: use one `get-deck` call with
-   `slideIds` and `compact=false` when their IDs are known, or one full-deck
-   `compact=false` read when they are not. Take the reference background from
-   its `.fmd-slide` wrapper — not a child. `deckStyle` summarizes the whole
-   deck, including interior gradients, so it is not a substitute for the
-   wrapper's own value. Keep each returned `contentHash` with its exact HTML.
-2. Send one `patch-deck` call carrying every affected slide and its matching
-   `baseContentHash`, then verify once with `get-deck` using the same `slideIds`
-   and `compact=false`.
-
-Set `styleOnly: true` on each CSS-only content operation. `patch-deck` enforces
-that text, markup, element order, and protected layout CSS stay unchanged, and
-rejects stale per-slide hashes before writing. For content or structural edits,
-omit `styleOnly` and include the complete intended slide HTML. Use
-`update-slide` for a focused single-slide edit or when a person is actively
-editing and the smaller scoped mutation matters.
-
-When a person is actively editing the deck or making a focused change, use
-`update-slide` with `baseContentHash` to keep the write scoped to that slide.
-
-Either way, change only the `.fmd-slide` wrapper's background. Interior card
-fills, image backgrounds, and gradients are separate visual elements; leave them
-alone unless the user asked for those too. A slide whose wrapper carries no
-background declaration needs one added to the wrapper's `style`, not a
-find/replace against a declaration that is not there.
+If retrieval produces a new immutable context pack, keep its `contextPackId`
+and reuse labels with the deck provenance. Existing slide HTML is not proof of
+which source version influenced it.
 
 ## Skipping a Slide
 
@@ -257,63 +179,6 @@ stays in the deck, editor, and exports. Set `skipped: false` (or omit it) to
 include it again. The rail's right-click menu on each slide thumbnail offers
 Cut, Copy, Paste, Delete, New slide, Duplicate slide, and Skip slide as the
 same operations.
-
-## Click-to-reveal animations
-
-Animations are metadata over the final slide HTML, not alternate slide markup.
-Reveal only where the order of ideas carries the argument (a list whose payoff
-is the last item, a build to a conclusion, before/after); a title, single
-quote, or diagram the audience should take in at a glance is stronger shown
-whole. Do not add reveals by default.
-Read the full target slide, keep its existing visual structure, and patch the
-complete ordered `animations` list with `elementPath` values from that exact
-HTML. Elements omitted from the list remain visible immediately, so labels and
-headings need no duplicate markup. Do not add hidden duplicates, layout
-spacers, absolute-positioned copies, transforms, or placeholder content to
-simulate reveals. When content and reveals change together, send both fields in
-one `patch-deck` operation. To remove reveals, send `animations: []` with the
-existing content and verify the persisted slide afterward.
-
-Array order is reveal order, and each entry needs a non-empty `id`, a 0-based
-`elementIndex`, and a `type` of `appear`, `fade`, `slide-up`, or `zoom`; the
-schema rejects the operation otherwise. Nothing checks that ids are unique, but
-the editor keys its reveal list by id, so a duplicate makes "remove" and
-"change type" hit every entry sharing it.
-
-`elementPath` has to come from the exact final HTML because it is positional:
-every segment is a child index, so inserting or removing a sibling anywhere
-along the path retargets it. The runtime resolves the path first and falls back
-to `elementIndex` only when it fails to resolve, which is why a stale path
-silently reveals the wrong element instead of erroring. `get-deck` with
-`compact=true` reports each step's order, id, target, and type for verification.
-
-If retrieval produces a new immutable context pack, keep its `contextPackId`
-and reuse labels with the deck provenance. Existing slide HTML is not proof of
-which source version influenced it.
-
-## Freeform Canvas Objects
-
-Manual text boxes and other freeform canvas objects are absolutely positioned
-children of `.fmd-slide`. Give each one a stable `data-slide-object-id`:
-
-```html
-<div
-  class="fmd-text-box"
-  data-slide-object-id="slide-object-unique-id"
-  style="position: absolute; left: 160px; top: 120px; width: 420px;"
->
-  Editable text
-</div>
-```
-
-- Preserve `data-slide-object-id` and the `left`/`top`/`width` of hand-placed
-  objects when updating, moving, resizing, or styling them.
-- Mint a new unique object ID when duplicating an object.
-- Do not use runtime-only `data-builder-id` values in saved slide HTML.
-- A text box (`.fmd-text-box`) with no inline `height` auto-grows with its text
-  from the top edge.
-- Build editable shapes with styled HTML elements such as `div`. Do not use
-  inline SVG, which the slide sanitizer removes.
 
 ## Flow Layout and the Editor
 
@@ -327,7 +192,7 @@ objects the way Google Slides does, so write markup that maps cleanly:
   background.
 - Text containers, including `.fmd-text-box`, have no fixed `height`
   (`min-height` only for a deliberate minimum), so text grows instead of
-  overflowing. Never write `contain` or `contain-intrinsic-size`.
+  overflowing.
 - Keep nesting shallow. Unpainted wrappers with no direct text (grid rows,
   columns) are fine; the pointer skips them.
 - Ids belong to freeform objects only. Never stamp `data-slide-object-id` on a
@@ -337,10 +202,15 @@ objects the way Google Slides does, so write markup that maps cleanly:
   reserves the flow slot of a hand-moved object. Keep it while its owner
   exists and delete both together.
 
+Slide writes can return `hygieneWarnings` (inline svg and other markup the
+sanitizer strips, typed page numbers, fixed px heights on text, `contain`,
+stacked absolute text, deep nesting, tiny text). Fix them with `update-slide`
+before finishing; a missing field means the lint found nothing.
+
 ## Image Placeholders
 
 For visual elements (diagrams, charts, photos), use placeholder divs whose text
-names the content to show, not its role (see `create-deck` Image Placeholders):
+names the content to show, not its role (see `create-deck` `references/slide-templates.md`):
 
 ```html
 <div class="fmd-img-placeholder" style="width: 100%; height: 300px; border-radius: 12px;">
