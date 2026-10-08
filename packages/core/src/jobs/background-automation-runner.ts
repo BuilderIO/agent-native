@@ -56,7 +56,6 @@ import { automationOutcomeMessagesForUser } from "../localization/automation-out
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
-  organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
 import { captureError } from "../server/capture-error.js";
@@ -89,6 +88,7 @@ import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   attachAutomationRunThread,
   finishAutomationRun,
@@ -521,17 +521,14 @@ export async function runBackgroundAutomation(
     historyId = options.historyId;
   } else {
     try {
-      const historyOwner = options.orgId
-        ? organizationResourceOwner(options.orgId)
-        : automation.resource.owner === "__shared__"
-          ? options.ownerEmail
-          : automation.resource.owner;
       historyId = await startAutomationRun({
-        owner: historyOwner,
+        ...automationRunOwnership(
+          automation.resource.owner,
+          options.ownerEmail,
+          options.orgId,
+        ),
         automation: automation.name,
         path: automation.resource.path,
-        scope: options.orgId ? "organization" : "personal",
-        orgId: options.orgId ?? null,
         appId: deps.appId,
         notificationEmail: await notificationEmailFor(
           automation.name,
