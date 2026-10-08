@@ -1079,13 +1079,18 @@ export function shouldRedirectToStorageSetupHome({
   storageSetupRequested,
   storageConfigured,
   hasPendingUpload,
+  uiState,
 }: {
   storageSetupRequested: boolean;
   storageConfigured: boolean | null;
   hasPendingUpload: boolean;
+  uiState: UiState;
 }): boolean {
   return (
-    storageSetupRequested && !hasPendingUpload && storageConfigured === true
+    storageSetupRequested &&
+    !hasPendingUpload &&
+    uiState === "idle" &&
+    storageConfigured === true
   );
 }
 
@@ -3723,6 +3728,7 @@ export default function RecordRoute() {
       storageSetupRequested,
       storageConfigured,
       hasPendingUpload: pendingUploadFile,
+      uiState,
     })
   ) {
     return <Navigate to="/home" replace />;

@@ -1874,6 +1874,80 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
+  it("shows whichever status or launch failure happened most recently", async () => {
+    const staleConnectionError = "The previous Builder connection failed.";
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+          authError: {
+            message: staleConnectionError,
+            at: Date.now() - 60_000,
+          },
+        }),
+      )
+      .mockRejectedValueOnce(new Error("status unavailable"))
+      .mockRejectedValueOnce(new Error("status unavailable"));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("connection");
+    expect(container.textContent).toContain(staleConnectionError);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("status-read");
+    expect(container.textContent).toContain(
+      "Couldn't check the Builder.io connection.",
+    );
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe(staleConnectionError);
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("unavailable");
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("launch");
+    expect(container.textContent).toContain("Allow popups and try again.");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("status-read");
+    expect(container.textContent).toContain(
+      "Couldn't check the Builder.io connection.",
+    );
+  });
+
   it("shows the chooser without navigating when status cannot be resolved", async () => {
     vi.mocked(fetch)
       .mockRejectedValueOnce(new Error("status unavailable"))

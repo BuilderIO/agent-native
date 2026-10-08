@@ -845,19 +845,28 @@ export function useBuilderConnectFlow(
   const [builderEnabled, setBuilderEnabled] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const errorRevisionRef = useRef(0);
   const [errorState, setErrorState] = useState<{
     kind: BuilderConnectErrorKind;
     message: string;
+    revision: number;
   } | null>(null);
   const error = errorState?.message ?? null;
   const errorKind = errorState?.kind ?? null;
   const setError = useCallback(
     (message: string | null, kind: BuilderConnectErrorKind = "connection") => {
-      setErrorState(message ? { kind, message } : null);
+      setErrorState(
+        message
+          ? { kind, message, revision: ++errorRevisionRef.current }
+          : null,
+      );
     },
     [],
   );
-  const [statusUnavailable, setStatusUnavailable] = useState(false);
+  const [statusUnavailableRevision, setStatusUnavailableRevision] = useState<
+    number | null
+  >(null);
+  const statusUnavailable = statusUnavailableRevision !== null;
   const [accountExists, setAccountExists] = useState(false);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const [statusResolved, setStatusResolved] = useState(false);
@@ -887,11 +896,11 @@ export function useBuilderConnectFlow(
   const statusUnavailableRef = useRef(false);
   const markStatusUnavailable = useCallback(() => {
     statusUnavailableRef.current = true;
-    setStatusUnavailable(true);
+    setStatusUnavailableRevision(++errorRevisionRef.current);
   }, []);
   const markStatusAvailable = useCallback(() => {
     statusUnavailableRef.current = false;
-    setStatusUnavailable(false);
+    setStatusUnavailableRevision(null);
   }, []);
   const statusPollFailuresRef = useRef(0);
   const mountedRef = useRef(true);
@@ -2053,6 +2062,10 @@ export function useBuilderConnectFlow(
     };
   }, [fetchStatus, markStatusAvailable, notifyProvisionedAccount, setError]);
 
+  const statusReadIsCurrent =
+    statusUnavailableRevision !== null &&
+    statusUnavailableRevision > (errorState?.revision ?? 0);
+
   return {
     configured,
     provisionAccount,
@@ -2070,10 +2083,10 @@ export function useBuilderConnectFlow(
     orgName,
     connecting,
     terminalError: error,
-    error: statusUnavailable
+    error: statusReadIsCurrent
       ? t("agentChat.settingsShell.integrations.builderStatusFailed")
       : error,
-    errorKind: statusUnavailable ? "status-read" : errorKind,
+    errorKind: statusReadIsCurrent ? "status-read" : errorKind,
     statusUnavailable,
     accountExists,
     hasFetchedStatus,

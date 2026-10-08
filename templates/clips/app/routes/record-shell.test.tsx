@@ -43,13 +43,32 @@ describe("record route lifecycle shell", () => {
         storageSetupRequested: true,
         storageConfigured: true,
         hasPendingUpload: true,
+        uiState: "idle",
       }),
     ).toBe(false);
+  });
+
+  it.each(["pickingSources", "countdown", "recording"] as const)(
+    "does not redirect while capture is %s",
+    (uiState) => {
+      expect(
+        shouldRedirectToStorageSetupHome({
+          storageSetupRequested: true,
+          storageConfigured: true,
+          hasPendingUpload: false,
+          uiState,
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it("redirects a storage-only visit after storage is configured", () => {
     expect(
       shouldRedirectToStorageSetupHome({
         storageSetupRequested: true,
         storageConfigured: true,
         hasPendingUpload: false,
+        uiState: "idle",
       }),
     ).toBe(true);
   });
