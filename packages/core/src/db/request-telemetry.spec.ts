@@ -90,4 +90,32 @@ describe("database request telemetry", () => {
     expect(telemetry.catalogQueryCount).toBe(0);
     expect(telemetry.migrationTableQueryCount).toBe(0);
   });
+
+  // Without AsyncLocalStorage nothing scopes the telemetry to the request, so
+  // reporting it as measured would log zero database work as a real reading.
+  it("reports the request as unmeasured when the runtime has no AsyncLocalStorage", async () => {
+    const storageKey = Symbol.for(
+      "@agent-native/core/db.request-telemetry-storage",
+    );
+    const globals = globalThis as Record<symbol, unknown>;
+    const savedStorage = globals[storageKey];
+    Reflect.deleteProperty(globals, storageKey);
+    vi.resetModules();
+    vi.doMock("../shared/optional-node-builtins.js", () => ({
+      getAsyncLocalStorageCtor: () => undefined,
+    }));
+    try {
+      const telemetryModule = await import("./request-telemetry.js");
+
+      expect(
+        telemetryModule.enterDatabaseRequestTelemetry(
+          telemetryModule.createDatabaseRequestTelemetry(),
+        ),
+      ).toBe(false);
+    } finally {
+      vi.doUnmock("../shared/optional-node-builtins.js");
+      vi.resetModules();
+      globals[storageKey] = savedStorage;
+    }
+  });
 });

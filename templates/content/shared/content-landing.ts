@@ -32,6 +32,8 @@ export type ContentLandingResult = {
   fallbackReason?: "saved-document-unavailable";
   /** Set whenever this landing created the Welcome page, even on fallback. */
   welcomeCreated?: true;
+  /** The account and organization this landing was resolved for. */
+  account: { email: string; orgId: string | null };
 };
 
 export type ContentSpaceLandingResult =

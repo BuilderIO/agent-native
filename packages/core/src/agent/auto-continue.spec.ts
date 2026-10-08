@@ -5,6 +5,7 @@ import {
   AUTO_CONTINUE_FRESHNESS_MS,
   MAX_AUTO_CONTINUES_PER_TURN,
   admitAutoContinue,
+  admitManualContinue,
   isTimeLimitStop,
   type TurnRunState,
 } from "./auto-continue.js";
@@ -96,5 +97,50 @@ describe("admitAutoContinue", () => {
     expect(
       admit(turn({}, { startedAt: NOW - MAX_TURN_WALL_CLOCK_MS - 1 })),
     ).toEqual({ admit: false, code: "auto_continue_cap_reached" });
+  });
+});
+
+describe("admitManualContinue", () => {
+  const admit = (
+    newest: Partial<TurnRunState["newest"]>,
+    laterTurnStarted = false,
+  ) =>
+    admitManualContinue({
+      turn: turn(newest, { autoContinues: MAX_AUTO_CONTINUES_PER_TURN }),
+      stoppedRunId: "run-stopped",
+      laterTurnStarted,
+    });
+
+  it.each([
+    ["a crash", { status: "errored", terminalReason: "stale_run" }],
+    ["a time limit", { status: "truncated", terminalReason: "run_timeout" }],
+    [
+      "a dropped connection",
+      { status: "aborted", terminalReason: "aborted:client_disconnect" },
+    ],
+  ])("admits a stop from %s, with no cap or freshness window", (_, newest) => {
+    expect(admit({ ...newest, completedAt: 0 })).toEqual({ admit: true });
+  });
+
+  it.each([
+    [
+      "a run the person stopped",
+      { status: "aborted", terminalReason: "aborted:user" },
+    ],
+    ["a finished run", { status: "completed", terminalReason: null }],
+    ["a run still going", { completedAt: null }],
+    ["an older run of the turn", { id: "run-newer" }],
+  ])("refuses %s", (_, newest) => {
+    expect(admit(newest)).toEqual({
+      admit: false,
+      code: "continue_unavailable",
+    });
+  });
+
+  it("refuses once a later turn started", () => {
+    expect(admit({}, true)).toEqual({
+      admit: false,
+      code: "continue_unavailable",
+    });
   });
 });

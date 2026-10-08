@@ -43,6 +43,18 @@ export function shouldRecordAudit(
   return true;
 }
 
+/**
+ * Agent protocols: the app's own agent (`tool`) and the MCP, WebMCP, and A2A
+ * surfaces outside agents use. A call over one records as the agent acting
+ * for the signed-in user; that user's email does not make it a click.
+ */
+export const AGENT_AUDIT_CALLERS: ReadonlySet<string> = new Set([
+  "tool",
+  "mcp",
+  "webmcp",
+  "a2a",
+]);
+
 export function deriveActorKind(
   caller: string | undefined,
   actorEmail: string | undefined | null,
@@ -50,7 +62,7 @@ export function deriveActorKind(
 ): AuditActorKind {
   const serviceIdentity = parseServiceIdentityEmail(actorEmail);
   if (serviceIdentity && serviceIdentity.orgId === orgId) return "service";
-  if (caller === "tool") return "agent";
+  if (caller && AGENT_AUDIT_CALLERS.has(caller)) return "agent";
   return actorEmail ? "human" : "system";
 }
 
