@@ -619,24 +619,37 @@ const MAX_PRIOR_REGRESSION_SUMMARY_LENGTH = 300;
 export function formatAuthoringFuzzUnavailable(
   message: string,
   problems: readonly string[],
+  cleanupIssues: readonly string[] = [],
 ) {
-  if (problems.length === 0) return message;
-  const summaries = problems
-    .slice(0, MAX_PRIOR_REGRESSION_SUMMARIES)
-    .map(
-      (problem) =>
-        `- ${problem.replaceAll(/\s+/g, " ").slice(0, MAX_PRIOR_REGRESSION_SUMMARY_LENGTH)}`,
-    );
-  if (problems.length > summaries.length) {
-    summaries.push(
-      `- ${problems.length - summaries.length} more regression(s)`,
+  const summarize = (items: readonly string[], overflowLabel: string) => {
+    const summaries = items
+      .slice(0, MAX_PRIOR_REGRESSION_SUMMARIES)
+      .map(
+        (item) =>
+          `- ${item.replaceAll(/\s+/g, " ").slice(0, MAX_PRIOR_REGRESSION_SUMMARY_LENGTH)}`,
+      );
+    if (items.length > summaries.length) {
+      summaries.push(
+        `- ${items.length - summaries.length} more ${overflowLabel}`,
+      );
+    }
+    return summaries;
+  };
+
+  const lines = [message];
+  if (problems.length) {
+    lines.push(
+      `Earlier authoring regression(s) before the harness became unavailable (${problems.length}):`,
+      ...summarize(problems, "regression(s)"),
     );
   }
-  return [
-    message,
-    `Earlier authoring regression(s) before the harness became unavailable (${problems.length}):`,
-    ...summaries,
-  ].join("\n");
+  if (cleanupIssues.length) {
+    lines.push(
+      `Authoring fuzz cleanup issue(s) (${cleanupIssues.length}):`,
+      ...summarize(cleanupIssues, "cleanup issue(s)"),
+    );
+  }
+  return lines.join("\n");
 }
 
 export function formatAuthoringFuzzFailure(

@@ -5012,6 +5012,7 @@ async function runAuthoringFuzzQa(
   };
 
   const problems: string[] = [];
+  const cleanupProblems: string[] = [];
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   const exercisedProfiles = new Set<string>();
   let harnessUnavailable: CouldNotRun | null = null;
@@ -5268,7 +5269,7 @@ async function runAuthoringFuzzQa(
       }
       if (cleanupErrors.length) {
         const problem = `seed ${seed}: scratch deck cleanup failed (${cleanupErrors.join("; ")})`;
-        problems.push(problem);
+        cleanupProblems.push(problem);
         console.error(`[edit-fidelity] ${problem}`);
       }
     }
@@ -5279,11 +5280,15 @@ async function runAuthoringFuzzQa(
   }
   if (harnessUnavailable) {
     throw new CouldNotRun(
-      formatAuthoringFuzzUnavailable(harnessUnavailable.message, problems),
+      formatAuthoringFuzzUnavailable(
+        harnessUnavailable.message,
+        problems,
+        cleanupProblems,
+      ),
     );
   }
-  if (problems.length) {
-    return problems;
+  if (problems.length || cleanupProblems.length) {
+    return [...problems, ...cleanupProblems];
   }
   console.log(
     `[edit-fidelity] ${seeds} seeded authoring runs of ${steps} steps passed in ${browserName}; profiles: ${Array.from(exercisedProfiles).join(", ")}`,

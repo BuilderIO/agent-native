@@ -111,6 +111,22 @@ it("preserves earlier authoring regressions when the harness becomes unavailable
   );
 });
 
+it("keeps cleanup issues separate from earlier regressions", () => {
+  expect(
+    formatAuthoringFuzzUnavailable(
+      "browser transport failed",
+      ["seed 1: caret moved"],
+      ["seed 2: scratch deck cleanup failed (HTTP 500)"],
+    ),
+  ).toBe(
+    "browser transport failed\n" +
+      "Earlier authoring regression(s) before the harness became unavailable (1):\n" +
+      "- seed 1: caret moved\n" +
+      "Authoring fuzz cleanup issue(s) (1):\n" +
+      "- seed 2: scratch deck cleanup failed (HTTP 500)",
+  );
+});
+
 it("classifies raw Playwright target failures as could-not-run", () => {
   const targetError = new Error(
     "Protocol error (Runtime.callFunctionOn): Target closed",
