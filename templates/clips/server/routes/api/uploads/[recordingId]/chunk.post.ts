@@ -224,54 +224,65 @@ async function repairFinalizeUploadState(params: {
   updates: Record<string, unknown>;
   preserveCancellation?: boolean;
 }): Promise<boolean> {
-  if (!params.snapshot.readable) return false;
-  const { raw, state } = params.snapshot;
+  let snapshot = params.snapshot;
   const prefix =
     params.mode === "buffered"
       ? "[clips]"
       : `[resumable-chunk-${params.recordingId}]`;
-  if (
-    raw !== null &&
-    raw !== undefined &&
-    !recordingUploadStateMatchesAttempt(raw, params.attempt)
-  ) {
-    console.warn(
-      `${prefix} upload state belongs to a different attempt; skipping finalize state repair:`,
-      {
+  for (let retry = 0; retry < 3; retry += 1) {
+    if (!snapshot.readable) return false;
+    const { raw, state } = snapshot;
+    if (
+      raw !== null &&
+      raw !== undefined &&
+      !recordingUploadStateMatchesAttempt(raw, params.attempt)
+    ) {
+      console.warn(
+        `${prefix} upload state belongs to a different attempt; skipping finalize state repair:`,
+        {
+          recordingId: params.recordingId,
+          uploadAttemptId: params.attempt.uploadAttemptId,
+          uploadGenerationId: params.attempt.uploadGenerationId,
+        },
+      );
+      return false;
+    }
+    if (
+      params.preserveCancellation &&
+      (state.aborted === true || state.failureCode === "user_cancelled")
+    ) {
+      return false;
+    }
+    const expectedState =
+      raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+    if (
+      await compareAndSetAppState(
+        `recording-upload-${params.recordingId}`,
+        expectedState,
+        {
+          ...state,
+          ...params.updates,
+        },
+      )
+    ) {
+      return true;
+    }
+    if (retry < 2) {
+      snapshot = await readFinalizeUploadState({
         recordingId: params.recordingId,
-        uploadAttemptId: params.attempt.uploadAttemptId,
-        uploadGenerationId: params.attempt.uploadGenerationId,
-      },
-    );
-    return false;
+        mode: params.mode,
+      });
+    }
   }
-  if (
-    params.preserveCancellation &&
-    (state.aborted === true || state.failureCode === "user_cancelled")
-  ) {
-    return false;
-  }
-  const expectedState =
-    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
-  const updated = await compareAndSetAppState(
-    `recording-upload-${params.recordingId}`,
-    expectedState,
+  console.warn(
+    `${prefix} upload state kept changing during finalize state repair; skipped repair after three attempts:`,
     {
-      ...state,
-      ...params.updates,
+      recordingId: params.recordingId,
+      uploadAttemptId: params.attempt.uploadAttemptId,
+      uploadGenerationId: params.attempt.uploadGenerationId,
     },
   );
-  if (!updated) {
-    console.warn(
-      `${prefix} upload state changed during finalize state repair; skipped the stale snapshot:`,
-      {
-        recordingId: params.recordingId,
-        uploadAttemptId: params.attempt.uploadAttemptId,
-        uploadGenerationId: params.attempt.uploadGenerationId,
-      },
-    );
-  }
-  return updated;
+  return false;
 }
 
 function pendingMediaVerificationState(

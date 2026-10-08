@@ -230,8 +230,32 @@ describe("buildSessionSteps", () => {
 
     expect(steps.map((step) => step.key)).toEqual([
       "step:choice",
-      "onboarding:step_skipped",
+      "onboarding:step_skipped:1",
       "step:connecting",
+    ]);
+  });
+
+  it("keeps consecutive skipped steps with distinct indices", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_step_skipped", 100, {
+        flow: "first_run",
+        stepId: "role",
+        stepIndex: 0,
+      }),
+      row("onboarding_step_skipped", 110, {
+        flow: "first_run",
+        stepId: "choice",
+        stepIndex: 1,
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "onboarding:step_skipped:0",
+      "onboarding:step_skipped:1",
+    ]);
+    expect(steps.map((step) => step.label)).toEqual([
+      "Onboarding step skipped",
+      "Onboarding step skipped",
     ]);
   });
 
@@ -265,7 +289,7 @@ describe("buildSessionSteps", () => {
     const expected = [
       "step:other",
       "step:first",
-      "onboarding:step_skipped",
+      "onboarding:step_skipped:1",
       "step:second",
     ];
 

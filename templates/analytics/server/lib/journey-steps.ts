@@ -122,11 +122,18 @@ export function deriveJourneyStep(
       const id = clean(row.stepId);
       return { key: `step:${id}`, label: `Onboarding step: ${id}` };
     }
-    case "onboarding_step_skipped":
+    case "onboarding_step_skipped": {
+      const stepIndex =
+        typeof row.stepIndex === "number" &&
+        Number.isSafeInteger(row.stepIndex) &&
+        row.stepIndex >= 0
+          ? `:${row.stepIndex}`
+          : "";
       return {
-        key: "onboarding:step_skipped",
+        key: `onboarding:step_skipped${stepIndex}`,
         label: "Onboarding step skipped",
       };
+    }
     case "onboarding_method_clicked": {
       const id = clean(row.methodId);
       return { key: `method:${id}`, label: `Chose: ${methodLabel(id)}` };
