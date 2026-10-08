@@ -315,6 +315,49 @@ function legacyWorkspaceRowFor(target: AgentEngineApiKeyWriteTarget): {
   };
 }
 
+type CredentialState = {
+  hasApiKey: boolean;
+  hasBaseUrl: boolean;
+};
+
+function baseUrlKeyFor(key: string): string | undefined {
+  if (key === OLLAMA_BASE_URL_ENV_VAR) return OLLAMA_BASE_URL_ENV_VAR;
+  return key === OPENAI_PROVIDER_KEY ? OPENAI_BASE_URL_ENV_VAR : undefined;
+}
+
+function credentialKindFor(
+  state: CredentialState,
+): "api_key" | "base_url" | "api_key_and_base_url" {
+  if (state.hasApiKey && state.hasBaseUrl) return "api_key_and_base_url";
+  return state.hasBaseUrl ? "base_url" : "api_key";
+}
+
+async function readCredentialState(
+  key: string,
+  target: AgentEngineApiKeyWriteTarget,
+): Promise<CredentialState> {
+  const targets = [target, legacyWorkspaceRowFor(target)];
+  const apiKeyNames =
+    key === OLLAMA_BASE_URL_ENV_VAR ? [] : secretKeyNames(key);
+  const baseUrlKey = baseUrlKeyFor(key);
+  const [apiKeyMatches, baseUrlMatches] = await Promise.all([
+    Promise.all(
+      targets.flatMap((scope) =>
+        apiKeyNames.map((key) => hasAppSecret({ key, ...scope })),
+      ),
+    ),
+    baseUrlKey
+      ? Promise.all(
+          targets.map((scope) => hasAppSecret({ key: baseUrlKey, ...scope })),
+        )
+      : [],
+  ]);
+  return {
+    hasApiKey: apiKeyMatches.some(Boolean),
+    hasBaseUrl: baseUrlMatches.some(Boolean),
+  };
+}
+
 export function createAgentEngineApiKeyHandler() {
   return defineEventHandler(async (event: H3Event) => {
     if (getMethod(event) === "DELETE") {
@@ -346,9 +389,10 @@ export function createAgentEngineApiKeyHandler() {
         ...secretKeyNames(payload.key),
         ...(payload.endpointKey ? [payload.endpointKey] : []),
       ];
-      const hadCredential = await Promise.all(
-        keys.map((key) => hasAppSecret({ key, ...resolved.target })),
-      ).then((matches) => matches.some(Boolean));
+      const credentialState = await readCredentialState(
+        payload.key,
+        resolved.target,
+      );
       for (const target of [
         resolved.target,
         legacyWorkspaceRowFor(resolved.target),
@@ -357,19 +401,14 @@ export function createAgentEngineApiKeyHandler() {
           await deleteAppSecret({ key, ...target });
         }
       }
-      if (hadCredential) {
+      if (credentialState.hasApiKey || credentialState.hasBaseUrl) {
         track(
           "llm_credential_changed",
           {
             change_type: "disconnected",
             provider: credentialProviderForKey(payload.key),
             scope: resolved.target.scope,
-            credential_kind:
-              payload.key === OLLAMA_BASE_URL_ENV_VAR
-                ? "base_url"
-                : payload.endpointKey
-                  ? "api_key_and_base_url"
-                  : "api_key",
+            credential_kind: credentialKindFor(credentialState),
           },
           { userId: session?.email },
         );
@@ -466,19 +505,10 @@ export function createAgentEngineApiKeyHandler() {
       }
     }
 
-    const credentialKeys = [
-      ...secretKeyNames(payload.key),
-      ...(payload.baseUrl || payload.clearBaseUrl
-        ? [
-            payload.key === OLLAMA_BASE_URL_ENV_VAR
-              ? OLLAMA_BASE_URL_ENV_VAR
-              : OPENAI_BASE_URL_ENV_VAR,
-          ]
-        : []),
-    ];
-    const hadCredential = await Promise.all(
-      credentialKeys.map((key) => hasAppSecret({ key, ...resolved.target })),
-    ).then((matches) => matches.some(Boolean));
+    const credentialState = await readCredentialState(
+      payload.key,
+      resolved.target,
+    );
 
     if (payload.value) {
       await writeAppSecret({
@@ -514,19 +544,25 @@ export function createAgentEngineApiKeyHandler() {
       });
     }
 
+    const credentialStateAfter = {
+      hasApiKey: Boolean(payload.value) || credentialState.hasApiKey,
+      hasBaseUrl: payload.baseUrl
+        ? true
+        : payload.clearBaseUrl
+          ? false
+          : credentialState.hasBaseUrl,
+    };
     track(
       "llm_credential_changed",
       {
-        change_type: hadCredential ? "key_updated" : "connected",
+        change_type:
+          credentialState.hasApiKey || credentialState.hasBaseUrl
+            ? "key_updated"
+            : "connected",
         provider: credentialProviderForKey(payload.key),
         scope: resolved.target.scope,
         ...(payload.surface ? { surface: payload.surface } : {}),
-        credential_kind:
-          payload.value && (payload.baseUrl || payload.clearBaseUrl)
-            ? "api_key_and_base_url"
-            : payload.value
-              ? "api_key"
-              : "base_url",
+        credential_kind: credentialKindFor(credentialStateAfter),
       },
       { userId: session?.email },
     );

@@ -791,7 +791,7 @@ describe("agent engine api-key route helpers", () => {
           change_type: "key_updated",
           provider: "openai",
           scope: "org",
-          credential_kind: "api_key",
+          credential_kind: "api_key_and_base_url",
         },
       },
       {
@@ -805,6 +805,76 @@ describe("agent engine api-key route helpers", () => {
       },
     ]);
     expect(JSON.stringify(mockTrack.mock.calls)).not.toContain("secret-value");
+  });
+
+  it("treats legacy-only credentials as an update", async () => {
+    mockGetSession.mockResolvedValue({ email: "admin@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "admin" });
+    mockHasAppSecret.mockImplementation(
+      async ({ key, scope }) =>
+        scope === "workspace" && key === "OPENAI_BASE_URL",
+    );
+
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("POST", {
+        provider: "openai",
+        apiKey: "sk-openai-new-key",
+        scope: "org",
+      }) as any,
+    );
+
+    expect(mockTrack).toHaveBeenCalledWith(
+      "llm_credential_changed",
+      {
+        change_type: "key_updated",
+        provider: "openai",
+        scope: "org",
+        credential_kind: "api_key_and_base_url",
+      },
+      { userId: "admin@example.test" },
+    );
+  });
+
+  it("reports the credential kind that existed before disconnect", async () => {
+    mockGetSession.mockResolvedValue({ email: "admin@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "admin" });
+    mockHasAppSecret.mockImplementation(
+      async ({ key }) => key === "OPENAI_API_KEY",
+    );
+
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("DELETE", { provider: "openai", scope: "org" }) as any,
+    );
+
+    expect(mockTrack).toHaveBeenLastCalledWith(
+      "llm_credential_changed",
+      {
+        change_type: "disconnected",
+        provider: "openai",
+        scope: "org",
+        credential_kind: "api_key",
+      },
+      { userId: "admin@example.test" },
+    );
+
+    mockTrack.mockClear();
+    mockHasAppSecret.mockImplementation(
+      async ({ key }) => key === "OPENAI_BASE_URL",
+    );
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("DELETE", { provider: "openai", scope: "org" }) as any,
+    );
+
+    expect(mockTrack).toHaveBeenLastCalledWith(
+      "llm_credential_changed",
+      {
+        change_type: "disconnected",
+        provider: "openai",
+        scope: "org",
+        credential_kind: "base_url",
+      },
+      { userId: "admin@example.test" },
+    );
   });
 
   it("tracks independent providers as separate connections", async () => {
