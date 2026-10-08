@@ -365,10 +365,7 @@ function inferBuilderConnectTrackingIdentity(options: {
       typeof __AGENT_NATIVE_TEMPLATE__ === "string"
         ? __AGENT_NATIVE_TEMPLATE__
         : undefined,
-    ) ??
-    (app?.startsWith("agent-native-")
-      ? normalizeTrackingSlug(app.slice("agent-native-".length))
-      : app);
+    );
 
   return { app, template };
 }

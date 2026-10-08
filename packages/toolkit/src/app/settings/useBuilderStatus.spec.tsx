@@ -500,6 +500,7 @@ describe("useBuilderConnectFlow", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    Reflect.deleteProperty(window.location, "hostname");
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -778,6 +779,10 @@ describe("useBuilderConnectFlow", () => {
 
     for (const host of ["desktop", "embedded", "browser"] as const) {
       it(`creates the account with one request and no popup (${host})`, async () => {
+        Object.defineProperty(window.location, "hostname", {
+          configurable: true,
+          value: "design.custom-domain.com",
+        });
         vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "agent-native-clips");
         vi.stubGlobal("__AGENT_NATIVE_TEMPLATE__", "clips");
         setUserAgent(
@@ -824,10 +829,15 @@ describe("useBuilderConnectFlow", () => {
       });
     }
 
-    it("does not infer signup attribution from a generic hostname", async () => {
+    it.each([
+      "localhost",
+      "127.0.0.1",
+      "www.agent-native.com",
+      "design.custom-domain.com",
+    ])("does not infer signup attribution from %s", async (hostname) => {
       Object.defineProperty(window.location, "hostname", {
         configurable: true,
-        value: "www.agent-native.com",
+        value: hostname,
       });
       const posts = mockActivation(() => activationResponse(200, { ok: true }));
 
@@ -835,6 +845,18 @@ describe("useBuilderConnectFlow", () => {
 
       expect(posts).toHaveLength(1);
       expect(posts[0]!.url.searchParams.get("agentNativeApp")).toBeNull();
+      expect(posts[0]!.url.searchParams.get("agentNativeTemplate")).toBeNull();
+    });
+
+    it("does not infer a template from the injected app ID", async () => {
+      vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "private-workspace");
+      const posts = mockActivation(() => activationResponse(200, { ok: true }));
+
+      await requestBuilderAccountActivation({ provisioningToken });
+
+      expect(posts[0]!.url.searchParams.get("agentNativeApp")).toBe(
+        "private-workspace",
+      );
       expect(posts[0]!.url.searchParams.get("agentNativeTemplate")).toBeNull();
     });
 
