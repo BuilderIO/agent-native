@@ -165,6 +165,7 @@ vi.mock("../observability/tracking-identity.js", () => ({
 }));
 
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/registry.js";
 import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
@@ -2224,7 +2225,10 @@ describe("run manager soft timeout", () => {
     unregister();
 
     expect(provider).toHaveBeenCalledWith(
-      err,
+      expect.objectContaining({
+        name: "Error",
+        message: "Internal Server Error",
+      }),
       expect.objectContaining({
         route: "/_agent-native/agent-chat",
         tags: expect.objectContaining({
@@ -2245,6 +2249,66 @@ describe("run manager soft timeout", () => {
       }),
     );
   });
+
+  it.each(["run", "completion"] as const)(
+    "keeps named run error messages out of Monitoring during %s",
+    async (phase) => {
+      const message =
+        "Jane Doe's notes are locked\nDeck Quarterly Planning not found";
+      const error = new EngineError(message, {
+        errorCode: "provider_config_error",
+        statusCode: 500,
+      });
+      error.stack = `EngineError: ${message}\n    at readNotes (/app/notes.ts:10:2)`;
+      Object.assign(error, { cause: new Error("Jane Doe's private document") });
+      const unregister = registerErrorCaptureProvider(
+        "run-privacy",
+        captureException,
+      );
+      try {
+        startRun(
+          `run-monitoring-privacy-${phase}`,
+          `thread-monitoring-privacy-${phase}`,
+          async () => {
+            if (phase === "run") throw error;
+          },
+          phase === "completion"
+            ? async () => {
+                throw error;
+              }
+            : undefined,
+          { softTimeoutMs: 0 },
+        );
+        await vi.waitFor(() =>
+          expect(track).toHaveBeenCalledWith(
+            "$exception",
+            expect.anything(),
+            undefined,
+          ),
+        );
+        const payload = vi
+          .mocked(track)
+          .mock.calls.find(([name]) => name === "$exception")?.[1];
+        expect(JSON.stringify(payload)).not.toContain("Jane Doe");
+        expect(JSON.stringify(payload)).not.toContain("Quarterly Planning");
+        expect(payload).toMatchObject({
+          exceptionType: "EngineError",
+          exceptionMessage: "Internal Server Error",
+          exceptionStack:
+            "EngineError: Internal Server Error\n    at readNotes (/app/notes.ts:10:2)",
+          exceptionTags: {
+            errorCode: "provider_config_error",
+            errorCause: "provider_config_error",
+            statusCode: "500",
+          },
+        });
+        expect(error.message).toBe(message);
+        expect(error.stack).toContain("Jane Doe");
+      } finally {
+        unregister();
+      }
+    },
+  );
 
   it("does not capture expected quota or rate-limit terminal run errors", async () => {
     const provider = vi.fn(() => "evt_run");
@@ -5654,18 +5718,22 @@ describe("run manager soft timeout", () => {
       );
     });
 
-    it("emits an errored event carrying error_code and error_detail", async () => {
+    it("keeps named run error messages out of agent_run_terminal", async () => {
       startRun(
         "run-tracking-error",
         "thread-tracking-error",
         async () => {
-          throw new Error("boom");
+          throw new Error("Jane Doe's notes are locked");
         },
         undefined,
         { softTimeoutMs: 0 },
       );
 
       await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      const [, properties] = vi.mocked(track).mock.calls[0];
+      expect(JSON.stringify(properties)).not.toContain("Jane Doe");
+      expect(properties).not.toHaveProperty("error_detail");
 
       expect(track).toHaveBeenCalledWith(
         "agent_run_terminal",
@@ -5674,9 +5742,14 @@ describe("run manager soft timeout", () => {
           status: "errored",
           terminal_reason: "error:unknown",
           error_code: "unknown",
-          error_detail: "boom",
+          error_cause: "unknown",
         }),
         expect.anything(),
+      );
+      expect(setRunError).toHaveBeenCalledWith(
+        "run-tracking-error",
+        "unknown",
+        "Jane Doe's notes are locked",
       );
     });
 

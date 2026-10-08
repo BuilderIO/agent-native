@@ -848,6 +848,7 @@ export function startPageOpenDocumentReads(
   queryClient: QueryClient,
   documentId: string,
   context: DocumentQueryContext = {},
+  { beforeSession = false }: { beforeSession?: boolean } = {},
 ) {
   const queryKey = documentQueryKey(documentId, context);
   const cached = queryClient.getQueryData<Document>(queryKey);
@@ -868,23 +869,28 @@ export function startPageOpenDocumentReads(
       { method: "GET" },
     ));
   let documentTaken = false;
-  const documentReadStarted = startPageOpenRead(queryClient, documentId, {
-    queryKey,
-    queryFn: ({ signal }) => {
-      if (documentTaken) {
-        return callAction<Document>(
-          "get-document",
-          documentReadParams(documentId, context),
-          { method: "GET", signal },
+  const documentReadStarted = startPageOpenRead(
+    queryClient,
+    documentId,
+    {
+      queryKey,
+      queryFn: ({ signal }) => {
+        if (documentTaken) {
+          return callAction<Document>(
+            "get-document",
+            documentReadParams(documentId, context),
+            { method: "GET", signal },
+          );
+        }
+        documentTaken = true;
+        return readPage().then(
+          ({ previewDraft: _previewDraft, ...document }) => document,
         );
-      }
-      documentTaken = true;
-      return readPage().then(
-        ({ previewDraft: _previewDraft, ...document }) => document,
-      );
+      },
+      retry: false,
     },
-    retry: false,
-  });
+    { beforeSession },
+  );
   if (widgetBridgeActive) return;
   if (readsDraft) {
     const draftRead = previewDocumentDraftReadOptions(
@@ -892,21 +898,28 @@ export function startPageOpenDocumentReads(
       cached?.createdAt,
     );
     let draftTaken = !documentReadStarted;
-    startPageOpenRead(queryClient, documentId, {
-      ...draftRead,
-      queryFn: (context) => {
-        if (draftTaken) return draftRead.queryFn(context);
-        draftTaken = true;
-        // A server without the combined answer, or a page read that failed,
-        // leaves the draft to its own request.
-        return readPage().then(
-          (read) => read.previewDraft ?? draftRead.queryFn(context),
-          () => draftRead.queryFn(context),
-        );
+    startPageOpenRead(
+      queryClient,
+      documentId,
+      {
+        ...draftRead,
+        queryFn: (context) => {
+          if (draftTaken) return draftRead.queryFn(context);
+          draftTaken = true;
+          // A server without the combined answer, or a page read that failed,
+          // leaves the draft to its own request.
+          return readPage().then(
+            (read) => read.previewDraft ?? draftRead.queryFn(context),
+            () => draftRead.queryFn(context),
+          );
+        },
       },
-    });
+      { beforeSession },
+    );
   }
-  if (cached?.source?.mode !== "local-files") {
+  // The review reads are not tracked as this open's reads, so one sent before
+  // the session could not be dropped if another account answers it.
+  if (!beforeSession && cached?.source?.mode !== "local-files") {
     startPageOpenReviewReads(queryClient, documentId);
   }
 }

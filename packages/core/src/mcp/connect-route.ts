@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type { H3Event } from "h3";
 import { getMethod, getHeader } from "h3";
 
-import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
 import { isAgentNativeDeploymentEnvironment } from "../config.js";
 import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
@@ -54,7 +53,6 @@ import {
   finishDeviceCodeMint,
   expireDeviceCode,
   MCP_CONNECT_OAUTH_CLIENT_ID,
-  MCP_CONNECT_SCOPE,
   DEFAULT_TOKEN_TTL_DAYS,
   MIN_TOKEN_TTL_DAYS,
   MAX_TOKEN_TTL_DAYS,
@@ -65,7 +63,7 @@ import {
   McpCredentialIssuanceError,
   withMcpCredentialIssuance,
 } from "./credential-issuance.js";
-import { getMcpOAuthIssuer } from "./oauth-route.js";
+import { getMcpOAuthIssuer, resolveMcpOAuthIssuer } from "./oauth-route.js";
 import {
   MCP_OAUTH_DEFAULT_SCOPE,
   signMcpOAuthAccessToken,
@@ -242,7 +240,8 @@ async function mintConnectToken(params: {
   orgId: string | undefined;
   label: string | null;
   ttlDays: number;
-  appUrl: string;
+  /** From `getMcpOAuthIssuer`; its resources are what `verifyAuth` accepts. */
+  issuer: string;
   catalogScope?: "full";
   requestOrigin: string;
 }): Promise<{ token: string; jti: string }> {
@@ -260,7 +259,7 @@ async function mintConnectToken(params: {
         ownerEmail: params.email,
         orgId: params.orgId,
         orgDomain,
-        appUrl: params.appUrl,
+        issuer: params.issuer,
         expiresIn: `${params.ttlDays}d`,
         jti,
         ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
@@ -279,43 +278,49 @@ async function mintConnectToken(params: {
   );
 }
 
+/**
+ * Connect tokens are MCP OAuth access tokens bound to this app's MCP URL, so
+ * they share OAuth's verification path. Do not sign them as A2A JWTs again:
+ * that format let cross-app trust rules reinterpret a credential this app
+ * issued.
+ */
 async function signConnectToken(params: {
   ownerEmail: string;
   orgId: string | null | undefined;
   orgDomain: string | undefined;
-  appUrl: string;
+  issuer: string;
   expiresIn: string;
   jti: string;
-  includeOrgIdClaim?: boolean;
   catalogScope?: "full";
+  service?: true;
 }): Promise<string> {
-  if (readDeployCredentialEnv("A2A_SECRET")?.trim()) {
-    return signA2AToken(params.ownerEmail, params.orgDomain, undefined, {
-      preferGlobalSecret: true,
-      expiresIn: params.expiresIn,
-      extraClaims: {
-        jti: params.jti,
-        scope: MCP_CONNECT_SCOPE,
-        ...(params.includeOrgIdClaim && params.orgId
-          ? { org_id: params.orgId }
-          : {}),
-        ...(params.catalogScope === "full" ? { catalog_scope: "full" } : {}),
-      },
-    });
-  }
-
   return signMcpOAuthAccessToken({
     ownerEmail: params.ownerEmail,
     orgId: params.orgId ?? null,
     orgDomain: params.orgDomain ?? null,
     clientId: MCP_CONNECT_OAUTH_CLIENT_ID,
     scope: MCP_OAUTH_DEFAULT_SCOPE,
-    resource: mcpResourceUrl(params.appUrl),
-    issuer: params.appUrl,
+    resource: mcpResourceUrl(params.issuer),
+    issuer: params.issuer,
     jti: params.jti,
     expiresIn: params.expiresIn,
     ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
+    ...(params.service ? { service: true } : {}),
   });
+}
+
+/**
+ * Neither the request nor configuration names this app's public URL, so no
+ * audience `verifyAuth` would accept can be resolved. Guessing one would mint a
+ * token the app then refuses.
+ */
+export class OrgServiceTokenAppUrlError extends Error {
+  constructor() {
+    super(
+      "Could not determine the app URL needed to mint a token. Set APP_URL on the deployment.",
+    );
+    this.name = "OrgServiceTokenAppUrlError";
+  }
 }
 
 /**
@@ -328,7 +333,7 @@ async function signConnectToken(params: {
  *
  * The token value is returned exactly once and never persisted — only the
  * random `jti` is stored, so the standard revocation path
- * (`isJtiRevoked` in `verifyAuth`) applies to service tokens identically.
+ * (`lookupConnectTokenOrg` in `verifyAuth`) applies to service tokens identically.
  *
  * The `create-org-service-token` action gates on org owner/admin before
  * calling this. Offboarding can remove that admin before the mint, so the
@@ -341,7 +346,8 @@ export async function mintOrgServiceToken(params: {
   /** The human minting the token — stored for audit, never used as identity. */
   createdBy: string;
   ttlDays?: number;
-  appUrl: string;
+  /** The caller's request origin, when there is a request. */
+  appUrl: string | undefined;
 }): Promise<{
   token: string;
   jti: string;
@@ -357,6 +363,8 @@ export async function mintOrgServiceToken(params: {
     params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS,
     MAX_SERVICE_TOKEN_TTL_DAYS,
   );
+  const issuer = resolveMcpOAuthIssuer(params.appUrl || undefined);
+  if (!issuer) throw new OrgServiceTokenAppUrlError();
   await prepareConnectIssuance();
   return withMcpCredentialIssuance(
     {
@@ -371,10 +379,10 @@ export async function mintOrgServiceToken(params: {
         ownerEmail: serviceEmail,
         orgId: params.orgId,
         orgDomain,
-        appUrl: params.appUrl,
+        issuer,
         expiresIn: `${ttlDays}d`,
         jti,
-        includeOrgIdClaim: true,
+        service: true,
       });
       const id = await recordMintedToken(
         {
@@ -1433,13 +1441,14 @@ export async function handleMcpConnect(
   const origin = deriveOrigin(event);
   const basePath = getConfiguredAppBasePath();
   const appUrl = `${origin}${basePath}`;
-  // Clients installed from the identity sign in through OAuth discovery, so
-  // its URL is the resource discovery advertises, not the request's Host.
-  // Only subroutes that publish it resolve it, before minting anything: a
-  // refused name must neither leave a token no response returned nor block
-  // listing and revoking existing tokens.
-  const resolveIdentity = () =>
-    resolveMcpConnectIdentity(getMcpOAuthIssuer(event) || appUrl, options);
+  // Tokens bind to an audience verifyAuth accepts, and clients installed from
+  // the identity sign in through OAuth discovery, so both use its issuer.
+  // Reached through an alias of a configured public URL, that is not appUrl.
+  const issuer = getMcpOAuthIssuer(event) ?? appUrl;
+  // Only subroutes that publish the identity resolve it, before minting
+  // anything: a refused name must neither leave a token no response returned
+  // nor block listing and revoking existing tokens.
+  const resolveIdentity = () => resolveMcpConnectIdentity(issuer, options);
   let requestUrl: URL | null = null;
   try {
     requestUrl = new URL(
@@ -1556,7 +1565,7 @@ export async function handleMcpConnect(
         orgId: defaultOrganizationId,
         label,
         ttlDays,
-        appUrl,
+        issuer,
         requestOrigin: origin,
         ...(catalogScope ? { catalogScope } : {}),
       });
@@ -1739,7 +1748,7 @@ export async function handleMcpConnect(
             ownerEmail: claimed.ownerEmail!,
             orgId: claimed.orgId,
             orgDomain,
-            appUrl,
+            issuer,
             expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
             jti,
             ...(claimed.catalogScope

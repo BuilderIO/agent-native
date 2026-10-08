@@ -278,6 +278,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         label: e.label,
         description: e.description,
         defaultModel: e.defaultModel,
+        runtimeSupportedModels: e.supportedModels,
         supportedModels:
           e.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME
             ? (chatGPTCatalog?.models ?? [])

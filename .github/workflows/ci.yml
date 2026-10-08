@@ -294,7 +294,7 @@ jobs:
             pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
             echo "::endgroup::"
           done < <(
-            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(`${name}\t${shard}`)'
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
           )
           exit "$status"
 
@@ -351,7 +351,7 @@ jobs:
             while IFS= read -r -d '' file; do
               core_test_files+=("$file")
             done < <(
-              node -e 'for (const file of JSON.parse(process.env.CORE_TEST_FILES)) process.stdout.write(`${file}\0`)'
+              node -e 'for (const file of JSON.parse(process.env.CORE_TEST_FILES)) process.stdout.write(file + "\0")'
             )
             if ((${#core_test_files[@]} == 0)); then
               echo "::error::Planner emitted a changed Core shard with no test files"
@@ -415,7 +415,7 @@ jobs:
             pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
             echo "::endgroup::"
           done < <(
-            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(`${name}\t${shard}`)'
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
           )
           exit "$status"
 
@@ -643,23 +643,27 @@ jobs:
               fixed_specs=( \
                 e2e/pasted-svg-image-inspector.spec.ts:656 \
                 e2e/pasted-svg-image-inspector.spec.ts:693 \
+                e2e/pasted-svg-image-inspector.spec.ts:1135 \
                 e2e/position-alignment.spec.ts:361 \
               )
               ;;
             position-1b)
               fixed_specs=( \
+                e2e/pasted-svg-image-inspector.spec.ts:760 \
                 e2e/position-alignment.spec.ts:431 \
                 e2e/position-alignment.spec.ts:509 \
               )
               ;;
             position-2a)
               fixed_specs=( \
+                e2e/pasted-svg-image-inspector.spec.ts:891 \
                 e2e/position-alignment.spec.ts:292 \
                 e2e/position-alignment.spec.ts:570 \
               )
               ;;
             position-2b)
               fixed_specs=( \
+                e2e/pasted-svg-image-inspector.spec.ts:1186 \
                 e2e/position-alignment.spec.ts:615 \
                 e2e/position-alignment.spec.ts:661 \
               )
@@ -1154,7 +1158,7 @@ jobs:
         run: pnpm test:brain-privacy-evals
 
   build:
-    name: Build
+    name: Build artifacts
     needs: change-scope
     if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
@@ -1197,6 +1201,70 @@ jobs:
       - name: Build docs site
         if: needs.change-scope.outputs.docs_only == 'true'
         run: pnpm --filter @agent-native/docs build
+
+  build-gate:
+    name: Build
+    needs: [change-scope, build, typecheck, guards]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Gate on scoped build, typecheck, and security guard results
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+          DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
+          BUILD_REQUIRED: ${{ needs.change-scope.outputs.build }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          TYPECHECK_REQUIRED: ${{ needs.change-scope.outputs.typecheck }}
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          GUARDS_REQUIRED: ${{ needs.change-scope.outputs.guards }}
+          GUARDS_RESULT: ${{ needs.guards.result }}
+        run: |
+          set -euo pipefail
+
+          require_selector() {
+            local check_name="$1"
+            local selected="$2"
+            if [[ "$selected" == "true" || "$selected" == "false" ]]; then
+              return 0
+            fi
+            echo "::error::$check_name selection was missing or invalid ($selected)"
+            return 1
+          }
+
+          require_result() {
+            local check_name="$1"
+            local selected="$2"
+            local result="$3"
+            local expected_result="skipped"
+            if [[ "$selected" == "true" ]]; then
+              expected_result="success"
+            fi
+            if [[ "$result" == "$expected_result" ]]; then
+              return 0
+            fi
+            echo "::error::$check_name selected=$selected expected=$expected_result result=$result"
+            return 1
+          }
+
+          status=0
+          if [[ "$CHANGE_SCOPE_RESULT" != "success" ]]; then
+            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            status=1
+          fi
+          require_selector "Docs build" "$DOCS_ONLY" || status=1
+          require_selector "Build artifacts" "$BUILD_REQUIRED" || status=1
+          require_selector "Typecheck" "$TYPECHECK_REQUIRED" || status=1
+          require_selector "Security guards" "$GUARDS_REQUIRED" || status=1
+
+          build_selected=false
+          if [[ "$DOCS_ONLY" == "true" || "$BUILD_REQUIRED" == "true" ]]; then
+            build_selected=true
+          fi
+          require_result "Build artifacts" "$build_selected" "$BUILD_RESULT" || status=1
+          require_result "Typecheck" "$TYPECHECK_REQUIRED" "$TYPECHECK_RESULT" || status=1
+          require_result "Security guards" "$GUARDS_REQUIRED" "$GUARDS_RESULT" || status=1
+          exit "$status"
 
   neon-query-budget:
     name: Cold-request query budget ${{ matrix.shard }}

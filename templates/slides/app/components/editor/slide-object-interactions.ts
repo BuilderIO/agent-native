@@ -6,6 +6,8 @@ import {
 
 import { stripSourceStamps } from "@/lib/slide-source-map";
 
+import { hasInlineBottom, hasInlineHeight } from "./fit-text-object";
+import { stripFreeformReservation } from "./in-place-text-session";
 import {
   isRichTextBlock,
   isSlideCanvasShell,
@@ -95,6 +97,27 @@ export function isSlideTableStructureElement(element: Element): boolean {
   return SLIDE_TABLE_STRUCTURE_ELEMENTS.has(element.tagName);
 }
 
+/**
+ * The object a selection or membership check acts on for any element: its slide
+ * group, else its table when it sits anywhere inside one (a row, a cell, or text
+ * inside a cell), else the element itself.
+ */
+export function resolveSelectionOwner(
+  element: HTMLElement,
+  root: HTMLElement,
+): HTMLElement {
+  const table = element.closest<HTMLElement>("table");
+  const part = table && root.contains(table) ? table : element;
+  return resolveSlideObjectGroupRoot(part, root) ?? part;
+}
+
+export function resolveSelectionOwnerId(
+  element: HTMLElement,
+  root: HTMLElement,
+): string | null {
+  return resolveSelectionOwner(element, root).getAttribute("data-builder-id");
+}
+
 const SLIDE_LAYER_REQUIRED_CHILDREN = new Map<string, Set<string>>([
   ["COLGROUP", new Set(["COL"])],
   ["DL", new Set(["DD", "DT"])],
@@ -140,6 +163,93 @@ export interface SlideObjectGeometry {
   y: number;
   width: number;
   height: number;
+}
+
+// `height` is omitted for fit text objects: the caller must leave their inline
+// height untouched instead of pinning the measured one.
+export type SlideObjectGeometryPlan = Omit<SlideObjectGeometry, "height"> & {
+  height?: number;
+};
+
+export type SlideObjectGeometryApplier = (
+  element: HTMLElement,
+  geometry: SlideObjectGeometryPlan,
+) => void;
+
+export type FreeformSizing = "fit" | "min" | "fixed";
+
+function readInlineOrComputedStyle(
+  element: HTMLElement,
+  property: string,
+): string {
+  return (
+    window.getComputedStyle(element).getPropertyValue(property) ||
+    element.style.getPropertyValue(property)
+  ).trim();
+}
+
+function isImportedPptxObject(element: HTMLElement): boolean {
+  return (
+    element.hasAttribute("data-imported-pptx") ||
+    element.hasAttribute("data-pptx-element-kind") ||
+    Array.from(element.classList).some((name) => name.startsWith("fmd-pptx-"))
+  );
+}
+
+function paintsOwnSlideBox(element: HTMLElement): boolean {
+  const background = readInlineOrComputedStyle(element, "background-color");
+  const image = readInlineOrComputedStyle(element, "background-image");
+  const shadow = readInlineOrComputedStyle(element, "box-shadow");
+  return (
+    (background !== "" &&
+      background !== "transparent" &&
+      !/^rgba\(.*,\s*0(?:\.0+)?\)$/.test(background.replace(/\s+/g, " "))) ||
+    (image !== "" && image !== "none") ||
+    (shadow !== "" && shadow !== "none") ||
+    hasVisibleBorder(element)
+  );
+}
+
+export function isFitTextObject(element: HTMLElement): boolean {
+  // A bottom-anchored box keeps its height: with `top` written and no
+  // height, `top` + `bottom` would stretch it to the slide edge.
+  if (
+    hasInlineHeight(element) ||
+    hasInlineBottom(element) ||
+    isImportedPptxObject(element)
+  ) {
+    return false;
+  }
+  if (element.classList.contains("fmd-text-box")) return true;
+  return isTextLeaf(element) && !paintsOwnSlideBox(element);
+}
+
+export function resolveFreeformSizing(element: HTMLElement): FreeformSizing {
+  if (isFitTextObject(element)) return "fit";
+  if (
+    !hasInlineHeight(element) &&
+    !hasInlineBottom(element) &&
+    !isImportedPptxObject(element) &&
+    element.tagName !== "IMG" &&
+    !element.classList.contains("fmd-img-placeholder") &&
+    Boolean(element.textContent?.trim()) &&
+    paintsOwnSlideBox(element)
+  ) {
+    return "min";
+  }
+  return "fixed";
+}
+
+export function planSlideObjectGeometry(
+  element: HTMLElement,
+  geometry: SlideObjectGeometry,
+): SlideObjectGeometryPlan {
+  if (!isFitTextObject(element)) return geometry;
+  return { x: geometry.x, y: geometry.y, width: geometry.width };
+}
+
+export function hasFitTextMinHeight(element: HTMLElement): boolean {
+  return Number.parseFloat(element.style.getPropertyValue("min-height")) > 0;
 }
 
 export function setSlideObjectDimension(
@@ -424,6 +534,57 @@ export function findSlideObjectById(
   );
 }
 
+export function isLayoutSpacer(element: Element): boolean {
+  return (
+    element.classList.contains("fmd-layout-spacer") ||
+    element.hasAttribute("data-slide-layout-spacer-for")
+  );
+}
+
+export interface SlideSelectionAnchor {
+  objectId: string | null;
+  path: number[];
+}
+
+// Indexes skip layout spacers so inserting one beside an element never moves it.
+export function resolveSelectionIdentity(
+  element: HTMLElement,
+  root: HTMLElement,
+): SlideSelectionAnchor {
+  const path: number[] = [];
+  let current: HTMLElement | null = element;
+  while (current && current !== root) {
+    const parent: HTMLElement | null = current.parentElement;
+    if (!parent) return { objectId: null, path: [] };
+    path.unshift(
+      Array.from(parent.children)
+        .filter((child) => !isLayoutSpacer(child))
+        .indexOf(current),
+    );
+    current = parent;
+  }
+  return { objectId: element.getAttribute("data-slide-object-id"), path };
+}
+
+export function resolveSlideSelectionAnchor(
+  root: HTMLElement,
+  { objectId, path }: SlideSelectionAnchor,
+): HTMLElement | null {
+  if (objectId) {
+    const object = findSlideObjectById(root, objectId);
+    if (object) return object;
+  }
+  let current: Element | null = root;
+  for (const index of path) {
+    current =
+      Array.from(current?.children ?? []).filter(
+        (child) => !isLayoutSpacer(child),
+      )[index] ?? null;
+    if (!current) return null;
+  }
+  return current instanceof HTMLElement ? current : null;
+}
+
 function establishesSlideObjectContainingBlock(element: HTMLElement): boolean {
   const style = window.getComputedStyle(element);
   const position = style.position || "static";
@@ -436,14 +597,53 @@ function establishesSlideObjectContainingBlock(element: HTMLElement): boolean {
   const hasContainment = ["layout", "paint", "strict", "content"].some(
     (value) => containment.split(/\s+/).includes(value),
   );
+  const isSet = (property: string, ...inert: string[]) => {
+    const value = readInlineOrComputedStyle(element, property);
+    return value !== "" && !["none", ...inert].includes(value);
+  };
+  const willChange = readInlineOrComputedStyle(element, "will-change")
+    .split(/\s*,\s*/)
+    .some((property) =>
+      ["transform", "filter", "perspective", "backdrop-filter"].includes(
+        property,
+      ),
+    );
 
   return (
     position !== "static" ||
     hasTransform ||
     hasPerspective ||
     hasFilter ||
-    hasContainment
+    hasContainment ||
+    isSet("backdrop-filter") ||
+    isSet("-webkit-backdrop-filter") ||
+    willChange ||
+    isSet("translate") ||
+    isSet("rotate") ||
+    isSet("scale") ||
+    isSet("container-type", "normal") ||
+    isSet("content-visibility", "visible")
   );
+}
+
+// `left`/`top` resolve against the padding box, so a bordered containing block
+// would otherwise shift the object by its border width on the first frame.
+export function clientPointToContainingBlockOffset(
+  clientX: number,
+  clientY: number,
+  containingBlock: HTMLElement,
+): { x: number; y: number } {
+  const point = clientPointToSlideCoordinates(
+    clientX,
+    clientY,
+    containingBlock.getBoundingClientRect(),
+    containingBlock.offsetWidth,
+    containingBlock.offsetHeight,
+  );
+  return {
+    x: point.x - containingBlock.clientLeft,
+    y: point.y - containingBlock.clientTop,
+  };
 }
 
 function findSlideObjectContainingBlock(
@@ -551,6 +751,18 @@ export function getSlideTextBoxDefaultColor(
     if (hasUsableTextColor(color)) {
       return color;
     }
+  }
+
+  // A slide with no text yet still declares its ink on the slide root; the
+  // fallback below only knows the canvas, which a dark slide does not paint.
+  const slideRoot = positioningLayer.closest<HTMLElement>(".fmd-slide");
+  if (slideRoot) {
+    const ink =
+      slideRoot.style.getPropertyValue("--deck-ink").trim() ||
+      window.getComputedStyle(slideRoot).getPropertyValue("--deck-ink").trim();
+    if (ink) return ink;
+    const rootColor = slideRoot.style.color;
+    if (hasUsableTextColor(rootColor)) return rootColor;
   }
 
   const canvas = positioningLayer.closest<HTMLElement>("[data-slide-canvas]");
@@ -794,6 +1006,7 @@ export function freezeSlideElementForFreeform(
   geometry: SlideObjectGeometry,
   layout: SlideObjectLayoutSnapshot,
   textPresentation?: SlideObjectTextPresentationSnapshot,
+  { sizing = "fixed" }: { sizing?: FreeformSizing } = {},
 ): HTMLElement {
   const objectId = ensureSlideObjectId(element);
   const spacer = element.cloneNode(false) as HTMLElement;
@@ -839,7 +1052,11 @@ export function freezeSlideElementForFreeform(
   element.style.left = `${geometry.x}px`;
   element.style.top = `${geometry.y}px`;
   element.style.width = `${geometry.width}px`;
-  element.style.height = `${geometry.height}px`;
+  if (sizing === "fixed") element.style.height = `${geometry.height}px`;
+  if (sizing === "min") element.style.minHeight = `${geometry.height}px`;
+  // A flow block edited in place keeps `contain: size`; carried onto a box
+  // that sizes itself it would freeze the height at the pre-edit size.
+  if (sizing !== "fixed") stripFreeformReservation(element);
   element.style.boxSizing = "border-box";
   element.style.margin = "0";
   if (textPresentation) {
@@ -1022,11 +1239,84 @@ export function isAutoHeightTextResize(
   handle: ResizeHandle,
   preserveAspectRatio: boolean,
 ): boolean {
+  if (isFitTextObject(element)) return true;
+  // A box that paints itself (shape, card) or pins its bottom keeps the
+  // height it was given; only bare text re-wraps to its content.
   return (
     WIDTH_ONLY_RESIZE_HANDLES.has(handle) &&
     !preserveAspectRatio &&
-    isTextLeaf(element)
+    isTextLeaf(element) &&
+    !hasInlineBottom(element) &&
+    !paintsOwnSlideBox(element)
   );
+}
+
+export interface FitTextBoxResize {
+  x: number;
+  y: number;
+  width: number;
+  minHeight?: number;
+}
+
+// Height is derived from the text, so no handle ever returns one; `shift` is
+// accepted for call-site symmetry but there is no aspect to lock.
+export function resolveFitTextBoxResize({
+  handle,
+  start,
+  delta,
+  minWidth = MIN_SLIDE_OBJECT_SIZE,
+  hasMinHeight,
+  alt = false,
+  floorHeight = MIN_SLIDE_OBJECT_SIZE,
+}: {
+  handle: ResizeHandle;
+  start: SlideObjectGeometry;
+  delta: { dx: number; dy: number };
+  minWidth?: number;
+  hasMinHeight: boolean;
+  shift?: boolean;
+  alt?: boolean;
+  floorHeight?: number;
+}): FitTextBoxResize {
+  const { dx, dy } = delta;
+  const east = handle.includes("e");
+  const west = handle.includes("w");
+  const north = handle.includes("n");
+  const south = handle.includes("s");
+  const corner = (east || west) && (north || south);
+
+  let { x, y, width } = start;
+  if (alt && (east || west)) {
+    width = Math.max(minWidth, start.width + 2 * (east ? dx : -dx));
+    x = start.x + (start.width - width) / 2;
+  } else if (east) {
+    width = Math.max(minWidth, start.width + dx);
+  } else if (west) {
+    width = Math.max(minWidth, start.width - dx);
+    x = start.x + start.width - width;
+  }
+
+  if (corner) {
+    y = start.y + (north ? dy : alt ? -dy : 0);
+    return { x, y, width };
+  }
+  if (!hasMinHeight) {
+    if (north) y = start.y + dy;
+    return { x, y, width };
+  }
+  if (north) {
+    const minHeight = Math.max(floorHeight, start.height - dy);
+    return { x, y: start.y + start.height - minHeight, width, minHeight };
+  }
+  if (south) {
+    return {
+      x,
+      y,
+      width,
+      minHeight: Math.max(floorHeight, start.height + dy),
+    };
+  }
+  return { x, y, width };
 }
 
 export function resizeSlideObjectMembers(
@@ -1044,7 +1334,7 @@ export function resizeSlideObjectMembers(
     preserveAspectRatio?: boolean;
     minSize?: number;
   },
-): Map<string, SlideObjectGeometry> {
+): Map<string, SlideObjectGeometryPlan> {
   const bounds = unionSlideObjectGeometries(
     members.map((member) => member.start),
   );
@@ -1086,15 +1376,18 @@ export function resizeSlideObjectMembers(
     width,
     height,
   };
-  const plan = new Map<string, SlideObjectGeometry>();
+  const plan = new Map<string, SlideObjectGeometryPlan>();
   for (const member of members) {
     const { start } = member;
-    plan.set(member.objectId, {
-      x: group.x + ((start.x - bounds.x) / bounds.width) * group.width,
-      y: group.y + ((start.y - bounds.y) / bounds.height) * group.height,
-      width: (start.width / bounds.width) * group.width,
-      height: (start.height / bounds.height) * group.height,
-    });
+    plan.set(
+      member.objectId,
+      planSlideObjectGeometry(member.element, {
+        x: group.x + ((start.x - bounds.x) / bounds.width) * group.width,
+        y: group.y + ((start.y - bounds.y) / bounds.height) * group.height,
+        width: (start.width / bounds.width) * group.width,
+        height: (start.height / bounds.height) * group.height,
+      }),
+    );
   }
   return plan;
 }
@@ -1105,7 +1398,7 @@ interface SlideObjectGroupBounds {
 }
 
 export interface SlideObjectGroupMemberResizePlan {
-  geometry: SlideObjectGeometry;
+  geometry: SlideObjectGeometryPlan;
   transform?: string;
   transformOrigin?: string;
 }
@@ -1127,12 +1420,12 @@ export function scaleSlideObjectGroupMembers(
   const scaleY = nextGroup.height / originalGroup.height;
   const plans = members.map((member) => {
     const { element, start, transform, transformOrigin } = member;
-    const geometry = {
+    const geometry = planSlideObjectGeometry(element, {
       x: start.x * scaleX,
       y: start.y * scaleY,
       width: start.width * scaleX,
       height: start.height * scaleY,
-    };
+    });
     if (!transform || transform === "none") {
       return { element, plan: { geometry } };
     }
@@ -1838,7 +2131,7 @@ function transformedSlideObjectBoundsForTransform(
 export function groupSlideObjects(
   elements: readonly HTMLElement[],
   getGeometry: (element: HTMLElement) => SlideObjectGeometry,
-  applyGeometry: (element: HTMLElement, geometry: SlideObjectGeometry) => void,
+  applyGeometry: SlideObjectGeometryApplier,
 ): HTMLElement | null {
   const roots = normalizeSlideObjectRoots([...elements]);
   if (roots.length < 2) return null;
@@ -1911,12 +2204,15 @@ export function groupSlideObjects(
   parent.insertBefore(group, topmostRoot?.nextSibling ?? null);
   group.append(...orderedRoots);
   for (const { element, geometry } of members) {
-    applyGeometry(element, {
-      x: geometry.x - bounds.x,
-      y: geometry.y - bounds.y,
-      width: geometry.width,
-      height: geometry.height,
-    });
+    applyGeometry(
+      element,
+      planSlideObjectGeometry(element, {
+        x: geometry.x - bounds.x,
+        y: geometry.y - bounds.y,
+        width: geometry.width,
+        height: geometry.height,
+      }),
+    );
   }
   return group;
 }
@@ -1924,7 +2220,7 @@ export function groupSlideObjects(
 export function ungroupSlideObject(
   group: HTMLElement,
   getGeometry: (element: HTMLElement) => SlideObjectGeometry,
-  applyGeometry: (element: HTMLElement, geometry: SlideObjectGeometry) => void,
+  applyGeometry: SlideObjectGeometryApplier,
 ): HTMLElement[] | null {
   if (!isSlideObjectGroup(group)) return null;
   const parent = group.parentElement;
@@ -2055,12 +2351,16 @@ export function ungroupSlideObject(
             transform.nextCenterOffset.y,
         }
       : { x: 0, y: 0 };
-    applyGeometry(element, {
-      x: rotatedCenter.x - absoluteGeometry.width / 2 + transformCorrection.x,
-      y: rotatedCenter.y - absoluteGeometry.height / 2 + transformCorrection.y,
-      width: geometry.width,
-      height: geometry.height,
-    });
+    applyGeometry(
+      element,
+      planSlideObjectGeometry(element, {
+        x: rotatedCenter.x - absoluteGeometry.width / 2 + transformCorrection.x,
+        y:
+          rotatedCenter.y - absoluteGeometry.height / 2 + transformCorrection.y,
+        width: geometry.width,
+        height: geometry.height,
+      }),
+    );
     if (transform) element.style.transform = transform.nextTransform;
   }
   group.remove();
@@ -2230,8 +2530,9 @@ export function resizeTransformedSlideObject(
     dy,
     preserveAspectRatio,
     altKey = false,
+    fitText = false,
     minSize = MIN_SLIDE_OBJECT_SIZE,
-  }: ResizeOptions & { altKey?: boolean },
+  }: ResizeOptions & { altKey?: boolean; fitText?: boolean },
 ): SlideObjectGeometry | null {
   const matrix = readSlideObjectTransformMatrix(start, transform.transform);
   if (!matrix) return null;
@@ -2241,15 +2542,17 @@ export function resizeTransformedSlideObject(
     return null;
   }
 
+  // A fit text box takes its height from its text, so only the local
+  // horizontal travel resizes it.
   const localDelta = {
     x: (d * dx - c * dy) / determinant,
-    y: (a * dy - b * dx) / determinant,
+    y: fitText ? 0 : (a * dy - b * dx) / determinant,
   };
   const resized = resizeCanvasRect(start, {
     handle,
     delta: localDelta,
     altKey,
-    preserveAspectRatio,
+    preserveAspectRatio: preserveAspectRatio && !fitText,
     minWidth: minSize,
     minHeight: minSize,
   });
@@ -2312,6 +2615,7 @@ export function readSlideObjectSelectionFrame(
     DOMRect,
     "left" | "top" | "width" | "height"
   > = element.getBoundingClientRect(),
+  { contentHeight }: { contentHeight?: number | "scroll" } = {},
 ): SlideObjectSelectionFrame | null {
   const geometry = {
     x: 0,
@@ -2360,11 +2664,17 @@ export function readSlideObjectSelectionFrame(
     return Object.is(rounded, -0) ? 0 : rounded;
   };
 
+  // A size-contained block keeps its offsetHeight while its text overflows, so
+  // the outline height can only come from the content; scale stays measured
+  // from the real box.
+  const measuredContentHeight =
+    contentHeight === "scroll" ? element.scrollHeight : (contentHeight ?? 0);
+
   return {
     left: rect.left - localBounds.x * scaleX,
     top: rect.top - localBounds.y * scaleY,
     width: geometry.width * scaleX,
-    height: geometry.height * scaleY,
+    height: Math.max(geometry.height, measuredContentHeight) * scaleY,
     transform: slideObjectMatrix2dString([
       a,
       (scaleY / scaleX) * b,
@@ -2639,15 +2949,20 @@ export function applySlideObjectMoveDelta(
   members: SlideObjectMoveMember[],
   deltaX: number,
   deltaY: number,
-  applyGeometry: (element: HTMLElement, geometry: SlideObjectGeometry) => void,
+  applyGeometry: SlideObjectGeometryApplier,
 ): void {
-  for (const member of members) {
-    applyGeometry(member.element, {
+  // Plans read computed style and writes invalidate it; planning every member
+  // first keeps a group move to one style recalc instead of one per member.
+  const plans = members.map((member) =>
+    planSlideObjectGeometry(member.element, {
       ...member.start,
       x: member.start.x + deltaX,
       y: member.start.y + deltaY,
-    });
-  }
+    }),
+  );
+  members.forEach((member, index) => {
+    applyGeometry(member.element, plans[index]);
+  });
 }
 
 export type SlideAlignmentGuideOrientation = "vertical" | "horizontal";
@@ -2676,6 +2991,7 @@ export type SlideObjectAlignment =
 export type SlideObjectDistribution = "horizontal" | "vertical";
 
 export const SLIDE_OBJECT_SNAP_TOLERANCE = 8;
+export const SLIDE_OBJECT_SNAP_SCREEN_TOLERANCE = 4;
 
 function nearestSnapAdjustment(
   movingStart: number,
@@ -2724,7 +3040,10 @@ export function snapSlideObjectMove({
   deltaY,
   peers,
   canvas,
-  tolerance = SLIDE_OBJECT_SNAP_TOLERANCE,
+  scale,
+  tolerance = scale
+    ? SLIDE_OBJECT_SNAP_SCREEN_TOLERANCE / scale
+    : SLIDE_OBJECT_SNAP_TOLERANCE,
   bypass = false,
 }: {
   moving: SlideObjectGeometry;
@@ -2732,6 +3051,8 @@ export function snapSlideObjectMove({
   deltaY: number;
   peers: readonly SlideObjectGeometry[];
   canvas?: { width: number; height: number };
+  /** Screen px per slide unit; makes the default tolerance screen-constant. */
+  scale?: number;
   tolerance?: number;
   bypass?: boolean;
 }): SlideObjectSnapResult {
@@ -2801,13 +3122,13 @@ export function unionSlideObjectGeometries(
 export function alignSlideObjectMembers(
   members: readonly SlideObjectMoveMember[],
   alignment: SlideObjectAlignment,
-): Map<string, SlideObjectGeometry> {
+): Map<string, SlideObjectGeometryPlan> {
   const bounds = unionSlideObjectGeometries(
     members.map((member) => member.start),
   );
   if (!bounds) return new Map();
 
-  const plan = new Map<string, SlideObjectGeometry>();
+  const plan = new Map<string, SlideObjectGeometryPlan>();
   for (const member of members) {
     const geometry = { ...member.start };
     if (alignment === "left") geometry.x = bounds.x;
@@ -2824,7 +3145,10 @@ export function alignSlideObjectMembers(
     if (alignment === "bottom") {
       geometry.y = bounds.y + bounds.height - geometry.height;
     }
-    plan.set(member.objectId, geometry);
+    plan.set(
+      member.objectId,
+      planSlideObjectGeometry(member.element, geometry),
+    );
   }
   return plan;
 }
@@ -2832,7 +3156,7 @@ export function alignSlideObjectMembers(
 export function distributeSlideObjectMembers(
   members: readonly SlideObjectMoveMember[],
   distribution: SlideObjectDistribution,
-): Map<string, SlideObjectGeometry> {
+): Map<string, SlideObjectGeometryPlan> {
   if (members.length < 3) return new Map();
 
   const axis = distribution === "horizontal" ? "x" : "y";
@@ -2847,13 +3171,16 @@ export function distributeSlideObjectMembers(
   );
   const occupied = sorted.reduce((sum, member) => sum + member.start[size], 0);
   const gap = (lastEnd - first - occupied) / (sorted.length - 1);
-  const plan = new Map<string, SlideObjectGeometry>();
+  const plan = new Map<string, SlideObjectGeometryPlan>();
   let cursor = first;
 
   for (const member of sorted) {
     const geometry = { ...member.start };
     geometry[axis] = cursor;
-    plan.set(member.objectId, geometry);
+    plan.set(
+      member.objectId,
+      planSlideObjectGeometry(member.element, geometry),
+    );
     cursor += member.start[size] + gap;
   }
 

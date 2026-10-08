@@ -85,7 +85,7 @@ Useful `properties`:
 - Time: `duration_ms` is the full run in milliseconds; `$ai_latency` is model time in seconds (run minus tool time).
 - Tools: `tool_calls`, `successful_tools`, `failed_tools`, `tools`, `tools_truncated`. The bounded `tools` array holds names, relative start times, durations, statuses, and coarse error classes, never args or results; failed runs and interrupted tools stay queryable.
 - Delegation: `delegated`, `delegation_protocol`, `caller_app`, `delegation_task_id`, `a2a_task_id`, `parent_run_id`, `parent_turn_id`. Agent Teams child runs use `delegation_protocol = 'agent-team'`, keep their own `run_id`, and link to the launching run through `parent_run_id`.
-- Errors: `status`, `error_message`/`$ai_error`.
+- Errors: `status`, `$ai_error` (terminal code, cause, retryable, and a fixed code-derived message), `$ai_error_type`. Run failure messages are omitted from telemetry.
 
 ## Inline Charts In Chat
 

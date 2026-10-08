@@ -24,6 +24,7 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
+import { resolveWorkspaceAccessAppId } from "../org/workspace-app-identity.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
@@ -180,6 +181,10 @@ import {
   type SignupAttributionContext,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
+import {
+  markBearerCredentialRefused,
+  respondBearerCredentialRefused,
+} from "./bearer-credential-refusal.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
@@ -1164,11 +1169,13 @@ export async function getMcpOAuthBearerSession(
   if (!bearerToken) return null;
 
   try {
-    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveMcpIdentityOrgId }] =
-      await Promise.all([
-        import("../mcp/oauth-route.js"),
-        import("../mcp/build-server.js"),
-      ]);
+    const [
+      { getMcpConnectUrl, getMcpOAuthAudiences },
+      { verifyAuth, resolveMcpIdentityOrgId },
+    ] = await Promise.all([
+      import("../mcp/oauth-route.js"),
+      import("../mcp/build-server.js"),
+    ]);
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
@@ -1178,7 +1185,17 @@ export async function getMcpOAuthBearerSession(
       markCredentialMembershipUnavailable(event);
       return null;
     }
-    const identity = result.authed ? result.identity : undefined;
+    if (!result.authed) {
+      if (result.refusal) {
+        markBearerCredentialRefused(
+          event,
+          result.refusal,
+          getMcpConnectUrl(event),
+        );
+      }
+      return null;
+    }
+    const identity = result.identity;
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
     const orgId = await resolveMcpIdentityOrgId(identity);
@@ -3740,21 +3757,6 @@ function loginHtmlResponse(
   });
 }
 
-function resolveWorkspaceAccessAppId(): string {
-  const app = getAppConfig().app;
-  const workspaceId = app.workspaceId?.trim();
-  if (workspaceId) return workspaceId;
-
-  const isDispatch = [
-    app.id,
-    app.legacyId,
-    app.template,
-    app.slug,
-    app.packageName,
-  ].some((value) => value?.trim().toLowerCase() === "dispatch");
-  return isDispatch ? "dispatch" : "";
-}
-
 function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   if (!isReadMethod(event)) return false;
   if (pathname.endsWith(".data")) return false;
@@ -4210,6 +4212,8 @@ function createAuthGuardFn(
     if (isCredentialMembershipUnavailable(event)) {
       return respondCredentialMembershipUnavailable(event);
     }
+    const refused = respondBearerCredentialRefused(event);
+    if (refused) return refused;
 
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
       setResponseStatus(event, 401);

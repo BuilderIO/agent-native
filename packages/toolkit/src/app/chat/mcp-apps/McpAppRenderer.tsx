@@ -32,6 +32,11 @@ import {
   useState,
 } from "react";
 
+import {
+  SESSION_REPLAY_BLOCK_PROPS,
+  SESSION_REPLAY_MASK_PROPS,
+} from "../session-replay-privacy.js";
+
 type CallToolResult = Parameters<
   InstanceType<typeof AppBridge>["sendToolResult"]
 >[0];
@@ -409,12 +414,13 @@ export function McpAppRenderer({
           <div className="agent-mcp-app__error" role="alert">
             <div className="agent-mcp-app__error-box">
               <IconAlertTriangle size={15} />
-              <span>{error}</span>
+              <span {...SESSION_REPLAY_MASK_PROPS}>{error}</span>
             </div>
           </div>
         )}
         {srcDoc ? (
           <iframe
+            {...(error ? SESSION_REPLAY_BLOCK_PROPS : {})}
             ref={iframeRef}
             title={app.tool?.title ?? app.originalToolName}
             srcDoc={srcDoc}
@@ -454,7 +460,7 @@ export function McpAppRenderer({
         <div className="agent-mcp-app__error" role="alert">
           <div className="agent-mcp-app__error-box">
             <IconAlertTriangle size={15} />
-            <span>{error}</span>
+            <span {...SESSION_REPLAY_MASK_PROPS}>{error}</span>
             {externalOpenUrl && !readOnly && (
               <button
                 type="button"
@@ -469,7 +475,9 @@ export function McpAppRenderer({
           </div>
         </div>
       )}
+      {/* A failed app stays mounted, and the recorder keeps its frame attributes. */}
       <iframe
+        {...(error ? SESSION_REPLAY_BLOCK_PROPS : {})}
         ref={iframeRef}
         title={app.tool?.title ?? app.originalToolName}
         srcDoc={srcDoc}

@@ -1,6 +1,6 @@
 import type { ProviderKeyPolicyStatus } from "@agent-native/core/agent/actions/manage-provider-key-policy";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
-import { upgradeModelToLatestSupportedVersion } from "@agent-native/core/agent/model-version";
+import { upgradeModelForProvider } from "@agent-native/core/agent/model-version";
 import {
   setAgentEngineDefaultModel,
   type AgentEngineKeyScope,
@@ -802,7 +802,11 @@ function DefaultModelRow({
           engine: listing.defaultModel.engine,
           model:
             (!preserveCustomModels &&
-              upgradeModelToLatestSupportedVersion(model, supportedModels)) ||
+              upgradeModelForProvider(
+                model,
+                supportedModels,
+                listing.defaultModel.engine,
+              )) ||
             model,
         };
       })()

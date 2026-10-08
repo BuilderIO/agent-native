@@ -29,7 +29,7 @@ export interface JourneyStep {
 
 /** Display names match the `onboarding-setup-choice` metric's method list. */
 const METHOD_LABELS: Record<string, string> = {
-  builder_create_account: "Create Builder.io account",
+  builder_create_account: "Use Builder.io",
   builder_sign_in: "Sign in with Builder.io account",
   custom_keys: "Configure custom keys",
 };

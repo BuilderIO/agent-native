@@ -127,9 +127,8 @@ The framework includes cron utilities (`isValidCron()` and `describeCron()`) for
 
 ### From the Automations UI
 
-Open **Automations** on the full-page Agent surface, then create a
-**Scheduled** automation. The stable compatibility URL is `/agent#jobs`; the
-hash does not change when the visible tab name changes.
+Open **Settings › Automations**, then create a **Scheduled** automation. Old
+`/agent#jobs` links redirect there.
 
 ### By asking the agent
 
@@ -258,13 +257,10 @@ fire schedules, the **Automations** page says so and names the reason.
 
 ## Debugging a job {#debugging}
 
-- Open the automation's details in **Automations**, or inspect
+- Open the automation's details in **Settings › Automations**, or inspect
   `jobs/<name>.md` in Agent Resources — the frontmatter shows `lastRun`,
   `lastStatus`, `lastError`, and `nextRun`.
-- **Test it without waiting:** open the automation in **Automations** and
-  choose **Run now**. It runs the automation immediately, with its real side
-  effects, and doesn't wait for a scheduler tick, so it also works locally and
-  on hosts without a trigger.
+- **Test it without waiting:** click **Run now** in **Settings › Automations**, or ask the agent to run it (`manage-automations` with `action=run-now`). The job's prompt runs immediately with its real side effects, and `nextRun` doesn't change. The exception is a job the framework paused: a successful run turns it back on and recomputes `nextRun`. Run now doesn't wait for a scheduler tick, so it also works on localhost without `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` and on hosts without a scheduler trigger.
 - **Pause it:** flip `enabled: false`. The file stays put, just stops running.
 
 ## Agent tool {#agent-tool}
