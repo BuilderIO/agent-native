@@ -16,13 +16,18 @@ export interface AiErrorDetail {
 export function resolveAiError(
   isError: boolean,
   error: AiErrorDetail | undefined,
+  failure = "Agent run failed",
 ): AiErrorDetail | undefined {
   if (!isError) return undefined;
-  return failedRunErrorDetail(error?.message, {
-    state: error?.terminal_state,
-    code: error?.terminal_code,
-    retryable: error?.retryable,
-  });
+  return failureErrorDetail(
+    error?.message,
+    {
+      state: error?.terminal_state,
+      code: error?.terminal_code,
+      retryable: error?.retryable,
+    },
+    failure,
+  );
 }
 
 function trackAiEvent(
@@ -305,7 +310,7 @@ export function emitAiSpanEvent(input: AiSpanEventInput): void {
       $ai_span_name: input.spanName,
       $ai_latency: input.latencySeconds,
       $ai_is_error: input.isError,
-      $ai_error: resolveAiError(input.isError, input.error),
+      $ai_error: resolveAiError(input.isError, input.error, "Tool call failed"),
       $ai_error_type: input.isError
         ? (input.errorType ?? "tool_error")
         : undefined,
@@ -382,23 +387,24 @@ export function toAiErrorDetail(
   },
 ): AiErrorDetail | undefined {
   if (!errorMessage && !terminalOutcome?.code) return undefined;
-  return failedRunErrorDetail(errorMessage, terminalOutcome);
+  return failureErrorDetail(errorMessage, terminalOutcome);
 }
 
-function failedRunErrorDetail(
+function failureErrorDetail(
   errorMessage: string | null | undefined,
   terminalOutcome?: {
     state?: string;
     code?: string;
     retryable?: boolean;
   },
+  failure = "Agent run failed",
 ): AiErrorDetail {
   const { error_code, error_cause } = runErrorTelemetryProperties(
     terminalOutcome?.code,
     errorMessage,
   );
   return {
-    message: `Agent run failed (${error_code})`,
+    message: `${failure} (${error_code})`,
     cause: error_cause,
     ...(terminalOutcome?.state
       ? { terminal_state: terminalOutcome.state }
