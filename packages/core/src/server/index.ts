@@ -593,6 +593,7 @@ export {
   type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
+export { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 
 export {
   buildWorkspaceProviderAuthorizationUrl,
