@@ -1189,6 +1189,9 @@ export function ReviewCanvasPins({
     if (iframe) resizeObserver.observe(iframe);
     const frameShell = canvas.closest<HTMLElement>("[data-frame-shell]");
     if (frameShell) resizeObserver.observe(frameShell);
+    document
+      .querySelectorAll(WORKING_AREA_CHROME_SELECTOR)
+      .forEach((region) => resizeObserver.observe(region));
     const layoutOwners = new Set<HTMLElement>();
     for (const owner of [
       canvas.querySelector<HTMLElement>("[data-multi-screen-canvas-world]"),
@@ -1779,24 +1782,26 @@ export function ReviewCanvasPins({
       if (!start || !canvas) return;
       placementDragRef.current = null;
       suppressPlacementClickRef.current = true;
+      const plane = event.currentTarget.getBoundingClientRect();
+      const endX = Math.min(Math.max(event.clientX, plane.left), plane.right);
+      const endY = Math.min(Math.max(event.clientY, plane.top), plane.bottom);
       const isRegion =
-        Math.abs(event.clientX - start.startX) > 6 ||
-        Math.abs(event.clientY - start.startY) > 6;
+        Math.abs(endX - start.startX) > 6 || Math.abs(endY - start.startY) > 6;
       const region = isRegion
         ? regionBetween(
             canvas.getBoundingClientRect(),
             { x: start.startX, y: start.startY },
-            { x: event.clientX, y: event.clientY },
+            { x: endX, y: endY },
           )
         : null;
       if (region) {
         dropPin(
-          start.startX + (event.clientX - start.startX) / 2,
-          start.startY + (event.clientY - start.startY) / 2,
+          start.startX + (endX - start.startX) / 2,
+          start.startY + (endY - start.startY) / 2,
           region,
         );
       } else {
-        dropPin(event.clientX, event.clientY);
+        dropPin(endX, endY);
       }
       setRegionPreview(null);
       event.currentTarget.releasePointerCapture?.(event.pointerId);
