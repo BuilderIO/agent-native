@@ -1272,7 +1272,11 @@ async function trashDocumentWithReceipt(
 }
 
 export default defineAction({
-  changeResource: (input) => documentChangeResource(input.id),
+  changeResource: (input, result) =>
+    // Taking a page out of Favorites leaves the page itself unchanged.
+    typeof result === "object" && result !== null && "removed" in result
+      ? null
+      : documentChangeResource(input.id),
   description:
     "Move one page and all its sub-pages to recoverable Trash, guarded by the page's exact updatedAt and an idempotency key. Returns a receipt with the affected page ids and the Trash root to restore. Collections use delete-content-database.",
   mcpTool: true,

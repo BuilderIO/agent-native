@@ -424,7 +424,18 @@ describe("deleteDocumentRecursive", () => {
 
   it("tells every collaborator who can read the page that it moved to Trash", () => {
     expect(
-      deleteDocument.changeResource?.({ id: "doc-1" }, {} as never),
+      deleteDocument.changeResource?.({ id: "doc-1" }, {
+        success: true,
+      } as never),
     ).toEqual({ resourceType: "document", resourceId: "doc-1" });
+  });
+
+  it("does not announce a change when the page was only removed from Favorites", () => {
+    expect(
+      deleteDocument.changeResource?.(
+        { id: "doc-1", databaseDocumentId: "favorites-doc" },
+        { success: true, deleted: 0, removed: 1 } as never,
+      ),
+    ).toBeNull();
   });
 });
