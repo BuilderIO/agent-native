@@ -196,6 +196,18 @@ describe("normalizeSelectedModels", () => {
     ]);
   });
 
+  it("keeps a supported BYOK model when a Builder alias points to a newer model", () => {
+    expect(normalizeSelectedModels("anthropic", ["claude-opus-4-8"])).toEqual([
+      "claude-opus-4-8",
+    ]);
+  });
+
+  it("does not apply Builder aliases to BYOK model selections", () => {
+    expect(normalizeSelectedModels("anthropic", ["claude-sonnet-5"])).toEqual([
+      "claude-sonnet-5",
+    ]);
+  });
+
   it("refuses ids with whitespace", () => {
     expect(() => normalizeSelectedModels("openai", ["gpt 6"])).toThrow(
       ProviderModelSelectionError,
@@ -204,6 +216,20 @@ describe("normalizeSelectedModels", () => {
 });
 
 describe("selection scopes", () => {
+  it("upgrades retired Builder ids in saved selections", async () => {
+    orgStore.set(`${ORG}::agent-provider-models:builder`, {
+      models: ["claude-haiku-4-5", "gpt-5-6-luna"],
+    });
+
+    const row = await readProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "builder",
+      "org",
+    );
+
+    expect(row.models).toEqual(["claude-haiku-5-5", "gpt-6-luna"]);
+  });
+
   it("upgrades saved model selections when newer provider models are available", async () => {
     orgStore.set(`${ORG}::agent-provider-models:openai`, {
       models: ["gpt-5.6-luna", "gpt-5.6-sol"],

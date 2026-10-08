@@ -144,9 +144,9 @@ describe("createTiptapComposerExtensions", () => {
       "Flash-Lite",
     );
     expect(compactComposerModelName("grok-code-fast")).toBe("Code Fast");
-    expect(compactComposerModelName("deepseek-v3-1")).toBe("DeepSeek");
+    expect(compactComposerModelName("deepseek-v3-1")).toBe("DeepSeek v3.1");
     expect(compactComposerModelName("deepseek-v4-1-flash")).toBe(
-      "DeepSeek Flash",
+      "DeepSeek V4.1 Flash",
     );
     expect(compactComposerModelName("z-ai-glm-5-3-flash")).toBe(
       "GLM 5.3 Flash",
@@ -2787,6 +2787,98 @@ describe("createTiptapComposerExtensions", () => {
     expect(picker?.textContent).toContain("OpenAI");
     expect(picker?.textContent).toContain("Claude");
     expect(picker?.textContent).not.toContain("Builder.io");
+  });
+
+  it("keeps the selected model visible when the picker hides older versions", () => {
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            availableModels: [
+              {
+                engine: "openai",
+                label: "OpenAI",
+                models: ["gpt-5.6-luna", "gpt-6-luna"],
+                configured: true,
+              },
+            ],
+            selectedModel: "gpt-5.6-luna",
+            selectedEngine: "openai",
+            onModelChange: vi.fn(),
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    const modelButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    );
+    act(() => modelButton?.click());
+    const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
+      (tab) => tab.textContent?.includes("Model"),
+    );
+    act(() => (modelTab as HTMLElement | undefined)?.click());
+    const picker = document.querySelector(
+      '[role="tabpanel"][aria-label="model"]',
+    );
+    expect(picker?.textContent).toContain("GPT-5.6 Luna");
+    expect(picker?.textContent).toContain("GPT-6 Luna");
+  });
+
+  it("disambiguates the selected model when providers expose the same model", () => {
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            availableModels: [
+              {
+                engine: "builder",
+                label: "Builder · Builder.io",
+                models: ["deepseek-v4-pro"],
+                configured: true,
+              },
+              {
+                engine: "ai-sdk:openrouter",
+                label: "OpenRouter",
+                models: ["deepseek/deepseek-v4-pro"],
+                configured: true,
+              },
+            ],
+            selectedModel: "deepseek-v4-pro",
+            selectedEngine: "builder",
+            onModelChange: vi.fn(),
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    const modelButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    );
+    expect(modelButton?.textContent).toContain("DeepSeek V4 Pro · Builder");
+    expect(modelButton?.getAttribute("aria-label")).toContain(
+      "DeepSeek V4 Pro · Builder",
+    );
   });
 
   it("chooses the newest tier version regardless of catalog order", () => {

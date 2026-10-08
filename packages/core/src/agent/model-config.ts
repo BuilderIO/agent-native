@@ -222,6 +222,22 @@ export const CURRENT_CLAUDE_MODEL_OPTIONS = [
   { value: "claude-fable-5-1", label: "Claude Fable 5.1" },
 ] as const;
 
+export function getClaudeModelOptionLabel(modelId: string): string {
+  const currentModel = CURRENT_CLAUDE_MODEL_OPTIONS.find(
+    (option) => option.value === modelId,
+  );
+  if (currentModel) return currentModel.label;
+
+  const match =
+    /^claude-(haiku|sonnet|opus|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/i.exec(
+      modelId,
+    );
+  if (!match) return modelId;
+
+  const family = match[1][0].toUpperCase() + match[1].slice(1);
+  return `Claude ${family} ${match[2]}${match[3] ? `.${match[3]}` : ""}`;
+}
+
 export const BUILDER_MODEL_ALIASES: Readonly<Record<string, string>> = {
   "claude-sonnet-4-6": "claude-sonnet-5-5",
   "claude-sonnet-5": "claude-sonnet-5-5",
@@ -276,7 +292,6 @@ export const AGENT_MODEL_CONFIG = {
       "deepseek-v4-pro",
       "deepseek-v4-1-flash",
       "deepseek-v3-1",
-      "deepseek-v4-1-flash",
       "z-ai-glm-4-5",
       "z-ai-glm-5-1",
       "z-ai-glm-5-3-flash",

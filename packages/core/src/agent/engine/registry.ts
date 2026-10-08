@@ -244,7 +244,9 @@ export function normalizeModelForEngine(
   }
 
   const upgradedModel =
-    upgradeBuilderModelAlias(candidate, engine.supportedModels) ??
+    (engine.name === "builder"
+      ? upgradeBuilderModelAlias(candidate, engine.supportedModels)
+      : undefined) ??
     upgradeModelToLatestSupportedVersion(candidate, engine.supportedModels);
   if (upgradedModel) return upgradedModel;
 

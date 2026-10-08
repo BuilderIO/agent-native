@@ -128,4 +128,36 @@ describe("ResourceEditor markdown editing", () => {
       ),
     ).toBe(true);
   });
+
+  it("preserves a saved legacy Claude model in the picker", () => {
+    act(() => {
+      root.render(
+        <ResourceEditor
+          resource={{
+            ...resource,
+            path: "agents/researcher.md",
+            content:
+              "---\nname: Researcher\nmodel: claude-haiku-4-5-20251001\n---\n# Research\n",
+          }}
+          onSave={vi.fn()}
+          view="visual"
+        />,
+      );
+    });
+
+    const modelPicker = container.querySelector("select")!;
+    expect(modelPicker.value).toBe("claude-haiku-4-5-20251001");
+    expect(
+      Array.from(modelPicker.options).some(
+        (option) =>
+          option.value === "claude-haiku-4-5-20251001" &&
+          option.textContent === "Claude Haiku 4.5",
+      ),
+    ).toBe(true);
+    expect(
+      Array.from(modelPicker.options).some(
+        (option) => option.value === "claude-haiku-5-5",
+      ),
+    ).toBe(true);
+  });
 });

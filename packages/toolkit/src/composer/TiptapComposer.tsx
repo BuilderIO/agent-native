@@ -1598,6 +1598,7 @@ export function compactComposerModelName(
 ): string {
   const fullName = friendlyModelName(model, t);
   if (model === "auto" || LOCAL_RUNTIME_ENGINES.has(model)) return fullName;
+  if (/^DeepSeek\b/i.test(fullName)) return fullName;
   const shortName = fullName
     .replace(/^GPT-\d+(?:\.\d+)?\s*/i, "")
     .replace(/^Gemini\s+\d+(?:\.\d+)?\s*/i, "")
@@ -2009,6 +2010,30 @@ function ModelSelector({
   const selectedModelDisplayName = selectedModelProviderGroups
     .map((group) => group.modelDisplayNames?.[model])
     .find((displayName) => typeof displayName === "string");
+  const selectedModelProviderGroup =
+    selectedModelProviderGroups.find(
+      (group) => group.engine === selectedEngine,
+    ) ?? selectedModelProviderGroups[0];
+  const selectedModelFriendlyName =
+    selectedModelDisplayName ?? friendlyModelName(model, t);
+  const selectedModelHasDuplicateName =
+    selectedModelProviderGroup !== undefined &&
+    modelProviderGroups.some(
+      (group) =>
+        group.engine !== selectedModelProviderGroup.engine &&
+        group.models.some(
+          (candidate) =>
+            (group.modelDisplayNames?.[candidate] ??
+              friendlyModelName(candidate, t)) === selectedModelFriendlyName,
+        ),
+    );
+  const selectedModelProviderLabel = selectedModelProviderGroup?.label.replace(
+    / · Builder\.io$/i,
+    "",
+  );
+  const selectedModelDisplayLabel = selectedModelHasDuplicateName
+    ? `${selectedModelFriendlyName} · ${selectedModelProviderLabel}`
+    : selectedModelFriendlyName;
   const selectedModelNeedsConnection =
     onlyConnectPathAvailable ||
     (selectedModelProviderGroups.length > 0 &&
@@ -2017,11 +2042,13 @@ function ModelSelector({
     ? showBuilderAction
       ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
       : t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
-    : (selectedModelDisplayName ?? friendlyModelName(model, t));
+    : selectedModelDisplayLabel;
   const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection
     ? selectedModelLabel
-    : (selectedModelDisplayName ?? compactComposerModelName(model, t));
+    : selectedModelHasDuplicateName
+      ? selectedModelDisplayLabel
+      : (selectedModelDisplayName ?? compactComposerModelName(model, t));
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2514,10 +2541,15 @@ function ModelSelector({
                     {hasConfiguredProvider &&
                       !onlyConnectPathAvailable &&
                       visibleProviderGroups.map((group, groupIndex) => {
-                        const models =
+                        const latestModels =
                           group.engine === "chatgpt-subscription"
                             ? group.models
                             : latestModelsOnly(group.models);
+                        const models = group.models.filter(
+                          (candidate) =>
+                            latestModels.includes(candidate) ||
+                            candidate === model,
+                        );
                         const showProviderLabels =
                           visibleProviderGroups.length > 1;
                         const isLocalRuntime =

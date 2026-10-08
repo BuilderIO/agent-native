@@ -11,6 +11,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_OPENAI_MODEL,
   getContextWindowForModel,
+  getClaudeModelOptionLabel,
   getMaxOutputTokensForModel,
   resolveFallbackModel,
 } from "./model-config.js";
@@ -159,7 +160,6 @@ describe("agent model config catalog", () => {
       "deepseek-v4-pro",
       "deepseek-v4-1-flash",
       "deepseek-v3-1",
-      "deepseek-v4-1-flash",
       "z-ai-glm-4-5",
       "z-ai-glm-5-1",
       "z-ai-glm-5-3-flash",
@@ -308,6 +308,17 @@ describe("agent model config catalog", () => {
         "z-ai/glm-5.3-flash",
       ]),
     );
+  });
+
+  it("keeps saved Claude model IDs readable in resource pickers", () => {
+    expect(getClaudeModelOptionLabel("claude-fable-5")).toBe("Claude Fable 5");
+    expect(getClaudeModelOptionLabel("claude-haiku-4-5-20251001")).toBe(
+      "Claude Haiku 4.5",
+    );
+    expect(getClaudeModelOptionLabel("claude-haiku-5-5")).toBe(
+      "Claude Haiku 5.5",
+    );
+    expect(getClaudeModelOptionLabel("custom/model")).toBe("custom/model");
   });
 });
 

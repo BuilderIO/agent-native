@@ -1,4 +1,7 @@
-import { CURRENT_CLAUDE_MODEL_OPTIONS } from "@agent-native/core/agent/model-config";
+import {
+  CURRENT_CLAUDE_MODEL_OPTIONS,
+  getClaudeModelOptionLabel,
+} from "@agent-native/core/agent/model-config";
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
@@ -1104,6 +1107,14 @@ The job will run automatically on the schedule. Make the instructions specific â
                       {option.label}
                     </option>
                   ))}
+                  {agentModel !== "inherit" &&
+                    !AGENT_MODEL_OPTIONS.some(
+                      (option) => option.value === agentModel,
+                    ) && (
+                      <option value={agentModel}>
+                        {getClaudeModelOptionLabel(agentModel)}
+                      </option>
+                    )}
                 </select>
                 <label className="block text-[11px] font-medium text-muted-foreground">
                   Instructions

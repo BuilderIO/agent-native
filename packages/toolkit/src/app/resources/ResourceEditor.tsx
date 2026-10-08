@@ -1,4 +1,7 @@
-import { CURRENT_CLAUDE_MODEL_OPTIONS } from "@agent-native/core/agent/model-config";
+import {
+  CURRENT_CLAUDE_MODEL_OPTIONS,
+  getClaudeModelOptionLabel,
+} from "@agent-native/core/agent/model-config";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import type { Resource } from "@agent-native/core/client/resources/use-resources";
 import {
@@ -180,6 +183,14 @@ function FrontmatterBar({
                 {option.label}
               </option>
             ))}
+            {model !== "inherit" &&
+              !CURRENT_CLAUDE_MODEL_OPTIONS.some(
+                (option) => option.value === model,
+              ) && (
+                <option value={model}>
+                  {getClaudeModelOptionLabel(model)}
+                </option>
+              )}
           </select>
         ) : null}
       </div>

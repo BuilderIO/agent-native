@@ -651,6 +651,19 @@ describe("AgentEngine registry", () => {
       );
     });
 
+    it("does not apply Builder aliases to supported BYOK models", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "anthropic",
+        defaultModel: "claude-sonnet-5-5",
+        supportedModels: ["claude-opus-4-8", "claude-opus-5-5"],
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "claude-opus-4-8")).toBe(
+        "claude-opus-4-8",
+      );
+    });
+
     it("falls back unsupported models to the engine default when no version match exists", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
@@ -802,7 +815,7 @@ describe("AgentEngine registry", () => {
       } as any;
 
       expect(normalizeModelForEngine(engine, "claude-sonnet-5")).toBe(
-        "claude-sonnet-5-5",
+        "claude-sonnet-5",
       );
       expect(normalizeModelForEngine(engine, "claude-next-preview")).toBe(
         "claude-next-preview",

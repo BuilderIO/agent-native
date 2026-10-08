@@ -197,7 +197,9 @@ export function normalizeSelectedModels(
       [...seen].map((id) =>
         options.preserveCustomModels
           ? id
-          : (upgradeBuilderModelAlias(id, supportedModels) ??
+          : ((provider === "builder"
+              ? upgradeBuilderModelAlias(id, supportedModels)
+              : undefined) ??
             upgradeModelToLatestSupportedVersion(id, supportedModels) ??
             id),
       ),
@@ -343,15 +345,17 @@ function parseRow(
   const models = stored.models.filter(
     (model): model is string => typeof model === "string" && !!model.trim(),
   );
+  const supportedModels = recommendedProviderModels(provider);
   const currentModels = [
     ...new Set(
       models.map((model) =>
         preserveCustomModels
           ? model
-          : (upgradeModelToLatestSupportedVersion(
-              model,
-              recommendedProviderModels(provider),
-            ) ?? model),
+          : ((provider === "builder"
+              ? upgradeBuilderModelAlias(model, supportedModels)
+              : undefined) ??
+            upgradeModelToLatestSupportedVersion(model, supportedModels) ??
+            model),
       ),
     ),
   ];
