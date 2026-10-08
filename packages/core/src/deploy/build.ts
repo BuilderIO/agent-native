@@ -5073,6 +5073,123 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
     "chromium-bidi",
     "@puppeteer/browsers",
   ]);
+  const findResolvedCandidate = (
+    specifier: string,
+    fromPackageDir: string,
+  ): { name: string; resolvedPackageDir: string } | undefined => {
+    if (
+      !specifier.startsWith("./") &&
+      !specifier.startsWith("../") &&
+      !path.isAbsolute(specifier)
+    )
+      return;
+    const target = path.resolve(fromPackageDir, specifier);
+    if (!isWithinFunction(target)) return;
+    let match:
+      | { name: string; resolvedPackageDir: string; markerStart: number }
+      | undefined;
+    for (const name of candidates) {
+      if (SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)) continue;
+      const marker = `${path.sep}node_modules${path.sep}${name
+        .split("/")
+        .join(path.sep)}`;
+      const markerStart = target.lastIndexOf(marker);
+      const suffix = target[markerStart + marker.length];
+      if (markerStart < 0 || (suffix !== undefined && suffix !== path.sep))
+        continue;
+      const candidateDir = target.slice(0, markerStart + marker.length);
+      if (!fs.existsSync(candidateDir)) continue;
+      const resolvedPackageDir = fs.realpathSync(candidateDir);
+      if (
+        !isWithinFunction(resolvedPackageDir) ||
+        !fs.statSync(resolvedPackageDir).isDirectory()
+      )
+        continue;
+      if (!match || markerStart > match.markerStart)
+        match = { name, resolvedPackageDir, markerStart };
+    }
+    return (
+      match && {
+        name: match.name,
+        resolvedPackageDir: match.resolvedPackageDir,
+      }
+    );
+  };
+  const isNonPackageSpecifier = (specifier: string) =>
+    path.isAbsolute(specifier) ||
+    specifier.startsWith(".") ||
+    specifier.startsWith("#") ||
+    /^[A-Za-z][A-Za-z\d+.-]*:/.test(specifier);
+  const findResolvedPackage = (
+    specifier: string,
+    fromPackageDir: string,
+  ): { name: string; resolvedPackageDir: string } | undefined => {
+    const relativeCandidate = findResolvedCandidate(specifier, fromPackageDir);
+    if (relativeCandidate) return relativeCandidate;
+    if (isNonPackageSpecifier(specifier)) return;
+    const specifierSegments = specifier.split("/");
+    const name = specifierSegments[0]?.startsWith("@")
+      ? specifierSegments.slice(0, 2).join("/")
+      : specifierSegments[0];
+    const segments = name && packageSegments(name);
+    if (
+      !name ||
+      !segments ||
+      isBuiltin(name) ||
+      SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)
+    )
+      return;
+    const resolvedPackageDir = resolvePackageDirectory(
+      segments,
+      fromPackageDir,
+    );
+    return resolvedPackageDir ? { name, resolvedPackageDir } : undefined;
+  };
+  const findPackageImportReferences = (
+    packageDir: string,
+    packageManifest = readPackageManifest(packageDir),
+  ): PackageReference[] => {
+    const imports = packageManifest?.imports;
+    if (!imports || typeof imports !== "object" || Array.isArray(imports))
+      return [];
+    const targets: string[] = [];
+    const collectTargets = (value: unknown) => {
+      if (typeof value === "string") {
+        targets.push(value);
+      } else if (Array.isArray(value)) {
+        for (const target of value) collectTargets(target);
+      } else if (value && typeof value === "object") {
+        for (const target of Object.values(value)) collectTargets(target);
+      }
+    };
+    for (const target of Object.values(imports)) collectTargets(target);
+    const references = new Map<string, PackageReference>();
+    for (const target of targets) {
+      const resolved = findResolvedPackage(target, packageDir);
+      if (resolved) {
+        const reference = { ...resolved, fromPackageDir: packageDir };
+        references.set(
+          `${reference.name}\0${reference.resolvedPackageDir}`,
+          reference,
+        );
+        continue;
+      }
+      if (isNonPackageSpecifier(target)) continue;
+      const targetSegments = target.split("/");
+      const packageName = targetSegments[0]?.startsWith("@")
+        ? targetSegments.slice(0, 2).join("/")
+        : targetSegments[0];
+      if (packageName?.includes("*")) {
+        for (const name of candidates) {
+          if (SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)) continue;
+          const reference = { name, fromPackageDir: packageDir };
+          references.set(`${name}\0`, reference);
+        }
+        continue;
+      }
+    }
+    return [...references.values()];
+  };
   const manifest = readPackageManifest(functionDir);
   // Nitro's manifest flattens transitive dependencies, so installer children
   // are not independent runtime roots merely because they appear there.
@@ -5097,83 +5214,12 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
       const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
       references.set(identity, reference);
     };
-    const findResolvedCandidate = (
-      specifier: string,
-    ): { name: string; resolvedPackageDir: string } | undefined => {
-      if (
-        !specifier.startsWith("./") &&
-        !specifier.startsWith("../") &&
-        !path.isAbsolute(specifier)
-      )
-        return;
-      const target = path.resolve(fromPackageDir, specifier);
-      if (!isWithinFunction(target)) return;
-      let match:
-        | { name: string; resolvedPackageDir: string; markerStart: number }
-        | undefined;
-      for (const name of candidates) {
-        if (SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)) continue;
-        const marker = `${path.sep}node_modules${path.sep}${name
-          .split("/")
-          .join(path.sep)}`;
-        const markerStart = target.lastIndexOf(marker);
-        const suffix = target[markerStart + marker.length];
-        if (markerStart < 0 || (suffix !== undefined && suffix !== path.sep))
-          continue;
-        const candidateDir = target.slice(0, markerStart + marker.length);
-        if (!fs.existsSync(candidateDir)) continue;
-        const resolvedPackageDir = fs.realpathSync(candidateDir);
-        if (
-          !isWithinFunction(resolvedPackageDir) ||
-          !fs.statSync(resolvedPackageDir).isDirectory()
-        )
-          continue;
-        if (!match || markerStart > match.markerStart)
-          match = { name, resolvedPackageDir, markerStart };
-      }
-      return (
-        match && {
-          name: match.name,
-          resolvedPackageDir: match.resolvedPackageDir,
-        }
-      );
-    };
-    const findResolvedPackage = (
-      specifier: string,
-    ): { name: string; resolvedPackageDir: string } | undefined => {
-      const relativeCandidate = findResolvedCandidate(specifier);
-      if (relativeCandidate) return relativeCandidate;
-      if (
-        path.isAbsolute(specifier) ||
-        specifier.startsWith(".") ||
-        specifier.startsWith("#") ||
-        /^[A-Za-z][A-Za-z\d+.-]*:/.test(specifier)
-      )
-        return;
-      const specifierSegments = specifier.split("/");
-      const name = specifierSegments[0]?.startsWith("@")
-        ? specifierSegments.slice(0, 2).join("/")
-        : specifierSegments[0];
-      const segments = name && packageSegments(name);
-      if (
-        !name ||
-        !segments ||
-        isBuiltin(name) ||
-        SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)
-      )
-        return;
-      const resolvedPackageDir = resolvePackageDirectory(
-        segments,
-        fromPackageDir,
-      );
-      return resolvedPackageDir ? { name, resolvedPackageDir } : undefined;
-    };
     const literalSpecifier =
-      /\b(?:import|export)\s*(?:[^;'"`]*?\s*from\s*)?(['"`])([^'"`]+)\1|\b(?:import|require(?:\s*\.\s*resolve)?)\s*\(\s*(['"`])([^'"`]+)\3/g;
+      /\b(?:import|export)\s*(?:[^;'"`]*?\s*from\s*)?(['"`])([^'"`]+)\1|\b(?:import\s*\.\s*meta\s*\.\s*resolve|import|require(?:\s*\.\s*resolve)?)\s*\(\s*(['"`])([^'"`]+)\3/g;
     for (const match of source.matchAll(literalSpecifier)) {
       const specifier = match[2] ?? match[4];
       if (!specifier) continue;
-      const resolved = findResolvedPackage(specifier);
+      const resolved = findResolvedPackage(specifier, fromPackageDir);
       if (resolved) addReference({ ...resolved, fromPackageDir });
     }
     for (const name of candidates) {
@@ -5239,13 +5285,23 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
     )
     .map((entry) => path.join(functionDir, entry.name));
   const emittedReferences = collectTreeReferences(emittedRoots);
-  const needed = collect([...retained, ...emittedReferences], (packageDir) => {
-    const cached = packageReferencesByDirectory.get(packageDir);
-    if (cached) return cached;
-    const references = collectTreeReferences([packageDir]);
-    packageReferencesByDirectory.set(packageDir, references);
-    return references;
-  });
+  const needed = collect(
+    [
+      ...retained,
+      ...emittedReferences,
+      ...findPackageImportReferences(functionDir, manifest),
+    ],
+    (packageDir) => {
+      const cached = packageReferencesByDirectory.get(packageDir);
+      if (cached) return cached;
+      const references = [
+        ...collectTreeReferences([packageDir]),
+        ...findPackageImportReferences(packageDir),
+      ];
+      packageReferencesByDirectory.set(packageDir, references);
+      return references;
+    },
+  );
   return new Set([...candidates].filter((name) => !needed.has(name)));
 }
 

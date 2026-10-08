@@ -152,6 +152,28 @@ describe("npm package release workflow", () => {
     assert.equal(config.snapshot?.useCalculatedVersion, true);
   });
 
+  it("keeps Toolkit's Core peer aligned with the shared context sanitizer", () => {
+    const corePackage = JSON.parse(
+      readFileSync("packages/core/package.json", "utf8"),
+    ) as { exports?: Record<string, unknown> };
+    const toolkitPackage = JSON.parse(
+      readFileSync("packages/toolkit/package.json", "utf8"),
+    ) as {
+      peerDependencies?: Record<string, string>;
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+    };
+
+    assert.ok(corePackage.exports?.["./shared"]);
+    assert.equal(
+      toolkitPackage.peerDependencies?.["@agent-native/core"],
+      ">=0.205.1",
+    );
+    assert.equal(
+      toolkitPackage.peerDependenciesMeta?.["@agent-native/core"]?.optional,
+      true,
+    );
+  });
+
   it("keeps the release changeset package list aligned with the publisher", () => {
     const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
     assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
