@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
     common: { retry: "다시 시도" },
+    onboarding: { skipForNow: "지금 건너뛰기" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -1813,6 +1814,9 @@ const messages = {
     pendingStorageDescription: "스토리지를 연결하면 Clips가 바로 업로드합니다.",
     storageConnectedUploading: "저장소가 연결되었습니다. 녹화를 업로드하는 중…",
     downloadCopy: "사본 다운로드",
+    localRecordingPreview: "로컬 녹화 미리보기",
+    localPreviewUnavailable:
+      "로컬 미리보기를 사용할 수 없습니다. 사본은 다운로드할 수 있습니다.",
     localRecordingOpenElsewhere:
       "이 녹화는 아직 다른 Clips 탭에서 열려 있습니다.",
     uploadWaitingForConnection:

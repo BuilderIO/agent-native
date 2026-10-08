@@ -192,7 +192,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder 存储或兼容 S3 的存储桶",
   "onboarding.capability.clipsObjectStorage.why":
-    "录制的视频需要持久对象存储后才能播放或分享。",
+    "无需存储即可录制、预览和下载 Clips。连接持久对象存储后，可在不同设备上查看和分享录制内容。",
   "onboarding.capability.clipsTranscription.keySummary": "语音转文字提供商密钥",
   "onboarding.capability.about": "关于{{label}}",
   "onboarding.capability.why": "为什么需要{{label}}",
@@ -1914,7 +1914,7 @@ const messages: ToolkitAgentChatTranslation = {
     "这会影响 {{org}} 中所有未连接自己账号的人。",
   "settingsShell.builder.disconnectFailed": "无法断开 Builder.io。",
   "settingsShell.builder.disconnectTitle": "断开 Builder.io？",
-  "settingsShell.builder.grantsFailed": "无法读取 Builder.io 连接。",
+  "settingsShell.builder.grantsFailed": "无法检查 Builder.io 连接。",
   "settingsShell.builder.setupStartFailed":
     "无法启动 Builder.io 设置。请刷新此页面后重试。",
   "settingsShell.builder.setupHostFailed":

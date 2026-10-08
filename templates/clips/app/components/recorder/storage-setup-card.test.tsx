@@ -160,6 +160,25 @@ describe("StorageSetupCard", () => {
     expect(container.querySelector("svg")).toBeNull();
   });
 
+  it("offers an optional skip action only when the caller provides it", async () => {
+    const onSkip = vi.fn();
+    await act(async () => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} onSkip={onSkip} />);
+    });
+
+    const skipButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.onboarding.skipForNow",
+    );
+    expect(skipButton).toBeDefined();
+    act(() => skipButton?.click());
+    expect(onSkip).toHaveBeenCalledOnce();
+
+    await renderCard();
+    expect(container.textContent).not.toContain(
+      "agentChat.onboarding.skipForNow",
+    );
+  });
+
   it("labels the button for what it will do", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ agentNativeProvisioningEnabled: false }),

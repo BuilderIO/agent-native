@@ -25,6 +25,7 @@ const CANCELLED_SETUP_RECOVERY_MS = 60_000;
 
 export interface StorageSetupCardProps {
   onConfigured: () => void | Promise<void>;
+  onSkip?: () => void;
   title?: string;
   description?: string;
   connectedDescription?: string;
@@ -39,6 +40,7 @@ export interface StorageSetupCardProps {
 
 export function StorageSetupCard({
   onConfigured,
+  onSkip,
   title = "Connect storage",
   description,
   connectedDescription = "You're all set. Starting recorder...",
@@ -314,6 +316,18 @@ export function StorageSetupCard({
       )}
 
       {err && <p className="text-xs text-muted-foreground">{err}</p>}
+
+      {onSkip ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="self-center text-muted-foreground"
+          onClick={onSkip}
+        >
+          {t("agentChat.onboarding.skipForNow")}
+        </Button>
+      ) : null}
 
       {!connected && (
         <TooltipProvider delayDuration={150}>

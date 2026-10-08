@@ -200,7 +200,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "تخزين Builder أو حاوية متوافقة مع S3",
   "onboarding.capability.clipsObjectStorage.why":
-    "تحتاج الفيديوهات المسجلة إلى تخزين كائنات دائم قبل تشغيلها أو مشاركتها.",
+    "يمكنك تسجيل Clips ومعاينتها وتنزيلها بدون تخزين. اربط تخزين كائنات دائمًا لإتاحة التسجيلات عبر الأجهزة ومشاركتها.",
   "onboarding.capability.clipsTranscription.keySummary":
     "مفتاح مزود تحويل الكلام إلى نص",
   "onboarding.capability.about": "حول {{label}}",
@@ -2216,7 +2216,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يؤثر هذا على كل من في {{org}} ممن لم يربطوا حساباتهم الخاصة.",
   "settingsShell.builder.disconnectFailed": "تعذّر قطع اتصال Builder.io.",
   "settingsShell.builder.disconnectTitle": "هل تريد قطع اتصال Builder.io؟",
-  "settingsShell.builder.grantsFailed": "تعذّرت قراءة اتصالات Builder.io.",
+  "settingsShell.builder.grantsFailed": "تعذّر التحقق من اتصال Builder.io.",
   "settingsShell.builder.setupStartFailed":
     "تعذّر بدء إعداد Builder.io. حدّث هذه الصفحة وحاول مرة أخرى.",
   "settingsShell.builder.setupHostFailed":

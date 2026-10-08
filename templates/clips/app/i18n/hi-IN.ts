@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
     },
     common: { retry: "फिर से प्रयास करें" },
+    onboarding: { skipForNow: "अभी छोड़ें" },
   },
   timelineTrack: {
     helpOtherSide: "पहले उस हिस्से पर क्लिक करें, फिर लाल रेखा को दाईं ओर खींचें।",
@@ -1793,6 +1794,9 @@ const messages = {
     storageConnectedUploading:
       "स्टोरेज कनेक्ट हो गया। आपकी रिकॉर्डिंग अपलोड हो रही है…",
     downloadCopy: "एक कॉपी डाउनलोड करें",
+    localRecordingPreview: "स्थानीय रिकॉर्डिंग का प्रीव्यू",
+    localPreviewUnavailable:
+      "यह स्थानीय प्रीव्यू उपलब्ध नहीं है। फिर भी आप एक कॉपी डाउनलोड कर सकते हैं।",
     localRecordingOpenElsewhere:
       "वह रिकॉर्डिंग अभी भी किसी दूसरे Clips टैब में खुली है।",
     uploadWaitingForConnection:

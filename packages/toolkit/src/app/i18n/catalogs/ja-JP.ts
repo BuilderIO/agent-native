@@ -210,7 +210,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "BuilderストレージまたはS3互換バケット",
   "onboarding.capability.clipsObjectStorage.why":
-    "録画した動画は、再生または共有する前に永続的なオブジェクトストレージを必要とします。",
+    "ストレージがなくてもClipsを録画、プレビュー、ダウンロードできます。永続オブジェクトストレージを接続すると、録画を複数のデバイスで利用し、共有できます。",
   "onboarding.capability.clipsTranscription.keySummary":
     "音声文字変換プロバイダーのキー",
   "onboarding.capability.about": "{{label}}について",
@@ -2067,7 +2067,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io の接続を解除できませんでした。",
   "settingsShell.builder.disconnectTitle": "Builder.io の接続を解除しますか？",
   "settingsShell.builder.grantsFailed":
-    "Builder.io の接続を読み込めませんでした。",
+    "Builder.io への接続を確認できませんでした。",
   "settingsShell.builder.setupStartFailed":
     "Builder.io のセットアップを開始できませんでした。このページを更新して、もう一度お試しください。",
   "settingsShell.builder.setupHostFailed":

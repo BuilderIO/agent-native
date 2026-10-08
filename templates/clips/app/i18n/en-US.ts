@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
     common: { retry: "Retry" },
+    onboarding: { skipForNow: "Skip for now" },
   },
   common: {
     cancel: "Cancel",
@@ -1803,6 +1804,9 @@ const messages = {
       "Connect storage and Clips uploads it right away.",
     storageConnectedUploading: "Storage connected. Uploading your recording…",
     downloadCopy: "Download a copy",
+    localRecordingPreview: "Local recording preview",
+    localPreviewUnavailable:
+      "This local preview isn't available. You can still download a copy.",
     localRecordingOpenElsewhere:
       "That recording is still open in another Clips tab.",
     uploadWaitingForConnection: "Upload paused. Clips retries automatically.",

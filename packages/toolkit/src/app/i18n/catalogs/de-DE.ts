@@ -214,7 +214,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder-Speicher oder S3-kompatibler Bucket",
   "onboarding.capability.clipsObjectStorage.why":
-    "Aufgenommene Videos benötigen dauerhaften Objektspeicher, bevor sie abgespielt oder geteilt werden können.",
+    "Du kannst Clips ohne Speicher aufnehmen, ansehen und herunterladen. Verbinde dauerhaften Objektspeicher, damit Aufnahmen auf mehreren Geräten verfügbar sind und geteilt werden können.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Schlüssel eines Sprache-zu-Text-Anbieters",
   "onboarding.capability.about": "Über {{label}}",
@@ -2181,7 +2181,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io konnte nicht getrennt werden.",
   "settingsShell.builder.disconnectTitle": "Builder.io trennen?",
   "settingsShell.builder.grantsFailed":
-    "Die Builder.io-Verbindungen konnten nicht gelesen werden.",
+    "Die Verbindung zu Builder.io konnte nicht überprüft werden.",
   "settingsShell.builder.setupStartFailed":
     "Das Builder.io-Setup konnte nicht gestartet werden. Aktualisiere diese Seite und versuche es erneut.",
   "settingsShell.builder.setupHostFailed":

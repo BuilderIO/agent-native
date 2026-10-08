@@ -9,6 +9,7 @@ const messages = {
         "Não foi possível confirmar se a IA está pronta.",
     },
     common: { retry: "Tentar novamente" },
+    onboarding: { skipForNow: "Pular por enquanto" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -1846,6 +1847,9 @@ const messages = {
     storageConnectedUploading:
       "Armazenamento conectado. Enviando sua gravação…",
     downloadCopy: "Baixar uma cópia",
+    localRecordingPreview: "Prévia da gravação local",
+    localPreviewUnavailable:
+      "Não foi possível exibir a prévia local. Você ainda pode baixar uma cópia.",
     localRecordingOpenElsewhere:
       "Essa gravação ainda está aberta em outra aba do Clips.",
     uploadWaitingForConnection:

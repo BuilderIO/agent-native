@@ -202,7 +202,7 @@ const messages = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder storage or an S3-compatible bucket",
   "onboarding.capability.clipsObjectStorage.why":
-    "Recorded videos need durable object storage before they can be played back or shared.",
+    "You can record, preview, and download Clips without storage. Connect durable object storage to keep recordings available across devices and share them.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Speech-to-text provider key",
   "onboarding.capability.about": "About {{label}}",
@@ -2069,7 +2069,7 @@ const messages = {
   "settingsShell.builder.disconnectFailed": "Couldn't disconnect Builder.io.",
   "settingsShell.builder.disconnectTitle": "Disconnect Builder.io?",
   "settingsShell.builder.grantsFailed":
-    "Couldn't read the Builder.io connections.",
+    "Couldn't check your Builder.io connection.",
   "settingsShell.builder.setupStartFailed":
     "Couldn't start Builder.io setup. Refresh this page and try again.",
   "settingsShell.builder.setupHostFailed":

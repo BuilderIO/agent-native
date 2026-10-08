@@ -214,7 +214,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Stockage Builder ou bucket compatible S3",
   "onboarding.capability.clipsObjectStorage.why":
-    "Les vidéos enregistrées ont besoin d’un stockage objet durable avant de pouvoir être lues ou partagées.",
+    "Vous pouvez enregistrer, prévisualiser et télécharger des Clips sans stockage. Connectez un stockage objet durable pour retrouver vos enregistrements sur plusieurs appareils et les partager.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Clé d’un fournisseur de conversion parole-texte",
   "onboarding.capability.about": "À propos de {{label}}",
@@ -2226,7 +2226,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de déconnecter Builder.io.",
   "settingsShell.builder.disconnectTitle": "Déconnecter Builder.io ?",
   "settingsShell.builder.grantsFailed":
-    "Impossible de lire les connexions Builder.io.",
+    "Impossible de vérifier la connexion à Builder.io.",
   "settingsShell.builder.setupStartFailed":
     "Impossible de démarrer la configuration de Builder.io. Actualisez cette page, puis réessayez.",
   "settingsShell.builder.setupHostFailed":

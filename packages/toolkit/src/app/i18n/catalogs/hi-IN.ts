@@ -199,7 +199,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder स्टोरेज या S3-संगत बकेट",
   "onboarding.capability.clipsObjectStorage.why":
-    "रिकॉर्ड किए गए वीडियो को चलाने या साझा करने से पहले टिकाऊ ऑब्जेक्ट स्टोरेज की आवश्यकता होती है।",
+    "आप स्टोरेज के बिना Clips रिकॉर्ड, प्रीव्यू और डाउनलोड कर सकते हैं। रिकॉर्डिंग को अलग-अलग डिवाइस पर उपलब्ध रखने और साझा करने के लिए टिकाऊ ऑब्जेक्ट स्टोरेज कनेक्ट करें।",
   "onboarding.capability.clipsTranscription.keySummary":
     "स्पीच-टू-टेक्स्ट प्रदाता की कुंजी",
   "onboarding.capability.about": "{{label}} के बारे में",
@@ -2035,7 +2035,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed":
     "Builder.io को डिस्कनेक्ट नहीं किया जा सका।",
   "settingsShell.builder.disconnectTitle": "Builder.io डिस्कनेक्ट करें?",
-  "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन पढ़े नहीं जा सके।",
+  "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन की जांच नहीं हो सकी।",
   "settingsShell.builder.setupStartFailed":
     "Builder.io सेटअप शुरू नहीं हो सका। इस पेज को रीफ़्रेश करके फिर कोशिश करें।",
   "settingsShell.builder.setupHostFailed":

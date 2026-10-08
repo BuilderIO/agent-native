@@ -7,6 +7,7 @@ const messages = {
         "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
     common: { retry: "Erneut versuchen" },
+    onboarding: { skipForNow: "Vorerst überspringen" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -1865,6 +1866,9 @@ const messages = {
     storageConnectedUploading:
       "Speicher verbunden. Deine Aufnahme wird hochgeladen…",
     downloadCopy: "Kopie herunterladen",
+    localRecordingPreview: "Vorschau der lokalen Aufnahme",
+    localPreviewUnavailable:
+      "Diese lokale Vorschau ist nicht verfügbar. Du kannst weiterhin eine Kopie herunterladen.",
     localRecordingOpenElsewhere:
       "Diese Aufnahme ist noch in einem anderen Clips-Tab geöffnet.",
     uploadWaitingForConnection:

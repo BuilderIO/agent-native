@@ -1939,6 +1939,7 @@ export function useBuilderConnectFlow(
         const connectError = isCurrentConnectError(s?.connectError, started)
           ? s?.connectError
           : null;
+        clearStatusReadError();
         setHasFetchedStatus(true);
         if (s) {
           setStatusResolved(true);

@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
     common: { retry: "重试" },
+    onboarding: { skipForNow: "暂时跳过" },
   },
   timelineTrack: {
     helpOtherSide: "先点击那一段，再把红线向右拖。",
@@ -1747,6 +1748,8 @@ const messages = {
     pendingStorageDescription: "连接存储后，Clips 会立即上传。",
     storageConnectedUploading: "存储已连接。正在上传你的录制…",
     downloadCopy: "下载副本",
+    localRecordingPreview: "本地录制预览",
+    localPreviewUnavailable: "本地预览不可用。你仍可下载副本。",
     localRecordingOpenElsewhere: "该录制仍在另一个 Clips 标签页中打开。",
     uploadWaitingForConnection: "上传已暂停。Clips 会自动重试。",
     uploadDidNotFinish: "上传未完成。",

@@ -8,6 +8,7 @@ const messages = {
       providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
     common: { retry: "إعادة المحاولة" },
+    onboarding: { skipForNow: "تخطي الآن" },
   },
   timelineTrack: {
     helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
@@ -1818,6 +1819,9 @@ const messages = {
     pendingStorageDescription: "اربط مساحة تخزين وسيرفعه Clips فورًا.",
     storageConnectedUploading: "تم ربط التخزين. جارٍ رفع تسجيلك…",
     downloadCopy: "تنزيل نسخة",
+    localRecordingPreview: "معاينة التسجيل المحلي",
+    localPreviewUnavailable:
+      "المعاينة المحلية غير متاحة. لا يزال بإمكانك تنزيل نسخة.",
     localRecordingOpenElsewhere:
       "هذا التسجيل لا يزال مفتوحًا في علامة تبويب أخرى من Clips.",
     uploadWaitingForConnection:

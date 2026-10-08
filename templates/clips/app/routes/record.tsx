@@ -49,6 +49,7 @@ import {
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 
+import { LocalRecordingPreview } from "@/components/recorder/local-recording-preview";
 import { Kbd } from "@/components/ui/kbd";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
@@ -1246,6 +1247,12 @@ export default function RecordRoute() {
   // Holds the stopped engine only while its in-memory chunks are the sole
   // full copy (the local copy failed to write), so Download still works.
   const bufferedEngineRef = useRef<RecorderEngine | null>(null);
+  const localPreviewMemoryBlob = useMemo(() => {
+    if (!pendingLocal?.needsStorage) return null;
+    return (
+      bufferedEngineRef.current?.getBufferedRecordingDownload()?.blob ?? null
+    );
+  }, [pendingLocal?.id, pendingLocal?.needsStorage]);
   const [localCopy] = useState(() => new LocalCopyOwnership());
   // A take's upload target while it resolves during the countdown.
   const pendingUploadTargetRef = useRef<{
@@ -3683,6 +3690,10 @@ export default function RecordRoute() {
     storageConfigured === false &&
     (hasPendingUploadFile() ||
       new URLSearchParams(location.search).get("connectStorage") === "1");
+  const canSkipStorageSetup =
+    !clipIntake &&
+    !hasPendingUploadFile() &&
+    new URLSearchParams(location.search).get("connectStorage") === "1";
 
   return (
     <div className="relative min-h-[100dvh] overflow-x-clip bg-background text-foreground">
@@ -3720,6 +3731,19 @@ export default function RecordRoute() {
               {showStorageSetupFirst ? (
                 <StorageSetupCard
                   onConfigured={() => markStorageConfigured()}
+                  onSkip={
+                    canSkipStorageSetup
+                      ? () => {
+                          const params = new URLSearchParams(location.search);
+                          params.delete("connectStorage");
+                          const search = params.toString();
+                          void navigate(
+                            `/record${search ? `?${search}` : ""}`,
+                            { replace: true },
+                          );
+                        }
+                      : undefined
+                  }
                   connectSource="clips_record_storage_setup_card"
                   connectFlow="record"
                 />
@@ -3763,23 +3787,29 @@ export default function RecordRoute() {
                 </Button>
               </RecorderRouteStatus>
             ) : pendingLocal.needsStorage ? (
-              <StorageSetupCard
-                onConfigured={() => {
-                  markStorageConfigured();
-                  void uploadPendingLocal(pendingLocal.id);
-                }}
-                title={t("recordRoute.pendingStorageTitle")}
-                description={`${t("recordRoute.pendingStorageDescription")} ${localCopyNote(
-                  t,
-                  !!bufferedEngineRef.current,
-                )}`}
-                connectedDescription={t(
-                  "recordRoute.storageConnectedUploading",
-                )}
-                connectSource="clips_record_after_stop"
-                connectFlow="record_first"
-                openSettingsInNewTab
-              />
+              <>
+                <LocalRecordingPreview
+                  recordingId={pendingLocal.id}
+                  fallbackBlob={localPreviewMemoryBlob}
+                />
+                <StorageSetupCard
+                  onConfigured={() => {
+                    markStorageConfigured();
+                    void uploadPendingLocal(pendingLocal.id);
+                  }}
+                  title={t("recordRoute.pendingStorageTitle")}
+                  description={`${t("recordRoute.pendingStorageDescription")} ${localCopyNote(
+                    t,
+                    !!bufferedEngineRef.current,
+                  )}`}
+                  connectedDescription={t(
+                    "recordRoute.storageConnectedUploading",
+                  )}
+                  connectSource="clips_record_after_stop"
+                  connectFlow="record_first"
+                  openSettingsInNewTab
+                />
+              </>
             ) : (
               <RecorderRouteStatus
                 role={pendingLocal.error ? "alert" : "status"}

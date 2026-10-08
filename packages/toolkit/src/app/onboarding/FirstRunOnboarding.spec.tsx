@@ -1569,7 +1569,7 @@ describe("FirstRunOnboarding", () => {
       '[data-testid="first-run-builder-status-error"]',
     );
     expect(statusError?.textContent).toContain(
-      "Couldn't read the Builder.io connections.",
+      "Couldn't check your Builder.io connection.",
     );
     expect(statusError?.textContent).not.toContain("Retrying.");
     const retryButton = document.body.querySelector<HTMLButtonElement>(

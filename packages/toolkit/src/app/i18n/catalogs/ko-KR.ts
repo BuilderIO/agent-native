@@ -201,7 +201,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder 스토리지 또는 S3 호환 버킷",
   "onboarding.capability.clipsObjectStorage.why":
-    "녹화한 동영상은 재생하거나 공유하기 전에 영구 오브젝트 스토리지가 필요합니다.",
+    "저장소 없이도 Clips를 녹화하고 미리 보고 다운로드할 수 있습니다. 영구 오브젝트 스토리지를 연결하면 여러 기기에서 녹화를 확인하고 공유할 수 있습니다.",
   "onboarding.capability.clipsTranscription.keySummary":
     "음성 텍스트 변환 제공업체 키",
   "onboarding.capability.about": "{{label}} 정보",
@@ -2031,7 +2031,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed":
     "Builder.io 연결을 해제하지 못했습니다.",
   "settingsShell.builder.disconnectTitle": "Builder.io 연결을 해제할까요?",
-  "settingsShell.builder.grantsFailed": "Builder.io 연결을 읽지 못했습니다.",
+  "settingsShell.builder.grantsFailed":
+    "Builder.io 연결을 확인하지 못했습니다.",
   "settingsShell.builder.setupStartFailed":
     "Builder.io 설정을 시작할 수 없습니다. 이 페이지를 새로고침한 후 다시 시도하세요.",
   "settingsShell.builder.setupHostFailed":

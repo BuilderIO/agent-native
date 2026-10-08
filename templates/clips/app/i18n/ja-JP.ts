@@ -8,6 +8,7 @@ const messages = {
       providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
     common: { retry: "再試行" },
+    onboarding: { skipForNow: "今はスキップ" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -1840,6 +1841,9 @@ const messages = {
     storageConnectedUploading:
       "ストレージを接続しました。録画をアップロードしています…",
     downloadCopy: "コピーをダウンロード",
+    localRecordingPreview: "ローカル録画のプレビュー",
+    localPreviewUnavailable:
+      "ローカルプレビューは利用できません。コピーをダウンロードできます。",
     localRecordingOpenElsewhere:
       "その録画は別の Clips タブでまだ開いています。",
     uploadWaitingForConnection:

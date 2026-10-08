@@ -8,6 +8,7 @@ const messages = {
       providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
     },
     common: { retry: "Réessayer" },
+    onboarding: { skipForNow: "Ignorer pour l’instant" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -1864,6 +1865,9 @@ const messages = {
     storageConnectedUploading:
       "Stockage connecté. Envoi de votre enregistrement…",
     downloadCopy: "Télécharger une copie",
+    localRecordingPreview: "Aperçu de l’enregistrement local",
+    localPreviewUnavailable:
+      "Cet aperçu local n’est pas disponible. Vous pouvez quand même télécharger une copie.",
     localRecordingOpenElsewhere:
       "Cet enregistrement est encore ouvert dans un autre onglet Clips.",
     uploadWaitingForConnection:

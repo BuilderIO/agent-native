@@ -919,7 +919,7 @@ describe("useBuilderConnectFlow", () => {
       ).toBe("connection");
       expect(container.textContent).toContain(setupError);
       expect(container.textContent).not.toContain(
-        "Couldn't read the Builder.io connections.",
+        "Couldn't check your Builder.io connection.",
       );
     });
 
@@ -954,7 +954,7 @@ describe("useBuilderConnectFlow", () => {
 
       expect(activationPosts).toHaveLength(0);
       expect(container.textContent).toContain(
-        "Couldn't read the Builder.io connections.",
+        "Couldn't check your Builder.io connection.",
       );
       expect(container.textContent).not.toContain(
         "Couldn't start Builder.io setup.",
@@ -990,7 +990,7 @@ describe("useBuilderConnectFlow", () => {
 
       expect(activationPosts).toHaveLength(1);
       expect(container.textContent).toContain(
-        "Couldn't read the Builder.io connections.",
+        "Couldn't check your Builder.io connection.",
       );
       expect(container.textContent).not.toContain(
         "Couldn't start Builder.io setup.",
@@ -1054,7 +1054,7 @@ describe("useBuilderConnectFlow", () => {
       expect(activationAttempts).toBe(1);
       expect(statusReads).toBe(2);
       expect(container.textContent).toContain(
-        "Couldn't read the Builder.io connections.",
+        "Couldn't check your Builder.io connection.",
       );
       expect(container.textContent).not.toContain(
         "Couldn't start Builder.io setup.",
@@ -1839,7 +1839,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector("[data-testid='error-kind']")?.textContent,
     ).toBe("status-read");
     expect(container.textContent).toContain(
-      "Couldn't read the Builder.io connections.",
+      "Couldn't check your Builder.io connection.",
     );
 
     await act(async () => {
@@ -1853,7 +1853,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector("[data-testid='error-kind']")?.textContent,
     ).toBe("");
     expect(container.textContent).not.toContain(
-      "Couldn't read the Builder.io connections.",
+      "Couldn't check your Builder.io connection.",
     );
   });
 
@@ -1892,7 +1892,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector("[data-testid='error-kind']")?.textContent,
     ).toBe("status-read");
     expect(container.textContent).toContain(
-      "Couldn't read the Builder.io connections.",
+      "Couldn't check your Builder.io connection.",
     );
   });
 
@@ -2247,6 +2247,69 @@ describe("useBuilderConnectFlow", () => {
     ).toBe("");
   });
 
+  it("clears a stale status-read error after callback status becomes readable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const disconnectedStatus = {
+      ...connectedBuilderStatus,
+      configured: false,
+      orgName: null,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockRejectedValueOnce(new Error("poll status unavailable"))
+      .mockImplementation(async () => jsonResponse(disconnectedStatus));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("status-read");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(container.textContent).toContain(
+      "not-configured connecting resolved",
+    );
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe(
+      "",
+      `${container.querySelector('[data-testid="status"]')?.textContent}; ${fetchMock.mock.calls.length} status reads`,
+    );
+  });
+
   it("ignores a success message from another connect attempt", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
@@ -2524,7 +2587,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector("[data-testid='error-kind']")?.textContent,
     ).toBe("status-read");
     expect(container.textContent).toContain(
-      "Couldn't read the Builder.io connections.",
+      "Couldn't check your Builder.io connection.",
     );
     expect(container.textContent).not.toContain(
       "Didn't hear back from Builder",
@@ -2732,7 +2795,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain(
-      "Couldn't read the Builder.io connections.",
+      "Couldn't check your Builder.io connection.",
     );
     expect(
       container.querySelector("[data-testid='error-kind']")?.textContent,
@@ -3153,7 +3216,7 @@ describe("useBuilderConnectFlow", () => {
       "Couldn't start Builder.io setup. Refresh this page and try again.",
     );
     expect(container.textContent).not.toContain(
-      "Couldn't read the Builder.io connections.",
+      "Couldn't check your Builder.io connection.",
     );
     expect(
       container.querySelector("[data-testid='error-kind']")?.textContent,
