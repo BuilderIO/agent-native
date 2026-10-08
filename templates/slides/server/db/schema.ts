@@ -67,6 +67,7 @@ export const uploadedAssets = table("uploaded_assets", {
   type: text("type").notNull(),
   size: integer("size").notNull(),
   provider: text("provider"),
+  providerObjectId: text("provider_object_id"),
   ownerEmail: text("owner_email").notNull(),
   createdAt: text("created_at").notNull().default(now()),
 });

@@ -1,6 +1,6 @@
 import path from "path";
 
-import { uploadFile } from "@agent-native/core/file-upload";
+import { deleteUploadedFile, uploadFile } from "@agent-native/core/file-upload";
 import {
   getRequestOrgId,
   runWithRequestContext,
@@ -10,6 +10,7 @@ import { and, desc, eq, notLike } from "drizzle-orm";
 import {
   assertBodySize,
   defineEventHandler,
+  getQuery,
   getRouterParam,
   setResponseStatus,
   readMultipartFormData,
@@ -38,6 +39,10 @@ export interface UploadedAsset {
   type: string;
   size: number;
   provider?: string;
+}
+
+export interface UploadedVideoAsset extends UploadedAsset {
+  id: string;
 }
 
 export interface ListedUploadedAsset {
@@ -1563,7 +1568,7 @@ export async function uploadVideoAsset(args: {
   orgId?: string | null;
   originalName: string;
   data: Uint8Array;
-}): Promise<UploadedAsset> {
+}): Promise<UploadedVideoAsset> {
   if (args.data.length > MAX_VIDEO_ASSET_FILE_SIZE) {
     throw new Error("Video too large (max 50 MB)");
   }
@@ -1594,7 +1599,9 @@ export async function uploadVideoAsset(args: {
     throw err;
   }
 
-  const asset: UploadedAsset = {
+  const id = nanoid();
+  const asset: UploadedVideoAsset = {
+    id,
     url: result.url,
     filename: args.originalName,
     type: mimeType,
@@ -1605,12 +1612,13 @@ export async function uploadVideoAsset(args: {
   await getDb()
     .insert(schema.uploadedAssets)
     .values({
-      id: nanoid(),
+      id: asset.id,
       filename: asset.filename,
       url: asset.url,
       type: asset.type,
       size: asset.size,
       provider: asset.provider ?? null,
+      providerObjectId: result.id ?? null,
       ownerEmail: args.email,
       createdAt: new Date().toISOString(),
     });
@@ -1650,6 +1658,69 @@ export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
       error: error instanceof Error ? error.message : "Video upload failed",
     };
   }
+});
+
+export const discardUploadedVideoAsset = defineEventHandler(async (event) => {
+  const { session, error } = await requireSession(event);
+  if (!session) return { error };
+
+  const rawId = getQuery(event).id;
+  const id = typeof rawId === "string" ? rawId.trim() : "";
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "Video asset id is required" };
+  }
+
+  const db = getDb();
+  const [asset] = await db
+    .select({
+      id: schema.uploadedAssets.id,
+      url: schema.uploadedAssets.url,
+      provider: schema.uploadedAssets.provider,
+      providerObjectId: schema.uploadedAssets.providerObjectId,
+      type: schema.uploadedAssets.type,
+    })
+    .from(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, id),
+        eq(schema.uploadedAssets.ownerEmail, session.email),
+      ),
+    )
+    .limit(1);
+
+  if (!asset) return { success: true };
+  if (!asset.type.startsWith("video/") || !asset.provider) {
+    setResponseStatus(event, 404);
+    return { error: "Uploaded video asset was not found" };
+  }
+
+  const provider = asset.provider;
+  const deleted = await runWithRequestContext(
+    {
+      userEmail: session.email,
+      ...(session.orgId ? { orgId: session.orgId } : {}),
+    },
+    () =>
+      deleteUploadedFile(provider, {
+        id: asset.providerObjectId ?? undefined,
+        url: asset.url,
+      }),
+  );
+  if (!deleted) {
+    setResponseStatus(event, 503);
+    return { error: "Could not discard uploaded video" };
+  }
+
+  await db
+    .delete(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, asset.id),
+        eq(schema.uploadedAssets.ownerEmail, session.email),
+      ),
+    );
+  return { success: true };
 });
 
 export const uploadAsset = defineEventHandler(async (event) => {

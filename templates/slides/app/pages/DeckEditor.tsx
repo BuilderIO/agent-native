@@ -215,7 +215,10 @@ import {
   shouldActivateRectangleTool,
   shouldActivateTextTool,
 } from "@/lib/text-tool-shortcut";
-import { uploadSlideVideo } from "@/lib/video-upload";
+import {
+  discardUploadedSlideVideo,
+  uploadSlideVideo,
+} from "@/lib/video-upload";
 
 import { generationTimingFields } from "../../shared/generation-timing.js";
 import { refreshDeckForGenerationOutcome } from "../lib/generation-lifecycle.js";
@@ -926,6 +929,7 @@ export default function DeckEditor() {
         URL.revokeObjectURL(preview.previewSrc);
       }
       pendingImagePreviewsRef.current = [];
+      pendingVideoPreviewsRef.current = [];
     };
   }, []);
 
@@ -2657,12 +2661,26 @@ export default function DeckEditor() {
         );
       };
       try {
-        const src = await uploadSlideVideo(file);
+        const uploadedVideo = await uploadSlideVideo(file);
+        const discardUploadedVideo = async () => {
+          try {
+            await discardUploadedSlideVideo(uploadedVideo.id);
+            toast.dismiss(toastId);
+          } catch (error) {
+            toast.error(t("editorToolbar.videoUploadFailed"), {
+              id: toastId,
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("editorToolbar.videoUploadError"),
+            });
+          }
+        };
         const activePreview = pendingVideoPreviewsRef.current.find(
           (preview) => preview.objectId === pendingPreview.objectId,
         );
         if (!activePreview) {
-          toast.dismiss(toastId);
+          await discardUploadedVideo();
           return;
         }
         const currentTarget =
@@ -2670,8 +2688,8 @@ export default function DeckEditor() {
             ? currentSlideRef.current
             : getDeck(id)?.slides.find((slide) => slide.id === targetSlideId);
         if (!currentTarget) {
-          toast.dismiss(toastId);
           clearPreview();
+          await discardUploadedVideo();
           return;
         }
         const currentContent = stripPendingSlideVideoPlaceholders(
@@ -2681,7 +2699,7 @@ export default function DeckEditor() {
         );
         const updatedContent = insertDroppedVideoIntoSlideHtml(
           currentContent,
-          src,
+          uploadedVideo.url,
           {
             label: file.name,
             objectId: pendingPreview.objectId,
@@ -2707,10 +2725,18 @@ export default function DeckEditor() {
           : message.includes("Only valid MP4 and WebM")
             ? t("editorToolbar.videoFormatUnsupported")
             : t("editorToolbar.videoUploadError");
-        toast.error(t("editorToolbar.videoUploadFailed"), {
-          id: toastId,
-          description,
-        });
+        if (
+          pendingVideoPreviewsRef.current.some(
+            (preview) => preview.objectId === pendingPreview.objectId,
+          )
+        ) {
+          toast.error(t("editorToolbar.videoUploadFailed"), {
+            id: toastId,
+            description,
+          });
+        } else {
+          toast.dismiss(toastId);
+        }
         clearPreview();
       }
     },

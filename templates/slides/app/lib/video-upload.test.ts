@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { uploadSlideVideo } from "./video-upload";
+import { discardUploadedSlideVideo, uploadSlideVideo } from "./video-upload";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -16,16 +16,20 @@ describe("uploadSlideVideo", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ url: "/assets/clip.mp4" }), {
-          status: 201,
-          headers: { "Content-Type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ id: "asset-1", url: "/assets/clip.mp4" }),
+          {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
       ),
     );
 
-    await expect(uploadSlideVideo(testVideoFile())).resolves.toBe(
-      "/assets/clip.mp4",
-    );
+    await expect(uploadSlideVideo(testVideoFile())).resolves.toEqual({
+      id: "asset-1",
+      url: "/assets/clip.mp4",
+    });
   });
 
   it("sends large videos as bounded chunks and returns the assembled URL", async () => {
@@ -49,14 +53,20 @@ describe("uploadSlideVideo", () => {
         }),
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ url: "/assets/clip.mp4" }), {
-          status: 201,
-          headers: { "Content-Type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ id: "asset-1", url: "/assets/clip.mp4" }),
+          {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
       );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(uploadSlideVideo(file)).resolves.toBe("/assets/clip.mp4");
+    await expect(uploadSlideVideo(file)).resolves.toEqual({
+      id: "asset-1",
+      url: "/assets/clip.mp4",
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const startRequest = fetchMock.mock.calls[0];
@@ -148,5 +158,22 @@ describe("uploadSlideVideo", () => {
       message: "Video upload response was unreadable",
       status: 200,
     });
+  });
+
+  it("deletes a completed video asset when its pending placeholder is removed", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(discardUploadedSlideVideo("asset 1")).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/assets/video-uploads?id=asset%201"),
+      { method: "DELETE", credentials: "include" },
+    );
   });
 });

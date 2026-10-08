@@ -3,12 +3,19 @@ import { appBasePath } from "@agent-native/core/client/api-path";
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 
 interface VideoUploadResponse {
+  id?: unknown;
   url?: unknown;
+  success?: unknown;
   error?: unknown;
   sessionId?: unknown;
   maxChunkBytes?: unknown;
   uploadMode?: unknown;
   ok?: unknown;
+}
+
+export interface UploadedSlideVideo {
+  id: string;
+  url: string;
 }
 
 function uploadError(
@@ -41,7 +48,17 @@ async function readVideoUploadResponse(
   return data;
 }
 
-async function uploadVideoMultipart(file: File): Promise<string> {
+function readUploadedSlideVideo(
+  data: VideoUploadResponse,
+  response: Response,
+): UploadedSlideVideo {
+  if (typeof data.id !== "string" || typeof data.url !== "string") {
+    throw uploadError("Video upload response was invalid", response.status);
+  }
+  return { id: data.id, url: data.url };
+}
+
+async function uploadVideoMultipart(file: File): Promise<UploadedSlideVideo> {
   const body = new FormData();
   body.append("file", file);
   const response = await fetch(`${appBasePath()}/api/assets/upload-video`, {
@@ -50,13 +67,10 @@ async function uploadVideoMultipart(file: File): Promise<string> {
     body,
   });
   const data = await readVideoUploadResponse(response);
-  if (typeof data.url !== "string") {
-    throw uploadError("Video upload response was invalid", response.status);
-  }
-  return data.url;
+  return readUploadedSlideVideo(data, response);
 }
 
-async function uploadVideoChunked(file: File): Promise<string> {
+async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
   const startResponse = await fetch(
     `${appBasePath()}/api/uploads-chunked/start`,
     {
@@ -103,13 +117,7 @@ async function uploadVideoChunked(file: File): Promise<string> {
       );
       const chunkData = await readVideoUploadResponse(chunkResponse);
       if (isFinal) {
-        if (typeof chunkData.url !== "string") {
-          throw uploadError(
-            "Video upload response was invalid",
-            chunkResponse.status,
-          );
-        }
-        return chunkData.url;
+        return readUploadedSlideVideo(chunkData, chunkResponse);
       }
       if (chunkData.ok !== true) {
         throw uploadError(
@@ -143,8 +151,21 @@ async function uploadVideoChunked(file: File): Promise<string> {
   throw uploadError("Video upload did not complete", startResponse.status);
 }
 
-export async function uploadSlideVideo(file: File): Promise<string> {
+export async function uploadSlideVideo(
+  file: File,
+): Promise<UploadedSlideVideo> {
   return file.size > CHUNK_SIZE_BYTES
     ? uploadVideoChunked(file)
     : uploadVideoMultipart(file);
+}
+
+export async function discardUploadedSlideVideo(id: string): Promise<void> {
+  const response = await fetch(
+    `${appBasePath()}/api/assets/video-uploads?id=${encodeURIComponent(id)}`,
+    { method: "DELETE", credentials: "include" },
+  );
+  const data = await readVideoUploadResponse(response);
+  if (data.success !== true) {
+    throw uploadError("Could not discard uploaded video", response.status);
+  }
 }

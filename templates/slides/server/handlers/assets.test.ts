@@ -778,19 +778,30 @@ describe("uploaded video validation", () => {
 
   it("stores video files in the configured object storage with the active org", async () => {
     mockGetRequestOrgId.mockReturnValue("active-org");
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "uploads/provider-object-1.mp4",
+      url: "https://cdn.example.com/clip.mp4",
+    });
 
-    await expect(
-      uploadVideoAsset({
-        email: "owner@example.com",
-        originalName: "clip.mp4",
-        data: mp4,
-      }),
-    ).resolves.toMatchObject({
+    const uploaded = await uploadVideoAsset({
+      email: "owner@example.com",
+      originalName: "clip.mp4",
+      data: mp4,
+    });
+    expect(uploaded).toMatchObject({
       filename: "clip.mp4",
       type: "video/mp4",
       size: mp4.length,
-      url: "https://cdn.builder.io/logo.svg",
+      url: "https://cdn.example.com/clip.mp4",
     });
+    expect(uploaded.id).not.toBe("uploads/provider-object-1.mp4");
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: uploaded.id,
+        providerObjectId: "uploads/provider-object-1.mp4",
+      }),
+    );
 
     expect(mockUploadFile).toHaveBeenCalledWith(
       expect.objectContaining({

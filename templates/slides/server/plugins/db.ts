@@ -320,6 +320,11 @@ ON slide_comments (deck_id, slide_id, created_at)`,
 ALTER TABLE decks ADD COLUMN IF NOT EXISTS last_write_client_sequence INTEGER;
 ALTER TABLE decks ADD COLUMN IF NOT EXISTS last_write_revision TEXT`,
     },
+    {
+      version: 32,
+      name: "slides-uploaded-assets-provider-object-id",
+      sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS provider_object_id TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );
