@@ -57,6 +57,7 @@ interface ContentPart {
 
 interface BuildAssistantMessageOptions {
   suppressInternalContinuation?: boolean;
+  preserveUnknownToolOutcomes?: boolean;
   turnId?: string;
   runDurationMs?: number;
   scope?: { type: string; id: string } | null;
@@ -327,7 +328,10 @@ export function buildAssistantMessage(
 
   const continued = endedAtInternalContinuationBoundary;
   if (userStoppedRun || !continued) {
-    settleInterruptedToolCalls(content, userStoppedRun);
+    settleInterruptedToolCalls(
+      content,
+      userStoppedRun && !options.preserveUnknownToolOutcomes,
+    );
   }
 
   const custom: Record<string, unknown> = {};

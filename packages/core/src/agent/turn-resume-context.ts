@@ -20,7 +20,7 @@ export function buildTurnResumeContext(options: {
     const assistant = buildAssistantMessage(
       options.events.map((event, seq) => ({ seq, event })),
       "durable-resume",
-      { suppressInternalContinuation: true },
+      { suppressInternalContinuation: true, preserveUnknownToolOutcomes: true },
     );
     if (assistant) {
       const ledgerMessages = threadDataToEngineMessages(

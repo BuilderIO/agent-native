@@ -1400,6 +1400,8 @@ const preValidatedForContext = new WeakMap<
   { schema: StandardSchemaV1; value: unknown }
 >();
 
+export class ActionInputValidationError extends Error {}
+
 export async function validateActionArgs(
   schema: StandardSchemaV1,
   args: unknown,
@@ -1451,7 +1453,7 @@ export async function validateActionArgs(
       ? ` Expected: ${signature} (where * = required, ? = optional).`
       : "";
 
-    throw new Error(
+    throw new ActionInputValidationError(
       `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
     );
   }

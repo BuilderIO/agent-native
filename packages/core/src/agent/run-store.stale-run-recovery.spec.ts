@@ -102,6 +102,9 @@ describe("recovery ledger integrity", () => {
     '{"type":"tool_start","tool":"send-email"}',
     '{"type":"tool_done","tool":"send-email"}',
     '{"type":"tool_start ","tool":"send-email","input":{}}',
+    '{"type":"tool_done","tool":"send-email","result":"failed","isError":"true"}',
+    '{"type":"tool_done","tool":"send-email","result":"failed","completedSideEffect":"false"}',
+    '{"type":"tool_done","tool":"send-email","result":"failed","replayed":null}',
   ])(
     "rejects a malformed event instead of returning partial history: %s",
     async (raw) => {
@@ -122,6 +125,32 @@ describe("recovery ledger integrity", () => {
       ).rejects.toThrow();
     },
   );
+  it("reads a truncated raw tool input followed by its non-execution result", async () => {
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    const events = [
+      {
+        type: "tool_start",
+        tool: "send-email",
+        id: "truncated",
+        input: '{"body":',
+      },
+      {
+        type: "tool_done",
+        tool: "send-email",
+        id: "truncated",
+        result: "Invalid action parameters for send-email",
+        isError: true,
+        completedSideEffect: false,
+      },
+    ];
+    const insert = await pglite.prepare(
+      "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+    );
+    for (const [index, event] of events.entries())
+      await insert.run(runId, index, Date.now(), JSON.stringify(event));
+    expect(await getCurrentTurnEventsForThread(thread, turn)).toEqual(events);
+  });
 });
 
 async function setStaleLiveness(runId: string, atMs: number): Promise<void> {

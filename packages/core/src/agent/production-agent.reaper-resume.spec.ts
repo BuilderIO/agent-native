@@ -1,6 +1,12 @@
 import { mockEvent } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
+import {
+  ActionContractError,
+  AgentConnectionRequiredError,
+  defineAction,
+} from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import type {
   AgentEngine,
@@ -15,6 +21,10 @@ const ledger = vi.hoisted(() =>
 const threadRead = vi.hoisted(() =>
   vi.fn(async (): Promise<{ id: string; threadData: string } | null> => null),
 );
+vi.mock("../server/self-dispatch.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/self-dispatch.js")>()),
+  fireInternalDispatch: vi.fn(async () => {}),
+}));
 vi.mock("../chat-threads/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../chat-threads/store.js")>()),
   getThread: threadRead,
@@ -53,8 +63,14 @@ beforeEach(() => {
 async function recover(
   events: AgentChatEvent[] | Error,
   ignoreContext: boolean | "after-read" = false,
-  isRecovery: boolean | "client" = true,
-  failFinalization: boolean | "serialization" | "action" = false,
+  isRecovery: boolean | "client" | "continuation" = true,
+  failFinalization:
+    | boolean
+    | "serialization"
+    | "action"
+    | "validation"
+    | "precondition"
+    | "connection" = false,
   resumeContinue?: "auto" | "manual",
 ) {
   sequence++;
@@ -68,6 +84,14 @@ async function recover(
   else ledger.mockResolvedValue(events);
   const seen: EngineMessage[][] = [];
   const sendEmail = vi.fn(async (_input: Record<string, unknown>) => {
+    if (failFinalization === "precondition")
+      throw new ActionContractError("Account is not enabled", {
+        errorCode: "permanent_precondition",
+      });
+    if (failFinalization === "connection")
+      throw new AgentConnectionRequiredError("Connect the email provider", {
+        provider: "test-email",
+      });
     if (failFinalization === "action")
       throw new Error("connection reset after send");
     if (failFinalization === "serialization") {
@@ -120,7 +144,7 @@ async function recover(
               id: "email-2",
               name: "send-email",
               input:
-                isRecovery === true
+                isRecovery === true || isRecovery === "continuation"
                   ? { ...EMAIL, body: "Your refund has been approved." }
                   : EMAIL,
             },
@@ -164,6 +188,16 @@ async function recover(
         },
         readOnly: false,
         run: sendEmail,
+        ...(failFinalization === "validation"
+          ? defineAction({
+              description: "Send email",
+              readOnly: false,
+              schema: z
+                .object({ to: z.string(), body: z.string() })
+                .refine(() => false, "Recipient is not eligible"),
+              run: sendEmail,
+            })
+          : {}),
         ...(failFinalization === true
           ? {
               fileMutationProof: () => {
@@ -180,17 +214,30 @@ async function recover(
       : "Send the refund email, then finish the refund.",
     threadId,
     turnId,
-    ...(isRecovery === true ? { internalContinuation: true } : {}),
-    ...(isRecovery ? { __agentChatRecoveryOfRunId: "dead-worker" } : {}),
+    ...(isRecovery === true || isRecovery === "continuation"
+      ? { internalContinuation: true }
+      : {}),
+    ...(isRecovery === true || isRecovery === "client"
+      ? { __agentChatRecoveryOfRunId: "dead-worker" }
+      : {}),
     ...(isRecovery !== "client"
-      ? { __backgroundRun: { runId, turnId, payloadRef: true } }
+      ? {
+          __backgroundRun: {
+            runId,
+            turnId,
+            payloadRef: true,
+            ...(isRecovery === "continuation"
+              ? { continuationCount: 1, continuationReason: "run_timeout" }
+              : {}),
+          },
+        }
       : {}),
     ...(resumeContinue === "auto"
       ? { autoContinueOfRunId: "stopped-run" }
       : {}),
     ...(resumeContinue === "manual" ? { continueOfRunId: "stopped-run" } : {}),
   };
-  if (resumeContinue) {
+  if (resumeContinue || isRecovery === "continuation") {
     const { buildUserMessage, buildAssistantMessage } =
       await import("./thread-data-builder.js");
     threadRead.mockResolvedValue({
@@ -205,7 +252,10 @@ async function recover(
           },
           {
             message: buildAssistantMessage(
-              [START, DONE].map((event, seq) => ({ event, seq })),
+              (isRecovery === "continuation" && !(events instanceof Error)
+                ? events
+                : [START, DONE]
+              ).map((event, seq) => ({ event, seq })),
               "stopped-run",
             ),
           },
@@ -228,10 +278,19 @@ async function recover(
   );
   if (response instanceof ReadableStream) await new Response(response).text();
   await vi.waitFor(
-    async () =>
+    async () => {
+      if (failFinalization === "connection") {
+        expect(
+          (await getRunEventsSince(runId, -1)).some(
+            ({ eventData }) => JSON.parse(eventData).type === "tool_done",
+          ),
+        ).toBe(true);
+        return;
+      }
       expect(
         (await getRunByThread(threadId, { includeTerminal: true }))?.status,
-      ).not.toBe("running"),
+      ).not.toBe("running");
+    },
     { timeout: 15_000 },
   );
   return {
@@ -248,6 +307,49 @@ async function recover(
 }
 
 describe("reaper successor resume context", () => {
+  it("blocks the same write tool after an ambiguous error at an ordinary continuation boundary", async () => {
+    const result = await recover(
+      [
+        START,
+        {
+          ...DONE,
+          isError: true,
+          completedSideEffect: undefined,
+          outcomeUnknown: true,
+          result: "Connection reset after send",
+        },
+        { type: "auto_continue", reason: "run_timeout" },
+      ],
+      true,
+      "continuation",
+    );
+    expect(result.sendEmail).not.toHaveBeenCalled();
+    expect(result.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
+  });
+  it.each(["validation", "precondition", "connection"] as const)(
+    "keeps a typed pre-execution refusal distinct from an unknown write (%s)",
+    async (failure) => {
+      const first = await recover([], false, false, failure);
+      if (failure === "validation")
+        expect(first.sendEmail).not.toHaveBeenCalled();
+      const events = (await getRunEventsSince(first.runId, -1)).map(
+        ({ eventData }) => JSON.parse(eventData) as AgentChatEvent,
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          completedSideEffect: false,
+        }),
+      );
+      expect(
+        events
+          .filter((event) => event.type === "tool_done")
+          .some((event) => event.outcomeUnknown),
+      ).toBe(false);
+      const next = await recover(events, true);
+      expect(next.sendEmail).toHaveBeenCalledTimes(1);
+    },
+  );
   it.each(["auto", "manual"] as const)(
     "recovers a killed %s continuation with its original prompt and unique tool ids",
     async (trigger) => {
@@ -335,10 +437,12 @@ describe("reaper successor resume context", () => {
     expect(ledger).toHaveBeenCalledWith(result.threadId, result.turnId);
   });
 
-  it.each(["single", "stale", "multi-hop"])(
+  it.each(["single", "stale", "multi-hop", "earlier-stop"])(
     "pairs an unknown email with an interrupted result before recovery (%s)",
     async (boundary) => {
       const events: AgentChatEvent[] = [START];
+      if (boundary === "earlier-stop")
+        events.unshift({ type: "done", reason: "user" });
       if (boundary === "multi-hop")
         events.unshift({ type: "auto_continue", reason: "run_timeout" });
       if (boundary !== "single")

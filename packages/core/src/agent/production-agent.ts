@@ -26,6 +26,7 @@ import {
 } from "../action-ui.js";
 import {
   AgentConnectionRequiredError,
+  ActionInputValidationError,
   describeToolParameterSignature,
   isActionContractError,
   isActionHiddenFromEveryAgentSurface,
@@ -6347,6 +6348,7 @@ export async function runAgentLoop(opts: {
       };
       let toolDoneEmitted = false;
       let actionInvoked = false;
+      let actionRefused = false;
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
@@ -7348,6 +7350,11 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
+          actionRefused =
+            err instanceof ActionInputValidationError ||
+            isAgentConnectionRequiredError(err) ||
+            ((isActionContractError(err) || isAgentActionStopError(err)) &&
+              err.errorCode === "permanent_precondition");
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
             : undefined;
@@ -7486,7 +7493,7 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
-            ? actionInvoked && !actionIsReadOnly
+            ? actionInvoked && !actionIsReadOnly && !actionRefused
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }
             : receipt
@@ -7533,7 +7540,7 @@ export async function runAgentLoop(opts: {
             input: toolCall.input as Record<string, unknown>,
             result,
             isError: true,
-            ...(actionInvoked && !actionIsReadOnly
+            ...(actionInvoked && !actionIsReadOnly && !actionRefused
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }),
           });
