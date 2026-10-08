@@ -878,6 +878,7 @@ async function openSlide(
   deckId: string,
   index: number,
   slideId: string,
+  options: { canvasTimeoutMs?: number } = {},
 ) {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -885,12 +886,40 @@ async function openSlide(
         waitUntil: "domcontentloaded",
         timeout: 90_000,
       });
-      await page.waitForSelector(canvasSelector(slideId), { timeout: 45_000 });
+      await page.waitForSelector(canvasSelector(slideId), {
+        timeout: options.canvasTimeoutMs ?? 45_000,
+      });
       break;
     } catch (error) {
-      // A first load can 504 "Outdated Optimize Dep" and full-reload, and a
-      // loaded dev server can miss the navigation deadline.
-      if (attempt >= 2) throw error;
+      // The first route can race Vite dependency optimization; navigating
+      // again after its full reload uses the completed optimized dependency set.
+      if (attempt < 2) continue;
+      let pageState: unknown;
+      try {
+        pageState = await page.evaluate(() => ({
+          url: location.href,
+          readyState: document.readyState,
+          title: document.title,
+          bodyText: document.body.innerText.slice(0, 500),
+          mainCanvasCount: document.querySelectorAll(
+            '[data-main-slide-canvas="true"]',
+          ).length,
+          slideCanvases: Array.from(
+            document.querySelectorAll<HTMLElement>(
+              '[data-main-slide-canvas="true"] [data-slide-canvas]',
+            ),
+          ).map((element) => ({
+            id: element.dataset.slideCanvas,
+            width: element.getBoundingClientRect().width,
+            height: element.getBoundingClientRect().height,
+          })),
+        }));
+      } catch (diagnosticError) {
+        pageState = `unavailable: ${String(diagnosticError)}`;
+      }
+      throw new Error(
+        `${String(error)}\nCanvas wait page state: ${JSON.stringify(pageState)}`,
+      );
     }
   }
   await page.mouse.move(0, 0);
@@ -6828,7 +6857,30 @@ async function warmUp(page: Page, base: string) {
     ],
   });
   const deckId = String(created.id ?? created.deckId);
-  await openSlide(page, base, deckId, 0, "warm-1");
+  // The first editor route can trigger Vite dependency optimization and a
+  // full-page reload; let that cold browser warm-up finish before retrying.
+  const browserErrors: string[] = [];
+  const onConsole = (message: any) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  };
+  const onPageError = (error: Error) => browserErrors.push(error.message);
+  page.on("console", onConsole);
+  page.on("pageerror", onPageError);
+  try {
+    await openSlide(page, base, deckId, 0, "warm-1", {
+      canvasTimeoutMs: 120_000,
+    });
+  } catch (error) {
+    if (browserErrors.length) {
+      console.error(
+        `[edit-fidelity] warm-up browser errors: ${browserErrors.slice(-20).join(" | ")}`,
+      );
+    }
+    throw error;
+  } finally {
+    page.off("console", onConsole);
+    page.off("pageerror", onPageError);
+  }
   const [target] = await listTargets(page, "warm-1");
   if (target && (await enterEdit(page, "warm-1", target.point, []))) {
     await exitEdit(page, "warm-1", "escape");
