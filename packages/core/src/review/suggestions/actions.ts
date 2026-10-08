@@ -403,7 +403,16 @@ export const listResourceSuggestions = defineAction({
   schema: z.object({
     ...base,
     statuses: z
-      .array(z.enum(["pending", "accepted", "rejected", "stale", "superseded"]))
+      .array(
+        z.enum([
+          "pending",
+          "accepted",
+          "rejected",
+          "stale",
+          "superseded",
+          "withdrawn",
+        ]),
+      )
       .optional(),
   }),
   http: { method: "GET" },
@@ -451,12 +460,28 @@ export const getResourceSuggestion = defineAction({
   },
 });
 
+function decisionAccessRole(
+  suggestion: Pick<ResourceSuggestion, "authorEmail">,
+  decision: "accepted" | "rejected" | "withdrawn",
+  ctx: unknown,
+) {
+  if (decision !== "withdrawn") return "editor";
+  const author = (ctx as any)?.userEmail;
+  if (!author || author !== suggestion.authorEmail) {
+    fail("Only the author can withdraw this suggestion", {
+      statusCode: 403,
+      errorCode: "forbidden",
+    });
+  }
+  return "commenter";
+}
+
 export const decideResourceSuggestion = defineAction({
   description:
-    "Accept or reject a pending suggestion atomically. An accept that can no longer be placed on the current resource fails with 409 `suggestion_stale`, changes nothing, and leaves the suggestion pending.",
+    "Accept or reject a pending suggestion atomically, which needs edit access. An accept that can no longer be placed on the current resource fails with 409 `suggestion_stale`, changes nothing, and leaves the suggestion pending. Its author may instead withdraw it with comment access; a withdrawn suggestion was never reviewed and leaves the resource unchanged.",
   schema: z.object({
     id: z.string().min(1),
-    decision: z.enum(["accepted", "rejected"]),
+    decision: z.enum(["accepted", "rejected", "withdrawn"]),
     idempotencyKey: z.string().min(1),
     observedBase: z.string().min(1),
     observedRevision: z.number().int().positive().optional(),
@@ -468,7 +493,7 @@ export const decideResourceSuggestion = defineAction({
       suggestion.resourceType,
       suggestion.resourceId,
       ctx as any,
-      "editor",
+      decisionAccessRole(suggestion, args.decision, ctx),
     );
     const db = getDbExec();
     if (!db.transaction)
@@ -507,7 +532,7 @@ export const decideResourceSuggestion = defineAction({
           current.resourceType,
           current.resourceId,
           { ...(ctx as any), transaction: tx },
-          "editor",
+          decisionAccessRole(current, args.decision, ctx),
         );
         if (current.status !== "pending") {
           return replayDecision(tx);
@@ -524,7 +549,12 @@ export const decideResourceSuggestion = defineAction({
           currentAdapter.version !== current.adapterVersion
         )
           throw new Error("Suggestion adapter version is unavailable");
-        if (current.baseRevision !== args.observedBase) {
+        // Withdrawing never applies the suggestion, so a base that moved on
+        // since the author last saw it is no conflict.
+        if (
+          args.decision !== "withdrawn" &&
+          current.baseRevision !== args.observedBase
+        ) {
           fail("The suggestion changed; refresh before deciding", {
             statusCode: 409,
             errorCode: "suggestion_conflict",
@@ -590,18 +620,21 @@ export const decideResourceSuggestion = defineAction({
           decision: prior.record,
         };
       });
-    const decisionContext = {
-      resourceType: suggestion.resourceType,
-      resourceId: suggestion.resourceId,
-      suggestion,
-      operations: suggestion.operations,
-      decision: args.decision,
-      access,
-      ctx: { ...(ctx as any), suggestionAccess: access },
-    };
-    return adapter.coordinateDecision
-      ? adapter.coordinateDecision(decisionContext, decide)
-      : decide();
+    if (args.decision === "accepted" && adapter.coordinateDecision) {
+      return adapter.coordinateDecision(
+        {
+          resourceType: suggestion.resourceType,
+          resourceId: suggestion.resourceId,
+          suggestion,
+          operations: suggestion.operations,
+          decision: args.decision,
+          access,
+          ctx: { ...(ctx as any), suggestionAccess: access },
+        },
+        decide,
+      );
+    }
+    return decide();
   },
   audit: {
     target: (_args, result) => {

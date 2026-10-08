@@ -3,11 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { signA2AToken } from "@agent-native/core/a2a";
+import { canonicalA2AAudience, signA2AToken } from "@agent-native/core/a2a";
 import { isActionContractError } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import {
-  getOrgA2ASecret,
   getOrgDomain,
   isWorkspaceAppAccessAllowed,
 } from "@agent-native/core/org";
@@ -108,10 +107,11 @@ class AppCreationSettingsAuthorizationError extends Error {
 }
 
 class WorkspaceAppsGatewayAuthorizationError extends Error {
-  constructor(statusCode: 401 | 403) {
-    super(
-      `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
-    );
+  constructor(
+    statusCode: 401 | 403,
+    message = `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
+  ) {
+    super(message);
     this.name = "WorkspaceAppsGatewayAuthorizationError";
     this.statusCode = statusCode;
   }
@@ -1677,41 +1677,27 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     return null;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
-  );
-
   const requestContext = getRequestContext();
   const authHeaders: Record<string, string> = {};
   if (requestContext?.userEmail) {
-    const [orgDomain, orgSecret] = requestContext.orgId
-      ? await Promise.all([
-          // coercion-ok: an unavailable org row falls back to the deployment secret.
-          getOrgDomain(requestContext.orgId).catch(() => null),
-          // coercion-ok: an unavailable org row falls back to the deployment secret.
-          getOrgA2ASecret(requestContext.orgId).catch(() => null),
-        ])
-      : [null, null];
-    const usableOrgSecret =
-      typeof orgSecret === "string" && orgSecret.trim().length > 0;
-    const usableOrgDomain =
-      typeof orgDomain === "string" && orgDomain.trim().length > 0;
+    const orgDomain = requestContext.orgId
+      ? (await getOrgDomain(requestContext.orgId))?.trim().toLowerCase()
+      : undefined;
+    if (requestContext.orgId && !orgDomain) {
+      throw new WorkspaceAppsGatewayAuthorizationError(
+        401,
+        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
+      );
+    }
     try {
       const token = await signA2AToken(
         requestContext.userEmail,
-        usableOrgDomain ? orgDomain.trim() : undefined,
-        usableOrgSecret ? orgSecret.trim() : undefined,
+        orgDomain,
+        undefined,
         {
           expiresIn: "1m",
           preferGlobalSecret: true,
-          // Keep the exact request scope even when the org-domain lookup is
-          // unavailable. The receiver must never infer a different org from
-          // the caller's email in that case.
-          ...(requestContext.orgId
-            ? { extraClaims: { org_id: requestContext.orgId } }
-            : {}),
+          audience: canonicalA2AAudience(baseUrl.toString()),
         },
       );
       authHeaders.Authorization = `Bearer ${token}`;
@@ -1722,6 +1708,12 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       // gateway will fail closed below when its action route needs identity.
     }
   }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
+  );
 
   const gatewayUrl = (pathname: string): URL => {
     const url = new URL(baseUrl.toString());

@@ -7,6 +7,8 @@
  */
 export const DEPLOY_SETTINGS_REQUIRED_CODE = "DEPLOY_SETTINGS_REQUIRED";
 
+export const AGENT_NATIVE_TYPEGEN_ENV = "AGENT_NATIVE_TYPEGEN";
+
 /**
  * The running server's answer to "which required settings is this deployment
  * missing?", from `getMissingDeploySettings()`. Each field comes from the same

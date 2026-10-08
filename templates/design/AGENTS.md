@@ -5,94 +5,71 @@ actions against shared SQL state.
 
 ## Skills
 
-Read the relevant skill before deeper work in that area.
+Read relevant guides before deeper work:
+- `.agents/skills/design-generation/SKILL.md` — for generation, adaptation, and readiness checks.
+- `.agents/skills/design-templates/SKILL.md` — when reusing existing Design work.
+- `.agents/skills/responsive-breakpoints/SKILL.md` — for breakpoint editing.
+- `.agents/skills/design-systems/SKILL.md` — for tokens, brand extraction, or Figma.
+- `.agents/skills/design-figma-parity/SKILL.md` — for evidence rules on measured Figma behavior claims.
+- `.agents/skills/creative-context/SKILL.md` — for cross-app sources and governed context.
+- `.agents/skills/design-review-feedback/SKILL.md` — for persisted review comments.
+- `.agents/skills/export-handoff/SKILL.md` — for exports and coding handoffs.
+- `.agents/skills/full-app-build/SKILL.md` — for fusion-backed app builds.
+- `.agents/skills/shader-fills/SKILL.md` — for GLSL fills/effects.
 
-- `design-generation` — generation flow, quality bar, code layers/workspace,
-  breakpoints, components, motion, imagery, locked subtrees, and state.
-- `design-templates` — resolving, saving, copying, adapting templates or prior
-  Design work without fresh generation.
-- `responsive-breakpoints` — Framer-style breakpoint editing.
-- `design-systems` — tokens, brand extraction, Figma import/read/paste, and
-  fidelity requirements.
-- `creative-context` — source reuse, pinned packs, provenance, opt-out, and
-  governed Context submission.
-- `design-review-feedback` — persisted, element-anchored review comments to a
-  verified close.
-- `export-handoff` — HTML/PNG/SVG/ZIP/code and coding handoffs.
-- `full-app-build` — source modes and flag-gated fusion-backed app building.
-- `shader-fills` — code-backed GLSL shader fills/effects.
-- `capture-learnings` — record a user preference or correction so it outlives
-  the thread.
+`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
+`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
+`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
+`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
+`.agents/skills/performance/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`,
+`.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
+
+## Framework Docs
+
+Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
 
 ## Actions
 
 | Action | Purpose |
 | --- | --- |
-| `list-design-templates` / `list-designs` | Search paginated templates or designs |
-| `generate-home-suggestions` | Personalized home prompts |
-| `read-composer-source` | Read bounded Design, Slides, or Figma references |
-| `create-design-from-template` | Copy a template into a new design; screens keep their `createdFromTemplate` locks |
-| `get-design-snapshot` / `get-design-template` | Inspect a copied design's current files, or the original template |
-| `open-visual-edit` | Open a localhost app as live iframe screens without Design login |
-| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set snapshot opt-in; signed-in editors can enable it |
-| `add-localhost-screens` / `update-screen-source` | Add routes/states or switch a screen between live URL and static HTML |
-| `add-breakpoint` / `remove-breakpoint` | Manage responsive frames on the canvas |
-| `edit-design` | Adapt an existing or copied design/screen in place |
-| `apply-visual-edit` | Make deterministic layer edits; `booleanSubtract` creates an editable mask from supported selected sibling shapes |
-| `create-design` | Start a new design (empty shell, `renderable: false`) |
-| `generate-design` | Generate a fresh screen — never for a copied template screen |
-| `present-design-variants` | Generate 2-5 variants for the user to pick and refine |
-| `view-screen` | Re-read the current design or selected file when context is stale |
-| `navigate` | Move the UI to a design, file, or panel |
-| `export-png` | Export screen as PNG |
-| `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export a finished design |
+| `list-design-templates` / `list-designs` | Search paged templates/designs |
+| `generate-home-suggestions` | Suggest prompts |
+| `read-composer-source` | Read bounded Design/Slides/Figma sources |
+| `create-design-from-template` | Copy template; source screens stay locked |
+| `get-design-snapshot` / `get-design-template` | Inspect design or source template |
+| `open-visual-edit` | Open localhost screens |
+| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set collaboration opt-in |
+| `add-localhost-screens` / `update-screen-source` | Add screens; change source mode |
+| `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
+| `edit-design` | Adapt a design/screen |
+| `apply-visual-edit` | Apply deterministic layer edits |
+| `create-design` / `generate-design` | Start empty design / generate a fresh screen |
+| `present-design-variants` | Generate 2–5 variants |
+| `view-screen` / `navigate` | Read current screen / move UI |
+| `export-png` | Export PNG |
+| `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
 
 ## Core Rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
+- Use actions for design data and writes; never write design rows directly with SQL.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- Use app actions for designs, files, versions, systems, variants, exports, and
-  sharing; do not write design rows directly with SQL.
-- A message beginning with `[Reprompt selection]` is preview-only: the only
-  mutation path is `propose-node-rewrite`; never call a content writer.
-  `[Selection question]` is read-only: answer about the captured element and
-  subtree without calling content-writing actions.
-- Generated files must be complete, standalone HTML (Alpine.js + Tailwind CDN)
-  that renders in the iframe without a build step. See `design-generation` for
-  the phases, quality bar, and the audit/screenshot pass required before
-  calling a design "ready".
-- Treat `data-agent-native-locked="true"` as authoritative — see
-  `design-generation` for locked-subtree rules.
-- Use `apply-visual-edit` with `intent.kind="booleanSubtract"` for two or more
-  consecutive sibling rectangles or ellipses with absolute pixel geometry and
-  solid fills. The first layer in source order supplies the result paint; the original
-  operands remain editable under the Subtract layer. Other shapes, custom
-  markup, non-solid paints, and non-sibling selections are not converted.
-- Source modes: `inline`, `localhost`, and `fusion` (`full-app-build`). Public
-  `/design/:id` is read-only; `/visual-edit/:id` allows DOM-only localhost
-  edits. Source writes and snapshot publishing require editor access.
-  `capability:visual-edit` scopes handoff actions. External agents use
-  `get-visual-edit-pending`; browser agents use the page-local tool.
+- `[Reprompt selection]` is preview-only: only `propose-node-rewrite` may mutate. `[Selection question]` is read-only; answer without content-writing actions.
+- Generated files are complete standalone HTML (Alpine.js + Tailwind CDN), rendered without a build step. Follow `design-generation` for its quality/audit pass and `data-agent-native-locked="true"` for locked subtrees.
+- Source modes are `inline`, `localhost`, and `fusion` (`full-app-build`). `/design/:id` is read-only; `/visual-edit/:id` allows DOM-only localhost edits. Source writes and snapshot publishing require editor access.
+- `capability:visual-edit` scopes handoff actions. External agents use `get-visual-edit-pending`; browser agents use the page-local tool.
 
 ## Application State
 
-- `navigation` — current view, design id, file id, and related UI state.
-- `visual-edit` — last project and connection; same-connection opens resume unless `newDesign` is true.
-- `navigate` — moves the UI in the tab that asked; auto-deleted after the
-  client consumes it.
-- `design-selection` — active screen, selected element, overview mode,
-  inspector tab, zoom, screen list, and `layoutGrid`.
-- `design-generation-session:<designId>`, `show-questions`, `guided-questions` —
-  generation planning, pre-generation questions, and the variant chat choice;
-  see `design-generation`.
-- `design-reprompt-pending:<designId>:<fileId>` /
-  `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` — the
-  compare-and-set reprompt request/proposal pair. Both must be present and
-  matched before `propose-node-rewrite`; a stale pair is never applied.
+- `navigation`: current view, design/file id, and related UI state.
+- `visual-edit`: last project/connection; same-connection opens resume unless `newDesign` is true.
+- `navigate`: transient request to move the requesting tab; deleted after consumption.
+- `design-selection`: active screen/element, overview, inspector, zoom, screen list, and `layoutGrid`.
+- `design-generation-session:<designId>`, `show-questions`, `guided-questions`: generation planning and variant choice; see `design-generation`.
+- `design-reprompt-pending:<designId>:<fileId>` and `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` must be present and matched before `propose-node-rewrite`.
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI. Editor behavior lives in
-`app/pages/design-editor/commands/*.ts`, not `DesignEditor.tsx` — read
-`design-editor-architecture` before changing it.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor behavior lives in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before changing it.
+
+Search with `rg --hidden --follow`; read the exact linked guide before deeper work.

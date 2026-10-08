@@ -17,6 +17,7 @@ import { cliSpawnOptions, runDevServer } from "./process.js";
 import {
   findBinUpwards,
   findReactRouterInvocation,
+  reactRouterTypegenEnv,
 } from "./react-router-command.js";
 import {
   captureSentryException as captureOptionalSentryException,
@@ -689,13 +690,15 @@ switch (command) {
     if (isReactRouterFramework()) {
       validateReactRouterBuildDependencies();
       const rr = findReactRouterInvocation(["typegen"]);
+      const env = reactRouterTypegenEnv();
       try {
         if (rr.shell) {
           execSync(`${rr.command} ${rr.args.join(" ")}`, {
             stdio: "inherit",
+            env,
           });
         } else {
-          execFileSync(rr.command, rr.args, { stdio: "inherit" });
+          execFileSync(rr.command, rr.args, { stdio: "inherit", env });
         }
       } catch {
         // typegen may fail if routes aren't set up yet; continue to TypeScript.

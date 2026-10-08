@@ -43,7 +43,7 @@ npx @agent-native/core@latest connect https://clips.agent-native.com \
 
 Copy the printed token directly into your product's server-side secret manager. The token is organization-owned, so it continues working if the person who minted it leaves the organization or revokes their personal tokens. It is never written to a local client configuration. Use a different service name for each integration so one caller can be revoked without breaking another.
 
-`--ttl-days` accepts 1 to 365 days and defaults to 365. The token acts as an organization member. It cannot create or revoke other service tokens or change organization settings.
+`--ttl-days` accepts 1 to 3650 days and defaults to 365. The token acts as an organization member. It cannot create or revoke other service tokens or change organization settings.
 
 ## Request an intake URL
 

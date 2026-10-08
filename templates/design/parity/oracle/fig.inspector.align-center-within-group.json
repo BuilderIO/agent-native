@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "fig.inspector.align-center-within-group",
+  "claim": "Clicking Align horizontal centers in the inspector centers a selected child on its immediate Group inside a Frame.",
+  "area": "inspector.alignment",
+  "basis": "measured",
+  "status": "current",
+  "measuredBy": "figma-desktop-app-click",
+  "operator": "Claude",
+  "date": "2026-10-06",
+  "gesture": "Reset the 80x80 child to frame-relative X=100,Y=100 inside its Group, then click Align horizontal centers in the inspector.",
+  "nativeObservation": "The child X becomes 60, the Group center at 100 minus half the 80px child width; Y stays 100. The horizontal constraint changed from Left to Center in this one trial; its cause was not isolated.",
+  "trials": "One raw pointer click after resetting the child position.",
+  "values": {
+    "before": { "x": 100, "y": 100 },
+    "after": { "x": 60, "y": 100 },
+    "groupBounds": { "left": 20, "right": 180, "center": 100 },
+    "childSize": { "width": 80, "height": 80 },
+    "positionReadout": "frame-relative"
+  },
+  "figma": {
+    "fileKeyWithheld": true,
+    "pageName": "not captured; private scratch page name withheld",
+    "appBuild": "not captured"
+  },
+  "source": "Measured by Claude in Figma Desktop, as recorded in the 2026-10-06 native Figma ledger; this task did not operate Figma.",
+  "artifacts": [
+    {
+      "path": "templates/design/parity/oracle/fig.inspector.align-center-within-group/after.jpg",
+      "kind": "figma-screenshot",
+      "sha256": "cb60e2a0fbeca22d248bc365b9f66c7b0c7641dbbe6f35d37d74dd9624f7847c",
+      "sourceName": "O10-group-child-align-center-X60.jpg",
+      "sourceSha256": "cb60e2a0fbeca22d248bc365b9f66c7b0c7641dbbe6f35d37d74dd9624f7847c"
+    }
+  ]
+}

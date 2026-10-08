@@ -5,6 +5,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+type GateStatus = {
+  state: string;
+  role?: string;
+  canRequest?: boolean;
+  request?: { state: "pending"; requestedAt: string };
+};
+
 type QueryResult = {
   data?: unknown;
   isPending: boolean;
@@ -20,9 +27,10 @@ const mocks = vi.hoisted(() => ({
   queries: {} as Record<string, QueryResult>,
   useActionQuery: vi.fn(),
   gate: {
-    status: undefined as { state: string; role?: string } | undefined,
+    status: undefined as GateStatus | undefined,
     isError: false,
     refetch: vi.fn(),
+    requestAccess: vi.fn(),
     onAccessGranted: undefined as (() => void) | undefined,
     options: undefined as unknown,
   },
@@ -72,6 +80,9 @@ vi.mock("@agent-native/core/client/sharing", async (importOriginal) => ({
       isLoading: !mocks.gate.status && !mocks.gate.isError,
       isError: mocks.gate.isError,
       refetch: mocks.gate.refetch,
+      requestAccess: mocks.gate.requestAccess,
+      isRequesting: false,
+      requestError: null,
     };
   },
 }));
@@ -120,6 +131,7 @@ describe("DocumentAccessScreen", () => {
       mocks.signOut,
       mocks.restore,
       mocks.gate.refetch,
+      mocks.gate.requestAccess,
       mocks.rootRefetch,
       mocks.toast.success,
       mocks.toast.error,
@@ -138,10 +150,7 @@ describe("DocumentAccessScreen", () => {
     vi.unstubAllGlobals();
   });
 
-  function render(
-    status: { state: string; role?: string } | undefined,
-    reloading = false,
-  ) {
+  function render(status: GateStatus | undefined, reloading = false) {
     mocks.gate.status = status;
     act(() => {
       root.render(
@@ -213,6 +222,51 @@ describe("DocumentAccessScreen", () => {
     act(() => container.querySelector("a")?.click());
 
     expect(container.textContent).toBe("landing");
+  });
+
+  it("offers Request access and Switch account when the page takes requests", async () => {
+    render({ state: "denied", canRequest: true });
+
+    expect(container.textContent).toContain(
+      "agentChat.accessGate.requestDescription",
+    );
+    expect(
+      [...container.querySelectorAll("button")].map((b) => b.textContent),
+    ).toEqual([
+      "agentChat.accessGate.requestAccess",
+      "agentChat.accessGate.switchAccount",
+    ]);
+    expect(container.querySelector("a")).toBeNull();
+
+    act(() => button("agentChat.accessGate.requestAccess")?.click());
+    const send = [...document.body.querySelectorAll("button")].find(
+      (candidate) =>
+        candidate.textContent === "agentChat.accessGate.sendRequest",
+    );
+    await act(async () => send?.click());
+    expect(mocks.gate.requestAccess).toHaveBeenCalledWith("");
+  });
+
+  it("still says the request was sent after a reload", () => {
+    render({
+      state: "denied",
+      canRequest: false,
+      request: { state: "pending", requestedAt: "2026-10-01T10:00:00.000Z" },
+    });
+
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "agentChat.accessGate.requestSent",
+    );
+    expect(button("agentChat.accessGate.requestAccess")).toBeUndefined();
+    expect(button("agentChat.accessGate.switchAccount")).toBeDefined();
+  });
+
+  it("tells a signed-out visitor to sign in to request access", () => {
+    render({ state: "signed-out" });
+
+    expect(container.textContent).toContain(
+      "agentChat.accessGate.signedOutRequestDescription",
+    );
   });
 
   it("says a missing page doesn't exist, without the account or Switch account", () => {

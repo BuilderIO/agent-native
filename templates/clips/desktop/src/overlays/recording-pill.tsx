@@ -1377,7 +1377,7 @@ export function MeetingPill() {
                                 onClick={() =>
                                   void openExternal(
                                     new URL(
-                                      "/settings/agent",
+                                      "/settings/integrations/builder?builderConnect=1",
                                       loadStoredServerUrl(),
                                     ).toString(),
                                   )

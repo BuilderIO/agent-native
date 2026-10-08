@@ -23,10 +23,12 @@ Figma-behaviour_ question without one.
    them.
 2. **"Saved" is not "looked at".** An image you did not open with `Read` has
    told you nothing. State explicitly which images you opened.
-3. **No claim about Figma without a Figma capture or a measured inspector
-   value.** Inferring Figma's behaviour from the clip, from a frame reader, or
-   from memory is banned. "Figma behaves the same here" is the single most
-   expensive sentence you can write unmeasured — one capture settles it.
+3. **No claim about Figma without a current `fig.*` oracle record.** Open its
+   committed Figma artifact before relying on it; a screenshot pair, clip,
+   frame reader, or memory does not establish native behavior. For new captures
+   use `pnpm design:oracle-record` as described in
+   `.agents/skills/design-figma-parity/SKILL.md`; never hand-write a measured
+   record to work around a missing native session.
 4. **Never accept a subagent's written summary as the basis for a claim.** If a
    delegated agent reports "verified, matches Figma", that is a pointer, not
    evidence: open the images it saved.
@@ -66,6 +68,9 @@ PASS  drag card into auto-layout column
 FAIL  pasted vector keeps its fill
       app:   templates/design/.tmp/parity/shots/vec-app.png     <- fill paints the bounding box
       figma: templates/design/.tmp/parity/shots/vec-figma.png   <- fill follows the path
+      oracle: fig.<area>.<slug>
 ```
 
-A finding without both paths is not reportable.
+A Figma-parity finding without a current oracle ID and both capture paths is
+not reportable. Use `oracle: none — <reason>` for behavior that remains
+unmeasured.

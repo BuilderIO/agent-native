@@ -1,6 +1,7 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
-import { appPath } from "@agent-native/core/client/api-path";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
   type LocaleCode,
@@ -114,6 +115,19 @@ export function shouldRevalidate({
 }
 
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
+
+export function isContentEditorPath(pathname: string): boolean {
+  const basePath = appBasePath();
+  const appPathname =
+    basePath && pathname.startsWith(`${basePath}/`)
+      ? pathname.slice(basePath.length)
+      : pathname;
+  return /^\/page\/[^/]+\/?$/.test(appPathname);
+}
+
+export function computeSessionBypass(pathname: string): boolean {
+  return isContentEditorPath(pathname) && Boolean(getEmbedAuthToken());
+}
 
 // The startup shell draws before the i18n provider exists, so it reads its
 // copy straight from the locale messages the loader sent.
@@ -483,6 +497,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        sessionBypass={computeSessionBypass(location.pathname)}
         clientOnlyFallback={
           <ContentStartupShell
             pathname={location.pathname}

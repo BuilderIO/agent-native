@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.201.1",
+  "version": "0.203.1",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -36,7 +36,8 @@
     "src/templates/headless",
     "src/templates/chat",
     "src/templates/workspace-core",
-    "src/templates/workspace-root"
+    "src/templates/workspace-root",
+    "src/templates/factory"
   ],
   "type": "module",
   "sideEffects": [
@@ -365,6 +366,11 @@
     "./sharing/actions/unshare-resource": "./dist/sharing/actions/unshare-resource.js",
     "./sharing/actions/list-resource-shares": "./dist/sharing/actions/list-resource-shares.js",
     "./sharing/actions/get-resource-access-status": "./dist/sharing/actions/get-resource-access-status.js",
+    "./sharing/actions/request-resource-access": "./dist/sharing/actions/request-resource-access.js",
+    "./sharing/actions/get-resource-access-request": "./dist/sharing/actions/get-resource-access-request.js",
+    "./sharing/actions/list-resource-access-requests": "./dist/sharing/actions/list-resource-access-requests.js",
+    "./sharing/actions/approve-resource-access-request": "./dist/sharing/actions/approve-resource-access-request.js",
+    "./sharing/actions/decline-resource-access-request": "./dist/sharing/actions/decline-resource-access-request.js",
     "./sharing/actions/set-resource-visibility": "./dist/sharing/actions/set-resource-visibility.js",
     "./sharing/actions/create-agent-resource-link": "./dist/sharing/actions/create-agent-resource-link.js",
     "./client/sharing": "./dist/client/sharing/index.js",
@@ -472,6 +478,7 @@
     "./agent/chatgpt-subscription-contract": "./dist/agent/chatgpt-subscription-contract.js",
     "./agent/engine/provider-env-vars": "./dist/agent/engine/provider-env-vars.js",
     "./agent/model-config": "./dist/agent/model-config.js",
+    "./agent/model-version": "./dist/agent/model-version.js",
     "./app-config": "./dist/app-config/index.js",
     "./audit/types": "./dist/audit/types.js",
     "./changelog/parse": "./dist/changelog/parse.js",
@@ -527,6 +534,7 @@
     "./client/review/use-review": "./dist/client/review/use-review.js",
     "./client/settings": "./dist/client/tombstone/settings.js",
     "./client/sharing/share-controller-helpers": "./dist/client/sharing/share-controller-helpers.js",
+    "./client/sharing/useAccessRequestReview": "./dist/client/sharing/useAccessRequestReview.js",
     "./client/sharing/useResourceAccessGate": "./dist/client/sharing/useResourceAccessGate.js",
     "./client/sharing/useShareButtonController": "./dist/client/sharing/useShareButtonController.js",
     "./client/sharing/useShareDialogController": "./dist/client/sharing/useShareDialogController.js",
@@ -561,6 +569,7 @@
     "./observability/types": "./dist/observability/types.js",
     "./onboarding/types": "./dist/onboarding/types.js",
     "./onboarding/workspace-services": "./dist/onboarding/workspace-services.js",
+    "./onboarding/app-profile-data": "./dist/onboarding/app-profile-data.js",
     "./org/app-roles": "./dist/org/app-roles.js",
     "./org/permissions": "./dist/org/permissions.js",
     "./org/sign-in-methods": "./dist/org/sign-in-methods.js",

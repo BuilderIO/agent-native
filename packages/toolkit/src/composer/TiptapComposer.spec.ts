@@ -969,6 +969,1112 @@ describe("createTiptapComposerExtensions", () => {
     );
   });
 
+  it("serializes scope cleanup behind submitted attachment removal", async () => {
+    let releaseRemoval!: () => void;
+    let notifyRemovalStarted!: () => void;
+    const removalGate = new Promise<void>((resolve) => {
+      releaseRemoval = resolve;
+    });
+    const removalStarted = new Promise<void>((resolve) => {
+      notifyRemovalStarted = resolve;
+    });
+    const removeAttachment = vi.fn(async () => {
+      notifyRemovalStarted();
+      await removalGate;
+    });
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: file.name,
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: removeAttachment,
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn();
+    let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness({ draftScope }: { draftScope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      localRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("finish submitted cleanup"));
+    await act(async () => {
+      await focusRef.current!.addAttachment(
+        new File(["submitted"], "submitted.txt", { type: "text/plain" }),
+      );
+    });
+
+    let submitting!: Promise<boolean>;
+    act(() => {
+      submitting = focusRef.current!.submit!();
+    });
+    await act(async () => {
+      await removalStarted;
+    });
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(removeAttachment).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      releaseRemoval();
+      await submitting;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(removeAttachment).toHaveBeenCalledOnce();
+    expect(localRuntime!.thread.composer.getState().attachments).toEqual([]);
+  });
+
+  it("waits for submitted attachment removal before accepting a same-file follow-up", async () => {
+    let resolveSubmit!: () => void;
+    const submission = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    let resolveRemoval!: () => void;
+    const removal = new Promise<void>((resolve) => {
+      resolveRemoval = resolve;
+    });
+    let resolveSubmissionSettled!: () => void;
+    const submissionSettled = new Promise<void>((resolve) => {
+      resolveSubmissionSettled = resolve;
+    });
+    let submissionStarted = false;
+    let nextAttachmentId = 0;
+    const removeAttachment = vi.fn(() => removal);
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: `${file.name}-${++nextAttachmentId}`,
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: removeAttachment,
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn<NonNullable<TiptapComposerProps["onSubmit"]>>(
+      (_text, _references, _attachments, options) => {
+        submissionStarted = true;
+        options?.onLocalSubmit?.();
+        return submission;
+      },
+    );
+    let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      localRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            onSubmissionPendingChange: (pending) => {
+              if (!pending && submissionStarted) resolveSubmissionSettled();
+            },
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("send this once"));
+    const fileInput =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const selectFile = async () => {
+      const file = new File(["same file"], "same.pdf", {
+        type: "application/pdf",
+      });
+      Object.defineProperty(fileInput, "files", {
+        configurable: true,
+        value: [file],
+      });
+      await act(async () => {
+        fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      return file;
+    };
+    await selectFile();
+
+    try {
+      const editor = container.querySelector(
+        ".agent-composer-prosemirror",
+      ) as HTMLElement;
+      await act(async () => {
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "Enter",
+          }),
+        );
+        await vi.waitFor(() => {
+          expect(onSubmit).toHaveBeenCalledOnce();
+          expect(removeAttachment).toHaveBeenCalledOnce();
+        });
+      });
+
+      resolveSubmit();
+      await act(async () => {
+        await submission;
+        await submissionSettled;
+      });
+      const followUpFile = await selectFile();
+      expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
+        2,
+      );
+      resolveRemoval();
+      await act(async () => {
+        await vi.waitFor(() =>
+          expect(
+            localRuntime!.thread.composer.getState().attachments,
+          ).toHaveLength(1),
+        );
+      });
+
+      expect(localRuntime!.thread.composer.getState().attachments[0].file).toBe(
+        followUpFile,
+      );
+    } finally {
+      resolveSubmit();
+      resolveRemoval();
+    }
+  });
+
+  it("removes an attachment whose upload settles after its draft scope changes", async () => {
+    let releaseOldAdd!: () => void;
+    let notifyOldAddStarted!: () => void;
+    const oldAddStarted = new Promise<void>((resolve) => {
+      notifyOldAddStarted = resolve;
+    });
+    const oldAddGate = new Promise<void>((resolve) => {
+      releaseOldAdd = resolve;
+    });
+    let nextAttachmentId = 0;
+    const addedFiles: string[] = [];
+    let removeAttempts = 0;
+    const removedAttachments = vi.fn(async () => {
+      if (++removeAttempts === 1) {
+        throw new Error("temporary cleanup failure");
+      }
+    });
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => {
+        addedFiles.push(file.name);
+        if (file.name === "old.txt") {
+          notifyOldAddStarted();
+          await oldAddGate;
+        }
+        return {
+          id: String(++nextAttachmentId),
+          type: "document",
+          name: file.name,
+          contentType: file.type,
+          file,
+          status: { type: "requires-action", reason: "composer-send" },
+        };
+      },
+      remove: async () => removedAttachments(),
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness({ draftScope }: { draftScope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    let oldAdd: Promise<void> | undefined;
+    await act(async () => {
+      oldAdd = focusRef.current!.addAttachment(
+        new File(["old contents"], "old.txt", { type: "text/plain" }),
+      );
+      await oldAddStarted;
+    });
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    let newAdd: Promise<void> | undefined;
+    await act(async () => {
+      newAdd = focusRef.current!.addAttachment(
+        new File(["new contents"], "new.txt", { type: "text/plain" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(addedFiles).toEqual(["old.txt"]);
+
+    await act(async () => {
+      releaseOldAdd();
+      await expect(oldAdd).rejects.toThrow("temporary cleanup failure");
+      await newAdd;
+    });
+
+    expect(removedAttachments).toHaveBeenCalledTimes(2);
+    expect(addedFiles).toEqual(["old.txt", "new.txt"]);
+    expect(
+      harnessRuntime?.thread.composer
+        .getState()
+        .attachments.map(({ name }) => name),
+    ).toEqual(["new.txt"]);
+  });
+
+  it("does not submit a stale attachment when stale cleanup keeps failing", async () => {
+    let releaseOldAdd!: () => void;
+    let notifyOldAddStarted!: () => void;
+    const oldAddStarted = new Promise<void>((resolve) => {
+      notifyOldAddStarted = resolve;
+    });
+    const oldAddGate = new Promise<void>((resolve) => {
+      releaseOldAdd = resolve;
+    });
+    const onSubmit = vi.fn();
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => {
+        if (file.name === "old.txt") {
+          notifyOldAddStarted();
+          await oldAddGate;
+        }
+        return {
+          id: file.name,
+          type: "document",
+          name: file.name,
+          contentType: file.type,
+          file,
+          status: { type: "requires-action", reason: "composer-send" },
+        };
+      },
+      remove: async () => {
+        throw new Error("stale removal failed");
+      },
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness({ draftScope }: { draftScope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    let oldAdd: Promise<void> | undefined;
+    await act(async () => {
+      oldAdd = focusRef.current!.addAttachment(
+        new File(["old contents"], "old.txt", { type: "text/plain" }),
+      );
+      await oldAddStarted;
+    });
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      releaseOldAdd();
+      await expect(oldAdd).rejects.toThrow("stale removal failed");
+    });
+
+    expect(
+      harnessRuntime?.thread.composer
+        .getState()
+        .attachments.map(({ name }) => name),
+    ).toEqual(["old.txt"]);
+    act(() => focusRef.current?.setText("new draft"));
+    let submitted: boolean | undefined;
+    await act(async () => {
+      submitted = await focusRef.current!.submit!();
+    });
+
+    expect(submitted).toBe(false);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("does not submit old-scope attachments after cleanup fails", async () => {
+    let failRemoval = true;
+    const removeAttachment = vi.fn(async () => {
+      if (failRemoval) throw new Error("scope cleanup failed");
+    });
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: file.name,
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: removeAttachment,
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn();
+    let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness({ draftScope }: { draftScope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      localRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      await focusRef.current!.addAttachment(
+        new File(["old scope"], "old-scope.txt", { type: "text/plain" }),
+      );
+    });
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("new scope draft"));
+
+    await act(async () => {
+      await expect(focusRef.current!.submit!()).resolves.toBe(true);
+    });
+    expect(removeAttachment).toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[2]).toEqual([]);
+    expect(localRuntime!.thread.composer.getState().attachments).toEqual([]);
+  });
+
+  it("waits for active-scope attachment uploads before submitting", async () => {
+    let releaseAdd!: () => void;
+    let notifyAddStarted!: () => void;
+    const addStarted = new Promise<void>((resolve) => {
+      notifyAddStarted = resolve;
+    });
+    const addGate = new Promise<void>((resolve) => {
+      releaseAdd = resolve;
+    });
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => {
+        notifyAddStarted();
+        await addGate;
+        return {
+          id: file.name,
+          type: "document",
+          name: file.name,
+          contentType: file.type,
+          file,
+          status: { type: "requires-action", reason: "composer-send" },
+        };
+      },
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const onSubmit = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("send with upload"));
+
+    let adding!: Promise<unknown>;
+    let submitting!: Promise<boolean>;
+    await act(async () => {
+      adding = focusRef.current!.addAttachment(
+        new File(["contents"], "upload.txt", { type: "text/plain" }),
+      );
+      submitting = focusRef.current!.submit!();
+      await addStarted;
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    releaseAdd();
+    await act(async () => {
+      await Promise.all([adding, submitting]);
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[2]).toEqual([
+      expect.objectContaining({ name: "upload.txt" }),
+    ]);
+  });
+
+  it("includes additions started while the initial submission barrier drains", async () => {
+    let releaseFirstAdd!: () => void;
+    let releaseSecondAdd!: () => void;
+    let notifyFirstAddStarted!: () => void;
+    let notifySecondAddStarted!: () => void;
+    const firstAddGate = new Promise<void>((resolve) => {
+      releaseFirstAdd = resolve;
+    });
+    const secondAddGate = new Promise<void>((resolve) => {
+      releaseSecondAdd = resolve;
+    });
+    const firstAddStarted = new Promise<void>((resolve) => {
+      notifyFirstAddStarted = resolve;
+    });
+    const secondAddStarted = new Promise<void>((resolve) => {
+      notifySecondAddStarted = resolve;
+    });
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => {
+        if (file.name === "first.txt") {
+          notifyFirstAddStarted();
+          await firstAddGate;
+        } else {
+          notifySecondAddStarted();
+          await secondAddGate;
+        }
+        return {
+          id: file.name,
+          type: "document",
+          name: file.name,
+          contentType: file.type,
+          file,
+          status: { type: "requires-action", reason: "composer-send" },
+        };
+      },
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("send both uploads"));
+
+    let firstAdd!: Promise<void>;
+    let secondAdd!: Promise<void>;
+    let submitting!: Promise<boolean>;
+    await act(async () => {
+      firstAdd = focusRef.current!.addAttachment(
+        new File(["first"], "first.txt", { type: "text/plain" }),
+      );
+      await firstAddStarted;
+    });
+    act(() => {
+      submitting = focusRef.current!.submit!();
+      secondAdd = focusRef.current!.addAttachment(
+        new File(["second"], "second.txt", { type: "text/plain" }),
+      );
+    });
+
+    await act(async () => {
+      releaseFirstAdd();
+      await firstAdd;
+      await secondAddStarted;
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      releaseSecondAdd();
+      await Promise.all([secondAdd, submitting]);
+    });
+    expect(onSubmit.mock.calls[0]?.[2].map(({ name }) => name)).toEqual([
+      "first.txt",
+      "second.txt",
+    ]);
+  });
+
+  it("deduplicates repeated content without collapsing distinct file types", async () => {
+    let nextAttachmentId = 0;
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: String(++nextAttachmentId),
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      await Promise.all([
+        focusRef.current!.addAttachment(
+          new File(["same bytes"], "same.png", { type: "image/png" }),
+        ),
+        focusRef.current!.addAttachment(
+          new File(["same bytes"], "same.png", { type: "image/png" }),
+        ),
+      ]);
+    });
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      1,
+    );
+
+    await act(async () => {
+      await Promise.all([
+        focusRef.current!.addAttachment(
+          new File(["same bytes"], "same.png", { type: "image/jpeg" }),
+        ),
+        focusRef.current!.addAttachment(
+          new File(["same bytes"], "renamed.png", { type: "image/png" }),
+        ),
+        focusRef.current!.addAttachment(
+          new File(["same bytes"], "renamed.jpg", { type: "image/png" }),
+        ),
+      ]);
+    });
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      3,
+    );
+
+    await act(async () => {
+      await Promise.all([
+        focusRef.current!.addAttachment(
+          new File(["first report"], "report.txt", { type: "text/plain" }),
+        ),
+        focusRef.current!.addAttachment(
+          new File(["second report"], "report.txt", { type: "text/plain" }),
+        ),
+      ]);
+    });
+    const attachments =
+      harnessRuntime?.thread.composer.getState().attachments ?? [];
+    expect(attachments).toHaveLength(5);
+    expect(attachments.map((attachment) => attachment.name)).toEqual([
+      "same.png",
+      "same.png",
+      "renamed.jpg",
+      "report.txt",
+      "report.txt",
+    ]);
+  });
+
+  it("caps candidate checks when attachment metadata differs", async () => {
+    let nextAttachmentId = 0;
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: String(++nextAttachmentId),
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      await Promise.all(
+        Array.from({ length: 128 }, (_, index) =>
+          focusRef.current!.addAttachment(
+            new File([`other-${index}`], `other-${index}.type${index}`, {
+              type: `application/x-type-${index}`,
+            }),
+          ),
+        ),
+      );
+      await focusRef.current!.addAttachment(
+        new File(["target"], "target.txt", { type: "text/plain" }),
+      );
+      await focusRef.current!.addAttachment(
+        new File(["target"], "target.txt", { type: "text/plain" }),
+      );
+    });
+
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      130,
+    );
+  });
+
+  it("normalizes an empty MIME type to the document adapter fallback", async () => {
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: file.name,
+        type: "document",
+        name: file.name,
+        contentType: file.type || "application/octet-stream",
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      await Promise.all([
+        focusRef.current!.addAttachment(new File(["same"], "unknown.bin")),
+        focusRef.current!.addAttachment(new File(["same"], "unknown.bin")),
+      ]);
+    });
+
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      1,
+    );
+  });
+
+  it("bounds aggregate byte reads while comparing attachment contents", async () => {
+    const comparisonFileSize = 4 * 1024 * 1024;
+    const maxComparisonBytes = 16 * 1024 * 1024;
+    let comparisonBytesRead = 0;
+    const makeFile = (lastByte: number) => {
+      const file = new File(["seed"], "same.bin", {
+        type: "application/octet-stream",
+      });
+      Object.defineProperty(file, "size", {
+        configurable: true,
+        value: comparisonFileSize,
+      });
+      const slice = vi.fn((start: number, end: number) => ({
+        arrayBuffer: async () => {
+          comparisonBytesRead += end - start;
+          const bytes = new Uint8Array(end - start);
+          if (end === comparisonFileSize) bytes[bytes.length - 1] = lastByte;
+          return bytes.buffer;
+        },
+      }));
+      Object.defineProperty(file, "slice", {
+        configurable: true,
+        value: slice,
+      });
+      return { file, slice };
+    };
+    const files = [makeFile(1), makeFile(2), makeFile(3)];
+    let nextAttachmentId = 0;
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: String(++nextAttachmentId),
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      for (const { file } of files) {
+        await focusRef.current!.addAttachment(file);
+      }
+    });
+
+    comparisonBytesRead = 0;
+    const previousSliceCalls = files.map(
+      ({ slice }) => slice.mock.calls.length,
+    );
+    await act(async () => {
+      await focusRef.current!.addAttachment(makeFile(4).file);
+    });
+
+    expect(comparisonBytesRead).toBe(maxComparisonBytes);
+    expect(files[2].slice).toHaveBeenCalledTimes(previousSliceCalls[2]);
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      4,
+    );
+  });
+
+  it("charges only bytes read before an early attachment mismatch", async () => {
+    const comparisonFileSize = 4 * 1024 * 1024;
+    const maxComparisonBytes = 16 * 1024 * 1024;
+    let comparisonBytesRead = 0;
+    const makeFile = (firstByte: number) => {
+      const file = new File(["seed"], "same.bin", {
+        type: "application/octet-stream",
+      });
+      Object.defineProperty(file, "size", {
+        configurable: true,
+        value: comparisonFileSize,
+      });
+      Object.defineProperty(file, "slice", {
+        configurable: true,
+        value: vi.fn((start: number, end: number) => ({
+          arrayBuffer: async () => {
+            comparisonBytesRead += end - start;
+            const bytes = new Uint8Array(end - start);
+            if (start === 0) bytes[0] = firstByte;
+            return bytes.buffer;
+          },
+        })),
+      });
+      return file;
+    };
+    let nextAttachmentId = 0;
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: String(++nextAttachmentId),
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      await focusRef.current!.addAttachment(makeFile(1));
+      await focusRef.current!.addAttachment(makeFile(2));
+      await focusRef.current!.addAttachment(makeFile(3));
+    });
+
+    comparisonBytesRead = 0;
+    await act(async () => {
+      await focusRef.current!.addAttachment(makeFile(3));
+    });
+
+    expect(comparisonBytesRead).toBeLessThan(maxComparisonBytes);
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      3,
+    );
+  });
+
   it.each([
     [
       "text",
@@ -1446,6 +2552,29 @@ describe("createTiptapComposerExtensions", () => {
         "unsupported.xlsm",
       );
     });
+  });
+
+  it("names a rejected image drop by the file the user dropped", async () => {
+    const file = new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" });
+    const added: File[] = [];
+    const onError = vi.fn();
+    handleComposerFileDrop({
+      event: {
+        dataTransfer: { files: [file] },
+        preventDefault: () => {},
+        stopPropagation: () => {},
+      } as unknown as DragEvent,
+      addAttachment: async (attachment) => {
+        added.push(attachment);
+        throw new Error("File type image/svg+xml is not accepted.");
+      },
+      onError,
+    });
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(expect.any(Error), "logo.svg");
+    });
+    expect(added[0]?.name).toMatch(/^\d+-[a-z0-9]+-logo\.svg$/);
   });
 
   it("caps the model picker height without forcing empty vertical space", () => {
@@ -2275,6 +3404,441 @@ describe("TiptapComposer slash commands", () => {
     expect(onSubmissionPendingChange).toHaveBeenLastCalledWith(false);
   });
 
+  it("waits for adds started during preflight before taking the submission snapshot", async () => {
+    let resolvePreflight!: (ready: boolean) => void;
+    const preflight = new Promise<boolean>((resolve) => {
+      resolvePreflight = resolve;
+    });
+    let releaseAttachmentAdd!: () => void;
+    const attachmentAddGate = new Promise<void>((resolve) => {
+      releaseAttachmentAdd = resolve;
+    });
+    let notifyAttachmentAddStarted!: () => void;
+    const attachmentAddStarted = new Promise<void>((resolve) => {
+      notifyAttachmentAddStarted = resolve;
+    });
+    let resolveSubmission!: () => void;
+    const submission = new Promise<void>((resolve) => {
+      resolveSubmission = resolve;
+    });
+    let nextAttachmentId = 0;
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => {
+        if (file.name === "during-preflight.txt") {
+          notifyAttachmentAddStarted();
+          await attachmentAddGate;
+        }
+        return {
+          id: String(++nextAttachmentId),
+          type: "document",
+          name: file.name,
+          contentType: file.type,
+          file,
+          status: { type: "requires-action", reason: "composer-send" },
+        };
+      },
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onBeforeSubmit = vi.fn(() => preflight);
+    const onSubmit = vi.fn<NonNullable<TiptapComposerProps["onSubmit"]>>(
+      async (_text, _references, _attachments, options) => {
+        options?.onLocalSubmit?.();
+        await submission;
+      },
+    );
+    let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      localRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onBeforeSubmit,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("submit after checking"));
+    let submitting!: Promise<boolean>;
+    act(() => {
+      submitting = focusRef.current!.submit!();
+    });
+    await vi.waitFor(() => expect(onBeforeSubmit).toHaveBeenCalledOnce());
+
+    let duringPreflightAdd!: Promise<void>;
+    await act(async () => {
+      duringPreflightAdd = focusRef.current!.addAttachment(
+        new File(["during"], "during-preflight.txt", {
+          type: "text/plain",
+        }),
+      );
+      await attachmentAddStarted;
+    });
+    resolvePreflight(true);
+    await act(async () => {
+      await preflight;
+      await Promise.resolve();
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    releaseAttachmentAdd();
+    await act(async () => {
+      await duringPreflightAdd;
+      await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    });
+    expect(onSubmit.mock.calls[0]?.[2].map(({ name }) => name)).toEqual([
+      "during-preflight.txt",
+    ]);
+
+    const followUpFile = new File(["follow-up"], "after-barrier.txt", {
+      type: "text/plain",
+    });
+    await act(async () => {
+      await focusRef.current!.addAttachment(followUpFile);
+    });
+    resolveSubmission();
+    await act(async () => {
+      await submission;
+      await submitting;
+    });
+    expect(
+      localRuntime!.thread.composer
+        .getState()
+        .attachments.map(({ name }) => name),
+    ).toEqual(["after-barrier.txt"]);
+  });
+
+  it("does not make failed-send reconciliation wait for additions blocked by its gate", async () => {
+    let rejectSubmission!: (error: Error) => void;
+    const submission = new Promise<void>((_resolve, reject) => {
+      rejectSubmission = reject;
+    });
+    let resolveComparison!: (buffer: ArrayBuffer) => void;
+    let notifyComparisonStarted!: () => void;
+    let notifyLateAddStarted!: () => void;
+    const comparison = new Promise<ArrayBuffer>((resolve) => {
+      resolveComparison = resolve;
+    });
+    const comparisonStarted = new Promise<void>((resolve) => {
+      notifyComparisonStarted = resolve;
+    });
+    const lateAddStarted = new Promise<void>((resolve) => {
+      notifyLateAddStarted = resolve;
+    });
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => {
+        if (file.name === "late.txt") notifyLateAddStarted();
+        return {
+          id: file.name,
+          type: "document",
+          name: file.name,
+          contentType: file.type,
+          file,
+          status: { type: "requires-action", reason: "composer-send" },
+        };
+      },
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn(() => submission);
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("retry after failure"));
+
+    let submitting!: Promise<boolean>;
+    await act(async () => {
+      submitting = focusRef.current!.submit!();
+      await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    });
+    await act(async () => {
+      await focusRef.current!.addAttachment(
+        new File(["aaaaa"], "baseline.txt", { type: "text/plain" }),
+      );
+    });
+
+    const comparisonFile = new File(["bbbbb"], "comparison.txt", {
+      type: "text/plain",
+    });
+    Object.defineProperty(comparisonFile, "slice", {
+      configurable: true,
+      value: () => {
+        notifyComparisonStarted();
+        return { arrayBuffer: () => comparison } as Blob;
+      },
+    });
+    let comparisonAdd!: Promise<void>;
+    await act(async () => {
+      comparisonAdd = focusRef.current!.addAttachment(comparisonFile);
+      await comparisonStarted;
+    });
+
+    rejectSubmission(new Error("network unavailable"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    let lateAdd!: Promise<void>;
+    act(() => {
+      lateAdd = focusRef.current!.addAttachment(
+        new File(["late"], "late.txt", { type: "text/plain" }),
+      );
+    });
+
+    await act(async () => {
+      resolveComparison(new TextEncoder().encode("bbbbb").buffer);
+      await comparisonAdd;
+      await submitting;
+      await lateAddStarted;
+      await lateAdd;
+    });
+    await expect(submitting).resolves.toBe(false);
+  });
+
+  it("keeps a reattached file when its failed submitted counterpart was removed", async () => {
+    let rejectSubmission!: (error: Error) => void;
+    const submission = new Promise<void>((_resolve, reject) => {
+      rejectSubmission = reject;
+    });
+    let nextAttachmentId = 0;
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: String(++nextAttachmentId),
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn(() => submission);
+    let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      localRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("submit this file"));
+    await act(async () => {
+      await focusRef.current!.addAttachment(
+        new File(["same contents"], "same.txt", { type: "text/plain" }),
+      );
+    });
+
+    let submitting!: Promise<boolean>;
+    act(() => {
+      submitting = focusRef.current!.submit!();
+    });
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    await act(async () => {
+      await localRuntime!.thread.composer.getAttachmentByIndex(0).remove();
+    });
+    const reattachedFile = new File(["same contents"], "same.txt", {
+      type: "text/plain",
+    });
+    await act(async () => {
+      await focusRef.current!.addAttachment(reattachedFile);
+    });
+
+    rejectSubmission(new Error("network unavailable"));
+    await act(async () => {
+      await expect(submitting).resolves.toBe(false);
+    });
+    const attachments = localRuntime!.thread.composer.getState().attachments;
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].file).toBe(reattachedFile);
+  });
+
+  it("blocks retries when failed-send duplicate cleanup cannot remove the duplicate", async () => {
+    let rejectSubmission!: (error: Error) => void;
+    const submission = new Promise<void>((_resolve, reject) => {
+      rejectSubmission = reject;
+    });
+    let failDuplicateRemoval = true;
+    let nextAttachmentId = 0;
+    const removeAttachment = vi.fn(async (attachment: { id: string }) => {
+      if (attachment.id === "attachment-2" && failDuplicateRemoval) {
+        throw new Error("duplicate removal failed");
+      }
+    });
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: `attachment-${++nextAttachmentId}`,
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: removeAttachment,
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi
+      .fn<NonNullable<TiptapComposerProps["onSubmit"]>>()
+      .mockImplementationOnce(() => submission)
+      .mockResolvedValue(undefined);
+    let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      localRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("send once"));
+    const originalFile = new File(["same content"], "same.txt", {
+      type: "text/plain",
+    });
+    await act(async () => {
+      await focusRef.current!.addAttachment(originalFile);
+    });
+
+    let submitting!: Promise<boolean>;
+    await act(async () => {
+      submitting = focusRef.current!.submit!();
+      await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    });
+    await act(async () => {
+      await focusRef.current!.addAttachment(
+        new File(["same content"], "same.txt", { type: "text/plain" }),
+      );
+    });
+    rejectSubmission(new Error("network unavailable"));
+    await act(async () => {
+      await expect(submitting).resolves.toBe(false);
+    });
+
+    expect(removeAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "attachment-2" }),
+    );
+    expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
+      2,
+    );
+    await expect(focusRef.current!.submit!()).resolves.toBe(false);
+    expect(onSubmit).toHaveBeenCalledOnce();
+
+    failDuplicateRemoval = false;
+    await act(async () => {
+      await localRuntime!.thread.composer.getAttachmentByIndex(1).remove();
+    });
+    await act(async () => {
+      await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    });
+    await act(async () => {
+      await expect(focusRef.current!.submit!()).resolves.toBe(true);
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+  });
+
   it("restores a prompt when async preflight declines it", async () => {
     const onBeforeSubmit = vi.fn(async () => false);
     const onSubmit = vi.fn();
@@ -2802,12 +4366,17 @@ describe("TiptapComposer slash commands", () => {
       submit();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
     expect(removeAttachment).not.toHaveBeenCalled();
 
     resolveStatusUpdate();
     await act(async () => {
       await uploadFinished;
+      await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    });
+    expect(removeAttachment).not.toHaveBeenCalled();
+
+    await act(async () => {
       resolveSubmit();
       await submission;
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -2842,138 +4411,148 @@ describe("TiptapComposer slash commands", () => {
     expect(onSubmit.mock.calls[1][2]).toEqual([]);
   });
 
-  it("reports attachment cleanup failure after a successful submit", async () => {
-    let failRemoval = true;
-    const removeAttachment = vi.fn(async () => {
-      if (failRemoval) throw new Error("storage unavailable");
-    });
-    const attachmentAdapter: AttachmentAdapter = {
-      accept: "*",
-      add: async ({ file }) => ({
-        id: file.name,
-        type: "document",
-        name: file.name,
-        contentType: file.type,
-        file,
-        status: { type: "requires-action", reason: "composer-send" },
-      }),
-      remove: removeAttachment,
-      send: async (attachment) => ({
-        ...attachment,
-        status: { type: "complete" },
-        content: [],
-      }),
-    };
-    const onSubmit = vi.fn();
-    const focusRef = React.createRef<TiptapComposerHandle>();
-    let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
-
-    function Harness() {
-      const runtime = useLocalRuntime(emptyChatModelAdapter, {
-        adapters: { attachments: attachmentAdapter },
+  it.each([
+    ["after the handler returns", false],
+    ["after a local acknowledgement", true],
+  ] as const)(
+    "reports attachment cleanup failure after a successful submit %s",
+    async (_acknowledgement, acknowledgeLocally) => {
+      let failRemoval = true;
+      const removeAttachment = vi.fn(async () => {
+        if (failRemoval) throw new Error("storage unavailable");
       });
-      localRuntime = runtime;
-      return React.createElement(
-        AssistantRuntimeProvider,
-        { runtime },
-        React.createElement(
-          TooltipProvider,
-          null,
-          React.createElement(TiptapComposer, {
-            focusRef,
-            onSubmit,
-            includeDefaultSlashSkills: false,
-            plusMenuMode: "upload-only",
-            voiceEnabled: false,
+      const attachmentAdapter: AttachmentAdapter = {
+        accept: "*",
+        add: async ({ file }) => ({
+          id: file.name,
+          type: "document",
+          name: file.name,
+          contentType: file.type,
+          file,
+          status: { type: "requires-action", reason: "composer-send" },
+        }),
+        remove: removeAttachment,
+        send: async (attachment) => ({
+          ...attachment,
+          status: { type: "complete" },
+          content: [],
+        }),
+      };
+      const onSubmit = vi.fn<NonNullable<TiptapComposerProps["onSubmit"]>>(
+        (_text, _references, _attachments, options) => {
+          if (acknowledgeLocally) options?.onLocalSubmit?.();
+        },
+      );
+      const focusRef = React.createRef<TiptapComposerHandle>();
+      let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+      function Harness() {
+        const runtime = useLocalRuntime(emptyChatModelAdapter, {
+          adapters: { attachments: attachmentAdapter },
+        });
+        localRuntime = runtime;
+        return React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(
+            TooltipProvider,
+            null,
+            React.createElement(TiptapComposer, {
+              focusRef,
+              onSubmit,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "upload-only",
+              voiceEnabled: false,
+            }),
+          ),
+        );
+      }
+
+      await act(async () => {
+        root.render(React.createElement(Harness));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      act(() => focusRef.current?.setText("send this once"));
+      const fileInput =
+        container.querySelector<HTMLInputElement>('input[type="file"]')!;
+      Object.defineProperty(fileInput, "files", {
+        configurable: true,
+        value: [new File(["once"], "once.txt", { type: "text/plain" })],
+      });
+      await act(async () => {
+        fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const editor = container.querySelector(
+        ".agent-composer-prosemirror",
+      ) as HTMLElement;
+      await act(async () => {
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "Enter",
           }),
-        ),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(onSubmit).toHaveBeenCalledOnce();
+      expect(removeAttachment).toHaveBeenCalledOnce();
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+        "The message was sent, but some attachments remain. Remove them before sending again.",
       );
-    }
-
-    await act(async () => {
-      root.render(React.createElement(Harness));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    act(() => focusRef.current?.setText("send this once"));
-    const fileInput =
-      container.querySelector<HTMLInputElement>('input[type="file"]')!;
-    Object.defineProperty(fileInput, "files", {
-      configurable: true,
-      value: [new File(["once"], "once.txt", { type: "text/plain" })],
-    });
-    await act(async () => {
-      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    const editor = container.querySelector(
-      ".agent-composer-prosemirror",
-    ) as HTMLElement;
-    await act(async () => {
-      editor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          bubbles: true,
-          cancelable: true,
-          key: "Enter",
-        }),
+      expect(editor.textContent).toBe("");
+      expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
+        1,
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
 
-    expect(onSubmit).toHaveBeenCalledOnce();
-    expect(removeAttachment).toHaveBeenCalledOnce();
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      "The message was sent, but some attachments remain. Remove them before sending again.",
-    );
-    expect(editor.textContent).toBe("");
-    expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
-      1,
-    );
-
-    const sendButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Send message"]',
-    )!;
-    expect(sendButton.disabled).toBe(true);
-    act(() => focusRef.current?.setText("retry after cleanup failure"));
-    await act(async () => {
-      editor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          bubbles: true,
-          cancelable: true,
-          key: "Enter",
-        }),
+      const sendButton = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Send message"]',
+      )!;
+      expect(sendButton.disabled).toBe(true);
+      act(() => focusRef.current?.setText("retry after cleanup failure"));
+      await act(async () => {
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "Enter",
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(onSubmit).toHaveBeenCalledOnce();
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+        "The message was sent, but some attachments remain. Remove them before sending again.",
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(onSubmit).toHaveBeenCalledOnce();
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      "The message was sent, but some attachments remain. Remove them before sending again.",
-    );
 
-    failRemoval = false;
-    await act(async () => {
-      await localRuntime!.thread.composer.getAttachmentByIndex(0).remove();
-    });
-    expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
-      0,
-    );
-    expect(sendButton.disabled).toBe(false);
-    expect(container.querySelector('[role="alert"]')).toBeNull();
-
-    await act(async () => {
-      editor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          bubbles: true,
-          cancelable: true,
-          key: "Enter",
-        }),
+      failRemoval = false;
+      await act(async () => {
+        await localRuntime!.thread.composer.getAttachmentByIndex(0).remove();
+      });
+      expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
+        0,
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(onSubmit).toHaveBeenCalledTimes(2);
-    expect(onSubmit.mock.calls[1][0]).toBe("retry after cleanup failure");
-    expect(onSubmit.mock.calls[1][2]).toEqual([]);
-  });
+      expect(sendButton.disabled).toBe(false);
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+
+      await act(async () => {
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "Enter",
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(onSubmit).toHaveBeenCalledTimes(2);
+      expect(onSubmit.mock.calls[1][0]).toBe("retry after cleanup failure");
+      expect(onSubmit.mock.calls[1][2]).toEqual([]);
+    },
+  );
 
   it("acknowledges an executed slash command", async () => {
     const onSlashCommand = vi.fn();

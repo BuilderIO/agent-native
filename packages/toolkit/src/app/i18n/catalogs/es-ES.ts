@@ -125,7 +125,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Describe tu función",
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
-  "onboarding.builderCreateAccount": "Crear cuenta de Builder.io",
+  "onboarding.builderCreateAccount": "Usar Builder.io",
   "onboarding.builderSignInWithAccount":
     "Iniciar sesión con una cuenta de Builder.io",
   "onboarding.builderActivateDescription":
@@ -139,6 +139,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "60 Agent Credits al mes",
   "onboarding.builderIncludedFree": "Incluido gratis",
   "onboarding.builderMoreServices": "+ {{count}} servicios más",
+  "onboarding.builderLlmCredits": "Créditos para LLM",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "Créditos para LLM + {{count}} servicios más",
+  "onboarding.builderAccountCreated":
+    "Cuenta de Builder.io creada y conectada.",
   "onboarding.builderIncludedServices": "Servicios incluidos",
   "onboarding.builderActivateTitle": "Activar créditos gratuitos",
   "onboarding.builderAccountExistsTitle": "Ya tienes una cuenta de Builder.io",
@@ -160,7 +165,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting":
     "Configurando los créditos gratuitos de Builder.io",
   "onboarding.builderProvisioningDescription":
-    "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
+    "Estamos creando tu cuenta de Builder.io y activando los créditos gratis.",
   "onboarding.builderConnectionDescription":
     "Finaliza la conexión con un clic en la nueva ventana.",
   "onboarding.builderReadyWithCodeChanges":
@@ -747,6 +752,20 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "Acciones del mensaje",
   "message.copyMessage": "Copiar mensaje",
   "message.copyRequestId": "Copiar ID de solicitud",
+  "message.usage": "Uso",
+  "message.usageLoading": "Cargando uso…",
+  "message.usageUnavailable": "Uso no disponible",
+  "message.usageNotRecorded": "No se registró el uso",
+  "message.usageIncomplete":
+    "No se pudo clasificar parte del uso; los totales están ocultos.",
+  "message.usageReportedCost": "Costo {{amount}}",
+  "message.usageEstimatedCost": "Costo estimado {{amount}}",
+  "message.usageBuilderCredits": "Créditos de Builder usados {{amount}}",
+  "message.usageEstimatedBuilderCredits":
+    "Créditos de Builder estimados {{amount}}",
+  "message.usageMixedCost": "Costo informado y estimado {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "Créditos de Builder informados y estimados {{amount}}",
   "message.requestIdUnavailable": "ID de solicitud no disponible",
   "message.unavailable":
     "El mensaje ya no está disponible en esta conversación.",
@@ -1014,6 +1033,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Conecta arriba un proveedor de IA para continuar...",
   "composer.connectBuilder": "Usar Builder.io",
   "composer.connectKeys": "Conectar claves",
+  "composer.connectAgent": "Conectar agente",
   "composer.connectingBuilder": "Configurando Builder.io…",
   "composer.costHigher": "Mayor costo",
   "composer.costLower": "Menor costo",
@@ -1380,6 +1400,42 @@ const messages: ToolkitAgentChatTranslation = {
   "accessGate.signIn": "Iniciar sesión",
   "accessGate.signedInAs": "Has iniciado sesión como {{email}}",
   "accessGate.switchAccount": "Cambiar de cuenta",
+  "accessGate.requestDescription":
+    "Solicita acceso y se avisará al propietario.",
+  "accessGate.requestSent": "Solicitud enviada. Se ha avisado al propietario.",
+  "accessGate.requestAccess": "Solicitar acceso",
+  "accessGate.requestNoteLabel": "Nota (opcional)",
+  "accessGate.requestNotePlaceholder": "Añade una nota para el propietario",
+  "accessGate.sendRequest": "Enviar solicitud",
+  "accessGate.cancel": "Cancelar",
+  "accessGate.requestRateLimited":
+    "Demasiadas solicitudes en este momento. Inténtalo de nuevo más tarde.",
+  "accessGate.requestFailed":
+    "No se pudo enviar tu solicitud. Inténtalo de nuevo.",
+  "accessGate.signedOutRequestDescription":
+    "Inicia sesión para solicitar acceso.",
+  "accessRequest.title": "{{name}} solicita acceso",
+  "accessRequest.approvedTitle": "Acceso permitido",
+  "accessRequest.declinedTitle": "Solicitud rechazada",
+  "accessRequest.allow": "Permitir",
+  "accessRequest.decline": "Rechazar",
+  "accessRequest.unavailableTitle": "No puedes revisar esta solicitud",
+  "accessRequest.unavailableDescription":
+    "Puede que se haya retirado o que esta cuenta no pueda gestionar el acceso.",
+  "accessRequest.loadFailed": "No se pudo cargar esta solicitud.",
+  "accessRequest.retry": "Reintentar",
+  "accessRequest.decisionFailed":
+    "No se pudo guardar tu decisión. Inténtalo de nuevo.",
+  "accessRequest.stale": "Alguien ya gestionó esta solicitud, o ha cambiado.",
+  "share.accessRequests": "Solicitudes de acceso",
+  "share.accessRequestsLoadFailed":
+    "No se pudieron cargar las solicitudes de acceso.",
+  "share.accessRequestsNewest":
+    "Se muestran las {{count}} solicitudes más recientes.",
+  "accessRequest.emailFailed":
+    "{{name}} ya tiene acceso, pero no pudimos enviarle un correo.",
+  "share.allowRequestFrom": "Permitir a {{name}}",
+  "share.declineRequestFrom": "Rechazar a {{name}}",
   "share.add": "Añadir",
   "share.addPeopleEmail": "Añadir personas por correo electrónico",
   "share.addPeopleOrganization": "Añade personas de tu organización",
@@ -1706,6 +1762,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "App",
   "settings.usage.allApps": "Todas las apps",
   "settings.usage.unattributedApp": "Sin atribuir",
+  "settings.usage.unclassifiedUsage": "Uso sin clasificar",
   "settings.usage.peopleFilterLabel": "Personas",
   "settings.usage.everyone": "Todos",
   "settings.usage.justYou": "Solo tú",

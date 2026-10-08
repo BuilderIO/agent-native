@@ -123,6 +123,8 @@ export default function ObservabilityPage() {
 
 يكون التقاط وسيطات الأدوات ونتائجها وأجسام الأخطاء الكاملة متوقفًا افتراضيًا. فعّل `captureToolArgs` لحفظ الوسيطات و`captureToolResults` لحفظ النتائج وأجسام الأخطاء الكاملة في إعدادات `observability`. تُنقّح الحقول الحساسة قبل التخزين. وتحتفظ الأداة الفاشلة دائمًا بالسطر الأول المحدود الطول من خطئها، مع تنقيح بيانات الاعتماد وعناوين البريد الإلكتروني والمعرّفات الطويلة غير الشفافة، بحيث تبقى الإخفاقات قابلة للتشخيص حتى عند إيقاف `captureToolResults`.
 
+يكون التقاط المطالبات متوقفًا افتراضيًا. عيّن `capturePrompts: true` في إعدادات `observability`، أو اضبط `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true`، لحفظ مدخلات ومخرجات كل نطاق `llm_call` في هذه التفاصيل. لا تُضمّن مطالبة النظام، وتُنقّح الحقول الحساسة المنظمة، ويُحدّ كل جانب من المحتوى إلى 128 كيلوبايت. لا تُحدّث النطاقات السابقة بأثر رجعي.
+
 ### المراجعة البشرية {#review}
 
 تُظهر علامة تبويب المراجعة البشرية طلب كل عملية تشغيل وإجابتها، وتتيح تسجيل الملاحظات وإعداد مسودة لتحديث التعليمات كي يراجعها شخص. حفظ المسودة لا يغيّر التعليمات تلقائيًا.
@@ -336,13 +338,164 @@ export default defineAppConfig({
 
 تصدر حلقة الوكيل ثلاثة أنواع من الامتداد:
 
-| امتداد      | متى                         | السمات                                                            |
-| ----------- | --------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | مرة واحدة لكل وكيل          | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | مرة واحدة لكل استدعاء إجراء | `tool.name`، بالإضافة إلى حالة النجاح/الخطأ                       |
-| `llm.call`  | لكل مكالمة نموذجية          | التوقيت + حالة موافق/خطأ                                          |
+| امتداد                | متى                         | السمات                                                                                                    |
+| --------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | مرة واحدة لكل وكيل          | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | مرة واحدة لكل استدعاء إجراء | `gen_ai.tool.name`، بالإضافة إلى حالة النجاح/الخطأ                                                        |
+| `chat {model}`        | لكل مكالمة نموذجية          | `gen_ai.provider.name`, التوقيت + حالة موافق/خطأ                                                          |
 
 تم الانتهاء من الامتدادات بحالة OK/ERROR وتسجيل رسالة الخطأ عند الفشل. يتم تقليم قيم السمات الصفرية/الحارسة حتى لا تزدحم الامتدادات بالضوضاء. تعتبر طبقة OTel هذه إضافة بحتة إلى جداول `agent_trace_spans` / `agent_trace_summaries` الداخلية التي تعمل على تشغيل لوحة المعلومات أعلاه - وكلاهما يتم إنتاجهما من نفس أحداث التشغيل.
+
+### المقاييس {#otel-metrics}
+
+يسجّل Core أيضًا المقاييس بمجرد أن يسجّل المضيف موفّر مقاييس (meter provider) باستخدام `registerObservabilityProvider()` من `@agent-native/core/server`. تُسجَّل المقاييس لكل طلب وكل تشغيل، دون أخذ عينات:
+
+| الأداة                                  | السمات                                                                                       |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+في المقاييس، تكون `gen_ai.tool.name` اسم إجراء من إجراءات إطار العمل أو `other`، وتكون `gen_ai.request.model` معرّف النموذج فقط عندما يدرجه المحرك ضمن النماذج المدعومة، وإلا فهي `_OTHER`. لذلك لا يمكن للأدوات التي يعرّفها التطبيق ولا لمعرّفات النماذج التي يمرّرها المستدعي إنشاء سلاسل غير محدودة؛ وتحتفظ الامتدادات (spans) بالقيم الدقيقة.
+
+## ربط واجهة خلفية لـ OpenTelemetry {#otel-provider}
+
+لا يتضمن Core أي SDK أو مُصدِّر (exporter) لـ OpenTelemetry. يبني التطبيق موفّري SDK الخاصين به ويسلّمهم إلى Core باستخدام `registerObservabilityProvider()` من `@agent-native/core/server`. بعد ذلك يُصدر Core [الامتدادات](#otel) و[المقاييس](#otel-metrics) المذكورة أعلاه عبرهم، ويرسلها مُصدِّر التطبيق إلى أي واجهة خلفية تدعم OTLP.
+
+### `registerObservabilityProvider()` {#register-observability-provider}
+
+تأخذ `registerObservabilityProvider()` كائنًا واحدًا يحتوي على حقلين اختياريين:
+
+- **tracerProvider**: كائن يحتوي على `getTracer(name, version?)`. يأخذ Core المتتبِّع منه. وبدونه تستخدم الامتدادات المتتبِّع العام من `@opentelemetry/api`.
+- **meterProvider**: كائن يحتوي على `getMeter(name, version?)`. لا تُسجَّل المقاييس إلا عند تسجيل موفّر مقاييس. ليس لها بديل عام، لذا بدونه لا يفعل أي مقياس شيئًا.
+
+يمكن لأي من الموفّرين أيضًا تنفيذ `forceFlush()`، التي يستدعيها Core بعد كل استجابة (راجع [التفريغ في البيئات بدون خادم](#otel-flush)). يطابق `BasicTracerProvider` و`MeterProvider` من الـ SDK هذه الأشكال بالفعل.
+
+```ts
+function registerObservabilityProvider(
+  provider: ObservabilityProvider,
+): () => void;
+
+interface ObservabilityProvider {
+  tracerProvider?: ObservabilityTracerProvider;
+  meterProvider?: ObservabilityMeterProvider;
+}
+
+interface ObservabilityTracerProvider {
+  getTracer(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+
+interface ObservabilityMeterProvider {
+  getMeter(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+```
+
+يستبدل الاستدعاء اللاحق الموفّر السابق. تُلغي الدالة المُعادة تسجيل الموفّر إذا كان لا يزال هو المسجَّل. تحتاج الامتدادات أيضًا إلى تثبيت `@opentelemetry/api` في التطبيق. وبدونه يوقف Core التتبّع ويسجّل تحذيرًا واحدًا.
+
+### التفريغ في البيئات بدون خادم {#otel-flush}
+
+تتجمّد الدوال بدون خادم (serverless) بين الاستدعاءات، لذا قد لا يعمل مؤقّت التصدير في الـ SDK أبدًا. عندما ينفّذ موفّر مسجَّل `forceFlush()`، يستدعيها Core من خطّاف الاستجابة بعد كل طلب وينتظر اكتمالها. يتسابق كل تفريغ مع مهلة مشتركة واحدة مدتها ثانيتان، لذا لا يؤخّر القياس عن بعد أي استجابة أكثر من ذلك.
+
+عندما يفشل التفريغ أو تنتهي مهلته، يتوقف Core عن انتظاره ويضيف 1 إلى `agent_native.telemetry.flush_failures`، الذي يصدّره التفريغ التالي. يستمر التصدير الذي انتهت مهلته في العمل وقد يصل رغم ذلك، ما لم يجمّد وقت التشغيل العملية أولًا. تكون قيمة `error.type` للفشل هي `timeout`، أو `suspended` عندما يجمّد وقت التشغيل العملية في منتصف التفريغ، أو اسم الخطأ.
+
+على خادم طويل التشغيل، يعني التفريغ بعد كل استجابة عملية تصدير لكل طلب. سجّل الموفّرين هناك بدون `forceFlush()` واترك مؤقّتات الـ SDK نفسها تتولى التصدير. تميّز `isServerlessRuntime()` من `@agent-native/core/server` بين الحالتين. وتكون قيمتها true على Netlify وVercel وAWS Lambda وCloudflare.
+
+### مثال: OTLP عبر HTTP {#otel-example}
+
+تربط إضافة الخادم هذه حزمة OpenTelemetry JS SDK بـ Core. ثبّت حزم الـ SDK أولًا:
+
+```bash
+pnpm add @opentelemetry/api @opentelemetry/context-async-hooks @opentelemetry/exporter-metrics-otlp-proto @opentelemetry/exporter-trace-otlp-proto @opentelemetry/resources @opentelemetry/sdk-metrics @opentelemetry/sdk-trace-base
+```
+
+```ts filename="server/plugins/otel.ts"
+import { randomUUID } from "node:crypto";
+
+import {
+  defineNitroPlugin,
+  isServerlessRuntime,
+  registerObservabilityProvider,
+} from "@agent-native/core/server";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import {
+  defaultResource,
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
+import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+
+export default defineNitroPlugin(() => {
+  if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
+
+  // Metric counters are cumulative and restart with each process, so each
+  // process needs its own series.
+  const resource = defaultResource()
+    .merge(resourceFromAttributes({ "service.instance.id": randomUUID() }))
+    .merge(detectResources({ detectors: [envDetector] }));
+
+  const meterProvider = new MeterProvider({
+    resource,
+    readers: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+        exportIntervalMillis: 60_000,
+      }),
+    ],
+  });
+
+  context.setGlobalContextManager(
+    new AsyncLocalStorageContextManager().enable(),
+  );
+  const tracerProvider = new BasicTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+  });
+
+  if (isServerlessRuntime()) {
+    registerObservabilityProvider({ meterProvider, tracerProvider });
+    return;
+  }
+  // Without forceFlush(), core leaves exporting to the SDK's own timers.
+  registerObservabilityProvider({
+    meterProvider: {
+      getMeter: (name, version) => meterProvider.getMeter(name, version),
+    },
+    tracerProvider: {
+      getTracer: (name, version) => tracerProvider.getTracer(name, version),
+    },
+  });
+});
+```
+
+لا تفعل الإضافة شيئًا حتى يتم تعيين `OTEL_EXPORTER_OTLP_ENDPOINT`. ويقرأ الـ SDK بقية إعداداته من متغيرات البيئة القياسية لـ OpenTelemetry:
+
+| المتغير                                           | التأثير                                                                                     |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                     | عنوان URL الأساسي لمستقبِل OTLP. تضيف المُصدِّرات `/v1/traces` و`/v1/metrics`.              |
+| `OTEL_EXPORTER_OTLP_HEADERS`                      | ترويسات تُرسل مع كل عملية تصدير، مثل `Authorization=Bearer%20<token>`                       |
+| `OTEL_SERVICE_NAME`                               | `service.name` على كل امتداد ومقياس                                                         |
+| `OTEL_RESOURCE_ATTRIBUTES`                        | سمات موارد إضافية، مثل `deployment.environment.name=production`                             |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | أخذ عينات التتبّع، مثل `parentbased_traceidratio` و`0.1`. لا تُؤخذ عينات من المقاييس أبدًا. |
+
+ترسل مُصدِّرات `-proto` بروتوكول OTLP عبر HTTP بصيغة protobuf، لذا وجّه نقطة النهاية إلى منفذ HTTP الخاص بالمستقبِل (4318 افتراضيًا)، وليس إلى منفذ gRPC. لا تحمل الامتدادات أي نص للمطالبات أو الردود. تنطبق إعدادات `capture*` في [التكوين](#config) على تتبّعات SQL وعلى PostHog، وليس على OTLP.
+
+يحتوي المجلد [`packages/otel`](https://github.com/BuilderIO/agent-native/tree/main/packages/otel) في المستودع على نسخة أكمل من هذه الإضافة، مع نقاط نهاية لكل إشارة والتحقق من المُصدِّر. وهي غير منشورة على npm، لذا ابدأ من الإضافة أعلاه بدلًا من تثبيتها.
 
 ## الإبلاغ عن الأخطاء (Sentry) {#sentry}
 

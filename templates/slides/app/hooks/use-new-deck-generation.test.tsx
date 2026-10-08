@@ -320,9 +320,22 @@ describe("useNewDeckGeneration", () => {
           detail: { submitMessageId, tabId: "pending-question-thread" },
         }),
       );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            threadId: "server-conversation-thread",
+            tabId: "pending-question-thread",
+          },
+        }),
+      );
     });
     expect(sessionStorage.getItem(activeRunKey)).toBe(
-      JSON.stringify({ submitMessageId, tabId: "pending-question-thread" }),
+      JSON.stringify({
+        submitMessageId,
+        tabId: "pending-question-thread",
+        conversationThreadId: "server-conversation-thread",
+      }),
     );
     initial.unmount();
 
@@ -331,6 +344,9 @@ describe("useNewDeckGeneration", () => {
     );
     expect(reopened.result.current.submitMessageId).toBe(submitMessageId);
     expect(reopened.result.current.tabId).toBe("pending-question-thread");
+    expect(reopened.result.current.conversationThreadId).toBe(
+      "server-conversation-thread",
+    );
 
     vi.mocked(sendToAgentChatAndConfirm).mockResolvedValue({
       tabId: "pending-question-thread",

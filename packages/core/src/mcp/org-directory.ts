@@ -1,3 +1,5 @@
+import { canonicalA2AAudience } from "../a2a/audience.js";
+
 /**
  * Org-directory discovery for the generic cross-app MCP verbs
  * (`list_apps` / `ask_app` in `builtin-tools.ts`).
@@ -232,14 +234,15 @@ async function fetchOrgAppsResultInternal(
     cacheKey = serviceCacheKey;
   }
   try {
+    const directoryUrl = `${origin}/_agent-native/org/apps`;
+    const audience = canonicalA2AAudience(directoryUrl);
     const auth = serviceOrgId
-      ? await resolveOrgDirectoryServiceAuth(serviceOrgId)
-      : await resolveOrgDirectoryCallerAuth();
+      ? await resolveOrgDirectoryServiceAuth(serviceOrgId, audience)
+      : await resolveOrgDirectoryCallerAuth(audience);
     const attempts = authTokenAttempts(auth);
     if (attempts.length === 0) {
       return { status: "unavailable", reason: "authentication" };
     }
-
     if (!cacheKey) {
       const now = Date.now();
       cacheKey = scopedCacheKey(
@@ -256,7 +259,6 @@ async function fetchOrgAppsResultInternal(
 
     const { resolveVercelDeploymentProtectionHeaders } =
       await import("../server/credential-provider.js");
-    const directoryUrl = `${origin}/_agent-native/org/apps`;
     const protectionHeaders =
       resolveVercelDeploymentProtectionHeaders(directoryUrl);
 
@@ -338,7 +340,7 @@ export function _resetOrgDirectoryCache(): void {
   cache.clear();
 }
 
-async function resolveOrgDirectoryCallerAuth(): Promise<{
+async function resolveOrgDirectoryCallerAuth(audience: string): Promise<{
   apiKey?: string;
   apiKeyFallbacks?: string[];
   userEmail?: string;
@@ -346,13 +348,15 @@ async function resolveOrgDirectoryCallerAuth(): Promise<{
   orgDomain?: string;
 }> {
   const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
-  return resolveA2ACallerAuth();
+  return resolveA2ACallerAuth({ audience });
 }
 
-async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
+async function resolveOrgDirectoryServiceAuth(
+  orgId: string,
+  audience: string,
+): Promise<{
   apiKey?: string;
   apiKeyFallbacks?: string[];
-  userEmail?: string;
   orgId?: string;
   orgDomain?: string;
 }> {
@@ -366,23 +370,19 @@ async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
     orgSecret = (await getOrgA2ASecret(trimmedOrgId)) ?? undefined;
   } catch {}
   try {
-    const [{ signA2AToken }, { serviceIdentityEmail }] = await Promise.all([
-      import("../a2a/client.js"),
-      import("./connect-store.js"),
-    ]);
-    const userEmail = serviceIdentityEmail("mcp-client", trimmedOrgId);
+    const { getGlobalA2ASecret, signA2AOrganizationToken } =
+      await import("../a2a/client.js");
     const apiKeyAttempts: string[] = [];
     const addApiKeyAttempt = (token: string | undefined) => {
-      if (!token || apiKeyAttempts.includes(token)) return;
-      apiKeyAttempts.push(token);
+      if (token && !apiKeyAttempts.includes(token)) apiKeyAttempts.push(token);
     };
-    if (process.env.A2A_SECRET?.trim()) {
+    if (getGlobalA2ASecret()) {
       try {
         addApiKeyAttempt(
-          await signA2AToken(userEmail, orgDomain, orgSecret, {
+          await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
             expiresIn: "5m",
             preferGlobalSecret: true,
-            extraClaims: { org_id: trimmedOrgId },
+            audience,
           }),
         );
       } catch {}
@@ -390,10 +390,10 @@ async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
     if (orgSecret) {
       try {
         addApiKeyAttempt(
-          await signA2AToken(userEmail, orgDomain, orgSecret, {
+          await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
             expiresIn: "5m",
             preferGlobalSecret: false,
-            extraClaims: { org_id: trimmedOrgId },
+            audience,
           }),
         );
       } catch {}
@@ -403,7 +403,6 @@ async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
       ...(apiKeyAttempts.length > 1
         ? { apiKeyFallbacks: apiKeyAttempts.slice(1) }
         : {}),
-      userEmail,
       orgId: trimmedOrgId,
       orgDomain,
     };

@@ -158,11 +158,6 @@ export interface JsonRpcResponse {
   error?: JsonRpcError;
 }
 
-export interface A2AApprovedAction {
-  tool: string;
-  input: unknown;
-}
-
 export interface A2ASourceContext {
   platform: "slack";
   sourceUrl: string;
@@ -190,7 +185,6 @@ export interface A2AHandlerContext {
   contextId?: string;
   metadata?: Record<string, unknown>;
   event?: unknown;
-  approvedActions?: A2AApprovedAction[];
   sourceContext?: A2ASourceContext;
   writeArtifact: (name: string, content: string, mimeType?: string) => string;
 }

@@ -43,6 +43,13 @@ import {
 import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
+  EMAIL_AUTH_LINK_LANDING_PATH,
+  emailAuthLinkFields,
+  emailAuthLinkLandingPage,
+  emailAuthVerificationPath,
+  emailAuthVerificationUrl,
+} from "./email-auth-links.js";
+import {
   isEmbedCapabilityScope,
   revokeEmbedSessionsForOwners,
   requestHasEmbedAuthMarker,
@@ -94,6 +101,7 @@ import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
 import {
+  MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
   isMcpProtocolPath,
@@ -106,7 +114,10 @@ import {
 import type { ResolvedRequiredAuthProvider } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
-import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../shared/auth-copy.js";
+import {
+  AUTH_SIGNUP_INVITE_ONLY_CODE,
+  resolveNativeAuthCopy,
+} from "../shared/auth-copy.js";
 import type {
   AuthPageProps,
   ResetPasswordPageProps,
@@ -256,6 +267,7 @@ import {
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
@@ -2945,6 +2957,16 @@ export async function runAuthGuard(
   return _authGuardFn(event);
 }
 
+const MCP_DIRECTORY_CORS_ORIGINS = new Set([
+  "https://chatgpt.com",
+  "https://chat.openai.com",
+  "https://platform.openai.com",
+]);
+
+const MCP_DIRECTORY_CORS_METHODS = "POST, GET, DELETE, OPTIONS";
+const MCP_DIRECTORY_CORS_HEADERS =
+  "Authorization, Content-Type, Accept, MCP-Protocol-Version, MCP-Session-Id, Last-Event-Id";
+
 function applyCorsHeaders(
   event: H3Event,
   publicCorsPaths: string[] = [],
@@ -3762,6 +3784,52 @@ function createAuthGuardFn(
     if (previewCallbackRelay) return previewCallbackRelay;
     const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
     if (callbackRelay) return callbackRelay;
+
+    const isDirectoryMcpPath =
+      p === MCP_DIRECTORY_ROUTE_PREFIX ||
+      p === `${MCP_DIRECTORY_ROUTE_PREFIX}/`;
+    const directoryPreflightOrigin =
+      getMethod(event) === "OPTIONS" && isDirectoryMcpPath
+        ? getHeader(event, "origin")
+        : undefined;
+    if (directoryPreflightOrigin) {
+      if (!MCP_DIRECTORY_CORS_ORIGINS.has(directoryPreflightOrigin)) {
+        setResponseStatus(event, 403);
+        return "";
+      }
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Origin",
+        directoryPreflightOrigin,
+      );
+      setResponseHeader(event, "Vary", "Origin");
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Methods",
+        MCP_DIRECTORY_CORS_METHODS,
+      );
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Headers",
+        MCP_DIRECTORY_CORS_HEADERS,
+      );
+      setResponseStatus(event, 204);
+      return "";
+    }
+
+    const directoryResponseOrigin =
+      isDirectoryMcpPath && getHeader(event, "origin");
+    if (
+      directoryResponseOrigin &&
+      MCP_DIRECTORY_CORS_ORIGINS.has(directoryResponseOrigin)
+    ) {
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Origin",
+        directoryResponseOrigin,
+      );
+      setResponseHeader(event, "Vary", "Origin");
+    }
 
     const cors = applyCorsHeaders(event, config.publicCorsPaths, p);
     if (getMethod(event) === "OPTIONS") {
@@ -5492,6 +5560,64 @@ async function mountBetterAuthRoutes(
   );
 
   app.use(
+    EMAIL_AUTH_LINK_LANDING_PATH,
+    defineEventHandler(async (event) => {
+      const setupRequiredHtml = getDeploySettingsRequiredPage(
+        event,
+        getRequestPathAndSearch(event).rawPath,
+      );
+      if (setupRequiredHtml) return setupRequiredResponse(setupRequiredHtml);
+
+      const method = getMethod(event);
+      if (method !== "GET" && method !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+
+      const values =
+        method === "POST"
+          ? await readBody<Record<string, unknown>>(event)
+          : getQuery(event);
+      const verificationPath = emailAuthVerificationPath(values.kind);
+      const fields = emailAuthLinkFields(values);
+      const verificationURL = verificationPath
+        ? emailAuthVerificationUrl(getAppUrl(event, verificationPath), values)
+        : undefined;
+      if (!verificationURL || !fields) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid or expired email link." };
+      }
+
+      if (method === "POST") {
+        return new Response(null, {
+          status: 303,
+          headers: {
+            "cache-control": "no-store",
+            location: verificationURL.toString(),
+            "referrer-policy": "no-referrer",
+          },
+        });
+      }
+
+      const { locale, dir } = resolveLocaleFromRequest({
+        acceptLanguage: getHeader(event, "accept-language"),
+      });
+      const copy = resolveNativeAuthCopy(locale);
+      return emailAuthLinkLandingPage(
+        getAppUrl(event, EMAIL_AUTH_LINK_LANDING_PATH),
+        fields,
+        {
+          title: copy.emailLinkContinueTitle,
+          message: copy.emailLinkContinueMessage,
+          action: copy.emailLinkContinueAction,
+        },
+        locale,
+        dir,
+      );
+    }),
+  );
+
+  app.use(
     DESKTOP_MAGIC_LINK_LANDING_PATH,
     defineEventHandler(async (event) => {
       // Mounted before Better Auth starts, so it outlives an init failure; its
@@ -6365,7 +6491,9 @@ async function mountBetterAuthRoutes(
         setFirstRunOnboardingCookie(event);
       }
 
-      return response;
+      return isResponse
+        ? queryEchoSafeRedirect(event, response as Response)
+        : response;
     }),
   );
 
@@ -6448,7 +6576,10 @@ async function mountBetterAuthRoutes(
         ? query.return[0]
         : query.return;
       setFirstRunOnboardingCookie(event);
-      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302),
+      );
     }),
   );
 

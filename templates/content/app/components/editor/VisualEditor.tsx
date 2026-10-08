@@ -8,6 +8,7 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
@@ -168,6 +169,7 @@ import {
 import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
 import { ContentTableView } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 function compareDocumentBodyRevisions(
   first: string,
@@ -1576,6 +1578,7 @@ interface VisualEditorProps {
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
   suggesting?: boolean;
+  widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
@@ -1584,6 +1587,7 @@ interface VisualEditorProps {
     offsetTop: number,
     anchor?: CommentTextAnchor,
     range?: { from: number; to: number },
+    suggestionId?: string,
   ) => void;
   commentThreads?: CommentThread[];
   activeThreadId?: string | null;
@@ -3008,6 +3012,7 @@ export function VisualEditor({
   user,
   editable = true,
   suggesting = false,
+  widgetLoadDiagnosticsActive = false,
   localFileMode = false,
   localFilePath,
   referenceDepth,
@@ -3040,6 +3045,9 @@ export function VisualEditor({
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
+  const widgetDiagnosticsActive =
+    widgetBridgeActive || widgetLoadDiagnosticsActive;
   const fileUploadStatus = useFileUploadStatus();
   const fileStorageState: "configured" | "missing" | "unknown" =
     fileUploadStatus.isError
@@ -4279,20 +4287,21 @@ export function VisualEditor({
         .join("|"),
     [suggestions],
   );
-  const applySuggestionsRef = useRef<(() => void) | null>(null);
+  const applySuggestionsRef = useRef<((report?: boolean) => void) | null>(null);
 
   useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const apply = () => {
+    const apply = (report = true) => {
       if (editor.isDestroyed) return;
       const specs = suggestions
         .map((suggestion) =>
           suggestionHighlightSpec(editor.state.doc, suggestion),
         )
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
-      onSuggestionAnchorsChange?.(
-        Array.from(new Set(specs.map((spec) => spec.suggestionId))),
-      );
+      if (report)
+        onSuggestionAnchorsChange?.(
+          Array.from(new Set(specs.map((spec) => spec.suggestionId))),
+        );
       const visibleSpecs = showCommentIndicators
         ? specs
         : specs.filter((spec) => spec.settling);
@@ -4324,7 +4333,11 @@ export function VisualEditor({
     if (!editor || editor.isDestroyed) return;
     // Prop updates must not move reconciliation behind other transaction consumers.
     const onTransaction = ({ transaction }: { transaction: Transaction }) => {
-      if (transaction.docChanged) applySuggestionsRef.current?.();
+      // While suggesting, the draft reaches the parent a tick after the doc
+      // changes, so these are the previous draft's suggestions; reporting
+      // their anchors would mark text the author is typing as unplaced.
+      if (transaction.docChanged)
+        applySuggestionsRef.current?.(!suggestingRef.current);
     };
     editor.on("transaction", onTransaction);
     return () => {
@@ -4509,13 +4522,21 @@ export function VisualEditor({
   }, [editor]);
 
   if (!editor) {
-    return (
+    const skeleton = (
       <div className="flex flex-col gap-3 px-8 py-6 animate-pulse">
         <div className="h-4 w-2/3 rounded bg-muted" />
         <div className="h-4 w-full rounded bg-muted" />
         <div className="h-4 w-5/6 rounded bg-muted" />
         <div className="h-4 w-3/4 rounded bg-muted" />
       </div>
+    );
+    return (
+      <WidgetLoadDiagnostic
+        active={widgetDiagnosticsActive}
+        stage={t("editor.widgetEditorInitStage")}
+        action="VisualEditor.useEditor"
+        fallback={skeleton}
+      />
     );
   }
 

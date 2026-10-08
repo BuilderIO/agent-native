@@ -39,6 +39,7 @@ import {
   type CommentTextAnchor,
 } from "./comment-anchors";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
+import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
 export type CommentRange = { from: number; to: number };
 
@@ -49,7 +50,24 @@ export interface BubbleToolbarProps {
     offsetTop: number,
     anchor?: CommentTextAnchor,
     range?: CommentRange,
+    suggestionId?: string,
   ) => void;
+}
+
+// Suggested text exists only in the author's draft, so a page comment anchored
+// to it has nothing to point at once the draft is saved; it belongs on the
+// suggestion's own thread.
+export function draftSuggestionIdInRange(
+  state: EditorState,
+  from: number,
+  to: number,
+) {
+  return suggestionHighlightKey
+    .getState(state)
+    ?.specs.find(
+      (spec) =>
+        spec.editableText && !spec.settling && spec.to > from && to > spec.from,
+    )?.suggestionId;
 }
 
 const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
@@ -298,6 +316,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     const text = editor.state.doc.textBetween(from, to, " ");
     if (!text.trim()) return false;
     const anchor = captureAnchor(editor.state.doc, from, to);
+    const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
     const coords = editor.view.coordsAtPos(from);
     const scrollContainer = editor.view.dom.closest(
       ".flex-1.min-h-0.overflow-auto",
@@ -308,7 +327,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
     editor.commands.setTextSelection(from);
-    onComment(text.trim(), offsetTop, anchor, { from, to });
+    onComment(text.trim(), offsetTop, anchor, { from, to }, suggestionId);
     return true;
   }, [editor, onComment]);
 

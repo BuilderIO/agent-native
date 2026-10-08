@@ -1,103 +1,42 @@
 # Assets — Agent Guide
 
-Assets is an agent-native asset library and generation workspace. The agent
-manages libraries, images, generated assets, inline MCP App pickers,
-notifications, collaboration, and portable asset requests through actions and
-SQL state.
+Assets is an agent-native asset library/generator; UI and agent share actions.
 
 ## Skills
 
-Read the relevant skill in `.agents/skills/` before deeper work:
+Search skills with `rg --hidden --follow`; read the exact linked guide before deeper work. App: `.agents/skills/creative-context/SKILL.md`, `.agents/skills/library-management/SKILL.md`, `.agents/skills/asset-generation/SKILL.md`, `.agents/skills/image-generation/SKILL.md`, `.agents/skills/logo-composite/SKILL.md`, `.agents/skills/assets-navigation/SKILL.md`, `.agents/skills/agent-engines/SKILL.md`, `.agents/skills/a2a-assets/SKILL.md`, `.agents/skills/inline-embeds/SKILL.md`, `.agents/skills/notifications/SKILL.md`, `.agents/skills/progress/SKILL.md`. Shared: `.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`, `.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/performance/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`, `.agents/skills/secrets/SKILL.md`, `.agents/skills/security/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
 
-- `creative-context` for cross-app source reuse, pinned packs, provenance, and
-  context opt-out.
-- `library-management` for kits, collections, access, imports, and duplication.
-- `asset-generation` and `image-generation` for generation paths, templates,
-  composer mentions, reference boards, and embedded text.
-- `logo-composite` for canonical logo compositing and template skeletons.
-- `assets-navigation` for routes, tabs, chat surfaces, and `navigate` targets.
-- `agent-engines` for model and engine configuration.
-- `a2a-assets` for MCP/A2A callers, skill install paths, and host rendering.
-- `inline-embeds`, `notifications`, and `progress` for integration surfaces.
+Use local docs only (no web research): `pnpm action docs-search --query "<topic>"` and `pnpm action docs-search --slug "<slug>"`. Source examples: `pnpm action source-search --query "<pattern>"` or `pnpm action source-search --path <path>`.
 
-## Core Rules
+## Core rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- Store large file/blob payloads in configured file/blob storage, not SQL: no
-  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
-  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private
-  Builder/internal data, customer data, or credential-looking literals. Use
-  secrets/OAuth/runtime configuration and obvious placeholders in examples.
-- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- Use actions for asset lifecycle, generation, library organization, uploads,
-  embeds, notifications, progress, sharing, and collaboration. Do not bypass
-  access checks.
-- Use the configured generation/engine path for image and asset work. Do not add
-  ad hoc provider calls when the app has an action/engine abstraction.
-- Preserve provenance and metadata for generated or imported assets.
-- Use `view-screen` when the active library, selected asset, picker, generation,
-  or embed target is unclear.
-- Image work is template-first. Follow the `creative-context` reuse ladder,
-  then check `list-templates` and generate with a matching `templateId`
-  instead of ad hoc settings; see `image-generation`.
-- Templates are global or associated with one brand kit. Only associated
-  templates can pin images, skeleton plates, or a canonical logo.
-- When a `template` is tagged, the server embeds its brief inside a
-  `<tagged-templates>` block. Internalize it, then pass the `templateId`
-  instead of restating saved settings as args. `*-generation-preset` actions
-  are deprecated aliases for existing threads.
-- Keep inline previews and picker outputs lightweight; fetch full asset details
-  through actions when needed.
-- Use framework sharing/collaboration primitives for ownable assets.
-- Kit viewers may generate drafts; saving one into the kit needs editor.
+- Use actions for asset lifecycle, generation, libraries, uploads, embeds, notifications, progress, sharing, and collaboration. Respect access checks; use the configured generation/engine path, not ad hoc provider calls.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver. Never hardcode credentials, webhook URLs, private/customer data, or credential-looking literals.
+- Keep large file/blob payloads in configured storage, not SQL, `application_state`, `settings`, or `resources`; persist URLs, ids, or handles only. Preserve asset provenance and metadata.
+- Use `view-screen` when the active library, selected asset, picker, generation, or embed target is unclear.
+- Image work is template-first: follow the `creative-context` reuse ladder, check `list-templates`, then generate with a matching `templateId`. Templates are global or tied to one brand kit; only associated templates can pin images, skeleton plates, or a canonical logo.
+- When a `template` is tagged, use its `<tagged-templates>` brief and pass `templateId`, not repeated saved settings. `*-generation-preset` actions are deprecated aliases.
+- Keep previews lightweight and fetch full details through actions. Kit viewers may generate drafts; saving to the kit requires editor access.
 
-## Application State
+## Application state
 
-- `navigation` exposes library, asset, generation, picker, embed, and selection
-  context. Library uses
-  `{ view: "library", selection: "all" | libraryId, tab, scope, folderId, search }`,
-  the embedded picker uses
-  `{ view: "picker", mediaType, libraryId, query, prompt, aspectRatio }`, and the
-  template gallery uses `{ view: "templates" }`, and an editor uses
-  `{ view: "template", templateId }`. Legacy preset navigation still resolves.
-- `creative-context` holds
-  `{ contextMode, selectedContextId, currentPackId, pinnedPackId }`. Respect
-  `contextMode: "off"` without silently restoring a pack.
-- `asset-variants` is the shared live generation tray state. New image
-  candidates should appear there through `generate-image` or
-  `generate-image-batch`; do not invent page-local progress surfaces.
-- `imageGenerationModel` is the composer image-model default, which image
-  generation actions may use when `model` is omitted.
+- `navigation` tracks library, asset, generation, picker, embed, and selection. Library: `{ view: "library", selection: "all" | libraryId, tab, scope, folderId, search }`; picker: `{ view: "picker", mediaType, libraryId, query, prompt, aspectRatio }`; gallery: `{ view: "templates" }`; editor: `{ view: "template", templateId }`. Legacy preset navigation still resolves.
+- `creative-context`: `{ contextMode, selectedContextId, currentPackId, pinnedPackId }`; respect `contextMode: "off"`.
+- `asset-variants` is the shared live generation tray; use `generate-image` / `generate-image-batch` for candidates. `imageGenerationModel` is the composer default when `model` is omitted.
 
-## Actions
+## Key actions
 
-Uncommon actions stay discoverable through `tool-search`.
+Use `tool-search` for uncommon actions.
 
-| Action | Purpose |
+| Actions | Purpose |
 | --- | --- |
-| `navigate` | Move the UI to a picker, library, template, generation, asset, or settings surface |
-| `view-screen` | Read current navigation, selection, and visible ids |
-| `list-libraries` / `match-library` | Find or disambiguate a brand kit |
-| `duplicate-library` | Make a private copy of a Brand Kit |
-| `list-assets` / `search-assets` | Browse or search assets in accessible kits |
-| `import-asset-from-url` | Ingest external brand or blog imagery as a reference asset |
-| `import-style-from-url` | Render a website and merge its design.md-style visual language into a library or collection |
-| `set-canonical-logo` | Pin the kit's pixel-perfect logo |
-| `list-templates` / `get-template` | Find accessible reusable generation recipes |
-| `create-template` / `update-template` | Author a global or brand-kit template |
-| `associate-template` / `duplicate-template` | Move a template's scope or copy it into a kit |
-| `generate-image` / `generate-image-batch` | Generate image candidates (synchronous) |
-| `generate-video` | Generate video, then poll `refresh-generation-run` |
-| `refine-image` / `edit-image` / `restyle-image` | Iterate on an existing asset |
-| `generate-asset` | Human-in-the-loop generation that returns the inline picker |
-| `open-asset-picker` | Browse, search, or pick existing assets in the embedded picker |
-| `export-asset` | Return a download URL or artifact for another app |
-| `create-generation-session` | Hand generation work off to a designer |
-| `manage-context-membership` | Submit an asset to a governed Creative Context |
+| `navigate`, `view-screen` | Move or inspect the UI |
+| `list-libraries`, `match-library`, `duplicate-library` | Find or copy a kit |
+| `list-assets`, `search-assets`, `import-asset-from-url`, `import-style-from-url`, `export-asset` | Browse, ingest, or export assets |
+| `list-templates`, `get-template`, `create-template`, `update-template`, `associate-template`, `duplicate-template`, `set-canonical-logo` | Manage recipes and logos |
+| `generate-image`, `generate-image-batch`, `generate-video`, `refresh-generation-run` | Generate candidates; refresh video status |
+| `refine-image`, `edit-image`, `restyle-image` | Iterate on an asset |
+| `generate-asset`, `open-asset-picker`, `create-generation-session`, `manage-context-membership` | Hand off generation, browse, or submit to Creative Context |
 
-## Source Changes
-
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Before building common workspace or agent UI, read `agent-native-toolkit`; for supported customization, read `customizing-agent-native`.

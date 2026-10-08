@@ -156,7 +156,7 @@ export default defineAction({
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Edit document",
+      title: "Open document",
       description:
         "Open the generated draft in the real Content editor so the user can revise, format, organize, and publish it.",
       iframeTitle: "Agent-Native Content",

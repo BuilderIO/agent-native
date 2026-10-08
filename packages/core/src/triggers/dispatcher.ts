@@ -1,5 +1,3 @@
-import { LLM_MISSING_CREDENTIALS_ERROR_CODE } from "../agent/engine/credential-errors.js";
-import { getOwnerActiveApiKey } from "../agent/production-agent.js";
 import {
   automationMatchesEventOwner,
   resolveAutomationExecutionIdentity,
@@ -23,6 +21,7 @@ import {
 } from "../jobs/automation-outcome.js";
 import {
   BackgroundAutomationRunError,
+  checkBackgroundAutomationCredentials,
   isBackgroundAutomationRunActive,
   runBackgroundAutomation,
   type BackgroundAutomationContext,
@@ -46,6 +45,7 @@ import {
   type Resource,
 } from "../resources/store.js";
 import { startIntervalJob } from "../server/interval-job.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import {
   AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE,
@@ -650,7 +650,25 @@ async function drainReadyTriggerQueue(
   }
 }
 
-export async function refreshEventSubscriptions(): Promise<boolean> {
+/**
+ * Refreshes are serialized: a snapshot taken before a concurrent define or
+ * delete must not run after it and unsubscribe the newer automation. The event
+ * bus is process-local, so a per-process queue is the whole scope.
+ */
+let _subscriptionRefreshQueue: Promise<unknown> = Promise.resolve();
+
+export function refreshEventSubscriptions(): Promise<boolean> {
+  const refresh = _subscriptionRefreshQueue.then(() =>
+    refreshEventSubscriptionsOnce(),
+  );
+  _subscriptionRefreshQueue = refresh.then(
+    () => undefined,
+    () => undefined,
+  );
+  return refresh;
+}
+
+async function refreshEventSubscriptionsOnce(): Promise<boolean> {
   try {
     const jobResources = await resourceListAllOwners("jobs/");
     const eventNames = new Set<string>();
@@ -1003,34 +1021,49 @@ async function dispatchQueuedAutomationEvent(
     identity = resolved.identity;
   }
 
-  // The key only feeds the natural-language condition check; the run itself
-  // verifies the LLM credential before it starts a thread, with the same
-  // identity-aware check as interactive chat.
-  const apiKey =
-    (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
-  if (!apiKey && meta.condition?.trim()) {
-    await recordTriggerExecutionOutcome(
-      resource,
-      { lastCheck: new Date().toISOString() },
-      {
-        failure: {
-          code: LLM_MISSING_CREDENTIALS_ERROR_CODE,
-          message:
-            "No API key is available to evaluate this automation's condition.",
-          precondition: true,
-        },
-      },
+  // The condition check must see the same credential (owner key or Builder
+  // Gateway) the run itself would use, with the same identity-aware check as
+  // interactive chat — a raw provider API key is not how most owners are
+  // actually authorized to call a model.
+  let classifierEngine: BackgroundAutomationDeps["engine"];
+  let classifierModel: string | undefined;
+  if (meta.condition?.trim()) {
+    const credentialCheck = await checkBackgroundAutomationCredentials(
+      { ownerEmail: identity.userEmail, orgId: identity.orgId },
+      deps,
+      meta.model,
     );
-    return "completed";
+    if (!credentialCheck.ok) {
+      await recordTriggerExecutionOutcome(
+        resource,
+        { lastCheck: new Date().toISOString() },
+        { failure: credentialCheck.failure },
+      );
+      return "completed";
+    }
+    classifierEngine = credentialCheck.engine;
+    classifierModel = credentialCheck.model;
   }
 
   let matches: boolean;
   try {
-    matches = await evaluateCondition(
-      meta.condition,
-      queued.payload,
-      apiKey ?? "",
-      { deadlineAt: hardDeadlineAt },
+    matches = await runWithRequestContext(
+      { userEmail: identity.userEmail, orgId: identity.orgId },
+      () =>
+        evaluateCondition(
+          meta.condition,
+          queued.payload,
+          {
+            userEmail: identity.userEmail,
+            orgId: identity.orgId,
+            appId: deps.appId,
+          },
+          {
+            deadlineAt: hardDeadlineAt,
+            engine: classifierEngine,
+            resolvedModel: classifierModel,
+          },
+        ),
     );
   } catch (error) {
     const reason =
@@ -1103,13 +1136,22 @@ export async function dispatchAutomationWebhookTask(
   );
   if (!resolved.ok) throw new Error(resolved.reason);
   const identity = resolved.identity;
-  const apiKey =
-    (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
-  if (!apiKey && meta.condition?.trim()) {
-    throw new BackgroundAutomationRunError(
-      "No API key is available to evaluate this automation's condition.",
-      LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  let classifierEngine: BackgroundAutomationDeps["engine"];
+  let classifierModel: string | undefined;
+  if (meta.condition?.trim()) {
+    const credentialCheck = await checkBackgroundAutomationCredentials(
+      { ownerEmail: identity.userEmail, orgId: identity.orgId },
+      deps,
+      meta.model,
     );
+    if (!credentialCheck.ok) {
+      throw new BackgroundAutomationRunError(
+        credentialCheck.failure.message,
+        credentialCheck.failure.code,
+      );
+    }
+    classifierEngine = credentialCheck.engine;
+    classifierModel = credentialCheck.model;
   }
 
   if (isBackgroundAutomationRunActive(meta)) {
@@ -1117,10 +1159,19 @@ export async function dispatchAutomationWebhookTask(
   }
   let matches: boolean;
   try {
-    matches = await evaluateCondition(
-      meta.condition,
-      task.payload,
-      apiKey ?? "",
+    matches = await runWithRequestContext(
+      { userEmail: identity.userEmail, orgId: identity.orgId },
+      () =>
+        evaluateCondition(
+          meta.condition,
+          task.payload,
+          {
+            userEmail: identity.userEmail,
+            orgId: identity.orgId,
+            appId: deps.appId,
+          },
+          { engine: classifierEngine, resolvedModel: classifierModel },
+        ),
     );
   } catch (err) {
     const reason =

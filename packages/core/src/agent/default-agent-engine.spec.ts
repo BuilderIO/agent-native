@@ -34,7 +34,9 @@ const {
   writeDefaultAgentEngineSelection,
 } = await import("./default-agent-engine.js");
 const { putSetting, getSetting } = await import("../settings/store.js");
-const { __resetAuditInitForTests } = await import("../audit/store.js");
+const { runWithRequestContext } = await import("../server/request-context.js");
+const { __resetAuditInitForTests, ensureAuditTables } =
+  await import("../audit/store.js");
 
 const ORG_A = "org-a";
 const ORG_B = "org-b";
@@ -54,7 +56,7 @@ async function auditRows() {
   return rows as Array<Record<string, unknown>>;
 }
 
-async function adminAuthority(orgId: string, email: string) {
+async function adminAuthority(orgId: string | undefined, email: string) {
   const authority = await resolveDefaultAgentEngineAuthority({
     userEmail: email,
     orgId,
@@ -90,6 +92,73 @@ afterEach(async () => {
 });
 
 describe("default model scope", () => {
+  it.each([
+    { userEmail: "admin-a@example.test", orgId: ORG_A, prefix: `o:${ORG_A}:` },
+    {
+      userEmail: "Solo@Example.test",
+      orgId: undefined,
+      prefix: "u:solo@example.test:",
+    },
+  ])(
+    "writes only the shared scope even when app deletion is forbidden for $userEmail",
+    async (ctx) => {
+      await ensureAuditTables();
+      const authority = await adminAuthority(ctx.orgId, ctx.userEmail);
+      await putSetting(`${ctx.prefix}agent-engine`, {
+        engine: "old-engine",
+        model: "previous-default",
+      });
+      await putSetting(`${ctx.prefix}agent-app-model-default:calendar`, {
+        engine: "old-engine",
+        model: "old-model",
+      });
+      await pglite.exec(`CREATE FUNCTION reject_app_reset() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'app default write failed'; END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER reject_app_reset BEFORE DELETE ON settings
+      FOR EACH ROW EXECUTE FUNCTION reject_app_reset()`);
+      await expect(
+        writeDefaultAgentEngineSelection(
+          authority,
+          { engine: "anthropic", model: "claude-sonnet-5-5" },
+          meta,
+        ),
+      ).resolves.toBeUndefined();
+      expect(await auditRows()).toHaveLength(1);
+      expect(
+        await getSetting(`${ctx.prefix}agent-app-model-default:calendar`),
+      ).toMatchObject({ model: "old-model" });
+      expect(await getSetting(`${ctx.prefix}agent-engine`)).toMatchObject({
+        model: "claude-sonnet-5-5",
+      });
+    },
+  );
+
+  it("preserves canonical and legacy user app overrides in the request cache", async () => {
+    const userEmail = "Solo@Example.test";
+    const canonical = "u:solo@example.test:agent-app-model-default:calendar";
+    const legacy = `u:${userEmail}:agent-app-model-default:calendar`;
+    const defaultKey = "u:solo@example.test:agent-engine";
+    for (const key of [canonical, legacy, defaultKey]) {
+      await putSetting(key, { engine: "old-engine", model: "old-model" });
+    }
+    await runWithRequestContext({ userEmail }, async () => {
+      for (const key of [canonical, legacy, defaultKey]) await getSetting(key);
+      await writeDefaultAgentEngineSelection(
+        await adminAuthority(undefined, userEmail),
+        { engine: "anthropic", model: "claude-sonnet-5-5" },
+        meta,
+      );
+      expect(await getSetting(canonical)).toMatchObject({ model: "old-model" });
+      expect(await getSetting(legacy)).toMatchObject({ model: "old-model" });
+      expect(await getSetting(defaultKey)).toMatchObject({
+        model: "claude-sonnet-5-5",
+      });
+    });
+    expect(await getSetting(canonical)).toMatchObject({ model: "old-model" });
+    expect(await getSetting(legacy)).toMatchObject({ model: "old-model" });
+  });
+
   it("an org A admin's change leaves org B's default alone", async () => {
     await writeDefaultAgentEngineSelection(
       await adminAuthority(ORG_B, "owner-b@example.test"),

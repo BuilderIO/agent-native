@@ -129,7 +129,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
-  "onboarding.builderCreateAccount": "Builder.io-Konto erstellen",
+  "onboarding.builderCreateAccount": "Builder.io verwenden",
   "onboarding.builderSignInWithAccount": "Mit Builder.io-Konto anmelden",
   "onboarding.builderActivateDescription":
     "Erstelle oder verwende dein Builder.io-Konto erneut und aktiviere seine Gratiscredits mit einem Klick.",
@@ -141,6 +141,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "60 Agent Credits pro Monat",
   "onboarding.builderIncludedFree": "Kostenlos enthalten",
   "onboarding.builderMoreServices": "+ {{count}} weitere Dienste",
+  "onboarding.builderLlmCredits": "LLM-Guthaben",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM-Guthaben + {{count}} weitere Dienste",
+  "onboarding.builderAccountCreated":
+    "Builder.io-Konto erstellt und verbunden.",
   "onboarding.builderIncludedServices": "Enthaltene Dienste",
   "onboarding.builderActivateTitle": "Gratiscredits aktivieren",
   "onboarding.builderAccountExistsTitle":
@@ -161,7 +166,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
   "onboarding.builderProvisioningDescription":
-    "Dein Builder.io-Konto wird erstellt oder wiederverwendet. Das dauert normalerweise ein paar Sekunden.",
+    "Dein Builder.io-Konto wird erstellt und die kostenlosen Credits werden aktiviert.",
   "onboarding.builderConnectionDescription":
     "Schließe die Verbindung mit einem Klick im neuen Fenster ab.",
   "onboarding.builderReadyWithCodeChanges":
@@ -749,6 +754,20 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "Nachrichtenaktionen",
   "message.copyMessage": "Nachricht kopieren",
   "message.copyRequestId": "Anfrage-ID kopieren",
+  "message.usage": "Verbrauch",
+  "message.usageLoading": "Verbrauch wird geladen…",
+  "message.usageUnavailable": "Verbrauch nicht verfügbar",
+  "message.usageNotRecorded": "Verbrauch nicht erfasst",
+  "message.usageIncomplete":
+    "Ein Teil der Nutzung konnte nicht klassifiziert werden; die Summen sind ausgeblendet.",
+  "message.usageReportedCost": "Kosten {{amount}}",
+  "message.usageEstimatedCost": "Geschätzte Kosten {{amount}}",
+  "message.usageBuilderCredits": "Verbrauchte Builder-Credits {{amount}}",
+  "message.usageEstimatedBuilderCredits":
+    "Geschätzte Builder-Credits {{amount}}",
+  "message.usageMixedCost": "Gemeldete und geschätzte Kosten {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "Gemeldete und geschätzte Builder-Credits {{amount}}",
   "message.requestIdUnavailable": "Anfrage-ID nicht verfügbar",
   "message.unavailable":
     "Die Nachricht ist in dieser Unterhaltung nicht mehr verfügbar.",
@@ -1018,6 +1037,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Verbinde oben einen KI-Anbieter, um fortzufahren...",
   "composer.connectBuilder": "Builder.io verwenden",
   "composer.connectKeys": "Schlüssel verbinden",
+  "composer.connectAgent": "Agent verbinden",
   "composer.connectingBuilder": "Builder.io wird eingerichtet…",
   "composer.costHigher": "Höhere Kosten",
   "composer.costLower": "Niedrigere Kosten",
@@ -1377,6 +1397,44 @@ const messages: ToolkitAgentChatTranslation = {
   "accessGate.signIn": "Anmelden",
   "accessGate.signedInAs": "Du bist als {{email}} angemeldet",
   "accessGate.switchAccount": "Konto wechseln",
+  "accessGate.requestDescription":
+    "Fordere Zugriff an, und der Eigentümer wird benachrichtigt.",
+  "accessGate.requestSent":
+    "Anfrage gesendet. Der Eigentümer wurde benachrichtigt.",
+  "accessGate.requestAccess": "Zugriff anfordern",
+  "accessGate.requestNoteLabel": "Notiz (optional)",
+  "accessGate.requestNotePlaceholder": "Notiz für den Eigentümer hinzufügen",
+  "accessGate.sendRequest": "Anfrage senden",
+  "accessGate.cancel": "Abbrechen",
+  "accessGate.requestRateLimited":
+    "Gerade zu viele Anfragen. Versuche es später erneut.",
+  "accessGate.requestFailed":
+    "Deine Anfrage konnte nicht gesendet werden. Versuche es erneut.",
+  "accessGate.signedOutRequestDescription":
+    "Melde dich an, um Zugriff anzufordern.",
+  "accessRequest.title": "{{name}} bittet um Zugriff",
+  "accessRequest.approvedTitle": "Zugriff gewährt",
+  "accessRequest.declinedTitle": "Anfrage abgelehnt",
+  "accessRequest.allow": "Zulassen",
+  "accessRequest.decline": "Ablehnen",
+  "accessRequest.unavailableTitle": "Du kannst diese Anfrage nicht prüfen",
+  "accessRequest.unavailableDescription":
+    "Sie wurde möglicherweise zurückgezogen, oder dieses Konto kann den Zugriff nicht verwalten.",
+  "accessRequest.loadFailed": "Diese Anfrage konnte nicht geladen werden.",
+  "accessRequest.retry": "Erneut versuchen",
+  "accessRequest.decisionFailed":
+    "Deine Entscheidung konnte nicht gespeichert werden. Versuche es erneut.",
+  "accessRequest.stale":
+    "Jemand hat diese Anfrage bereits bearbeitet, oder sie wurde geändert.",
+  "share.accessRequests": "Zugriffsanfragen",
+  "share.accessRequestsLoadFailed":
+    "Zugriffsanfragen konnten nicht geladen werden.",
+  "share.accessRequestsNewest":
+    "Die {{count}} neuesten Anfragen werden angezeigt.",
+  "accessRequest.emailFailed":
+    "{{name}} hat Zugriff, aber wir konnten keine E-Mail senden.",
+  "share.allowRequestFrom": "{{name}} zulassen",
+  "share.declineRequestFrom": "{{name}} ablehnen",
   "share.add": "Hinzufügen",
   "share.addPeopleEmail": "Personen per E-Mail hinzufügen",
   "share.addPeopleOrganization": "Personen aus deiner Organisation hinzufügen",
@@ -1683,6 +1741,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "App",
   "settings.usage.allApps": "Alle Apps",
   "settings.usage.unattributedApp": "Nicht zugeordnet",
+  "settings.usage.unclassifiedUsage": "Nicht zugeordnete Nutzung",
   "settings.usage.peopleFilterLabel": "Personen",
   "settings.usage.everyone": "Alle",
   "settings.usage.justYou": "Nur du",

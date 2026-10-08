@@ -99,6 +99,7 @@ export const CommentComposer = forwardRef<
   ref,
 ) {
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
+  const queryRef = useRef<string | null>(null);
   const [query, setQuery] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
 
@@ -129,12 +130,24 @@ export const CommentComposer = forwardRef<
             );
           })
           .slice(0, 6);
+  const filteredKey = filtered.map((member) => member.email).join("\0");
+
+  useEffect(() => {
+    setHighlight((current) =>
+      Math.min(current, Math.max(filtered.length - 1, 0)),
+    );
+  }, [filtered.length, filteredKey]);
+
+  const updateQuery = (nextQuery: string | null) => {
+    if (queryRef.current !== nextQuery) setHighlight(0);
+    queryRef.current = nextQuery;
+    setQuery(nextQuery);
+  };
 
   const refreshQuery = (element: HTMLTextAreaElement) => {
     const caret = element.selectionStart ?? element.value.length;
     const match = element.value.slice(0, caret).match(/(?:^|\s)@([^\s@]*)$/);
-    setQuery(match ? match[1] : null);
-    setHighlight(0);
+    updateQuery(match ? match[1] : null);
   };
 
   const selectMember = (member: MentionMember) => {
@@ -149,7 +162,7 @@ export const CommentComposer = forwardRef<
     const next = `${value.slice(0, atStart)}@${label} ${value.slice(caret)}`;
     onChange(next);
     onMentionAdd({ email: member.email, name: label });
-    setQuery(null);
+    updateQuery(null);
     requestAnimationFrame(() => {
       const current = innerRef.current;
       if (!current) return;
@@ -230,7 +243,7 @@ export const CommentComposer = forwardRef<
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        setQuery(null);
+        updateQuery(null);
         return;
       }
     }
@@ -253,7 +266,7 @@ export const CommentComposer = forwardRef<
     <Popover
       open={menuOpen}
       onOpenChange={(open) => {
-        if (!open) setQuery(null);
+        if (!open) updateQuery(null);
       }}
     >
       <PopoverAnchor asChild>
@@ -272,7 +285,7 @@ export const CommentComposer = forwardRef<
             onClick={(event) => refreshQuery(event.currentTarget)}
             onKeyDown={handleKeyDown}
             onBlur={() => {
-              setTimeout(() => setQuery(null), 120);
+              setTimeout(() => updateQuery(null), 120);
               onBlur?.();
             }}
             placeholder={placeholder}

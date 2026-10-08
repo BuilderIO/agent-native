@@ -10,7 +10,11 @@ import {
   type UsageMetricsAccessInput,
   type UsageMetricsScope,
 } from "./metrics-store.js";
-import { calculateCost, ensureUsageTable } from "./store.js";
+import {
+  builderCreditsFromCostCents,
+  calculateCost,
+  ensureUsageTable,
+} from "./store.js";
 
 /** Run insights are always read for one app, never across all apps. */
 type RunAccessInput = UsageMetricsAccessInput & { app: string };
@@ -130,6 +134,13 @@ export interface UsageRunTurn {
 }
 
 export interface UsageRunDetail extends UsageRunListItem {
+  billing: {
+    providerCostUsd: number | null;
+    providerCostSource: "reported" | "estimated" | "mixed" | null;
+    builderCredits: number | null;
+    builderCreditsSource: "reported" | "estimated" | "mixed" | null;
+    incomplete: boolean;
+  };
   reply: string | null;
   turns: UsageRunTurn[];
   scores: UsageRunScore[];
@@ -522,6 +533,100 @@ const RUN_COLUMNS = `MIN(id) AS id, MIN(created_at) AS created_at,
   SUM(cache_write_tokens) AS cache_write_tokens,
   SUM(cost_cents_x100) AS cost_cents_x100`;
 
+async function billingByRun(
+  runId: string,
+  scope: { where: string; args: unknown[] },
+): Promise<UsageRunDetail["billing"]> {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT engine_name, model, cost_source,
+        CASE WHEN builder_credits_used IS NULL THEN 1 ELSE 0 END AS missing_builder_credits,
+        CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END AS unpriced,
+        SUM(cost_cents_x100) AS cost_cents_x100,
+        SUM(builder_credits_used) AS builder_credits,
+        SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+        SUM(cache_read_tokens) AS cache_read_tokens,
+        SUM(cache_write_tokens) AS cache_write_tokens
+      FROM token_usage
+      WHERE run_id = ? AND ${scope.where}
+      GROUP BY engine_name, model, cost_source, missing_builder_credits, unpriced`,
+    args: [runId, ...scope.args],
+  });
+  let providerCents = 0;
+  let providerReported = false;
+  let providerEstimated = false;
+  let hasProviderUsage = false;
+  let builderCredits = 0;
+  let builderReported = false;
+  let builderEstimated = false;
+  let hasBuilderUsage = false;
+  let incomplete = false;
+
+  for (const row of rows as Array<Record<string, unknown>>) {
+    const missingBuilderCredits =
+      numberField(row, "missing_builder_credits") === 1;
+    const engineName =
+      typeof row.engine_name === "string" && row.engine_name.trim()
+        ? row.engine_name.trim()
+        : null;
+    const builderUsage = engineName === "builder" || !missingBuilderCredits;
+    if (builderUsage) {
+      if (!missingBuilderCredits) {
+        hasBuilderUsage = true;
+        builderReported = true;
+        builderCredits += numberField(row, "builder_credits");
+        continue;
+      }
+      const estimatedCents = recordedBreakdown(row).totalCents;
+      if (row.cost_source === "unavailable" && estimatedCents <= 0) {
+        incomplete = true;
+        continue;
+      }
+      hasBuilderUsage = true;
+      builderCredits += builderCreditsFromCostCents(estimatedCents);
+      builderEstimated = true;
+      continue;
+    }
+
+    if (!engineName) {
+      incomplete = true;
+      continue;
+    }
+
+    const costCents = recordedBreakdown(row).totalCents;
+    if (row.cost_source === "unavailable" && costCents <= 0) {
+      incomplete = true;
+      continue;
+    }
+    hasProviderUsage = true;
+    providerCents += costCents;
+    providerReported ||= row.cost_source === "reported";
+    providerEstimated ||= row.cost_source !== "reported";
+  }
+
+  return {
+    providerCostUsd:
+      !incomplete && hasProviderUsage ? providerCents / 100 : null,
+    providerCostSource:
+      !incomplete && hasProviderUsage
+        ? providerReported && providerEstimated
+          ? "mixed"
+          : providerEstimated
+            ? "estimated"
+            : "reported"
+        : null,
+    builderCredits: !incomplete && hasBuilderUsage ? builderCredits : null,
+    builderCreditsSource:
+      !incomplete && hasBuilderUsage
+        ? builderReported && builderEstimated
+          ? "mixed"
+          : builderEstimated
+            ? "estimated"
+            : "reported"
+        : null,
+    incomplete,
+  };
+}
+
 function runListItem(
   row: Record<string, unknown>,
   cost: UsageCostBreakdown,
@@ -710,13 +815,15 @@ export async function getUsageRun(
     where: `${appScope.where} AND ${resolved.ownerScope.where}`,
     args: [...appScope.args, ...resolved.ownerScope.args],
   };
-  const [exchanges, traces, scores, feedback, costs] = await Promise.all([
-    loadRunExchanges([row]),
-    tracesByRun([input.runId]),
-    scoresByRun([input.runId]),
-    feedbackByRun([input.runId]),
-    costsByRun([input.runId], runScope),
-  ]);
+  const [exchanges, traces, scores, feedback, costs, billing] =
+    await Promise.all([
+      loadRunExchanges([row]),
+      tracesByRun([input.runId]),
+      scoresByRun([input.runId]),
+      feedbackByRun([input.runId]),
+      costsByRun([input.runId], runScope),
+      billingByRun(input.runId, runScope),
+    ]);
   const exchange = exchanges.get(input.runId);
   const trace = traces.get(input.runId);
   return {
@@ -727,6 +834,7 @@ export async function getUsageRun(
       exchange?.prompt ?? null,
       feedback.get(input.runId) ?? null,
     ),
+    billing,
     reply: exchange?.reply ?? null,
     turns: trace?.turns ?? [],
     scores: scores.get(input.runId) ?? [],

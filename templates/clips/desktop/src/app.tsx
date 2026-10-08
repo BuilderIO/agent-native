@@ -1,3 +1,4 @@
+import { BuilderConnectPopover } from "@agent-native/toolkit/app/settings";
 import {
   IconAdjustmentsHorizontal,
   IconAlertTriangle,
@@ -111,7 +112,10 @@ import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
-import { connectBuilderForVoiceCleanup } from "./lib/builder-connection";
+import {
+  connectBuilderForVoiceCleanup,
+  isBuilderProvisioningAvailable,
+} from "./lib/builder-connection";
 import {
   captureSetupForCamera,
   captureSetupForMode,
@@ -133,6 +137,7 @@ import {
   MACOS_UPDATE_RESTART_MESSAGE,
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
+import { getPopoverAutoSizeOptions } from "./lib/popover-sizing";
 import {
   changeRecordFirstFiles,
   effectiveLocalRecordingMode,
@@ -935,7 +940,10 @@ function measurePopoverHeight(el: HTMLElement): number {
 
 function usePopoverAutoSize(
   ref: RefObject<HTMLElement | null>,
-  options: { disabled: boolean; width: number },
+  options: {
+    disabled: boolean;
+    width: number;
+  },
 ): void {
   const { disabled, width } = options;
 
@@ -2924,15 +2932,18 @@ export function App({
     setPopoverView,
     appRef,
   );
-  usePopoverAutoSize(appRef, {
-    disabled:
-      (popoverView !== "settings" && !popoverVisible) ||
-      isRecording ||
-      recordingFlowActive ||
-      recordingStartPending,
-    width:
-      popoverView === "settings" ? 720 : popoverView === "memory" ? 440 : 320,
-  });
+  const popoverLayoutView =
+    popoverView === "settings"
+      ? "settings"
+      : popoverView === "memory"
+        ? "memory"
+        : "recorder";
+  const popoverAutoSizeOptions = getPopoverAutoSizeOptions(
+    popoverLayoutView,
+    popoverVisible,
+    recordingStartPending,
+  );
+  usePopoverAutoSize(appRef, popoverAutoSizeOptions);
 
   const loadPendingUploads = useCallback(async () => {
     const sequence = ++recoveryLookupSequence.current;
@@ -6350,6 +6361,9 @@ function Setup({
   const [providerStatusRefreshVersion, setProviderStatusRefreshVersion] =
     useState(0);
   const [builderConnecting, setBuilderConnecting] = useState(false);
+  const [canProvisionBuilderAccount, setCanProvisionBuilderAccount] =
+    useState(false);
+  const [builderAccountExists, setBuilderAccountExists] = useState(false);
   const [builderConnectMessage, setBuilderConnectMessage] = useState<{
     kind: "ok" | "error";
     text: string;
@@ -6360,6 +6374,22 @@ function Setup({
     kind: "ok" | "error";
     text: string;
   } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
+    setCanProvisionBuilderAccount(false);
+    void isBuilderProvisioningAvailable(base)
+      .then((available) => {
+        if (active) setCanProvisionBuilderAccount(available);
+      })
+      .catch(() => {
+        if (active) setCanProvisionBuilderAccount(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [initial, serverUrl]);
 
   function setVoiceEnabled(enabled: boolean) {
     if (!featureConfig) return;
@@ -6978,15 +7008,20 @@ function Setup({
     }
   }
 
-  async function connectBuilder() {
+  async function connectBuilder(provisionAccount: boolean) {
     if (builderConnecting) return;
     const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
     setBuilderConnecting(true);
     setBuilderConnectMessage(null);
+    if (!provisionAccount) setBuilderAccountExists(false);
     try {
-      const result = await connectBuilderForVoiceCleanup(base, {
-        openExternal,
-      });
+      const result = await connectBuilderForVoiceCleanup(
+        base,
+        {
+          openExternal,
+        },
+        { provisionAccount },
+      );
       if (result === "activated") {
         setProviderStatus((previous) =>
           previous
@@ -7003,6 +7038,8 @@ function Setup({
           kind: "ok",
           text: "Builder.io is ready for voice cleanup.",
         });
+      } else if (result === "account-exists") {
+        setBuilderAccountExists(true);
       } else {
         setBuilderConnectMessage({
           kind: "ok",
@@ -7021,6 +7058,14 @@ function Setup({
       setBuilderConnecting(false);
     }
   }
+
+  const builderConnectFlow = {
+    connecting: builderConnecting,
+    accountExists: builderAccountExists,
+    start: (options?: { provisionAccount?: boolean }) => {
+      void connectBuilder(options?.provisionAccount === true);
+    },
+  };
 
   const providerWarning: string | null = (() => {
     if (providerStatusLoading || !providerStatus) return null;
@@ -7887,13 +7932,17 @@ function Setup({
                   </p>
                 ) : null}
                 {selectedMode === "builder" && !providerStatus?.builder ? (
-                  <SettingsActionButton
-                    className="w-fit"
-                    onClick={() => void connectBuilder()}
-                    disabled={builderConnecting}
+                  <BuilderConnectPopover
+                    flow={builderConnectFlow}
+                    canProvisionAccount={canProvisionBuilderAccount}
                   >
-                    {builderConnecting ? "Setting up…" : "Use Builder.io"}
-                  </SettingsActionButton>
+                    <SettingsActionButton
+                      className="w-fit"
+                      disabled={builderConnecting}
+                    >
+                      {builderConnecting ? "Setting up…" : "Use Builder.io"}
+                    </SettingsActionButton>
+                  </BuilderConnectPopover>
                 ) : null}
               </>
             ) : null}
