@@ -29,6 +29,20 @@ const blobs = vi.hoisted(() => ({
   })),
   delete: vi.fn(async () => ({ deleted: true })),
 }));
+const uploads = vi.hoisted(() => ({
+  count: 0,
+  upload: vi.fn(async () => ({
+    url: `/uploads/embedded-${++uploads.count}.png`,
+    provider: "test",
+  })),
+  delete: vi.fn(async () => true),
+}));
+vi.mock("@agent-native/core/file-upload", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getActiveFileUploadProviderForRequest: async () => ({ id: "test" }),
+  uploadFile: uploads.upload,
+  deleteUploadedFile: uploads.delete,
+}));
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal()),
   writeAppState: writeAppStateMock,
@@ -98,6 +112,8 @@ beforeEach(async () => {
   blobs.put.mockReset();
   blobs.put.mockImplementation(storedBlob);
   blobs.delete.mockClear();
+  uploads.upload.mockClear();
+  uploads.delete.mockClear();
   writeAppStateMock.mockClear();
   PARENT_ID = `import-parent-${++parentNumber}`;
   await asOwner(() => createDocument.run({ id: PARENT_ID, title: "Imports" }));
@@ -308,6 +324,16 @@ describe("import-content", () => {
         }),
       ),
     ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
+    await expect(
+      asOwner(() =>
+        importContent.run({
+          files: guideFiles("/uploads/diagram-replaced.png"),
+          parentId: PARENT_ID,
+          dryRun: false,
+          idempotencyKey: "guide-1",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
 
     const otherParent = `${PARENT_ID}-other`;
     await asOwner(() =>
@@ -396,6 +422,32 @@ describe("import-content", () => {
     expect(blobs.delete).not.toHaveBeenCalledWith(
       JSON.parse(records[0].originalBlob),
     );
+  });
+
+  it("deletes the embedded image a losing retry uploaded, and keeps the page's", async () => {
+    const apply = () =>
+      asOwner(() =>
+        importContent.run({
+          files: [
+            {
+              name: "chart.md",
+              text: "# Chart\n\n![Chart](data:image/png;base64,AAAA)",
+            },
+          ],
+          parentId: PARENT_ID,
+          dryRun: false,
+          idempotencyKey: "race-embedded",
+        }),
+      );
+    await Promise.all([apply(), apply()]);
+    const [page] = await importedChildren();
+    expect(uploads.upload).toHaveBeenCalledTimes(2);
+    expect(uploads.delete).toHaveBeenCalledTimes(1);
+    const [[, deleted]] = uploads.delete.mock.calls as unknown as [
+      [string, { url: string }],
+    ];
+    expect(page.content).toMatch(/\/uploads\/embedded-\d\.png/);
+    expect(page.content).not.toContain(deleted.url);
   });
 
   it("binds a key to one set of files when two applies with different files race", async () => {
@@ -546,6 +598,26 @@ describe("undo-content-import", () => {
       undoContentImport.run({ importId: applied.importId }),
     );
     expect(again.trashedIds).toEqual([]);
+  });
+
+  it("refuses to retry an undone import instead of reporting its pages imported", async () => {
+    const apply = () =>
+      asOwner(() =>
+        importContent.run({
+          files: guideFiles("/uploads/diagram.png"),
+          parentId: PARENT_ID,
+          dryRun: false,
+          idempotencyKey: "undone-1",
+        }),
+      );
+    const applied = await apply();
+    await asOwner(() => undoContentImport.run({ importId: applied.importId }));
+
+    await expect(apply()).rejects.toMatchObject({
+      errorCode: "IMPORT_PAGE_TRASHED",
+    });
+    const [page] = await importedChildren();
+    expect(page.trashedAt).toEqual(expect.any(String));
   });
 
   it("refuses when an imported page was edited after the import", async () => {

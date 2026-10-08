@@ -172,6 +172,9 @@ export function ContentImportDialog({
   // The import whose toast still owns the published state; a newer dialog
   // session takes it over so a closing toast cannot erase that session.
   const toastImportId = useRef<string | null>(null);
+  // A retry under the same key must send the same image urls, which the
+  // key's fingerprint includes, so each picked image uploads once per key.
+  const uploadedUrls = useRef(new Map<File, string>());
   const [files, setFiles] = useState<File[]>([]);
   const [payload, setPayload] = useState<ImportContentFileInput[]>([]);
   const [localSkipped, setLocalSkipped] = useState<ImportSkippedFile[]>([]);
@@ -226,6 +229,7 @@ export function ContentImportDialog({
       setError(null);
       const key = crypto.randomUUID();
       setIdempotencyKey(key);
+      uploadedUrls.current = new Map();
       if (picked.length === 0) {
         setPhase("choosing");
         publishState("choosing");
@@ -320,7 +324,13 @@ export function ContentImportDialog({
       await Promise.all(
         plan.uploads.map(async (name) => {
           const file = files.find((candidate) => candidate.name === name);
-          if (file) urls.set(name, await uploadImageFile(file));
+          if (!file) return;
+          let url = uploadedUrls.current.get(file);
+          if (!url) {
+            url = await uploadImageFile(file);
+            uploadedUrls.current.set(file, url);
+          }
+          urls.set(name, url);
         }),
       );
       const result = await importContent.mutateAsync({

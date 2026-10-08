@@ -101,11 +101,12 @@ Run the dry run first and tell the user each page's `status` and `notes`
 before applying. Applying needs a `url` for every image named in `uploads`;
 an image nobody can supply becomes a visible placeholder on the page. Other
 formats come back in `skipped` as not supported yet. Pass an
-`idempotencyKey` on every apply, and reuse it only to retry the same files
-into the same place. `IMPORT_INCOMPLETE` means some pages landed before a
-failure: its `details` name the `importId` and created page ids (with
-`documentIdsComplete: false`, more may exist), and the same call again
-finishes the import.
+`idempotencyKey` on every apply, and reuse it only to retry the same files,
+with the same image `url`s, into the same place. `IMPORT_INCOMPLETE` means
+some pages landed before a failure: its `details` name the `importId` and
+created page ids (with `documentIdsComplete: false`, more may exist), and the
+same call again finishes the import. `IMPORT_PAGE_TRASHED` means the import
+was undone or its pages trashed; restore them, or import with a new key.
 
 `undo-content-import --importId <id>` moves the import's pages to Trash. It
 refuses with `IMPORT_PAGE_CHANGED` when a page was edited, moved, or given

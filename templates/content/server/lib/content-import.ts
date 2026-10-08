@@ -7,6 +7,8 @@ import {
   isActionContractError,
 } from "@agent-native/core/action";
 import {
+  deleteUploadedFile,
+  type FileUploadResult,
   getActiveFileUploadProviderForRequest,
   uploadFile,
 } from "@agent-native/core/file-upload";
@@ -151,18 +153,32 @@ export async function runContentImport(
       documentId: schema.documentImports.documentId,
       requestSha256: schema.documentImports.requestSha256,
       reportJson: schema.documentImports.reportJson,
+      trashedAt: schema.documents.trashedAt,
     })
     .from(schema.documentImports)
+    .leftJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.documentImports.documentId),
+    )
     .where(eq(schema.documentImports.importId, importId));
   if (previous.some((row) => row.requestSha256 !== requestSha256)) {
     idempotencyKeyReused();
+  }
+  // Undo keeps the import's records, so a retry would otherwise report pages
+  // sitting in Trash as imported.
+  if (previous.some((row) => row.trashedAt)) {
+    fail(
+      "Pages from this import are in Trash, so it can't be retried. Restore them from Trash, or import again with a new idempotencyKey.",
+      { errorCode: "IMPORT_PAGE_TRASHED", statusCode: 409 },
+    );
   }
   const previousById = new Map(previous.map((row) => [row.documentId, row]));
   const pageIds = new Map(
     planned.map((page) => [page.path, importPageId(importId, page.path)]),
   );
 
-  const dataUrlUploads = new Map<string, string>();
+  const dataUrlUploads = new Map<string, FileUploadResult>();
+  const usedUploads = new Set<string>();
   const pages: ImportContentPageResult[] = [];
   try {
     for (const page of planned) {
@@ -182,8 +198,10 @@ export async function runContentImport(
         continue;
       }
 
-      for (const request of page.uploads) {
-        if (request.kind !== "data-url") continue;
+      const embedded = page.uploads.flatMap((request) =>
+        request.kind === "data-url" ? [request] : [],
+      );
+      for (const request of embedded) {
         const key = assetKey(request);
         if (!dataUrlUploads.has(key)) {
           dataUrlUploads.set(key, await uploadDataUrl(request, actor));
@@ -193,13 +211,13 @@ export async function runContentImport(
         assetUrl: (request) =>
           request.kind === "file"
             ? (images.get(request.path)?.url ?? null)
-            : (dataUrlUploads.get(assetKey(request)) ?? null),
+            : (dataUrlUploads.get(assetKey(request))?.url ?? null),
         pageHref: (path) => {
           const target = pageIds.get(path);
           return target ? `/page/${target}` : null;
         },
       });
-      const report = await createImportedPage({
+      const { report, created } = await createImportedPage({
         db,
         ctx,
         actor,
@@ -210,6 +228,9 @@ export async function runContentImport(
         source: markdown.find((file) => file.path === page.path)!,
         page: stored,
       });
+      if (created) {
+        for (const request of embedded) usedUploads.add(assetKey(request));
+      }
       pages.push(pageResult(page.path, { ...stored, report }, id));
     }
   } catch (error) {
@@ -220,6 +241,8 @@ export async function runContentImport(
       plannedPages: planned.length,
       confirmedIds: pages.flatMap((page) => (page.id ? [page.id] : [])),
     });
+  } finally {
+    await deleteUnusedUploads(dataUrlUploads, usedUploads);
   }
 
   return importResult({
@@ -403,7 +426,7 @@ function importImageUrl(file: ImportContentFileInput): string {
 async function uploadDataUrl(
   request: Extract<ImportAssetRequest, { kind: "data-url" }>,
   ownerEmail: string,
-): Promise<string> {
+): Promise<FileUploadResult> {
   const comma = request.dataUrl.indexOf(",");
   const header = request.dataUrl.slice(0, comma);
   const payload = request.dataUrl.slice(comma + 1);
@@ -418,7 +441,38 @@ async function uploadDataUrl(
     ownerEmail,
   });
   if (!uploaded?.url) storageUnavailable();
-  return uploaded.url;
+  return uploaded;
+}
+
+/**
+ * Embedded images this attempt uploaded for a page it didn't create, because
+ * the page failed or another attempt with the key created it first. Nothing
+ * points at them, so they go; a failed delete is logged, never thrown over the
+ * import's own result.
+ */
+async function deleteUnusedUploads(
+  uploads: ReadonlyMap<string, FileUploadResult>,
+  used: ReadonlySet<string>,
+): Promise<void> {
+  for (const [key, upload] of uploads) {
+    if (used.has(key)) continue;
+    try {
+      const deleted = await deleteUploadedFile(upload.provider, {
+        url: upload.url,
+        id: upload.id,
+      });
+      if (!deleted) {
+        console.error(
+          `[content] Unused imported image ${upload.url} was not deleted: the provider kept it`,
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[content] Unused imported image ${upload.url} was not deleted:`,
+        error,
+      );
+    }
+  }
 }
 
 /**
@@ -426,7 +480,7 @@ async function uploadDataUrl(
  * inside the transaction that inserts the page, so a page never exists
  * without the record Undo and retries look it up by. Returns the report that
  * was recorded, which is another attempt's when that attempt created the page
- * first.
+ * first (`created: false`).
  */
 async function createImportedPage(input: {
   db: ReturnType<typeof getDb>;
@@ -438,7 +492,7 @@ async function createImportedPage(input: {
   destination: ImportContentResult["destination"];
   source: IntakeMarkdown;
   page: ImportedPage;
-}): Promise<ImportedPageReport> {
+}): Promise<{ report: ImportedPageReport; created: boolean }> {
   const { db, ctx, actor, id, page, source } = input;
   const sourceSha256 = sha256(source.text);
   const original = await putPrivateBlob({
@@ -554,7 +608,7 @@ async function createImportedPage(input: {
           ctx,
         ),
     );
-    return page.report;
+    return { report: page.report, created: true };
   } catch (error) {
     const [recorded] = await db
       .select({
@@ -585,7 +639,10 @@ async function createImportedPage(input: {
     // Another attempt with this key created the page first.
     if (!recorded || !isUniqueConstraintError(error)) throw error;
     if (recorded.requestSha256 !== input.requestSha256) idempotencyKeyReused();
-    return JSON.parse(recorded.reportJson) as ImportedPageReport;
+    return {
+      report: JSON.parse(recorded.reportJson) as ImportedPageReport,
+      created: false,
+    };
   }
 }
 
@@ -631,7 +688,11 @@ function importRequestFingerprint(
       markdown: [...markdown]
         .sort((a, b) => (a.path < b.path ? -1 : 1))
         .map((file) => [file.path, sha256(file.text)]),
-      images: [...images.keys()].sort(),
+      // The url stands in for the image's bytes, so a retry sends the same
+      // upload's url rather than uploading the image again.
+      images: [...images.values()]
+        .sort((a, b) => (a.path < b.path ? -1 : 1))
+        .map((image) => [image.path, image.url]),
     }),
   );
 }
