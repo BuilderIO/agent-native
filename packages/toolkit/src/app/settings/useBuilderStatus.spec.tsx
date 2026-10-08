@@ -12,6 +12,7 @@ import {
   isBuilderConnectComplete,
   useBuilderStatus,
   useBuilderConnectFlow,
+  requestBuilderAccountActivation,
   withBuilderConnectTrackingParams,
   type BuilderConnectionScope,
 } from "./useBuilderStatus.js";
@@ -777,10 +778,8 @@ describe("useBuilderConnectFlow", () => {
 
     for (const host of ["desktop", "embedded", "browser"] as const) {
       it(`creates the account with one request and no popup (${host})`, async () => {
-        Object.defineProperty(window.location, "hostname", {
-          configurable: true,
-          value: "agent-native-clips.agent-native.com",
-        });
+        vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "agent-native-clips");
+        vi.stubGlobal("__AGENT_NATIVE_TEMPLATE__", "clips");
         setUserAgent(
           host === "desktop"
             ? "Mozilla/5.0 AgentNativeDesktop/1.0"
@@ -824,6 +823,20 @@ describe("useBuilderConnectFlow", () => {
         expect(onConnected).toHaveBeenCalledOnce();
       });
     }
+
+    it("does not infer signup attribution from a generic hostname", async () => {
+      Object.defineProperty(window.location, "hostname", {
+        configurable: true,
+        value: "www.agent-native.com",
+      });
+      const posts = mockActivation(() => activationResponse(200, { ok: true }));
+
+      await requestBuilderAccountActivation({ provisioningToken });
+
+      expect(posts).toHaveLength(1);
+      expect(posts[0]!.url.searchParams.get("agentNativeApp")).toBeNull();
+      expect(posts[0]!.url.searchParams.get("agentNativeTemplate")).toBeNull();
+    });
 
     it("activates an account for the organization's connection", async () => {
       const posts = mockActivation(() =>

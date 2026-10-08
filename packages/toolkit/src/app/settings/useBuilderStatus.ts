@@ -1,5 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { getCallbackOrigin } from "@agent-native/core/client/frame";
 import { scheduleAfterPaint } from "@agent-native/core/client/hooks";
 import { usePollLoop } from "@agent-native/core/client/hooks";
@@ -297,6 +298,7 @@ const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM = "agentNativeConnectSource";
 const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
 const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
+declare const __AGENT_NATIVE_TEMPLATE__: string | undefined;
 const BUILDER_SIGNUP_SOURCE = "agent-native";
 const STATUS_CONNECT_URL_TTL_MS = 9 * 60 * 1000;
 
@@ -354,18 +356,19 @@ function inferBuilderConnectTrackingIdentity(options: {
   const app =
     normalizeTrackingSlug(options.app) ??
     normalizeTrackingSlug(env.VITE_AGENT_NATIVE_APP) ??
-    (typeof window !== "undefined"
-      ? normalizeTrackingSlug(window.location.hostname.split(".")[0])
-      : null);
+    normalizeTrackingSlug(injectedAgentNativeAppId());
   const template =
     normalizeTrackingSlug(options.template) ??
     normalizeTrackingSlug(env.VITE_AGENT_NATIVE_TEMPLATE) ??
     normalizeTrackingSlug(env.VITE_APP_TEMPLATE) ??
+    normalizeTrackingSlug(
+      typeof __AGENT_NATIVE_TEMPLATE__ === "string"
+        ? __AGENT_NATIVE_TEMPLATE__
+        : undefined,
+    ) ??
     (app?.startsWith("agent-native-")
       ? normalizeTrackingSlug(app.slice("agent-native-".length))
-      : app && app !== "localhost"
-        ? app
-        : null);
+      : app);
 
   return { app, template };
 }
