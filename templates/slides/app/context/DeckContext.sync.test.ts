@@ -934,6 +934,115 @@ describe("DeckContext fallback polling", () => {
     });
   });
 
+  describe("a deck whose create request failed", () => {
+    async function openFailedCreate() {
+      const route = { deckId: "open-deck" as string | null };
+      const rendered = await renderOpenDeck({ route });
+      let created!: Deck;
+      act(() => {
+        created = rendered.result.current.createDeck("Optimistic Deck");
+      });
+      act(() => {
+        window.history.pushState({}, "", `/deck/${created.id}`);
+        route.deckId = created.id;
+        rendered.rerender();
+      });
+      await act(async () => {
+        rendered.api.resolveCreate(new Response("", { status: 500 }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      return { ...rendered, created };
+    }
+
+    it("is reported as a failed create when its read then answers 404", async () => {
+      const { api, created } = await openFailedCreate();
+
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(deckCallIds(api.fetchMock)).toContain(created.id);
+      expect(hasFailedDeckSave(created.id)).toBe(true);
+      expect(getDeckSaveError(created.id)).toMatchObject({
+        errorCode: "deck_create_failed",
+      });
+      expect(getDeckSaveError(created.id)?.status).toBeUndefined();
+    });
+
+    it("is not reported as lost access when a later write answers 404", async () => {
+      const { api, result, created } = await openFailedCreate();
+      const real = api.fetchMock.getMockImplementation()!;
+      api.fetchMock.mockImplementation((url) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck")
+          ? Promise.resolve(new Response("", { status: 404 }))
+          : real(url),
+      );
+
+      await act(async () => {
+        result.current.updateDeck(created.id, { title: "Renamed" });
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(hasFailedDeckSave(created.id)).toBe(true);
+      expect(getDeckSaveError(created.id)).toMatchObject({
+        errorCode: "deck_create_failed",
+      });
+      expect(getDeckSaveError(created.id)?.status).toBeUndefined();
+    });
+
+    it("clears when the deck turns out to exist on the server", async () => {
+      const { api, created } = await openFailedCreate();
+      expect(hasFailedDeckSave(created.id)).toBe(true);
+
+      api.setServerDecks([openDeck(), created]);
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(hasFailedDeckSave(created.id)).toBe(false);
+    });
+  });
+
+  it("ignores a 404 from a read that began while the create was still pending", async () => {
+    const route = { deckId: "open-deck" as string | null };
+    const { api, result, rerender } = await renderOpenDeck({ route });
+    let created!: Deck;
+    act(() => {
+      created = result.current.createDeck("Pending Deck");
+    });
+    act(() => {
+      window.history.pushState({}, "", `/deck/${created.id}`);
+      route.deckId = created.id;
+      rerender();
+    });
+
+    const real = api.fetchMock.getMockImplementation()!;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    api.fetchMock.mockImplementation((url) => {
+      const response = real(url);
+      return requestString(url).includes(`get-deck?id=${created.id}`)
+        ? response.then((r) => gate.then(() => r))
+        : response;
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      api.resolveCreate(new Response("", { status: 200 }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(hasFailedDeckSave(created.id)).toBe(false);
+  });
+
   it("clears a read-side access-loss flag after a successful save", async () => {
     const deckId = "save-after-access-loss";
     window.history.pushState({}, "", `/deck/${deckId}`);

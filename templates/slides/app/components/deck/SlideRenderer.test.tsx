@@ -4,6 +4,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SlideRenderer, {
+  applyRemoteSlideContentUnderEdit,
   computeSlideFitTransform,
   getRenderedSlideSource,
   isRawHtmlSlide,
@@ -415,6 +416,78 @@ describe("SlideInner source stamps", () => {
     expect(commit).not.toHaveBeenCalled();
     expect(root.querySelector("p")).toBe(edited);
     expect(edited.textContent).toBe("Caption typed");
+  });
+
+  describe("another writer's saved edit under an open text edit", () => {
+    const objects = (a: string, b: string, bLeft = 100) =>
+      `<div class="fmd-slide"><div data-slide-object-id="a" style="left:100px">${a}</div><div data-slide-object-id="b" style="left:${bLeft}px">${b}</div></div>`;
+
+    function openEdit(slideId: string, base: string) {
+      const slide = { id: slideId, content: base, layout: "blank" } as Slide;
+      const view = render(<SlideInner slide={slide} stampSource />);
+      const root = document.querySelector<HTMLElement>(".slide-content")!;
+      const edited = root.querySelector<HTMLElement>(
+        '[data-slide-object-id="a"]',
+      )!;
+      edited.setAttribute("contenteditable", "true");
+      edited.textContent = "Alpha typed";
+      return { slide, view, root, edited };
+    }
+
+    it("shows a change to another object around the edit, which keeps its node and text", () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const base = objects("Alpha", "Beta");
+      const remote = objects("Alpha", "Beta by remote", 300);
+      const { slide, view, root, edited } = openEdit("slide-live-a", base);
+      const commit = vi.fn();
+      document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+
+      expect(applyRemoteSlideContentUnderEdit(root, base, remote)).toBe(
+        "applied",
+      );
+
+      const other = root.querySelector<HTMLElement>(
+        '[data-slide-object-id="b"]',
+      )!;
+      expect(other.textContent).toBe("Beta by remote");
+      expect(other.style.left).toBe("300px");
+      expect(root.querySelector('[data-slide-object-id="a"]')).toBe(edited);
+      expect(edited.getAttribute("contenteditable")).toBe("true");
+      expect(edited.textContent).toBe("Alpha typed");
+      const source = getRenderedSlideSource(root)!;
+      expect(source.stored).toBe(remote);
+      expect(
+        mergeRenderedEdits({ ...source, live: root.cloneNode(true) as Element })
+          .html,
+      ).toBe(objects("Alpha typed", "Beta by remote", 300));
+
+      // The same content then arrives as the prop: it is already on screen.
+      view.rerender(
+        <SlideInner slide={{ ...slide, content: remote }} stampSource />,
+      );
+      document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+      expect(commit).not.toHaveBeenCalled();
+      expect(errors).not.toHaveBeenCalled();
+      expect(root.querySelector('[data-slide-object-id="a"]')).toBe(edited);
+      expect(edited.textContent).toBe("Alpha typed");
+      errors.mockRestore();
+    });
+
+    it("leaves the canvas alone when the other writer changed the edited object too", () => {
+      const base = objects("Alpha", "Beta");
+      const remote = objects("Alpha by remote", "Beta by remote");
+      const { root, edited } = openEdit("slide-live-b", base);
+
+      expect(applyRemoteSlideContentUnderEdit(root, base, remote)).toBe(
+        "overlap",
+      );
+
+      expect(
+        root.querySelector('[data-slide-object-id="b"]')!.textContent,
+      ).toBe("Beta");
+      expect(edited.textContent).toBe("Alpha typed");
+      expect(getRenderedSlideSource(root)!.stored).toBe(base);
+    });
   });
 
   it("asks the editor to commit before another slide replaces an edit", () => {
