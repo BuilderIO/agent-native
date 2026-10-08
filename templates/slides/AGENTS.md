@@ -13,6 +13,7 @@ Read relevant guides before deeper work:
 - `.agents/skills/image-generation-via-a2a/SKILL.md` — for A2A image generation.
 - `.agents/skills/design-systems/SKILL.md` — for deck design systems.
 - `.agents/skills/slide-design/SKILL.md` — for visual-craft requests.
+- `.agents/skills/apply-slide-comments/SKILL.md` — for applying/resolving comments.
 - `.agents/skills/creative-context/SKILL.md` — for source reuse and context.
 - `.agents/skills/analytics-data-for-decks/SKILL.md` — for delegated data requests.
 
@@ -45,8 +46,8 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use actions for deck/slide writes; keep large files in configured file storage, not SQL/settings/resources. Never hardcode secrets or private/customer data; use obvious placeholders.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- Use `view-screen` when the active deck/slide/layout is unclear. Preserve requested structure; do not restyle imports marked partial or with `imagesSkipped` without reporting the warning.
-- Preserve freeform objects and their ids. Keep generated flex/grid in normal flow and use styled HTML, not inline SVG; see `slide-editing`.
+- Use `view-screen` when the active deck/slide/layout is unclear, and on every turn that says "this"/"here"/"selected". Preserve requested structure; do not restyle imports marked partial or with `imagesSkipped` without reporting the warning.
+- Slide HTML layout, card, no-SVG, and freeform-id rules: `slide-editing`.
 - Import attachments only on request or via Import. `sourceImport` records provenance; structural edits clear it. Read preloaded new-deck attachments before deciding whether to import.
 - Provider API actions are shortcuts, not limits. For exact Drive API needs use `provider-api-catalog` / `-docs` / `-request` with the user's Google Docs OAuth. Preserve imported PPTX timing metadata.
 - For data requests, follow `analytics-data-for-decks` and delegate via Analytics/A2A; never query SQL or providers directly. Without a reference deck or design system, read `get-workspace-defaults` before generation; use `creative-context` for source order and context submission.

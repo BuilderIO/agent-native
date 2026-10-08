@@ -1493,7 +1493,9 @@ async function persistDeckOps(
         { method: "PUT", signal },
       ),
     );
-    const trailingOps = ops.slice(1) as PatchDeckOp[];
+    const trailingOps = collapseKeepaliveSlidePatches(
+      ops.slice(1),
+    ) as PatchDeckOp[];
     if (trailingOps.length > 0) {
       results.push(
         await callDeckWriteAction<unknown>(
@@ -1505,11 +1507,15 @@ async function persistDeckOps(
       );
     }
   } else {
+    // The server checks every content op in a batch against the slide as it
+    // stood when the batch began, so edits queued behind an in-flight save
+    // (a drag, then nudges) cannot go out as separate ops with chained base
+    // hashes: all but the first would be rejected as stale.
     results.push(
       await callDeckWriteAction<unknown>(
         "patch-deck",
         deckId,
-        { operations: ops as PatchDeckOp[] },
+        { operations: collapseKeepaliveSlidePatches(ops) as PatchDeckOp[] },
         { signal },
       ),
     );

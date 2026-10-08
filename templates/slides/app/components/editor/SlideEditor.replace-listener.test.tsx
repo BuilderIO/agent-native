@@ -2,7 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   getRenderedSlideSource,
@@ -38,10 +38,20 @@ vi.mock("@/components/deck/ExcalidrawSlide", () => ({
 }));
 vi.mock("@/root", () => ({ enterSelectionMode: vi.fn() }));
 
+// happy-dom has no layout: an empty stack makes the pointer resolver fall back
+// to the event target's ancestors.
+beforeEach(() => {
+  Object.defineProperty(document, "elementsFromPoint", {
+    configurable: true,
+    value: () => [],
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(document, "elementsFromPoint");
 });
 
 function Providers({ children }: { children: ReactNode }) {

@@ -20,6 +20,7 @@ import {
   stripCopiedIdentity,
   ZERO_WIDTH_SPACE,
 } from "./bullet-editing";
+import { isFitFreeformFrame } from "./fit-text-object";
 import {
   createSlideList,
   headingTextLook,
@@ -243,6 +244,47 @@ export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 64 * 1024 * 1024;
 /** How far Tab nests a legacy bullet row, the way generated decks draw sub-bullets. */
 const LEGACY_ROW_INDENT_PX = 24;
 const TYPING_RUN_MS = 1000;
+
+/**
+ * A fit-mode freeform box grows with its text and takes no space in the
+ * flow, so freezing its size would stop that growth.
+ */
+function ownsFlowSlot(el: HTMLElement) {
+  return !isFitFreeformFrame(el);
+}
+
+/** Drops the size containment earlier sessions persisted onto editor-owned freeform boxes. */
+export function stripFreeformReservation(el: HTMLElement) {
+  if (
+    !el.hasAttribute("data-slide-object-id") ||
+    !(el.classList.contains("fmd-text-box") || !ownsFlowSlot(el))
+  ) {
+    return;
+  }
+  const tokens = el.style.getPropertyValue("contain").split(/\s+/u);
+  if (!tokens.includes("size")) return;
+  const rest = tokens.filter((token) => token && token !== "size");
+  if (rest.length) {
+    el.style.setProperty(
+      "contain",
+      rest.join(" "),
+      el.style.getPropertyPriority("contain"),
+    );
+  } else {
+    el.style.removeProperty("contain");
+  }
+  el.style.removeProperty("contain-intrinsic-size");
+  if (!el.getAttribute("style")) el.removeAttribute("style");
+}
+
+/**
+ * Height of an edited block's text. `contain: size` freezes offsetHeight at
+ * the pre-edit size while the text keeps growing, so scrollHeight is the
+ * only reading that follows it.
+ */
+export function readEditedBlockContentHeight(el: HTMLElement): number {
+  return Math.max(el.offsetHeight, el.scrollHeight);
+}
 
 function sourceTextLook(element: Element): TextLook {
   const computed = element.ownerDocument.defaultView!.getComputedStyle(element);
@@ -1192,6 +1234,7 @@ export function startInPlaceTextSession(
     throw new Error("startInPlaceTextSession: element is already editable");
   }
   let el = element;
+  stripFreeformReservation(el);
   const initialRootTagName = el.tagName;
   let active = true;
   const initialContentEditable = el.getAttribute("contenteditable");
@@ -1272,6 +1315,7 @@ export function startInPlaceTextSession(
     );
   };
   const reservationEnabled =
+    ownsFlowSlot(el) &&
     initialLayout.renderedWidth > 0 &&
     initialLayout.renderedHeight > 0 &&
     typeof CSS !== "undefined" &&
@@ -5279,6 +5323,7 @@ export function startInPlaceTextSession(
     if (el.tagName === initialRootTagName && el.innerHTML === startHtml) {
       restoreLayoutReservation();
     }
+    stripFreeformReservation(el);
     if (initialContentEditable === null) el.removeAttribute("contenteditable");
     else el.setAttribute("contenteditable", initialContentEditable);
     if (initialEditingBlock === null) el.removeAttribute("data-editing-block");

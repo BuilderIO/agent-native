@@ -2711,18 +2711,13 @@ describe("DeckContext deck creation persistence", () => {
       requestString(url).includes("/_agent-native/actions/patch-deck"),
     );
     expect(getPatchAttempts(initial.id)).toBe(3);
+    // Writes two and three go out as one op against the content both started from.
     expect(actionCallBody(patchCalls[1]?.[1]).operations).toMatchObject([
       {
         op: "patch-slide",
         slideId: "slide-1",
-        fields: { content: "Write two" },
-        baseContentHash: hashSlideContent("Before"),
-      },
-      {
-        op: "patch-slide",
-        slideId: "slide-1",
         fields: { content: "Write three" },
-        baseContentHash: hashSlideContent("Write two"),
+        baseContentHash: hashSlideContent("Before"),
       },
     ]);
     expect(actionCallBody(patchCalls[2]?.[1]).operations).toMatchObject([
@@ -7009,6 +7004,86 @@ describe("DeckContext deck creation persistence", () => {
     });
   });
 
+  it("chains immediate saves queued behind an in-flight save without a stale-content 409", async () => {
+    window.history.pushState({}, "", "/deck/chain-deck");
+    const {
+      fetchMock,
+      getAccessibleDeck,
+      getPatchAttempts,
+      resolveDeferredPatch,
+      setAccessibleDeck,
+    } = setupFetch({ deferredPatch: true, serverFaithfulClientWrites: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const frame = (left: number, top: number, height: number) =>
+      `<div class="fmd-slide"><div data-slide-object-id="card" style="position:absolute;left:${left}px;top:${top}px;width:300px;height:${height}px">Card</div></div>`;
+    const initial = frame(20, 20, 80);
+    const dragged = frame(120, 90, 80);
+    const nudgedOnce = frame(121, 90, 80);
+    const nudgedTwice = frame(121, 91, 80);
+    const resized = frame(121, 91, 110);
+    setAccessibleDeck({
+      id: "chain-deck",
+      title: "Chain deck",
+      createdAt: "2026-10-07T00:00:00.000Z",
+      updatedAt: "2026-10-07T00:00:00.000Z",
+      slides: [
+        { id: "chain-slide", content: initial, notes: "", layout: "blank" },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    const commit = (content: string) =>
+      act(() => {
+        result.current.updateSlide(
+          "chain-deck",
+          "chain-slide",
+          { content },
+          { persistence: "immediate" },
+        );
+      });
+    commit(dragged);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getPatchAttempts("chain-deck")).toBe(1);
+    // The pointer gestures and nudges after the drag land while it is in flight.
+    commit(nudgedOnce);
+    commit(nudgedTwice);
+    commit(resized);
+    expect(getPatchAttempts("chain-deck")).toBe(1);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    // One op per request: the server checks each content op against the slide
+    // as it stood at the start of the batch, so chained ops would be stale.
+    const requests = fetchMock.mock.calls
+      .filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      )
+      .map(
+        ([, init]) =>
+          (actionCallBody(init).operations ?? []) as {
+            baseContentHash?: string;
+            fields?: { content?: string };
+          }[],
+      );
+    expect(requests.map((operations) => operations.length)).toEqual([1, 1]);
+    expect(requests[0][0].baseContentHash).toBe(hashSlideContent(initial));
+    expect(requests[1][0].baseContentHash).toBe(hashSlideContent(dragged));
+    expect(requests[1][0].fields?.content).toBe(resized);
+    expect(getPatchAttempts("chain-deck")).toBe(2);
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(resized);
+  });
+
   it("retries failed immediate slide HTML ahead of a newer gesture commit", async () => {
     window.history.pushState({}, "", "/deck/gesture-deck");
     const { fetchMock, getPatchAttempts, setAccessibleDeck } = setupFetch({
@@ -7021,7 +7096,6 @@ describe("DeckContext deck creation persistence", () => {
     const initialContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:25px;top:85px;width:740px;height:218px">Title</div></div>`;
     const movedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:105px;width:740px;height:218px">Title</div></div>`;
     const resizedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:95.4px;width:740px;height:227.6px">Title</div></div>`;
-    const normalizedMovedContent = movedContent;
     const normalizedResizedContent = resizedContent;
     setAccessibleDeck({
       id: "gesture-deck",
@@ -7072,15 +7146,12 @@ describe("DeckContext deck creation persistence", () => {
     const patchCalls = fetchMock.mock.calls.filter(([url]) =>
       requestString(url).includes("/_agent-native/actions/patch-deck"),
     );
-    const orderedRetry = patchCalls.find(([, init]) => {
+    // The failed move and the newer resize retry as one op against the
+    // content neither had persisted; chained ops would be stale server-side.
+    const retry = patchCalls.find(([, init]) => {
       const operations = actionCallBody(init).operations;
       return (
         Array.isArray(operations) &&
-        operations.some(
-          (operation) =>
-            (operation as { fields?: { content?: string } }).fields?.content ===
-            normalizedMovedContent,
-        ) &&
         operations.some(
           (operation) =>
             (operation as { fields?: { content?: string } }).fields?.content ===
@@ -7088,18 +7159,14 @@ describe("DeckContext deck creation persistence", () => {
         )
       );
     });
-    expect(actionCallBody(orderedRetry?.[1])).toMatchObject({
+    expect(actionCallBody(retry?.[1])).toMatchObject({
       deckId: "gesture-deck",
       operations: [
         {
           op: "patch-slide",
           slideId: "gesture-slide",
-          fields: { content: normalizedMovedContent },
-        },
-        {
-          op: "patch-slide",
-          slideId: "gesture-slide",
           fields: { content: normalizedResizedContent },
+          baseContentHash: hashSlideContent(initialContent),
         },
       ],
     });

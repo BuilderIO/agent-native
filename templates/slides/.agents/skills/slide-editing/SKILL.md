@@ -61,14 +61,10 @@ panels, fake logos, and filler bullets.
 
 ## Fit and Density
 
-Fit the main content to the native content area, not merely to the outer
-wrapper. For the default 16:9 canvas, the standard `64px 80px` padding leaves
-800x412px. Keep titles to two lines, content slides to three short bullets or
-three compact cards, and two-column slides to two or three short items per
-column. If the source is denser, split it across slides. Never use zoom,
-`transform: scale()`, clipping, or scroll overflow to hide a fit issue; body
-text must remain at least 16px. Explicitly reduced slide padding is allowed when
-the content still needs the space.
+Edits obey the Fit budget in `create-deck`, measured against the slide's own
+padding and aspect ratio. When an edit adds or lengthens text, redo the height
+arithmetic for that slide and split it instead of shrinking. Explicitly reduced
+slide padding is allowed when the content still needs the space.
 
 After all deck edits, call `get-layout-overflows` once. If you repair a
 measured overflow, call it once more; do not check between writes. If status is
@@ -115,6 +111,12 @@ To edit a slide's content:
    For a targeted persisted read, pass that stable `slideId` to `get-deck` so
    only the target slide is returned; use `compact=false` when you need its
    full HTML.
+   The user navigates and reselects between turns. On any turn that says
+   this, here, that slide, these, or the selected one (including a follow-up
+   like "now make it bigger"), call `view-screen` again before acting; never
+   reuse the previous turn's slide ID or selection. If it shows nothing
+   selected or the target is unclear, ask which slide rather than guessing from
+   recent edits.
 2. **Retrieve before generating**: when the edit changes facts, brand language,
    or layout, follow the `creative-context` skill and query those roles
    separately. Respect opt-out, pinned packs, and the exact reuse ladder.
@@ -235,6 +237,10 @@ same operations.
 ## Click-to-reveal animations
 
 Animations are metadata over the final slide HTML, not alternate slide markup.
+Reveal only where the order of ideas carries the argument (a list whose payoff
+is the last item, a build to a conclusion, before/after); a title, single
+quote, or diagram the audience should take in at a glance is stronger shown
+whole. Do not add reveals by default.
 Read the full target slide, keep its existing visual structure, and patch the
 complete ordered `animations` list with `elementPath` values from that exact
 HTML. Elements omitted from the list remain visible immediately, so labels and
@@ -276,23 +282,42 @@ children of `.fmd-slide`. Give each one a stable `data-slide-object-id`:
 </div>
 ```
 
-- Preserve `data-slide-object-id` when updating, moving, resizing, or styling an
-  existing object.
+- Preserve `data-slide-object-id` and the `left`/`top`/`width` of hand-placed
+  objects when updating, moving, resizing, or styling them.
 - Mint a new unique object ID when duplicating an object.
 - Do not use runtime-only `data-builder-id` values in saved slide HTML.
-- Keep generated flex and grid content in normal flow. Do not silently
-  absolute-position a nested layout child just to make it draggable; create a
-  deliberate freeform object instead.
+- A text box (`.fmd-text-box`) with no inline `height` auto-grows with its text
+  from the top edge.
 - Build editable shapes with styled HTML elements such as `div`. Do not use
   inline SVG, which the slide sanitizer removes.
 
+## Flow Layout and the Editor
+
+Keep generated flex and grid content in normal flow. Do not silently
+absolute-position a nested layout child just to make it draggable; create a
+deliberate freeform object instead. The editor presents flow content as flat
+objects the way Google Slides does, so write markup that maps cleanly:
+
+- A card is one painted box (background, border, or shadow on a single element)
+  that owns its text. Never stack separately positioned text over a card
+  background.
+- Text containers, including `.fmd-text-box`, have no fixed `height`
+  (`min-height` only for a deliberate minimum), so text grows instead of
+  overflowing. Never write `contain` or `contain-intrinsic-size`.
+- Keep nesting shallow. Unpainted wrappers with no direct text (grid rows,
+  columns) are fine; the pointer skips them.
+- Ids belong to freeform objects only. Never stamp `data-slide-object-id` on a
+  flow region: any id marks an object freeform and `export-pptx` rejects it.
+  Preserve existing ids when rewriting a slide.
+
 ## Image Placeholders
 
-For visual elements (diagrams, charts, photos), use placeholder divs:
+For visual elements (diagrams, charts, photos), use placeholder divs whose text
+names the content to show, not its role (see `create-deck` Image Placeholders):
 
 ```html
 <div class="fmd-img-placeholder" style="width: 100%; height: 300px; border-radius: 12px;">
-  Description of the image
+  Q3 revenue by region, bar chart
 </div>
 ```
 

@@ -479,7 +479,117 @@ describe("in-place text session: entering and ending", () => {
     );
   });
 
-  it("reserves the initial size of an absolutely positioned text box", () => {
+  function mockBox(el: HTMLElement) {
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
+  }
+
+  it("never reserves a fit-mode freeform box, before or after end()", () => {
+    const el = mount(
+      '<div id="t" class="fmd-text-box" data-slide-object-id="a" style="position: absolute; left: 10px; top: 20px; width: 240px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    for (let line = 0; line < 3; line += 1) {
+      type(el, " wrapped line");
+      key(el, { key: "Enter", shiftKey: true });
+    }
+
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe("");
+    expect(beforeInput(el, "historyUndo").defaultPrevented).toBe(true);
+    expect(beforeInput(el, "historyRedo").defaultPrevented).toBe(true);
+    expect(el.style.getPropertyValue("contain")).toBe("");
+
+    session.end();
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe("");
+    expect(el.getAttribute("style")).not.toContain("contain");
+  });
+
+  it("reserves an absolute box that is anchored by an inline bottom", () => {
+    const el = mount(
+      '<div id="t" style="position: absolute; left: 10px; bottom: 20px; width: 240px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    type(el, "beta");
+
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+  });
+
+  it("never reserves an absolute box whose inline height is auto", () => {
+    const el = mount(
+      '<div id="t" style="position: absolute; left: 10px; top: 20px; width: 240px; height: auto">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    type(el, "beta");
+
+    expect(el.style.getPropertyValue("contain")).toBe("");
+  });
+
+  it("never reserves a box a stylesheet class makes absolute", () => {
+    const style = document.createElement("style");
+    style.textContent = ".caption { position: absolute; }";
+    document.head.append(style);
+    const el = mount(
+      '<div id="t" class="caption" style="left: 10px; top: 20px; width: 240px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    type(el, "beta");
+
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    style.remove();
+  });
+
+  it("strips legacy size containment from a freeform text box when a session starts", () => {
+    const el = mount(
+      '<div id="t" class="fmd-text-box" data-slide-object-id="a" style="position: absolute; top: 20px; width: 240px; contain: size; contain-intrinsic-size: 240px 48px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe("");
+    expect(el.style.top).toBe("20px");
+  });
+
+  it("keeps an author's other contain tokens when stripping the size token", () => {
+    const el = mount(
+      '<div id="t" data-slide-object-id="a" style="position: absolute; top: 20px; width: 240px; contain: layout size paint; contain-intrinsic-size: 240px 48px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    session.end();
+
+    expect(el.style.getPropertyValue("contain")).toBe("layout paint");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe("");
+  });
+
+  it("leaves containment on a non-freeform absolute box alone at start", () => {
+    const el = mount(
+      '<div id="t" style="position: absolute; top: 20px; width: 240px; contain: size; contain-intrinsic-size: 240px 48px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+  });
+
+  it("reserves the initial size of an absolutely positioned text box with an inline height", () => {
     const el = mount(
       '<div id="t" style="position: absolute; left: 10px; top: 20px; width: 240px; height: 48px">Alpha</div>',
     );
