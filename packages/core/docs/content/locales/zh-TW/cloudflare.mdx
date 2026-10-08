@@ -184,6 +184,20 @@ npx wrangler deploy --config .output/server/wrangler.json
 
 密鑰會在每次部署之間持續儲存在 Worker 上，因此你不需要重複步驟 5。
 
+## 排程工作 {#cloudflare-scheduled-work}
+
+排程自動化、佇列中的事件自動化，以及被中斷執行的清理，都會在每分鐘一次的掃描中完成。建置會在產生的 `wrangler.json` 中新增一個 `* * * * *` [Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)，並保留你已經宣告的所有 Cron Trigger。觸發時，Worker 的 `scheduled` 處理常式會使用一個以 `A2A_SECRET` 簽署的短期權杖直接呼叫掃描，因此請在部署前設定這個密鑰：
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **CPU 時間。** 在 Workers Free 方案中，每次 Cron Trigger 呼叫只有 10 毫秒的 CPU 時間，而執行代理作業的掃描需要更多。請為排程工作使用 Workers Paid 方案。
+- **觸發時間。** Cron Trigger 以 UTC 執行，新的或變更過的觸發器在部署後最多可能需要 15 分鐘才會開始觸發。
+- **本機測試。** 使用 `npx wrangler dev --test-scheduled --config .output/server/wrangler.json` 執行建置好的 Worker，然後請求 `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` 來觸發一次掃描。
+
+請參閱 [調度程式如何執行](/docs/recurring-jobs#how-scheduler-runs) 了解其他託管平台。
+
 ## 接下來呢 {#whats-next}
 
 - [**部署環境變數**](/docs/deployment-environment-variables) - 正式環境設定的完整清單

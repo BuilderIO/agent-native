@@ -1016,6 +1016,10 @@ export default {
     keyboardShortcuts: {
       title: "Keyboard shortcuts",
       close: "Close keyboard shortcuts",
+      search: "Search",
+      searchLabel: "Search keyboard shortcuts",
+      categoriesLabel: "Shortcut categories",
+      empty: "No shortcuts match “{{query}}”",
       codeContext: "Code",
       screenContext: "Screen",
       nudgeAmount: {
@@ -1048,12 +1052,6 @@ export default {
         leftBracket: "Left Bracket",
         rightBracket: "Right Bracket",
       },
-      descriptions: {
-        toggleUi:
-          "Press it now to quickly hide the panes and focus on your work",
-        undo: "Step back through your most recent design change",
-        redo: "Restore the design change you just undid",
-      },
       categories: {
         essential: "Essential",
         tools: "Tools",
@@ -1085,6 +1083,7 @@ export default {
         showLayers: "Show layers",
         showAssets: "Show assets",
         toggleUi: "Show/Hide UI",
+        toggleMinimalUi: "Minimal UI",
         toggleComments: "Show or hide comments",
         zoomIn: "Zoom in",
         zoomOut: "Zoom out",

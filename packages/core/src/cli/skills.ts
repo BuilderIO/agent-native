@@ -1435,7 +1435,7 @@ function builtInSkillsRootForAgent(
   return path.join(home, ".claude", "skills");
 }
 
-function builtInCommandsRootForAgent(
+export function builtInCommandsRootForAgent(
   agent: string,
   scope: "project" | "user",
   baseDir: string,

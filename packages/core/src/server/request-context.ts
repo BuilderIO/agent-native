@@ -1,5 +1,6 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
+import type { ContextStatus } from "../shared/context-status.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
 type AsyncLocalStorageLike<T> = {
@@ -87,6 +88,8 @@ export interface RequestRunContext {
   analyticsJevPrefetch?: {
     preloadedReferenceCount: number;
   };
+  /** Whether the pre-model reference prefetch and screen grounding reached the model. */
+  contextStatus?: { prefetch?: ContextStatus; screen?: ContextStatus };
   toolCalls?: Array<{ name: string; input: unknown }>;
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
   extensionContentReads?: Record<string, string>;
