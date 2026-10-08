@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "無法確認 AI 是否已就緒。",
     },
     common: { retry: "重試" },
+    onboarding: { skipForNow: "暫時略過" },
   },
   timelineTrack: {
     helpOtherSide: "先點一下那一段，再把紅線往右拖。",
@@ -1393,9 +1394,18 @@ const messages = {
   storageSetup: {
     builderConnectPopupError:
       "無法開啟 Builder.io。如果此應用程式嵌入在聊天中，請在瀏覽器分頁中開啟；否則請重試。",
-    builderConnectError: "無法設定 Builder.io。請再試一次或聯絡支援團隊。",
+    builderConnectError:
+      "Builder.io 設定未完成。請再試一次，或選擇相容 S3 的儲存空間。",
+    builderConnectErrorAskAdmin:
+      "Builder.io 設定未完成。請再試一次，或請擁有者或管理員設定儲存空間。",
+    builderStatusReadError: "無法檢查 Builder.io 連線。",
+    builderUploadGrantMissing:
+      "Builder.io 已連線 AI 服務，但此連線無法上傳片段。請授予上傳權限後重新連線 Builder.io，或向擁有者或管理員尋求協助。",
+    builderGrantAskAdmin:
+      "請擁有者或管理員連線具有片段上傳權限的 Builder.io 帳戶。",
+    statusUnavailable: "無法檢查影片儲存是否就緒。",
     checkingBuilderConnection: "正在檢查 Builder 連線…",
-    builderTimeout: "5 分鐘內未收到 Builder 回應，請重試。",
+    builderTimeout: "無法確認 Builder.io 儲存空間已就緒，請再試一次。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
     description:
@@ -1732,6 +1742,8 @@ const messages = {
     pendingStorageDescription: "連接儲存空間後，Clips 會立即上傳。",
     storageConnectedUploading: "儲存空間已連線。正在上傳你的錄製…",
     downloadCopy: "下載副本",
+    localRecordingPreview: "本機錄製預覽",
+    localPreviewUnavailable: "本機預覽無法使用。你仍可下載副本。",
     localRecordingOpenElsewhere: "此錄製仍在另一個 Clips 分頁中開啟。",
     uploadWaitingForConnection: "上傳已暫停。Clips 會自動重試。",
     uploadDidNotFinish: "上傳未完成。",

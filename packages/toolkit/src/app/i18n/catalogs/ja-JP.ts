@@ -127,7 +127,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
   "onboarding.builderCreateAccount": "Builder.io を使う",
-  "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
+  "onboarding.builderSignInWithAccount": "Builder.io を使う",
   "onboarding.builderActivateDescription":
     "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",
   "onboarding.builderActiveCredits":
@@ -159,7 +159,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "利用規約",
   "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
-  "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
+  "onboarding.builderExistingAccount": "Builder.io を使う",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":
@@ -210,7 +210,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "BuilderストレージまたはS3互換バケット",
   "onboarding.capability.clipsObjectStorage.why":
-    "録画した動画は、再生または共有する前に永続的なオブジェクトストレージを必要とします。",
+    "ストレージがなくてもClipsを録画、プレビュー、ダウンロードできます。永続オブジェクトストレージを接続すると、録画を複数のデバイスで利用し、共有できます。",
   "onboarding.capability.clipsTranscription.keySummary":
     "音声文字変換プロバイダーのキー",
   "onboarding.capability.about": "{{label}}について",
@@ -2079,7 +2079,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io の接続を解除できませんでした。",
   "settingsShell.builder.disconnectTitle": "Builder.io の接続を解除しますか？",
   "settingsShell.builder.grantsFailed":
-    "Builder.io の接続を読み込めませんでした。",
+    "Builder.io への接続を確認できませんでした。",
   "settingsShell.builder.setupStartFailed":
     "Builder.io のセットアップを開始できませんでした。このページを更新して、もう一度お試しください。",
   "settingsShell.builder.setupHostFailed":

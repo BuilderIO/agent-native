@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
     common: { retry: "다시 시도" },
+    onboarding: { skipForNow: "지금 건너뛰기" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -1453,9 +1454,18 @@ const messages = {
     builderConnectPopupError:
       "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 다시 시도하세요.",
     builderConnectError:
-      "Builder.io를 설정하지 못했습니다. 다시 시도하거나 지원팀에 문의해 주세요.",
+      "Builder.io 설정을 완료하지 못했습니다. 다시 시도하거나 S3 호환 스토리지를 선택하세요.",
+    builderConnectErrorAskAdmin:
+      "Builder.io 설정을 완료하지 못했습니다. 다시 시도하거나 소유자나 관리자에게 스토리지 설정을 요청하세요.",
+    builderStatusReadError: "Builder.io 연결을 확인하지 못했습니다.",
+    builderUploadGrantMissing:
+      "Builder.io가 AI용으로 연결되어 있지만 이 연결로는 클립을 업로드할 수 없습니다. 업로드 권한을 부여해 Builder.io를 다시 연결하거나 소유자 또는 관리자에게 도움을 요청하세요.",
+    builderGrantAskAdmin:
+      "소유자 또는 관리자에게 클립 업로드 권한으로 Builder.io를 연결해 달라고 요청하세요.",
+    statusUnavailable: "비디오 저장소 상태를 확인할 수 없습니다.",
     checkingBuilderConnection: "Builder 연결을 확인하는 중…",
-    builderTimeout: "5분 동안 Builder 응답이 없습니다. 다시 시도하세요.",
+    builderTimeout:
+      "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
     description:
@@ -1810,6 +1820,9 @@ const messages = {
     pendingStorageDescription: "스토리지를 연결하면 Clips가 바로 업로드합니다.",
     storageConnectedUploading: "저장소가 연결되었습니다. 녹화를 업로드하는 중…",
     downloadCopy: "사본 다운로드",
+    localRecordingPreview: "로컬 녹화 미리보기",
+    localPreviewUnavailable:
+      "로컬 미리보기를 사용할 수 없습니다. 사본은 다운로드할 수 있습니다.",
     localRecordingOpenElsewhere:
       "이 녹화는 아직 다른 Clips 탭에서 열려 있습니다.",
     uploadWaitingForConnection:

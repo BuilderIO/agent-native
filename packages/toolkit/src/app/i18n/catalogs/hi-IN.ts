@@ -123,7 +123,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "अभी छोड़ें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
   "onboarding.builderCreateAccount": "Builder.io इस्तेमाल करें",
-  "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",
+  "onboarding.builderSignInWithAccount": "Builder.io इस्तेमाल करें",
   "onboarding.builderActivateDescription":
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
@@ -150,7 +150,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "सेवा की शर्तों",
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
-  "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
+  "onboarding.builderExistingAccount": "Builder.io इस्तेमाल करें",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
@@ -199,7 +199,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder स्टोरेज या S3-संगत बकेट",
   "onboarding.capability.clipsObjectStorage.why":
-    "रिकॉर्ड किए गए वीडियो को चलाने या साझा करने से पहले टिकाऊ ऑब्जेक्ट स्टोरेज की आवश्यकता होती है।",
+    "आप स्टोरेज के बिना Clips रिकॉर्ड, प्रीव्यू और डाउनलोड कर सकते हैं। रिकॉर्डिंग को अलग-अलग डिवाइस पर उपलब्ध रखने और साझा करने के लिए टिकाऊ ऑब्जेक्ट स्टोरेज कनेक्ट करें।",
   "onboarding.capability.clipsTranscription.keySummary":
     "स्पीच-टू-टेक्स्ट प्रदाता की कुंजी",
   "onboarding.capability.about": "{{label}} के बारे में",
@@ -2047,7 +2047,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed":
     "Builder.io को डिस्कनेक्ट नहीं किया जा सका।",
   "settingsShell.builder.disconnectTitle": "Builder.io डिस्कनेक्ट करें?",
-  "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन पढ़े नहीं जा सके।",
+  "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन की जांच नहीं हो सकी।",
   "settingsShell.builder.setupStartFailed":
     "Builder.io सेटअप शुरू नहीं हो सका। इस पेज को रीफ़्रेश करके फिर कोशिश करें।",
   "settingsShell.builder.setupHostFailed":
