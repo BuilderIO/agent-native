@@ -172,7 +172,7 @@ function DocumentWorkspace({ hero = false }: { hero?: boolean }) {
           </span>
         </div>
       )}
-      <div className={`content-doc-layout${hero ? " is-hero" : ""}`}>
+      <div className="content-doc-layout">
         <div className="content-doc-body">
           <div className="content-doc-cover">
             <span>FIELD NOTES / OCTOBER 2026</span>
