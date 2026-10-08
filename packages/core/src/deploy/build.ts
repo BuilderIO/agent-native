@@ -5594,13 +5594,6 @@ export default bundle;
     includeImmutableAssetRouteRules: !isCloudflareModulePreset(preset),
   });
 
-  if (sentryServerSourceMapPlugins.length > 0) {
-    removeServerSourceMaps(nitro.options.output.serverDir);
-    console.log(
-      "[deploy] Ensured Nitro server output contains no source maps before packaging.",
-    );
-  }
-
   const drizzleMigrationFiles = copyDrizzleMigrationAssets(
     cwd,
     nitro.options.output.serverDir,
@@ -5639,6 +5632,13 @@ export default bundle;
 
   if (isCloudflareModulePreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
+  }
+
+  if (sentryServerSourceMapPlugins.length > 0) {
+    removeServerSourceMaps(nitro.options.output.serverDir);
+    console.log(
+      "[deploy] Ensured Nitro server output is free of source maps before function packaging.",
+    );
   }
 
   if (preset === "netlify") {
