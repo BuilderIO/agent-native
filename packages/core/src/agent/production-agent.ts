@@ -6347,7 +6347,6 @@ export async function runAgentLoop(opts: {
       };
       let toolDoneEmitted = false;
       let actionInvoked = false;
-      let actionResultReceived = false;
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
@@ -7201,7 +7200,6 @@ export async function runAgentLoop(opts: {
               );
             }),
           ]);
-          actionResultReceived = true;
           const mcpResult = isMcpActionResult(raw) ? raw : null;
           const rawForAgent = mcpResult ? mcpResult.text : raw;
           if (
@@ -7488,7 +7486,7 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
-            ? actionResultReceived && !actionIsReadOnly
+            ? actionInvoked && !actionIsReadOnly
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }
             : receipt

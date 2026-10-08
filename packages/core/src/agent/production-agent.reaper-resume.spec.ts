@@ -54,7 +54,7 @@ async function recover(
   events: AgentChatEvent[] | Error,
   ignoreContext: boolean | "after-read" = false,
   isRecovery: boolean | "client" = true,
-  failFinalization: boolean | "serialization" = false,
+  failFinalization: boolean | "serialization" | "action" = false,
   resumeContinue?: "auto" | "manual",
 ) {
   sequence++;
@@ -67,7 +67,9 @@ async function recover(
   if (events instanceof Error) ledger.mockRejectedValue(events);
   else ledger.mockResolvedValue(events);
   const seen: EngineMessage[][] = [];
-  const sendEmail = vi.fn(async () => {
+  const sendEmail = vi.fn(async (_input: Record<string, unknown>) => {
+    if (failFinalization === "action")
+      throw new Error("connection reset after send");
     if (failFinalization === "serialization") {
       const result: Record<string, unknown> = {};
       result.self = result;
@@ -117,7 +119,10 @@ async function recover(
               type: "tool-call",
               id: "email-2",
               name: "send-email",
-              input: { ...EMAIL, body: "Your refund has been approved." },
+              input:
+                isRecovery === true
+                  ? { ...EMAIL, body: "Your refund has been approved." }
+                  : EMAIL,
             },
           ],
         };
@@ -275,16 +280,20 @@ describe("reaper successor resume context", () => {
     expect(result.sendEmail).not.toHaveBeenCalled();
   });
 
-  it.each([true, "serialization"] as const)(
+  it.each([true, "serialization", "action"] as const)(
     "keeps a write unknown after post-call processing fails (%s) and blocks a reworded recovery",
     async (failure) => {
       const first = await recover([], false, false, failure);
       expect(first.sendEmail).toHaveBeenCalledTimes(1);
+      expect(first.sendEmail.mock.calls[0]?.[0]).toEqual(EMAIL);
       const events = (await getRunEventsSince(first.runId, -1)).map(
         ({ eventData }) => JSON.parse(eventData) as AgentChatEvent,
       );
       const next = await recover(events, true);
       expect(next.sendEmail).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "tool_done", outcomeUnknown: true }),
+      );
       expect(JSON.stringify(next.seen[0])).toContain(
         "Interrupted / unknown outcome",
       );
@@ -326,17 +335,40 @@ describe("reaper successor resume context", () => {
     expect(ledger).toHaveBeenCalledWith(result.threadId, result.turnId);
   });
 
-  it("tells the successor that a started email has an unknown outcome and must be checked", async () => {
-    const result = await recover([START]);
-    expect(result.sendEmail).not.toHaveBeenCalled();
-    const context = JSON.stringify(result.seen[0]);
-    expect(context).toContain("Interrupted / unknown outcome");
-    expect(context).toContain("verify state first");
-    expect(context).toContain(
-      "Interrupted before this tool returned a result.",
-    );
-    expect(context).not.toContain("Stopped before this action started.");
-  });
+  it.each(["single", "stale", "multi-hop"])(
+    "pairs an unknown email with an interrupted result before recovery (%s)",
+    async (boundary) => {
+      const events: AgentChatEvent[] = [START];
+      if (boundary === "multi-hop")
+        events.unshift({ type: "auto_continue", reason: "run_timeout" });
+      if (boundary !== "single")
+        events.push({
+          type: "error",
+          error: "The agent stopped before it could finish",
+          errorCode: "stale_run",
+          recoverable: true,
+        });
+      const result = await recover(events);
+      expect(result.sendEmail).not.toHaveBeenCalled();
+      const context = JSON.stringify(result.seen[0]);
+      expect(context).toContain("Interrupted / unknown outcome");
+      expect(context).toContain("verify state first");
+      expect(context).toContain(
+        "Interrupted before this tool returned a result.",
+      );
+      expect(context).not.toContain("Stopped before this action started.");
+      const parts = result.seen[0]!.flatMap(({ content }) => content);
+      for (const part of parts) {
+        if (part.type === "tool-call")
+          expect(parts).toContainEqual(
+            expect.objectContaining({
+              type: "tool-result",
+              toolCallId: part.id,
+            }),
+          );
+      }
+    },
+  );
 
   it("fails safely instead of replaying the request when the ledger cannot be read", async () => {
     const result = await recover(new Error("ledger unavailable"));
