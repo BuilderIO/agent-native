@@ -2766,16 +2766,38 @@ async function getCurrentTurnRunEvents(
     };
     const raw = row.event_data;
     const seq = Number(row.seq);
-    if (!row.run_id || !Number.isFinite(seq) || !raw) continue;
-    try {
-      events.push({
-        runId: row.run_id,
-        seq,
-        event: JSON.parse(raw) as AgentChatEvent,
-      });
-    } catch {
-      // Skip malformed ledger rows — the journal is best-effort.
+    if (
+      typeof row.run_id !== "string" ||
+      !row.run_id ||
+      row.seq == null ||
+      !Number.isSafeInteger(seq) ||
+      seq < 0 ||
+      typeof raw !== "string" ||
+      !raw
+    ) {
+      throw new Error("Invalid current-turn ledger row");
     }
+    // Dropping a corrupt row can make an unknown side effect look unstarted.
+    const event = JSON.parse(raw) as AgentChatEvent;
+    if (
+      !event ||
+      typeof event !== "object" ||
+      Array.isArray(event) ||
+      typeof event.type !== "string" ||
+      !event.type ||
+      ((event.type === "tool_start" || event.type === "tool_done") &&
+        (typeof event.tool !== "string" ||
+          !event.tool ||
+          (event.id !== undefined && typeof event.id !== "string"))) ||
+      (event.type === "tool_start" &&
+        (!event.input ||
+          typeof event.input !== "object" ||
+          Array.isArray(event.input))) ||
+      (event.type === "tool_done" && typeof event.result !== "string")
+    ) {
+      throw new Error("Invalid current-turn ledger event");
+    }
+    events.push({ runId: row.run_id, seq, event });
   }
   return events;
 }

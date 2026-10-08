@@ -44,13 +44,15 @@ beforeEach(() => {
 async function recover(
   events: AgentChatEvent[] | Error,
   ignoreContext: boolean | "after-read" = false,
-  isRecovery = true,
+  isRecovery: boolean | "client" = true,
 ) {
   sequence++;
   const threadId = `reaper-thread-${sequence}`;
   const turnId = `reaper-turn-${sequence}`;
   const runId = `reaper-run-${sequence}`;
-  await insertRun(runId, threadId, turnId, { dispatchMode: "background" });
+  if (isRecovery !== "client") {
+    await insertRun(runId, threadId, turnId, { dispatchMode: "background" });
+  }
   if (events instanceof Error) ledger.mockRejectedValue(events);
   else ledger.mockResolvedValue(events);
   const seen: EngineMessage[][] = [];
@@ -142,6 +144,16 @@ async function recover(
       },
     },
   });
+  const requestBody = {
+    message: "Send the refund email, then finish the refund.",
+    threadId,
+    turnId,
+    ...(isRecovery === true ? { internalContinuation: true } : {}),
+    ...(isRecovery ? { __agentChatRecoveryOfRunId: "dead-worker" } : {}),
+    ...(isRecovery !== "client"
+      ? { __backgroundRun: { runId, turnId, payloadRef: true } }
+      : {}),
+  };
   const event = mockEvent(
     new Request("http://app.example.com/_agent-native/agent-chat", {
       method: "POST",
@@ -150,18 +162,7 @@ async function recover(
     }),
   );
   // The body after the process-run route rehydrates a reaper successor's payloadRef.
-  event.context.__agentChatBackgroundBody = {
-    message: "Send the refund email, then finish the refund.",
-    threadId,
-    turnId,
-    ...(isRecovery
-      ? {
-          internalContinuation: true,
-          __agentChatRecoveryOfRunId: "dead-worker",
-        }
-      : {}),
-    __backgroundRun: { runId, turnId, payloadRef: true },
-  };
+  event.context.__agentChatBackgroundBody = requestBody;
   const response = await runWithRequestContext(
     { userEmail: "alice@example.com", orgId: "test-org", run: {} },
     () => handler(event),
@@ -176,6 +177,7 @@ async function recover(
   );
   return {
     seen,
+    requestBody,
     sendEmail,
     checkEmail,
     response,
@@ -186,6 +188,14 @@ async function recover(
 }
 
 describe("reaper successor resume context", () => {
+  it("strips a client recovery marker before it can become a trusted dispatch payload", async () => {
+    const result = await recover([], false, "client");
+    expect(result.requestBody).not.toHaveProperty("__agentChatRecoveryOfRunId");
+    expect(result.sendEmail).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(result.seen[0])).not.toContain(
+      AGENT_INTERNAL_CONTINUE_PROMPT,
+    );
+  });
   it("leaves an initial background worker as a fresh request", async () => {
     const result = await recover([], false, false);
     expect(result.sendEmail).toHaveBeenCalledTimes(1);

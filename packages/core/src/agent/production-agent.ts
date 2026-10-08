@@ -9213,6 +9213,9 @@ export function createProductionAgentHandler(
     const isBackgroundWorker = backgroundRunMarker !== null;
     if (!isBackgroundWorker) {
       delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
+      delete (body as unknown as Record<string, unknown>)[
+        AGENT_CHAT_RECOVERY_OF_RUN_FIELD
+      ];
       delete body.__resolvedActionSurface;
     }
     let requestedActionScope: AgentActionScope | undefined;

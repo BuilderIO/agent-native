@@ -66,6 +66,7 @@ const {
   tryClaimRunSlot,
   claimBackgroundRun,
   getRunByThread,
+  getCurrentTurnEventsForThread,
   isTurnAborted,
   markTurnAborted,
   reapIfStale,
@@ -90,6 +91,37 @@ function ids(): { runId: string; thread: string; turn: string } {
     turn: `turn-recover-${seq}`,
   };
 }
+
+describe("recovery ledger integrity", () => {
+  it.each([
+    "{broken",
+    "null",
+    "[]",
+    "{}",
+    '{"type":"tool_start","input":{}}',
+    '{"type":"tool_start","tool":"send-email"}',
+    '{"type":"tool_done","tool":"send-email"}',
+  ])(
+    "rejects a malformed event instead of returning partial history: %s",
+    async (raw) => {
+      const { runId, thread, turn } = ids();
+      await insertRun(runId, thread, turn);
+      const insert = await pglite.prepare(
+        "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+      );
+      await insert.run(
+        runId,
+        0,
+        Date.now(),
+        JSON.stringify({ type: "text", text: "Checking" }),
+      );
+      await insert.run(runId, 1, Date.now(), raw);
+      await expect(
+        getCurrentTurnEventsForThread(thread, turn),
+      ).rejects.toThrow();
+    },
+  );
+});
 
 async function setStaleLiveness(runId: string, atMs: number): Promise<void> {
   await pglite
