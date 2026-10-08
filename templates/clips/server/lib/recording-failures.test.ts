@@ -65,6 +65,22 @@ describe("recording failure analytics", () => {
     expect(mockTrack.mock.calls[0][2]).toEqual({ userId: "owner@example.com" });
   });
 
+  it("uses an explicitly stored browser session when no request context exists", () => {
+    trackRecordingFailure({
+      recordingId: "rec_1",
+      userId: "owner@example.com",
+      platform: "web",
+      failureCode: "media_verification_failed",
+      browserSessionId: "browser-session-1",
+    });
+
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.any(Object),
+      { userId: "owner@example.com", sessionId: "browser-session-1" },
+    );
+  });
+
   it("accepts only the normalized platform vocabulary", () => {
     expect(normalizeRecordingPlatform("extension")).toBe("extension");
     expect(normalizeRecordingPlatform("Chrome")).toBe("unknown");

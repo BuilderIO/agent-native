@@ -1186,6 +1186,7 @@ describe("finalize-recording media serve verification", () => {
           leaseUntil: null,
           uploadAttemptId: "attempt-1",
           uploadGenerationId: null,
+          browserSessionId: "browser-session-1",
           updatedAt: new Date(Date.now() - 2_000).toISOString(),
         };
       }
@@ -1213,7 +1214,7 @@ describe("finalize-recording media serve verification", () => {
         recording_attempt_id: "rec_1",
         upload_attempt_id: "attempt-1",
       }),
-      { userId: "owner@example.com" },
+      { userId: "owner@example.com", sessionId: "browser-session-1" },
     );
     expect(mockTrack).toHaveBeenCalledWith(
       "recording_failed",
@@ -1223,7 +1224,7 @@ describe("finalize-recording media serve verification", () => {
         recording_platform: "unknown",
         failure_code: "media_verification_failed",
       }),
-      { userId: "owner@example.com" },
+      { userId: "owner@example.com", sessionId: "browser-session-1" },
     );
   });
 

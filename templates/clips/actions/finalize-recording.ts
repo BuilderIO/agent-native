@@ -334,6 +334,7 @@ async function failStoredButUnservableRecording(params: {
   expectedUploadState: Record<string, unknown> | null;
   expectedVerificationState: Record<string, unknown> | null;
   failureReason: string;
+  browserSessionId?: string;
 }): Promise<boolean> {
   const {
     id,
@@ -343,6 +344,7 @@ async function failStoredButUnservableRecording(params: {
     expectedUploadState,
     expectedVerificationState,
     failureReason,
+    browserSessionId,
   } = params;
   const now = new Date().toISOString();
   const db = getDb();
@@ -412,7 +414,7 @@ async function failStoredButUnservableRecording(params: {
           : {}),
         recording_platform: failed[0]?.recordingPlatform ?? "unknown",
       },
-      recordingTrackingSource(ownerEmail),
+      recordingTrackingSource(ownerEmail, browserSessionId),
     );
   } catch {
     // coercion-ok: analytics is best-effort and must not change media recovery behavior.
@@ -423,6 +425,7 @@ async function failStoredButUnservableRecording(params: {
     uploadAttemptId: failed[0]?.uploadAttemptId,
     platform: failed[0]?.recordingPlatform,
     failureCode: "media_verification_failed",
+    browserSessionId,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
   return true;
@@ -1179,6 +1182,7 @@ async function retryPendingMediaVerification(params: {
         expectedUploadState,
         expectedVerificationState,
         failureReason: terminalReason,
+        browserSessionId,
       });
       if (!failed) {
         const [resolved] = await db

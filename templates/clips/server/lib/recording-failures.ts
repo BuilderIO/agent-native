@@ -89,6 +89,7 @@ export function trackRecordingFailure(params: {
   failureCode: RecordingFailureCode;
   failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
   httpStatus?: number;
+  browserSessionId?: string;
 }): void {
   try {
     track(
@@ -111,7 +112,7 @@ export function trackRecordingFailure(params: {
           ? { http_status: params.httpStatus }
           : {}),
       },
-      recordingTrackingSource(params.userId),
+      recordingTrackingSource(params.userId, params.browserSessionId),
     );
   } catch {
     // coercion-ok: analytics is best-effort and must not affect recording recovery.
