@@ -19,7 +19,15 @@ export const MCP_OAUTH_SCOPES = [
 ] as const;
 
 export const MCP_OAUTH_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ");
+export const MCP_OAUTH_TOKEN_TYPE = "agent-native-mcp-oauth";
 const MCP_OAUTH_CREDENTIAL_VERSION = 2;
+/**
+ * Service credentials carry a version that verifiers predating service
+ * identity assurance reject. Those verifiers admit any MCP OAuth token as a
+ * verified user, so a service token they accepted could approve gated actions.
+ * Never sign a service credential with `MCP_OAUTH_CREDENTIAL_VERSION`.
+ */
+const MCP_OAUTH_SERVICE_CREDENTIAL_VERSION = 3;
 
 export interface McpOAuthAccessTokenClaims {
   sub: string;
@@ -29,8 +37,10 @@ export interface McpOAuthAccessTokenClaims {
   client_id: string;
   resource: string;
   jti?: string;
-  typ: "agent-native-mcp-oauth";
-  credential_version: typeof MCP_OAUTH_CREDENTIAL_VERSION;
+  typ: typeof MCP_OAUTH_TOKEN_TYPE;
+  credential_version:
+    | typeof MCP_OAUTH_CREDENTIAL_VERSION
+    | typeof MCP_OAUTH_SERVICE_CREDENTIAL_VERSION;
 }
 
 function signingSecret(): Uint8Array {
@@ -103,10 +113,14 @@ export async function signMcpOAuthAccessToken(params: {
   jti?: string;
   expiresIn?: string | number;
   catalogScope?: "full";
+  /** An org service identity, not a person. */
+  service?: true;
 }): Promise<string> {
   return new jose.SignJWT({
-    typ: "agent-native-mcp-oauth",
-    credential_version: MCP_OAUTH_CREDENTIAL_VERSION,
+    typ: MCP_OAUTH_TOKEN_TYPE,
+    credential_version: params.service
+      ? MCP_OAUTH_SERVICE_CREDENTIAL_VERSION
+      : MCP_OAUTH_CREDENTIAL_VERSION,
     sub: params.ownerEmail,
     ...(params.orgId !== undefined ? { org_id: params.orgId } : {}),
     ...(params.orgDomain ? { org_domain: params.orgDomain } : {}),
@@ -187,8 +201,11 @@ export async function verifyMcpOAuthAccessToken(
   if (!payload) return null;
 
   try {
-    if (payload.typ !== "agent-native-mcp-oauth") return null;
-    if (payload.credential_version !== MCP_OAUTH_CREDENTIAL_VERSION)
+    if (payload.typ !== MCP_OAUTH_TOKEN_TYPE) return null;
+    if (
+      payload.credential_version !== MCP_OAUTH_CREDENTIAL_VERSION &&
+      payload.credential_version !== MCP_OAUTH_SERVICE_CREDENTIAL_VERSION
+    )
       return null;
     if (typeof payload.resource !== "string") return null;
     const embeddedResource = normaliseResource(payload.resource);

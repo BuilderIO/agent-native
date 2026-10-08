@@ -55,6 +55,7 @@ const dbMock = vi.hoisted(() => {
 });
 
 const sharingMock = vi.hoisted(() => ({
+  resolveAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
   assertAccess: vi.fn(async () => ({ resource: form })),
 }));
 
@@ -62,6 +63,7 @@ vi.mock("@agent-native/core/file-upload", () => uploadMock);
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => undefined,
   getRequestUserEmail: () => "owner@example.com",
+  getRequestOrgId: () => undefined,
 }));
 
 vi.mock("../server/db/index.js", async () => ({

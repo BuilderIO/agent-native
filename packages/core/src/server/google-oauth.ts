@@ -14,6 +14,7 @@ import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import {
   readAnalyticsAnonymousId,
+  readAnalyticsSessionId,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import {
@@ -848,12 +849,14 @@ export async function createOAuthSession(
       setFirstRunOnboardingCookie(event);
     }
     if (shouldTrackSignup && opts.trackSignup) {
+      const signupCookieHeader = getHeader(event, "cookie") ?? null;
       const attribution =
         opts.trackSignup.attribution ??
-        signupAttributionFromCookieHeader(getHeader(event, "cookie") ?? null);
+        signupAttributionFromCookieHeader(signupCookieHeader);
       const anonymousId =
         opts.trackSignup.signupAnonymousId ??
-        readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
+        readAnalyticsAnonymousId(signupCookieHeader);
+      const sessionId = readAnalyticsSessionId(signupCookieHeader);
       const authUserId =
         (await getBetterAuthUserIdForEmail(email)) ??
         opts.trackSignup.canonicalAuthUserId;
@@ -866,6 +869,7 @@ export async function createOAuthSession(
         name: opts.trackSignup.name,
         attribution,
         anonymousId,
+        sessionId,
       });
     }
     // Desktop SSO: record this session in the home-dir broker file so

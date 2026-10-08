@@ -643,23 +643,27 @@ jobs:
               fixed_specs=( \
                 e2e/pasted-svg-image-inspector.spec.ts:656 \
                 e2e/pasted-svg-image-inspector.spec.ts:693 \
+                e2e/pasted-svg-image-inspector.spec.ts:1135 \
                 e2e/position-alignment.spec.ts:361 \
               )
               ;;
             position-1b)
               fixed_specs=( \
+                e2e/pasted-svg-image-inspector.spec.ts:760 \
                 e2e/position-alignment.spec.ts:431 \
                 e2e/position-alignment.spec.ts:509 \
               )
               ;;
             position-2a)
               fixed_specs=( \
+                e2e/pasted-svg-image-inspector.spec.ts:891 \
                 e2e/position-alignment.spec.ts:292 \
                 e2e/position-alignment.spec.ts:570 \
               )
               ;;
             position-2b)
               fixed_specs=( \
+                e2e/pasted-svg-image-inspector.spec.ts:1186 \
                 e2e/position-alignment.spec.ts:615 \
                 e2e/position-alignment.spec.ts:661 \
               )

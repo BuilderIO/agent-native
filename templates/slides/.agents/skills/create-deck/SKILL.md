@@ -36,6 +36,8 @@ Context, reference deck, or source material that the app already provides.
 
 When speaker notes are requested, put presenter-only text in each slide's
    `notes` field on `create-deck` or `add-slide`; keep it out of the slide HTML.
+Write notes as speech, not a summary of the slide: the opener, the transition
+to the next slide, numbers to cite, a timing cue.
 Preserve existing notes when editing or importing a source deck.
 
 When the UI has already created the empty deck, keep its id and rename it before
@@ -62,7 +64,12 @@ and slide chrome. Read `slide-design` for visual craft; it works inside the
 active system and reference deck, never as a competing theme. If the
 request is open-ended and no approved direction exists, ask one targeted guided
 question or present a bounded choice before writing; do not silently pick a new
-brand language.
+brand language. Write a direction choice for this topic: three options, each a
+vibe word plus one concrete visual cue (palette, type, motif; for example "rust
+technical editorial: warm rust on charcoal, mono headings, code-grid layout"),
+clearly different from each other, the best fit marked recommended. Never offer
+generic labels such as "minimal" or "corporate" alone. Take everything else
+(density, slide count, structure) from the request and do the work.
 
 Before the first slide, lock a deck-level visual contract: background family,
 text and surface roles, accent treatment, heading/body type pairing, spacing
@@ -232,13 +239,24 @@ component language as a substitute for choosing.
 
 The canvas is fixed at its aspect-ratio dimensions. With the standard 16:9
 canvas (960x540) and `padding: 64px 80px`, the usable content area is only
-800x412px. Treat that as a hard budget for the main flow: use at most two title
-lines, three short bullets or cards, and two or three short items per column.
-Split dense source material across slides instead of shrinking it into a dense
-stack. Keep body text at or above 16px. Never hide overflow with zoom,
-`transform: scale()`, clipping, or scroll overflow. A later structural repair
-may reduce the slide's explicit padding, and that padding must remain intact
-when the saved HTML is rendered.
+800x412px (usable height is canvas height minus both vertical paddings). Treat
+that as a hard budget for the main flow: use at most two title lines, three
+short bullets or cards, and two or three short items per column. A content slide
+carries about 40 words besides its title. A bullet fits on one line (about 70
+characters at 18px); only a card may wrap, to two lines. Split dense source
+material across slides instead of shrinking it into a dense stack. Keep body
+text at or above 16px. Never hide overflow with zoom, `transform: scale()`,
+clipping, or scroll overflow. A later structural repair may reduce the slide's
+explicit padding, and that padding must remain intact when the saved HTML is
+rendered.
+
+Before writing a slide, total its flow height: per text block, font-size x
+line-height x wrapped lines (average glyph width is about 0.5 x font-size), plus
+padding and gaps. Count every wrapped line and keep about 10% slack for the
+measured check. Example: a two-line 34px/1.12 heading (76) + 18 gap + three
+cards of two 18px/1.4 lines plus 24 padding (3 x 74 = 223) + two 14px gaps (28)
+= 345, inside 412; a fourth card adds 88 and does not fit. When the total
+exceeds the budget, split the slide; do not shrink type, padding, or gaps.
 
 Build an intentional composition beyond a text dump: use a title block,
 two-column split, metric treatment, rule, callout, visual placeholder, or
@@ -248,6 +266,9 @@ cards, gradients, fake logos, or shapes without a semantic role. A slide
 with nothing real to show is complete with type, spacing, and a rule. A
 built-in template's signature art belongs to that template; do not carry it
 into other decks.
+
+Author in normal flex/grid flow; the card, wrapper, height, and `contain` rules
+are in `slide-editing` (Flow Layout and the Editor).
 
 ## Bounded visual QA
 
@@ -306,8 +327,11 @@ short rule, or callout should support the message, not fill empty space.
 
 ## Image Placeholders
 
-When a slide needs a visual, use this div. It renders as a styled placeholder
-and can later be replaced with a generated image:
+When a slide needs a specific visual, use this div. It renders as a styled
+placeholder and can later be replaced with a generated image. Describe the
+content the image must show ("Q3 revenue by region, bar chart"), not its role
+("hero image"). If type, layout, and color can carry the slide, use no
+placeholder:
 
 ```html
 <div class="fmd-img-placeholder" style="width: 100%; min-height: 220px; border-radius: var(--deck-radius);">[Description of what image should show]</div>

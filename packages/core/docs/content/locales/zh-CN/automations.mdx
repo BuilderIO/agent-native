@@ -5,7 +5,7 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 # 自动化
 
-**自动化**是代理按计划或在事件发生时执行的任务：_当 X 发生时，执行 Y_。**Scheduled** 和 **Event** 是两种触发类型，而不是两个独立产品。
+**自动化**是代理按计划、在事件发生时或在 webhook 被调用时执行的任务：_当 X 发生时，执行 Y_。**Scheduled**、**Event** 和 **Webhook** 是触发类型，而不是独立产品。
 
 框架最初将计划自动化公开为 **Recurring Jobs**。该名称、`jobs/<name>.md` 路径和 `manage-jobs` 工具会为兼容性保留。新的产品指南使用 **Automations** 作为总称；维护旧计划作业或使用组织范围及高级字段时，请参阅 [Recurring Jobs](/docs/recurring-jobs)。
 
@@ -21,7 +21,7 @@ description: "具有自然语言条件的事件触发和计划自动化"
   <div class="diagram-card">
     <span class="diagram-pill">Condition</span
     ><small class="diagram-muted"
-      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+      >Model checks: &ldquo;email ends with @builder.io&rdquo;</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -55,14 +55,21 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 </Diagram>
 
-## 两种触发器类型 {#trigger-types}
+## 触发器类型 {#trigger-types}
 
-| 类型       | 触发时                            | 关键字段           |
-| ---------- | --------------------------------- | ------------------ |
-| `schedule` | cron 表达式匹配（与重复作业相同） | `schedule`（cron） |
-| `event`    | 框架事件总线上发出匹配的事件      | `event`（姓名）    |
+| 类型       | 触发时                                        | 关键字段           |
+| ---------- | --------------------------------------------- | ------------------ |
+| `schedule` | cron 表达式匹配（与重复作业相同）             | `schedule`（cron） |
+| `event`    | 框架事件总线上发出匹配的事件                  | `event`（姓名）    |
+| `webhook`  | 一个 HTTP `POST` 到达自动化的秘密 webhook URL | 创建时返回的 URL   |
 
-事件触发器可以包含 `condition`——Haiku 在调度之前根据事件负载评估的自然语言字符串。如果条件不匹配，则自动跳过自动化。
+事件和 webhook 触发器可以包含 `condition`：由模型在调度之前根据负载检查的自然语言字符串。如果条件不匹配，则跳过自动化，并记录 `skipped` 状态。如果无法评估条件，自动化不会运行。请参阅 [条件](#conditions)。
+
+### Webhook 触发器 {#webhook-triggers}
+
+创建 webhook 自动化会返回形如 `/_agent-native/automations/webhook/<token>` 的 URL 路径。令牌就是秘密，因此只能把该 URL 提供给要调用它的服务。向该 URL 发送的每个 `POST` 都会成为自动化的负载，最大 64 KB。使用 JSON 内容类型发送的正文会被解析，其他正文则按文本传递。该端点返回 `202`，并在后台运行自动化。
+
+在 `X-Webhook-Event-Id`、`X-Event-Id` 或 `X-GitHub-Delivery` 标头中，或在 JSON 正文的顶层字符串 `id` 中发送稳定的事件 ID。使用相同 ID 的重复投递不会再次排入队列，并会收到标记为重复的 `200` 响应。该 ID 只能阻止重复投递。失败的运行可以被重试，而重试可能会再次产生失败的那次运行已经造成的副作用。一旦某次投递最终失败，其 ID 就会被释放，之后使用该 ID 的投递会作为新的投递排入队列。
 
 ## 创建自动化 {#creating}
 
@@ -74,7 +81,9 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 ### 从 Automations 界面
 
-在完整的 Agent 页面中打开 **Automations**，查看和管理计划自动化及事件触发自动化。兼容 URL 仍为 `/agent#jobs`，因此现有链接和书签会继续工作。
+打开 **Settings › Automations**，查看和管理计划、事件触发和 webhook 触发的自动化，检查状态，立即运行、暂停或恢复，以及删除。旧的 `/agent#jobs` 链接会重定向到该页面。
+
+**Run now** 是测试自动化最快的方式。它会立即运行自动化的指令，并产生真实的副作用。它会跳过触发器和条件，也不会更改下一次计划运行，但有一个例外：如果框架暂停了该自动化，成功的运行会重新开启它，按计划运行的自动化还会重新计算下一次运行。代理可以通过 `manage-automations` 和 `action=run-now` 做到同样的事。
 
 <Callout tone="warning">
 
@@ -106,7 +115,7 @@ description: "具有自然语言条件的事件触发和计划自动化"
     {
       lines: "6",
       label: "门",
-      note: "可选的自然语言 `condition`，由 Haiku 在调度之前根据有效负载进行评估。",
+      note: "可选的自然语言 `condition`，由模型在调度之前根据有效负载进行检查。",
     },
     {
       lines: "12",
@@ -120,15 +129,15 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 自动化共享 [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter) 中的每个字段。这些附加字段控制事件触发器、条件和执行模式：
 
-| 字段          | 类型                      | 默认         | 描述                                                                                                           |
-| ------------- | ------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------- |
-| `triggerType` | `"schedule"` \| `"event"` | `"schedule"` | 自动化如何启动                                                                                                 |
-| `event`       | 字符串                    | _（可选）_   | 要订阅的事件名称（仅限事件触发器）                                                                             |
-| `condition`   | 字符串                    | _（可选）_   | 在调度之前评估自然语言条件                                                                                     |
-| `mode`        | `"agentic"`               | `"agentic"`  | 完整的代理循环（唯一受支持的模式）。`"deterministic"` 已被移除——它从未被实现过，设置该模式的自动化从未被触发。 |
-| `domain`      | 字符串                    | _（可选）_   | 分组标签（邮件、日历、剪辑等）                                                                                 |
+| 字段          | 类型                                     | 默认         | 描述                                                                                                           |
+| ------------- | ---------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"` \| `"webhook"` | `"schedule"` | 自动化如何启动                                                                                                 |
+| `event`       | 字符串                                   | _（可选）_   | 要订阅的事件名称（仅限事件触发器）                                                                             |
+| `condition`   | 字符串                                   | _（可选）_   | 在调度之前评估的自然语言条件（事件和 webhook 触发器）                                                          |
+| `mode`        | `"agentic"`                              | `"agentic"`  | 完整的代理循环（唯一受支持的模式）。`"deterministic"` 已被移除——它从未被实现过，设置该模式的自动化从未被触发。 |
+| `domain`      | 字符串                                   | _（可选）_   | 分组标签（邮件、日历、剪辑等）                                                                                 |
 
-对于事件触发器，`schedule`为`""`（空）；对于计划触发器，它带有 cron 表达式。调度程序还写入与调度程序相同的托管 `lastRun` / `lastStatus` / `lastError` 字段，以及当条件评估为 false 时的 `"skipped"` 状态。
+对于事件或 webhook 触发器，`schedule` 为 `""`（空）；对于计划触发器，它带有 cron 表达式。分派程序还会写入与调度程序相同的托管 `lastRun` / `lastStatus` / `lastError` 字段，以及当条件评估为 false 时的 `"skipped"` 状态。无法评估条件时会记录什么，请参阅 [条件](#conditions)。
 
 ## 事件总线 {#event-bus}
 
@@ -186,12 +195,17 @@ emit(
 
 ## 条件 {#conditions}
 
-条件是 Claude Haiku 针对事件负载评估的自然语言字符串。这是一个是/否分类，而不是生成任务。
+条件是由模型针对事件或 webhook 负载检查的自然语言字符串。这是一个是/否分类，而不是生成任务。
 
 - **空或缺失条件** = 无条件（始终触发）。
-- 结果通过 5 分钟 TTL 和 500 个条目的 LRU 缓存进行记忆（条件 + 负载的 SHA-256）。
-- 有效负载在发送到 Haiku 之前被截断为 4000 个字符。
-- 在 API 失败时，条件评估为 `false`（安全默认值 - 跳过自动化）。
+- 结果会缓存 5 分钟，缓存键是条件加负载的 SHA-256 哈希，最多保留 500 个条目。
+- 有效负载在发送给模型之前被截断为 4000 个字符。
+
+<Callout tone="info">
+
+无法评估的条件既不算匹配，也不算不匹配，自动化不会运行。提供商错误会记录 `lastStatus: error`，原因写在 `lastError` 中，并且该事件会重试。如果没有可用于评估条件的 API 密钥，事件自动化会为每个匹配的事件记录一次错误，连续三次后自动化会自行暂停。密钥可用后，正在运行的调度程序会在约 15 分钟内自动将其重新开启。在没有运行调度程序的托管环境中，请在 **Settings › Automations** 中重新开启。处于相同状态的 webhook 自动化不会暂停，它的投递会失败并重试。
+
+</Callout>
 
 条件示例：
 
@@ -228,7 +242,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 密钥是由用户或代理创建的用于自动化使用的临时秘密（例如 `SLACK_WEBHOOK`、`HUBSPOT_API_KEY`）。它们与注册机密 (`registerRequiredSecret`) 的不同之处在于它们没有模板定义的元数据或入门步骤。
 
 - 通过设置 UI 或 `/_agent-native/secrets/adhoc` API 创建。
-- 每个密钥都可以有一个 **URL 白名单**，用于限制密钥可以发送到哪些来源（来源级别匹配）。
+- 通过 API 创建的密钥可以包含 `urlAllowlist`，用于限制密钥可以发送到哪些来源（来源级别匹配）。在 Settings 中添加的密钥没有白名单。
 - 原始值永远不会暴露给 AI - 只有 `${keys.NAME}` 占位符出现在代理的上下文中。
 - 分辨率从用户范围回退到工作区范围，因此用户可以覆盖共享密钥。
 
@@ -236,14 +250,16 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 个人和组织自动化都使用带 `action` 参数的 `manage-automations`：
 
-| 行动          | 目的                                                 |
-| ------------- | ---------------------------------------------------- |
-| `list-events` | 发现所有已注册事件及其描述和负载模式                 |
-| `list`        | 列出所有自动化的状态；按域或启用过滤                 |
-| `define`      | 创建新的自动化（名称、触发器类型、事件、条件、正文） |
-| `update`      | 更新现有自动化（已启用、条件、正文）                 |
-| `delete`      | 删除自动化（始终先与用户确认）                       |
-| `fire-test`   | 发出 `test.event.fired` 事件来验证自动化             |
+| 行动          | 目的                                                         |
+| ------------- | ------------------------------------------------------------ |
+| `list-events` | 发现所有已注册事件及其描述和负载模式                         |
+| `list-hosts`  | 在为自动化分配执行主机之前，列出已配对的执行主机             |
+| `list`        | 列出所有自动化的状态；按域或启用过滤                         |
+| `define`      | 创建新的自动化（名称、触发器类型、事件、条件、正文）         |
+| `update`      | 更新现有自动化（已启用、条件、正文）                         |
+| `delete`      | 删除自动化（始终先与用户确认）                               |
+| `run-now`     | 立即运行一个自动化，并产生真实的副作用。跳过触发器和条件。   |
+| `fire-test`   | 发出 `test.event.fired` 事件。只有订阅该事件的自动化会响应。 |
 
 附加工具：`web-request` — 出站 HTTP 替换为 `${keys.NAME}`。
 
@@ -251,22 +267,23 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## API端点 {#api}
 
-| 端点                                   | 方法   | 描述                         |
-| -------------------------------------- | ------ | ---------------------------- |
-| `/_agent-native/automations`           | GET    | 列出所有自动化（已解析）     |
-| `/_agent-native/automations/fire-test` | POST   | 发出 `test.event.fired` 事件 |
-| `/_agent-native/secrets/adhoc`         | GET    | 列出临时键（无值）           |
-| `/_agent-native/secrets/adhoc`         | POST   | 创建或更新临时密钥           |
-| `/_agent-native/secrets/adhoc/:name`   | DELETE | 删除临时密钥                 |
+| 端点                                        | 方法   | 描述                         |
+| ------------------------------------------- | ------ | ---------------------------- |
+| `/_agent-native/automations`                | GET    | 列出所有自动化（已解析）     |
+| `/_agent-native/automations/fire-test`      | POST   | 发出 `test.event.fired` 事件 |
+| `/_agent-native/automations/webhook/:token` | POST   | 触发 webhook 自动化          |
+| `/_agent-native/secrets/adhoc`              | GET    | 列出临时键（无值）           |
+| `/_agent-native/secrets/adhoc`              | POST   | 创建或更新临时密钥           |
+| `/_agent-native/secrets/adhoc/:name`        | DELETE | 删除临时密钥                 |
 
-<Endpoint id="doc-block-vu73fx" title={"触发测试事件"} method="POST" path="/_agent-native/automations/fire-test" summary={"发出 test.event.fired 事件以验证事件触发的自动化"} responses={[
+<Endpoint id="doc-block-vu73fx" title={"触发测试事件"} method="POST" path="/_agent-native/automations/fire-test" summary={"发出 test.event.fired 事件，以测试订阅该事件的自动化"} responses={[
   {
     "status": "200",
     "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path."
   }
 ]}>
 
-Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.
+检查订阅 `test.event.fired` 的自动化的事件路径（匹配、所有者范围和条件）。它只发出该事件，因此无法触发监听真实事件（例如 `calendar.booking.created`）的自动化。要试用真实的自动化，请使用 **Run now**。等同于 `manage-automations` 的 `fire-test` 操作。
 
 </Endpoint>
 
@@ -296,8 +313,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill warn">condition</span
     ><small class="diagram-muted"
-      >Haiku yes/no on the payload &mdash; false &rarr;
-      <code>skipped</code></small
+      >model yes/no on the payload &mdash; false &rarr; <code>skipped</code>,
+      failure &rarr; <code>error</code></small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
