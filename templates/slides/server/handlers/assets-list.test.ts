@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type Condition =
   | { operator: "and"; conditions: Condition[] }
+  | { operator: "or"; conditions: Condition[] }
   | { operator: "eq"; column: string; value: string }
   | { operator: "isNull"; column: string }
   | { operator: "notLike"; column: string; pattern: string };
@@ -36,6 +37,10 @@ vi.mock("drizzle-orm", () => ({
     operator: "and",
     conditions,
   }),
+  or: (...conditions: Condition[]): Condition => ({
+    operator: "or",
+    conditions,
+  }),
   desc: (column: string) => ({ operator: "desc", column }),
   eq: (column: string, value: string): Condition => ({
     operator: "eq",
@@ -51,55 +56,58 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../db/index.js", () => ({
-  getDb: () => ({
-    delete: () => ({
-      where: (condition: Condition) => {
-        state.deleteCondition = condition;
-      },
-    }),
-    select: (selection: Record<string, string>) => ({
-      from: () => ({
-        where: (condition: Condition) => {
-          state.whereCondition = condition;
-          return {
-            orderBy: async () => {
-              const matches = (
-                predicate: Condition,
-                row: Record<string, string | number | null>,
-              ): boolean => {
-                if (predicate.operator === "and") {
-                  return predicate.conditions.every((item) =>
-                    matches(item, row),
-                  );
-                }
-                if (predicate.operator === "eq") {
-                  return row[predicate.column] === predicate.value;
-                }
-                if (predicate.operator === "isNull") {
-                  return row[predicate.column] == null;
-                }
-                if (predicate.operator !== "notLike") return false;
-                return !String(row[predicate.column]).startsWith(
-                  predicate.pattern.slice(0, -1),
-                );
-              };
+  getDb: () => {
+    const matches = (
+      predicate: Condition,
+      row: Record<string, string | number | null>,
+    ): boolean => {
+      if (predicate.operator === "and") {
+        return predicate.conditions.every((item) => matches(item, row));
+      }
+      if (predicate.operator === "or") {
+        return predicate.conditions.some((item) => matches(item, row));
+      }
+      if (predicate.operator === "eq") {
+        return row[predicate.column] === predicate.value;
+      }
+      if (predicate.operator === "isNull") {
+        return row[predicate.column] == null;
+      }
+      if (predicate.operator !== "notLike") return false;
+      return !String(row[predicate.column]).startsWith(
+        predicate.pattern.slice(0, -1),
+      );
+    };
 
-              return state.rows
-                .filter((row) => matches(condition, row))
-                .map((row) =>
-                  Object.fromEntries(
-                    Object.entries(selection).map(([key, column]) => [
-                      key,
-                      row[column],
-                    ]),
-                  ),
-                );
-            },
-          };
+    return {
+      delete: () => ({
+        where: (condition: Condition) => {
+          state.deleteCondition = condition;
+          state.rows = state.rows.filter((row) => !matches(condition, row));
         },
       }),
-    }),
-  }),
+      select: (selection: Record<string, string>) => ({
+        from: () => ({
+          where: (condition: Condition) => {
+            state.whereCondition = condition;
+            return {
+              orderBy: async () =>
+                state.rows
+                  .filter((row) => matches(condition, row))
+                  .map((row) =>
+                    Object.fromEntries(
+                      Object.entries(selection).map(([key, column]) => [
+                        key,
+                        row[column],
+                      ]),
+                    ),
+                  ),
+            };
+          },
+        }),
+      }),
+    };
+  },
   schema: { uploadedAssets: state.assets },
 }));
 
@@ -163,6 +171,16 @@ describe("listAssets", () => {
         orgId: "org-2",
         type: "image/png",
       },
+      {
+        id: "legacy-image",
+        url: "https://cdn.example.com/legacy.png",
+        filename: "legacy.png",
+        size: 654,
+        createdAt: "2026-10-06T00:00:00.000Z",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        type: "image/png",
+      },
     ];
     state.auth.mockReset();
     state.auth.mockResolvedValue({
@@ -171,7 +189,7 @@ describe("listAssets", () => {
     });
   });
 
-  it("lists owned images without returning video uploads", async () => {
+  it("lists owned workspace and legacy images without returning videos", async () => {
     const result = await listAssets({} as never);
 
     expect(state.whereCondition).toEqual({
@@ -183,9 +201,11 @@ describe("listAssets", () => {
           value: "owner@example.com",
         },
         {
-          operator: "eq",
-          column: "orgId",
-          value: "org-1",
+          operator: "or",
+          conditions: [
+            { operator: "eq", column: "orgId", value: "org-1" },
+            { operator: "isNull", column: "orgId" },
+          ],
         },
         {
           operator: "notLike",
@@ -202,6 +222,13 @@ describe("listAssets", () => {
         size: 123,
         createdAt: "2026-10-07T00:00:00.000Z",
       },
+      {
+        id: "legacy-image",
+        url: "https://cdn.example.com/legacy.png",
+        filename: "legacy.png",
+        size: 654,
+        createdAt: "2026-10-06T00:00:00.000Z",
+      },
     ]);
   });
 
@@ -217,9 +244,46 @@ describe("listAssets", () => {
           column: "ownerEmail",
           value: "owner@example.com",
         },
-        { operator: "eq", column: "orgId", value: "org-1" },
+        {
+          operator: "or",
+          conditions: [
+            { operator: "eq", column: "orgId", value: "org-1" },
+            { operator: "isNull", column: "orgId" },
+          ],
+        },
       ],
     });
+    expect(state.rows.some((row) => row.id === "image-1")).toBe(false);
+    expect(state.rows.some((row) => row.id === "other-org-image")).toBe(true);
+    expect(state.rows.some((row) => row.id === "other-owner-image")).toBe(true);
+  });
+
+  it("lets the owner delete legacy assets without a workspace id", async () => {
+    state.routerParam.mockReturnValue("legacy-image");
+
+    await deleteAsset({} as never);
+
+    expect(state.deleteCondition).toEqual({
+      operator: "and",
+      conditions: [
+        { operator: "eq", column: "id", value: "legacy-image" },
+        {
+          operator: "eq",
+          column: "ownerEmail",
+          value: "owner@example.com",
+        },
+        {
+          operator: "or",
+          conditions: [
+            { operator: "eq", column: "orgId", value: "org-1" },
+            { operator: "isNull", column: "orgId" },
+          ],
+        },
+      ],
+    });
+    expect(state.rows.some((row) => row.id === "legacy-image")).toBe(false);
+    expect(state.rows.some((row) => row.id === "other-org-image")).toBe(true);
+    expect(state.rows.some((row) => row.id === "other-owner-image")).toBe(true);
   });
 
   it("limits asset reads to unscoped uploads without an active workspace", async () => {

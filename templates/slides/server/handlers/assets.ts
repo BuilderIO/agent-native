@@ -6,7 +6,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { parseBase64DataUrl } from "@agent-native/core/shared";
-import { and, desc, eq, isNull, notLike } from "drizzle-orm";
+import { and, desc, eq, isNull, notLike, or } from "drizzle-orm";
 import {
   assertBodySize,
   defineEventHandler,
@@ -56,6 +56,16 @@ export interface ListedUploadedAsset {
   filename: string;
   size: number;
   createdAt: string;
+}
+
+function imageAssetWorkspaceScope(orgId: string | null | undefined) {
+  if (!orgId) return isNull(schema.uploadedAssets.orgId);
+
+  // Legacy assets have no trustworthy workspace provenance, but remain owner scoped.
+  return or(
+    eq(schema.uploadedAssets.orgId, orgId),
+    isNull(schema.uploadedAssets.orgId),
+  );
 }
 
 async function requireSession(
@@ -2128,9 +2138,7 @@ export const listAssets = defineEventHandler(async (event) => {
     .where(
       and(
         eq(schema.uploadedAssets.ownerEmail, session.email),
-        session.orgId
-          ? eq(schema.uploadedAssets.orgId, session.orgId)
-          : isNull(schema.uploadedAssets.orgId),
+        imageAssetWorkspaceScope(session.orgId),
         notLike(schema.uploadedAssets.type, "video/%"),
       ),
     )
@@ -2155,9 +2163,7 @@ export const deleteAsset = defineEventHandler(async (event) => {
       and(
         eq(schema.uploadedAssets.id, decodeURIComponent(id)),
         eq(schema.uploadedAssets.ownerEmail, session.email),
-        session.orgId
-          ? eq(schema.uploadedAssets.orgId, session.orgId)
-          : isNull(schema.uploadedAssets.orgId),
+        imageAssetWorkspaceScope(session.orgId),
       ),
     );
   return { success: true };
