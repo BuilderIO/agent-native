@@ -27,6 +27,7 @@ import {
   fallbackPollIntervalMs,
   getDeckSaveError,
   hasFailedDeckSave,
+  hasUnsavedDeckChanges,
   useDecks,
   type Deck,
 } from "./DeckContext";
@@ -964,6 +965,46 @@ describe("DeckContext fallback polling", () => {
 
       expect(deckCallIds(api.fetchMock)).toContain(created.id);
       expect(hasFailedDeckSave(created.id)).toBe(true);
+      expect(getDeckSaveError(created.id)).toMatchObject({
+        errorCode: "deck_create_failed",
+      });
+      expect(getDeckSaveError(created.id)?.status).toBeUndefined();
+    });
+
+    it("keeps the deck counted as unsaved so leaving the page cannot discard its only copy", async () => {
+      const { created } = await openFailedCreate();
+
+      expect(hasUnsavedDeckChanges(created.id)).toBe(true);
+    });
+
+    it("is reported as a failed create when a write answered 404 before the create rejected", async () => {
+      const route = { deckId: "open-deck" as string | null };
+      const { api, result, rerender } = await renderOpenDeck({ route });
+      let created!: Deck;
+      act(() => {
+        created = result.current.createDeck("Optimistic Deck");
+      });
+      act(() => {
+        window.history.pushState({}, "", `/deck/${created.id}`);
+        route.deckId = created.id;
+        rerender();
+      });
+      const real = api.fetchMock.getMockImplementation()!;
+      api.fetchMock.mockImplementation((url) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck")
+          ? Promise.resolve(new Response("", { status: 404 }))
+          : real(url),
+      );
+      await act(async () => {
+        result.current.updateDeck(created.id, { title: "Renamed" });
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      await act(async () => {
+        api.resolveCreate(new Response("", { status: 500 }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
       expect(getDeckSaveError(created.id)).toMatchObject({
         errorCode: "deck_create_failed",
       });

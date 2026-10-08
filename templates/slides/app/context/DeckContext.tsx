@@ -844,7 +844,11 @@ function markDeckCreateFailed(deckId: string, cause: unknown): void {
     `Failed to create deck ${deckId}; local copy retained`,
   );
   error.cause = cause;
+  // The failed create is the deck's save failure whichever request settled
+  // first, and it keeps the local-only copy counted as unsaved.
   deckUnavailableErrors.set(deckId, error);
+  failedSaveDecks.add(deckId);
+  deckSaveErrors.set(deckId, error);
   notifySaveListeners();
 }
 
