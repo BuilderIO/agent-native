@@ -11,11 +11,17 @@ this mode, so even a single replacement goes as one `edits` entry:
 
 ```jsonc
 {
-  "deckId": "...", "slideId": "...", "styleOnly": true,
+  "deckId": "...",
+  "slideId": "...",
+  "styleOnly": true,
   "baseContentHash": "<contentHash from get-deck>",
   "edits": [
-    { "find": "background:#111111", "replace": "background:#f4f0e8", "occurrence": 1 }
-  ]
+    {
+      "find": "background:#111111",
+      "replace": "background:#f4f0e8",
+      "occurrence": 1,
+    },
+  ],
 }
 ```
 
