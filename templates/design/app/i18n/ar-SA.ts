@@ -1005,6 +1005,10 @@ export default {
     keyboardShortcuts: {
       title: "اختصارات لوحة المفاتيح",
       close: "يغلق: اختصارات لوحة المفاتيح",
+      search: "بحث",
+      searchLabel: "البحث في اختصارات لوحة المفاتيح",
+      categoriesLabel: "فئات الاختصارات",
+      empty: "لا توجد اختصارات تطابق “{{query}}”",
       codeContext: "الكود",
       screenContext: "الشاشات",
       nudgeAmount: {
@@ -1037,11 +1041,6 @@ export default {
         leftBracket: "القوس المربع الأيسر",
         rightBracket: "القوس المربع الأيمن",
       },
-      descriptions: {
-        toggleUi: "اضغطه الآن لإخفاء اللوحات بسرعة والتركيز على عملك",
-        undo: "تراجع عن أحدث تغيير في التصميم",
-        redo: "استعد تغيير التصميم الذي تراجعت عنه للتو",
-      },
       categories: {
         essential: "أساسي",
         tools: "الأدوات",
@@ -1073,6 +1072,7 @@ export default {
         showLayers: "الطبقات",
         showAssets: "الأصول",
         toggleUi: "View",
+        toggleMinimalUi: "واجهة مبسطة",
         toggleComments: "تثبيت تعليق",
         zoomIn: "تكبير",
         zoomOut: "تصغير",

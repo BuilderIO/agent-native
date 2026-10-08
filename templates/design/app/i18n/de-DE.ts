@@ -1032,6 +1032,10 @@ export default {
     keyboardShortcuts: {
       title: "Tastenkürzel",
       close: "Schließen: Tastenkürzel",
+      search: "Suchen",
+      searchLabel: "Tastenkürzel suchen",
+      categoriesLabel: "Kategorien der Tastenkürzel",
+      empty: "Keine Tastenkürzel passen zu „{{query}}“",
       codeContext: "Code",
       screenContext: "Screens",
       nudgeAmount: {
@@ -1064,12 +1068,6 @@ export default {
         leftBracket: "Linke eckige Klammer",
         rightBracket: "Rechte eckige Klammer",
       },
-      descriptions: {
-        toggleUi:
-          "Drücke jetzt, um die Bereiche auszublenden und dich auf deine Arbeit zu konzentrieren",
-        undo: "Mache die letzte Designänderung rückgängig",
-        redo: "Stelle die soeben rückgängig gemachte Designänderung wieder her",
-      },
       categories: {
         essential: "Grundlagen",
         tools: "Werkzeuge",
@@ -1101,6 +1099,7 @@ export default {
         showLayers: "Ebenen",
         showAssets: "Ressourcen",
         toggleUi: "View",
+        toggleMinimalUi: "Minimale Oberfläche",
         toggleComments: "Kommentar anheften",
         zoomIn: "Vergrößern",
         zoomOut: "Verkleinern",

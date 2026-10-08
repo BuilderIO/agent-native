@@ -329,7 +329,6 @@ describe("DesignBottomToolbar file storage gate", () => {
         onCommentPin={vi.fn()}
         onModeChange={modeProps.onModeChange ?? vi.fn()}
         showModeTabs={modeProps.showModeTabs ?? false}
-        shortcutsPanelOpen={false}
       />,
     );
 
