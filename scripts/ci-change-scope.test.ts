@@ -715,11 +715,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     Number.isInteger(jobTimeout) && jobTimeout === 9,
     `Design acceptance job must have the exact nine-minute cap (got ${jobTimeout})`,
   );
+  assert.ok(jobTimeout < 10, "Design acceptance must stay below ten minutes");
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout === 4 &&
-      jobTimeout >= stepTimeout + 5,
-    `focused Design tests need the exact four-minute cap and five minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout === 5 &&
+      jobTimeout >= stepTimeout + 4,
+    `focused Design tests need the exact five-minute cap and four minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
@@ -735,7 +736,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,\s*changed-7,\s*changed-8,\s*screen-history-1,\s*screen-history-2,\s*screen-history-3,?\s*\]/,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,\s*changed-7,\s*changed-8,\s*changed-9,\s*changed-10,\s*changed-11,\s*changed-12,\s*screen-history-1,\s*screen-history-2,\s*screen-history-3,?\s*\]/,
   );
   const fixedLocations = (start: number, end: number) =>
     [
@@ -833,7 +834,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     changedSpecRegressions.includes(
-      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/8"',
+      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/12"',
     ),
   );
   assert.ok(
