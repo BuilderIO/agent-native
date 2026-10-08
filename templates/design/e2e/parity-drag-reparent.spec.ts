@@ -965,6 +965,7 @@ test.describe("drag reparent parity", () => {
       .toBe(true);
   });
 
+  // oracle: none — verifies rendered-window board drop persistence, not Figma parity.
   test("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
     page,
   }) => {
