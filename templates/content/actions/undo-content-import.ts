@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { ForbiddenError } from "@agent-native/core/sharing";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -62,10 +62,32 @@ export default defineAction({
         ownerEmail: page.ownerEmail,
       });
     }
-    const importedIds = new Set(imported.map((page) => page.documentId));
+    const checkedIds = new Set(imported.map((page) => page.documentId));
 
     const trashedIds = await db.transaction(async (transaction) => {
       const tx = transaction as unknown as ReturnType<typeof getDb>;
+      // import-content takes this lock around each page it creates, so no
+      // page joins the import until this transaction ends.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${importId}, 0::bigint))`,
+      );
+      const records = await tx
+        .select({
+          documentId: schema.documentImports.documentId,
+          ownerEmail: schema.documentImports.ownerEmail,
+          importedStateSha256: schema.documentImports.importedStateSha256,
+        })
+        .from(schema.documentImports)
+        .where(eq(schema.documentImports.importId, importId));
+      // A page created since the read above was neither access-checked nor
+      // flushed.
+      if (records.some((record) => !checkedIds.has(record.documentId))) {
+        fail(
+          "This import is still adding pages. Undo it again once it finishes.",
+          { errorCode: "IMPORT_IN_PROGRESS", statusCode: 409 },
+        );
+      }
+      const importedIds = new Set(records.map((record) => record.documentId));
       const current = await tx
         .select({
           id: schema.documents.id,
@@ -96,7 +118,7 @@ export default defineAction({
         );
       }
       const changed = live.filter((page) => {
-        const record = imported.find((row) => row.documentId === page.id)!;
+        const record = records.find((row) => row.documentId === page.id)!;
         return (
           becameCollection.has(page.id) ||
           importedStateFingerprint(page) !== record.importedStateSha256
@@ -106,7 +128,7 @@ export default defineAction({
       const trashed: string[] = [];
       for (const page of live) {
         if (changed.includes(page)) continue;
-        const { ownerEmail } = imported.find(
+        const { ownerEmail } = records.find(
           (row) => row.documentId === page.id,
         )!;
         const lockedDatabaseIds = await lockDatabasesForTrash(

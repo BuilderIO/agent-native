@@ -37,6 +37,24 @@ const uploads = vi.hoisted(() => ({
   })),
   delete: vi.fn(async () => true),
 }));
+const flushHook = vi.hoisted(() => ({
+  once: null as (() => Promise<unknown>) | null,
+}));
+vi.mock("./_document-flush.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./_document-flush.js")>();
+  return {
+    ...original,
+    flushOpenDocumentEditorToSql: async (
+      ...args: Parameters<typeof original.flushOpenDocumentEditorToSql>
+    ) => {
+      const hook = flushHook.once;
+      flushHook.once = null;
+      await hook?.();
+      return original.flushOpenDocumentEditorToSql(...args);
+    },
+  };
+});
 vi.mock("@agent-native/core/file-upload", async (importOriginal) => ({
   ...(await importOriginal()),
   getActiveFileUploadProviderForRequest: async () => ({ id: "test" }),
@@ -115,6 +133,7 @@ beforeEach(async () => {
   uploads.upload.mockClear();
   uploads.delete.mockClear();
   writeAppStateMock.mockClear();
+  flushHook.once = null;
   PARENT_ID = `import-parent-${++parentNumber}`;
   await asOwner(() => createDocument.run({ id: PARENT_ID, title: "Imports" }));
 });
@@ -639,6 +658,62 @@ describe("undo-content-import", () => {
     });
     const [page] = await importedChildren();
     expect(page.trashedAt).toEqual(expect.any(String));
+  });
+
+  it("stops an import whose pages are undone while it runs", async () => {
+    const apply = (dryRun: boolean) =>
+      asOwner(() =>
+        importContent.run({
+          files: [
+            { name: "a.md", text: "# A\n\nFirst." },
+            { name: "b.md", text: "# B\n\nSecond." },
+          ],
+          parentId: PARENT_ID,
+          dryRun,
+          idempotencyKey: "undone-midway",
+        }),
+      );
+    const { importId } = await apply(true);
+    blobs.put.mockImplementationOnce(storedBlob);
+    blobs.put.mockImplementationOnce(async (input) => {
+      await undoContentImport.run({ importId });
+      return storedBlob(input);
+    });
+
+    await expect(apply(false)).rejects.toMatchObject({
+      errorCode: "IMPORT_PAGE_TRASHED",
+    });
+    const children = await importedChildren();
+    expect(children).toHaveLength(1);
+    expect(children[0].trashedAt).toEqual(expect.any(String));
+  });
+
+  it("refuses while the import is still adding pages", async () => {
+    const apply = () =>
+      asOwner(() =>
+        importContent.run({
+          files: [
+            { name: "a.md", text: "# A\n\nFirst." },
+            { name: "b.md", text: "# B\n\nSecond." },
+          ],
+          parentId: PARENT_ID,
+          dryRun: false,
+          idempotencyKey: "in-progress-1",
+        }),
+      );
+    blobs.put.mockImplementationOnce(storedBlob);
+    blobs.put.mockImplementationOnce(async () => null as never);
+    const stopped = await apply().catch((error: unknown) => error);
+    const { importId } = (stopped as { details: { importId: string } }).details;
+    // The import's second page lands after Undo read which pages it made.
+    flushHook.once = apply;
+
+    await expect(
+      asOwner(() => undoContentImport.run({ importId })),
+    ).rejects.toMatchObject({ errorCode: "IMPORT_IN_PROGRESS" });
+    const children = await importedChildren();
+    expect(children).toHaveLength(2);
+    expect(children.map((page) => page.trashedAt)).toEqual([null, null]);
   });
 
   it("refuses when an imported page was edited after the import", async () => {

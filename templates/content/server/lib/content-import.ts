@@ -19,7 +19,7 @@ import {
 } from "@agent-native/core/private-blob";
 import { captureError } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { resolveContentSpaceTarget } from "../../actions/_content-space-target.js";
 import { isUniqueConstraintError } from "../../actions/_database-row-mutation.js";
@@ -161,17 +161,9 @@ export async function runContentImport(
       eq(schema.documents.id, schema.documentImports.documentId),
     )
     .where(eq(schema.documentImports.importId, importId));
-  if (previous.some((row) => row.requestSha256 !== requestSha256)) {
-    idempotencyKeyReused();
-  }
-  // Undo keeps the import's records, so a retry would otherwise report pages
-  // sitting in Trash as imported.
-  if (previous.some((row) => row.trashedAt)) {
-    fail(
-      "Pages from this import are in Trash, so it can't be retried. Restore them from Trash, or import again with a new idempotencyKey.",
-      { errorCode: "IMPORT_PAGE_TRASHED", statusCode: 409 },
-    );
-  }
+  // Checked again under the import's lock before each page is created; this
+  // covers a retry whose pages all exist, which creates none.
+  assertImportOpen(previous, requestSha256);
   const previousById = new Map(previous.map((row) => [row.documentId, row]));
   const pageIds = new Map(
     planned.map((page) => [page.path, importPageId(importId, page.path)]),
@@ -274,6 +266,14 @@ async function incompleteImportError(
     confirmedIds: string[];
   },
 ): Promise<unknown> {
+  // The key refused this request, so importing again with it can't finish.
+  if (
+    isActionContractError(error) &&
+    (error.errorCode === "IDEMPOTENCY_KEY_REUSED" ||
+      error.errorCode === "IMPORT_PAGE_TRASHED")
+  ) {
+    return error;
+  }
   let documentIds = input.confirmedIds;
   let documentIdsComplete = false;
   try {
@@ -522,22 +522,26 @@ async function createImportedPage(input: {
     await withinDocumentCreation(
       id,
       async (tx) => {
-        // A key binds to one request. Attempts with the same key serialize
-        // here, so one with different files finds the first one's fingerprint.
+        // Attempts with the same key and undo-content-import serialize here, so
+        // one with different files finds the first one's fingerprint, and a
+        // page is never added to an import Undo has moved to Trash.
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${input.importId}, 0::bigint))`,
         );
-        const [otherRequest] = await tx
-          .select({ documentId: schema.documentImports.documentId })
-          .from(schema.documentImports)
-          .where(
-            and(
-              eq(schema.documentImports.importId, input.importId),
-              ne(schema.documentImports.requestSha256, input.requestSha256),
-            ),
-          )
-          .limit(1);
-        if (otherRequest) idempotencyKeyReused();
+        assertImportOpen(
+          await tx
+            .select({
+              requestSha256: schema.documentImports.requestSha256,
+              trashedAt: schema.documents.trashedAt,
+            })
+            .from(schema.documentImports)
+            .leftJoin(
+              schema.documents,
+              eq(schema.documents.id, schema.documentImports.documentId),
+            )
+            .where(eq(schema.documentImports.importId, input.importId)),
+          input.requestSha256,
+        );
         const [created] = await tx
           .select({
             ownerEmail: schema.documents.ownerEmail,
@@ -702,6 +706,27 @@ function importRequestFingerprint(
         .map((image) => [image.path, image.url]),
     }),
   );
+}
+
+/**
+ * Refuses a request its key can no longer serve: different files from the
+ * key's first request, or pages from the import in Trash. Undo keeps the
+ * import's records, so a retry would otherwise report pages sitting in Trash
+ * as imported.
+ */
+function assertImportOpen(
+  records: Array<{ requestSha256: string; trashedAt: string | null }>,
+  requestSha256: string,
+): void {
+  if (records.some((record) => record.requestSha256 !== requestSha256)) {
+    idempotencyKeyReused();
+  }
+  if (records.some((record) => record.trashedAt)) {
+    fail(
+      "Pages from this import are in Trash, so it can't continue. Restore them from Trash, or import again with a new idempotencyKey.",
+      { errorCode: "IMPORT_PAGE_TRASHED", statusCode: 409 },
+    );
+  }
 }
 
 function idempotencyKeyReused(): never {
