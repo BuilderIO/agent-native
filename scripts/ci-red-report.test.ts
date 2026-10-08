@@ -237,7 +237,7 @@ describe("ci-red-report", () => {
       }),
       run(34, {
         name: "Hosted app health audit",
-        path: ".github/workflows/monitor-agent-native-sites.yml@main",
+        path: ".github/workflows/keep-neon-warm.yml@main",
       }),
     ];
     const rows = buildCiRedRows(
