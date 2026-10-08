@@ -2234,6 +2234,67 @@ describe("Slides prompt-led home", () => {
     );
   });
 
+  it("keeps selected deck context when a retry's automatic marker shares its id", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    const prompt = `Use this as a style reference: ${window.location.origin}/deck/own`;
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        { source: "slides" as const, id: "shared", title: "Shared deck" },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "slides:shared:",
+        title: "Shared deck",
+        context: "Explicitly selected deck context",
+        status: "ready" as const,
+      },
+    ];
+    renderHome(
+      {
+        decks: [ownDeck, sharedDeck],
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+      },
+      {
+        retryPrompt: prompt,
+        retryReferenceSelection: {
+          automaticReferenceDeckId: "shared",
+          referenceDeckId: "shared",
+          referenceDeckIdSource: "selection",
+          composerContext,
+          contextItems,
+        },
+      },
+    );
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        { slidesContext: composerContext, contextItems },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "Explicitly selected deck context",
+    );
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
+      expect.objectContaining({
+        generationContext: expect.objectContaining({
+          referenceDeckId: null,
+          composerContext,
+          contextItems,
+        }),
+      }),
+    );
+  });
+
   it("recomputes prompt-linked decks when a retry prompt changes", async () => {
     createDeck.mockReturnValue({ id: "generated-deck" });
     renderHome(

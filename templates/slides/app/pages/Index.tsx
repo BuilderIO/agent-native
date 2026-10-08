@@ -156,6 +156,7 @@ import {
 } from "@/lib/import-uploaded-deck";
 import {
   findPromptReferenceDeckId,
+  getAutomaticReferenceDeckIdToRemove,
   resolveRetryReferenceDeckSelection,
   withoutAutomaticReferenceDeck,
 } from "@/lib/new-deck-reference-selection";
@@ -1750,16 +1751,21 @@ export default function Index({ active = true }: { active?: boolean }) {
       const automaticReferenceDeckId =
         retryReferenceSelection?.automaticReferenceDeckId ??
         composerContext.automaticReferenceDeckId;
+      const automaticReferenceDeckIdToRemove =
+        getAutomaticReferenceDeckIdToRemove(
+          retryReferenceSelection,
+          automaticReferenceDeckId,
+        );
       const automaticReferenceDeckRemovedFromComposer =
-        Boolean(automaticReferenceDeckId) &&
+        Boolean(automaticReferenceDeckIdToRemove) &&
         options?.slidesContext !== undefined &&
         !options.slidesContext.references.some(
           (reference) =>
             reference.source === "slides" &&
-            reference.id === automaticReferenceDeckId,
+            reference.id === automaticReferenceDeckIdToRemove,
         );
       const replaceAutomaticDeckContext =
-        Boolean(automaticReferenceDeckId) &&
+        Boolean(automaticReferenceDeckIdToRemove) &&
         (!reusingRetryInputs ||
           Boolean(promptReferenceDeckId) ||
           automaticReferenceDeckRemovedFromComposer);
@@ -1770,22 +1776,23 @@ export default function Index({ active = true }: { active?: boolean }) {
               references: retryComposerContext.references.filter(
                 (reference) =>
                   reference.source !== "slides" ||
-                  reference.id !== automaticReferenceDeckId,
+                  reference.id !== automaticReferenceDeckIdToRemove,
               ),
             }
           : retryComposerContext;
       const generationContextItems =
         generationComposerContext !== retryComposerContext &&
-        automaticReferenceDeckId
+        automaticReferenceDeckIdToRemove
           ? retryContextItems?.filter(
-              (item) => item.key !== `slides:${automaticReferenceDeckId}:`,
+              (item) =>
+                item.key !== `slides:${automaticReferenceDeckIdToRemove}:`,
             )
           : retryContextItems;
       const hasExplicitComposerDeckReference =
         generationComposerContext?.references.some(
           (reference) =>
             reference.source === "slides" &&
-            reference.id !== automaticReferenceDeckId,
+            reference.id !== automaticReferenceDeckIdToRemove,
         ) ?? false;
       const { referenceDeckId, referenceDeckIdSource } =
         resolveRetryReferenceDeckSelection({
@@ -1802,7 +1809,9 @@ export default function Index({ active = true }: { active?: boolean }) {
         });
       const referenceSelection: NewDeckReferenceSelection = {
         ...(retryReferenceSelection ?? {}),
-        ...(automaticReferenceDeckId ? { automaticReferenceDeckId } : {}),
+        ...(automaticReferenceDeckId
+          ? { automaticReferenceDeckId: automaticReferenceDeckIdToRemove }
+          : {}),
         ...(referenceDeckId !== undefined ? { referenceDeckId } : {}),
         ...(referenceDeckIdSource ? { referenceDeckIdSource } : {}),
         ...(!reusingRetryInputs || carriedDeckMissing
@@ -2655,11 +2664,16 @@ export default function Index({ active = true }: { active?: boolean }) {
                   options?.slidesContext ?? composerContext.selection;
                 const automaticReferenceDeckId =
                   composerContext.automaticReferenceDeckId;
+                const automaticReferenceDeckIdToRemove =
+                  getAutomaticReferenceDeckIdToRemove(
+                    retryReferenceSelection,
+                    automaticReferenceDeckId,
+                  );
                 const hasExplicitComposerDeckReference =
                   slidesContext.references.some(
                     (reference) =>
                       reference.source === "slides" &&
-                      reference.id !== automaticReferenceDeckId,
+                      reference.id !== automaticReferenceDeckIdToRemove,
                   );
                 preservePromptForSignIn(prompt, {
                   context,
@@ -2674,8 +2688,12 @@ export default function Index({ active = true }: { active?: boolean }) {
                     : undefined,
                   referenceSelection: {
                     designSystemId: slidesContext.designSystemId,
-                    ...(automaticReferenceDeckId
-                      ? { automaticReferenceDeckId }
+                    ...(automaticReferenceDeckId ||
+                    retryReferenceSelection?.automaticReferenceDeckId
+                      ? {
+                          automaticReferenceDeckId:
+                            automaticReferenceDeckIdToRemove,
+                        }
                       : {}),
                     ...(hasExplicitComposerDeckReference
                       ? { referenceDeckIdSource: "selection" as const }

@@ -83,9 +83,12 @@ import {
   realtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
 } from "@agent-native/toolkit/composer/realtime-voice-transcript";
+import { IconButton } from "@agent-native/toolkit/design-system";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertTriangle,
+  IconCircleCheck,
+  IconCopy,
   IconLoader2,
   IconMessage,
   IconPlayerStopFilled,
@@ -169,6 +172,7 @@ import {
 } from "./chat/tool-call-display.js";
 import { resolveAgentKitToolSource } from "./chat/tool-integration.js";
 import { ExternalAgentNudge } from "./external-agent-host.js";
+import { fallbackChatTitle } from "./fallback-chat-title.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
@@ -3369,6 +3373,32 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
+  const activeRunId = thread.activeRunIds.at(-1);
+  const [requestIdCopyFeedback, setRequestIdCopyFeedback] = useState<{
+    runId: string;
+    status: "copied" | "failed";
+  } | null>(null);
+  const activeRunRequestIdCopyStatus =
+    requestIdCopyFeedback && requestIdCopyFeedback.runId === activeRunId
+      ? requestIdCopyFeedback.status
+      : null;
+  useEffect(() => {
+    if (!requestIdCopyFeedback) return;
+    const timeout = setTimeout(() => setRequestIdCopyFeedback(null), 1_400);
+    return () => clearTimeout(timeout);
+  }, [requestIdCopyFeedback]);
+  const copyActiveRunRequestId = async () => {
+    if (!activeRunId) return;
+    try {
+      const copied = await writeClipboardText(activeRunId);
+      setRequestIdCopyFeedback({
+        runId: activeRunId,
+        status: copied ? "copied" : "failed",
+      });
+    } catch {
+      setRequestIdCopyFeedback({ runId: activeRunId, status: "failed" });
+    }
+  };
   const lastMessage = thread.messages.at(-1);
   const showThinking =
     surface.isSubmissionInFlight &&
@@ -3538,6 +3568,46 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         surface.props.tabId,
       )}
       {children}
+      {activeRunId ? (
+        <div
+          className="agentkit-activities-static"
+          data-agentkit-active-run-id-copy="true"
+        >
+          <IconButton
+            label={
+              activeRunRequestIdCopyStatus === "copied"
+                ? t("agentChat.common.copied")
+                : activeRunRequestIdCopyStatus === "failed"
+                  ? t("agentChat.recovery.copyFailed")
+                  : t("agentChat.message.copyRequestId")
+            }
+            title={t("agentChat.message.copyRequestId")}
+            icon={
+              activeRunRequestIdCopyStatus === "copied" ? (
+                <IconCircleCheck aria-hidden="true" />
+              ) : activeRunRequestIdCopyStatus === "failed" ? (
+                <IconAlertTriangle aria-hidden="true" />
+              ) : (
+                <IconCopy aria-hidden="true" />
+              )
+            }
+            size="compact"
+            onPress={() => void copyActiveRunRequestId()}
+          />
+          {activeRunRequestIdCopyStatus ? (
+            <span
+              className="sr-only"
+              role={
+                activeRunRequestIdCopyStatus === "failed" ? "alert" : "status"
+              }
+            >
+              {activeRunRequestIdCopyStatus === "copied"
+                ? t("agentChat.common.copied")
+                : t("agentChat.recovery.copyFailed")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {handoffMessages.map((message) => (
         <AgentMessageView
           key={message.id}
@@ -5334,7 +5404,8 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
     agentMessageText(
       [...messages].reverse().find((message) => message.role === "user")!,
     );
-  const title = thread.thread?.title ?? firstUserText?.slice(0, 80) ?? "";
+  const title =
+    thread.thread?.title?.trim() || fallbackChatTitle(firstUserText ?? "");
   const runs = Object.entries(thread.runs).map(([id, run]) => ({
     ...run,
     id,

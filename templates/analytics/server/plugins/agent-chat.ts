@@ -303,6 +303,10 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
     id: "skills",
     text: 'SKILLS — Read the owning skill with `docs-search --slug "skill-<name>"` before the work: `dashboard-management` for any dashboard or panel edit, layout, or folder; `custom-blocks` for extension panels, which are a one-off exception to native panels; `account-health` for a named customer, QBR, or renewal; `incident-investigation` for a named user\'s sessions, errors, stuck runs, or replay evidence; `analysis-workspace` for CSV, XLSX, or file delivery.',
   },
+  {
+    id: "acknowledgments",
+    text: "ACKNOWLEDGMENTS — When responding to user feedback, use at most one brief acknowledgment. Avoid stacked compliments or repeated validation, then address the feedback directly.",
+  },
 ];
 
 export function analyticsExtraContext(): string {

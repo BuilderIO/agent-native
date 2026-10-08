@@ -320,6 +320,16 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
+  it("keeps Analytics feedback acknowledgments brief", () => {
+    expect(ruleText("acknowledgments")).toContain(
+      "at most one brief acknowledgment",
+    );
+    expect(ruleText("acknowledgments")).toContain("Avoid stacked compliments");
+    expect(ruleText("acknowledgments")).toContain(
+      "address the feedback directly",
+    );
+  });
+
   it("hands the plugin the same rules as extraContext", async () => {
     const extraContext = agentChatPluginOptions[0]?.extraContext as
       | (() => Promise<string> | string)

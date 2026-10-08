@@ -171,6 +171,8 @@ export async function enqueueAnalyticsMemoryCapture(input: {
   if (!owner || !threadId) return false;
 
   const orgId = input.orgId ?? null;
+  if (orgId !== null) return false;
+
   const now = Date.now();
   const result = await getDbExec().execute({
     sql: `INSERT INTO ${QUEUE_TABLE} (
@@ -295,6 +297,14 @@ async function processJob(job: CaptureJob): Promise<void> {
   const orgId = job.org_id ?? null;
 
   try {
+    if (orgId !== null) {
+      // Automatic capture has no authorization to move organization chat data
+      // into personal memory, which is loaded in every organization context.
+      await deleteJob(job);
+      await trackCaptureOutcome(owner, orgId, "skipped", 0, 0);
+      return;
+    }
+
     await runWithRequestContext(requestContext(owner, orgId), async () => {
       const thread = await getThread(job.thread_id);
       if (
@@ -318,16 +328,8 @@ async function processJob(job: CaptureJob): Promise<void> {
         return;
       }
 
-      if (orgId !== null) {
-        // Personal memories follow the user across orgs; org writes need approval.
-        await deleteJob(job);
-        await trackCaptureOutcome(owner, orgId, "skipped", 0, 0);
-        return;
-      }
-
-      const candidates = extractAnalyticsMemoryCandidates(
-        threadMessages(thread.threadData),
-      );
+      const messages = threadMessages(thread.threadData);
+      const candidates = extractAnalyticsMemoryCandidates(messages);
       if (candidates.length === 0) {
         await deleteJob(job);
         await trackCaptureOutcome(owner, orgId, "no_candidates", 0, 0);

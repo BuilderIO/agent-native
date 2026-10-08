@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findPromptReferenceDeckId,
+  getAutomaticReferenceDeckIdToRemove,
   resolveRetryReferenceDeckSelection,
   withoutAutomaticReferenceDeck,
 } from "./new-deck-reference-selection";
@@ -106,43 +107,55 @@ describe("withoutAutomaticReferenceDeck", () => {
     ).toEqual({ designSystemId: "system-1" });
   });
 
-  it("preserves explicit composer context when a legacy automatic marker matches it", () => {
-    const selection = {
-      automaticReferenceDeckId: "chosen-deck",
-      referenceDeckId: "chosen-deck",
-      referenceDeckIdSource: "selection" as const,
-      composerContext: {
-        designSystemId: null,
-        references: [
-          { source: "slides" as const, id: "chosen-deck", title: "Chosen" },
-        ],
-      },
-      contextItems: [
-        {
-          key: "slides:chosen-deck:",
-          title: "Chosen",
-          context: "",
-          status: "ready" as const,
-        },
+  it("keeps a selected deck when a stale automatic marker has the same id", () => {
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        { source: "slides" as const, id: "selected", title: "Selected" },
       ],
     };
-
-    expect(withoutAutomaticReferenceDeck(selection)).toEqual({
-      referenceDeckId: "chosen-deck",
-      referenceDeckIdSource: "selection",
-      composerContext: {
-        designSystemId: null,
-        references: [{ source: "slides", id: "chosen-deck", title: "Chosen" }],
+    const contextItems = [
+      {
+        key: "slides:selected:",
+        title: "Selected",
+        context: "Explicitly selected deck",
+        status: "ready" as const,
       },
-      contextItems: [
-        {
-          key: "slides:chosen-deck:",
-          title: "Chosen",
-          context: "",
-          status: "ready",
-        },
-      ],
+    ];
+
+    expect(
+      withoutAutomaticReferenceDeck({
+        automaticReferenceDeckId: "selected",
+        referenceDeckId: "selected",
+        referenceDeckIdSource: "selection",
+        composerContext,
+        contextItems,
+      }),
+    ).toEqual({
+      referenceDeckId: "selected",
+      referenceDeckIdSource: "selection",
+      composerContext,
+      contextItems,
     });
+  });
+
+  it("uses selection provenance when the automatic id comes from the composer", () => {
+    expect(
+      getAutomaticReferenceDeckIdToRemove(
+        {
+          referenceDeckId: "selected",
+          referenceDeckIdSource: "selection",
+        },
+        "selected",
+      ),
+    ).toBeNull();
+
+    expect(
+      getAutomaticReferenceDeckIdToRemove(
+        { referenceDeckId: "selected" },
+        "selected",
+      ),
+    ).toBeNull();
   });
 });
 

@@ -30,12 +30,14 @@ const FINDINGS_PATH = join(
 const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
 const REVIEW_SURFACE_LOADING_SELECTOR =
   "[data-first-run-startup-loading]:visible, [aria-busy='true']:not(.sr-only):visible, .skeleton-shimmer:visible";
+const EMAIL_LINK_LANDING_PATH = "/_agent-native/auth/email-link/landing";
+const MAGIC_LINK_VERIFY_PATH = "/_agent-native/auth/ba/magic-link/verify";
 const SECRETS_ENDPOINTS = new Set([
   "/_agent-native/secrets",
   "/_agent-native/secrets/adhoc",
 ]);
 
-type PostLinkState = "onboarding" | "app" | "unresolved";
+type PostLinkState = "confirmation" | "onboarding" | "app" | "unresolved";
 
 async function waitForPostLinkState(
   page: Page,
@@ -43,6 +45,9 @@ async function waitForPostLinkState(
 ): Promise<PostLinkState> {
   const deadline = Date.now() + REVIEW_SURFACE_TIMEOUT_MS;
   while (Date.now() < deadline) {
+    if (new URL(page.url()).pathname.endsWith(EMAIL_LINK_LANDING_PATH)) {
+      return "confirmation";
+    }
     if (
       (await page.locator('[data-onboarding-screen="role"]:visible').count()) >
       0
@@ -66,6 +71,27 @@ async function waitForPostLinkState(
     await page.waitForTimeout(500);
   }
   return "unresolved";
+}
+
+async function completeEmailLinkConfirmation(page: Page): Promise<void> {
+  const continueButton = page.locator('form button[type="submit"]');
+  await expect(continueButton).toBeVisible();
+
+  const confirmationResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    return (
+      request.method() === "POST" &&
+      new URL(response.url()).pathname.endsWith(EMAIL_LINK_LANDING_PATH)
+    );
+  });
+  const verificationNavigation = page.waitForURL(
+    (url) => !url.pathname.endsWith(EMAIL_LINK_LANDING_PATH),
+    { waitUntil: "domcontentloaded" },
+  );
+
+  await continueButton.click();
+  expect((await confirmationResponse).status()).toBe(303);
+  await verificationNavigation;
 }
 
 async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
@@ -155,6 +181,8 @@ function trackNetwork(page: Page, origin: string) {
         parsed.origin === origin &&
         (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
           parsed.pathname.startsWith("/_agent-native/actions/") ||
+          parsed.pathname.endsWith(EMAIL_LINK_LANDING_PATH) ||
+          parsed.pathname.endsWith(MAGIC_LINK_VERIFY_PATH) ||
           SECRETS_ENDPOINTS.has(parsed.pathname) ||
           parsed.pathname === "/_agent-native/auth/magic-link" ||
           parsed.pathname === "/_agent-native/auth/session" ||
@@ -399,6 +427,7 @@ for (const target of targets) {
         target.origin,
       );
       await verificationPage.goto(link, { waitUntil: "domcontentloaded" });
+      await completeEmailLinkConfirmation(verificationPage);
       const postLinkState = await waitForPostLinkState(
         verificationPage,
         verificationPageNetwork.pendingRequests,

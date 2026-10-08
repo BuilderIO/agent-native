@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Require per-call approval before shared resource and organization memory changes.
+Require approval for shared memory changes and retain prompt-derived chat titles when generation fails.

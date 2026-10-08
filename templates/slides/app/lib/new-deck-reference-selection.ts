@@ -24,17 +24,32 @@ export type NewDeckReferenceSource = NonNullable<
   NewDeckReferenceSelection["referenceSource"]
 >;
 
+export function getAutomaticReferenceDeckIdToRemove(
+  selection: NewDeckReferenceSelection | undefined,
+  fallback?: string | null,
+): string | null {
+  const automaticReferenceDeckId =
+    selection?.automaticReferenceDeckId ?? fallback ?? null;
+  const hasExplicitSelection =
+    selection?.referenceDeckIdSource === "selection" ||
+    (selection?.referenceDeckId !== undefined &&
+      selection.referenceDeckIdSource !== "prompt" &&
+      selection.referenceDeckIdSource !== "automatic");
+  if (
+    hasExplicitSelection &&
+    selection?.referenceDeckId === automaticReferenceDeckId
+  ) {
+    return null;
+  }
+  return automaticReferenceDeckId;
+}
+
 export function withoutAutomaticReferenceDeck(
   selection: NewDeckReferenceSelection,
 ): NewDeckReferenceSelection {
-  const staleAutomaticReferenceDeckId =
-    selection.referenceDeckIdSource === "selection" &&
-    selection.referenceDeckId === selection.automaticReferenceDeckId
-      ? null
-      : selection.automaticReferenceDeckId;
   const automaticDeckIds = new Set(
     [
-      staleAutomaticReferenceDeckId,
+      getAutomaticReferenceDeckIdToRemove(selection),
       selection.referenceDeckIdSource === "automatic"
         ? selection.referenceDeckId
         : null,

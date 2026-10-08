@@ -20,6 +20,7 @@ interface FrameworkClient {
 }
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+let failNextLearnSharedContentMigration = false;
 let sharedClient: FrameworkClient = {
   async execute() {
     return { rows: [], rowsAffected: 0 };
@@ -31,6 +32,13 @@ function bindClientTo(db: Awaited<ReturnType<typeof createTestPglite>>): void {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
+      if (
+        failNextLearnSharedContentMigration &&
+        /^UPDATE resources SET content = \?/i.test(sql.trim())
+      ) {
+        failNextLearnSharedContentMigration = false;
+        throw new Error("Simulated shared skill migration failure");
+      }
       const stmt = await db.prepare(sql);
       if (/^\s*select/i.test(sql)) {
         const rows = (await stmt.all(...args)) as any[];
@@ -271,6 +279,84 @@ describe("shared LEARNINGS.md boot seeding", () => {
     } finally {
       bindClientTo(pglite);
       freshDb.close();
+    }
+  });
+
+  it("keeps resource initialization available and retries a failed default migration", async () => {
+    const freshDb = await createTestPglite();
+    bindClientTo(freshDb);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.resetModules();
+      const first = await import("./store.js");
+      const seeded = await first.resourceGetByPath(
+        first.SHARED_OWNER,
+        "skills/learn-shared/SKILL.md",
+      );
+      if (!seeded)
+        throw new Error("The shared learn-shared skill was not seeded.");
+
+      const previousContent = previousLearnSharedSeed(seeded.content);
+      await sharedClient.execute({
+        sql: "UPDATE resources SET content = ?, size = ? WHERE id = ?",
+        args: [
+          previousContent,
+          Buffer.byteLength(previousContent, "utf8"),
+          seeded.id,
+        ],
+      });
+      await sharedClient.execute({
+        sql: "DELETE FROM public.settings WHERE key = ?",
+        args: ["resources-migrated:shared:learn-shared-approval:v1"],
+      });
+
+      failNextLearnSharedContentMigration = true;
+      vi.resetModules();
+      const second = await import("./store.js");
+      await expect(second.resourceList(second.SHARED_OWNER)).resolves.toEqual(
+        expect.any(Array),
+      );
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "could not migrate the shared learn-shared default",
+        ),
+        "Simulated shared skill migration failure",
+      );
+      const markerAfterFailure = await sharedClient.execute({
+        sql: "SELECT value FROM public.settings WHERE key = ?",
+        args: ["resources-migrated:shared:learn-shared-approval:v1"],
+      });
+      expect(markerAfterFailure.rows).toHaveLength(0);
+      expect(
+        (
+          await second.resourceGetByPath(
+            second.SHARED_OWNER,
+            "skills/learn-shared/SKILL.md",
+          )
+        )?.content,
+      ).toBe(previousContent);
+
+      vi.resetModules();
+      const third = await import("./store.js");
+      expect(
+        (
+          await third.resourceGetByPath(
+            third.SHARED_OWNER,
+            "skills/learn-shared/SKILL.md",
+          )
+        )?.content,
+      ).toBe(seeded.content);
+      const markerAfterRetry = await sharedClient.execute({
+        sql: "SELECT value FROM public.settings WHERE key = ?",
+        args: ["resources-migrated:shared:learn-shared-approval:v1"],
+      });
+      expect(markerAfterRetry.rows).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+      failNextLearnSharedContentMigration = false;
+      bindClientTo(pglite);
+      await freshDb.close();
     }
   });
 

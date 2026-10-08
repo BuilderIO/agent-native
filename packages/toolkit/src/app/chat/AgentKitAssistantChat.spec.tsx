@@ -842,6 +842,63 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
+  it("uses a sanitized first-message fallback when the thread title is blank", async () => {
+    const savedSnapshots = vi.fn();
+    const message = {
+      id: "message-user-title-fallback",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [
+        {
+          type: "text",
+          text: 'Summarize @[the sprint|resource:123]\n<context data-agentkit-context-encoding="entities-v1">Private context</context>',
+        },
+      ],
+    };
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: {
+        id: chatMocks.threadId,
+        title: "",
+        createdAt: message.createdAt,
+        updatedAt: message.createdAt,
+      },
+      messages: [message],
+      events: [],
+      activeRunIds: [],
+      runs: {},
+      approvals: {},
+      approvalRunIds: {},
+      connectionRequests: {},
+      connectionRequestRunIds: {},
+      tools: {},
+      activities: {},
+      queuedMessages: [],
+      tasks: {},
+      taskGroups: {},
+      widgets: {},
+      widgetMessageIds: {},
+      annotations: {},
+      annotationMessageIds: {},
+      agents: {},
+      agentInteractions: [],
+      artifacts: [],
+    };
+
+    const props = baseProps({
+      onSaveThread: savedSnapshots,
+      runtime: {} as never,
+    });
+    await mount(props);
+    await act(async () => root.render(null));
+
+    expect(savedSnapshots).toHaveBeenCalledWith(
+      chatMocks.threadId,
+      expect.objectContaining({ title: "Summarize @the sprint" }),
+    );
+  });
+
   it("shows a retry when chat history fails to load", async () => {
     const retryHistory = vi.fn();
     chatMocks.history = {
@@ -890,6 +947,38 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "agentChat.status.thinking",
     );
+    expect(
+      container.querySelector("[data-agentkit-active-run-id-copy]"),
+    ).toBeNull();
+  });
+
+  it("shows and copies the active run ID as soon as it becomes available", async () => {
+    const props = baseProps();
+    await mount(props);
+
+    expect(
+      container.querySelector("[data-agentkit-active-run-id-copy]"),
+    ).toBeNull();
+
+    chatMocks.thread = { ...chatMocks.thread, activeRunIds: ["run-active"] };
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+
+    const copyRequestIdButton = container.querySelector(
+      '[data-agentkit-active-run-id-copy] button[aria-label="agentChat.message.copyRequestId"]',
+    );
+    expect(copyRequestIdButton).toBeTruthy();
+
+    await act(async () => {
+      copyRequestIdButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(chatMocks.writeClipboardText).toHaveBeenCalledWith("run-active");
+    expect(
+      container.querySelector(
+        '[data-agentkit-active-run-id-copy] button[aria-label="agentChat.common.copied"]',
+      ),
+    ).toBeTruthy();
   });
 
   it("does not duplicate Thinking after the run becomes active", async () => {

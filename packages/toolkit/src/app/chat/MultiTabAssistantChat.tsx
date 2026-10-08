@@ -86,6 +86,7 @@ import type {
   AssistantChatHandle,
   AssistantChatSendOptions,
 } from "./chat/surface-types.js";
+import { fallbackChatTitle } from "./fallback-chat-title.js";
 
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
 
@@ -2725,15 +2726,14 @@ export function MultiTabAssistantChat({
       selection: { engine?: string; model?: string },
     ) => {
       void generateTitle(threadId, message, selection).then((title) => {
-        if (title) {
-          // Persist the generated title to the server
-          void saveThreadData(threadId, {
-            threadData: "",
-            title,
-            preview: message.slice(0, 120),
-            titleSource: "generated",
-          });
-        }
+        const resolvedTitle = title ?? fallbackChatTitle(message);
+        if (!resolvedTitle) return;
+        void saveThreadData(threadId, {
+          threadData: "",
+          title: resolvedTitle,
+          preview: message.slice(0, 120),
+          titleSource: title ? "generated" : "fallback",
+        });
       });
     },
     [generateTitle, saveThreadData],
