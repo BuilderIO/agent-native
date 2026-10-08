@@ -935,6 +935,8 @@ export default {
         figmaPasteFailed: "Figma paste import failed",
         uploadFailed: "File upload failed",
         invalidFigFile: "Choose a file ending in .fig.",
+        unsupportedFileType: "Choose a .fig, .html, or .htm file.",
+        importBusy: "Another import is in progress. Finish or cancel it first.",
         figFileTooLarge:
           "That .fig is too large — uploads are limited to {{max}} MB. In Figma, copy just the frame you want into a new file and export that as .fig, or use Paste from Figma instead.",
       },
@@ -975,7 +977,17 @@ export default {
     saveTemplate: "Save template",
     templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
-    clickToRename: "Click to rename",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Apply or discard your pending visual edits before duplicating.",
+      designs: "Designs",
+      rename: "Rename",
+      duplicate: "Duplicate",
+      versionHistory: "Version history",
+      import: "Import…",
+      delete: "Delete",
+      deleteError: "Could not delete this design",
+    },
     collaborators: "Collaborators",
     share: "Share",
     signUpToSave: "Sign up",

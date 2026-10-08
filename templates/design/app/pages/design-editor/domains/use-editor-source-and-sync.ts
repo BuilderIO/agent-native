@@ -20,6 +20,7 @@ import { flushSync } from "react-dom";
 import { useBlocker } from "react-router";
 import { toast } from "sonner";
 
+import type { DesignImportPanelHandle } from "@/components/design/DesignImportPanel";
 import { isTextElement } from "@/components/design/EditPanel";
 import {
   beginEyedropperPick,
@@ -169,6 +170,7 @@ export function useEditorSourceAndSync({
     pendingVisualStyleEditsRef,
     pendingLiveNonStyleEditsRef,
     clearPendingLiveEditState,
+    minimalUi,
     clearPendingLiveEditStateRef,
     clearReloadedPendingLiveEdits,
     activeLeftPanel,
@@ -265,6 +267,7 @@ export function useEditorSourceAndSync({
     handleDetachInstanceMenuAction,
     handleToggleMinimalUi,
     handleShowAssetsPanel,
+    uiHidden,
   } = editorContentAndComponents;
   const {
     activeCodeFile,
@@ -777,9 +780,21 @@ export function useEditorSourceAndSync({
     clearAutoRetryTimer,
   ]);
   usePendingLiveEditUnloadGuard(hasPendingVisualStyleEdits);
+  const importPanelRef = useRef<DesignImportPanelHandle | null>(null);
+  const skipPendingEditNavigationBlockRef = useRef(false);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
+  // The import panel lives in the left sidebar, which is unmounted in minimal
+  // UI, so hand the file over only once that sidebar is back.
+  const importPanelMounted = !hostOwnsChrome && !uiHidden && !minimalUi;
+  useEffect(() => {
+    if (!pendingImportFile || !importPanelMounted) return;
+    importPanelRef.current?.importFile(pendingImportFile);
+    setPendingImportFile(null);
+  }, [pendingImportFile, importPanelMounted]);
   const pendingVisualStyleNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
+        !skipPendingEditNavigationBlockRef.current &&
         shouldBlockPendingVisualStyleNavigation({
           hasPendingVisualStyleEdits,
           currentPathname: currentLocation.pathname,
@@ -1777,6 +1792,9 @@ export function useEditorSourceAndSync({
     handleDrawTool,
     handleBooleanSubtractSelection,
     pendingVisualStyleNavigationBlocker,
+    importPanelRef,
+    setPendingImportFile,
+    skipPendingEditNavigationBlockRef,
     handleStayOnPendingVisualStyleNavigation,
     handleDiscardPendingVisualStylesAndNavigate,
     firstRunTemplatesQuery,

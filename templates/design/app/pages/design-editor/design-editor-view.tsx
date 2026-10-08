@@ -842,8 +842,15 @@ export function renderDesignEditorView({
 
   const projectTitleControl = renderProjectTitleControl({
     editorCore,
+    editorHistory,
     editorGenerationAndAccess,
     editorFilesAndSaving,
+    editorActiveScreenAndGeometry,
+    editorLiveEditsAndPresence,
+    editorLayoutAndStructure,
+    editorContentAndComponents,
+    editorExportAndHandoff,
+    editorSourceAndSync,
     design,
   });
 
