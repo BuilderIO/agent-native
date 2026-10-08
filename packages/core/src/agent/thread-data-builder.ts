@@ -19,6 +19,7 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { stripAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   type RefusedTurnRetryContext,
@@ -3873,9 +3874,13 @@ export function extractThreadMeta(repo: any): {
       : typeof msg.content === "string"
         ? msg.content
         : "";
-    if (textParts.trim()) {
-      if (!title) title = textParts.trim().slice(0, 80);
-      preview = textParts.trim().slice(0, 120);
+    const visiblePrompt = stripAgentChatContextFromMessage(textParts)
+      .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (visiblePrompt) {
+      if (!title) title = visiblePrompt.slice(0, 80);
+      preview = visiblePrompt.slice(0, 120);
     }
   }
   return { title: titleOverride || title, preview };

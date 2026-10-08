@@ -272,6 +272,9 @@ describe("background agent sessions through the agent-chat plugin", () => {
       .soft({ status: post?.status, error: post?.error })
       .toEqual({ status: 200, error: null });
     expect.soft(completion).toBe("settled");
+    expect((await getThread(handle.threadId))?.title).toBe(
+      "Reply to this comment",
+    );
     expect
       .soft(await userMessagesFor(handle.threadId, handle.operationId))
       .toHaveLength(1);
