@@ -7162,6 +7162,31 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect((res as any).message).toContain(
       "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
+    expect(res).toMatchObject({ reason: "invalid" });
+    expect((res as any).message).toMatch(
+      /^This bearer token could not be verified: /,
+    );
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'error="invalid_token", error_description="This bearer token could not be verified: ',
+    );
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'Reconnect at https://mail.agent-native.com/mcp/connect."',
+    );
+  });
+
+  it("challenges a request without a bearer token without naming an error", async () => {
+    process.env.ACCESS_TOKEN = "secret-token";
+    const event = makeWebEvent({
+      method: "POST",
+      body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
+      headers: { authorization: "" },
+    });
+    const res = await handleMcpRequest(event, config as any);
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).not.toContain(
+      "error=",
+    );
+    expect(res).not.toHaveProperty("reason");
   });
 
   it("answers 503 without an auth challenge when the token's org membership cannot be checked", async () => {
@@ -7194,9 +7219,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
       membershipOverride.answer = "not-member";
       const removed = request();
-      await handleMcpRequest(removed, config as any);
+      const refused = await handleMcpRequest(removed, config as any);
       expect(removed._status).toBe(401);
-      expect(removed._responseHeaders?.["www-authenticate"]).toBeTruthy();
+      expect(removed._responseHeaders?.["www-authenticate"]).toContain(
+        "error_description=\"This token's account is no longer a member of the organization it was issued for.",
+      );
+      expect(refused).toMatchObject({ reason: "not-member" });
     } finally {
       membershipOverride.answer = null;
       delete process.env.BETTER_AUTH_SECRET;

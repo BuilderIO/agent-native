@@ -9,7 +9,7 @@ description: "Cron でスケジュールされたプロンプトは、日次ダ�
 
 <Callout tone="info">
 
-**Recurring Jobs** は **Scheduled** 自動化の旧称です。**Automations** は **Scheduled** と **Event** の包括的な名称です。`jobs/` と `manage-jobs` は既存のスケジュール専用連携向けに残ります。モデルと MCP 許可リストを含む新しい個人または組織の作業には、`manage-automations` と `/agent#jobs` の **Automations** を使用してください。
+**Recurring Jobs** は **Scheduled** 自動化の旧称です。**Automations** は **Scheduled** と **Event** の包括的な名称です。`jobs/` と `manage-jobs` は既存のスケジュール専用連携向けに残ります。モデルと MCP 許可リストを含む新しい個人または組織の作業には、`manage-automations` と **Settings › Automations** を使用してください。
 
 </Callout>
 
@@ -104,6 +104,10 @@ mcpTools:
 フレームワークには、リソース層とスケジューラ層によって内部的に使用される cron 文字列を検証およびレンダリングするための cron ユーティリティ (`isValidCron()` および `describeCron()`) が含まれています。
 
 ## ジョブの作成 {#creating}
+
+### Automations UI から
+
+**Settings › Automations** を開き、**Scheduled** の自動化を作成します。古い `/agent#jobs` リンクはそこにリダイレクトされます。
 
 ### 「エージェント リソース」タブから
 
@@ -230,8 +234,8 @@ Netlify、Vercel、Cloudflare では、同じティックでイベントトリ�
 
 ## ジョブのデバッグ {#debugging}
 
-- エージェント リソースで `jobs/<name>.md` を開きます。前編には `lastRun`、`lastStatus`、`lastError`、`nextRun` が表示されます。
-- **待たずにテストしてください:** **Automations** で自動化を開き、**Run now** を選択します。自動化は実際の副作用を伴ってすぐに実行され、スケジューラのティックを待たないため、ローカルやトリガーのないホストでも動作します。
+- **Settings › Automations** でオートメーションの詳細を開くか、エージェント リソースで `jobs/<name>.md` を確認します。フロントマターには `lastRun`、`lastStatus`、`lastError`、`nextRun` が表示されます。
+- **待たずにテストしてください:** **Settings › Automations** で **Run now** をクリックするか、エージェントに実行を依頼します (`manage-automations` の `action=run-now`)。ジョブのプロンプトが実際の副作用を伴ってすぐに実行され、`nextRun` は変わりません。例外は、フレームワークが一時停止したジョブです。実行が成功するとジョブが再び有効になり、`nextRun` が再計算されます。Run now はスケジューラのティックを待たないため、`AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` なしの localhost や、スケジューラのトリガーのないホストでも動作します。
 - **一時停止します:** `enabled: false` を反転します。ファイルはそのまま残り、実行が停止するだけです。
 
 ## エージェント ツール {#agent-tool}

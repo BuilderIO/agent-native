@@ -51,6 +51,10 @@ import { AgentTaskCard } from "../AgentTaskCard.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import {
+  SESSION_REPLAY_BLOCK_PROPS,
+  SESSION_REPLAY_MASK_PROPS,
+} from "../session-replay-privacy.js";
 import { useThinkingDisplay } from "../thinking-display.js";
 import {
   BashCell,
@@ -980,9 +984,13 @@ function ToolCallDisplayGeneric({
 
   return (
     <div className="group/tool my-0.5 w-full overflow-hidden">
-      {mcpApp && !(suppressInlineOpenApp && toolName === "open_app") && (
-        <McpAppRenderer app={mcpApp} className="mb-1.5" />
-      )}
+      {mcpApp &&
+        !(suppressInlineOpenApp && toolName === "open_app") && (
+          // The recorder keeps iframe attributes, and a snapshot's srcdoc can show the failure.
+          <div {...(isError ? SESSION_REPLAY_BLOCK_PROPS : {})}>
+            <McpAppRenderer app={mcpApp} className="mb-1.5" />
+          </div>
+        )}
       <button
         type="button"
         onClick={() => canExpand && setExpanded(!isExpanded)}
@@ -1079,7 +1087,10 @@ function ToolCallDisplayGeneric({
             />
           )}
           {isError ? (
-            <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
+            <div
+              {...SESSION_REPLAY_MASK_PROPS}
+              className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground"
+            >
               {result || t("agentChat.tool.failedWithoutDetails")}
             </div>
           ) : resultPayload ? (
@@ -1289,7 +1300,10 @@ function AgentCallCell({
             </div>
           )}
           {isError && errorText ? (
-            <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
+            <div
+              {...SESSION_REPLAY_MASK_PROPS}
+              className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground"
+            >
               {errorText}
             </div>
           ) : null}
@@ -1372,7 +1386,10 @@ function AgentActivityToolCallRow({
             />
           </button>
           <AnimatedCollapse open={open}>
-            <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
+            <div
+              {...SESSION_REPLAY_MASK_PROPS}
+              className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground"
+            >
               {failureDetails}
             </div>
           </AnimatedCollapse>
