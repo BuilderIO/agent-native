@@ -1395,7 +1395,7 @@ const messages = {
     builderConnectError: "Builder.io 设置未完成。请重试，或选择 S3 兼容存储。",
     builderConnectErrorAskAdmin:
       "Builder.io 设置未完成。请重试，或请所有者或管理员设置存储。",
-    builderStatusReadError: "无法检查 Builder.io 连接。",
+    builderStatusReadError: "连接状态暂时不可用。请重试以再次检查。",
     builderUploadGrantMissing:
       "Builder.io 已连接 AI 服务，但此连接无法上传剪辑。请授予上传权限后重新连接 Builder.io，或向所有者或管理员寻求帮助。",
     builderGrantAskAdmin:

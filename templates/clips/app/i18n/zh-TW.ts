@@ -1398,7 +1398,7 @@ const messages = {
       "Builder.io 設定未完成。請再試一次，或選擇相容 S3 的儲存空間。",
     builderConnectErrorAskAdmin:
       "Builder.io 設定未完成。請再試一次，或請擁有者或管理員設定儲存空間。",
-    builderStatusReadError: "無法檢查 Builder.io 連線。",
+    builderStatusReadError: "連線狀態目前無法確認。請重試以再次檢查。",
     builderUploadGrantMissing:
       "Builder.io 已連線 AI 服務，但此連線無法上傳片段。請授予上傳權限後重新連線 Builder.io，或向擁有者或管理員尋求協助。",
     builderGrantAskAdmin:

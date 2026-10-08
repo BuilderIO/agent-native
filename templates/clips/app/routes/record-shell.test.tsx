@@ -81,10 +81,33 @@ describe("record route lifecycle shell", () => {
     expect(
       shouldShowFirstRunStorageSetup({
         storageConfigured: false,
+        storageStatusUnavailable: false,
         dismissal: "not-dismissed",
         hasPendingUpload: false,
         isClipIntake: false,
         connectStorageRequested: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("offers the first-run choice and Skip when storage status is unavailable", () => {
+    const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
+      storageConfigured: null,
+      storageStatusUnavailable: true,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    });
+
+    expect(firstRunStorageSetup).toBe(true);
+    expect(
+      shouldAllowSkippingStorageSetup({
+        firstRunStorageSetup,
+        firstRunStorageSetupIntent: false,
+        connectStorageRequested: false,
+        hasPendingUpload: false,
+        isClipIntake: false,
       }),
     ).toBe(true);
   });
@@ -150,6 +173,15 @@ describe("record route lifecycle shell", () => {
   it.each([
     {
       storageConfigured: true,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: null,
+      storageStatusUnavailable: false,
       dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
@@ -157,6 +189,7 @@ describe("record route lifecycle shell", () => {
     },
     {
       storageConfigured: false,
+      storageStatusUnavailable: false,
       dismissal: "dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
@@ -164,6 +197,7 @@ describe("record route lifecycle shell", () => {
     },
     {
       storageConfigured: false,
+      storageStatusUnavailable: false,
       dismissal: "not-dismissed",
       hasPendingUpload: true,
       isClipIntake: false,
@@ -171,6 +205,7 @@ describe("record route lifecycle shell", () => {
     },
     {
       storageConfigured: false,
+      storageStatusUnavailable: false,
       dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: true,
@@ -178,6 +213,7 @@ describe("record route lifecycle shell", () => {
     },
     {
       storageConfigured: false,
+      storageStatusUnavailable: false,
       dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,

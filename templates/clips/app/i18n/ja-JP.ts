@@ -1477,7 +1477,8 @@ const messages = {
       "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、S3 互換ストレージを選択してください。",
     builderConnectErrorAskAdmin:
       "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、オーナーまたは管理者にストレージの設定を依頼してください。",
-    builderStatusReadError: "Builder.io の接続を確認できませんでした。",
+    builderStatusReadError:
+      "接続状態を確認できません。もう一度お試しください。",
     builderUploadGrantMissing:
       "Builder.io は AI 用に接続されていますが、この接続ではクリップをアップロードできません。アップロード権限を付けて Builder.io を再接続するか、オーナーまたは管理者に相談してください。",
     builderGrantAskAdmin:

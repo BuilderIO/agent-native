@@ -1438,7 +1438,8 @@ const messages = {
       "Builder.io सेटअप पूरा नहीं हो सका। फिर से कोशिश करें या S3-संगत स्टोरेज चुनें।",
     builderConnectErrorAskAdmin:
       "Builder.io सेटअप पूरा नहीं हो सका। फिर से कोशिश करें या किसी मालिक या एडमिन से स्टोरेज सेट अप करने को कहें।",
-    builderStatusReadError: "Builder.io कनेक्शन की जांच नहीं हो सकी।",
+    builderStatusReadError:
+      "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
     builderUploadGrantMissing:
       "Builder.io AI के लिए कनेक्ट है, लेकिन यह कनेक्शन क्लिप अपलोड नहीं कर सकता। अपलोड की अनुमति के साथ Builder.io को फिर से कनेक्ट करें, या किसी मालिक या एडमिन से मदद लें।",
     builderGrantAskAdmin:

@@ -1101,19 +1101,21 @@ export function shouldRedirectToStorageSetupHome({
 
 export function shouldShowFirstRunStorageSetup({
   storageConfigured,
+  storageStatusUnavailable,
   dismissal,
   hasPendingUpload,
   isClipIntake,
   connectStorageRequested,
 }: {
   storageConfigured: boolean | null;
+  storageStatusUnavailable: boolean;
   dismissal: FirstRunStorageSetupDismissal;
   hasPendingUpload: boolean;
   isClipIntake: boolean;
   connectStorageRequested: boolean;
 }): boolean {
   return (
-    storageConfigured === false &&
+    (storageConfigured === false || storageStatusUnavailable) &&
     dismissal !== "dismissed" &&
     !hasPendingUpload &&
     !isClipIntake &&
@@ -1290,6 +1292,7 @@ export default function RecordRoute() {
       : (storageQuery.data?.configured ?? null);
   const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
     storageConfigured,
+    storageStatusUnavailable: storageQuery.isError,
     dismissal: firstRunStorageSetupDismissal,
     hasPendingUpload: pendingUploadFile,
     isClipIntake: !!clipIntake,
@@ -3810,7 +3813,8 @@ export default function RecordRoute() {
     uiState === "idle" || uiState === "error" || uiState === "pendingUpload";
   // Recording can start locally after the first storage choice is skipped.
   const showStorageSetupFirst =
-    storageConfigured === false && storageSetupRequested;
+    storageSetupRequested &&
+    (storageConfigured === false || storageQuery.isError);
   const canSkipStorageSetup = shouldAllowSkippingStorageSetup({
     firstRunStorageSetup,
     firstRunStorageSetupIntent,

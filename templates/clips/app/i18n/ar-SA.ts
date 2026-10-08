@@ -1464,7 +1464,8 @@ const messages = {
       "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اختر تخزينًا متوافقًا مع S3.",
     builderConnectErrorAskAdmin:
       "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اطلب من مالك أو مسؤول إعداد التخزين.",
-    builderStatusReadError: "تعذّر التحقق من اتصال Builder.io.",
+    builderStatusReadError:
+      "حالة الاتصال غير متاحة. أعد المحاولة للتحقق مرة أخرى.",
     builderUploadGrantMissing:
       "Builder.io متصل بخدمات الذكاء الاصطناعي، لكن هذا الاتصال لا يمكنه رفع المقاطع. أعد ربط Builder.io مع صلاحية الرفع، أو اطلب المساعدة من مالك أو مسؤول.",
     builderGrantAskAdmin:

@@ -1457,7 +1457,8 @@ const messages = {
       "Builder.io 설정을 완료하지 못했습니다. 다시 시도하거나 S3 호환 스토리지를 선택하세요.",
     builderConnectErrorAskAdmin:
       "Builder.io 설정을 완료하지 못했습니다. 다시 시도하거나 소유자나 관리자에게 스토리지 설정을 요청하세요.",
-    builderStatusReadError: "Builder.io 연결을 확인하지 못했습니다.",
+    builderStatusReadError:
+      "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
     builderUploadGrantMissing:
       "Builder.io가 AI용으로 연결되어 있지만 이 연결로는 클립을 업로드할 수 없습니다. 업로드 권한을 부여해 Builder.io를 다시 연결하거나 소유자 또는 관리자에게 도움을 요청하세요.",
     builderGrantAskAdmin:
