@@ -14,6 +14,8 @@ export interface ContrastAuditRequest {
   /** Deck-level inputs that recolor slides without changing their HTML. */
   renderKey: string;
   slides: ContrastAuditSlideTarget[];
+  /** Deck positions, since `slides` may be a subset of the deck. */
+  slideNumbers: Record<string, number>;
 }
 
 export interface ContrastFailure {
@@ -110,6 +112,14 @@ export function contrastSlideRenderFingerprint(
   );
 }
 
+function deckSlideNumbers(slides: ContrastAuditSlideInput[]) {
+  const numbers: Record<string, number> = {};
+  slides.forEach((slide, index) => {
+    numbers[slide.id] = index + 1;
+  });
+  return numbers;
+}
+
 export function buildContrastAuditRequest(
   deckId: string,
   deck: {
@@ -119,14 +129,18 @@ export function buildContrastAuditRequest(
     aspectRatio?: string | null;
     slides: ContrastAuditSlideInput[];
   },
+  includeSlide: (slideId: string) => boolean = () => true,
 ): ContrastAuditRequest {
   return {
     deckId,
     renderKey: deckContrastRenderKey(deck),
-    slides: deck.slides.map((slide) => ({
-      id: slide.id,
-      contentHash: contrastSlideRenderFingerprint(slide),
-    })),
+    slideNumbers: deckSlideNumbers(deck.slides),
+    slides: deck.slides
+      .filter((slide) => includeSlide(slide.id))
+      .map((slide) => ({
+        id: slide.id,
+        contentHash: contrastSlideRenderFingerprint(slide),
+      })),
   };
 }
 
@@ -162,9 +176,7 @@ export function finalizeContrastAudit(
     );
   }
 
-  const slideNumbers = new Map(
-    request.slides.map((slide, index) => [slide.id, index + 1]),
-  );
+  const slideNumbers = new Map(Object.entries(request.slideNumbers));
   const expectedHashes = new Map(
     request.slides.map((slide) => [slide.id, slide.contentHash]),
   );
