@@ -506,7 +506,6 @@ jobs:
                 e2e/inspector-styles.spec.ts:176 \
                 e2e/inspector-styles.spec.ts:238 \
                 e2e/inspector-styles.spec.ts:314 \
-                e2e/inspector-styles.spec.ts:426 \
               )
               ;;
             inspector-2)
@@ -533,6 +532,7 @@ jobs:
                 e2e/inspector-styles.spec.ts:541 \
                 e2e/inspector-styles.spec.ts:667 \
                 e2e/inspector-styles.spec.ts:798 \
+                e2e/inspector-styles.spec.ts:426 \
               )
               ;;
             drag-1)

@@ -641,7 +641,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "e2e/inspector-styles.spec.ts:176",
     "e2e/inspector-styles.spec.ts:238",
     "e2e/inspector-styles.spec.ts:314",
-    "e2e/inspector-styles.spec.ts:426",
   ]);
   assert.deepEqual(fixedLocations(inspectorTwoStart, inspectorThreeStart), [
     "e2e/canvas-invariants.spec.ts:383",
@@ -655,6 +654,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "e2e/inspector-styles.spec.ts:541",
     "e2e/inspector-styles.spec.ts:667",
     "e2e/inspector-styles.spec.ts:798",
+    "e2e/inspector-styles.spec.ts:426",
   ]);
   assert.deepEqual(fixedLocations(inspectorThreeStart, inspectorFourStart), [
     "e2e/canvas-invariants.spec.ts:1170",
