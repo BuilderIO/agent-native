@@ -715,7 +715,10 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     Number.isInteger(jobTimeout) && jobTimeout === 12,
     `Design acceptance job must have the exact twelve-minute cap (got ${jobTimeout})`,
   );
-  assert.ok(jobTimeout < 13, "Design acceptance must stay below thirteen minutes");
+  assert.ok(
+    jobTimeout < 13,
+    "Design acceptance must stay below thirteen minutes",
+  );
   assert.ok(
     Number.isInteger(stepTimeout) &&
       stepTimeout === 4 &&
