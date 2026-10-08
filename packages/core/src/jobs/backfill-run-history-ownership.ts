@@ -28,7 +28,7 @@ const LINEAGE = `
     SELECT * FROM lineage
     WHERE job_ids = 1 AND actors = 1 AND personal_match
       AND source_scope = 'organization' AND source_org_id IS NOT NULL
-      AND status IN ('success', 'error', 'interrupted') AND dispatch_pending = 0
+      AND status IN ('success', 'error', 'interrupted', 'skipped') AND dispatch_pending = 0
   )`;
 
 export interface HistoryOwnershipBackfillCounts {

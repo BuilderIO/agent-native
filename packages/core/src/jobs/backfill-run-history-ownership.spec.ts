@@ -70,67 +70,74 @@ async function trace(
 }
 
 describe("automation history ownership backfill", () => {
-  it("dry-runs without writes, moves by stable id and owner, and is idempotent", async () => {
-    await job("personal");
-    await job("same-name-org", "__organization__:acme");
-    await job("same-name-bob", "bob@example.test");
-    await run("personal-run", "personal");
-    await run("org-run", "same-name-org");
-    await run("bob-run", "same-name-bob", "bob@example.test");
-    await run("no-id");
-    const before = await pglite.query(
-      "SELECT * FROM automation_runs ORDER BY id",
-    );
-    expect(await backfillRunHistoryOwnership(db)).toEqual({
-      organizationRows: 4,
-      eligibleRows: 2,
-      organizationJobRows: 1,
-      ambiguousRows: 1,
-      deferredRows: 0,
-      movedRows: 0,
-    });
-    expect(
-      (await pglite.query("SELECT * FROM automation_runs ORDER BY id")).rows,
-    ).toEqual(before.rows);
-    expect(
-      (await backfillRunHistoryOwnership(db, { apply: true })).movedRows,
-    ).toBe(2);
-    expect(
-      (
-        await pglite.query(
-          "SELECT id, owner, scope, org_id FROM automation_runs ORDER BY id",
-        )
-      ).rows,
-    ).toEqual([
-      {
-        id: "bob-run",
-        owner: "bob@example.test",
-        scope: "personal",
-        org_id: null,
-      },
-      {
-        id: "no-id",
-        owner: "__organization__:acme",
-        scope: "organization",
-        org_id: "acme",
-      },
-      {
-        id: "org-run",
-        owner: "__organization__:acme",
-        scope: "organization",
-        org_id: "acme",
-      },
-      {
-        id: "personal-run",
-        owner: "alice@example.test",
-        scope: "personal",
-        org_id: null,
-      },
-    ]);
-    expect(
-      (await backfillRunHistoryOwnership(db, { apply: true })).movedRows,
-    ).toBe(0);
-  });
+  it.each(["success", "error", "interrupted", "skipped"])(
+    "dry-runs without writes, moves by stable id and owner, and is idempotent for %s",
+    async (status) => {
+      await job("personal");
+      await job("same-name-org", "__organization__:acme");
+      await job("same-name-bob", "bob@example.test");
+      await run("personal-run", "personal");
+      await pglite.query(
+        "UPDATE automation_runs SET status = $1 WHERE id = 'personal-run'",
+        [status],
+      );
+      await run("org-run", "same-name-org");
+      await run("bob-run", "same-name-bob", "bob@example.test");
+      await run("no-id");
+      const before = await pglite.query(
+        "SELECT * FROM automation_runs ORDER BY id",
+      );
+      expect(await backfillRunHistoryOwnership(db)).toEqual({
+        organizationRows: 4,
+        eligibleRows: 2,
+        organizationJobRows: 1,
+        ambiguousRows: 1,
+        deferredRows: 0,
+        movedRows: 0,
+      });
+      expect(
+        (await pglite.query("SELECT * FROM automation_runs ORDER BY id")).rows,
+      ).toEqual(before.rows);
+      expect(
+        (await backfillRunHistoryOwnership(db, { apply: true })).movedRows,
+      ).toBe(2);
+      expect(
+        (
+          await pglite.query(
+            "SELECT id, owner, scope, org_id FROM automation_runs ORDER BY id",
+          )
+        ).rows,
+      ).toEqual([
+        {
+          id: "bob-run",
+          owner: "bob@example.test",
+          scope: "personal",
+          org_id: null,
+        },
+        {
+          id: "no-id",
+          owner: "__organization__:acme",
+          scope: "organization",
+          org_id: "acme",
+        },
+        {
+          id: "org-run",
+          owner: "__organization__:acme",
+          scope: "organization",
+          org_id: "acme",
+        },
+        {
+          id: "personal-run",
+          owner: "alice@example.test",
+          scope: "personal",
+          org_id: null,
+        },
+      ]);
+      expect(
+        (await backfillRunHistoryOwnership(db, { apply: true })).movedRows,
+      ).toBe(0);
+    },
+  );
 
   it("leaves missing, replaced, conflicting and mismatched provenance untouched", async () => {
     await job("personal");
