@@ -1,6 +1,9 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
-import { MCP_APP_HOST_FILL_ATTRIBUTE } from "../shared/mcp-app-display.js";
+import {
+  MCP_APP_HOST_FILL_ATTRIBUTE,
+  MCP_APP_PANE_FILL_MAX_HEIGHT,
+} from "../shared/mcp-app-display.js";
 
 const MCP_APP_IMPORT =
   "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.5/app-with-deps";
@@ -56,8 +59,12 @@ export function embedApp(
     ...(options.description ? { description: options.description } : {}),
     html: (ctx) => {
       const remoteBridgeFallbackEnabled = ctx.catalogMode !== "directory";
+      // A directory widget is an editor that lives in a host pane, never a
+      // content-sized card, so it fills the pane even when the host will not
+      // give it a height (see paneFillHeight).
+      const fillsPane = ctx.catalogMode === "directory";
       return `<!doctype html>
-<html lang="en">
+<html lang="en"${fillsPane ? ` ${MCP_APP_HOST_FILL_ATTRIBUTE}="1"` : ""}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -123,6 +130,8 @@ export function embedApp(
     const defaultIntrinsicHeight = ${height};
     const chromeHeight = ${MCP_APP_WRAPPER_CHROME_HEIGHT};
     const hostFillAttribute = ${JSON.stringify(MCP_APP_HOST_FILL_ATTRIBUTE)};
+    const fillsPane = ${fillsPane};
+    const paneFillMaxHeight = ${MCP_APP_PANE_FILL_MAX_HEIGHT};
     const frameReadyMessageDelays = [0, 200, 500, 1500, 3000, 7000, 15000, 30000];
     const frameReadyTimeoutMs = 45000;
     const frameLoadTimeoutMs = 45000;
@@ -199,24 +208,62 @@ export function embedApp(
       return record.displayMode === "fullscreen" || record.displayMode === "pip";
     }
 
-    // A side panel, fullscreen view, or fixed-height container sizes the frame
-    // itself, so the shell fills it with CSS and never reports an intrinsic
-    // height. An inline card is the opposite: the host follows the height
-    // reported here, so filling the frame would feed its own size back into
-    // it. Never derive the height from the frame's innerHeight.
+    // A fullscreen view or fixed-height container sizes the frame itself, so
+    // the shell fills it with CSS and never reports a height. An inline card is
+    // the opposite: the host follows the height reported here, so filling the
+    // frame would feed its own size back into it. Never derive the height from
+    // the frame's innerHeight. A directory widget fills with CSS in both cases;
+    // only the host-sized one still reports (see paneFillHeight).
     function applyHostFillMode() {
       const context = hostState().context || {};
-      const fill = hostFillsContainer(context);
+      const hostFill = hostFillsContainer(context);
       const root = document.documentElement;
-      if (fill) {
+      if (hostFill || fillsPane) {
         root.setAttribute(hostFillAttribute, "1");
         if (appFrame) appFrame.style.height = "";
       } else {
         root.removeAttribute(hostFillAttribute);
       }
-      body.dataset.hostFill = fill ? "1" : "0";
+      body.dataset.hostFill = hostFill ? "1" : "0";
+      body.dataset.paneFill = fillsPane && !hostFill ? "1" : "0";
       body.dataset.hostDisplayMode = typeof context.displayMode === "string" ? context.displayMode : "";
-      return fill;
+      return hostFill;
+    }
+
+    // Codex and ChatGPT side panes size the widget frame only from the height
+    // reported here, and their containerDimensions are a { maxHeight } hint
+    // (about 360 inline on Codex), not the pane's height. A content-sized
+    // report leaves the pane's own background showing under the frame, so a
+    // directory widget reports the most height the viewer's screen can show and
+    // lets the host clamp it to the pane. It is a constant of the viewer, never
+    // of the frame or the content, so it cannot feed back into itself.
+    function paneFillHeight(context) {
+      const screenHeight = finiteNumber(window.screen && window.screen.availHeight) || 0;
+      const hostMaxHeight = contextMaxHeight(context) || 0;
+      return Math.floor(
+        Math.min(
+          paneFillMaxHeight,
+          Math.max(defaultIntrinsicHeight, hostMaxHeight, screenHeight)
+        )
+      );
+    }
+
+    // The app document lifts its inline-card height clamp when the host owns
+    // the frame's height; in a pane the shell owns it, so tell the app so.
+    function hostStateForApp() {
+      const state = hostState();
+      if (!fillsPane || hostFillsContainer(state.context)) return state;
+      const context = objectValue(state.context);
+      return {
+        ...state,
+        context: {
+          ...context,
+          containerDimensions: {
+            ...objectValue(context.containerDimensions),
+            height: paneFillHeight(context)
+          }
+        }
+      };
     }
 
     function visibleIntrinsicHeight() {
@@ -448,7 +495,7 @@ export function embedApp(
     }
 
     function sendHostContext() {
-      sendToAppFrame({ type: "agentNative.mcpHostContext", data: hostState() });
+      sendToAppFrame({ type: "agentNative.mcpHostContext", data: hostStateForApp() });
     }
 
     function sendFrameReadyMessages(frame) {
@@ -1094,6 +1141,30 @@ export function embedApp(
       };
     }
 
+    // A directory widget on a host that offers fullscreen asks for it once, on
+    // the first click into the app: never on load, which would take over the
+    // chat before the user touched the widget. The flag is not reset, so a host
+    // that refuses is not asked again.
+    let fullscreenRequested = false;
+    function requestFullscreenOnFirstInteraction() {
+      if (!fillsPane || fullscreenRequested) return;
+      const context = hostState().context || {};
+      if ((context.displayMode || "inline") !== "inline") return;
+      if (!supportedDisplayMode("fullscreen")) return;
+      fullscreenRequested = true;
+      void requestHostDisplayMode("fullscreen").catch((err) => {
+        console.warn("[agent-native] MCP host rejected display mode request", err);
+      });
+    }
+
+    // Focus moving into the cross-origin app frame is the only signal the
+    // shell gets that the user clicked in it.
+    window.addEventListener("blur", () => {
+      if (appFrame && document.activeElement === appFrame) {
+        requestFullscreenOnFirstInteraction();
+      }
+    });
+
     function setMessage(message) {
       stage.innerHTML = '<div class="message">' + esc(message) + '</div>';
     }
@@ -1512,8 +1583,9 @@ export function embedApp(
 
     function notifyHostHeight() {
       if (applyHostFillMode()) return;
-      const intrinsic = visibleIntrinsicHeight();
-      const height = applyIntrinsicHeight(intrinsic);
+      const height = fillsPane
+        ? paneFillHeight(hostState().context || {})
+        : applyIntrinsicHeight(visibleIntrinsicHeight());
       if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") {
         if (app && typeof app.sendSizeChanged === "function") {
           try {

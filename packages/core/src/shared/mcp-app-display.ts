@@ -31,3 +31,10 @@ export function mcpAppHostFillsContainer(context: unknown): boolean {
 
 /** Set on the app document's `<html>` while the host fills the frame. */
 export const MCP_APP_HOST_FILL_ATTRIBUTE = "data-agent-native-host-fill";
+
+/**
+ * Most a directory widget shell asks its host for when it fills a pane the
+ * host will not measure for it. Bounds the request whatever the viewer's
+ * screen reports.
+ */
+export const MCP_APP_PANE_FILL_MAX_HEIGHT = 2000;
