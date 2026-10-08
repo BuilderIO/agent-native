@@ -14,7 +14,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import { pngDimensions } from "../shared/png";
+import { isScreenshotSize, pngDimensions } from "../shared/png";
 import {
   aspectInRange,
   buildManifest,
@@ -221,12 +221,22 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
     return failAll(`link_failed: ${reasonFromError(error)}`);
   }
 
+  // The viewport comes from the tree file and was recorded by a client, so a
+  // size no screenshot could have never reaches the browser.
   const first = plan.items[0]!.viewport;
-  const context = await ctx.browser.newContext({
-    viewport: { width: first?.width ?? 1280, height: first?.height ?? 800 },
-    deviceScaleFactor: 1,
-    acceptDownloads: false,
-  });
+  if (first && !isScreenshotSize(first.width, first.height)) {
+    return failAll("viewport_out_of_range");
+  }
+  let context: BrowserContext;
+  try {
+    context = await ctx.browser.newContext({
+      viewport: { width: first?.width ?? 1280, height: first?.height ?? 800 },
+      deviceScaleFactor: 1,
+      acceptDownloads: false,
+    });
+  } catch (error) {
+    return failAll(`render_failed: ${reasonFromError(error)}`);
+  }
   try {
     const page = await context.newPage();
     await page.goto(frameUrl, {
@@ -547,7 +557,7 @@ async function main(argv: string[]): Promise<number> {
     frames: [],
     failures: [],
   };
-  let authError: AuthError | undefined;
+  let stopped: { error: unknown } | undefined;
   try {
     await runPool(plans, concurrency, async (plan) => {
       await renderRecording(ctx, plan);
@@ -559,18 +569,23 @@ async function main(argv: string[]): Promise<number> {
       );
     });
   } catch (error) {
-    if (!(error instanceof AuthError)) throw error;
-    authError = error;
+    stopped = { error };
+  }
+
+  // Whatever stopped the run, the frames and uploads it already produced get a
+  // manifest.
+  let manifest;
+  try {
+    manifest = await writeManifest(ctx.frames, ctx.failures);
   } finally {
     await browser.close();
   }
-
-  const manifest = await writeManifest(ctx.frames, ctx.failures);
-  if (authError) {
+  if (stopped) {
+    const { error } = stopped;
     console.error(
-      `${authError.message}\nThe run stopped early; ${manifest.frames.length} frames captured before it are in ${manifestPath}.`,
+      `${error instanceof AuthError ? error.message : `journey:capture stopped on an unexpected error: ${reasonFromError(error)}`}\nThe run stopped early; ${manifest.frames.length} frames captured before it are in ${manifestPath}.`,
     );
-    return 2;
+    return error instanceof AuthError ? 2 : 1;
   }
   console.log(
     JSON.stringify({

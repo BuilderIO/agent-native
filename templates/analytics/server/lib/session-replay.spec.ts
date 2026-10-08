@@ -2445,6 +2445,8 @@ describe("replay viewport", () => {
         meta(0, 900),
         meta(-5, 900),
         meta(999_999, 900),
+        // Each side is allowed alone; together they are a 67-megapixel surface.
+        meta(8_192, 8_192),
         { type: 3, timestamp: 2, data: { source: 3, width: 10, height: 10 } },
         meta("1280", "720"),
       ]),

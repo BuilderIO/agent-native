@@ -9,6 +9,7 @@ import {
 } from "./first-party-analytics.js";
 import {
   buildOnboardingJourneyEventsSql,
+  isCalendarDate,
   type OnboardingJourneyEventsFilters,
 } from "./first-party-metric-catalog.js";
 
@@ -249,6 +250,14 @@ describe("onboarding journey events SQL", () => {
         ok,
       ),
     ).toThrow(/YYYY-MM-DD/);
+    // Date.parse rolls these over to the next month; the SQL would not.
+    for (const impossible of ["2026-02-31", "2026-04-31", "2026-02-29"]) {
+      expect(isCalendarDate(impossible)).toBe(false);
+      expect(() =>
+        buildOnboardingJourneyEventsSql(filters({ dateTo: impossible }), ok),
+      ).toThrow(/YYYY-MM-DD/);
+    }
+    expect(isCalendarDate("2028-02-29")).toBe(true);
     expect(() =>
       buildOnboardingJourneyEventsSql(
         filters({ app: "x' OR '1" as never }),

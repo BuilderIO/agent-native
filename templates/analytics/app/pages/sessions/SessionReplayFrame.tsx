@@ -1,3 +1,4 @@
+import { isScreenshotSize } from "@shared/png";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import { useEffect, useRef, useState } from "react";
 
@@ -75,6 +76,15 @@ export default function SessionReplayFrame({
       const initial = replayInitialViewportDimensions(events);
       if (!initial) throw new Error("viewport_unavailable");
       const timeline = buildReplayViewportTimeline(events);
+      // Sizes come from the recorded events, so one the browser could not
+      // render is refused before any surface is allocated for it.
+      if (
+        !timeline.every((change) =>
+          isScreenshotSize(change.width, change.height),
+        )
+      ) {
+        throw new Error("viewport_out_of_range");
+      }
 
       await import("@rrweb/replay/dist/style.css");
       const { Replayer } = await import("@rrweb/replay");

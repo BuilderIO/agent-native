@@ -133,13 +133,20 @@ function recordingEndMs(recording: JourneyRecording): number | null {
     : null;
 }
 
+// A recording with no known end only proves its own start: a later step could
+// lie past the chunks that exist, and its offset would not render.
 function covers(recording: JourneyRecording, tsMs: number): boolean {
-  const end = recordingEndMs(recording);
+  const lastKnownMs = recordingEndMs(recording) ?? recording.startedAtMs;
   return (
     tsMs >= recording.startedAtMs - COVER_SLACK_MS &&
-    (end === null || tsMs <= end + COVER_SLACK_MS)
+    tsMs <= lastKnownMs + COVER_SLACK_MS
   );
 }
+
+// Node keys join step keys with " > ", so a step key holding that delimiter
+// (or the escape character) is escaped to keep every path unambiguous.
+const escapeKeyPart = (part: string): string =>
+  part.replace(/%/g, "%25").replace(/>/g, "%3E");
 
 function violatesViewport(
   viewport: { width: number; height: number },
@@ -312,10 +319,11 @@ export function buildJourneyTree(
       const step = session.steps[i]!;
       let child = node.children.get(step.key);
       if (!child) {
+        const part = escapeKeyPart(step.key);
         child = trieNode(
           step.key,
           step.label,
-          node === root ? step.key : `${node.key} > ${step.key}`,
+          node === root ? part : `${node.key} > ${part}`,
           i + 1,
         );
         node.children.set(step.key, child);

@@ -5,7 +5,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { FIRST_PARTY_TEMPLATE_NAMES } from "../server/lib/first-party-metric-catalog.js";
+import {
+  FIRST_PARTY_TEMPLATE_NAMES,
+  isCalendarDate,
+} from "../server/lib/first-party-metric-catalog.js";
 import {
   getOnboardingJourney,
   JourneyRecordingsError,
@@ -26,9 +29,7 @@ function resolveScope() {
 const isoDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
-  .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)), {
-    message: "must be a real calendar date",
-  });
+  .refine(isCalendarDate, { message: "must be a real calendar date" });
 
 export default defineAction({
   description:

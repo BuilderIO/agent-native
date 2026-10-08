@@ -179,6 +179,28 @@ describe("buildJourneyTree", () => {
     expect(node.get("signup > role")).toMatchObject({ n: 4, dropoffN: 1 });
   });
 
+  it("keeps a step key that contains the path delimiter apart from a two-step path", () => {
+    const { nodes } = buildJourneyTree(
+      [
+        session("a", ["step:x > method:y"]),
+        session("b", ["step:x", "method:y"]),
+        session("c", ["100%", "a>b"]),
+      ],
+      new Map(),
+      OPTIONS,
+    );
+    const keys = nodes.map((node) => node.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys).toContain("step:x %3E method:y");
+    expect(keys).toContain("step:x > method:y");
+    expect(keys).toContain("100%25 > a%3Eb");
+    expect(
+      nodes.every(
+        (node) => node.parentKey === null || keys.includes(node.parentKey),
+      ),
+    ).toBe(true);
+  });
+
   it("returns an empty tree for no sessions, not a root with a count", () => {
     expect(buildJourneyTree([], new Map(), OPTIONS)).toEqual({
       rootN: 0,
@@ -287,6 +309,22 @@ describe("example selection", () => {
     const example = buildJourneyTree([s], recordings, OPTIONS).nodes[0]!
       .examples[0]!;
     expect(example.recordingId).toBeNull();
+  });
+
+  it("does not claim a later step lies in a recording with no known end", () => {
+    const open = { endedAtMs: null, durationMs: null };
+    const late = buildJourneyTree(
+      [session("x", ["signup"], T0 + 30 * MIN)],
+      new Map([["x", [recording("rx", "x", open)]]]),
+      OPTIONS,
+    ).nodes[0]!.examples[0]!;
+    expect(late).toMatchObject({ recordingId: null, offsetMs: null });
+    const atStart = buildJourneyTree(
+      [session("x", ["signup"], T0)],
+      new Map([["x", [recording("rx", "x", { ...open, startedAtMs: T0 })]]]),
+      OPTIONS,
+    ).nodes[0]!.examples[0]!;
+    expect(atStart.recordingId).toBe("rx");
   });
 
   it("adds replayUrl only when the caller can build one", () => {

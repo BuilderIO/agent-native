@@ -1388,13 +1388,23 @@ export interface OnboardingJourneyEventsFilters {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * A real `YYYY-MM-DD` day. `Date.parse` alone rolls 2026-02-31 over to March
+ * 2, so the date is round-tripped: the SQL compares the string as given.
+ */
+export function isCalendarDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === value;
+}
+
 /** One page of journey events; every interpolated value is validated first. */
 export function buildOnboardingJourneyEventsSql(
   filters: OnboardingJourneyEventsFilters,
   page: { limit: number; offset: number },
 ): string {
   for (const date of [filters.dateFrom, filters.dateTo]) {
-    if (!ISO_DATE.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
+    if (!isCalendarDate(date)) {
       throw new Error(`Journey window dates must be YYYY-MM-DD, got "${date}"`);
     }
   }

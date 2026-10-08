@@ -2,6 +2,23 @@ const MAX_DIMENSION = 8_192;
 const MAX_PIXELS = 16_000_000;
 
 /**
+ * Whether a window of this size could be rendered and screenshotted at all. A
+ * recording's size comes from the client, so everything that allocates a
+ * browser surface or stores a size checks it first.
+ */
+export function isScreenshotSize(width: number, height: number): boolean {
+  return (
+    Number.isInteger(width) &&
+    Number.isInteger(height) &&
+    width >= 1 &&
+    height >= 1 &&
+    width <= MAX_DIMENSION &&
+    height <= MAX_DIMENSION &&
+    width * height <= MAX_PIXELS
+  );
+}
+
+/**
  * Width and height from a PNG's IHDR chunk, or null when the bytes are not a
  * PNG or claim a size no screenshot has. Reads 24 bytes; decodes nothing.
  */
@@ -17,14 +34,5 @@ export function pngDimensions(
   if (ihdr !== "IHDR") return null;
   const width = view.getUint32(16);
   const height = view.getUint32(20);
-  if (
-    width < 1 ||
-    height < 1 ||
-    width > MAX_DIMENSION ||
-    height > MAX_DIMENSION ||
-    width * height > MAX_PIXELS
-  ) {
-    return null;
-  }
-  return { width, height };
+  return isScreenshotSize(width, height) ? { width, height } : null;
 }

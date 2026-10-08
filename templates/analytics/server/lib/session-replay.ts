@@ -39,6 +39,7 @@ import {
   sql,
 } from "drizzle-orm";
 
+import { isScreenshotSize } from "../../shared/png.js";
 import {
   isSessionFrictionSort,
   type SessionFriction,
@@ -861,24 +862,15 @@ export interface RecordedReplayViewport {
 
 const RRWEB_META_EVENT = 4;
 const RRWEB_VIEWPORT_RESIZE_SOURCE = 4;
-const MAX_VIEWPORT_DIMENSION = 100_000;
 
+// The size is client-supplied and later sizes a headless browser, so a size no
+// screenshot could have is not stored.
 function replayViewportOf(
   data: Record<string, unknown>,
 ): ReplayViewport | null {
-  const width = Number(data.width);
-  const height = Number(data.height);
-  if (
-    !Number.isFinite(width) ||
-    !Number.isFinite(height) ||
-    width < 1 ||
-    height < 1 ||
-    width > MAX_VIEWPORT_DIMENSION ||
-    height > MAX_VIEWPORT_DIMENSION
-  ) {
-    return null;
-  }
-  return { width: Math.round(width), height: Math.round(height) };
+  const width = Math.round(Number(data.width));
+  const height = Math.round(Number(data.height));
+  return isScreenshotSize(width, height) ? { width, height } : null;
 }
 
 /**
