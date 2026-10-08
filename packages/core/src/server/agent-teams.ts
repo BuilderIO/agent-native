@@ -1213,10 +1213,13 @@ function formatTaskPhase(task: AgentTask): string {
 type TerminalProgressStatus = "succeeded" | "failed" | "cancelled";
 
 function isCancelledAgentTask(task: AgentTask): boolean {
+  if (task.terminalProgressStatus !== undefined) {
+    return task.terminalProgressStatus === "cancelled";
+  }
   return (
-    task.terminalProgressStatus === "cancelled" ||
-    task.summary === "Task stopped." ||
-    task.summary.startsWith("Task stopped:")
+    task.status === "errored" &&
+    (task.summary === "Task stopped." ||
+      task.summary.startsWith("Task stopped:"))
   );
 }
 
@@ -2655,20 +2658,44 @@ export async function processAgentTeamRun(
                   markLeaseLost();
                   return;
                 }
-                task.transcriptRunIds = continuation.value.transcriptRunIds;
+                const transcriptRunIds = continuation.value.transcriptRunIds;
+                task.transcriptRunIds = transcriptRunIds;
                 task.currentStep = "Continuing sub-agent";
                 task.preview = (
                   continuation.value.fullText || accumulatedText
                 ).slice(-800);
-                try {
-                  await saveTask(task);
-                } catch (error) {
+                const projection = await withCurrentAgentTeamRunAttempt(
+                  opts.taskId,
+                  claimedAttempts,
+                  async () => {
+                    const currentTask = await loadTask(opts.taskId);
+                    if (!currentTask || currentTask.status !== "running") {
+                      return false;
+                    }
+                    const expectedTask = structuredClone(currentTask);
+                    currentTask.transcriptRunIds = transcriptRunIds;
+                    currentTask.currentStep = "Continuing sub-agent";
+                    currentTask.preview = task.preview;
+                    if (!(await saveTaskIfCurrent(currentTask, expectedTask))) {
+                      return false;
+                    }
+                    if (ownerEmail) {
+                      await updateTaskProgressRun(currentTask, ownerEmail);
+                    }
+                    return true;
+                  },
+                  { statuses: ["queued"] },
+                ).catch((error) => {
                   console.warn(
                     `[agent-teams] continuation task projection failed for ${task.taskId}; queued state prevents action replay:`,
                     describeDbError(error),
                   );
+                  return { current: false as const };
+                });
+                if (!projection.current || !projection.value) {
+                  markLeaseLost();
+                  return;
                 }
-                if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
                 continuationDispatch = {
                   noProgressCount: consecutiveNoProgressChunks,
                 };

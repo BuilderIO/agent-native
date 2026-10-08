@@ -28,6 +28,8 @@ let failTaskProjectionFor: {
   step?: string;
 } | null = null;
 let beforeNextAppStateCas: (() => void) | null = null;
+let afterContinuationRequeueCommit: ((taskId: string) => Promise<void>) | null =
+  null;
 let transactionTail: Promise<void> = Promise.resolve();
 const transactionContext = new AsyncLocalStorage<{ aborted: boolean }>();
 function affected(n: number) {
@@ -324,8 +326,9 @@ const queueDb = {
     await previousTransaction;
     const rowsBeforeTransaction = structuredClone(queueRows);
     const context = { aborted: false };
+    let value: T;
     try {
-      return await transactionContext.run(context, async () => {
+      value = await transactionContext.run(context, async () => {
         const value = await fn(queueDb);
         if (context.aborted) {
           throw new Error("current transaction is aborted");
@@ -338,6 +341,15 @@ const queueDb = {
     } finally {
       releaseTransaction();
     }
+    const requeuedRow = queueRows.find(
+      (row) => row.status === "queued" && row.continuation_count > 0,
+    );
+    if (requeuedRow && afterContinuationRequeueCommit) {
+      const afterCommit = afterContinuationRequeueCommit;
+      afterContinuationRequeueCommit = null;
+      await afterCommit(String(requeuedRow.task_id));
+    }
+    return value;
   }),
 };
 vi.mock("../db/client.js", () => ({
@@ -394,6 +406,17 @@ vi.mock("../application-state/script-helpers.js", () => ({
     requireMockRequestContext();
     beforeNextAppStateCas?.();
     beforeNextAppStateCas = null;
+    if (
+      failTaskProjectionFor &&
+      k === `agent-task:${failTaskProjectionFor.taskId}` &&
+      (failTaskProjectionFor.status === undefined ||
+        next?.status === failTaskProjectionFor.status) &&
+      (failTaskProjectionFor.step === undefined ||
+        next?.currentStep === failTaskProjectionFor.step)
+    ) {
+      failTaskProjectionFor = null;
+      throw new Error("task projection write unavailable");
+    }
     const current = appState.has(k) ? appState.get(k) : null;
     if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
     if (next === null) appState.delete(k);
@@ -754,6 +777,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     rejectNextThreadDataUpdate = false;
     failTaskProjectionFor = null;
     beforeNextAppStateCas = null;
+    afterContinuationRequeueCommit = null;
     transactionTail = Promise.resolve();
     appState.clear();
     threadData.clear();
@@ -823,6 +847,76 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
+
+  it("keeps a committed Stop after a continuation is requeued", async () => {
+    const taskId = "continuation-stop-race";
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      opts.send({ type: "text", text: "partial result" });
+      opts.send({ type: "auto_continue", reason: "run_timeout" });
+    });
+    await seedTask(taskId);
+    afterContinuationRequeueCommit = async (requeuedTaskId) => {
+      expect(requeuedTaskId).toBe(taskId);
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+        ),
+      ).resolves.toEqual({ ok: true });
+    };
+
+    await processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      summary: "Task stopped.",
+      terminalProgressStatus: "cancelled",
+      currentStep: "",
+    });
+    expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
+      "failed",
+    );
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    expect(completeProgressRunMock).toHaveBeenLastCalledWith(
+      `run-task-${taskId}`,
+      OWNER,
+      "cancelled",
+      expect.objectContaining({ step: "Task stopped." }),
+    );
+  });
+
+  it("does not classify a successful answer beginning with Task stopped as cancelled", async () => {
+    const taskId = "successful-task-stopped-prefix";
+    const response = "Task stopped: here is the requested completed result.";
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      opts.send({ type: "text", text: response });
+    });
+    await seedTask(taskId);
+    const task = appState.get(`agent-task:${taskId}`);
+    task.parentThreadId = "parent-thread";
+    appState.set(`agent-task:${taskId}`, task);
+
+    await processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "completed",
+      summary: response,
+      terminalProgressStatus: "succeeded",
+    });
+    expect(
+      appState.get(`parent-completion:parent-thread:inj-${taskId}`),
+    ).toMatchObject({ taskId, status: "completed", summaryExcerpt: response });
+    expect(insertNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ body: response.slice(0, 300) }),
+    );
+  });
 
   it("keeps completed actions terminal when the task projection fails", async () => {
     let completedActionCount = 0;
