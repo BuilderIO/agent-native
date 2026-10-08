@@ -1252,7 +1252,7 @@ describe("AgentKitClient", () => {
       expect(
         messages.find((message) => message.id === "assistant-1")?.parts,
       ).toEqual(finalParts);
-      expect(messages.at(-1)).toMatchObject({
+      expect(messages.at(-2)).toMatchObject({
         role: "assistant",
         parts: [
           {
@@ -1261,9 +1261,35 @@ describe("AgentKitClient", () => {
           },
         ],
       });
-      expect(messages.at(-1)?.id).not.toBe("assistant-1");
+      expect(messages.at(-2)?.id).not.toBe("assistant-1");
     },
   );
+
+  it("keeps the user's prompt last when unorderable tool history is omitted", async () => {
+    const messages = await assistantPartsAfterToolHistory({
+      omitToolStarted: true,
+      afterToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "The release is ready.",
+        },
+      ],
+      finalParts: [{ type: "text", text: "The release is ready." }],
+    });
+
+    expect(messages.map(({ role }) => role)).toEqual([
+      "user",
+      "assistant",
+      "assistant",
+      "user",
+    ]);
+    expect(messages.at(-2)?.id).toMatch(/^agentkit-tool-history-omission/);
+    expect(messages.at(-1)).toMatchObject({
+      role: "user",
+      parts: [{ type: "text", text: "What did you find?" }],
+    });
+  });
 
   it("bounds inspection of reserved tool-history signatures", async () => {
     let descriptorReads = 0;
@@ -1299,7 +1325,7 @@ describe("AgentKitClient", () => {
             (part.data as Record<string, unknown>).id === "call-search",
         ),
     ).toBe(false);
-    expect(messages.at(-1)).toMatchObject({
+    expect(messages.at(-2)).toMatchObject({
       role: "assistant",
       parts: [
         {
@@ -1402,7 +1428,7 @@ describe("AgentKitClient", () => {
               (part.data as Record<string, unknown>).id === "call-search",
           ),
       ).toBe(false);
-      expect(messages.at(-1)).toMatchObject({
+      expect(messages.at(-2)).toMatchObject({
         role: "assistant",
         parts: [
           {
@@ -1538,7 +1564,7 @@ describe("AgentKitClient", () => {
     expect(
       messages.find((message) => message.id === "assistant-1")?.parts,
     ).toEqual(finalParts);
-    expect(messages.at(-1)).toMatchObject({
+    expect(messages.at(-2)).toMatchObject({
       role: "assistant",
       parts: [
         {

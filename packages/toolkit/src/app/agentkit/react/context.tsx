@@ -257,6 +257,11 @@ export interface AgentKitLabels {
   feedbackPlaceholder: string;
   feedbackKeyboardHint: string;
   feedbackSubmit: string;
+  feedbackReasonMisread: string;
+  feedbackReasonNotDone: string;
+  feedbackReasonWrongNumbers: string;
+  feedbackReasonTooSlow: string;
+  feedbackCopyDetails: string;
   fork: string;
   previousBranch: string;
   nextBranch: string;
@@ -367,6 +372,11 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   feedbackPlaceholder: "Describe what went wrong",
   feedbackKeyboardHint: "Press {{shortcut}}+Enter to submit",
   feedbackSubmit: "Submit feedback",
+  feedbackReasonMisread: "Misread my ask",
+  feedbackReasonNotDone: "Said done, but wasn't",
+  feedbackReasonWrongNumbers: "Wrong numbers",
+  feedbackReasonTooSlow: "Too slow",
+  feedbackCopyDetails: "Copy details",
   fork: "Fork conversation",
   previousBranch: "Previous branch",
   nextBranch: "Next branch",
@@ -433,6 +443,17 @@ export type AgentKitRunUsageLoader = (input: {
   signal: AbortSignal;
 }) => Promise<AgentKitRunUsage | null>;
 
+/**
+ * The text behind "Copy details" in the thumbs-down popover: whatever lets
+ * someone else open the exact run, plus the reader's note.
+ */
+export type AgentKitFeedbackReportBuilder = (input: {
+  threadId: ThreadId;
+  runId?: RunId;
+  messageId: string;
+  note: string;
+}) => string;
+
 export interface AgentKitProviderProps {
   controller: AgentKitController;
   threadId: ThreadId;
@@ -443,6 +464,7 @@ export interface AgentKitProviderProps {
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
   /**
    * Resolves a provider identifier through host-owned connection setup. The
@@ -478,6 +500,7 @@ export interface AgentKitContextValue {
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
@@ -497,6 +520,7 @@ export function AgentKitProvider({
   onThreadForked,
   branchNavigation,
   onCopyMessage,
+  buildFeedbackReport,
   loadRunUsage,
   onConnectionRequest,
   onRenderError,
@@ -562,6 +586,7 @@ export function AgentKitProvider({
       onThreadForked,
       branchNavigation,
       onCopyMessage,
+      buildFeedbackReport,
       loadRunUsage,
       onConnectionRequest,
       onRenderError,
@@ -578,6 +603,7 @@ export function AgentKitProvider({
       onThreadForked,
       branchNavigation,
       onCopyMessage,
+      buildFeedbackReport,
       loadRunUsage,
       onConnectionRequest,
       onRenderError,

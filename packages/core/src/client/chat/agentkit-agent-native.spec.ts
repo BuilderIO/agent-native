@@ -4745,7 +4745,7 @@ describe("createAgentNativeAgentKitTransport", () => {
 
     const loadMessages = async (
       rootText: string,
-      rootToolCallResult = "Hello, AgentKit Browser!",
+      rootToolCallResult: unknown = { message: "Hello, AgentKit Browser!" },
       rootReasoning = false,
       snapshotFinalStatus: "complete" | "streaming" = "complete",
     ) => {
@@ -4776,7 +4776,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                           toolCallId: "call-hello",
                           toolName: "hello",
                           args: { name: "AgentKit Browser" },
-                          result: { message: rootToolCallResult },
+                          result: rootToolCallResult,
                         },
                         { type: "text", text: rootText },
                       ],
@@ -4860,14 +4860,19 @@ describe("createAgentNativeAgentKitTransport", () => {
       ],
       toolCallIds: ["call-hello"],
     });
+    // The stored root keeps the model-facing result text; the snapshot output
+    // is the structured result. The same call must still count as mirrored.
     await expect(
-      loadMessages("The task is complete.", "A different tool result."),
+      loadMessages(
+        "The task is complete.",
+        JSON.stringify(
+          { message: "Hello, AgentKit Browser!", detail: "model-only" },
+          null,
+          2,
+        ),
+      ),
     ).resolves.toEqual({
-      messageIds: [
-        `server-${runId}`,
-        "assistant-tool-step",
-        "assistant-final-answer",
-      ],
+      messageIds: ["assistant-tool-step", "assistant-final-answer"],
       toolCallIds: ["call-hello"],
     });
     await expect(

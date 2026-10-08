@@ -971,7 +971,7 @@ describe("AgentKitChat", () => {
                 },
                 {
                   type: "text",
-                  text: "Also tell @Steve.",
+                  text: "Also tell @Steve about any @builder.io booking.",
                 },
                 {
                   type: "file",
@@ -1050,7 +1050,12 @@ describe("AgentKitChat", () => {
 
     expect(htmlWithComposer).toContain('aria-label="Edit message"');
     expect(htmlWithComposer).toContain('data-mention-label="latest run"');
-    expect(htmlWithComposer).toContain('data-mention-label="Steve"');
+    // Plain "@word" text is not a reference, so it stays literal text.
+    expect(htmlWithComposer).not.toContain('data-mention-label="Steve"');
+    expect(htmlWithComposer).not.toContain('data-mention-label="builder"');
+    expect(htmlWithComposer).toContain(
+      "Also tell @Steve about any @builder.io booking.",
+    );
     expect(htmlWithComposer).toContain('aria-label="Preview latest-run.png"');
     expect(htmlWithComposer).toContain("Pasted text");
     expect(htmlWithComposer).toContain("agentkit-file--pasted-text");

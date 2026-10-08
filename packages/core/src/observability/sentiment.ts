@@ -138,29 +138,51 @@ function truncateInput(text: string): string {
     .join("");
 }
 
+export const INFERRED_SENTIMENT_FAILURE_REASONS = [
+  "engine_unavailable",
+  "timeout",
+  "parse_failed",
+  "empty",
+] as const;
+
+export type InferredSentimentFailureReason =
+  (typeof INFERRED_SENTIMENT_FAILURE_REASONS)[number];
+
+type SentimentClassification =
+  | { sentiment: InferredSentiment }
+  | { failure: InferredSentimentFailureReason };
+
+function engineCanRun(engine: AgentEngine, model: string): boolean {
+  return (
+    engine.preserveCustomModels === true ||
+    engine.supportedModels.length === 0 ||
+    engine.supportedModels.includes(model)
+  );
+}
+
 async function classifySentiment(args: {
   engine: AgentEngine;
   model: string;
   text: string;
-}): Promise<InferredSentiment | null> {
-  if (
-    !args.engine.preserveCustomModels &&
-    args.engine.supportedModels.length > 0 &&
-    !args.engine.supportedModels.includes(args.model)
-  ) {
-    return null;
+}): Promise<SentimentClassification> {
+  if (!engineCanRun(args.engine, args.model)) {
+    return { failure: "engine_unavailable" };
   }
 
   const input = truncateInput(args.text);
-  if (!input) return null;
+  if (!input) return { failure: "empty" };
 
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    INFERRED_SENTIMENT_TIMEOUT_MS,
-  );
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, INFERRED_SENTIMENT_TIMEOUT_MS);
   let output = "";
   let finalOutput = "";
+  const interrupted = (): SentimentClassification => ({
+    failure: timedOut ? "timeout" : "engine_unavailable",
+  });
   try {
     for await (const event of args.engine.stream({
       model: args.model,
@@ -182,19 +204,51 @@ async function classifySentiment(args: {
           .join("");
       }
       if (typedEvent.type === "stop" && typedEvent.reason === "error") {
-        return null;
+        return interrupted();
       }
     }
-    return parseInferredSentiment(finalOutput || output);
   } catch {
-    return null;
+    return interrupted();
   } finally {
     clearTimeout(timeout);
+  }
+  // An aborted stream can end quietly; its partial text is not a verdict.
+  if (timedOut) return { failure: "timeout" };
+  const verdict = (finalOutput || output).trim();
+  if (!verdict) return { failure: "empty" };
+  const sentiment = parseInferredSentiment(verdict);
+  return sentiment ? { sentiment } : { failure: "parse_failed" };
+}
+
+/**
+ * The run's own engine when it can serve the classifier model, so a Builder run
+ * classifies with the credentials it already holds. Otherwise the hosted
+ * Builder engine; `null` when that cannot even be constructed.
+ */
+async function resolveClassifierEngine(args: {
+  engine?: AgentEngine;
+  runEngine?: AgentEngine;
+  classifierModel: string;
+}): Promise<AgentEngine | null> {
+  if (args.engine) return args.engine;
+  if (args.runEngine && engineCanRun(args.runEngine, args.classifierModel)) {
+    return args.runEngine;
+  }
+  try {
+    return (
+      await import("../agent/engine/builder-engine.js")
+    ).createBuilderEngine();
+    // coercion-ok: the caller reports a null engine as `engine_unavailable`.
+  } catch {
+    return null;
   }
 }
 
 export async function inferAndTrackSentiment(args: {
+  /** Explicit engine override; wins over `runEngine`. */
   engine?: AgentEngine;
+  /** The engine that served the run being classified. */
+  runEngine?: AgentEngine;
   classifierModel: string;
   precedingResponseModel: string;
   text: string;
@@ -213,38 +267,49 @@ export async function inferAndTrackSentiment(args: {
     ) {
       return;
     }
-    const engine =
-      args.engine ??
-      (await import("../agent/engine/builder-engine.js")).createBuilderEngine();
-    const sentiment = await classifySentiment({
-      engine,
-      model: args.classifierModel,
-      text: args.text,
-    });
-    if (!sentiment) return;
+    const engine = await resolveClassifierEngine(args);
+    const result: SentimentClassification = engine
+      ? await classifySentiment({
+          engine,
+          model: args.classifierModel,
+          text: args.text,
+        })
+      : { failure: "engine_unavailable" };
 
     const { track } = await import("../tracking/registry.js");
+    const shared = {
+      ...trackingIdentityProperties(),
+      source: "agent_observability",
+      method: "llm",
+      model: args.precedingResponseModel,
+      classifier_model: args.classifierModel,
+      classifier_engine: engine?.name,
+      run_id: args.precedingRunId,
+      classification_trigger_run_id: args.classificationTriggerRunId,
+      thread_id: args.threadId,
+      $ai_model: args.precedingResponseModel,
+      $ai_trace_id: args.precedingRunId,
+      $ai_session_id: args.threadId ?? undefined,
+    };
+    // A classifier that fails must show up as a count, never as a quiet drop
+    // in `$ai_sentiment`; the reason is coarse and carries no message content.
     track(
-      "$ai_sentiment",
-      {
-        ...trackingIdentityProperties(),
-        source: "agent_observability",
-        method: "llm",
-        sentiment,
-        model: args.precedingResponseModel,
-        classifier_model: args.classifierModel,
-        classifier_engine: engine.name,
-        attribution: "user_reaction_to_preceding_model",
-        run_id: args.precedingRunId,
-        classification_trigger_run_id: args.classificationTriggerRunId,
-        thread_id: args.threadId,
-        $ai_model: args.precedingResponseModel,
-        $ai_trace_id: args.precedingRunId,
-        $ai_session_id: args.threadId ?? undefined,
-      },
+      "failure" in result ? "$ai_sentiment_failed" : "$ai_sentiment",
+      "failure" in result
+        ? { ...shared, reason: result.failure }
+        : {
+            ...shared,
+            sentiment: result.sentiment,
+            attribution: "user_reaction_to_preceding_model",
+          },
       { userId: args.userId ?? undefined },
     );
-  } catch {
-    // Inference and analytics are both optional and must never affect chat.
+  } catch (error) {
+    // Optional inference must never affect chat, but an unexpected failure
+    // outside the classifier must not vanish either.
+    console.warn(
+      "[agent-native] observability: sentiment inference failed",
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
