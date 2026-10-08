@@ -902,13 +902,15 @@ export function useCollabReconcile({
 
       // A snapshot whose live catch-up succeeded already holds every update
       // the server has received, so only a failed or unavailable catch-up has
-      // to wait for a peer's update to arrive by polling.
+      // to wait for a peer's update to arrive by polling. A doc that moved on
+      // since the last snapshot holds text the merge has to place, so it waits.
       if (
         collab &&
         externalNewer &&
         !deferred &&
         peerCountRef.current > 0 &&
-        liveSyncedBeforeAdoptRef.current !== snapshotKey
+        (liveSyncedBeforeAdoptRef.current !== snapshotKey ||
+          !editorUnchangedSinceApply)
       ) {
         peerWait.deadline ??= Date.now() + PEER_SETTLE_MS;
         const remaining = peerWait.deadline - Date.now();

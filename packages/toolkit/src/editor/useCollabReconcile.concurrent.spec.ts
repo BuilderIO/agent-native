@@ -541,6 +541,32 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     },
   );
 
+  it("still waits out the peer window after a live catch-up when the doc holds text the snapshot lacks", async () => {
+    vi.useFakeTimers();
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() => harness.editor().commands.insertContentAt(1, "Unsaved "));
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Agent ${baseline}`,
+            revision: null,
+            updatedAt: "2024-01-01T00:00:02.000Z",
+            requestCollabSync: async () => ({ status: "synced" as const }),
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(harness.markdown()).toContain("Unsaved");
+      expect(harness.markdown()).not.toContain("Agent");
+    } finally {
+      harness.dispose();
+    }
+  });
+
   it("catches up before merging a saved revision whose text is still in flight through Yjs", async () => {
     vi.useFakeTimers();
     const baseline = "original body\n\nSecond paragraph.";
