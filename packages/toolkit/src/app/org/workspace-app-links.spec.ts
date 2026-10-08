@@ -68,7 +68,7 @@ describe("org switcher app links", () => {
       "http://127.0.0.1:8080/dispatch/apps",
     );
     expect(dispatchIntegrationsHref(apps ?? [])).toBe(
-      "http://127.0.0.1:8080/dispatch/integrations",
+      "http://127.0.0.1:8080/dispatch/admin/integrations",
     );
   });
 
