@@ -583,17 +583,26 @@ export const DesignImportPanel = forwardRef<
     Boolean(figImportPreview) ||
     figmaConnectionBusy;
 
+  const importReservedRef = useRef(false);
   useImperativeHandle(
     ref,
     () => ({
       importFile: (file) => {
-        if (busy) {
+        if (busy || importReservedRef.current) {
           toast.error(t("designEditor.import.errors.importBusy"));
           return;
         }
-        if (/\.fig$/i.test(file.name)) void handleFigFileChange(file);
-        else if (/\.html?$/i.test(file.name)) void handleHtmlFileChange(file);
-        else
+        if (/\.fig$/i.test(file.name)) {
+          importReservedRef.current = true;
+          void handleFigFileChange(file).finally(() => {
+            importReservedRef.current = false;
+          });
+        } else if (/\.html?$/i.test(file.name)) {
+          importReservedRef.current = true;
+          void handleHtmlFileChange(file).finally(() => {
+            importReservedRef.current = false;
+          });
+        } else
           toast.error(t("designEditor.import.errors.uploadFailed"), {
             description: t("designEditor.import.errors.unsupportedFileType"),
           });
