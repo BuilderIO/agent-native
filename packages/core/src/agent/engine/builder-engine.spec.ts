@@ -2190,7 +2190,7 @@ describe("createBuilderEngine", () => {
     );
   });
 
-  it("marks no-detail gateway stop errors as retryable gateway errors", async () => {
+  it("marks unclassified no-detail gateway stop errors as retryable", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -2210,7 +2210,37 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_error");
-    expect(stop?.error).toContain("Gateway error (no detail");
+    expect(stop?.error).toBe("Gateway error (no detail)");
+  });
+
+  it("keeps no-detail invalid_request gateway errors terminal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "invalid_request",
+            requestId: "req_invalid_request",
+            privateDiagnostic: "must not be surfaced",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop).toMatchObject({
+      reason: "error",
+      errorCode: "invalid_request",
+      error: "Gateway error (no detail)",
+      providerRetryable: false,
+      requestId: "req_invalid_request",
+    });
+    expect(JSON.stringify(stop)).not.toContain("must not be surfaced");
   });
 
   it("captures no-detail gateway stop errors to Sentry with model + requestId tags", async () => {
@@ -2225,6 +2255,7 @@ describe("createBuilderEngine", () => {
             type: "stop",
             reason: "error",
             requestId: "req_no_detail",
+            privateDiagnostic: "must not be captured",
           },
         ]),
       ),
@@ -2242,6 +2273,7 @@ describe("createBuilderEngine", () => {
     expect(capturedCtx?.tags?.gatewayRequestId).toBe("req_no_detail");
     expect(capturedCtx?.tags?.source).toBe("builder-engine");
     expect(capturedCtx?.extra?.gatewayOrigin).toBe("https://test.example");
+    expect(JSON.stringify(capturedCtx)).not.toContain("must not be captured");
     expect(capturedCtx?.contexts?.builderGateway?.requestId).toBe(
       "req_no_detail",
     );

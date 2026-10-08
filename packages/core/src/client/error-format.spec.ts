@@ -97,7 +97,7 @@ describe("formatChatErrorText", () => {
 
   it("adds a Start-new-chat CTA for no-detail builder gateway errors", () => {
     const text = formatChatErrorText(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+      "Gateway error (no detail)",
       undefined,
       "builder_gateway_error",
     );
@@ -126,13 +126,9 @@ describe("formatChatErrorText", () => {
     expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
   });
 
-  it("keeps raw gateway events out of the primary user-facing message", () => {
-    const normalized = normalizeChatError(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-    );
-    expect(normalized.details).toBe(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-    );
+  it("normalizes no-detail gateway errors without exposing a raw event", () => {
+    const normalized = normalizeChatError("Gateway error (no detail)");
+    expect(normalized.details).toBe("Gateway error (no detail)");
     expect(normalized.message).not.toMatch(/recover automatically/i);
     expect(normalized.message).not.toMatch(/another model/i);
     expect(normalized.message).toMatch(/gateway/i);

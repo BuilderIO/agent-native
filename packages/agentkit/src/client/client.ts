@@ -3980,6 +3980,15 @@ export class AgentKitClient implements AgentKitController {
           }
           if (!terminalEvent) {
             if (this.hasTerminalRunCatchUp(threadId, runId)) {
+              if (attempt < this.reconnectAttempts) {
+                attempt += 1;
+                this.setConnection("reconnecting");
+                await this.waitForReconnect(
+                  this.reconnectDelay(attempt),
+                  abortController.signal,
+                );
+                continue;
+              }
               this.reportIntegrity({
                 code: "run_missing_terminal",
                 threadId,

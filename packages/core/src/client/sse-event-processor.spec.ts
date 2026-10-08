@@ -3999,8 +3999,7 @@ describe("SSE event processor error classification", () => {
       eventStream([
         {
           type: "error",
-          error:
-            'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+          error: "Gateway error (no detail)",
           errorCode: "builder_gateway_error",
         },
       ]),

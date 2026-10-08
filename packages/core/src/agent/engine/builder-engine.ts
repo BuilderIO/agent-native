@@ -967,11 +967,9 @@ async function* parseJsonlStream(
             });
           } else if (reason === "error") {
             const explicitErrMsg = event.error || event.message || event.detail;
-            const errMsg =
-              explicitErrMsg ??
-              `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
             const gatewayRequestId =
               typeof event.requestId === "string" ? event.requestId : undefined;
+            const errMsg = explicitErrMsg ?? "Gateway error (no detail)";
             const gatewayErrCode = canonicalizeBuilderGatewayErrorCode(
               event.errorCode ?? event.code,
               String(errMsg),
@@ -1006,6 +1004,9 @@ async function* parseJsonlStream(
                       (!explicitErrMsg
                         ? "builder_gateway_error"
                         : classifyTerminalErrorCode(String(errMsg))));
+            const isInvalidRequest =
+              gatewayErrCode === "invalid_request" ||
+              gatewayErrCode === "invalid_request_error";
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
             );
@@ -1027,7 +1028,7 @@ async function* parseJsonlStream(
                 requestId: gatewayRequestId,
                 model,
                 gatewayUrl: captureContext.gatewayUrl,
-                rawEvent: event,
+                errorCode: gatewayErrCode,
               });
             }
             yield stop({
@@ -1041,7 +1042,9 @@ async function* parseJsonlStream(
               ...(isBareRejection ? { statusCode: 403 } : {}),
               ...(isBareRejection || isTransientGatewayFailure(String(errMsg))
                 ? { providerRetryable: true }
-                : {}),
+                : isInvalidRequest
+                  ? { providerRetryable: false }
+                  : {}),
               ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
             });
           } else if (
@@ -1466,8 +1469,12 @@ function captureBuilderGatewayNoDetailError(context: {
   requestId?: string;
   model: string;
   gatewayUrl?: URL;
-  rawEvent: unknown;
+  errorCode?: string;
 }): void {
+  const providerErrorCode =
+    context.errorCode && /^[a-z\d_.-]{1,64}$/i.test(context.errorCode)
+      ? context.errorCode
+      : undefined;
   const err = new Error(
     context.requestId
       ? `Builder gateway stop reason=error with no detail (requestId=${context.requestId})`
@@ -1486,7 +1493,6 @@ function captureBuilderGatewayNoDetailError(context: {
     extra: {
       gatewayOrigin: context.gatewayUrl?.origin,
       gatewayPath: context.gatewayUrl?.pathname,
-      rawEvent: context.rawEvent,
     },
     contexts: {
       builderGateway: {
@@ -1496,6 +1502,7 @@ function captureBuilderGatewayNoDetailError(context: {
         gatewayPath: context.gatewayUrl?.pathname,
         requestId: context.requestId,
         errorCode: "builder_gateway_error",
+        ...(providerErrorCode ? { providerErrorCode } : {}),
       },
     },
   });

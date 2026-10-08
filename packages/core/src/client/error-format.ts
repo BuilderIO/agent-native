@@ -505,7 +505,7 @@ export function normalizeChatError(
     };
   }
 
-  if (/^Gateway error \(no detail; raw event:/i.test(text)) {
+  if (/^Gateway error \(no detail(?:;|\))/i.test(text)) {
     return {
       message:
         "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",

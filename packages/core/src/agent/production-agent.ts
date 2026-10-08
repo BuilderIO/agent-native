@@ -1985,7 +1985,9 @@ export function isRetryableError(err: unknown): boolean {
     return false;
 
   if (engineErr) {
-    if (engineErr.providerRetryable === true) return true;
+    if (engineErr.providerRetryable !== undefined) {
+      return engineErr.providerRetryable;
+    }
     const sc = engineErr.statusCode;
     if (sc === 429 || sc === 500 || sc === 502 || sc === 503 || sc === 529)
       return true;

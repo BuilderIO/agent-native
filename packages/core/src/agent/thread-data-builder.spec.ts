@@ -1008,8 +1008,7 @@ describe("buildAssistantMessage", () => {
         seq: 1,
         event: {
           type: "error",
-          error:
-            'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+          error: "Gateway error (no detail)",
           errorCode: "builder_gateway_error",
           recoverable: true,
         },
@@ -1033,9 +1032,7 @@ describe("buildAssistantMessage", () => {
     expect(
       (message?.metadata.custom as { runError?: { details?: string } })
         ?.runError?.details,
-    ).toBe(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-    );
+    ).toBe("Gateway error (no detail)");
   });
 
   it("never persists a raw provider connection dump as user-visible text", () => {

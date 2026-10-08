@@ -14723,6 +14723,14 @@ describe("isRetryableError", () => {
     expect(isRetryableError(err)).toBe(false);
   });
 
+  it("honors an explicit terminal provider classification over retryable wording", () => {
+    const err = new EngineError("Gateway error (no detail)", {
+      errorCode: "invalid_request",
+      providerRetryable: false,
+    });
+    expect(isRetryableError(err)).toBe(false);
+  });
+
   it("retries the gateway concurrency throttle from structure alone, not wording", () => {
     const visitorLine = "AI features aren't available on this site right now.";
     expect(
