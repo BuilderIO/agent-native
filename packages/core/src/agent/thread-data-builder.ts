@@ -3860,39 +3860,28 @@ function visibleThreadPrompt(text: string): string {
   if (ENCODED_AGENT_CHAT_CONTEXT_BLOCK.test(text))
     return splitAgentChatContextFromMessage(text).message;
 
-  let visibleText = "";
-  let cursor = 0;
   LEGACY_CONTEXT_OPEN_PATTERN.lastIndex = 0;
-  let opening = LEGACY_CONTEXT_OPEN_PATTERN.exec(text);
+  const opening = LEGACY_CONTEXT_OPEN_PATTERN.exec(text);
+  if (!opening) return text;
 
-  while (opening) {
-    const openingIndex = opening.index;
-    const contentStart = openingIndex + opening[0].length;
-    LEGACY_CONTEXT_OPEN_PATTERN.lastIndex = contentStart;
-    const nextOpening = LEGACY_CONTEXT_OPEN_PATTERN.exec(text);
-    const blockEnd = nextOpening?.index ?? text.length;
-
-    const closingPattern = /<\/context>/gi;
-    closingPattern.lastIndex = contentStart;
-    let lastClosing: RegExpExecArray | null = null;
-    let closing = closingPattern.exec(text);
-    while (closing && closing.index < blockEnd) {
-      lastClosing = closing;
-      closing = closingPattern.exec(text);
-    }
-
-    visibleText += text.slice(cursor, openingIndex);
-    if (!lastClosing) return visibleText;
-
-    visibleText += text.slice(
-      lastClosing.index + lastClosing[0].length,
-      blockEnd,
-    );
-    cursor = blockEnd;
-    opening = nextOpening;
+  const closingPattern = /<\/context>/gi;
+  closingPattern.lastIndex = opening.index + opening[0].length;
+  let lastClosing: RegExpExecArray | null = null;
+  let closing = closingPattern.exec(text);
+  while (closing) {
+    lastClosing = closing;
+    closing = closingPattern.exec(text);
   }
 
-  return visibleText + text.slice(cursor);
+  if (!lastClosing) return text.slice(0, opening.index);
+  LEGACY_CONTEXT_OPEN_PATTERN.lastIndex =
+    lastClosing.index + lastClosing[0].length;
+  if (LEGACY_CONTEXT_OPEN_PATTERN.exec(text))
+    return text.slice(0, opening.index);
+  return (
+    text.slice(0, opening.index) +
+    text.slice(lastClosing.index + lastClosing[0].length)
+  );
 }
 
 export function extractThreadMeta(repo: any): {

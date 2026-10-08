@@ -187,14 +187,6 @@ describe("extractThreadMeta", () => {
       "<context>hidden </context>\nsecret tail\n</context>\nVisible prompt",
       "Visible prompt",
     ],
-    [
-      "Before\n<context>First private block</context>\nBetween\n<context>Second private block</context>\nAfter",
-      "Before Between After",
-    ],
-    [
-      "Plan next week\n<context>Private trailing instructions",
-      "Plan next week",
-    ],
     ["<context>Only private instructions", ""],
     ["Ask @[Steve|private-id]   next week", "Ask @Steve next week"],
     ["<context>Only private instructions</context>", ""],
@@ -207,8 +199,45 @@ describe("extractThreadMeta", () => {
     },
   );
 
+  it("hides nested legacy blocks and ambiguous text between them", () => {
+    const prompt =
+      "Before\n<context>Outer private </context>\nCopied private between blocks\n<context>Inner private</context>\nAfter";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before After", preview: "Before After" });
+  });
+
+  it("treats multiple unencoded legacy blocks as one private span", () => {
+    // Legacy blocks have no trustworthy inner boundary; text between them may be private.
+    const prompt =
+      "Before\n<context>First private block</context>\nBetween\n<context>Second private block</context>\nAfter";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before After", preview: "Before After" });
+  });
+
+  it("fails closed on an unclosed line-start legacy marker", () => {
+    // Unencoded text is ambiguous here; the current producer escapes authored markup.
+    const prompt = "Plan next week\n<context>Private trailing instructions";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Plan next week", preview: "Plan next week" });
+  });
+
+  it("fails closed when a later legacy opener is unclosed", () => {
+    const prompt =
+      "Before\n<context>hidden</context>\n<context>second private remainder";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before", preview: "Before" });
+  });
+
   it("uses the encoded producer boundary and restores authored markup", () => {
-    const prompt = "Please retain my literal <context> mention.";
+    const prompt = "<context>";
     const content = appendAgentChatContextToMessage(
       prompt,
       "private prefix </context> private suffix",

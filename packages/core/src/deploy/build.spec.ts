@@ -4582,6 +4582,81 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
       statSync.mockRestore();
     }
   });
+
+  it("skips dangling JavaScript symlinks in retained packages and emitted subdirectories", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    fs.mkdirSync(path.join(nodeModulesDir, "@puppeteer", "browsers"), {
+      recursive: true,
+    });
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runtimeDir, "package.json"),
+      JSON.stringify({ name: "runtime" }),
+    );
+    fs.writeFileSync(path.join(runtimeDir, "index.js"), "export default {};");
+    const runtimeDanglingFile = path.join(runtimeDir, "dangling.js");
+    fs.symlinkSync("missing-package-target.js", runtimeDanglingFile);
+
+    const routesDir = path.join(functionDir, "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    const emittedDanglingFile = path.join(routesDir, "dangling.js");
+    fs.symlinkSync("missing-route-target.js", emittedDanglingFile);
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: { "@puppeteer/browsers": "1", runtime: "1" },
+      }),
+    );
+
+    expect(() =>
+      sanitizeServerlessFunctionPackageManifest(functionDir),
+    ).not.toThrow();
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+      ).dependencies,
+    ).toEqual({ runtime: "1" });
+    expect(fs.lstatSync(runtimeDanglingFile).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(emittedDanglingFile).isSymbolicLink()).toBe(true);
+  });
+
+  it("propagates ENOENT and EIO when scanning regular JavaScript files", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    fs.mkdirSync(path.join(nodeModulesDir, "@puppeteer", "browsers"), {
+      recursive: true,
+    });
+    const routesDir = path.join(functionDir, "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    const regularFile = path.join(routesDir, "route.js");
+    fs.writeFileSync(regularFile, "export default {};");
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({ dependencies: { "@puppeteer/browsers": "1" } }),
+    );
+
+    const originalRealpathSync = fs.realpathSync;
+    const realpathSync = vi.spyOn(fs, "realpathSync");
+    try {
+      for (const code of ["ENOENT", "EIO"] as const) {
+        realpathSync.mockImplementation(((filePath: fs.PathLike) => {
+          if (filePath === regularFile) {
+            throw Object.assign(new Error(`realpath failed: ${code}`), {
+              code,
+            });
+          }
+          return originalRealpathSync(filePath);
+        }) as typeof fs.realpathSync);
+        expect(() =>
+          sanitizeServerlessFunctionPackageManifest(functionDir),
+        ).toThrow(`realpath failed: ${code}`);
+      }
+    } finally {
+      realpathSync.mockRestore();
+    }
+  });
 });
 
 describe("isServerlessNativePlatformPackage", () => {

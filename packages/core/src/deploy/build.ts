@@ -5056,9 +5056,29 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
     ),
   );
   const findCandidateReferences = (filePath: string): PackageReference[] => {
-    const fromPackageDir = path.dirname(fs.realpathSync(filePath));
+    const fileStats = fs.lstatSync(filePath);
+    const isMissingDanglingSymlink = (error: unknown) =>
+      fileStats.isSymbolicLink() &&
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT";
+    let resolvedFilePath: string;
+    try {
+      resolvedFilePath = fs.realpathSync(filePath);
+    } catch (error) {
+      if (isMissingDanglingSymlink(error)) return [];
+      throw error;
+    }
+    const fromPackageDir = path.dirname(resolvedFilePath);
     if (!isWithinFunction(fromPackageDir)) return [];
-    const source = fs.readFileSync(filePath, "utf8");
+    let source: string;
+    try {
+      source = fs.readFileSync(resolvedFilePath, "utf8");
+    } catch (error) {
+      if (isMissingDanglingSymlink(error)) return [];
+      throw error;
+    }
     const references = new Map<string, PackageReference>();
     const addReference = (reference: PackageReference) => {
       const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
