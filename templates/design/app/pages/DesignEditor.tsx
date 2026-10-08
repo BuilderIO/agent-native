@@ -11267,6 +11267,15 @@ function DesignEditor() {
       const pendingId = pendingOverviewScreenSelectionRef.current;
       const fileIds = new Set(getOverviewScreenFileIds(files));
       const nextIds = ids.filter((layerId) => fileIds.has(layerId));
+      if (intent?.screenSelectionToggle) {
+        explicitOverviewScreenSelectionRef.current =
+          applyExplicitOverviewScreenSelectionToggle({
+            currentExplicitScreenIds:
+              explicitOverviewScreenSelectionRef.current,
+            screenId: intent.screenSelectionToggle.screenId,
+            selected: intent.screenSelectionToggle.selected,
+          });
+      }
       if (intent?.source === "marquee" && intent.cancelled) {
         setOverviewSelectedScreenIds((current) =>
           sameStringIds(current, nextIds) ? current : nextIds,
@@ -12013,7 +12022,11 @@ function DesignEditor() {
       } = {},
     ) => {
       const run = () => {
-        explicitOverviewScreenSelectionRef.current = [];
+        if (
+          !(intent?.additive || intent?.shiftKey || shiftKeyHeldRef.current)
+        ) {
+          explicitOverviewScreenSelectionRef.current = [];
+        }
         runScreenElementSelect(
           {
             activeBreakpointWidthStateRef,
@@ -24486,20 +24499,63 @@ function DesignEditor() {
     (
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
-    ) =>
-      handleLayerMarqueeSelectionChange(selection, intent, {
+    ) => {
+      let resolvedIntent = intent;
+      if (
+        intent.source === "marquee" &&
+        intent.final === true &&
+        intent.shiftKey === true &&
+        intent.metaKey !== true &&
+        intent.ctrlKey !== true &&
+        intent.selectedScreenIds !== undefined &&
+        !sameStringIds(
+          intent.baseSelectedScreenIds ?? [],
+          overviewSelectedScreenIdsRef.current,
+        )
+      ) {
+        const selectedScreenIds = new Set(overviewSelectedScreenIdsRef.current);
+        for (const screenId of intent.marqueeHitScreenIds ?? []) {
+          if (selectedScreenIds.has(screenId)) {
+            selectedScreenIds.delete(screenId);
+          } else {
+            selectedScreenIds.add(screenId);
+          }
+        }
+        const selectedIds = [...selectedScreenIds];
+        resolvedIntent = {
+          ...intent,
+          selectedScreenIds: selectedIds,
+          marqueeSelectedScreenIds: (intent.marqueeHitScreenIds ?? []).filter(
+            (screenId) => selectedScreenIds.has(screenId),
+          ),
+        };
+      }
+      if (
+        resolvedIntent.final === true &&
+        resolvedIntent.cancelled !== true &&
+        resolvedIntent.selectedScreenIds !== undefined
+      ) {
+        handleOverviewScreenSelectionChange(
+          resolvedIntent.selectedScreenIds,
+          resolvedIntent,
+        );
+      }
+      handleLayerMarqueeSelectionChange(selection, resolvedIntent, {
         clearExplicitScreenSelection:
-          intent.metaKey === true ||
-          intent.ctrlKey === true ||
-          (!intent.shiftKey &&
-            intent.selectedScreenIds !== undefined &&
-            intent.selectedScreenIds.length === 0),
+          resolvedIntent.metaKey === true ||
+          resolvedIntent.ctrlKey === true ||
+          (!resolvedIntent.shiftKey &&
+            resolvedIntent.selectedScreenIds !== undefined &&
+            resolvedIntent.selectedScreenIds.length === 0),
         marqueeSelectedScreenIds:
-          intent.final && !intent.metaKey && !intent.ctrlKey
-            ? intent.marqueeSelectedScreenIds
+          resolvedIntent.final &&
+          !resolvedIntent.metaKey &&
+          !resolvedIntent.ctrlKey
+            ? resolvedIntent.marqueeSelectedScreenIds
             : undefined,
-      }),
-    [handleLayerMarqueeSelectionChange],
+      });
+    },
+    [handleLayerMarqueeSelectionChange, handleOverviewScreenSelectionChange],
   );
 
   const handleScreenElementMarqueeSelect = useCallback(

@@ -246,6 +246,9 @@ export interface ElementSelectionIntent {
   shiftKey?: boolean;
   metaKey?: boolean;
   ctrlKey?: boolean;
+  baseSelectedScreenIds?: string[];
+  marqueeHitScreenIds?: string[];
+  screenSelectionToggle?: { screenId: string; selected: boolean };
   selectedScreenIds?: string[];
   marqueeSelectedScreenIds?: string[];
 }

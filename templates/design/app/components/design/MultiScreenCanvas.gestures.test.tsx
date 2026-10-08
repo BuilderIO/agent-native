@@ -93,6 +93,46 @@ function PenHarness({
   );
 }
 
+function MultiSelectionHarness({
+  onPick,
+}: {
+  onPick: MultiScreenCanvasProps["onPick"];
+}) {
+  const [selectedScreenIds, setSelectedScreenIds] = useState([
+    "screen-a",
+    "screen-b",
+  ]);
+  return (
+    <>
+      <output data-selected-screen-ids>{selectedScreenIds.join(",")}</output>
+      <MultiScreenCanvas
+        screens={[
+          {
+            id: "screen-a",
+            filename: "screen-a.html",
+            content: "<!doctype html><html><body></body></html>",
+          },
+          {
+            id: "screen-b",
+            filename: "screen-b.html",
+            content: "<!doctype html><html><body></body></html>",
+          },
+        ]}
+        zoom={100}
+        activeId="screen-a"
+        activeTool="move"
+        selectedScreenIds={selectedScreenIds}
+        geometryById={{
+          "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          "screen-b": { x: 420, y: 0, width: 320, height: 640 },
+        }}
+        onSelectionChange={setSelectedScreenIds}
+        onPick={onPick}
+      />
+    </>
+  );
+}
+
 function dispatchMouse(
   target: EventTarget,
   type: "mousedown" | "mousemove" | "mouseup" | "click",
@@ -1561,6 +1601,26 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
 
     expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
+  });
+
+  it("does not repick the unchanged primary when Shift removes a secondary Screen", async () => {
+    const onPick = vi.fn();
+    await act(async () => {
+      root.render(<MultiSelectionHarness onPick={onPick} />);
+    });
+    const secondaryCard = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-b"] [data-screen-card]',
+    );
+    expect(secondaryCard).not.toBeNull();
+
+    await act(async () => {
+      dispatchMouse(secondaryCard!, "click", 500, 300, { shiftKey: true });
+    });
+
+    expect(onPick).not.toHaveBeenCalled();
+    expect(
+      container.querySelector("[data-selected-screen-ids]")?.textContent,
+    ).toBe("screen-a");
   });
 
   it("drags every screen in a multi-selection from the group outline", async () => {

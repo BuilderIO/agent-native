@@ -282,7 +282,6 @@ test("undo restores a child layer with its additive Screen selection", async ({
     await page.keyboard.press(UNDO);
     await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
     await expect.poll(() => selectedScreenIds(page)).toContain(secondId);
-
     await page.keyboard.press("Delete");
     await expect(layerRow(page, "Second")).toHaveCount(0, { timeout: 10_000 });
     await expect(layerRow(page, "Home")).toHaveCount(1);
@@ -663,11 +662,13 @@ test("Shift-marqueeing child layers preserves an explicit Screen elsewhere for D
     await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
 
     const thirdId = await fileIdByFilename(page, id, "third.html");
-    const thirdFrame = page.locator(
+    const thirdFrame = page.locator(`[data-frame-id="${thirdId}"]`);
+    const screenIframe = page.locator(
       `iframe[data-screen-iframe-id="${thirdId}"]`,
     );
-    const iframeBox = await thirdFrame.boundingBox();
-    const greenBox = thirdFrame
+    const frameBox = await thirdFrame.boundingBox();
+    const iframeBox = await screenIframe.boundingBox();
+    const greenBox = screenIframe
       .contentFrame()
       .locator('[data-agent-native-node-id="third-target"]');
     const greenBoxBox = await greenBox.boundingBox();
@@ -675,16 +676,17 @@ test("Shift-marqueeing child layers preserves an explicit Screen elsewhere for D
     expect(greenBoxBox).not.toBeNull();
     const margin = Math.min(5, Math.max(2, iframeBox!.width * 0.01));
     const from = {
-      x: greenBoxBox!.x + greenBoxBox!.width + margin,
+      x: frameBox!.x - 32,
       y: greenBoxBox!.y + greenBoxBox!.height + margin,
     };
     const to = {
-      x: greenBoxBox!.x - margin,
+      x: greenBoxBox!.x + greenBoxBox!.width + margin,
       y: greenBoxBox!.y - margin,
     };
-    expect(from.x).toBeLessThan(iframeBox!.x + iframeBox!.width);
+    expect(frameBox).not.toBeNull();
+    expect(from.x).toBeLessThan(frameBox!.x);
     expect(from.y).toBeLessThan(iframeBox!.y + iframeBox!.height);
-    expect(to.x).toBeGreaterThan(iframeBox!.x);
+    expect(to.x).toBeLessThan(iframeBox!.x + iframeBox!.width);
     expect(to.y).toBeGreaterThan(iframeBox!.y);
 
     const finalSelectionChangeCount = await page.evaluate(
@@ -723,7 +725,6 @@ test("Shift-marqueeing child layers preserves an explicit Screen elsewhere for D
       .poll(() => lastSelectedLayers(page))
       .toEqual(expect.arrayContaining([blueBoxId, greenBoxId]));
     await expect.poll(() => selectedScreenIds(page)).toContain(secondId);
-
     await page.keyboard.press("Delete");
     await expect(layerRow(page, "Second")).toHaveCount(0);
     await expect(layerRow(page, "Home")).toHaveCount(1);
