@@ -701,6 +701,7 @@ fn close_monitor_picker_windows(app: &AppHandle) {
             let _ = window.close();
         }
     }
+    crate::shortcuts::set_monitor_picker_escape(app, false);
 }
 
 #[cfg(target_os = "macos")]
@@ -730,6 +731,7 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
             return Ok(false);
         }
         let total = monitors.len();
+        crate::shortcuts::set_monitor_picker_escape(&app, true);
         let mut last_window: Option<WebviewWindow> = None;
         for (index, monitor) in monitors.iter().enumerate() {
             let pos = monitor.position();

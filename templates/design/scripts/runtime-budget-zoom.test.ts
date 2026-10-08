@@ -1,11 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  expectedCanvasScaleAtZoomPercent,
   readZoomUntilAvailable,
   waitForAnimationFrame,
 } from "./runtime-budget-zoom.ts";
 
 describe("runtime budget zoom waits", () => {
+  it("scales the canvas transform with the displayed zoom on overview boards", () => {
+    expect(expectedCanvasScaleAtZoomPercent(53.3, 60, 13)).toBeCloseTo(11.548);
+  });
+
+  it("rejects unavailable or invalid zoom measurements", () => {
+    expect(expectedCanvasScaleAtZoomPercent(null, 60, 13)).toBeNull();
+    expect(expectedCanvasScaleAtZoomPercent(53.3, 0, 13)).toBeNull();
+  });
+
   it("retries an unreadable zoom before its deadline", async () => {
     let now = 0;
     const reads: (number | null)[] = [null, 42];

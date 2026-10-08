@@ -16,6 +16,7 @@ import {
   type AgentChatRuntimeMessage,
   type AgentChatRuntimeToolCall,
   type AgentChatRuntimeTurn,
+  type AgentChatRuntimeTurnInput,
 } from "./runtime.js";
 
 async function* streamRuntimeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
@@ -250,6 +251,50 @@ describe("createHttpAgentChatRuntime", () => {
     });
   });
 
+  it("forgets turn context when endpoint setup throws", async () => {
+    const fetchMock = vi.fn();
+    const continuedInputs: Array<AgentChatRuntimeTurnInput | undefined> = [];
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: ({ turn }) => {
+        if (turn.prompt === "Fail before the request") {
+          throw new Error("Endpoint setup failed");
+        }
+        return "/agent/chat";
+      },
+      fetch: fetchMock as typeof fetch,
+      continueTurn: ({ continuation, previousTurn }) => {
+        continuedInputs.push(previousTurn);
+        return {
+          id: continuation.turnId ?? "continued-turn",
+          sessionId: "thread-1",
+          events:
+            (async function* (): AsyncIterable<AgentChatRuntimeEvent> {})(),
+        };
+      },
+    });
+    const session = await runtime.createSession({ id: "thread-1" });
+
+    await expect(
+      session.startTurn({
+        prompt: "Fail before the request",
+        queuePromotion: {
+          messageId: "failed-message",
+          claimId: "failed-claim",
+          turnId: "failed-turn",
+        },
+      }),
+    ).rejects.toThrow("Endpoint setup failed");
+
+    await session.continueTurn?.({
+      turnId: "failed-turn",
+      prompt: "Continue the failed turn",
+    });
+    await session.continueTurn?.({ prompt: "Continue the latest turn" });
+
+    expect(continuedInputs).toEqual([undefined, undefined]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("preserves setup error codes from non-streaming HTTP failures", async () => {
     const runtime = createHttpAgentChatRuntime({
       endpoint: "/agent/chat",
@@ -379,16 +424,21 @@ describe("createHttpAgentChatRuntime", () => {
   it("lets a transport continue a paused turn with the previous input", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(sseResponse([{ type: "done" }], "run-1"))
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "tool-use" }], "run-1"),
+      )
       .mockResolvedValueOnce(sseResponse([{ type: "done" }], "run-2"));
+    let continuedInput: AgentChatRuntimeTurnInput | undefined;
     const runtime = createHttpAgentChatRuntime({
       endpoint: "/agent/chat",
       fetch: fetchMock as typeof fetch,
-      continueTurn: ({ continuation, previousTurn, startTurn }) =>
-        startTurn({
+      continueTurn: ({ continuation, previousTurn, startTurn }) => {
+        continuedInput = previousTurn;
+        return startTurn({
           ...previousTurn,
           prompt: continuation.prompt,
-        }),
+        });
+      },
     });
     const session = await runtime.createSession({ id: "thread-1" });
     const first = await session.startTurn({ prompt: "Start" });
@@ -398,11 +448,149 @@ describe("createHttpAgentChatRuntime", () => {
     expect(second).toBeDefined();
     await drain(second!.events);
 
+    expect(continuedInput).toMatchObject({ prompt: "Start" });
     expect(
       JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
     ).toMatchObject({
       prompt: "Continue",
     });
+  });
+
+  it("preserves retryable failure context until a continuation succeeds", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "error",
+            error: "Temporary failure",
+            retryable: true,
+          },
+          { type: "done", reason: "error" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "complete" }]),
+      );
+    const continuedInputs: Array<AgentChatRuntimeTurnInput | undefined> = [];
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      continueTurn: ({ continuation, previousTurn, startTurn }) => {
+        continuedInputs.push(previousTurn);
+        if (!previousTurn) {
+          return {
+            id: continuation.turnId ?? "missing-previous-turn",
+            sessionId: "thread-1",
+            events:
+              (async function* (): AsyncIterable<AgentChatRuntimeEvent> {})(),
+          };
+        }
+        return startTurn({
+          ...previousTurn,
+          prompt: continuation.prompt,
+        });
+      },
+    });
+    const session = await runtime.createSession({ id: "thread-1" });
+    const originalMessages: AgentChatRuntimeMessage[] = [
+      {
+        id: "prior-user",
+        role: "user",
+        content: [{ type: "text", text: "Earlier context" }],
+      },
+    ];
+    const first = await session.startTurn({
+      prompt: "Original question",
+      messages: originalMessages,
+      model: "agent-model",
+      reasoningEffort: "high",
+      temperature: 0.2,
+      providerOptions: { source: "browser" },
+    });
+    await drain(first.events);
+
+    const retry = await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Retry question",
+    });
+    expect(retry).toBeDefined();
+    await drain(retry!.events);
+
+    await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Retry again",
+    });
+
+    expect(continuedInputs[0]).toMatchObject({
+      prompt: "Original question",
+      messages: originalMessages,
+      model: "agent-model",
+      reasoningEffort: "high",
+      temperature: 0.2,
+      providerOptions: { source: "browser" },
+    });
+    expect(continuedInputs[1]).toBeUndefined();
+  });
+
+  it("uses the named turn input after another turn starts in the session", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "tool-use" }]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "complete" }]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "complete" }]),
+      );
+    let continuationInput: AgentChatRuntimeTurnInput | undefined;
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      continueTurn: ({ continuation, previousTurn, startTurn }) => {
+        continuationInput = previousTurn;
+        return startTurn({
+          ...previousTurn,
+          prompt: continuation.prompt,
+        });
+      },
+    });
+    const session = await runtime.createSession({ id: "thread-1" });
+    const approvalTurn = await session.startTurn({
+      prompt: "Approval prompt",
+      queuePromotion: {
+        messageId: "approval-message",
+        claimId: "approval-claim",
+        turnId: "approval-turn",
+      },
+      metadata: { turnOwner: "approval" },
+    });
+    await drain(approvalTurn.events);
+
+    const laterTurn = await session.startTurn({
+      prompt: "Queued prompt",
+      queuePromotion: {
+        messageId: "queued-message",
+        claimId: "queued-claim",
+        turnId: "queued-turn",
+      },
+      metadata: { turnOwner: "queued" },
+    });
+    await drain(laterTurn.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: approvalTurn.id,
+      prompt: "Continue approval",
+    });
+
+    expect(continuationInput).toMatchObject({
+      prompt: "Approval prompt",
+      metadata: { turnOwner: "approval" },
+    });
+    expect(continuation?.id).toBe(approvalTurn.id);
+    await drain(continuation!.events);
   });
 });
 

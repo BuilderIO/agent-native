@@ -238,7 +238,7 @@ import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
-  persistTitleBeforeSyncingPageDraftJournal,
+  syncPageDraftJournalBeforePersistingRecoveryDraft,
   writePageDraftJournal,
 } from "./page-draft-journal";
 import { PageDraftRecovery } from "./PageDraftRecovery";
@@ -4355,7 +4355,7 @@ function PageEditorSessionBody({
             true,
           );
         if (scope) {
-          await persistTitleBeforeSyncingPageDraftJournal({
+          await syncPageDraftJournalBeforePersistingRecoveryDraft({
             persist,
             scope,
             title,

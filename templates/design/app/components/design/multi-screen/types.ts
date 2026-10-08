@@ -354,7 +354,7 @@ export interface MultiScreenCanvasProps {
     targetAnchorRect?: CrossScreenHitTestAnchorRect;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
-    targetOutsideBoardRenderGeometry?: boolean;
+    targetOutsideBoardContentBounds?: boolean;
     sourcePointerOffset?: Point;
     sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;

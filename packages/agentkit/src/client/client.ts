@@ -65,6 +65,20 @@ type TerminalRunState = AgentRunState & {
   >;
 };
 
+type TerminalRunSnapshot = AgentRunSnapshot & {
+  status: TerminalRunState["status"];
+};
+
+interface TerminalRunCatchUp {
+  threadId: ThreadId;
+  runId: RunId;
+  state: "pending" | "unconfirmable";
+  run: TerminalRunSnapshot;
+  snapshotHasNoActiveRuns: boolean;
+  snapshotMessages: AgentMessage[];
+  messageIdRemap: Map<string, string>;
+}
+
 export interface AgentKitClientOptions {
   transport: AgentTransport;
   /**
@@ -151,6 +165,23 @@ function isTerminalRunEvent(event: AgentEvent): boolean {
         event.status === "failed" ||
         event.status === "cancelled"))
   );
+}
+
+function terminalRunEventStatus(
+  event: AgentEvent,
+): TerminalRunState["status"] | undefined {
+  if (event.type === "run.completed") return "completed";
+  if (event.type === "run.failed") return "failed";
+  if (event.type === "run.cancelled") return "cancelled";
+  if (
+    event.type === "run.status" &&
+    (event.status === "completed" ||
+      event.status === "failed" ||
+      event.status === "cancelled")
+  ) {
+    return event.status;
+  }
+  return undefined;
 }
 
 function metadataRecord(value: unknown): Record<string, unknown> | undefined {
@@ -2013,6 +2044,7 @@ export class AgentKitClient implements AgentKitController {
   private readonly retainActiveRunsOnThreadRelease: boolean;
   private readonly listeners = new Set<AgentKitListener>();
   private readonly consumers = new Map<string, Promise<void>>();
+  private readonly terminalRunCatchUps = new Map<string, TerminalRunCatchUp>();
   private readonly submittedUserMessages = new Map<string, string>();
   private readonly consumerAbortControllers = new Map<
     string,
@@ -2039,6 +2071,7 @@ export class AgentKitClient implements AgentKitController {
     ReturnType<typeof setTimeout>
   >();
   private readonly queuePromotionRetryAttempts = new Map<ThreadId, number>();
+  private readonly pendingApprovalContinuations = new Map<ThreadId, number>();
   private readonly requestAbortController = new AbortController();
   private capabilitiesLoad?: Promise<AgentCapabilities>;
   private shutdownPromise?: Promise<void>;
@@ -2260,15 +2293,24 @@ export class AgentKitClient implements AgentKitController {
         this.queuedMessageOverrides.delete(threadId);
       }
       const snapshotActiveRunIds = snapshot?.activeRunIds ?? [];
+      const snapshotApprovalRunIds = (snapshot?.approvals ?? [])
+        .filter(
+          (approval) =>
+            approval.status === "pending" && approval.runId !== undefined,
+        )
+        .map((approval) => approval.runId as RunId);
+      const runIdsToResolve = Array.from(
+        new Set([...snapshotActiveRunIds, ...snapshotApprovalRunIds]),
+      );
       const getRun = this.transport.getRun;
       const runIdsToRefresh = getRun
-        ? snapshotActiveRunIds.filter(
+        ? runIdsToResolve.filter(
             (runId) =>
               !this.isTerminalStatus(
                 runSnapshots.get(runId)?.status ?? "running",
               ),
           )
-        : snapshotActiveRunIds.filter((runId) => !runSnapshots.has(runId));
+        : runIdsToResolve.filter((runId) => !runSnapshots.has(runId));
       const activeRuns = runIdsToRefresh.length
         ? await Promise.all(
             runIdsToRefresh.map(async (runId) =>
@@ -2282,37 +2324,103 @@ export class AgentKitClient implements AgentKitController {
         : [];
       this.assertActive();
       const refreshedRuns = new Map<RunId, AgentRunSnapshot>();
+      const eventProjectionRunIds = new Set<RunId>();
       runIdsToRefresh.forEach((runId, index) => {
         const run = activeRuns[index];
-        const appliedSequence = Math.max(
-          this.getThread(threadId).runs[runId]?.lastSequence ?? 0,
-          runSnapshots.get(runId)?.lastSequence ?? 0,
+        const localSequence =
+          this.getThread(threadId).runs[runId]?.lastSequence ?? 0;
+        const snapshotRun = runSnapshots.get(runId);
+        const eventSequence =
           snapshot?.events?.reduce(
             (sequence, event) =>
               event.runId === runId
                 ? Math.max(sequence, event.sequence)
                 : sequence,
             0,
-          ) ?? 0,
+          ) ?? 0;
+        const snapshotRunSequence =
+          snapshot?.events === undefined &&
+          snapshotRun &&
+          !this.isTerminalStatus(snapshotRun.status)
+            ? snapshotRun.lastSequence
+            : 0;
+        const hasExistingCatchUp = this.terminalRunCatchUps.has(
+          this.runKey(threadId, runId),
         );
-        if (
-          run &&
-          !this.isTerminalStatus(run.status) &&
-          run.lastSequence >= appliedSequence
-        ) {
-          const refreshedRun = { ...run, lastSequence: appliedSequence };
+        const appliedSequence = Math.max(
+          localSequence,
+          eventSequence,
+          snapshotRunSequence,
+        );
+        const hasReplayCursor =
+          snapshot?.events !== undefined ||
+          localSequence > 0 ||
+          snapshotRunSequence > 0 ||
+          hasExistingCatchUp;
+        if (run && !this.isTerminalStatus(run.status)) {
+          const responseIsBehindCursor = run.lastSequence < appliedSequence;
+          const refreshedRun = {
+            ...(responseIsBehindCursor && snapshotRun
+              ? { ...snapshotRun, ...run, status: snapshotRun.status }
+              : run),
+            lastSequence: appliedSequence,
+          };
           runSnapshots.set(runId, refreshedRun);
-          refreshedRuns.set(runId, refreshedRun);
-        } else if (
-          run &&
-          this.isTerminalStatus(run.status) &&
-          run.lastSequence <= appliedSequence
-        ) {
-          runSnapshots.set(runId, { ...run, lastSequence: appliedSequence });
+          if (responseIsBehindCursor) {
+            if (snapshot?.events !== undefined) {
+              eventProjectionRunIds.add(runId);
+            }
+          } else {
+            refreshedRuns.set(runId, refreshedRun);
+          }
+        } else if (run && this.isTerminalStatus(run.status)) {
+          if (hasReplayCursor && run.lastSequence > appliedSequence) {
+            this.rememberTerminalRunCatchUp(
+              threadId,
+              runId,
+              run as TerminalRunSnapshot,
+              this.snapshotHasNoActiveRuns(snapshot),
+              snapshot?.messages ?? [],
+            );
+          }
+          // The terminal status is authoritative, while lastSequence remains
+          // the accepted event cursor used to replay missing projection data.
+          runSnapshots.set(runId, {
+            ...run,
+            lastSequence: hasReplayCursor ? appliedSequence : run.lastSequence,
+          });
         } else if (!runSnapshots.has(runId)) {
           runSnapshots.set(runId, this.runSnapshot(threadId, runId));
         }
       });
+      for (const snapshotRun of snapshot?.runs ?? []) {
+        if (!this.isTerminalStatus(snapshotRun.status)) continue;
+        const acceptedSequence = this.acceptedEventCursor(
+          threadId,
+          snapshotRun.id,
+          snapshot,
+        );
+        const hasReplayCursor =
+          snapshot?.events !== undefined ||
+          (this.getThread(threadId).runs[snapshotRun.id]?.lastSequence ?? 0) >
+            0 ||
+          this.terminalRunCatchUps.has(this.runKey(threadId, snapshotRun.id));
+        runSnapshots.set(snapshotRun.id, {
+          ...snapshotRun,
+          lastSequence: hasReplayCursor
+            ? acceptedSequence
+            : snapshotRun.lastSequence,
+        });
+        if (hasReplayCursor && snapshotRun.lastSequence > acceptedSequence) {
+          this.rememberTerminalRunCatchUp(
+            threadId,
+            snapshotRun.id,
+            snapshotRun as TerminalRunSnapshot,
+            this.snapshotHasNoActiveRuns(snapshot),
+            snapshot?.messages ?? [],
+          );
+        }
+      }
       const hydratedRuns = Object.fromEntries(
         [...runSnapshots.entries()].map(([runId, run]) => [
           runId,
@@ -2333,7 +2441,12 @@ export class AgentKitClient implements AgentKitController {
       let thread: AgentThreadState;
       let threadMissing = false;
       if (snapshot) {
-        thread = this.hydrateThread(snapshot, hydratedRuns, activeRunIds);
+        thread = this.hydrateThread(
+          snapshot,
+          hydratedRuns,
+          activeRunIds,
+          eventProjectionRunIds,
+        );
       } else if (getThreadSnapshot) {
         threadMissing = true;
         thread = createAgentThreadState(threadId);
@@ -2401,7 +2514,21 @@ export class AgentKitClient implements AgentKitController {
           activeRunIds,
         };
       }
-      thread = this.settleTerminalThread(thread, snapshot);
+      for (const catchUp of this.terminalRunCatchUps.values()) {
+        if (
+          catchUp.threadId === threadId &&
+          catchUp.state === "unconfirmable" &&
+          this.findConfirmedTerminalEvent(thread, catchUp)
+        ) {
+          this.terminalRunCatchUps.delete(this.runKey(threadId, catchUp.runId));
+        }
+      }
+      thread = this.settleTerminalThread(
+        thread,
+        snapshot,
+        this.terminalRunCatchUpIds(threadId),
+        this.terminalRunCatchUpFailureIds(threadId),
+      );
       if (threadMissing) this.missingThreadStates.add(thread);
       this.setThread(threadId, thread);
       this.setConnection("connected");
@@ -2409,6 +2536,23 @@ export class AgentKitClient implements AgentKitController {
       for (const runId of thread.activeRunIds) {
         void this.resubscribeRun(threadId, runId).catch(() => {
           // The consumer records the typed stream error in the client snapshot.
+        });
+      }
+      for (const catchUp of this.terminalRunCatchUps.values()) {
+        if (catchUp.threadId !== threadId) continue;
+        if (catchUp.state === "unconfirmable") continue;
+        const terminalEvent = this.findConfirmedTerminalEvent(thread, catchUp);
+        if (terminalEvent) {
+          thread = this.completeTerminalRunCatchUp(
+            thread,
+            catchUp,
+            terminalEvent,
+          );
+          this.setThread(threadId, thread);
+          continue;
+        }
+        void this.resubscribeRun(threadId, catchUp.runId).catch(() => {
+          // The consumer records incomplete replay as a stream error.
         });
       }
       return thread;
@@ -2673,13 +2817,16 @@ export class AgentKitClient implements AgentKitController {
     this.assertActive();
     const thread = this.getThread(threadId);
     const status = thread.runs[runId]?.status;
+    const catchUp = this.terminalRunCatchUps.get(this.runKey(threadId, runId));
+    if (catchUp?.state === "unconfirmable") catchUp.state = "pending";
+    const isCatchingUp = this.hasTerminalRunCatchUp(threadId, runId);
     // A failed stream can be explicitly reattached to recover from a
-    // transient disconnect. Completed and cancelled runs have no live work to
-    // resume.
+    // transient disconnect. Terminal runs resume only to replay a confirmed
+    // terminal snapshot's missing event tail.
     if (
-      status === "completed" ||
-      status === "cancelled" ||
+      ((status === "completed" || status === "cancelled") && !isCatchingUp) ||
       (status === "failed" &&
+        !isCatchingUp &&
         thread.events.some(
           (event) => event.runId === runId && isTerminalRunEvent(event),
         ))
@@ -2706,56 +2853,78 @@ export class AgentKitClient implements AgentKitController {
   ): Promise<void> {
     this.assertActive();
     const requestContext = this.createRequestContext(context);
-    await this.requireCapability("approvals", requestContext);
-    const resumeRun = this.transport.resumeRun;
-    const resolveApproval = this.transport.resolveApproval;
-    if (!resumeRun && !resolveApproval) {
-      throw new AgentKitCapabilityError("approvals");
-    }
-    if (!resumeRun) {
-      await this.invokeRequest(requestContext, (context) =>
-        resolveApproval!(input, context),
+    this.pendingApprovalContinuations.set(
+      input.threadId,
+      (this.pendingApprovalContinuations.get(input.threadId) ?? 0) + 1,
+    );
+    let legacyApprovalResolved = false;
+    try {
+      await this.requireCapability("approvals", requestContext);
+      const resumeRun = this.transport.resumeRun;
+      const resolveApproval = this.transport.resolveApproval;
+      if (!resumeRun && !resolveApproval) {
+        throw new AgentKitCapabilityError("approvals");
+      }
+      if (!resumeRun) {
+        await this.invokeRequest(requestContext, (context) =>
+          resolveApproval!(input, context),
+        );
+        this.assertActive();
+        legacyApprovalResolved = true;
+        return;
+      }
+      const result = await this.invokeRequest(requestContext, (context) =>
+        resumeRun(
+          {
+            threadId: input.threadId,
+            runId: input.runId,
+            resume: [resumeEntryFromApproval(input)],
+          },
+          context,
+        ),
       );
       this.assertActive();
-      this.scheduleQueuePromotion(input.threadId);
-      return;
-    }
-    const result = await this.invokeRequest(requestContext, (context) =>
-      resumeRun(
-        {
-          threadId: input.threadId,
-          runId: input.runId,
-          resume: [resumeEntryFromApproval(input)],
-        },
-        context,
-      ),
-    );
-    this.assertActive();
-    if (result.runId !== input.runId) {
-      this.retireInterruptedRun(input.threadId, input.runId);
-    }
-    // A runtime that suspends rather than terminates answers with the run that
-    // was already streaming, so adopting it blindly would open a second reader
-    // on one stream.
-    const key = this.runKey(input.threadId, result.runId);
-    const existingConsumer = this.consumers.get(key);
-    if (existingConsumer) {
-      void (async () => {
-        await Promise.allSettled([existingConsumer]);
-        if (!this.disposed) {
-          await this.resubscribeRun(input.threadId, result.runId);
+      if (result.runId !== input.runId) {
+        this.retireInterruptedRun(input.threadId, input.runId);
+      }
+      // A runtime that suspends rather than terminates answers with the run that
+      // was already streaming, so adopting it blindly would open a second reader
+      // on one stream.
+      const key = this.runKey(input.threadId, result.runId);
+      const existingConsumer = this.consumers.get(key);
+      if (existingConsumer) {
+        void (async () => {
+          await Promise.allSettled([existingConsumer]);
+          if (!this.disposed) {
+            await this.resubscribeRun(input.threadId, result.runId);
+          }
+        })().catch(() => {
+          // The consumer records the typed stream error in the client snapshot.
+        });
+        return;
+      }
+      this.markRunStarted(input.threadId, result.runId);
+      this.trackConsumer(
+        input.threadId,
+        result.runId,
+        this.consume(input.threadId, result.runId),
+      );
+    } finally {
+      const pending =
+        this.pendingApprovalContinuations.get(input.threadId) ?? 0;
+      if (pending <= 1) {
+        this.pendingApprovalContinuations.delete(input.threadId);
+      } else {
+        this.pendingApprovalContinuations.set(input.threadId, pending - 1);
+      }
+      if (!this.disposed && pending <= 1) {
+        if (legacyApprovalResolved) {
+          this.scheduleQueuePromotion(input.threadId);
+        } else {
+          this.scheduleQueuePromotionIfIdle(input.threadId);
         }
-      })().catch(() => {
-        // The consumer records the typed stream error in the client snapshot.
-      });
-      return;
+      }
     }
-    this.markRunStarted(input.threadId, result.runId);
-    this.trackConsumer(
-      input.threadId,
-      result.runId,
-      this.consume(input.threadId, result.runId),
-    );
   }
 
   public async resolveConnectionRequest(
@@ -3561,6 +3730,7 @@ export class AgentKitClient implements AgentKitController {
     this.stopThreadConsumers(threadId, "deleted");
     this.clearSubmittedUserMessages(threadId);
     this.queuedMessageOverrides.delete(threadId);
+    this.clearTerminalRunCatchUps(threadId);
     const threads = { ...this.snapshot.threads };
     delete threads[threadId];
     this.patch({ threads });
@@ -3578,6 +3748,7 @@ export class AgentKitClient implements AgentKitController {
     this.queuePromotionTerminalExpedites.clear();
     this.pendingQueueMessageIds.clear();
     this.queuePromotionAfterReconciliation.clear();
+    this.terminalRunCatchUps.clear();
     for (const controller of this.consumerAbortControllers.values()) {
       controller.abort(new AgentKitConsumerStoppedError("disposed"));
     }
@@ -3684,11 +3855,13 @@ export class AgentKitClient implements AgentKitController {
       "awaiting_approval",
       "awaiting_input",
     ].includes(this.getThread(threadId).runs[runId]?.status ?? "");
+    let terminalCatchUpFailed = false;
     try {
       while (true) {
         const afterSequence =
           this.getThread(threadId).runs[runId]?.lastSequence ?? 0;
         let terminalEvent: AgentEvent | undefined;
+        let replayedTerminalSnapshot = false;
         try {
           this.setConnection(attempt === 0 ? "connected" : "reconnecting");
           for await (const value of this.transport.subscribeToRun({
@@ -3735,8 +3908,90 @@ export class AgentKitClient implements AgentKitController {
             if (isTerminalRunEvent(event)) {
               terminalEvent = event;
             }
+            const terminalCatchUp = this.terminalRunCatchUps.get(key);
+            if (terminalCatchUp) {
+              if (isTerminalRunEvent(event)) {
+                if (
+                  terminalRunEventStatus(event) !==
+                    terminalCatchUp.run.status ||
+                  event.sequence !== terminalCatchUp.run.lastSequence
+                ) {
+                  this.reportIntegrity({
+                    code: "run_missing_terminal",
+                    threadId,
+                    runId,
+                  });
+                  this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+                  terminalCatchUpFailed = true;
+                  throw new AgentProtocolValidationError(
+                    "run.events",
+                    `replay did not confirm terminal snapshot for run ${runId}`,
+                  );
+                }
+                const current = this.getThread(threadId);
+                const confirmed = this.findConfirmedTerminalEvent(
+                  current,
+                  terminalCatchUp,
+                );
+                if (!confirmed) {
+                  this.reportIntegrity({
+                    code: "run_missing_terminal",
+                    threadId,
+                    runId,
+                  });
+                  this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+                  terminalCatchUpFailed = true;
+                  throw new AgentProtocolValidationError(
+                    "run.events",
+                    `replay did not reach terminal snapshot cursor for run ${runId}`,
+                  );
+                }
+                this.setThread(
+                  threadId,
+                  this.completeTerminalRunCatchUp(
+                    current,
+                    terminalCatchUp,
+                    confirmed,
+                  ),
+                );
+                if (this.hasTerminalRunCatchUp(threadId, runId)) {
+                  throw new AgentProtocolValidationError(
+                    "run.events",
+                    `terminal replay could not be completed for run ${runId}`,
+                  );
+                }
+                replayedTerminalSnapshot = true;
+                break;
+              }
+              if (event.sequence >= terminalCatchUp.run.lastSequence) {
+                this.reportIntegrity({
+                  code: "run_missing_terminal",
+                  threadId,
+                  runId,
+                });
+                this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+                terminalCatchUpFailed = true;
+                throw new AgentProtocolValidationError(
+                  "run.events",
+                  `replay reached terminal snapshot cursor without a terminal event for run ${runId}`,
+                );
+              }
+            }
           }
           if (!terminalEvent) {
+            if (this.hasTerminalRunCatchUp(threadId, runId)) {
+              this.reportIntegrity({
+                code: "run_missing_terminal",
+                threadId,
+                runId,
+              });
+              this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+              terminalCatchUpFailed = true;
+              throw new AgentProtocolValidationError(
+                "run.events",
+                `replay ended without confirming terminal snapshot for run ${runId}`,
+              );
+            }
             if (interruptedForContinuation) {
               this.setConnection("connected");
               return;
@@ -3751,7 +4006,9 @@ export class AgentKitClient implements AgentKitController {
             );
           }
           this.setConnection("connected");
-          await this.finishTerminalRun(threadId, terminalEvent);
+          await this.finishTerminalRun(threadId, terminalEvent, {
+            projectionAlreadyCaughtUp: replayedTerminalSnapshot,
+          });
           return;
         } catch (error) {
           if (
@@ -3760,7 +4017,11 @@ export class AgentKitClient implements AgentKitController {
           ) {
             return;
           }
-          if (terminalEvent) {
+          if (terminalCatchUpFailed) {
+            this.fail(error, "run_stream_failed");
+            return;
+          }
+          if (terminalEvent && !this.hasTerminalRunCatchUp(threadId, runId)) {
             await this.finishTerminalRun(threadId, terminalEvent);
             this.fail(error, "run_stream_failed");
             return;
@@ -3787,8 +4048,13 @@ export class AgentKitClient implements AgentKitController {
         return;
       }
       const runError = toError(error, "run_stream_failed");
-      this.markRunFailed(threadId, runId, runError);
-      this.fail(error, "run_stream_failed");
+      if (this.hasTerminalRunCatchUp(threadId, runId)) {
+        this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+        this.fail(runError, "run_stream_failed");
+      } else {
+        this.markRunFailed(threadId, runId, runError);
+        this.fail(error, "run_stream_failed");
+      }
       throw error;
     } finally {
       this.consumers.delete(key);
@@ -3799,6 +4065,7 @@ export class AgentKitClient implements AgentKitController {
   private async finishTerminalRun(
     threadId: ThreadId,
     terminalEvent: AgentEvent,
+    options: { projectionAlreadyCaughtUp?: boolean } = {},
   ): Promise<void> {
     this.submittedUserMessages.delete(
       this.runKey(threadId, terminalEvent.runId),
@@ -3816,6 +4083,7 @@ export class AgentKitClient implements AgentKitController {
     const persistenceError = await snapshotPersistence;
     if (completed) {
       const shouldRefreshProjection =
+        !options.projectionAlreadyCaughtUp &&
         !this.threadLoads.has(threadId) &&
         (this.transport.getThreadSnapshot || this.transport.getThread);
       if (shouldRefreshProjection) {
@@ -3939,24 +4207,28 @@ export class AgentKitClient implements AgentKitController {
 
   private settleTerminalThread(
     thread: AgentThreadState,
-    snapshot?: AgentThreadSnapshot | null,
+    snapshot?: Pick<AgentThreadSnapshot, "activeRunIds" | "runs"> | null,
+    pendingCatchUpRunIds: ReadonlySet<RunId> = new Set(),
+    unconfirmableCatchUpRunIds: ReadonlySet<RunId> = new Set(),
   ): AgentThreadState {
     const runs = Object.values(thread.runs);
-    const terminalRuns = runs.filter((run): run is TerminalRunState =>
-      this.isTerminalStatus(run.status),
+    const terminalRuns = runs.filter(
+      (run): run is TerminalRunState =>
+        this.isTerminalStatus(run.status) && !pendingCatchUpRunIds.has(run.id),
     );
     const settled = terminalRuns.reduce(
       (currentThread, run) =>
         settleRunProjection(
           currentThread,
           run.id,
-          run.status,
+          unconfirmableCatchUpRunIds.has(run.id) ? "failed" : run.status,
           run.completedAt ?? this.now(),
           run.activeMessageId,
         ),
       thread,
     );
     if (
+      pendingCatchUpRunIds.size > 0 ||
       thread.activeRunIds.length > 0 ||
       runs.some((run) => !this.isTerminalStatus(run.status))
     ) {
@@ -3975,10 +4247,12 @@ export class AgentKitClient implements AgentKitController {
     // If any known run failed or was cancelled, settle an unassociated message
     // as an error rather than presenting a partial response as successful.
     const settledMessageStatus =
-      terminalRuns.length > 0 &&
-      terminalRuns.every((run) => run.status === "completed")
-        ? "complete"
-        : "error";
+      unconfirmableCatchUpRunIds.size > 0
+        ? "error"
+        : terminalRuns.length > 0 &&
+            terminalRuns.every((run) => run.status === "completed")
+          ? "complete"
+          : "error";
     // Lifecycle events can age out independently of the message projection.
     // Once the snapshot proves that no run remains active, any assistant
     // message still marked streaming is stale rather than in-flight work.
@@ -3992,10 +4266,309 @@ export class AgentKitClient implements AgentKitController {
     };
   }
 
+  private hasTerminalRunCatchUp(threadId: ThreadId, runId?: RunId): boolean {
+    return runId
+      ? this.terminalRunCatchUps.get(this.runKey(threadId, runId))?.state ===
+          "pending"
+      : [...this.terminalRunCatchUps.values()].some(
+          (catchUp) =>
+            catchUp.threadId === threadId && catchUp.state === "pending",
+        );
+  }
+
+  private terminalRunCatchUpIds(threadId: ThreadId): Set<RunId> {
+    return new Set(
+      [...this.terminalRunCatchUps.values()]
+        .filter(
+          (catchUp) =>
+            catchUp.threadId === threadId && catchUp.state === "pending",
+        )
+        .map((catchUp) => catchUp.runId),
+    );
+  }
+
+  private terminalRunCatchUpFailureIds(threadId: ThreadId): Set<RunId> {
+    return new Set(
+      [...this.terminalRunCatchUps.values()]
+        .filter(
+          (catchUp) =>
+            catchUp.threadId === threadId && catchUp.state === "unconfirmable",
+        )
+        .map((catchUp) => catchUp.runId),
+    );
+  }
+
+  private rememberTerminalRunCatchUp(
+    threadId: ThreadId,
+    runId: RunId,
+    run: TerminalRunSnapshot,
+    snapshotHasNoActiveRuns: boolean,
+    snapshotMessages: AgentMessage[],
+  ): TerminalRunCatchUp {
+    const key = this.runKey(threadId, runId);
+    const current = this.terminalRunCatchUps.get(key);
+    if (current) {
+      if (
+        current.state === "unconfirmable" &&
+        current.run.status === run.status &&
+        current.run.lastSequence === run.lastSequence
+      ) {
+        current.snapshotHasNoActiveRuns = snapshotHasNoActiveRuns;
+        current.snapshotMessages = snapshotMessages;
+        return current;
+      }
+      if (run.lastSequence >= current.run.lastSequence) {
+        const changedSnapshot =
+          run.status !== current.run.status ||
+          run.lastSequence !== current.run.lastSequence;
+        current.state = "pending";
+        current.run = { ...run };
+        current.snapshotHasNoActiveRuns = snapshotHasNoActiveRuns;
+        current.snapshotMessages = snapshotMessages;
+        if (changedSnapshot) current.messageIdRemap.clear();
+      }
+      return current;
+    }
+    const catchUp: TerminalRunCatchUp = {
+      threadId,
+      runId,
+      state: "pending",
+      run: { ...run },
+      snapshotHasNoActiveRuns,
+      snapshotMessages,
+      messageIdRemap: new Map(),
+    };
+    this.terminalRunCatchUps.set(key, catchUp);
+    return catchUp;
+  }
+
+  private acceptedEventCursor(
+    threadId: ThreadId,
+    runId: RunId,
+    snapshot?: AgentThreadSnapshot | null,
+  ): number {
+    return Math.max(
+      this.getThread(threadId).runs[runId]?.lastSequence ?? 0,
+      snapshot?.events?.reduce(
+        (sequence, event) =>
+          event.runId === runId ? Math.max(sequence, event.sequence) : sequence,
+        0,
+      ) ?? 0,
+    );
+  }
+
+  private snapshotHasNoActiveRuns(
+    snapshot?: Pick<AgentThreadSnapshot, "activeRunIds" | "runs"> | null,
+  ): boolean {
+    return (
+      snapshot?.activeRunIds?.length === 0 ||
+      (snapshot?.activeRunIds === undefined &&
+        snapshot?.runs !== undefined &&
+        snapshot.runs.length > 0 &&
+        snapshot.runs.every((run) => this.isTerminalStatus(run.status)))
+    );
+  }
+
+  private clearTerminalRunCatchUps(threadId: ThreadId, runId?: RunId): void {
+    for (const [key, catchUp] of this.terminalRunCatchUps) {
+      if (
+        catchUp.threadId === threadId &&
+        (!runId || catchUp.runId === runId)
+      ) {
+        this.terminalRunCatchUps.delete(key);
+      }
+    }
+  }
+
+  private findConfirmedTerminalEvent(
+    thread: AgentThreadState,
+    catchUp: TerminalRunCatchUp,
+  ): AgentEvent | undefined {
+    if (
+      (thread.runs[catchUp.runId]?.lastSequence ?? 0) < catchUp.run.lastSequence
+    ) {
+      return undefined;
+    }
+    return thread.events.find(
+      (event) =>
+        event.runId === catchUp.runId &&
+        event.sequence === catchUp.run.lastSequence &&
+        terminalRunEventStatus(event) === catchUp.run.status,
+    );
+  }
+
+  private preserveTerminalRunDuringCatchUp(
+    thread: AgentThreadState,
+    catchUp: TerminalRunCatchUp,
+  ): AgentThreadState {
+    const currentRun = thread.runs[catchUp.runId];
+    if (!currentRun) return thread;
+    const authoritativeRun = this.runState(catchUp.runId, catchUp.run);
+    return {
+      ...thread,
+      runs: {
+        ...thread.runs,
+        [catchUp.runId]: {
+          ...currentRun,
+          ...authoritativeRun,
+          lastSequence: currentRun.lastSequence,
+          startedAt: authoritativeRun.startedAt ?? currentRun.startedAt,
+          completedAt: authoritativeRun.completedAt ?? currentRun.completedAt,
+          activeMessageId:
+            authoritativeRun.activeMessageId ?? currentRun.activeMessageId,
+          usage: authoritativeRun.usage ?? currentRun.usage,
+        },
+      },
+      activeRunIds: thread.activeRunIds.filter((id) => id !== catchUp.runId),
+    };
+  }
+
+  private completeTerminalRunCatchUp(
+    thread: AgentThreadState,
+    catchUp: TerminalRunCatchUp,
+    terminalEvent: AgentEvent,
+  ): AgentThreadState {
+    const key = this.runKey(catchUp.threadId, catchUp.runId);
+    if (
+      this.terminalRunCatchUps.get(key) !== catchUp ||
+      catchUp.state !== "pending" ||
+      terminalRunEventStatus(terminalEvent) !== catchUp.run.status ||
+      terminalEvent.sequence !== catchUp.run.lastSequence ||
+      (thread.runs[catchUp.runId]?.lastSequence ?? 0) < catchUp.run.lastSequence
+    ) {
+      return thread;
+    }
+    this.terminalRunCatchUps.delete(key);
+    const terminalThread = this.preserveTerminalRunDuringCatchUp(
+      thread,
+      catchUp,
+    );
+    return this.settleTerminalThread(
+      terminalThread,
+      catchUp.snapshotHasNoActiveRuns ? { activeRunIds: [] } : undefined,
+      this.terminalRunCatchUpIds(catchUp.threadId),
+      this.terminalRunCatchUpFailureIds(catchUp.threadId),
+    );
+  }
+
+  private markTerminalRunCatchUpUnconfirmable(
+    threadId: ThreadId,
+    runId: RunId,
+  ): void {
+    const catchUp = this.terminalRunCatchUps.get(this.runKey(threadId, runId));
+    if (!catchUp || catchUp.state !== "pending") return;
+    catchUp.state = "unconfirmable";
+    const thread = this.preserveTerminalRunDuringCatchUp(
+      this.getThread(threadId),
+      catchUp,
+    );
+    this.setThread(
+      threadId,
+      this.settleTerminalThread(
+        thread,
+        catchUp.snapshotHasNoActiveRuns ? { activeRunIds: [] } : undefined,
+        this.terminalRunCatchUpIds(threadId),
+        this.terminalRunCatchUpFailureIds(threadId),
+      ),
+    );
+  }
+
+  private remapTerminalCatchUpMessage(
+    event: AgentEvent,
+    catchUp: TerminalRunCatchUp,
+  ): { event: AgentEvent; sourceMessageId?: string } {
+    const sourceMessageId =
+      event.type === "message.created" || event.type === "message.completed"
+        ? event.message.id
+        : event.type === "message.delta" || event.type === "reasoning.delta"
+          ? event.messageId
+          : undefined;
+    if (!sourceMessageId) return { event };
+
+    const existingMessageId = catchUp.messageIdRemap.get(sourceMessageId);
+    if (existingMessageId) {
+      return {
+        event: this.remapEventMessageId(event, existingMessageId),
+        sourceMessageId,
+      };
+    }
+
+    if (
+      event.type !== "message.completed" ||
+      event.message.role !== "assistant" ||
+      !catchUp.run.activeMessageId
+    ) {
+      return { event };
+    }
+    const snapshotMessage = catchUp.snapshotMessages.find(
+      (message) => message.id === catchUp.run.activeMessageId,
+    );
+    if (
+      !snapshotMessage ||
+      snapshotMessage.role !== "assistant" ||
+      this.messageContentKey(snapshotMessage) !==
+        this.messageContentKey(event.message)
+    ) {
+      return { event };
+    }
+    catchUp.messageIdRemap.set(sourceMessageId, snapshotMessage.id);
+    return {
+      event: this.remapEventMessageId(event, snapshotMessage.id),
+      sourceMessageId,
+    };
+  }
+
+  private remapEventMessageId(
+    event: AgentEvent,
+    messageId: string,
+  ): AgentEvent {
+    switch (event.type) {
+      case "message.created":
+      case "message.completed":
+        return { ...event, message: { ...event.message, id: messageId } };
+      case "message.delta":
+      case "reasoning.delta":
+        return { ...event, messageId };
+      default:
+        return event;
+    }
+  }
+
+  private removeRemappedCatchUpMessage(
+    thread: AgentThreadState,
+    sourceMessageId: string | undefined,
+    catchUp: TerminalRunCatchUp,
+  ): AgentThreadState {
+    if (!sourceMessageId) return thread;
+    const canonicalMessageId = catchUp.messageIdRemap.get(sourceMessageId);
+    if (!canonicalMessageId || sourceMessageId === canonicalMessageId) {
+      return thread;
+    }
+    const canonicalMessage = catchUp.snapshotMessages.find(
+      (message) => message.id === canonicalMessageId,
+    );
+    const hasCanonicalMessage = thread.messages.some(
+      (message) => message.id === canonicalMessageId,
+    );
+    return {
+      ...thread,
+      messages: thread.messages.flatMap((message) =>
+        message.id === sourceMessageId
+          ? canonicalMessage && !hasCanonicalMessage
+            ? [canonicalMessage]
+            : []
+          : message.id === canonicalMessageId && canonicalMessage
+            ? [canonicalMessage]
+            : [message],
+      ),
+    };
+  }
+
   private hydrateThread(
     snapshot: AgentThreadSnapshot,
     runs: AgentThreadState["runs"],
     activeRunIds: RunId[],
+    eventProjectionRunIds: ReadonlySet<RunId> = new Set(),
   ): AgentThreadState {
     let hydrated = createAgentThreadState(snapshot.id);
     for (const event of snapshot.events ?? []) {
@@ -4046,8 +4619,47 @@ export class AgentKitClient implements AgentKitController {
         entry.messageId,
       ]),
     );
+    const approvalRunIds =
+      snapshot.approvals === undefined
+        ? hydrated.approvalRunIds
+        : snapshotApprovalRunIds;
     const mergedRuns = this.mergeRuns(hydrated.runs, runs);
-    const currentActiveRunIds = activeRunIds.filter(
+    for (const runId of eventProjectionRunIds) {
+      const eventRun = hydrated.runs[runId];
+      const mergedRun = mergedRuns[runId];
+      if (
+        eventRun &&
+        mergedRun &&
+        eventRun.lastSequence === mergedRun.lastSequence &&
+        !this.isTerminalStatus(eventRun.status) &&
+        !this.isTerminalStatus(mergedRun.status)
+      ) {
+        mergedRuns[runId] = {
+          ...mergedRun,
+          status: eventRun.status,
+          ...(eventRun.startedAt === undefined
+            ? {}
+            : { startedAt: eventRun.startedAt }),
+          ...(eventRun.completedAt === undefined
+            ? {}
+            : { completedAt: eventRun.completedAt }),
+          ...(eventRun.activeMessageId === undefined
+            ? {}
+            : { activeMessageId: eventRun.activeMessageId }),
+          ...(eventRun.usage === undefined ? {} : { usage: eventRun.usage }),
+          ...(eventRun.error === undefined ? {} : { error: eventRun.error }),
+        };
+      }
+    }
+    const currentActiveRunIds = Array.from(
+      new Set(
+        snapshot.activeRunIds ?? [
+          ...activeRunIds,
+          ...hydrated.activeRunIds,
+          ...Object.values(approvalRunIds),
+        ],
+      ),
+    ).filter(
       (runId) => !this.isTerminalStatus(mergedRuns[runId]?.status ?? "running"),
     );
     const projected: AgentThreadState = {
@@ -4084,10 +4696,7 @@ export class AgentKitClient implements AgentKitController {
         snapshot.approvals === undefined
           ? hydrated.approvals
           : snapshotApprovals,
-      approvalRunIds:
-        snapshot.approvals === undefined
-          ? hydrated.approvalRunIds
-          : snapshotApprovalRunIds,
+      approvalRunIds,
       connectionRequests: {
         ...hydrated.connectionRequests,
         ...snapshotConnectionRequests,
@@ -4138,7 +4747,12 @@ export class AgentKitClient implements AgentKitController {
         latestUser.createdAt <= latestRun.startedAt)
         ? latestUser?.id
         : hydrated.suggestionsUserMessageId;
-    return this.settleTerminalThread(projected, snapshot);
+    return this.settleTerminalThread(
+      projected,
+      snapshot,
+      this.terminalRunCatchUpIds(snapshot.id),
+      this.terminalRunCatchUpFailureIds(snapshot.id),
+    );
   }
 
   private async requireCapability(
@@ -4255,8 +4869,24 @@ export class AgentKitClient implements AgentKitController {
       );
     };
     const runs = this.mergeRuns(loaded.runs, live.runs);
+    const hasAuthoritativeActiveRunIds =
+      snapshotIncludes("activeRunIds") &&
+      loadedSnapshot?.activeRunIds !== undefined;
+    const runsChangedDuringLoad = current.activeRunIds.filter((runId) => {
+      const baselineRun = baseline.runs[runId];
+      const currentRun = current.runs[runId];
+      return (
+        (!baseline.activeRunIds.includes(runId) ||
+          baselineRun !== currentRun) &&
+        !this.isTerminalStatus(runs[runId]?.status ?? "running")
+      );
+    });
     const activeRunIds = Array.from(
-      new Set([...loaded.activeRunIds, ...live.activeRunIds]),
+      new Set(
+        hasAuthoritativeActiveRunIds
+          ? [...loaded.activeRunIds, ...runsChangedDuringLoad]
+          : [...loaded.activeRunIds, ...live.activeRunIds],
+      ),
     ).filter(
       (runId) => !this.isTerminalStatus(runs[runId]?.status ?? "running"),
     );
@@ -4912,6 +5542,7 @@ export class AgentKitClient implements AgentKitController {
 
   private scheduleQueuePromotion(threadId: ThreadId, expedite = false): void {
     if (this.disposed) return;
+    if (this.pendingApprovalContinuations.has(threadId)) return;
     const thread = this.getThread(threadId);
     const queued = thread.queuedMessages[0];
     if (!queued) {
@@ -5005,36 +5636,79 @@ export class AgentKitClient implements AgentKitController {
   }
 
   private applyEvent(event: AgentEvent): void {
-    const thread = this.reconcileSubmittedUserMessage(
-      this.getThread(event.threadId),
-      event,
+    const catchUp = this.terminalRunCatchUps.get(
+      this.runKey(event.threadId, event.runId),
     );
-    const admission = classifyAgentEvent(thread, event);
+    const catchUpMessage = catchUp
+      ? this.remapTerminalCatchUpMessage(event, catchUp)
+      : { event };
+    const appliedEvent = catchUpMessage.event;
+    const thread = this.reconcileSubmittedUserMessage(
+      this.getThread(appliedEvent.threadId),
+      appliedEvent,
+    );
+    const admission = classifyAgentEvent(thread, appliedEvent);
     if (admission.status === "duplicate") {
       this.reportIntegrity({
         code: "duplicate_event",
-        threadId: event.threadId,
-        runId: event.runId,
+        threadId: appliedEvent.threadId,
+        runId: appliedEvent.runId,
         expectedSequence: admission.lastSequence + 1,
-        receivedSequence: event.sequence,
+        receivedSequence: appliedEvent.sequence,
       });
     }
     if (admission.status === "gap") {
       this.reportIntegrity({
         code: "sequence_gap",
-        threadId: event.threadId,
-        runId: event.runId,
+        threadId: appliedEvent.threadId,
+        runId: appliedEvent.runId,
         expectedSequence: admission.expectedSequence,
         receivedSequence: admission.receivedSequence,
       });
     }
-    const next = reduceAgentEvent(thread, event);
-    if (event.type === "queue.updated") {
+    const run = thread.runs[appliedEvent.runId];
+    const replayBase = catchUp
+      ? {
+          ...thread,
+          runs: {
+            ...thread.runs,
+            [appliedEvent.runId]: {
+              ...(run ?? this.runState(appliedEvent.runId, catchUp.run)),
+              status: "running" as const,
+            },
+          },
+        }
+      : thread;
+    const reduced = reduceAgentEvent(replayBase, appliedEvent);
+    if (appliedEvent.type === "queue.updated") {
       // A replayed queue snapshot is the ordered server view. It supersedes
       // the temporary protection used while a queue mutation catches up.
-      this.queuedMessageOverrides.delete(event.threadId);
+      this.queuedMessageOverrides.delete(appliedEvent.threadId);
     }
-    this.setThread(event.threadId, next);
+    const remapped =
+      catchUp && catchUpMessage.sourceMessageId
+        ? this.remapThreadMessageReferences(
+            reduced,
+            new Map([
+              [
+                catchUpMessage.sourceMessageId,
+                catchUp.messageIdRemap.get(catchUpMessage.sourceMessageId) ??
+                  catchUpMessage.sourceMessageId,
+              ],
+            ]),
+          )
+        : reduced;
+    const reconciled = catchUp
+      ? this.removeRemappedCatchUpMessage(
+          remapped,
+          catchUpMessage.sourceMessageId,
+          catchUp,
+        )
+      : remapped;
+    const next = catchUp
+      ? this.preserveTerminalRunDuringCatchUp(reconciled, catchUp)
+      : reconciled;
+    this.setThread(appliedEvent.threadId, next);
   }
 
   private reconcileSubmittedUserMessage(

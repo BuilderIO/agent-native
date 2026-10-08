@@ -401,9 +401,14 @@ function InfrastructurePageContent({
   if (builderUnknown) {
     builderDescription = t(`${K}builderUnknown`);
     builderControl = (
-      <RowButton onClick={() => navigate("integrations", "builder")}>
-        {t(`${K}manage`)}
-      </RowButton>
+      <div className="flex flex-wrap gap-2">
+        <RowButton onClick={() => navigate("integrations", "builder")}>
+          {t(`${K}manage`)}
+        </RowButton>
+        <RowButton onClick={() => void flow.retry()}>
+          {t(`${K}retry`)}
+        </RowButton>
+      </div>
     );
   } else if (builderConnected) {
     builderDescription = t(`${K}builderConnected`);
@@ -532,7 +537,7 @@ function InfrastructurePageContent({
           description={builderDescription}
           control={builderControl}
         >
-          {flow.error ? (
+          {flow.error && flow.errorKind !== "status-read" ? (
             <p role="alert" className="text-sm text-destructive">
               {flow.error}
             </p>

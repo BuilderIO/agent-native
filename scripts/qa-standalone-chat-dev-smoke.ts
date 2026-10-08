@@ -1045,6 +1045,13 @@ function isBenignHttpError(
   ) {
     return true;
   }
+  // The runtime maps this lookup's 404 response to the explicit missing state.
+  if (
+    status === 404 &&
+    new URL(url).pathname === "/_agent-native/agent-chat/runs/latest"
+  ) {
+    return true;
+  }
   if (status === 404 && url.includes("/_agent-native/speculation-rules.json")) {
     return true;
   }
@@ -3024,10 +3031,12 @@ async function assertAgentKitChatAcceptance(
   try {
     await page
       .locator('[data-agent-composer-slot="stop-button"]')
+      .filter({ visible: true })
+      .first()
       .waitFor({ state: "visible" });
   } catch (error) {
     throw new Error(
-      "The composer no longer counts the run as active while its approval card is pending, so a follow-up would bypass the queue.",
+      "The composer did not render a visible stop button while its approval card was pending, so a follow-up could bypass the queue.",
       { cause: error },
     );
   }
@@ -3358,10 +3367,12 @@ async function assertAgentKitChatAcceptance(
     "the AgentKit thread must call each sample action sequentially",
   );
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
+  const widgetCompletionText = "All seven local sample widgets are ready.";
   await page
-    .getByText("All seven local sample widgets are ready.", { exact: true })
+    .locator('.agentkit-message[data-role="assistant"]')
+    .filter({ hasText: widgetCompletionText })
     .filter({ visible: true })
-    .first()
+    .last()
     .waitFor({ state: "visible" });
   await assertAssistantContentOutsideActivity(
     page,

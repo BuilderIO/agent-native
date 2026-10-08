@@ -120,7 +120,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "暫時略過",
   "onboarding.saveRoleError": "無法儲存你的角色。",
   "onboarding.builderCreateAccount": "使用 Builder.io",
-  "onboarding.builderSignInWithAccount": "使用 Builder.io 帳戶登入",
+  "onboarding.builderSignInWithAccount": "使用 Builder.io",
   "onboarding.builderActivateDescription":
     "只要按一下即可建立或重新使用您的 Builder.io 帳戶，並啟用免費額度。",
   "onboarding.builderActiveCredits": "包含於有效的 Builder.io 免費額度",
@@ -147,7 +147,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "服務條款",
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
-  "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
+  "onboarding.builderExistingAccount": "使用 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
   "onboarding.builderProvisioningDescription":
@@ -194,7 +194,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder 儲存空間或相容 S3 的儲存桶",
   "onboarding.capability.clipsObjectStorage.why":
-    "錄製的影片需要持久的物件儲存空間，才能播放或分享。",
+    "不連接儲存空間也能錄製、預覽和下載 Clips。連接持久物件儲存空間後，就能在不同裝置上查看並分享錄製內容。",
   "onboarding.capability.clipsTranscription.keySummary": "語音轉文字提供者金鑰",
   "onboarding.capability.about": "關於{{label}}",
   "onboarding.capability.why": "為什麼需要{{label}}",
@@ -1934,7 +1934,7 @@ const messages: ToolkitAgentChatTranslation = {
     "這會影響 {{org}} 中所有未連結自己帳戶的人。",
   "settingsShell.builder.disconnectFailed": "無法中斷 Builder.io 的連結。",
   "settingsShell.builder.disconnectTitle": "要中斷 Builder.io 的連結嗎？",
-  "settingsShell.builder.grantsFailed": "無法讀取 Builder.io 連結。",
+  "settingsShell.builder.grantsFailed": "無法檢查 Builder.io 連線。",
   "settingsShell.builder.setupStartFailed":
     "無法啟動 Builder.io 設定。請重新整理此頁面後再試一次。",
   "settingsShell.builder.setupHostFailed":

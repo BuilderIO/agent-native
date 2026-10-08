@@ -1083,7 +1083,8 @@ export function SessionsTriagePage() {
           ) : (
             <>
               {recordings.length === 0 &&
-              storageStatus.data?.configured === false ? (
+              (storageStatus.isError ||
+                storageStatus.data?.configured === false) ? (
                 <EmptySessionsState />
               ) : recordings.length === 0 ? (
                 <div className="p-10 text-center text-sm text-muted-foreground">

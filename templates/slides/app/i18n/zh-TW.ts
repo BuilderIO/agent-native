@@ -753,6 +753,9 @@ const messages = {
     exportFailed: "匯出失敗",
     agentRunFailed:
       "代理程式在建立任何投影片前執行失敗。請查看聊天中的詳細資訊，然後再試一次。",
+    generationFailed: "未建立投影片。請查看聊天中的詳細資訊，然後再試一次。",
+    generationOutcomeUnresolved:
+      "無法確認投影片是否已建立。請檢查簡報或聊天，然後再試一次。",
     deckHasNoSlides: "幻燈片沒有頁面。",
     pdfRenderFailed: "無法渲染 PDF。",
     buildingDeck: "正在建置幻燈片",

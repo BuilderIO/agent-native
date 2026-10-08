@@ -124,7 +124,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
   "onboarding.builderCreateAccount": "استخدم Builder.io",
-  "onboarding.builderSignInWithAccount": "تسجيل الدخول بحساب Builder.io",
+  "onboarding.builderSignInWithAccount": "استخدم Builder.io",
   "onboarding.builderActivateDescription":
     "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
   "onboarding.builderActiveCredits":
@@ -151,7 +151,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "شروط الخدمة",
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
-  "onboarding.builderExistingAccount": "لدي حساب Builder.io",
+  "onboarding.builderExistingAccount": "استخدم Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":
@@ -200,7 +200,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "تخزين Builder أو حاوية متوافقة مع S3",
   "onboarding.capability.clipsObjectStorage.why":
-    "تحتاج الفيديوهات المسجلة إلى تخزين كائنات دائم قبل تشغيلها أو مشاركتها.",
+    "يمكنك تسجيل Clips ومعاينتها وتنزيلها بدون تخزين. اربط تخزين كائنات دائمًا لإتاحة التسجيلات عبر الأجهزة ومشاركتها.",
   "onboarding.capability.clipsTranscription.keySummary":
     "مفتاح مزود تحويل الكلام إلى نص",
   "onboarding.capability.about": "حول {{label}}",
@@ -2228,7 +2228,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يؤثر هذا على كل من في {{org}} ممن لم يربطوا حساباتهم الخاصة.",
   "settingsShell.builder.disconnectFailed": "تعذّر قطع اتصال Builder.io.",
   "settingsShell.builder.disconnectTitle": "هل تريد قطع اتصال Builder.io؟",
-  "settingsShell.builder.grantsFailed": "تعذّرت قراءة اتصالات Builder.io.",
+  "settingsShell.builder.grantsFailed": "تعذّر التحقق من اتصال Builder.io.",
   "settingsShell.builder.setupStartFailed":
     "تعذّر بدء إعداد Builder.io. حدّث هذه الصفحة وحاول مرة أخرى.",
   "settingsShell.builder.setupHostFailed":

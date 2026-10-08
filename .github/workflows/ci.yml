@@ -423,7 +423,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -497,7 +497,7 @@ jobs:
       - name: Run focused Design regression cases
         if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
         working-directory: templates/design
-        timeout-minutes: 5
+        timeout-minutes: 20
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -568,7 +568,8 @@ jobs:
               ;;
             drag-1)
               fixed_specs=( \
-                e2e/corner-radius-handle-drag.spec.ts:202 \
+                e2e/corner-radius-handle-drag.spec.ts:239 \
+                e2e/overview-wheel-zoom.spec.ts:185 \
                 e2e/drag-and-drop.drag-feedback.spec.ts:24 \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
               )
@@ -576,6 +577,7 @@ jobs:
             drag-2)
               fixed_specs=( \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
+                e2e/parity-alt-drag-duplicate.spec.ts:1293 \
                 e2e/parity-selection.spec.ts:313 \
                 e2e/parity-selection.spec.ts:451 \
                 e2e/parity-selection.spec.ts:572 \
@@ -585,7 +587,7 @@ jobs:
               fixed_specs=( \
                 e2e/pasted-svg-image-inspector.spec.ts:656 \
                 e2e/pasted-svg-image-inspector.spec.ts:693 \
-                e2e/position-alignment.spec.ts:312 \
+                e2e/position-alignment.spec.ts:361 \
                 e2e/position-alignment.spec.ts:431 \
                 e2e/position-alignment.spec.ts:509 \
               )
@@ -600,7 +602,7 @@ jobs:
               ;;
             position-3)
               fixed_specs=( \
-                e2e/position-alignment.spec.ts:361 \
+                e2e/position-alignment.spec.ts:312 \
                 e2e/position-alignment.spec.ts:708 \
                 e2e/position-alignment.spec.ts:740 \
                 e2e/position-alignment.spec.ts:780 \

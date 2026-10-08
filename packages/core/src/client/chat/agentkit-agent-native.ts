@@ -2309,12 +2309,17 @@ export function createAgentNativeAgentKitTransport(
     for (const [runId, messageId] of assistantMessageIdsByRun(thread.events)) {
       assistantHistoryMessageIdsByRun.set(runId, messageId);
     }
+    const runsWithAssistantHistory = (thread.runs ?? []).map((run) => {
+      const activeMessageId =
+        run.activeMessageId ?? assistantHistoryMessageIdsByRun.get(run.id);
+      return activeMessageId ? { ...run, activeMessageId } : run;
+    });
     const assistantMessageIds = new Set(
       thread.messages.flatMap((message) =>
         message.role === "assistant" ? [message.id] : [],
       ),
     );
-    for (const run of thread.runs ?? []) {
+    for (const run of runsWithAssistantHistory) {
       if (
         typeof run.activeMessageId === "string" &&
         assistantMessageIds.has(run.activeMessageId)
@@ -2332,6 +2337,14 @@ export function createAgentNativeAgentKitTransport(
     const activeRun = await activeRunSnapshot(threadId, activeStatus);
     if (activeRun === undefined) return thread;
     let discoveredRun = activeRun;
+    if (discoveredRun && !discoveredRun.activeMessageId) {
+      const activeMessageId = assistantHistoryMessageIdsByRun.get(
+        discoveredRun.id,
+      );
+      if (activeMessageId) {
+        discoveredRun = { ...discoveredRun, activeMessageId };
+      }
+    }
     if (discoveredRun?.status === "failed") {
       const durableFailure = durableFailures.get(discoveredRun.id);
       if (durableFailure) {
@@ -2361,7 +2374,7 @@ export function createAgentNativeAgentKitTransport(
         (id) => id !== runId && completedRunIds.has(id),
       );
     };
-    const runs = (thread.runs ?? [])
+    const runs = runsWithAssistantHistory
       .filter((entry) => entry.id !== discoveredRun?.id)
       .map((run) => {
         if (

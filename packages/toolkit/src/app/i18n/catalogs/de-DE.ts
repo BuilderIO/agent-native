@@ -130,7 +130,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Vorerst überspringen",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io verwenden",
-  "onboarding.builderSignInWithAccount": "Mit Builder.io-Konto anmelden",
+  "onboarding.builderSignInWithAccount": "Builder.io verwenden",
   "onboarding.builderActivateDescription":
     "Erstelle oder verwende dein Builder.io-Konto erneut und aktiviere seine Gratiscredits mit einem Klick.",
   "onboarding.builderActiveCredits":
@@ -162,7 +162,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Nutzungsbedingungen",
   "onboarding.builderPrivacy": "Datenschutzrichtlinien",
   "onboarding.builderConsentAnd": "und",
-  "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
+  "onboarding.builderExistingAccount": "Builder.io verwenden",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
   "onboarding.builderProvisioningDescription":
@@ -214,7 +214,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder-Speicher oder S3-kompatibler Bucket",
   "onboarding.capability.clipsObjectStorage.why":
-    "Aufgenommene Videos benötigen dauerhaften Objektspeicher, bevor sie abgespielt oder geteilt werden können.",
+    "Du kannst Clips ohne Speicher aufnehmen, ansehen und herunterladen. Verbinde dauerhaften Objektspeicher, damit Aufnahmen auf mehreren Geräten verfügbar sind und geteilt werden können.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Schlüssel eines Sprache-zu-Text-Anbieters",
   "onboarding.capability.about": "Über {{label}}",
@@ -2193,7 +2193,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io konnte nicht getrennt werden.",
   "settingsShell.builder.disconnectTitle": "Builder.io trennen?",
   "settingsShell.builder.grantsFailed":
-    "Die Builder.io-Verbindungen konnten nicht gelesen werden.",
+    "Die Verbindung zu Builder.io konnte nicht überprüft werden.",
   "settingsShell.builder.setupStartFailed":
     "Das Builder.io-Setup konnte nicht gestartet werden. Aktualisiere diese Seite und versuche es erneut.",
   "settingsShell.builder.setupHostFailed":

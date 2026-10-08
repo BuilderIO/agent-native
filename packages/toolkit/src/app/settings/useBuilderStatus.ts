@@ -243,6 +243,8 @@ export interface BuilderConnectStartOptions {
   scope?: BuilderConnectionScope;
 }
 
+export type BuilderConnectErrorKind = "status-read" | "connection" | "launch";
+
 export interface BuilderConnectFlow {
   configured: boolean;
   provisionAccount?: boolean;
@@ -268,6 +270,7 @@ export interface BuilderConnectFlow {
   orgName: string | null;
   connecting: boolean;
   error: string | null;
+  errorKind: BuilderConnectErrorKind | null;
   /** The most recent terminal Builder connection attempt error, if any. */
   terminalError: string | null;
   /** The most recent Builder connection-status read failed. */
@@ -842,8 +845,28 @@ export function useBuilderConnectFlow(
   const [builderEnabled, setBuilderEnabled] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [statusUnavailable, setStatusUnavailable] = useState(false);
+  const errorRevisionRef = useRef(0);
+  const [errorState, setErrorState] = useState<{
+    kind: BuilderConnectErrorKind;
+    message: string;
+    revision: number;
+  } | null>(null);
+  const error = errorState?.message ?? null;
+  const errorKind = errorState?.kind ?? null;
+  const setError = useCallback(
+    (message: string | null, kind: BuilderConnectErrorKind = "connection") => {
+      setErrorState(
+        message
+          ? { kind, message, revision: ++errorRevisionRef.current }
+          : null,
+      );
+    },
+    [],
+  );
+  const [statusUnavailableRevision, setStatusUnavailableRevision] = useState<
+    number | null
+  >(null);
+  const statusUnavailable = statusUnavailableRevision !== null;
   const [accountExists, setAccountExists] = useState(false);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const [statusResolved, setStatusResolved] = useState(false);
@@ -873,11 +896,11 @@ export function useBuilderConnectFlow(
   const statusUnavailableRef = useRef(false);
   const markStatusUnavailable = useCallback(() => {
     statusUnavailableRef.current = true;
-    setStatusUnavailable(true);
+    setStatusUnavailableRevision(++errorRevisionRef.current);
   }, []);
   const markStatusAvailable = useCallback(() => {
     statusUnavailableRef.current = false;
-    setStatusUnavailable(false);
+    setStatusUnavailableRevision(null);
   }, []);
   const statusPollFailuresRef = useRef(0);
   const mountedRef = useRef(true);
@@ -1044,10 +1067,12 @@ export function useBuilderConnectFlow(
     let cancelled = false;
     let refreshGeneration = 0;
     const refresh = async () => {
+      const errorRevisionAtStart = errorRevisionRef.current;
       const generation = ++refreshGeneration;
       const isCurrentRefresh = () => generation === refreshGeneration;
       const s = await fetchStatus();
       if (cancelled || !mountedRef.current || !isCurrentRefresh()) return;
+      if (errorRevisionRef.current !== errorRevisionAtStart) return;
       setHasFetchedStatus(true);
       setStatusReadSettledCount((count) => count + 1);
       if (!s) {
@@ -1093,13 +1118,15 @@ export function useBuilderConnectFlow(
       } else if (!connectComplete) {
         notifiedConnectedRef.current = false;
       }
-      const activeConnectStartedAt = connectStartedAtRef.current;
-      if (isCurrentConnectError(s.connectError, activeConnectStartedAt)) {
-        setError(s.connectError.message);
-      } else if (!activeConnectStartedAt && s.authError?.message) {
-        setError(s.authError.message);
-      } else if (s.configured) {
-        setError(null);
+      if (errorRevisionRef.current === errorRevisionAtStart) {
+        const activeConnectStartedAt = connectStartedAtRef.current;
+        if (isCurrentConnectError(s.connectError, activeConnectStartedAt)) {
+          setError(s.connectError.message);
+        } else if (!activeConnectStartedAt && s.authError?.message) {
+          setError(s.authError.message);
+        } else if (s.configured) {
+          setError(null);
+        }
       }
     };
     retryStatusRef.current = () => {
@@ -1139,6 +1166,7 @@ export function useBuilderConnectFlow(
     markStatusAvailable,
     markStatusUnavailable,
     notifyProvisionedAccount,
+    setError,
   ]);
 
   const retry = useCallback(() => retryStatusRef.current(), []);
@@ -1270,6 +1298,7 @@ export function useBuilderConnectFlow(
         const freshProvisioningCredentials = async () => {
           // coercion-ok: no fresh token is sent as none and refused as provision_token_invalid
           const status = await fetchStatus();
+          if (!isCurrentAttempt()) return null;
           if (!status) {
             markStatusUnavailable();
             return null;
@@ -1301,6 +1330,7 @@ export function useBuilderConnectFlow(
               : null;
           const credentials =
             cachedCredentials ?? (await freshProvisioningCredentials());
+          if (!isCurrentAttempt()) return;
           if (!credentials) {
             connectStartedAtRef.current = null;
             setConnecting(false);
@@ -1310,6 +1340,7 @@ export function useBuilderConnectFlow(
             return;
           }
           let result = await activate(credentials);
+          let statusReadFailed = false;
           if (
             !result.ok &&
             cachedCredentials &&
@@ -1318,6 +1349,7 @@ export function useBuilderConnectFlow(
             isCurrentAttempt()
           ) {
             const freshCredentials = await freshProvisioningCredentials();
+            statusReadFailed = statusUnavailableRef.current;
             result = freshCredentials
               ? await activate(freshCredentials)
               : {
@@ -1341,7 +1373,10 @@ export function useBuilderConnectFlow(
             const status = await fetchStatus();
             if (!isCurrentAttempt()) return;
             if (status) markStatusAvailable();
-            else markStatusUnavailable();
+            else {
+              markStatusUnavailable();
+              statusReadFailed = true;
+            }
             if (
               status &&
               isBuilderConnectComplete(status, connectTargetRef.current)
@@ -1365,6 +1400,7 @@ export function useBuilderConnectFlow(
               flow: trackedFlow,
             });
           }
+          if (statusReadFailed) return;
           setError(
             result.message && result.code !== "provision_token_invalid"
               ? result.message
@@ -1474,6 +1510,7 @@ export function useBuilderConnectFlow(
             setError(
               result?.error ??
                 t("agentChat.settingsShell.builder.setupStartFailed"),
+              "launch",
             );
           }
         })();
@@ -1490,7 +1527,10 @@ export function useBuilderConnectFlow(
           if (!embeddedWindow) {
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError("Couldn't open Builder. Allow popups and try again.");
+            setError(
+              "Couldn't open Builder. Allow popups and try again.",
+              "launch",
+            );
             return;
           }
 
@@ -1542,7 +1582,10 @@ export function useBuilderConnectFlow(
             if (!mountedRef.current || openedByHost) return;
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError(t("agentChat.settingsShell.builder.setupHostFailed"));
+            setError(
+              t("agentChat.settingsShell.builder.setupHostFailed"),
+              "launch",
+            );
           })();
         } else {
           const isCurrentConnectAttempt = () =>
@@ -1630,6 +1673,7 @@ export function useBuilderConnectFlow(
               setConnecting(false);
               setError(
                 "Couldn't navigate the Builder popup. Allow popups and try again.",
+                "launch",
               );
               return;
             }
@@ -1642,6 +1686,7 @@ export function useBuilderConnectFlow(
               setConnecting(false);
               setError(
                 "Couldn't navigate the Builder popup. Allow popups and try again.",
+                "launch",
               );
             }
           })();
@@ -1654,6 +1699,7 @@ export function useBuilderConnectFlow(
       fetchStatus,
       markStatusAvailable,
       markStatusUnavailable,
+      setError,
       transport,
       agentNativeProvisioningEnabled,
       agentNativeProvisioningToken,
@@ -1749,7 +1795,7 @@ export function useBuilderConnectFlow(
               cleanTrackingParam(flow) ??
               inferBuilderConnectTrackingFlow(source),
           });
-          setError(t("agentChat.settingsShell.builder.setupFailed"));
+          if (s) setError(t("agentChat.settingsShell.builder.setupFailed"));
         }
       } else if (Date.now() - started > POLL_TIMEOUT_MS) {
         connectStartedAtRef.current = null;
@@ -1763,9 +1809,12 @@ export function useBuilderConnectFlow(
           flow:
             cleanTrackingParam(flow) ?? inferBuilderConnectTrackingFlow(source),
         });
-        setError(
-          "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
-        );
+        if (s) {
+          setError(
+            "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
+            "launch",
+          );
+        }
       }
     },
     {
@@ -1859,6 +1908,7 @@ export function useBuilderConnectFlow(
           ) {
             return;
           }
+          if (s) markStatusAvailable();
           if (
             (s && isBuilderConnectComplete(s, connectTargetRef.current)) ||
             isCurrentConnectError(s?.connectError, started)
@@ -1895,7 +1945,6 @@ export function useBuilderConnectFlow(
         return;
       }
       if (!s) return;
-      markStatusAvailable();
       if (!isBuilderConnectComplete(s, connectTargetRef.current)) {
         const connectError = isCurrentConnectError(s?.connectError, started)
           ? s?.connectError
@@ -2015,7 +2064,11 @@ export function useBuilderConnectFlow(
       channel?.close();
       window.removeEventListener("message", handler);
     };
-  }, [fetchStatus, markStatusAvailable, notifyProvisionedAccount]);
+  }, [fetchStatus, markStatusAvailable, notifyProvisionedAccount, setError]);
+
+  const statusReadIsCurrent =
+    statusUnavailableRevision !== null &&
+    statusUnavailableRevision > (errorState?.revision ?? 0);
 
   return {
     configured,
@@ -2034,11 +2087,10 @@ export function useBuilderConnectFlow(
     orgName,
     connecting,
     terminalError: error,
-    error:
-      error ??
-      (statusUnavailable
-        ? t("agentChat.settingsShell.integrations.builderStatusFailed")
-        : null),
+    error: statusReadIsCurrent
+      ? t("agentChat.settingsShell.integrations.builderStatusFailed")
+      : error,
+    errorKind: statusReadIsCurrent ? "status-read" : errorKind,
     statusUnavailable,
     accountExists,
     hasFetchedStatus,

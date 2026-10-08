@@ -1070,7 +1070,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 });
 
 describe("runCrossScreenElementDrop ordinary move routing", () => {
-  it("persists an unanchored board drop in authored coordinates outside the render window", () => {
+  it("persists an unanchored board drop in authored coordinates outside board content", () => {
     const renderOrigin = { x: -16_384, y: -8_192 };
     const targetCanvasPoint = { x: -18_099.98, y: -9_234.5 };
     const targetLocalPoint = {
@@ -1091,7 +1091,7 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
         targetScreenId: "target",
         targetDropMode: "absolute-container",
         targetCanvasPoint,
-        targetOutsideBoardRenderGeometry: true,
+        targetOutsideBoardContentBounds: true,
         targetLocalPoint,
         sourcePointerOffset,
       },
@@ -1126,7 +1126,7 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
         targetScreenId: "target",
         targetDropMode: "absolute-container",
         targetCanvasPoint,
-        targetOutsideBoardRenderGeometry: false,
+        targetOutsideBoardContentBounds: false,
         targetLocalPoint,
         sourcePointerOffset,
       },

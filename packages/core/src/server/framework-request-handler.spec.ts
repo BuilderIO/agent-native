@@ -88,8 +88,26 @@ describe("framework request handler", () => {
     delete process.env.AGENT_NATIVE_DISABLED_PLUGINS;
     resetAppConfigForTests();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     delete (globalThis as Record<string, unknown>)
       .__AGENT_NATIVE_SERVER_RUNTIME__;
+  });
+
+  it("installs the dev database close hook once per Nitro app", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const hook = vi.fn();
+    const nitroApp = {
+      ...createNitroApp(),
+      hooks: { hook },
+    };
+
+    getH3App(nitroApp);
+    getH3App(nitroApp);
+
+    expect(hook).toHaveBeenCalledWith("close", expect.any(Function));
+    expect(hook.mock.calls.filter(([name]) => name === "close")).toHaveLength(
+      1,
+    );
   });
 
   it("marks server-runtime duty started on the first getH3App() call for a nitroApp", () => {
