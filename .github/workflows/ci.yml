@@ -1085,7 +1085,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -1117,6 +1117,18 @@ jobs:
       - name: Check typing fidelity across Slides text surfaces in WebKit
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
+
+      - name: Check rich-text authoring parity in Slides
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
+
+      - name: Check rich-text authoring parity in Slides WebKit
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
+
+      - name: Check rich-text authoring against the committed corpus
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
 
       - name: Run deterministic authoring smoke in Chromium
         working-directory: templates/slides

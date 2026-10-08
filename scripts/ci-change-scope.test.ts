@@ -170,12 +170,19 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
   assert.equal(full.checks.slides_authoring_e2e, true);
 });
 
-test("keeps the Slides authoring smoke small and the full soak manual", () => {
+test("retains Slides parity and corpus gates while keeping the full soak manual", () => {
   const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
   const soakWorkflow = readFileSync(
     ".github/workflows/slides-authoring-fuzz-soak.yml",
     "utf8",
   );
+
+  assert.match(
+    ciWorkflow,
+    /run: pnpm exec tsx scripts\/edit-fidelity\/run\.ts --authoring\n/u,
+  );
+  assert.match(ciWorkflow, /--authoring --browser webkit/u);
+  assert.match(ciWorkflow, /--authoring-corpus/u);
 
   for (const browser of ["chromium", "webkit", "firefox"]) {
     assert.match(
