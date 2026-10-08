@@ -427,7 +427,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockRelayChunk).not.toHaveBeenCalled();
   });
 
-  it("keeps storage setup failure tracking and response when upload-state attribution is unreadable", async () => {
+  it("returns terminal storage failure when upload-state repair is unreadable", async () => {
     mockShouldRejectVideoUploadWithoutStorage.mockResolvedValueOnce(true);
     mockGetHeader.mockImplementation((_, name) =>
       name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
@@ -447,14 +447,17 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     try {
       await expect(handler({} as any)).resolves.toEqual({
         ok: false,
+        finalized: false,
+        status: "failed",
         error: "Storage setup required",
         storageSetupRequired: true,
+        uploadStateRepairFailed: true,
       });
     } finally {
       consoleWarn.mockRestore();
     }
 
-    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 500);
     expect(mockTrack).toHaveBeenCalledWith(
       "recording_failed",
       expect.any(Object),
@@ -462,6 +465,160 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     );
     expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("retries storage failure state repair after same-attempt app-state contention", async () => {
+    const attemptState = {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockShouldRejectVideoUploadWithoutStorage.mockResolvedValueOnce(true);
+    mockAppState.set(UPLOAD_KEY, attemptState);
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockCompareAndSetAppState.mockImplementationOnce(
+      async (key: string, expected: Record<string, unknown> | null) => {
+        mockAppState.set(key, { ...(expected ?? {}), bytesReceived: 2 });
+        return false;
+      },
+    );
+    setRequest({
+      query: {
+        index: "0",
+        total: "1",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      error: "Storage setup required",
+      storageSetupRequired: true,
+    });
+
+    expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(2);
+    expect(mockAppState.get(UPLOAD_KEY)).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "storage_setup_required",
+        storageSetupRequired: true,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+        bytesReceived: 2,
+      }),
+    );
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+  });
+
+  it.each(["contention", "write failure"] as const)(
+    "returns terminal storage failure when upload-state repair has a %s",
+    async (repairFailure) => {
+      mockShouldRejectVideoUploadWithoutStorage.mockResolvedValueOnce(true);
+      mockAppState.set(UPLOAD_KEY, {
+        recordingId: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      });
+      mockSelectRows.rows[0] = {
+        ...mockSelectRows.rows[0],
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      };
+      if (repairFailure === "contention") {
+        mockCompareAndSetAppState.mockResolvedValue(false);
+      } else {
+        mockCompareAndSetAppState.mockRejectedValue(
+          new Error("app-state write unavailable"),
+        );
+      }
+      setRequest({
+        query: {
+          index: "0",
+          total: "1",
+          mimeType: "video/webm",
+          attemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+        },
+        body: new Uint8Array([1]),
+      });
+      const consoleWarn = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+
+      try {
+        await expect(handler({} as any)).resolves.toEqual({
+          ok: false,
+          finalized: false,
+          status: "failed",
+          error: "Storage setup required",
+          storageSetupRequired: true,
+          uploadStateRepairFailed: true,
+        });
+      } finally {
+        consoleWarn.mockRestore();
+      }
+
+      expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 500);
+      expect(mockSetResponseStatus).not.toHaveBeenCalledWith({}, 409);
+      expect(mockUpdateSets).toContainEqual(
+        expect.objectContaining({
+          status: "failed",
+          failureCode: "storage_setup_required",
+        }),
+      );
+      expect(mockTrack).toHaveBeenCalledTimes(1);
+      if (repairFailure === "contention") {
+        expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(3);
+      } else {
+        expect(mockCompareAndSetAppState).toHaveBeenCalledOnce();
+      }
+    },
+  );
+
+  it("does not overwrite upload state owned by a newer retry", async () => {
+    const newerAttemptState = {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-2",
+      uploadGenerationId: "generation-2",
+      browserSessionId: "newer-browser-session",
+    };
+    mockShouldRejectVideoUploadWithoutStorage.mockResolvedValueOnce(true);
+    mockAppState.set(UPLOAD_KEY, newerAttemptState);
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    setRequest({
+      query: {
+        index: "0",
+        total: "1",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockAppState.get(UPLOAD_KEY)).toEqual(newerAttemptState);
   });
 
   it("returns a retryable 503 after same-attempt session CAS contention", async () => {
@@ -1673,9 +1830,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       expect.objectContaining({ sessionId: "browser-session-1" }),
     );
     expect(warningCalls).toContainEqual([
-      expect.stringContaining(
-        "failed to read upload state during finalize recovery",
-      ),
+      expect.stringContaining("failed to read upload state during recovery"),
       expect.objectContaining({
         recordingId: "rec-1",
         err: "state read unavailable",
@@ -1920,9 +2075,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       expect.objectContaining({ sessionId: "browser-session-1" }),
     );
     expect(warningCalls).toContainEqual([
-      expect.stringContaining(
-        "failed to read upload state during finalize recovery",
-      ),
+      expect.stringContaining("failed to read upload state during recovery"),
       expect.objectContaining({
         recordingId: "rec-1",
         err: "state read unavailable",

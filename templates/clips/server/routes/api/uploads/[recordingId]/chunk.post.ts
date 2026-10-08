@@ -216,11 +216,11 @@ function stateNumber(
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
 }
 
-type FinalizeUploadStateSnapshot =
+type UploadStateSnapshot =
   | { readable: true; raw: unknown; state: Record<string, unknown> }
   | { readable: false };
 
-type FinalizeUploadStateRepairResult =
+type UploadStateRepairResult =
   | { outcome: "repaired" }
   | {
       outcome:
@@ -231,10 +231,10 @@ type FinalizeUploadStateRepairResult =
         | "write_failed";
     };
 
-async function readFinalizeUploadState(params: {
+async function readUploadStateForRepair(params: {
   recordingId: string;
   mode: "buffered" | "resumable";
-}): Promise<FinalizeUploadStateSnapshot> {
+}): Promise<UploadStateSnapshot> {
   try {
     const raw = await readAppState(`recording-upload-${params.recordingId}`);
     return {
@@ -249,7 +249,7 @@ async function readFinalizeUploadState(params: {
         ? "[clips]"
         : `[resumable-chunk-${params.recordingId}]`;
     console.warn(
-      `${prefix} failed to read upload state during finalize recovery; skipping state repair:`,
+      `${prefix} failed to read upload state during recovery; skipping state repair:`,
       {
         recordingId: params.recordingId,
         err: error instanceof Error ? error.message : String(error),
@@ -259,7 +259,7 @@ async function readFinalizeUploadState(params: {
   }
 }
 
-async function repairFinalizeUploadState(params: {
+async function repairUploadState(params: {
   recordingId: string;
   mode: "buffered" | "resumable";
   attempt: {
@@ -267,10 +267,10 @@ async function repairFinalizeUploadState(params: {
     uploadAttemptId: string | null;
     uploadGenerationId: string | null;
   };
-  snapshot: FinalizeUploadStateSnapshot;
+  snapshot: UploadStateSnapshot;
   updates: Record<string, unknown>;
   preserveCancellation?: boolean;
-}): Promise<FinalizeUploadStateRepairResult> {
+}): Promise<UploadStateRepairResult> {
   let snapshot = params.snapshot;
   const prefix =
     params.mode === "buffered"
@@ -285,7 +285,7 @@ async function repairFinalizeUploadState(params: {
       !recordingUploadStateMatchesAttempt(raw, params.attempt)
     ) {
       console.warn(
-        `${prefix} upload state belongs to a different attempt; skipping finalize state repair:`,
+        `${prefix} upload state belongs to a different attempt; skipping state repair:`,
         {
           recordingId: params.recordingId,
           uploadAttemptId: params.attempt.uploadAttemptId,
@@ -322,7 +322,7 @@ async function repairFinalizeUploadState(params: {
       });
       return { outcome: "write_failed" };
     }
-    snapshot = await readFinalizeUploadState({
+    snapshot = await readUploadStateForRepair({
       recordingId: params.recordingId,
       mode: params.mode,
     });
@@ -361,9 +361,9 @@ async function repairFinalizeUploadState(params: {
   return { outcome: "contention" };
 }
 
-function finalizeUploadRepairFailureResponse(
+function uploadStateRepairFailureResponse(
   event: H3Event,
-  result: FinalizeUploadStateRepairResult,
+  result: UploadStateRepairResult,
 ): Record<string, unknown> | undefined | null {
   switch (result.outcome) {
     case "repaired":
@@ -392,13 +392,18 @@ function finalizeUploadRepairFailureResponse(
   }
 }
 
-function terminalFinalizeFailureResponse(event: H3Event, error: string) {
+function terminalFinalizeFailureResponse(
+  event: H3Event,
+  error: string,
+  details: Record<string, unknown> = {},
+) {
   setResponseStatus(event, 500);
   return {
     ok: false,
     finalized: false,
     status: "failed" as const,
     error,
+    ...details,
   };
 }
 
@@ -810,23 +815,13 @@ export async function handleRecordingChunk(
         };
       }
       const now = new Date().toISOString();
-      let uploadStateBeforeFailure: unknown;
-      let uploadStateReadable = true;
-      try {
-        uploadStateBeforeFailure = await readAppState(uploadStateKey);
-      } catch (error) {
-        uploadStateReadable = false;
-        console.warn(
-          "[chunk] failed to read upload state for storage setup attribution; using request session:",
-          {
-            recordingId,
-            err: error instanceof Error ? error.message : String(error),
-          },
-        );
-      }
-      const failureSessionId = uploadStateReadable
+      const uploadStateSnapshot = await readUploadStateForRepair({
+        recordingId,
+        mode: "buffered",
+      });
+      const failureSessionId = uploadStateSnapshot.readable
         ? (recordingUploadBrowserSessionId(
-            uploadStateBeforeFailure,
+            uploadStateSnapshot.raw,
             uploadAttempt,
           ) ?? browserSessionId)
         : browserSessionId;
@@ -838,51 +833,38 @@ export async function handleRecordingChunk(
         failureCode: "storage_setup_required",
         browserSessionId: failureSessionId,
       });
-      if (uploadStateReadable) {
-        const nextUploadState = recordingUploadStateForAttemptIfCurrent({
-          state: uploadStateBeforeFailure,
-          attempt: uploadAttempt,
-          browserSessionId: failureSessionId ?? "",
-        });
-        if (nextUploadState) {
-          const expectedState =
-            uploadStateBeforeFailure &&
-            typeof uploadStateBeforeFailure === "object"
-              ? (uploadStateBeforeFailure as Record<string, unknown>)
-              : null;
-          try {
-            const repaired = await compareAndSetAppState(
-              uploadStateKey,
-              expectedState,
-              {
-                ...nextUploadState,
-                status: "failed",
-                failureReason: STORAGE_SETUP_REQUIRED_REASON,
-                storageSetupRequired: true,
-                updatedAt: now,
-              },
-            );
-            if (!repaired) {
-              console.warn(
-                "[chunk] upload state changed before storage setup failure was recorded:",
-                { recordingId },
-              );
-            }
-          } catch (error) {
-            console.warn(
-              "[chunk] failed to record storage setup failure in upload state:",
-              {
-                recordingId,
-                err: error instanceof Error ? error.message : String(error),
-              },
-            );
-          }
-        } else {
-          console.warn(
-            "[chunk] upload state belongs to a different attempt; skipping storage setup state repair:",
-            { recordingId },
-          );
-        }
+      const stateRepair = await repairUploadState({
+        recordingId,
+        mode: "buffered",
+        attempt: uploadAttempt,
+        snapshot: uploadStateSnapshot,
+        updates: {
+          recordingId,
+          status: "failed",
+          failureCode: "storage_setup_required",
+          failureReason: STORAGE_SETUP_REQUIRED_REASON,
+          storageSetupRequired: true,
+          uploadAttemptId: attemptId,
+          uploadGenerationId,
+          browserSessionId: failureSessionId ?? null,
+          updatedAt: now,
+        },
+      });
+      if (
+        stateRepair.outcome === "stale_attempt" ||
+        stateRepair.outcome === "cancelled"
+      ) {
+        return uploadStateRepairFailureResponse(event, stateRepair);
+      }
+      if (stateRepair.outcome !== "repaired") {
+        return terminalFinalizeFailureResponse(
+          event,
+          STORAGE_SETUP_REQUIRED_REASON,
+          {
+            storageSetupRequired: true,
+            uploadStateRepairFailed: true,
+          },
+        );
       }
       setResponseStatus(event, 409);
       return {
@@ -1184,7 +1166,7 @@ export async function handleRecordingChunk(
               error: err instanceof Error ? err.message : String(err),
             },
           );
-          const priorReadySnapshot = await readFinalizeUploadState({
+          const priorReadySnapshot = await readUploadStateForRepair({
             recordingId,
             mode: "buffered",
           });
@@ -1195,7 +1177,7 @@ export async function handleRecordingChunk(
             stateNumber(priorReadyState, "sourceSizeBytes") ??
             stateNumber(priorReadyState, "bytesReceived");
           try {
-            const repaired = await repairFinalizeUploadState({
+            const repaired = await repairUploadState({
               recordingId,
               mode: "buffered",
               attempt: uploadAttempt,
@@ -1216,7 +1198,7 @@ export async function handleRecordingChunk(
                 finishedAt: new Date().toISOString(),
               },
             });
-            const repairFailure = finalizeUploadRepairFailureResponse(
+            const repairFailure = uploadStateRepairFailureResponse(
               event,
               repaired,
             );
@@ -1261,7 +1243,7 @@ export async function handleRecordingChunk(
           };
         }
         if (committed?.status === "processing" && committed.videoUrl) {
-          const pendingSnapshot = await readFinalizeUploadState({
+          const pendingSnapshot = await readUploadStateForRepair({
             recordingId,
             mode: "buffered",
           });
@@ -1303,7 +1285,7 @@ export async function handleRecordingChunk(
         if (failed.length !== 1) {
           throw err;
         }
-        const failedUploadSnapshot = await readFinalizeUploadState({
+        const failedUploadSnapshot = await readUploadStateForRepair({
           recordingId,
           mode: "buffered",
         });
@@ -1334,7 +1316,7 @@ export async function handleRecordingChunk(
           failureCode: "finalize_failed",
           browserSessionId: failureSessionId,
         });
-        const repairResult = await repairFinalizeUploadState({
+        const repairResult = await repairUploadState({
           recordingId,
           mode: "buffered",
           attempt: uploadAttempt,
@@ -1357,7 +1339,7 @@ export async function handleRecordingChunk(
         ) {
           return terminalFinalizeFailureResponse(event, failureReason);
         }
-        const repairFailure = finalizeUploadRepairFailureResponse(
+        const repairFailure = uploadStateRepairFailureResponse(
           event,
           repairResult,
         );
@@ -1834,7 +1816,7 @@ async function handleResumableChunk(
         `[resumable-chunk-${recordingId}] finalize reported an error after committing a ready recording; returning committed success.`,
         { error: err instanceof Error ? err.message : String(err) },
       );
-      const priorReadySnapshot = await readFinalizeUploadState({
+      const priorReadySnapshot = await readUploadStateForRepair({
         recordingId,
         mode: "resumable",
       });
@@ -1844,7 +1826,7 @@ async function handleResumableChunk(
       const sourceSizeBytes =
         stateNumber(priorReadyState, "sourceSizeBytes") ??
         finalizedSourceSizeBytes;
-      const repaired = await repairFinalizeUploadState({
+      const repaired = await repairUploadState({
         recordingId,
         mode: "resumable",
         attempt: {
@@ -1869,10 +1851,7 @@ async function handleResumableChunk(
           finishedAt: new Date().toISOString(),
         },
       });
-      const repairFailure = finalizeUploadRepairFailureResponse(
-        event,
-        repaired,
-      );
+      const repairFailure = uploadStateRepairFailureResponse(event, repaired);
       if (repairFailure !== null) return repairFailure;
       try {
         await deleteAppState(mediaVerificationStateKey(recordingId));
@@ -1901,7 +1880,7 @@ async function handleResumableChunk(
       };
     }
     if (sameUpload && committed.status === "processing" && committed.videoUrl) {
-      const pendingSnapshot = await readFinalizeUploadState({
+      const pendingSnapshot = await readUploadStateForRepair({
         recordingId,
         mode: "resumable",
       });
@@ -1945,7 +1924,7 @@ async function handleResumableChunk(
         recordingPlatform: schema.recordings.recordingPlatform,
       });
     if (failed.length !== 1) throw err;
-    const failedUploadSnapshot = await readFinalizeUploadState({
+    const failedUploadSnapshot = await readUploadStateForRepair({
       recordingId,
       mode: "resumable",
     });
@@ -1979,7 +1958,7 @@ async function handleResumableChunk(
       failureCode: "finalize_failed",
       browserSessionId: failureSessionId,
     });
-    const repairResult = await repairFinalizeUploadState({
+    const repairResult = await repairUploadState({
       recordingId,
       mode: "resumable",
       attempt: {
@@ -2005,10 +1984,7 @@ async function handleResumableChunk(
     ) {
       return terminalFinalizeFailureResponse(event, failureReason);
     }
-    const repairFailure = finalizeUploadRepairFailureResponse(
-      event,
-      repairResult,
-    );
+    const repairFailure = uploadStateRepairFailureResponse(event, repairResult);
     if (repairFailure !== null) return repairFailure;
     setResponseStatus(event, 500);
     return {
