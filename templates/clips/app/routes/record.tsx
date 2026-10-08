@@ -1133,14 +1133,42 @@ export function shouldPreserveFirstRunStorageSetupIntent({
   return dismissal !== "dismissed" && (firstRunStorageSetup || currentIntent);
 }
 
+export function shouldAllowSkippingStorageSetup({
+  firstRunStorageSetup,
+  firstRunStorageSetupIntent,
+  connectStorageRequested,
+  hasPendingUpload,
+  isClipIntake,
+}: {
+  firstRunStorageSetup: boolean;
+  firstRunStorageSetupIntent: boolean;
+  connectStorageRequested: boolean;
+  hasPendingUpload: boolean;
+  isClipIntake: boolean;
+}): boolean {
+  return (
+    !isClipIntake &&
+    !hasPendingUpload &&
+    (connectStorageRequested ||
+      firstRunStorageSetup ||
+      firstRunStorageSetupIntent)
+  );
+}
+
 export function shouldPersistFirstRunStorageSetupDismissal({
   firstRunStorageSetup,
+  firstRunStorageSetupIntent,
   connectStorageRequested,
 }: {
   firstRunStorageSetup: boolean;
+  firstRunStorageSetupIntent: boolean;
   connectStorageRequested: boolean;
 }): boolean {
-  return firstRunStorageSetup || connectStorageRequested;
+  return (
+    firstRunStorageSetup ||
+    firstRunStorageSetupIntent ||
+    connectStorageRequested
+  );
 }
 
 export default function RecordRoute() {
@@ -3783,10 +3811,13 @@ export default function RecordRoute() {
   // Recording can start locally after the first storage choice is skipped.
   const showStorageSetupFirst =
     storageConfigured === false && storageSetupRequested;
-  const canSkipStorageSetup =
-    !clipIntake &&
-    !pendingUploadFile &&
-    (connectStorageRequested || firstRunStorageSetup);
+  const canSkipStorageSetup = shouldAllowSkippingStorageSetup({
+    firstRunStorageSetup,
+    firstRunStorageSetupIntent,
+    connectStorageRequested,
+    hasPendingUpload: pendingUploadFile,
+    isClipIntake: !!clipIntake,
+  });
   const showStorageStatusUnavailable =
     storageQuery.isError && storageSetupRequested;
   const skipStorageSetup = () => {
@@ -3794,6 +3825,7 @@ export default function RecordRoute() {
     if (
       shouldPersistFirstRunStorageSetupDismissal({
         firstRunStorageSetup,
+        firstRunStorageSetupIntent,
         connectStorageRequested,
       })
     ) {

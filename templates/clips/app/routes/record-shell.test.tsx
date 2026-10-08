@@ -17,6 +17,7 @@ import {
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
+  shouldAllowSkippingStorageSetup,
   shouldPersistFirstRunStorageSetupDismissal,
   shouldPreserveFirstRunStorageSetupIntent,
   shouldRedirectToStorageSetupHome,
@@ -115,13 +116,34 @@ describe("record route lifecycle shell", () => {
   it.each([
     {
       label: "the first-run prompt",
-      input: { firstRunStorageSetup: true, connectStorageRequested: false },
+      input: {
+        firstRunStorageSetup: true,
+        firstRunStorageSetupIntent: false,
+        connectStorageRequested: false,
+      },
     },
     {
       label: "a storage setup link",
-      input: { firstRunStorageSetup: false, connectStorageRequested: true },
+      input: {
+        firstRunStorageSetup: false,
+        firstRunStorageSetupIntent: false,
+        connectStorageRequested: true,
+      },
     },
   ])("persists a skipped storage choice for $label", ({ input }) => {
+    expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
+  });
+
+  it("keeps Skip available and saves dismissal for latched setup intent", () => {
+    const input = {
+      firstRunStorageSetup: false,
+      firstRunStorageSetupIntent: true,
+      connectStorageRequested: false,
+      hasPendingUpload: false,
+      isClipIntake: false,
+    };
+
+    expect(shouldAllowSkippingStorageSetup(input)).toBe(true);
     expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
   });
 
