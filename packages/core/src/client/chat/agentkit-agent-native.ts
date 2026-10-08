@@ -9,6 +9,7 @@ import type {
   AgentObjectReference,
   AgentRunSnapshot,
   AgentQueuedMessage,
+  AgentRequestContext,
   AgentToolCall,
   AgentThreadSnapshot,
   AgentWidgetSnapshot,
@@ -25,6 +26,10 @@ import {
   RUN_NOT_STARTED_METADATA_KEY,
   retryContextFromRequest,
 } from "../../shared/agent-chat-run-not-started.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+} from "../agent-engine-readiness.js";
 import { agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
@@ -1941,6 +1946,22 @@ export function createAgentNativeAgentKitTransport(
     promotionClaimIds.delete(JSON.stringify([threadId, messageId]));
   }
 
+  async function assertAiSetupReady(
+    input: { engine?: string; threadId?: string },
+    _context?: AgentRequestContext,
+  ): Promise<void> {
+    return requireAgentEngineConfiguredForDispatch({
+      engine: input.engine,
+      source: {
+        statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
+        fetch: fetcher,
+        headers: await headers({
+          sessionId: input.threadId ?? options.threadId,
+        }),
+      },
+    });
+  }
+
   async function headers(input: { sessionId?: string } = {}): Promise<Headers> {
     const configured =
       typeof options.headers === "function"
@@ -3700,6 +3721,7 @@ export function createAgentNativeAgentKitTransport(
     protocolTransport.subscribeToRun.bind(protocolTransport);
   transport = {
     ...protocolTransport,
+    assertAiSetupReady,
     startRun: (input, context) => startRunTrackingRunningState(input, context),
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({

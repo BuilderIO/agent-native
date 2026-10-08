@@ -4,7 +4,6 @@ import {
   type GuidedQuestionAnswers,
 } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
-import { isLocalRuntimeEngine } from "@agent-native/toolkit/composer";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { useCallback } from "react";
 
@@ -102,12 +101,9 @@ export function useQuestionFlow(
 ) {
   const stateKey = designQuestionsStateKey(designId);
   const existingDesignContext = existingDesignContinuationContext(designId);
-  const providerStatusChecksEnabled = !isLocalRuntimeEngine(
-    getModelSelection?.()?.engine,
-  );
   const flow = useGuidedQuestionFlow({
     enabled,
-    providerStatusChecksEnabled,
+    engine: getModelSelection?.()?.engine,
     stateKey,
     queryKey: [stateKey],
     submitMessage: "Here are my answers — go ahead.",

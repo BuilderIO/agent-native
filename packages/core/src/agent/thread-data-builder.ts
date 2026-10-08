@@ -310,9 +310,17 @@ export function buildAssistantMessage(
           : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(
-        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
-      );
+      const missingProvider =
+        event.errorCode === "missing_api_key" ||
+        event.errorCode === "missing_credentials" ||
+        /no llm provider(?: key)? (?:is connected|was found)/i.test(
+          `${event.error}\n${normalized.message}`,
+        );
+      if (!missingProvider) {
+        appendText(
+          `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+        );
+      }
       continue;
     }
 

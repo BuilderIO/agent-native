@@ -40,7 +40,7 @@ export interface AgentEngineStatusResult {
 }
 
 export interface AgentEngineStatusResponse extends AgentEngineStatusResult {
-  /** Strict chat-only eligibility; distinct from broad engine `configured`. */
+  /** Fast chat setup snapshot; dispatch rechecks credentials before model use. */
   chatEligible: boolean;
 }
 

@@ -8,6 +8,7 @@ import type {
   EngineEvent,
   EngineMessage,
 } from "./engine/types.js";
+import type { ProductionAgentOptions } from "./production-agent.js";
 
 const claimRunSlot = vi.hoisted(() => vi.fn());
 const turnLedger = vi.hoisted(() => vi.fn(async (): Promise<unknown[]> => []));
@@ -76,8 +77,19 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => ({
   })),
 }));
 
-const { AGENT_INTERNAL_CONTINUE_PROMPT, createProductionAgentHandler } =
-  await import("./production-agent.js");
+const {
+  AGENT_INTERNAL_CONTINUE_PROMPT,
+  createProductionAgentHandler: createProductionAgentHandlerWithSetupGate,
+} = await import("./production-agent.js");
+function createProductionAgentHandler(
+  options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
+    Partial<Pick<ProductionAgentOptions, "assertAiSetupReady">>,
+) {
+  return createProductionAgentHandlerWithSetupGate({
+    ...options,
+    assertAiSetupReady: options.assertAiSetupReady ?? (async () => {}),
+  });
+}
 const { createCallAgentScriptEntry } =
   await import("../server/agent-chat/script-entries.js");
 const { getThread } = await import("../chat-threads/store.js");
@@ -247,6 +259,9 @@ describe("an automatic continuation request", () => {
     claimRunSlot.mockReset();
     claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
     turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+    const assertAiSetupReady = vi.fn(async () => {
+      throw new Error("A verified continuation should preserve its admission.");
+    });
     const callAgent = (await createCallAgentScriptEntry())["call-agent"]!;
     const sendAgain = vi.fn(async () => "a second remote task");
     const seen: EngineMessage[][] = [];
@@ -254,6 +269,7 @@ describe("an automatic continuation request", () => {
       systemPrompt: "Test",
       engine: repeatingDelegationEngine(seen),
       actions: { "call-agent": { ...callAgent, run: sendAgain } },
+      assertAiSetupReady,
     });
 
     const response = await runWithRequestContext(
@@ -274,6 +290,7 @@ describe("an automatic continuation request", () => {
     );
     expect(textOf(seen[0]!.at(-1))).toContain("do NOT re-run these");
     expect(sendAgain).not.toHaveBeenCalled();
+    expect(assertAiSetupReady).not.toHaveBeenCalled();
     expect(stream).toContain("There were 412 signups.");
   });
 

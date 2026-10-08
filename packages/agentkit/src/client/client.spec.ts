@@ -17,11 +17,28 @@ import {
 } from "../protocol/index.js";
 import {
   AgentKitCapabilityError,
-  AgentKitClient,
+  AgentKitClient as AgentKitClientImplementation,
+  AgentKitOperationError,
   AgentRunHandle,
   AgentKitRunSlotBusyError,
 } from "./client.js";
 import { hasActiveAgentRuns, type AgentThreadState } from "./state.js";
+
+class AgentKitClient extends AgentKitClientImplementation {
+  constructor(
+    options: ConstructorParameters<typeof AgentKitClientImplementation>[0],
+  ) {
+    super({
+      ...options,
+      transport: options.transport.assertAiSetupReady
+        ? options.transport
+        : {
+            ...options.transport,
+            assertAiSetupReady: async () => undefined,
+          },
+    });
+  }
+}
 
 function protocolEvent(
   sequence: number,
@@ -43,6 +60,7 @@ function protocolEvent(
 function createTransport(events: AgentEvent[]): AgentTransport {
   return {
     capabilities: { resumableRuns: true, messageQueue: true },
+    async assertAiSetupReady() {},
     async startRun() {
       return { runId: "run-1" };
     },
@@ -174,6 +192,24 @@ async function assistantPartsAfterToolHistory(input: {
 }
 
 describe("AgentKitClient", () => {
+  it("refuses dispatch when a transport has no AI readiness validator", async () => {
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      assertAiSetupReady: undefined,
+      startRun,
+    };
+    const client = new AgentKitClientImplementation({ transport });
+
+    await expect(
+      client.sendMessage({ threadId: "thread-1", text: "Blocked" }),
+    ).rejects.toBeInstanceOf(AgentKitOperationError);
+    await expect(
+      client.queueMessage({ threadId: "thread-1", text: "Blocked" }),
+    ).rejects.toBeInstanceOf(AgentKitOperationError);
+    expect(startRun).not.toHaveBeenCalled();
+  });
+
   it("bounds nested tool-history values before serializing them", async () => {
     const messages = await assistantPartsAfterToolHistory({
       toolInput: { nested: { text: "x".repeat(1024 * 1024) } },

@@ -9,6 +9,10 @@ import {
 import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+} from "../agent-engine-readiness.js";
 import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
@@ -853,6 +857,12 @@ export interface CreateHttpAgentChatRuntimeOptions<
     turn: AgentChatRuntimeTurnInput;
     turnId: AgentChatRuntimeTurnId;
   }) => unknown;
+  /** Called at the final client boundary before a new turn reaches the endpoint. */
+  readonly beforeStartTurn?: (input: {
+    session: AgentChatRuntimeSessionSummary;
+    turn: AgentChatRuntimeTurnInput;
+    turnId: AgentChatRuntimeTurnId;
+  }) => AgentChatRuntimeAwaitable<void>;
   readonly mapEvent?: (
     event: unknown,
     context: {
@@ -1411,6 +1421,7 @@ export function createHttpAgentChatRuntime<
       previousTurns.set(turnId, turn);
       let response: Response;
       try {
+        await options.beforeStartTurn?.({ session: summary, turn, turnId });
         const endpoint =
           typeof options.endpoint === "function"
             ? options.endpoint({ session: summary, turn })
@@ -3958,6 +3969,33 @@ export function createAgentNativeChatRuntime(
       options.description ?? "Agent-Native's built-in chat transport.",
     endpoint: apiUrl,
     fetch: runtimeFetch,
+    beforeStartTurn: async ({ session, turn, turnId }) => {
+      const metadata = turn.metadata;
+      const isAdmittedContinuation =
+        turn.queuePromotion !== undefined ||
+        metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] === true ||
+        metadataString(metadata, AUTO_CONTINUE_OF_RUN_METADATA_KEY) !==
+          undefined ||
+        metadataStringList(
+          metadata,
+          AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY,
+        ) !== undefined;
+      if (isAdmittedContinuation) return;
+      const candidateEngine = metadata?.engine ?? options.engine;
+      const readinessHeaders = await resolveHeaders(options.headers, {
+        sessionId: session.id,
+        turnId,
+      });
+      return requireAgentEngineConfiguredForDispatch({
+        engine:
+          typeof candidateEngine === "string" ? candidateEngine : undefined,
+        source: {
+          statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
+          fetch: fetchImpl,
+          headers: readinessHeaders,
+        },
+      });
+    },
     headers: async (input) => {
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");

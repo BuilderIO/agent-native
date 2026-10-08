@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { invalidateAgentEngineStatusCache } from "../server/agent-engine-status-cache.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   encryptSecretValue as encryptLegacyValue,
@@ -154,6 +155,7 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   });
   invalidateRequestSecret(args);
   invalidateOptionalKeyCache();
+  invalidateAgentEngineStatusCache();
   return String(rows[0]?.id ?? id);
 }
 
@@ -574,5 +576,6 @@ export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {
   });
   invalidateRequestSecret(ref);
   invalidateOptionalKeyCache();
+  invalidateAgentEngineStatusCache();
   return rowsAffected > 0;
 }

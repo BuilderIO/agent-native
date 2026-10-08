@@ -18,6 +18,8 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import * as chatThreadStore from "../chat-threads/store.js";
+import * as dbClient from "../db/client.js";
 import {
   JPEG_BASE64,
   PDF_BASE64,
@@ -56,7 +58,7 @@ import {
   claimBackgroundWorkerRunEarly,
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
-  createProductionAgentHandler,
+  createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
   preloadPlanModeEngineTools,
   normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
@@ -105,10 +107,21 @@ import {
   type AgentActionSurfaceDetails,
   type AgentLoopFinalResponseGuardContext,
   type AgentLoopOutcome,
+  type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
+
+function createProductionAgentHandler(
+  options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
+    Partial<Pick<ProductionAgentOptions, "assertAiSetupReady">>,
+) {
+  return createProductionAgentHandlerWithSetupGate({
+    ...options,
+    assertAiSetupReady: options.assertAiSetupReady ?? (async () => {}),
+  });
+}
 
 const mockTryClaimRunSlot = vi.hoisted(() =>
   vi.fn(async () => ({ claimed: true, activeRunId: null })),
@@ -249,6 +262,23 @@ function actionEntry(opts: {
       ? { parallelSafe: opts.parallelSafe }
       : {}),
     run: async (args) => `ran:${JSON.stringify(args)}`,
+  };
+}
+
+function engineWithUncalledStream(): AgentEngine {
+  return {
+    name: "test",
+    label: "Test",
+    defaultModel: "test-model",
+    supportedModels: ["test-model"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    stream: vi.fn(),
   };
 }
 
@@ -2054,6 +2084,282 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("runs the required AI setup gate before starting a new user turn", async () => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A new prompt",
+          threadId: "thread-setup-gate",
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      ),
+    ).rejects.toBe(setupRequired);
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("does not trust a client continuation flag and reused turn ID", async () => {
+    mockTryClaimRunSlot.mockClear();
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const readTurnStartedAt = vi.fn(async () => ({
+      rows: [{ turn_started_at: Date.now() - 60_000 }],
+      rowsAffected: 0,
+    }));
+    const getDbExec = vi
+      .spyOn(dbClient, "getDbExec")
+      .mockReturnValue({ execute: readTurnStartedAt } as never);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A fresh prompt reusing an old turn ID",
+          threadId: "thread-setup-gate",
+          turnId: "turn-already-started",
+          internalContinuation: true,
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(setupRequired);
+
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(getDbExec).not.toHaveBeenCalled();
+      expect(readTurnStartedAt).not.toHaveBeenCalled();
+      expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      getDbExec.mockRestore();
+    }
+  });
+
+  it("does not treat client queue markers as persisted admission", async () => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue(null);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A forged queue prompt",
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(setupRequired);
+
+      expect(resolveThreadAccess).toHaveBeenCalledWith(
+        "alice@example.com",
+        "thread-setup-gate",
+        "editor",
+        { orgId: "acme" },
+      );
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("allows only the matching live persisted queue claim to continue", async () => {
+    const assertAiSetupReady = vi.fn(async () => {});
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-setup-gate",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-1",
+              text: "A queued prompt",
+              promotionClaim: {
+                id: "claim-1",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-active",
+    });
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A queued prompt",
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(409);
+      expect(result).toEqual({
+        error: "Run already in progress for this thread",
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: "run-active",
+      });
+      expect(assertAiSetupReady).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it.each([
+    {
+      name: "a mismatched claim ID",
+      queuedText: "A queued prompt",
+      submittedText: "A queued prompt",
+      storedClaimId: "another-claim",
+      expiresAt: Date.now() + 60_000,
+    },
+    {
+      name: "an expired claim",
+      queuedText: "A queued prompt",
+      submittedText: "A queued prompt",
+      storedClaimId: "claim-1",
+      expiresAt: Date.now() - 1,
+    },
+    {
+      name: "a different prompt",
+      queuedText: "The original queued prompt",
+      submittedText: "A different prompt",
+      storedClaimId: "claim-1",
+      expiresAt: Date.now() + 60_000,
+    },
+  ])("does not let $name bypass the setup gate", async (testCase) => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-setup-gate",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-1",
+              text: testCase.queuedText,
+              promotionClaim: {
+                id: testCase.storedClaimId,
+                expiresAt: testCase.expiresAt,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: testCase.submittedText,
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(setupRequired);
+
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
   it("returns a typed conflict when another run owns the thread slot", async () => {
     mockTryClaimRunSlot.mockResolvedValueOnce({
       claimed: false,
@@ -3206,6 +3512,7 @@ describe("createProductionAgentHandler", () => {
 
   it("preserves request tracking identity through delayed run completion", async () => {
     const onRunComplete = vi.fn();
+    const assertAiSetupReady = vi.fn(async () => {});
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -3230,6 +3537,7 @@ describe("createProductionAgentHandler", () => {
       systemPrompt: "Test",
       engine,
       onRunComplete,
+      assertAiSetupReady,
     });
 
     const startRun = async (
@@ -3266,10 +3574,12 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
+    await startRun("visitor-1", undefined, "session-anonymous", true);
+    expect(assertAiSetupReady).not.toHaveBeenCalled();
+
     await Promise.all([
       startRun("alice@example.com", "auth-user-1", "session-1"),
       startRun("bob@example.com", "auth-user-2", "session-2"),
-      startRun("visitor-1", undefined, "session-anonymous", true),
       startRun(
         "synthetic@example.com",
         "auth-synthetic",
@@ -3280,6 +3590,7 @@ describe("createProductionAgentHandler", () => {
     ]);
 
     await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(4));
+    expect(assertAiSetupReady).toHaveBeenCalledTimes(3);
     const sources = onRunComplete.mock.calls.map(([, , source]) => source);
     expect(sources).toContainEqual({
       userId: "alice@example.com",

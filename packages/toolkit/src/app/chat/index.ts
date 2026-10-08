@@ -44,6 +44,7 @@ export {
   THINKING_DISPLAY_STORAGE_KEY,
 } from "./thinking-display.js";
 export * from "./composer/index.js";
+export { isLocalRuntimeEngine } from "./composer/index.js";
 export { useSendToAgentChat } from "./composer/use-send-to-agent-chat.js";
 export { AgentChatHome, type AgentChatHomeProps } from "./AgentChatHome.js";
 export {

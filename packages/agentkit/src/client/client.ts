@@ -190,6 +190,14 @@ function metadataRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+function selectedEngineForDispatch(input: {
+  metadata?: Record<string, unknown>;
+  options?: AgentRunOptions;
+}): string | undefined {
+  const engine = input.metadata?.engine ?? input.options?.metadata?.engine;
+  return typeof engine === "string" ? engine : undefined;
+}
+
 function sameQueuedMessageIds(
   first: AgentQueuedMessage[],
   second: AgentQueuedMessage[],
@@ -315,6 +323,11 @@ export interface AgentKitController {
     input?: ListThreadsInput,
     context?: AgentRequestContext,
   ): Promise<ListThreadsResult>;
+  /** Checks provider readiness before a user-initiated fork-and-resend. */
+  assertAiSetupReady(
+    input?: { engine?: string },
+    context?: AgentRequestContext,
+  ): Promise<void>;
   sendMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
@@ -2611,11 +2624,31 @@ export class AgentKitClient implements AgentKitController {
     return result;
   }
 
+  public async assertAiSetupReady(
+    input?: { engine?: string; threadId?: ThreadId },
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const assertReady = this.transport.assertAiSetupReady;
+    if (!assertReady) {
+      throw new AgentKitOperationError("AI setup readiness validation");
+    }
+    const requestContext = this.createRequestContext(context);
+    await this.invokeRequest(requestContext, (request) =>
+      assertReady(input ?? {}, request),
+    );
+    this.assertActive();
+  }
+
   public async sendMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
   ): Promise<AgentRunHandle> {
     this.assertActive();
+    await this.assertAiSetupReady(
+      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
+      context,
+    );
     const requestContext = this.createRequestContext(context);
     await this.ensureCapabilities(requestContext);
     if (input.attachments?.length) {
@@ -3130,6 +3163,10 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage> {
     this.assertActive();
+    await this.assertAiSetupReady(
+      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
+      context,
+    );
     const threadAtSubmit = this.getThread(input.threadId);
     const runWasActive =
       input.queuedWhileRunActive || hasActiveAgentRuns(threadAtSubmit);
@@ -3309,6 +3346,21 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<void> {
     this.assertActive();
+    const thread = this.getThread(threadId);
+    const submittedMessageId = this.submittedUserMessages.get(
+      this.runKey(threadId, runId),
+    );
+    const submittedMessage = submittedMessageId
+      ? thread.messages.find((message) => message.id === submittedMessageId)
+      : undefined;
+    const engine = submittedMessage?.metadata?.engine;
+    await this.assertAiSetupReady(
+      {
+        engine: typeof engine === "string" ? engine : undefined,
+        threadId,
+      },
+      context,
+    );
     const continueRun = this.transport.continueRun;
     if (!continueRun) throw new AgentKitOperationError("run continuation");
     const result = await this.invokeRequest(

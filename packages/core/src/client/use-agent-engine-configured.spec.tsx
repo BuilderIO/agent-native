@@ -4,6 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  agentEngineStatusUrlForChatApi,
+  resetAgentEngineReadinessForTests,
+} from "./agent-engine-readiness.js";
+import {
   fetchEnvironmentStatus,
   invalidateClientStatusRequests,
 } from "./client-status-requests.js";
@@ -18,11 +22,11 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
-// The initial readiness probe is deferred past first paint; the fallback
-// timer bounds that wait at 250ms, so settling past it is deterministic.
+// The probe begins on mount; settling past the request turn lets the UI update.
 async function flushAfterPaint() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await Promise.resolve();
+    await Promise.resolve();
   });
 }
 
@@ -48,6 +52,7 @@ describe("useAgentEngineConfigured", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    resetAgentEngineReadinessForTests();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -56,6 +61,7 @@ describe("useAgentEngineConfigured", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    resetAgentEngineReadinessForTests();
     invalidateClientStatusRequests();
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -132,28 +138,29 @@ describe("useAgentEngineConfigured", () => {
     expect(container.querySelector("output")?.dataset.canChat).toBe("true");
   });
 
-  it("defers the readiness check past first paint and starts it on mount", async () => {
+  it("starts the shared readiness check on mount", async () => {
     const responses: Array<(response: Response) => void> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        () =>
-          new Promise<Response>((resolve) => {
-            responses.push(resolve);
-          }),
-      ),
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          responses.push(resolve);
+        }),
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     act(() => {
       root.render(<Probe />);
     });
 
     expect(container.textContent).toBe("unknown");
-    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.waitFor(() => {
-        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
       });
     });
 
@@ -168,10 +175,7 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("configured");
   });
 
-  it("an event inside the deferral window consumes the scheduled probe instead of duplicating it", async () => {
-    // A failed probe is the case the shared client-status cache cannot
-    // dedupe (only successful results are cached), so it is the case where
-    // the stacked scheduled probe would hit the endpoint again.
+  it("coalesces repeated readiness invalidation events", async () => {
     let engineFetchCount = 0;
     let resolvers: Array<(response: Response) => void> = [];
     vi.stubGlobal(
@@ -195,38 +199,22 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // The event-driven probe stays immediate and the scheduled initial probe
-    // is consumed, not stacked behind it.
-    expect(engineFetchCount).toBe(1);
-    // Fail the canonical probe so the check settles on "unavailable" and
-    // schedules a retry that the unmount below cancels.
+    // The boot probe is already pending. Two same-turn invalidations collapse
+    // into one authoritative refresh after that request settles.
+    expect(engineFetchCount).toBe(2);
     await act(async () => {
       for (const resolve of resolvers.splice(0)) {
-        resolve(new Response("unavailable", { status: 500 }));
-      }
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      for (const resolve of resolvers.splice(0)) {
-        resolve(new Response("unavailable", { status: 500 }));
+        resolve(jsonResponse({ configured: true, chatEligible: true }));
       }
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    // Settling past the paint window (fallback timer bounds it at 250ms)
-    // must not start the duplicate scheduled probe.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(engineFetchCount).toBe(1);
-    expect(container.textContent).toBe("unavailable");
+    expect(engineFetchCount).toBe(2);
+    expect(container.textContent).toBe("configured");
   });
 
-  it("a missing-key event inside the deferral window behaves the same", async () => {
+  it("rechecks readiness after a missing-key event", async () => {
     let engineFetchCount = 0;
     let resolvers: Array<(response: Response) => void> = [];
     vi.stubGlobal(
@@ -250,29 +238,17 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(engineFetchCount).toBe(1);
+    expect(engineFetchCount).toBe(2);
     await act(async () => {
       for (const resolve of resolvers.splice(0)) {
-        resolve(new Response("unavailable", { status: 500 }));
-      }
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      for (const resolve of resolvers.splice(0)) {
-        resolve(new Response("unavailable", { status: 500 }));
+        resolve(jsonResponse({ configured: false, chatEligible: false }));
       }
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(engineFetchCount).toBe(1);
-    expect(container.textContent).toBe("unavailable");
+    expect(engineFetchCount).toBe(2);
+    expect(container.textContent).toBe("missing");
   });
 
   it("uses chat eligibility instead of broad engine configuration", async () => {
@@ -331,10 +307,14 @@ describe("useAgentEngineConfigured", () => {
   });
 
   it("does not carry the disabled short-circuit into chat eligibility", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => jsonResponse({ configured: true, chatEligible: true })),
+    let resolveStatus: ((response: Response) => void) | undefined;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveStatus = resolve;
+        }),
     );
+    vi.stubGlobal("fetch", fetch);
 
     await act(async () => {
       root.render(<Probe enabled={false} />);
@@ -346,11 +326,18 @@ describe("useAgentEngineConfigured", () => {
     await act(async () => {
       root.render(<Probe enabled />);
       await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(container.querySelector("output")?.dataset.canChat).toBe("false");
-    await flushAfterPaint();
+    expect(fetch).toHaveBeenCalled();
+    await act(async () => {
+      resolveStatus?.(jsonResponse({ configured: true, chatEligible: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     expect(container.querySelector("output")?.dataset.canChat).toBe("true");
+    expect(fetch).toHaveBeenCalled();
   });
 
   it("returns missing immediately from the shared status fetch helper", async () => {
@@ -366,6 +353,38 @@ describe("useAgentEngineConfigured", () => {
     );
 
     await expect(fetchAgentEngineConfiguredState()).resolves.toBe("missing");
+  });
+
+  it("uses the chat transport origin, fetcher, and headers for readiness", async () => {
+    const transportFetch = vi.fn(async () =>
+      jsonResponse({ chatEligible: true }),
+    );
+    const statusUrl = agentEngineStatusUrlForChatApi(
+      "https://api.example.com/prefix/_agent-native/agent-chat?surface=clips",
+    );
+
+    await expect(
+      fetchAgentEngineConfiguredState(true, {
+        source: {
+          statusUrl,
+          fetch: transportFetch,
+          headers: { Authorization: "Bearer test-token" },
+          credentials: "include",
+        },
+      }),
+    ).resolves.toBe("configured");
+
+    expect(statusUrl).toBe(
+      "https://api.example.com/prefix/_agent-native/agent-engine/status",
+    );
+    expect(transportFetch).toHaveBeenCalledWith(
+      statusUrl,
+      expect.objectContaining({
+        cache: "no-store",
+        credentials: "include",
+        headers: { Authorization: "Bearer test-token" },
+      }),
+    );
   });
 
   it("fails closed when a reachable server omits chat eligibility", async () => {
@@ -494,7 +513,7 @@ describe("useAgentEngineConfigured", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("rechecks after a passive probe is superseded by a fresh preflight", async () => {
+  it("shares one in-flight probe with a send while readiness is unknown", async () => {
     let resolvePassive!: (response: Response) => void;
     const fetch = vi
       .fn<() => Promise<Response>>()
@@ -513,17 +532,18 @@ describe("useAgentEngineConfigured", () => {
     await flushAfterPaint();
     expect(fetch).toHaveBeenCalledOnce();
 
-    await expect(
-      fetchAgentEngineConfiguredState(true, { fresh: true }),
-    ).resolves.toBe("missing");
+    const sendReadiness = fetchAgentEngineConfiguredState(true, {
+      fresh: true,
+    });
     resolvePassive(jsonResponse({ chatEligible: true }));
+    await expect(sendReadiness).resolves.toBe("configured");
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    expect(container.textContent).toBe("missing");
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("configured");
+    expect(fetch).toHaveBeenCalledOnce();
   });
 
   it("retries a failed check instead of latching a dead state", async () => {
