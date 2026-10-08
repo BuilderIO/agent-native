@@ -1540,7 +1540,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const handler = source.slice(
-      source.indexOf("const handleContentChange"),
+      source.indexOf("const queueEditorContentSave"),
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("localContentRef.current = newContent");
@@ -1555,7 +1555,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const handler = source.slice(
-      source.indexOf("const handleContentChange"),
+      source.indexOf("const queueEditorContentSave"),
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("if (updateReconcileDraft(newContent)) {");
@@ -2830,8 +2830,12 @@ describe("document editor layout", () => {
     ).replace(/\r\n/g, "\n");
 
     expect(documentEditorSource).toContain(
-      "const collabEnabled = !isLocalFileDocument;",
+      "const mcpDirectoryWidgetReadOnly =\n    document.mcpDirectoryWidgetReadOnly === true;",
     );
+    expect(documentEditorSource).toContain(
+      "const collabEnabled = shouldUseLiveDocumentCollaboration({",
+    );
+    expect(documentEditorSource).toContain("mcpDirectoryWidgetReadOnly,");
     expect(documentEditorSource).toContain(
       "const collabDocumentId =\n    collabEnabled && !isDocumentCreationPending(document)",
     );

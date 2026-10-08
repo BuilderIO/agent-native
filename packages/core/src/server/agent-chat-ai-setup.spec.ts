@@ -1,6 +1,16 @@
 import { readFileSync } from "node:fs";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
+
+import type { AgentEngineStatusResponse } from "./core-routes-plugin.js";
 
 const credentialMocks = vi.hoisted(() => ({
   builderReady: vi.fn<() => Promise<boolean>>(),
@@ -259,8 +269,9 @@ describe("Agent-Native chat AI setup gate", () => {
       new URL("./core-routes-plugin.ts", import.meta.url),
       "utf8",
     );
-    expect(routes).toContain("export interface AgentEngineStatusResponse");
-    expect(routes).toContain("chatEligible: boolean");
+    expectTypeOf<
+      AgentEngineStatusResponse["chatEligible"]
+    >().toEqualTypeOf<boolean>();
     expect(routes).toContain("isAgentChatAiSetupReady()");
   });
 });

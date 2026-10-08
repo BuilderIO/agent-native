@@ -135,9 +135,18 @@ Successful classifications emit a content-free `$ai_sentiment` tracking event:
 
 No raw message, prompt, or response text is persisted or tracked.
 
+A classification that cannot complete emits `$ai_sentiment_failed` with the same
+identity properties and a coarse `reason`: `engine_unavailable`, `timeout`,
+`parse_failed`, or `empty`. It never carries content, so a drop in
+`$ai_sentiment` is a count to read, not a silence to guess at. The run's own
+engine classifies when it serves the classifier model; otherwise the hosted
+Builder engine does.
+
 ### 2. Feedback
 
-**Explicit** — AgentKit's assistant-message action bar renders inline thumbs up/down controls. A thumbs-down can collect a reason, and feedback includes the run and message sequence for trace linking. The shared `AgentKitAssistantChat` host submits it through the existing feedback action.
+**Explicit** — AgentKit's assistant-message action bar renders inline thumbs up/down controls. A thumbs-down can collect a reason, and feedback includes the run and message sequence for trace linking. The shared `AgentKitAssistantChat` host submits it through the existing feedback action. The popover also offers one-click reason chips and a Copy details button (the failure-report packet with run, thread link and build, plus the note) so a "this chat was not good" report is one paste.
+
+A vote for a run whose trace was never persisted is still saved, unlinked from the run (`runId` null), with `traceMissing` in the response and the stored value and `trace_missing` / `unverified_run_id` on `$ai_feedback`. A run that exists but belongs to someone else still answers 404.
 
 **Implicit** — `computeSatisfactionScore(threadId)` computes a Frustration Index (0-100) from conversation signals:
 - Rephrasing detection (weight 30): consecutive similar user messages
@@ -374,6 +383,10 @@ same best-effort fan-out as other tracking events.
 - Each event is stamped with when it happened, not when the run flushed. The
   whole tree is emitted in one burst at run end, so `track()` takes an
   `occurredAt` and the trace tree keeps a real timeline.
+- Model-call spans preserve `createdAt` and `endedAt` as epoch milliseconds,
+  alongside `durationMs`. Their `$ai_generation` events carry the matching
+  `created_at_ms`, `ended_at_ms`, and `duration_ms` properties so latency can
+  be compared over time without reconstructing request boundaries.
 - Agent-Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,

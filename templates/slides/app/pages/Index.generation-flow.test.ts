@@ -86,10 +86,10 @@ describe("new deck generation flow", () => {
     expect(source).toContain("retryReferenceSelection: referenceSelection");
     expect(source).toContain("setNewDeckRetryRequiresExactPrompt(true)");
     expect(source).toContain(
-      "setNewDeckRetryReferenceSelection(state.retryReferenceSelection)",
+      "withoutAutomaticReferenceDeck(state.retryReferenceSelection)",
     );
     expect(source).toContain("...(retryReferenceSelection ?? {})");
-    expect(source).toContain("retryReferenceSelection?.composerContext");
+    expect(source).toContain("retryReferenceSelection.composerContext");
     expect(source).toContain("retryReferenceSelection?.referenceFilePaths");
     expect(source).toContain("referenceSelection.referenceSource");
     expect(source).toContain("resolveRetryReferenceDeckSelection");

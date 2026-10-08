@@ -3,6 +3,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
@@ -795,6 +796,7 @@ interface DocumentToolbarProps {
   agentActive?: boolean;
   currentUserEmail?: string;
   canEdit?: boolean;
+  readOnly?: boolean;
   hideFromSearch?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
@@ -822,7 +824,14 @@ interface DocumentToolbarProps {
   editorEscapeTargetRef?: Ref<HTMLButtonElement>;
 }
 
-export function DocumentToolbar({
+// The MCP App host owns the page chrome, so the widget draws no toolbar and
+// makes none of the requests behind it (its scoped session would be refused).
+export function DocumentToolbar(props: DocumentToolbarProps) {
+  const inWidget = useIsMcpAppWidgetEmbed();
+  return inWidget ? null : <DocumentToolbarRow {...props} />;
+}
+
+function DocumentToolbarRow({
   compact = false,
   documentId,
   documentTitle,
@@ -838,6 +847,7 @@ export function DocumentToolbar({
   agentActive,
   currentUserEmail,
   canEdit = true,
+  readOnly = false,
   hideFromSearch = false,
   source,
   canDelete = false,
@@ -872,6 +882,7 @@ export function DocumentToolbar({
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =
+    !readOnly &&
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
@@ -1375,7 +1386,7 @@ export function DocumentToolbar({
             currentUserEmail={currentUserEmail}
             className="mr-1"
           />
-          {isLocalFileDocument ? (
+          {!readOnly && isLocalFileDocument ? (
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <ShareTrigger
@@ -1397,7 +1408,7 @@ export function DocumentToolbar({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : (
+          ) : !readOnly ? (
             <Suspense fallback={unopenedShareControl}>
               {shareRequested || openShareOnLoad ? (
                 <ShareButton
@@ -1505,9 +1516,9 @@ export function DocumentToolbar({
                 restoreUnavailableReason={restoreUnavailableReason}
               />
             </Suspense>
-          )}
+          ) : null}
 
-          {suggesting ? (
+          {!readOnly && suggesting ? (
             <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
               <IconPencil aria-hidden="true" className="size-3.5" />
               <span>{t("editor.toolbar.suggesting")}</span>
@@ -1637,7 +1648,7 @@ export function DocumentToolbar({
               data-database-preview-portal={compact ? "" : undefined}
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              {canSuggest ? (
+              {!readOnly && canSuggest ? (
                 <>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -1682,7 +1693,7 @@ export function DocumentToolbar({
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                {onToggleFavorite ? (
+                {!readOnly && onToggleFavorite ? (
                   <DropdownMenuItem
                     onSelect={() => onToggleFavorite(!isFavorite)}
                   >

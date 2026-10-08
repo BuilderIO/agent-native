@@ -159,6 +159,35 @@ npx vercel deploy --prebuilt --prod
 
 프로젝트 연결과 저장한 변수는 그대로 유지되므로 3단계를 반복할 필요가 없습니다.
 
+## 예약 작업 {#vercel-scheduled-work}
+
+예약 자동화, 대기 중인 이벤트 자동화, 중단된 실행 정리는 모두 1분에 한 번
+실행되는 스윕에서 처리됩니다. 빌드는 `/_agent-native/jobs/_process-sweep`에서
+스윕을 호출하는 [Vercel cron 작업](https://vercel.com/docs/cron-jobs)을 추가합니다.
+작업 공간 빌드는 앱마다 하나씩 `/<app-id>/_agent-native/jobs/_process-sweep`에
+cron 작업을 추가합니다.
+
+배포하기 전에 프로젝트 환경 변수에 `CRON_SECRET`을 설정하세요. Vercel은 각 cron
+요청에 이 값을 bearer 토큰으로 보내며, 스윕은 이 값이 없는 모든 요청을 거부합니다.
+값은 `openssl rand -hex 32`로 생성하세요.
+
+- **프로덕션 전용.** Vercel은 cron 작업을 프로덕션 배포에서만 실행하고 프리뷰에서는
+  실행하지 않으므로, 프리뷰에서는 일정이 실행되지 않습니다. **Automations**
+  페이지에도 그렇게 표시됩니다.
+- **Hobby는 하루에 한 번 실행됩니다.** Vercel은 cron 작업이 하루에 두 번 이상
+  실행되는 Hobby 배포를 거부합니다. 빌드 환경에서
+  `AGENT_NATIVE_VERCEL_CRON_SCHEDULE`을 `0 9 * * *` 같은 일일 표현식으로
+  설정하세요. Hobby에서는 그 시간대 안의 아무 때나 실행될 수도 있습니다. 스윕이
+  하루에 한 번이면 예약 자동화와 이벤트 트리거 자동화가 최대 하루까지 대기하므로,
+  타이밍이 중요하다면 Pro나 다른 호스트를 사용하세요.
+- **함수 실행 시간.** 스윕은 cron 작업의 함수 호출 안에서 실행할 때가 된 작업을
+  실행하므로, 작업은 함수의 최대 실행 시간(기본값 300초)에 도달하면 중단됩니다.
+- **재시도 없음.** Vercel은 실패한 cron 호출을 재시도하지 않습니다. 스윕은 다음
+  예정 시간에 다시 실행됩니다.
+
+다른 호스트는 [스케줄러 실행 방법](/docs/recurring-jobs#how-scheduler-runs)을
+참조하세요.
+
 ## 다음 단계 {#whats-next}
 
 - [**배포 환경 변수**](/docs/deployment-environment-variables) - 전체 프로덕션 설정 목록

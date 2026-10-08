@@ -235,6 +235,65 @@ describe("automation run history", () => {
     expect(update.args).toContain("background_automation_cut_off");
   });
 
+  it("persists and announces a skipped reason without an error code or owner alert", async () => {
+    executeMock
+      .mockResolvedValueOnce({
+        rows: [row({ notification_email: "alice@example.com" })],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+    const reason = "No new bookings need reminders.";
+
+    await finishAutomationRun("run-1", "skipped", reason, "http_502");
+
+    const update = executeMock.mock.calls[1]?.[0];
+    expect(update.args).toEqual([
+      "skipped",
+      expect.any(Number),
+      reason,
+      null,
+      null,
+      null,
+      "run-1",
+    ]);
+    expect(emitMock).toHaveBeenCalledWith(
+      "automation.run.finished",
+      expect.objectContaining({
+        status: "skipped",
+        error: reason,
+        errorCode: null,
+      }),
+      expect.anything(),
+    );
+    expect(executeMock).toHaveBeenCalledTimes(2);
+    expect(sendAutomationFailureNotificationMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a skipped run terminal beyond the liveness ceiling", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        row({
+          status: "skipped",
+          started_at: Date.now() - 60 * MINUTE,
+          finished_at: Date.now() - 59 * MINUTE,
+          error: "No new bookings need reminders.",
+        }),
+      ],
+    });
+
+    expect(
+      await listAutomationRuns({
+        owners: ["alice@example.com"],
+        automation: "digest",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        status: "skipped",
+        error: "No new bookings need reminders.",
+        errorCode: null,
+      }),
+    ]);
+  });
+
   it("reports an interrupted run with a code, not only a sentence", async () => {
     executeMock.mockResolvedValue({
       rows: [row({ started_at: Date.now() - 60 * MINUTE })],
@@ -352,6 +411,73 @@ describe("automation run history", () => {
       "calendar",
       "run-1",
     ]);
+  });
+
+  it("keeps failure alerts suppressed across skipped runs", async () => {
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT, owner TEXT, automation TEXT, path TEXT, app_id TEXT,
+        status TEXT, notification_email TEXT, failure_alerted BIGINT,
+        started_at BIGINT
+      );
+      INSERT INTO automation_runs VALUES
+        ('previous-error', 'alice@example.com', 'digest', 'jobs/digest.md',
+         'calendar', 'error', 'alice@example.com', 1, 1),
+        ('previous-skip', 'alice@example.com', 'digest', 'jobs/digest.md',
+         'calendar', 'skipped', 'alice@example.com', 0, 2)`);
+      executeMock
+        .mockResolvedValueOnce({
+          rows: [
+            row({
+              app_id: "calendar",
+              notification_email: "alice@example.com",
+            }),
+          ],
+        })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            row({
+              app_id: "calendar",
+              notification_email: "alice@example.com",
+              status: "error",
+              error: "MCP tool unavailable",
+              failure_alert_state: "evaluating",
+            }),
+          ],
+        })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockImplementationOnce(async (statement: DbExecStatement) => {
+          if (typeof statement === "string")
+            throw new Error("Expected parameterized query");
+          const query = await pglite.prepare(statement.sql);
+          return {
+            rows: await query.all(...(statement.args ?? [])),
+            rowsAffected: 0,
+          };
+        })
+        .mockResolvedValueOnce({ rowsAffected: 1 });
+
+      await finishAutomationRun(
+        "run-1",
+        "error",
+        "MCP tool unavailable",
+        "mcp_missing",
+      );
+
+      expect(sendAutomationFailureNotificationMock).not.toHaveBeenCalled();
+      expect(
+        executeMock.mock.calls.some(
+          ([statement]) =>
+            typeof statement === "object" &&
+            statement.sql.includes("failure_alert_state = 'suppressed'"),
+        ),
+      ).toBe(true);
+    } finally {
+      await pglite.close();
+    }
   });
 
   it("checks legacy failure streaks without an untyped app id parameter", async () => {

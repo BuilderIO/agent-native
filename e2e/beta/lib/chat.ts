@@ -4,9 +4,12 @@ import { renderedText } from "./app";
 
 export const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
 
-export const LUNA_OPENAI_MODEL = "gpt-5.6-luna";
-export const LUNA_BUILDER_MODEL = "gpt-5-6-luna";
-export const LUNA_MODEL_PATTERN = /^(?:openai\/)?gpt-5[.-]6-luna$/i;
+// Keep the scheduled lane on the current low-cost model offered by both the
+// OpenAI and Builder catalogs. Older gpt-5.6-luna selections are upgraded by
+// the runtime before a turn is sent.
+export const LUNA_OPENAI_MODEL = "gpt-6-luna";
+export const LUNA_BUILDER_MODEL = "gpt-6-luna";
+export const LUNA_MODEL_PATTERN = /^(?:openai\/)?gpt-(?:5[.-]6|6)-luna$/i;
 
 export interface ModelSelection {
   model: string;
@@ -21,7 +24,7 @@ export function lunaSelection(): ModelSelection {
     (engine === "builder" ? LUNA_BUILDER_MODEL : LUNA_OPENAI_MODEL);
   if (!LUNA_MODEL_PATTERN.test(model)) {
     throw new Error(
-      `BETA_E2E_MODEL=${model} is not a luna model. This suite is budgeted for luna; pick a gpt-5.6-luna id or change the budget deliberately.`,
+      `BETA_E2E_MODEL=${model} is not a luna model. This suite is budgeted for luna; pick a gpt-6-luna id or change the budget deliberately.`,
     );
   }
   return { model, engine, effort: "low" };

@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  useRealRanker: { value: false },
   rankJevCandidates: vi.fn(),
   track: vi.fn(),
   loadAgentsBundle: vi.fn(),
@@ -16,17 +17,29 @@ const mocks = vi.hoisted(() => ({
   requestRunContext: vi.fn((): Record<string, unknown> | null => null),
 }));
 
-vi.mock("../../agent/jev-tool-prefetch.js", () => ({
-  JEV_TIMEOUT_MS: 750,
-  rankJevCandidates: (...args: unknown[]) => mocks.rankJevCandidates(...args),
-  rankJevCandidatesWithStatus: async (...args: unknown[]) => {
-    const ids = (await mocks.rankJevCandidates(...args)) as string[];
-    return {
-      status: ids.length > 0 ? "selected" : "no-match",
-      ids,
-    };
-  },
-}));
+vi.mock("../../agent/jev-tool-prefetch.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../agent/jev-tool-prefetch.js")
+  >("../../agent/jev-tool-prefetch.js");
+  return {
+    JEV_TIMEOUT_MS: 750,
+    rankJevCandidates: (...args: unknown[]) => mocks.rankJevCandidates(...args),
+    // The stub can only say selected or no-match; `useRealRanker` runs the
+    // real ranker so its failed and timed_out outcomes reach the preload.
+    rankJevCandidatesWithStatus: async (
+      ...args: Parameters<typeof actual.rankJevCandidatesWithStatus>
+    ) => {
+      if (mocks.useRealRanker.value) {
+        return actual.rankJevCandidatesWithStatus(...args);
+      }
+      const ids = (await mocks.rankJevCandidates(...args)) as string[];
+      return {
+        status: ids.length > 0 ? "selected" : "no-match",
+        ids,
+      };
+    },
+  };
+});
 vi.mock("../agents-bundle.js", () => ({
   loadAgentsBundle: (...args: unknown[]) => mocks.loadAgentsBundle(...args),
   generateSkillsPromptBlock: (...args: unknown[]) =>
@@ -68,11 +81,13 @@ vi.mock("../request-context.js", () => ({
 import {
   loadResourcesForPrompt,
   preloadJevContextForPrompt,
+  preloadJevContextWithStatus,
 } from "./prompt-resources.js";
 
 describe("preloadJevContextForPrompt", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.useRealRanker.value = false;
     mocks.loadAgentsBundle.mockResolvedValue({
       skills: {},
       agentsMd: "",
@@ -351,6 +366,162 @@ describe("preloadJevContextForPrompt", () => {
     expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
     expect(requestRunContext.analyticsJevPrefetch).toEqual({
       preloadedReferenceCount: 1,
+    });
+  });
+
+  describe("status", () => {
+    const reference = {
+      id: "analytics-reference-1",
+      description: "Approved active users definition.",
+      metadata: { kind: "analytics-reference", similarity: "0.82" },
+      name: "Active users",
+      scope: "analytics-catalog",
+      content: "Metric: active users.",
+    };
+
+    it("is empty, not degraded, when nothing relevant exists", async () => {
+      mocks.getRuntimeSkills.mockReturnValue([]);
+
+      await expect(
+        preloadJevContextWithStatus({
+          request: "What is the weather?",
+          apiKey: "jev-test-key",
+        }),
+      ).resolves.toEqual({ context: "", status: "empty" });
+    });
+
+    it("is timed_out when the deadline passed before anything could load", async () => {
+      await expect(
+        preloadJevContextWithStatus({
+          request: "How many active users last month?",
+          apiKey: "jev-test-key",
+          contextPrefetchDeadlineAt: Date.now() - 1,
+        }),
+      ).resolves.toEqual({ context: "", status: "timed_out" });
+    });
+
+    it("is failed when ranking throws and nothing was injected", async () => {
+      mocks.rankJevCandidates.mockRejectedValue(new Error("ranker down"));
+
+      await expect(
+        preloadJevContextWithStatus({
+          request: "How many active users last month?",
+          apiKey: "jev-test-key",
+        }),
+      ).resolves.toEqual({ context: "", status: "failed" });
+    });
+
+    describe("with the real ranker", () => {
+      const builderAuth = {
+        authorization: "Bearer test-token",
+        spaceId: null,
+        userId: null,
+      };
+      const preload = (
+        extra: Partial<Parameters<typeof preloadJevContextWithStatus>[0]> = {},
+      ) =>
+        preloadJevContextWithStatus({
+          request: "draft launch copy",
+          builderAuth,
+          ...extra,
+        });
+
+      beforeEach(() => {
+        mocks.useRealRanker.value = true;
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        vi.unstubAllGlobals();
+      });
+
+      it("is failed when the ranking request errors and nothing was injected", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async () => new Response("nope", { status: 500 })),
+        );
+
+        await expect(preload()).resolves.toEqual({
+          context: "",
+          status: "failed",
+        });
+      });
+
+      it("is timed_out when the ranking request outlives its own timeout", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            (_url: unknown, init?: RequestInit) =>
+              new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener("abort", () =>
+                  reject(new DOMException("aborted", "AbortError")),
+                );
+              }),
+          ),
+        );
+
+        await expect(preload()).resolves.toEqual({
+          context: "",
+          status: "timed_out",
+        });
+      });
+
+      it("is failed when the ranking response is unusable", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  answers: {
+                    best_skill: { probabilities: { "context-0": 2 } },
+                  },
+                }),
+              ),
+          ),
+        );
+
+        await expect(preload()).resolves.toEqual({
+          context: "",
+          status: "failed",
+        });
+      });
+
+      it("still injects the fallback reference when the ranking fails", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async () => new Response("nope", { status: 500 })),
+        );
+
+        const result = await preload({
+          appId: "analytics",
+          // Below the similarity floor, so only the fallback can inject it.
+          candidates: [
+            {
+              ...reference,
+              metadata: { kind: "analytics-reference", similarity: "0.1" },
+            },
+          ],
+          fallbackCandidateIds: ["analytics-reference-1"],
+        });
+
+        expect(result.status).toBe("ok");
+        expect(result.context).toContain("Metric: active users.");
+      });
+    });
+
+    it("is ok when a fallback reference was still injected after the deadline", async () => {
+      const result = await preloadJevContextWithStatus({
+        request: "How many active users last month?",
+        apiKey: "jev-test-key",
+        appId: "analytics",
+        contextPrefetchDeadlineAt: Date.now() - 1,
+        candidates: [reference],
+        fallbackCandidateIds: ["analytics-reference-1"],
+      });
+
+      expect(result.status).toBe("ok");
+      expect(result.context).toContain("Metric: active users.");
     });
   });
 

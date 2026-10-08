@@ -199,7 +199,7 @@ export function AgentPanelSettingsNavigation({
       const requested = requestedSettingsSection(section, window.location.hash);
       const navigation = navigate(
         {
-          pathname: appPath("/settings"),
+          pathname: "/settings",
           hash: settingsRouteHashForSection(section, window.location.hash),
         },
         // The hash can't tell API keys from Integrations; the redesigned

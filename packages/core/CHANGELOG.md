@@ -51,6 +51,56 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.204.0
+
+### Minor Changes
+
+- b4285f5: Add `export-audit-ocsf` so org owners and admins can pull the organization audit trail into a SIEM as OCSF 1.9.0 API Activity events with overlap-aware cursor pagination. Harden service principal lifecycle and action grant enforcement, including audited refusals at MCP and A2A admission and queued-task processing.
+
+### Patch Changes
+
+- 4ba5ea5: Prebundle the shared chat entry in standalone AgentKit apps.
+- 59a6099: Preserve AgentKit transcript turn order and reconcile durable message mirrors when event history is incomplete.
+- 54f8526: Use the Dispatch app path for the default hosted workspace directory URL.
+- c3feada: Allow revocable organization service tokens to have a lifetime of up to ten years and give recap-auth failures the correct recovery command.
+- f823a43: A collab connection's own poll now counts another tab's resource-scoped action and Yjs events on the open resource as collaborator activity, so a viewer on a different screen of the same design or deck leaves the 1-5 minute idle cadence within one collab poll instead of waiting for the idle poll.
+- 9ac3cc7: Require the Factory feedback skill to reply with each status reaction.
+- d04dfdc: Fix Builder.io's managed storage provider returning 400 "No image specified" for `application/json` and `text/plain` chat attachments by routing those mimetypes through the signed-URL upload path instead of the legacy endpoint. Also normalize thrown provider upload errors to a 503 response instead of leaking the provider's raw status code.
+- 9f1a191: Preserve CLI action values that begin with option syntax.
+- b4285f5: Load service-principal grant enforcement only for service identities to reduce ordinary server startup work.
+- Release all public npm packages with a patch version bump.
+- 69b9fc6: Advertise each action's declared `mcpAnnotations` on every MCP catalog, not just the directory profile, so a Trash move or overwrite no longer reaches hosts as `destructiveHint: false`. Actions can also declare an optional `idempotentHint`.
+- f823a43: Poll reads that stop at a resource event whose access check is still running now wait up to one second for that check, so the first event after the access cache expires is delivered in the same poll instead of one poll interval later.
+- b4285f5: Preserve retryable service-principal authorization failures and audit denials across A2A, MCP resources, and sandbox child actions.
+- 5c1bae5: Pass authenticated caller identity into generated HTTP action handlers so actions such as org service-token management receive their verified user and organization context.
+- 13994d7: Persist explicit end timestamps for LLM trace spans and generation events.
+- b4285f5: Derive service-principal denial audit scope from the service identity and document ready-watermark cursor advancement for empty OCSF pages.
+- 1bffc30: Signing in from an emailed link no longer leaves the used `token`, `callbackURL`, and `newUserCallbackURL` in the address bar. Netlify copies a request's query string onto any redirect whose `Location` has none, so the bare redirect after a verified link landed on the page with the sign-in query still attached. When a browser navigation to a sign-in or OAuth callback would get a bare redirect, it now gets a small no-store HTML page that replaces itself with the clean destination, keeping every session cookie and the app's base path. This covers Better Auth callbacks, the new-user callback, Google OAuth completion, identity SSO, workspace connection OAuth, and MCP server OAuth. `queryEchoSafeRedirect` is exported from `@agent-native/core/server` for app-owned callbacks. API clients still get the redirect, and an expired or used link still lands with its `?error=` code.
+- 758bdba: Keep Design waitlist submissions within the published Forms use-case options.
+- Updated dependencies [c3feada]
+- Updated dependencies
+- Updated dependencies [bed3b01]
+  - @agent-native/recap-cli@0.5.66
+  - @agent-native/agentkit@0.204.0
+
+## 0.203.1
+
+### Patch Changes
+
+- 005805a: Label a model swapped in because the engine default was unchecked as `provider-selection-fallback` instead of `default`, so logs and traces can tell it from the engine's own default.
+- 005805a: Give lean hosted agent runs the `docs-search` tool their compact prompt tells the model to read skills with, and drop the skills summary from any prompt whose registry has no skill-read tool.
+- 005805a: Make the agent's end-of-turn follow-up call cheap, keep the tools array stable and let tool-search load several tools in one step, and report honest tool error signatures.
+- 005805a: Let a write action return a `_receipt` saying whether it changed anything and whether the change was verified, so the agent loop retries once or annotates the answer when the reply would claim more than the write proved.
+- df89804: Style the email authentication link confirmation page to match the shared auth flow.
+- ecfbb00: Preserve all app overrides when changing organization or personal model defaults, report the requested scope and effective app model separately, and keep reset-to-inherit explicit. App default changes preserve explicit chat and automation selections.
+- 044bbd7: Stop `manage-jobs` create from replacing an existing job file, and record a `job-fields-dropped` audit event when a write to a `jobs/` file removes its frontmatter fields.
+- Release all public npm packages with a patch version bump.
+- dc2b350: Expose verified directory widget read scope to frontend actions for safe read-only embeds.
+- d0fab3d: Add Design parity evidence and CI failure triage guidance to shipped feedback skills.
+- Updated dependencies
+  - @agent-native/agentkit@0.203.1
+  - @agent-native/recap-cli@0.5.65
+
 ## 0.203.0
 
 ### Minor Changes
@@ -3838,19 +3888,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
   credential gate required a `BUILDER_PRIVATE_KEY`/`BUILDER_PUBLIC_KEY` pair, so
   a user connected through Builder OAuth alone had every turn rejected with "No
   LLM provider is connected" while the connect card reported them connected.
-
-## 0.165.4
-
-### Patch Changes
-
-- 841f072: Expand changelog history windows to 100 releases while preserving folder-backed history.
-
-## 0.165.3
-
-### Patch Changes
-
-- b6ca1a7: Warn when `GOOGLE_SIGN_IN_CLIENT_ID` and `GOOGLE_CLIENT_ID` name different Google clients. Sign-in silently preferred the sign-in pair, so repairing `GOOGLE_CLIENT_SECRET` on a deploy that also set `GOOGLE_SIGN_IN_CLIENT_SECRET` changed nothing while appearing correct.
-- b6ca1a7: Harden MCP OAuth reconnects for mounted apps, legacy settings, and concurrent updates.
-- b6ca1a7: Ensure prebuilt Netlify workspace deployments include the hosted feedback URL.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

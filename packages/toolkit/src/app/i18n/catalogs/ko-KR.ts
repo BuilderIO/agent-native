@@ -123,7 +123,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
-  "onboarding.builderCreateAccount": "Builder.io 계정 만들기",
+  "onboarding.builderCreateAccount": "Builder.io 사용",
   "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
   "onboarding.builderActivateDescription":
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
@@ -667,6 +667,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "싫어요",
   "feedback.thumbsUp": "좋아요",
   "feedback.tooSlow": "너무 느림",
+  "feedback.reasonMisread": "요청을 잘못 이해함",
+  "feedback.reasonNotDone": "완료했다고 했지만 완료되지 않음",
+  "feedback.reasonWrongNumbers": "숫자가 틀림",
+  "feedback.copyDetails": "세부정보 복사",
   "feedback.whatWentWrong": "무엇이 잘못되었나요?",
   "feedback.wrongTool": "잘못된 도구",
   "header.switchToCli": "CLI로 전환",
@@ -1128,6 +1132,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io 설정 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
+  "recovery.continueUnavailable":
+    "이 실행은 더 이상 계속할 수 없습니다. 계속하려면 메시지를 보내세요.",
   "recovery.retryAttachmentUnavailable":
     "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",
   "recovery.deferredSubmissionFailed":
@@ -1153,6 +1159,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "{{seconds}}초 동안 진행이 없습니다. 에이전트가 서버 시간 제한에 걸렸거나 연결이 끊겼을 수 있습니다.",
   "recovery.stuckRetrying": "자동으로 다시 시도하는 중입니다.",
+  "recovery.statusUnreadable":
+    "서버에 연결할 수 없어 이 채팅의 상태를 확인하지 못했습니다. 이미 완료되었을 수 있습니다. 계속 시도합니다.",
+  "recovery.statusMismatch":
+    "서버에 따르면 이 채팅은 더 이상 실행 중이 아닙니다. 새로고침하여 결과를 확인하세요.",
+  "recovery.reload": "새로고침",
   "recovery.statusCheckFailed":
     "에이전트가 아직 작업 중인지 확인하기 위해 서버에 연결할 수 없습니다. 메시지를 다시 보내 재시도하세요.",
   "recovery.streamEnded":
@@ -1748,6 +1759,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "조직 소유자와 관리자만 파일 스토리지를 변경할 수 있습니다.",
   "settings.audit.action": "작업",
+  "settings.audit.agentVia": "{{protocol}}를 통한 에이전트",
   "settings.audit.allApps": "모든 앱",
   "settings.audit.app": "앱",
   "settings.audit.changedBy": "변경한 사람",

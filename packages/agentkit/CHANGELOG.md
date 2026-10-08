@@ -1,5 +1,18 @@
 # @agent-native/agentkit
 
+## 0.204.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- bed3b01: Keep queued AgentKit messages behind replacement runs resumed from an approval.
+
+## 0.203.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.203.0
 
 ### Patch Changes

@@ -179,7 +179,7 @@ async function writeScopedRow(
 
 /**
  * Save the default for the authority's scope. Validate the engine first; this
- * only stores it and records the change.
+ * stores only that scope and records the change.
  */
 export async function writeDefaultAgentEngineSelection(
   authority: Extract<DefaultAgentEngineAuthority, { allowed: true }>,

@@ -16,6 +16,7 @@ import {
   assertRegisteredActionAccess,
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
+import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export type ActionCaller =
@@ -62,6 +63,8 @@ export interface ActionRunContext {
   attachments?: AgentChatAttachment[];
   signal?: AbortSignal;
   actionName?: string;
+  /** Present only on frontend GETs authorized by a scoped directory-widget read capability. */
+  mcpDirectoryWidgetReadOnly?: true;
   threadId?: string;
   runId?: string;
   turnId?: string;
@@ -349,6 +352,7 @@ export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
   destructiveHint: boolean;
   openWorldHint: boolean;
+  idempotentHint?: boolean;
 }
 
 interface DefineActionWithSchema<
@@ -589,25 +593,21 @@ export function defineAction<
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
+  // Converting a schema to JSON Schema is the dominant module-scope cost of an
+  // action-heavy app's cold start, so convert only the schema the agent sees.
   let toolParameters: ActionTool["parameters"];
   if (hasSchema) {
-    toolParameters = schemaToJsonSchema(options.schema, options.description);
+    toolParameters = schemaToJsonSchema(
+      options.agentInputSchema && "~standard" in options.agentInputSchema
+        ? options.agentInputSchema
+        : options.schema,
+      options.description,
+    );
   } else if (options.parameters) {
     toolParameters = {
       type: "object" as const,
       properties: options.parameters,
     };
-  }
-
-  if (
-    hasSchema &&
-    options.agentInputSchema &&
-    "~standard" in options.agentInputSchema
-  ) {
-    toolParameters = schemaToJsonSchema(
-      options.agentInputSchema,
-      options.description,
-    );
   }
 
   const guardedRun =
@@ -667,7 +667,9 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(auditConfig, readOnly)
     ? wrapRunWithAudit(run, auditConfig)
     : run;
-  const trackedRun = wrapRunWithActionTracking(finalRun, readOnly);
+  const trackedRun = wrapRunWithServicePrincipalGrant(
+    wrapRunWithActionTracking(finalRun, readOnly),
+  );
 
   const toolCallable: boolean | undefined =
     typeof options.toolCallable === "boolean"
@@ -685,11 +687,13 @@ export function defineAction(options: any) {
           !Array.isArray(options.mcpAnnotations) &&
           typeof options.mcpAnnotations.readOnlyHint === "boolean" &&
           typeof options.mcpAnnotations.destructiveHint === "boolean" &&
-          typeof options.mcpAnnotations.openWorldHint === "boolean"
+          typeof options.mcpAnnotations.openWorldHint === "boolean" &&
+          (options.mcpAnnotations.idempotentHint === undefined ||
+            typeof options.mcpAnnotations.idempotentHint === "boolean")
         ? options.mcpAnnotations
         : (() => {
             throw new TypeError(
-              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values.",
+              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values; idempotentHint is an optional boolean.",
             );
           })();
   const deferLoading: boolean | undefined =
@@ -870,6 +874,30 @@ function wrapRunWithAccess(
       }
     }
     return run(args, ctx);
+  };
+}
+
+/**
+ * Outermost wrapper, so a refused call is audited once as a denial and never
+ * as a failed run of the action. Every route to running an action as a service
+ * identity (MCP, HTTP, delegated agent runs, sandbox bridges) passes here.
+ */
+function wrapRunWithServicePrincipalGrant(
+  run: (args: any, ctx?: ActionRunContext) => any,
+): (args: any, ctx?: ActionRunContext) => any {
+  return function grantCheckedRun(args: any, ctx?: ActionRunContext) {
+    if (!parseServiceIdentityEmail(ctx?.userEmail)) return run(args, ctx);
+    return import("./org/service-principal-guard.js")
+      .then(({ enforceServicePrincipalActionGrant }) =>
+        enforceServicePrincipalActionGrant({
+          email: ctx!.userEmail,
+          orgId: ctx!.orgId,
+          // A missing name only passes an unrestricted grant.
+          actionName: ctx!.actionName ?? "",
+          caller: ctx!.caller,
+        }),
+      )
+      .then(() => run(args, ctx));
   };
 }
 

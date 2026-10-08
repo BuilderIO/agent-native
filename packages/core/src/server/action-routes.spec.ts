@@ -1549,7 +1549,7 @@ describe("mountActionRoutes", () => {
     const runWrite = vi.fn(async () => ({ ok: true }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "content",
-      resourceUri: "ui://content/shell-v67",
+      resourceUri: "ui://content/shell-v68",
       resourceIds: { documentId: "doc-1" },
       actionArguments: {
         "get-document": { id: "doc-1" },
@@ -1646,7 +1646,7 @@ describe("mountActionRoutes", () => {
           });
         },
         appId: "content",
-        mcpDirectoryWidgetResourceUri: "ui://content/shell-v67",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v68",
         mcpDirectoryWidgetReadActionArguments: {
           "get-document": ["id"],
           "get-content-database": ["databaseId", "documentId", "limit"],
@@ -1662,7 +1662,7 @@ describe("mountActionRoutes", () => {
       allowsMcpDirectoryWidgetReadAction(capability, {
         actionName: "get-document",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: { id: "doc-1" },
         allowedArgumentNames: ["id"],
       }),
@@ -1671,7 +1671,7 @@ describe("mountActionRoutes", () => {
       allowsMcpDirectoryWidgetReadAction(capability, {
         actionName: "private-read",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: { id: "doc-1" },
         allowedArgumentNames: ["id"],
       }),
@@ -1680,7 +1680,7 @@ describe("mountActionRoutes", () => {
       normalizeMcpDirectoryWidgetReadActionArguments(capability, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: {
           databaseId: "database-1",
           documentId: "doc-1",
@@ -1883,7 +1883,7 @@ describe("mountActionRoutes", () => {
     }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "design",
-      resourceUri: "ui://design/shell-v67",
+      resourceUri: "ui://design/shell-v68",
       resourceIds: { designId: "design-1" },
       actionArguments: { "get-design": { id: "design-1" } },
     })!;
@@ -1916,7 +1916,7 @@ describe("mountActionRoutes", () => {
           });
         },
         appId: "design",
-        mcpDirectoryWidgetResourceUri: "ui://design/shell-v67",
+        mcpDirectoryWidgetResourceUri: "ui://design/shell-v68",
         mcpDirectoryWidgetReadActionArguments: { "get-design": ["id"] },
         mcpDirectoryWidgetReadPublicActions: ["get-design"],
       },
@@ -1998,7 +1998,7 @@ describe("mountActionRoutes", () => {
             event._headers?.["x-test-owner"] !== "signed-in@example.com",
         }),
         appId: "content",
-        mcpDirectoryWidgetResourceUri: "ui://content/shell-v67",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v68",
         mcpDirectoryWidgetReadActionArguments: {
           "list-documents": ["id"],
         },
@@ -2037,10 +2037,11 @@ describe("mountActionRoutes", () => {
     const run = vi.fn(async (_args, context) => ({
       caller: context?.caller,
       userEmail: context?.userEmail,
+      mcpDirectoryWidgetReadOnly: context?.mcpDirectoryWidgetReadOnly,
     }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "agent",
-      resourceUri: "ui://agent/shell-v67",
+      resourceUri: "ui://agent/shell-v68",
       resourceIds: { deckId: "deck-1" },
       actionArguments: { "get-deck": { id: "deck-1" } },
     })!;
@@ -2071,7 +2072,7 @@ describe("mountActionRoutes", () => {
         mcpDirectoryWidgetReadActionArguments: { "get-deck": ["id"] },
         mcpDirectoryWidgetReadOnlyActions: ["get-deck"],
         mcpDirectoryWidgetAppId: "agent",
-        mcpDirectoryWidgetResourceUri: "ui://agent/shell-v67",
+        mcpDirectoryWidgetResourceUri: "ui://agent/shell-v68",
         getOwnerFromEvent: async () => {
           throw Object.assign(new Error("Unauthenticated"), {
             statusCode: 401,
@@ -2092,6 +2093,7 @@ describe("mountActionRoutes", () => {
     ).resolves.toEqual({
       caller: "mcp-widget",
       userEmail: "ticket-owner@example.com",
+      mcpDirectoryWidgetReadOnly: true,
     });
     expect(run).toHaveBeenCalledOnce();
     expect(mockNotifyActionChange).not.toHaveBeenCalled();
@@ -4956,6 +4958,141 @@ describe("mountWebMcpActionRoutes", () => {
         req: { json: async () => ({}) },
       }),
     ).rejects.toMatchObject({ statusCode: 401 });
+  });
+
+  it("keeps directory-widget read manifests and WebMCP calls scoped when a session cookie is present", async () => {
+    const { createMcpDirectoryWidgetReadCapability } =
+      await import("../shared/embed-auth.js");
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({
+      caller: context.caller,
+      userEmail: context.userEmail,
+      mcpDirectoryWidgetReadOnly: context.mcpDirectoryWidgetReadOnly,
+    }));
+    const runUnscopedPublicRead = vi.fn();
+    const capability = createMcpDirectoryWidgetReadCapability({
+      appId: "design",
+      resourceUri: "ui://design/shell-v68",
+      resourceIds: { designId: "d1" },
+      actionArguments: { "get-design": { id: "d1" } },
+    })!;
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-directory-capability",
+      targetPath: "/design/d1",
+      scope: capability,
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "get-design": {
+          tool: { description: "Read this design", parameters: {} },
+          run,
+          http: { method: "GET" },
+          readOnly: true,
+        } as any,
+        "update-design": {
+          tool: { description: "Update a design", parameters: {} },
+          run: vi.fn(),
+          http: { method: "POST" },
+          readOnly: false,
+        } as any,
+        "get-other-design": {
+          tool: { description: "Read another design", parameters: {} },
+          run: vi.fn(),
+          http: { method: "GET" },
+          readOnly: true,
+        } as any,
+        "search-public-docs": {
+          tool: { description: "Search public docs", parameters: {} },
+          run: runUnscopedPublicRead,
+          http: { method: "GET" },
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+      },
+      {
+        getOwnerContextFromEvent: async () => ({
+          owner: "cookie-owner@example.com",
+          anonymous: false,
+        }),
+        mcpDirectoryWidgetReadActionArguments: { "get-design": ["id"] },
+        mcpDirectoryWidgetReadOnlyActions: ["get-design"],
+        mcpDirectoryWidgetAppId: "design",
+        mcpDirectoryWidgetResourceUri: "ui://design/shell-v68",
+      },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const webMcpRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/get-design",
+    );
+    const unscopedPublicRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/search-public-docs",
+    );
+    const mcpToolRoute = mounted.find(
+      ({ path }) => path === "/mcp/tool/get-design",
+    );
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "get-design",
+        title: "Get design",
+        description: "Read this design",
+        inputSchema: {},
+        readOnly: true,
+      },
+    ]);
+
+    await expect(
+      webMcpRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({ id: "d1" }) },
+      }),
+    ).resolves.toEqual({
+      caller: "mcp-widget",
+      userEmail: "ticket-owner@example.com",
+      mcpDirectoryWidgetReadOnly: true,
+    });
+    expect(run).toHaveBeenCalledOnce();
+
+    await expect(
+      mcpToolRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({ id: "d1" }) },
+      }),
+    ).resolves.toEqual({
+      error: "This widget capability only permits its scoped data routes.",
+    });
+    expect(run).toHaveBeenCalledOnce();
+
+    await expect(
+      unscopedPublicRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({
+      error: "This widget capability only permits its scoped data routes.",
+    });
+    expect(runUnscopedPublicRead).not.toHaveBeenCalled();
   });
 
   it("does not let a bootstrap capability match ordinary visual-edit actions", async () => {

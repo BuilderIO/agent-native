@@ -117,6 +117,7 @@ export function remapHistorySelection<T extends GeometryHistorySelection>(
   const affected =
     (selection.activeFileId && fileIds.has(selection.activeFileId)) ||
     selection.overviewSelectedScreenIds.some((id) => fileIds.has(id)) ||
+    selection.explicitOverviewScreenIds?.some((id) => fileIds.has(id)) ||
     selection.selectedLayerIds.some((id) => fileIds.has(id)) ||
     Object.keys(selection.sourceContentByFileId ?? {}).some((id) =>
       fileIds.has(id),
@@ -165,6 +166,13 @@ export function remapHistorySelection<T extends GeometryHistorySelection>(
         : selection.overviewSelectedScreenIds.map(
             (id) => fileIds.get(id) ?? id,
           ),
+      ...(selection.explicitOverviewScreenIds !== undefined
+        ? {
+            explicitOverviewScreenIds: selection.explicitOverviewScreenIds.map(
+              (id) => fileIds.get(id) ?? id,
+            ),
+          }
+        : {}),
       selectedLayerIds,
       sourceContentByFileId: nextSources,
       sourceFileIdByFileId,

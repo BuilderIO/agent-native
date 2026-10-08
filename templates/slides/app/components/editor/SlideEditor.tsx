@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { hasCrossedCanvasDragThreshold } from "@agent-native/toolkit/canvas-interactions";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
@@ -110,6 +111,12 @@ import {
   storedFormOf,
   type RenderedSlideSource,
 } from "@/lib/slide-source-map";
+import {
+  applyVideoPlaybackSettings,
+  videoFileLooksLikeVideo,
+  videoPlaybackSettingsFor,
+  type VideoPlaybackSettings,
+} from "@/lib/slide-video";
 import { TAB_ID } from "@/lib/tab-id";
 import { shortcutLabel } from "@/lib/utils";
 import { enterSelectionMode } from "@/root";
@@ -133,6 +140,7 @@ import {
   SLIDE_SHAPE_LABEL_KEYS,
   type SlideShapeType,
 } from "./EditorActionCluster";
+import { FollowingSlideStack } from "./FollowingSlideStack";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
 } from "./ImageCropOverlay";
@@ -422,6 +430,11 @@ function layerKindForElement(
   hasChildren: boolean,
 ): SlidesLayerKind {
   if (isRichTextBlock(element)) return "text";
+  if (
+    element.tagName === "VIDEO" ||
+    element.classList.contains("fmd-video-upload-placeholder")
+  )
+    return "video";
   if (
     element.tagName === "IMG" ||
     element.classList.contains("fmd-img-placeholder") ||
@@ -935,6 +948,7 @@ interface SlideSelectionItem {
   kind?: string;
   tagName?: string;
   imageSrc?: string;
+  videoSrc?: string;
   style?: Partial<SlideStyleSnapshot>;
 }
 
@@ -952,11 +966,12 @@ function selectionItemForElement(
   const textLimit = snapshot ? 80 : 200;
   return {
     ...identity,
-    kind: snapshot?.isImage
-      ? "image"
-      : element.tagName === "IMG"
-        ? "image"
-        : "element",
+    kind:
+      element.tagName === "VIDEO"
+        ? "video"
+        : snapshot?.isImage || element.tagName === "IMG"
+          ? "image"
+          : "element",
     tagName: snapshot?.tagName ?? element.tagName.toLowerCase(),
     text: snapshot?.textPreview ?? fullText.slice(0, 200),
     selectedText: selectedText?.trim() ? selectedText : undefined,
@@ -965,6 +980,12 @@ function selectionItemForElement(
       element instanceof HTMLImageElement
         ? (element.getAttribute("src") ?? undefined)
         : (element.querySelector("img")?.getAttribute("src") ?? undefined),
+    videoSrc:
+      element instanceof HTMLVideoElement
+        ? (element.getAttribute("src") ??
+          element.querySelector("source")?.getAttribute("src") ??
+          undefined)
+        : undefined,
     style: snapshot
       ? { ...snapshot, ...imageStyle, selector: identity.selector }
       : undefined,
@@ -1033,6 +1054,7 @@ interface SlideEditorProps {
     file: File,
     position?: SlideImageDropPosition,
   ) => void;
+  onDropVideo?: (file: File, position?: SlideImageDropPosition) => void;
   /** Fired when an image is dragged from elsewhere in the app (e.g. a
    *  generated-image preview in the agent chat panel) and dropped on the
    *  slide canvas, instead of a native OS file drop. */
@@ -1064,6 +1086,12 @@ interface SlideEditorProps {
   comments?: CommentThread[];
   /** Opens the thread anchored to text the user clicked on the canvas. */
   onSelectCommentThread?: (threadId: string) => void;
+  /** MCP App widget only: every slide in the deck. The ones after this one are
+   *  stacked below it at the same width so a slide shorter than the pane is
+   *  followed by the next ones instead of an empty band. */
+  deckSlides?: readonly Slide[];
+  /** Makes a clicked following slide the current slide. */
+  onSelectFollowingSlide?: (slideId: string) => void;
   /** Zero-based index of the current slide */
   slideIndex?: number;
   /** Design system to inject as CSS custom properties on the slide */
@@ -1636,10 +1664,13 @@ export default function SlideEditor({
   onOpenAssetLibrary,
   onUploadImage,
   onDropImage,
+  onDropVideo,
   onDropImageUrl,
   onToggleObjectFit,
   onChangeObjectPosition,
   agentActive,
+  deckSlides,
+  onSelectFollowingSlide,
   slideIndex = 0,
   designSystem,
   aspectRatio,
@@ -1671,6 +1702,9 @@ export default function SlideEditor({
   onComment,
 }: SlideEditorProps) {
   const t = useT();
+  // The host pane owns every surface around the slide, so the widget shows the
+  // slide alone: top-aligned, filling the width, with no toolbar rows or notes.
+  const widgetEmbed = useIsMcpAppWidgetEmbed();
   const layoutOverflowWarningEnabled = useLabState(
     SLIDES_LAYOUT_OVERFLOW_WARNING.key,
   ).enabled;
@@ -1703,6 +1737,8 @@ export default function SlideEditor({
   } | null>(null);
   const selectedImageForCropRef = useRef<HTMLImageElement | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
+  const [selectedVideoPlayback, setSelectedVideoPlayback] =
+    useState<VideoPlaybackSettings | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionViewportRect, setSelectionViewportRect] =
     useState<DOMRect | null>(null);
@@ -1954,6 +1990,7 @@ export default function SlideEditor({
         canvasHeight: dims.height,
         horizontalPadding,
         verticalPadding,
+        fillViewport: widgetEmbed,
       });
 
       setFitCanvasZoom(nextFitZoom);
@@ -1981,7 +2018,14 @@ export default function SlideEditor({
       observer?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [dims.width, dims.height]);
+  }, [dims.width, dims.height, widgetEmbed]);
+
+  // The widget scrolls through the slides that follow this one, so a newly
+  // selected slide starts at the top of the pane.
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (widgetEmbed && scrollContainer) scrollContainer.scrollTop = 0;
+  }, [slide.id, widgetEmbed]);
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
@@ -2828,6 +2872,7 @@ export default function SlideEditor({
     setSelectedElementSelector(null);
     setSelectedElementMeasurement(null);
     setSelectedStyleSnapshot(null);
+    setSelectedVideoPlayback(null);
   }, []);
 
   // `slide.background` paints the canvas wrapper, but a generated `.fmd-slide`
@@ -2862,6 +2907,11 @@ export default function SlideEditor({
       const path = elementPathFromRoot(slideContent, element);
       if (path.length === 0) return;
       const snapshot = buildStyleSnapshot(element, selector);
+      setSelectedVideoPlayback(
+        element.tagName === "VIDEO"
+          ? videoPlaybackSettingsFor(element as HTMLVideoElement)
+          : null,
+      );
       setSelectedElementPath(path);
       setSelectedObjectId(element.getAttribute("data-slide-object-id"));
       setSelectedElementSlideId(slide.id);
@@ -2883,6 +2933,22 @@ export default function SlideEditor({
       invalidateSelectionOverlayMeasurement,
       slide.id,
     ],
+  );
+
+  const updateSelectedVideoPlayback = useCallback(
+    (settings: VideoPlaybackSettings) => {
+      const selected = resolveSelectedElement();
+      if (!selected || selected.tagName !== "VIDEO") return;
+      applyVideoPlaybackSettings(selected as HTMLVideoElement, settings);
+      setSelectedVideoPlayback(settings);
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, slide.id, {
+          persistence: "immediate",
+        });
+      }
+    },
+    [readCurrentSlideContentHtml, resolveSelectedElement, slide.id],
   );
 
   /** Exit edit mode, saving changed content without changing its layout. */
@@ -8516,19 +8582,26 @@ export default function SlideEditor({
   const handleSlideDrop = useCallback(
     (e: React.DragEvent) => {
       const files = Array.from(e.dataTransfer.files ?? []);
-      const file = files.find(imageFileLooksSupported);
+      const file = files.find(
+        (candidate) =>
+          imageFileLooksSupported(candidate) ||
+          videoFileLooksLikeVideo(candidate),
+      );
       if (files.length > 0) {
         e.preventDefault();
         e.stopPropagation();
         if (!file) return;
-        // The drop adds an image to the stored slide, which would otherwise
-        // be re-rendered under the open edit (and refused).
         if (textSessionRef.current) exitInlineEditRef.current();
-        onDropImage?.(
-          getImageReplacementTarget(e.target as HTMLElement),
-          file,
-          getSlideDropPosition(e.clientX, e.clientY),
-        );
+        const position = getSlideDropPosition(e.clientX, e.clientY);
+        if (videoFileLooksLikeVideo(file)) {
+          onDropVideo?.(file, position);
+        } else {
+          onDropImage?.(
+            getImageReplacementTarget(e.target as HTMLElement),
+            file,
+            position,
+          );
+        }
         return;
       }
       // No native file — check for a dragged <img> instead (e.g. one dragged
@@ -8556,6 +8629,7 @@ export default function SlideEditor({
       getImageReplacementTarget,
       getSlideDropPosition,
       onDropImage,
+      onDropVideo,
       onDropImageUrl,
     ],
   );
@@ -9604,7 +9678,7 @@ export default function SlideEditor({
         >
           {t("styleInspector.order")}
         </ContextMenuSubTrigger>
-        <ContextMenuSubContent>
+        <ContextMenuSubContent className="z-[2147483647]">
           <ContextMenuItem
             disabled={!selectedElementSelector && !objectOperationSelection}
             onSelect={() => handleArrangeSelected("front")}
@@ -9658,8 +9732,10 @@ export default function SlideEditor({
   // Excalidraw slides have no selectable slide content, so the row collapses
   // to its slide-level state — but that state owns the background picker, and
   // SlideRenderer paints `slide.background` behind the drawing, so the row has
-  // to stay mounted or that background becomes uneditable.
-  const contextToolbar = !readOnly ? (
+  // to stay mounted or that background becomes uneditable. The widget has no
+  // toolbar row, so it never mounts these.
+  const showContextToolbars = !readOnly && !widgetEmbed;
+  const contextToolbar = showContextToolbars ? (
     <div
       className="shrink-0"
       // Snapshotting the range is only half the job: without this marker the
@@ -9699,12 +9775,14 @@ export default function SlideEditor({
         canUngroup={canUngroupObjects}
         onAlignObjects={handleAlignSelectedObjects}
         onDistributeObjects={handleDistributeSelectedObjects}
+        videoPlayback={selectedVideoPlayback}
+        onVideoPlaybackChange={updateSelectedVideoPlayback}
         zoomControls={zoomControls}
       />
     </div>
   ) : null;
 
-  const wideContextToolbar = !readOnly ? (
+  const wideContextToolbar = showContextToolbars ? (
     <div
       className="shrink-0"
       data-slide-inline-edit-surface="true"
@@ -9740,6 +9818,8 @@ export default function SlideEditor({
         canUngroup={canUngroupObjects}
         onAlignObjects={handleAlignSelectedObjects}
         onDistributeObjects={handleDistributeSelectedObjects}
+        videoPlayback={selectedVideoPlayback}
+        onVideoPlaybackChange={updateSelectedVideoPlayback}
         zoomControls={zoomControls}
         className="slide-context-toolbar--top-row"
       />
@@ -9771,9 +9851,9 @@ export default function SlideEditor({
 
   return (
     <div
-      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
-        animationsOpen || layersOpen ? "rounded-r-lg" : ""
-      }`}
+      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--slides-editor-surface)] ${
+        widgetEmbed ? "" : "rounded-l-lg"
+      } ${animationsOpen || layersOpen ? "rounded-r-lg" : ""}`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
       {!readOnly && wideContextToolbarSlot
@@ -9828,7 +9908,11 @@ export default function SlideEditor({
               >
                 <div
                   ref={canvasTrackRef}
-                  className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
+                  className={`flex min-h-full w-max min-w-full justify-center ${
+                    widgetEmbed
+                      ? "flex-col items-center"
+                      : "items-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
+                  }`}
                   onPointerDown={handleCanvasBackgroundPointerDown}
                 >
                   <div
@@ -9869,7 +9953,11 @@ export default function SlideEditor({
                         >
                           <SlideRenderer
                             slide={slide}
-                            className="shadow-2xl shadow-black/40"
+                            className={
+                              widgetEmbed
+                                ? "rounded-none!"
+                                : "shadow-2xl shadow-black/40"
+                            }
                             designSystem={designSystem}
                             aspectRatio={aspectRatio}
                             onOverflowChange={handleOverflowChange}
@@ -9935,7 +10023,9 @@ export default function SlideEditor({
                             )}
                         </div>
                       </ContextMenuTrigger>
+                      {/* Imported slide objects can carry authored z-indexes; keep this menu above the canvas. */}
                       <ContextMenuContent
+                        className="z-[2147483647]"
                         onCloseAutoFocus={clearContextMenuState}
                       >
                         {contextMenuTableInfo && (
@@ -9998,6 +10088,16 @@ export default function SlideEditor({
                       </ContextMenuContent>
                     </ContextMenu>
                   </div>
+                  {widgetEmbed && deckSlides && onSelectFollowingSlide ? (
+                    <FollowingSlideStack
+                      slides={deckSlides}
+                      afterSlideId={slide.id}
+                      width={canvasWidth}
+                      aspectRatio={aspectRatio}
+                      designSystem={designSystem}
+                      onSelect={onSelectFollowingSlide}
+                    />
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -10010,11 +10110,13 @@ export default function SlideEditor({
           : null}
       </div>
 
-      <SpeakerNotesPanel
-        notes={slide.notes}
-        onChange={(notes) => onUpdateSlide({ notes })}
-        readOnly={readOnly}
-      />
+      {!widgetEmbed && (
+        <SpeakerNotesPanel
+          notes={slide.notes}
+          onChange={(notes) => onUpdateSlide({ notes })}
+          readOnly={readOnly}
+        />
+      )}
 
       {!imageCrop && selectionRect && !selectedElementSelector && (
         <ImageSelectionOutline
