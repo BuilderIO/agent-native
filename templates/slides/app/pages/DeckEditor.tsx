@@ -1492,7 +1492,6 @@ export default function DeckEditor() {
     updateDeck,
     flushDeckSave,
     t,
-    slideCount,
     targetSlideCount,
   ]);
 
@@ -1771,7 +1770,7 @@ export default function DeckEditor() {
         generation_attempt_id: generationAttemptId,
         output_id: id,
         output_type: "deck",
-        slide_count: slideCount,
+        slide_count: slideCountRef.current,
         source: "new_deck_prompt",
         ...generationTimingFields(startedAt ?? undefined, endedAt),
       };
@@ -1830,7 +1829,6 @@ export default function DeckEditor() {
     generationContext,
     generationLifecycleOwnedByEditor,
     id,
-    slideCount,
   ]);
   const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
   const openCommentComposer = useCallback(

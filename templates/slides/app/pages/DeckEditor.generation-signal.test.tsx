@@ -975,6 +975,14 @@ describe("DeckEditor generation signal wiring", () => {
       await refreshPromise.catch(() => undefined);
     });
 
+    expect(trackEvent).toHaveBeenCalledWith(
+      "generation_outcome_unresolved",
+      expect.objectContaining({
+        generation_attempt_id: "attempt-1",
+        outcome: "unresolved",
+        reason: "deck_refresh_failed",
+      }),
+    );
     expect(mocks.deck.generationContext).not.toHaveProperty(
       "generationFailureCode",
     );
