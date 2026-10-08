@@ -1,5 +1,17 @@
 # @agent-native/toolkit
 
+## 0.204.0
+
+### Patch Changes
+
+- c8bbbd4: Clarify Builder setup choices in the shared first-run onboarding flow.
+- 4ba5ea5: Render action chat UI in the AgentSidebar conversation.
+- Release all public npm packages with a patch version bump.
+- 4c1d77f: Open the "Connect storage to upload files" popover only after the composer's Add context menu finishes closing, anchored to the + button, so it no longer slides across the screen and disappears.
+- Updated dependencies
+- Updated dependencies [bed3b01]
+  - @agent-native/agentkit@0.204.0
+
 ## 0.203.1
 
 ### Patch Changes
@@ -1081,13 +1093,5 @@
 ### Patch Changes
 
 - 8afb252: Allow newly created empty collaborative editors to persist their first real user edit after the shared document finishes loading.
-
-## 0.10.5
-
-### Patch Changes
-
-- 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
-- 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
-- 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

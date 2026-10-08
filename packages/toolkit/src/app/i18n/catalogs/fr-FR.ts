@@ -848,6 +848,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "Aucune progression depuis {{seconds}} s. L’agent a peut-être dépassé le délai d’attente du serveur ou perdu la connexion.",
   "recovery.stuckRetrying": "Nouvelle tentative automatique en cours.",
+  "recovery.statusUnreadable":
+    "Impossible de joindre le serveur pour vérifier cette conversation. Elle est peut-être terminée. Nous continuons d'essayer.",
+  "recovery.statusMismatch":
+    "Le serveur indique que cette conversation n'est plus en cours. Rechargez pour voir son résultat.",
+  "recovery.reload": "Recharger",
   "recovery.statusCheckFailed":
     "Impossible de joindre le serveur pour vérifier si l’agent travaille toujours. Renvoyez votre message pour réessayer.",
   "recovery.streamEnded":
@@ -1335,6 +1340,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "Pouce vers le bas",
   "feedback.thumbsUp": "Pouce vers le haut",
   "feedback.tooSlow": "Trop lent",
+  "feedback.reasonMisread": "A mal compris ma demande",
+  "feedback.reasonNotDone": "A dit avoir terminé, mais non",
+  "feedback.reasonWrongNumbers": "Chiffres incorrects",
+  "feedback.copyDetails": "Copier les détails",
   "feedback.whatWentWrong": "Qu'est-ce qui n'a pas fonctionné ?",
   "feedback.wrongTool": "Mauvais outil",
   "contextMeter.ariaLabel":
@@ -1911,6 +1920,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "Seuls les propriétaires et administrateurs de l'organisation peuvent modifier le stockage des fichiers.",
   "settings.audit.action": "Action",
+  "settings.audit.agentVia": "Agent via {{protocol}}",
   "settings.audit.allApps": "Toutes les apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Modifié par",

@@ -10,6 +10,7 @@ export type {
 } from "./types.js";
 
 export {
+  AGENT_AUDIT_CALLERS,
   deriveActorKind,
   isAuditDisabled,
   normalizeAuditConfig,

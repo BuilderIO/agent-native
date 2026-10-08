@@ -11325,7 +11325,8 @@ describe("runAgentLoop", () => {
         provider: "slack",
         reason: "grant",
         appId: "dispatch",
-        detail: "Connect Slack to continue.",
+        detail:
+          "Connect Slack to continue. Ask a workspace admin to grant this app access to the existing connection.",
         source: { id: "dispatch", kind: "app", label: "Dispatch" },
       }),
     );
@@ -11336,7 +11337,8 @@ describe("runAgentLoop", () => {
       {
         state: "input_required",
         code: "connection_required",
-        message: "Connect Slack to continue.",
+        message:
+          "Connect Slack to continue. Ask a workspace admin to grant this app access to the existing connection.",
       },
     ]);
   });

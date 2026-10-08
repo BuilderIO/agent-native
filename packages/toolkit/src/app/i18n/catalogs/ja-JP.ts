@@ -687,6 +687,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "低評価",
   "feedback.thumbsUp": "高評価",
   "feedback.tooSlow": "遅すぎる",
+  "feedback.reasonMisread": "依頼を誤解された",
+  "feedback.reasonNotDone": "完了と言われたが完了していなかった",
+  "feedback.reasonWrongNumbers": "数値が間違っている",
+  "feedback.copyDetails": "詳細をコピー",
   "feedback.whatWentWrong": "何が問題でしたか？",
   "feedback.wrongTool": "ツールが不適切",
   "header.switchToCli": "CLI に切り替え",
@@ -1175,6 +1179,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "{{seconds}}秒間進行がありません。サーバーのタイムアウトか接続切れの可能性があります。",
   "recovery.stuckRetrying": "自動的に再試行しています。",
+  "recovery.statusUnreadable":
+    "サーバーに接続できず、このチャットの状態を確認できません。すでに完了している可能性があります。再試行を続けます。",
+  "recovery.statusMismatch":
+    "サーバーによると、このチャットはすでに実行されていません。再読み込みして結果を確認してください。",
+  "recovery.reload": "再読み込み",
   "recovery.statusCheckFailed":
     "エージェントがまだ動作中か確認するためのサーバー接続に失敗しました。メッセージを再送信して再試行してください。",
   "recovery.streamEnded":
@@ -1779,6 +1788,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "ファイルストレージを変更できるのは組織のオーナーと管理者だけです。",
   "settings.audit.action": "アクション",
+  "settings.audit.agentVia": "{{protocol}} 経由のエージェント",
   "settings.audit.allApps": "すべてのアプリ",
   "settings.audit.app": "アプリ",
   "settings.audit.changedBy": "変更者",

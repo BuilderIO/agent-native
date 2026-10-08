@@ -681,7 +681,12 @@ function scoreTool(input: {
   const all = `${name} ${source} ${description} ${params} ${input.kind}`;
   const phrase = searchableText(input.query);
 
-  let score = 0;
+  // A query that is a tool's whole name is a request for that tool, not for
+  // whatever else repeats its words.
+  let score =
+    input.name.toLowerCase() === input.query.trim().toLowerCase()
+      ? EXACT_NAME_SCORE
+      : 0;
   if (name.includes(phrase)) score += 14;
   if (source && source.includes(phrase)) score += 10;
   if (description.includes(phrase)) score += 8;

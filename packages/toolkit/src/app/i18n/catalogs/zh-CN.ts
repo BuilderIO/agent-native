@@ -638,6 +638,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "不喜欢",
   "feedback.thumbsUp": "喜欢",
   "feedback.tooSlow": "太慢",
+  "feedback.reasonMisread": "误解了我的请求",
+  "feedback.reasonNotDone": "说已完成，但实际没有",
+  "feedback.reasonWrongNumbers": "数字有误",
+  "feedback.copyDetails": "复制详情",
   "feedback.whatWentWrong": "哪里出了问题？",
   "feedback.wrongTool": "工具错误",
   "header.switchToCli": "切换到 CLI",
@@ -1089,6 +1093,10 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "已有 {{seconds}} 秒没有进展。智能体可能遇到服务器超时或连接中断。",
   "recovery.stuckRetrying": "正在自动重试。",
+  "recovery.statusUnreadable":
+    "无法连接服务器检查此对话，它可能已经完成。我们会继续尝试。",
+  "recovery.statusMismatch": "服务器显示此对话已不再运行。重新加载以查看结果。",
+  "recovery.reload": "重新加载",
   "recovery.statusCheckFailed":
     "无法连接服务器以检查智能体是否仍在工作。请重新发送消息以重试。",
   "recovery.streamEnded":
@@ -1655,6 +1663,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.retry": "重试",
   "settings.storage.adminOnly": "只有组织所有者和管理员可以更改文件存储。",
   "settings.audit.action": "操作",
+  "settings.audit.agentVia": "通过 {{protocol}} 的智能体",
   "settings.audit.allApps": "所有应用",
   "settings.audit.app": "应用",
   "settings.audit.changedBy": "更改者",

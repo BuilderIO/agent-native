@@ -36,7 +36,7 @@ Analytics result or direct the user to an Extensions page.
 
 ### Step 1: Understand the Question (catalog-first, clarify-first)
 
-Orient before gathering data. Consult the injected `<data-dictionary>` and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
+Orient before gathering data. Consult the preloaded `<resource scope="analytics-catalog">` references (else one `search-analytics-query-catalog`) and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
 
 - What is being analyzed? (deals, users, campaigns, errors, etc.)
 - What time range?

@@ -11,6 +11,7 @@ const INJECTED_CONTEXT_BLOCKS = [
   "plan-mode-note",
   "non-analytics-retry",
   "response-guard",
+  "context-note",
 ];
 
 export const CORPUS_SOURCE_ACTIONS = new Set([
@@ -517,7 +518,7 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 }
 
 const ANALYTICS_RESULT_TERMS =
-  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|ctr|cvr|cac|ltv)\b/;
+  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn(?:ed)?|pipeline|deals?|calls?|transcripts?|sentiment|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|nrr|grr|ndr|acv|tcv|bookings?|renewals?|logos?|owners?|who owns|ctr|cvr|cac|ltv)\b/;
 
 const DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS =
   /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:conversion|conversions|rate|rates|run|runs|ran|fail(?:ed|ure|ures)?|execution(?:s)?|job(?:s)?|metric|metrics|count|counts)\b/i;
@@ -564,20 +565,20 @@ const SETUP_REQUEST_TERMS =
 const SETUP_REQUEST_FRAMING =
   /\b(?:how (?:do|can) i|can you|help me|where can i|show me how)\b/;
 
-const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
+// The shape of a data ask, independent of what it is about: a reporting window,
+// a scope filter, or a quantity question.
+const DATA_ASK_SHAPE =
+  /\b(?:q[1-4]|h[12]|fy\s?\d{2,4}|ytd|mtd|qtd|(?:last|past|prior|previous|this|current|next)\s+(?:\d+\s+)?(?:quarters?|months?|years?)|\d+\s*(?:days?|weeks?|months?|quarters?|years?)|date range|window|period|filters?|only|excluding|except|versus|vs|how (?:many|much|often))\b/;
 
 const EXPLICIT_CODE_REVIEW_REQUEST =
   /\b(?:review|check|inspect|read|look at|go over)\s+(?:(?:this|the|my|that|our|these)\s+)?(?:\w+\s+){0,3}?(?:prs?|pull requests?|code|diffs?|changes?|patch(?:es)?|commits?|changelogs?|release notes)\b/;
 const CODE_REVIEW_MENTION =
   /\b(?:prs?|pull requests?)(?:\s+descriptions?)?\b|\b(?:code review|diffs?|commits?|changelogs?|release notes)\b|\breviewers?\s+(?:said|says|say|asked|noted|flagged|comments?|feedback)\b/;
 const METRIC_RESULT_INTENT =
-  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
+  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|q[1-4]|h[12]|fy\s?\d{2,4}|ytd|mtd|qtd|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
 
 const DASHBOARD_BARE_STATUS_QUERY_TERMS =
   /\b(?:what|which|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:status|state)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)\b(?!\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
-
-const ARTIFACT_DATA_INTENT =
-  /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
 
 const METADATA_ONLY_TERMS =
   /\b(what (?:tables?|columns?|fields?|sources?|datasets?|metrics?|schema) (?:are|is|exist|available|do (?:we|you|i) have)|which (?:sources?|tables?|providers?|integrations?) (?:are|is) (?:connected|configured|available|set up)|list (?:the )?(?:tables?|columns?|fields?|sources?|datasets?|schemas?)|show (?:me )?(?:available|the) (?:data )?(?:sources?|tables?|schemas?)|what does .+ (?:mean|measure|represent|track)|how is .+ (?:defined|calculated|computed|measured)|definition of|describe (?:the )?(?:\w+\s+)?(?:table|column|schema|metric|field)|list (?:the )?columns?\s+in|what (?:is|are) (?:the )?(?:data (?:dictionary|schema)|available (?:data )?(?:sources?|tables?))|what (?:source|provider|table) (?:has|stores|contains))\b/;
@@ -629,6 +630,166 @@ function hasIndependentAnalyticsDataClause(lower: string): boolean {
     });
 }
 
+const GREETING_OR_THANKS =
+  /^(?:(?:hi|hello|hey|yo|there|thanks?|thank you|thx|ty|cheers|so much|a lot|again|great|nice|awesome|perfect|cool|got it|sounds good|lgtm|good (?:morning|afternoon|evening)|how(?:['’]?s| is) it going|what['’]?s up)\b[\s,.!?]*)+$/;
+
+const UI_EDIT_OPENER =
+  /^(?:(?:please|can you|could you|would you|go ahead and|just)\s+)*(?:make|turn|set|change|switch|toggle|enable|disable|recolou?r|color|resize|rename|retitle|move|reorder|hide|unhide|delete|remove|duplicate|open|navigate to|go to|share|favorite|unfavorite|fix|debug|refactor|update(?!\s+(?:me|us)\b)|edit|add|put|place|drag|swap|increase|decrease)\b\s*/;
+
+// Things a user edits or navigates rather than measures. A metric word inside
+// the name of one ("revenue dashboard", "tickets route") does not make the
+// ask a lookup. Only the singular `view` is one: "page views" is a metric.
+const ARTIFACT_NOUNS =
+  "dashboards?|panels?|charts?|cards?|tables?|tiles?|widgets?|graphs?|pages?|reports?|view|extensions?|folders?|routes?|components?|layouts?|code|themes?|legends?|bars?|axes|axis|labels?|titles?|tooltips?";
+// How an artifact looks, is laid out, or behaves. Editing, moving, or removing
+// one is an artifact edit, but naming one adds nothing to fill with data ("add a
+// border to the panel", "move the chart to a new tab"), so none of these makes a
+// new artifact.
+const LOOK_PART_NOUNS =
+  "colou?rs?|backgrounds?|borders?|grid(?:lines?)?|tabs?|sections?|animations?|shadows?|headers?|footers?|sidebars?|sub-?titles?|fonts?|padding|spacing|auto[- ]?refresh|images?|captions?|trend ?lines?|buttons?|logos?|headings?|toolbars?|text ?box(?:es)?|pickers?";
+const ARTIFACT_NOUN = new RegExp(
+  `\\b(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS})\\b`,
+);
+// A word that can head an artifact's name. A table is also what a panel reads
+// ("the sessions table"), so it never does.
+const ARTIFACT_HEAD = `(?!tables?\\b)(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS})\\b`;
+// Creating an artifact is a request for its contents ("add a chart of signups"),
+// and so is giving a new tab or section a topic ("add a tab about retention");
+// placing something in one ("move this chart to a new tab") is not.
+const NEW_ARTIFACT = new RegExp(
+  `\\b(?:an?|new|another)\\s+(?:[\\w-]+\\s+){0,2}(?:(?:${ARTIFACT_NOUNS})\\b|(?:tabs?|sections?)\\s+(?:about|on|with|of|covering)\\s+(?!(?:the|this|that|my|our)\\s+(?:[\\w-]+\\s+){0,2}?${ARTIFACT_HEAD})\\w)`,
+);
+const ARTIFACT_FAULT =
+  /\b(?:broken|bugs?|buggy|crash\w*|glitch\w*|misaligned|not (?:working|loading|rendering))\b|n['’]t (?:work|load|render)/;
+// After a UI verb, "it" and "this" are the open dashboard or selected panel.
+const ARTIFACT_PRONOUN = /^(?:it|this|that|these|those|them)\b/;
+// After "by" or "for", a size ("by 20%", "by 10px"; a four-digit year still
+// scopes), a device or theme ("for mobile", "for dark mode"), or an audience
+// ("for review", "for the team") says how the edit looks, not what it measures.
+const PRESENTATION_OPERAND =
+  "(?:\\d{1,3}(?:\\.\\d+)?(?!\\d)|(?:the\\s+)?(?:mobile|desktop|tablet|phones?|print(?:ing)?|dark mode|light mode|review|readability|accessibility|clarity|presentations?|team|me|us|everyone|good)\\b(?!\\s+(?:users?|visitors?|traffic|sessions?|customers?|accounts?|signups?)))";
+// What an edit changes about the data instead of the look: it puts something on
+// the artifact that is not a part of it ("show the legend" is a part), narrows
+// or splits what it shows, scopes it ("by region", "for EMEA"), names a
+// data-model noun, or applies a metric ("add ARR", "change this chart to
+// revenue"). A word that heads an artifact's name ("the revenue dashboard",
+// "the sources page") is none of these. Taking something out is `removesValue`.
+const DATA_EDIT_OBJECT = new RegExp(
+  [
+    `\\b(?:show|display|list)\\w*\\b(?!\\s+(?:(?:the|its|this|that|a|an|my|our)\\s+)?(?:[\\w-]+\\s+){0,2}?${ARTIFACT_HEAD})`,
+    "\\b(?:plot|track|visuali[sz]|compar|includ|exclud|group|split|segment|filter|break(?:s|ing)? down)\\w*\\b|(?<!\\b(?:the|this|that|these|those|an?|my|our)\\s+)\\bgraph\\w*\\b",
+    `\\b(?:by|for)\\s+(?!${PRESENTATION_OPERAND})\\w`,
+    `\\b(?:series|metrics?|measures?|dimensions?|breakdowns?|cohorts?|datasets?|data ?sources?|sources?|queries|query|sql)\\b(?!\\s+${ARTIFACT_HEAD})`,
+    "\\badd(?:ing)?\\b[^.!?;]*?\\b(?:lines?|columns?|trend ?lines?|filters?|groupings?)\\b",
+    `\\b(?:(?:add(?:ing)?|swap in|use|using)\\s+(?:(?:the|a|an|some|more|new|our)\\s+)?(?:[\\w-]+\\s+)?|(?:to|into)\\s+(?:(?:the|an?)\\s+)?)${ANALYTICS_RESULT_TERMS.source}(?!\\s+${ARTIFACT_HEAD})`,
+  ].join("|"),
+);
+const REMOVAL_VERB =
+  "(?:(?:remov|delet|ignor|omit|disabl)\\w*|drop(?:s|ped|ping)?|hid(?:e|es|ing)|(?:turn|switch)\\w*\\s+off|tak\\w*\\s+out)";
+// What a removal verb takes out: the words up to the preposition or clause end
+// after them ("the legend" in "remove the legend from this chart"). "around"
+// does not end it: "margin" is also a metric, so "the margin around the chart"
+// is judged by the chart.
+const REMOVAL_OBJECT_WORD =
+  "(?!(?:from|on|in|off|out|at|across|between|inside|within|for|by|to|into|then|but|so|please)\\b)[\\w'’,&-]+";
+const REMOVAL_OBJECT = new RegExp(
+  `\\b${REMOVAL_VERB}\\s+(${REMOVAL_OBJECT_WORD}(?:\\s+${REMOVAL_OBJECT_WORD})*)`,
+  "g",
+);
+// A part of the artifact, or the artifact itself ("it", "everything"), by its
+// last word: "page views" and "label clicks" are metrics that start with one.
+const REMOVED_PART = new RegExp(
+  `\\b(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS}|it|them|this|that|these|those|everything|anything|all)$`,
+);
+// A clause after the thing removed. Naming it ("the chart called Revenue") leaves
+// the head to decide; any other clause narrows a group of records ("users who
+// opened the settings page"), whatever noun it ends in.
+const REMOVAL_QUALIFIER =
+  /\s+(who|whom|whose|that|which|using|with|about|tagged|filed|called|named|titled)\b/;
+const REMOVAL_NAMING = /^(?:called|named|titled)$/;
+// How or when it goes, not what: "remove the legend completely, thanks".
+const REMOVAL_FILLER =
+  /(?:[\s,]+(?:completely|entirely|altogether|permanently|too|also|again|right now|real quick|now|asap|thank(?:s| you)|and (?:save|publish|rerun|refresh|reload)))+$/;
+
+/** Whether an edit takes a value, segment, series, or metric out of what the
+ *  artifact shows ("remove EMEA from this chart", "make it ignore refunds"), as
+ *  opposed to a part of the artifact out ("hide the legend", "delete this
+ *  panel"). Any object that is not a part is a value. The part vocabulary is a
+ *  deliberate best-effort heuristic, not a parser: it fails toward data, which
+ *  only costs the final guard a look, so do not keep extending it. */
+function removesValue(lower: string): boolean {
+  return [...lower.matchAll(REMOVAL_OBJECT)].some(([, object]) => {
+    const [head, qualifier] = object.split(REMOVAL_QUALIFIER);
+    if (qualifier && !REMOVAL_NAMING.test(qualifier)) return true;
+    return head
+      .replace(REMOVAL_FILLER, "")
+      .split(/,|&|\b(?:and|or)\b/)
+      .some((item) => {
+        const phrase = item.trim();
+        return phrase !== "" && !REMOVED_PART.test(phrase);
+      });
+  });
+}
+
+// What a rename sets is a name, whatever words it uses: "rename the chart to
+// Revenue by Region" scopes nothing.
+const NEW_NAME =
+  /(?<=\b(?:rename|retitle|title|label)\w*\b[^.!?;]*?)(?:\b(?:to|as)\b|["“])[^.!?;]*/g;
+
+/** An edit, navigation, or bug report about an existing artifact that asks for
+ *  nothing to be measured. */
+function isArtifactRequest(text: string): boolean {
+  const lower = text.replace(NEW_NAME, " ");
+  const edit = UI_EDIT_OPENER.exec(lower);
+  // The opener is a command, not a metric: "increase the padding" asks for no
+  // increase to be measured.
+  const object = lower.slice(edit?.[0].length ?? 0);
+  if (
+    lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase()) ||
+    DATA_ASK_SHAPE.test(lower) ||
+    METRIC_RESULT_INTENT.test(object) ||
+    NEW_ARTIFACT.test(lower)
+  ) {
+    return false;
+  }
+  if (!edit) return ARTIFACT_FAULT.test(lower) && ARTIFACT_NOUN.test(lower);
+  // The artifact is only what the edit acts on; its object decides.
+  if (DATA_EDIT_OBJECT.test(lower) || removesValue(lower)) return false;
+  return ARTIFACT_NOUN.test(lower) || ARTIFACT_PRONOUN.test(object);
+}
+
+function askText(text: string): string {
+  return boundAnalyticsClassificationText(
+    stripInjectedAnalyticsGuardContext(text),
+  ).toLowerCase();
+}
+
+/** Greetings, thanks, and text with nothing in it to read: the only turns
+ *  pre-model retrieval skips. Retrieval is cheap and relevance-gated (a
+ *  reference below the bar is never injected), so a wrongly retrieved turn costs
+ *  one lookup, and every substantive turn, an artifact edit included, may name
+ *  data the artifact rule cannot enumerate. */
+export function isTrivialTurn(text: string): boolean {
+  const lower = askText(text);
+  return (
+    (lower.match(/[\p{L}\p{N}]/gu) ?? []).length < 2 ||
+    GREETING_OR_THANKS.test(lower)
+  );
+}
+
+/** Turns the final guard never judges: trivial ones, and an edit, navigation,
+ *  or bug report about an artifact. The guard is the intrusive gate, since a
+ *  draft that states figures without query evidence is retried and then
+ *  replaced, so it leans to non-data for a presentation edit ("resize the chart
+ *  by 20%" confirms with a figure that measures nothing). Every other turn, in
+ *  any language, is a candidate data turn. */
+export function isNonDataTurn(text: string): boolean {
+  return isTrivialTurn(text) || isArtifactRequest(askText(text));
+}
+
+/** Whether a request is an analytics lookup by vocabulary. Only the coverage
+ *  checks use it; the guard gates on `isNonDataTurn`, retrieval on
+ *  `isTrivialTurn`. */
 export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const requestText = boundAnalyticsClassificationText(
     stripInjectedAnalyticsGuardContext(text),
@@ -640,6 +801,7 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
     "",
   );
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
+  if (isNonDataTurn(requestText)) return false;
   if (
     SETUP_REQUEST_TERMS.test(lower) &&
     (SETUP_REQUEST_FRAMING.test(lower) || /\bsettings?\b/.test(lower))
@@ -665,20 +827,6 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   if (
     looksLikeWorkflowOrAutomationRequest(lower) &&
     !hasIndependentAnalyticsDataClause(lower)
-  ) {
-    return false;
-  }
-  if (
-    /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
-      lower,
-    ) &&
-    !ANALYTICS_INTENT_TERMS.test(lower) &&
-    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
-  ) {
-    return false;
-  }
-  if (
-    /\b(fix|bug|layout|style|component|route|code|source code)\b/.test(lower)
   ) {
     return false;
   }
@@ -730,11 +878,7 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return true;
   }
-  return (
-    ARTIFACT_TERMS.test(lower) &&
-    ARTIFACT_DATA_INTENT.test(lower) &&
-    ANALYTICS_RESULT_TERMS.test(lower)
-  );
+  return DATA_ASK_SHAPE.test(lower);
 }
 
 const UNSUPPORTED_RESULT_CLAIM =

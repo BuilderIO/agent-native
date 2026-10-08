@@ -890,6 +890,66 @@ export async function getTraceSummary(
   return rowToTraceSummary(rows[0] as any);
 }
 
+/**
+ * A thread created on a path with no request org keeps `org_id` NULL, and every
+ * review read requires `thread.org_id` to equal the trace's org, so its runs
+ * never reach Human Review. The run that executed under an org is the proof of
+ * which org the thread belongs to: adopt it, for the thread's own owner only
+ * and only while `org_id` is NULL.
+ *
+ * A private thread's `org_id` grants nothing but that review access (owner
+ * access ignores it, shares do not read it, and `visibility = 'org'` is the only
+ * way it scopes sharing), while `thread_data` holds every run's conversation. So
+ * a private thread whose owner's runs span more than one org belongs to none of
+ * them: the second statement unassigns it. Org-visible threads keep their
+ * `org_id`, which is an explicit sharing scope.
+ *
+ * Both statements run after this run's own summary is committed
+ * (`upsertTraceSummary` is awaited first), so of two concurrent runs under
+ * different orgs the one whose statements run later always sees the other's
+ * committed org. If this run's adopt raced ahead of the other run's summary, the
+ * other run's unassign undoes it, or, when that ran before this adopt
+ * committed, this run's own unassign does, since it starts after the adopt.
+ * No lock is needed.
+ *
+ * The multi-org signal is derived from `agent_trace_summaries`, so it is only
+ * as durable as those rows: retention purges them, and a run that never wrote a
+ * summary is invisible to it. A thread unassigned for spanning orgs can
+ * therefore be re-adopted once the other org's summaries age out.
+ */
+export async function adoptTraceOrgForThread(
+  summary: Pick<TraceSummary, "threadId" | "userId" | "orgId">,
+): Promise<void> {
+  if (!summary.orgId || !summary.threadId || !summary.userId) return;
+  const client = getDbExec();
+  // The subqueries only run for a thread owned by the caller (the other
+  // predicates short-circuit first) and probe
+  // idx_trace_summaries_thread_user_created by thread_id.
+  await client.execute({
+    sql: `UPDATE chat_threads SET org_id = ?
+      WHERE id = ? AND org_id IS NULL AND LOWER(owner_email) = LOWER(?)
+        AND NOT EXISTS (
+          SELECT 1 FROM agent_trace_summaries other
+          WHERE other.thread_id = chat_threads.id
+            AND LOWER(other.user_id) = LOWER(chat_threads.owner_email)
+            AND other.org_id IS NOT NULL AND other.org_id <> ?
+        )`,
+    args: [summary.orgId, summary.threadId, summary.userId, summary.orgId],
+  });
+  await client.execute({
+    sql: `UPDATE chat_threads SET org_id = NULL
+      WHERE id = ? AND org_id IS NOT NULL AND visibility = 'private'
+        AND LOWER(owner_email) = LOWER(?)
+        AND EXISTS (
+          SELECT 1 FROM agent_trace_summaries other
+          WHERE other.thread_id = chat_threads.id
+            AND LOWER(other.user_id) = LOWER(chat_threads.owner_email)
+            AND other.org_id IS NOT NULL AND other.org_id <> chat_threads.org_id
+        )`,
+    args: [summary.threadId, summary.userId],
+  });
+}
+
 export async function getOrgScopedThreadData(
   orgId: string,
   ownerEmail: string,
