@@ -1,7 +1,10 @@
 import { AgentNativeIcon } from "@agent-native/toolkit/app/shared";
 import { IconMenu2, IconSearch } from "@tabler/icons-react";
 
-import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
+import {
+  DocumentEditorSkeleton,
+  HIDDEN_IN_WIDGET_CLASS_NAME,
+} from "@/components/editor/DocumentEditorSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
@@ -51,7 +54,10 @@ export function ContentStartupShell({
     >
       <div
         aria-hidden="true"
-        className="agent-layout-left-drawer flex shrink-0 [html[data-content-sidebar-drawer]_&]:hidden"
+        className={cn(
+          "agent-layout-left-drawer flex shrink-0 max-[1100px]:hidden [html[data-content-sidebar-drawer]_&]:hidden",
+          HIDDEN_IN_WIDGET_CLASS_NAME,
+        )}
       >
         <div
           className="agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-sidebar"

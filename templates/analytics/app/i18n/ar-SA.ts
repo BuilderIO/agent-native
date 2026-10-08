@@ -1485,6 +1485,13 @@ export default {
     savingScreenshot: "جارٍ حفظ لقطة الشاشة…",
     screenshotDownloaded: "تم تنزيل لقطة الشاشة",
     screenshotSaveFailed: "تعذّر حفظ لقطة الشاشة",
+    copyScreenshot: "نسخ إلى Design",
+    copyingScreenshot: "جارٍ نسخ لقطة الشاشة…",
+    screenshotCopiedForDesign: "نُسخت لقطة الشاشة. الصقها في Design.",
+    screenshotCopyFailed:
+      "تعذّر نسخ لقطة الشاشة. نزّلها وارفع ملف PNG إلى Design بدلاً من ذلك.",
+    screenshotCopyUnsupportedAssets:
+      "لم تُنسخ لقطة الشاشة: يتضمن هذا الموضع وسائط أو صورًا لا يمكن التقاطها بأمان. جرّب موضعًا آخر في التسجيل.",
     screenshotUnsupportedAssets:
       "لم تُحفظ لقطة الشاشة: تعذّر التقاط بعض الوسائط المضمّنة أو الصور بأمان.",
     timeline: "الخط الزمني للأحداث",

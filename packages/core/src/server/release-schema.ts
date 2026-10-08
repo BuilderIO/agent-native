@@ -347,6 +347,11 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       ),
   ],
   [
+    "ServicePrincipalPolicies",
+    () =>
+      import("../org/service-principal-policy.js").then((m) => m.ensureTable()),
+  ],
+  [
     "Settings",
     () => import("../settings/store.js").then((m) => m.ensureTable()),
   ],

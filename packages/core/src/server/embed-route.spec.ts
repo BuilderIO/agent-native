@@ -588,7 +588,7 @@ describe("createEmbedStartRouteHandler", () => {
   it("does not expose directory widget scope in the embed URL", async () => {
     const scope = createMcpDirectoryWidgetReadCapability({
       appId: "content",
-      resourceUri: "ui://content/shell-v67",
+      resourceUri: "ui://content/shell-v68",
       resourceIds: { documentId: "doc-1" },
       actionArguments: { "get-document": { id: "doc-1" } },
     });
@@ -608,9 +608,12 @@ describe("createEmbedStartRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
+    // The widget flag rides along even when the start URL lacked it: a
+    // directory capability only exists for a widget frame.
     expect(res.headers.get("Location")).toBe(
-      "/page/doc-1?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
+      "/page/doc-1?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&agentSidebar=closed",
     );
+    expect(res.headers.get("Location")).not.toContain("capability");
   });
 
   it("strips an untrusted directory widget marker from embed targets", async () => {

@@ -359,6 +359,12 @@ export interface AgentKitController {
     context?: AgentRequestContext,
   ): Promise<void>;
   supportsQueuedMessageReordering?(): boolean;
+  continueRun?(
+    threadId: ThreadId,
+    runId: RunId,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  supportsRunContinuation?(): boolean;
   submitFeedback(
     threadId: ThreadId,
     messageId: string,
@@ -1854,24 +1860,7 @@ function messagesWithToolCallHistory(
 
   if (historyPartsByMessageId.size === 0) {
     if (!omittedHistory) return messages;
-    const messageIds = new Set(messages.map(({ id }) => id));
-    let id = "agentkit-tool-history-omission";
-    for (let suffix = 1; messageIds.has(id); suffix += 1) {
-      id = `agentkit-tool-history-omission-${suffix}`;
-    }
-    const omissionMessage: AgentMessage = {
-      id,
-      role: "assistant",
-      parts: [{ type: "text", text: TOOL_HISTORY_OMISSION_TEXT }],
-      status: "complete",
-    };
-    const lastUserMessageIndex =
-      messages.at(-1)?.role === "user" ? messages.length - 1 : messages.length;
-    return [
-      ...messages.slice(0, lastUserMessageIndex),
-      omissionMessage,
-      ...messages.slice(lastUserMessageIndex),
-    ];
+    return messagesWithOmissionNote(messages, TOOL_HISTORY_OMISSION_TEXT);
   }
   let omittedUnorderedHistory = false;
   const projectedMessages = messages.map((message) => {
@@ -1888,20 +1877,37 @@ function messagesWithToolCallHistory(
     }
     return { ...message, parts };
   });
-  if (omittedUnorderedHistory) {
-    const messageIds = new Set(projectedMessages.map(({ id }) => id));
-    let id = "agentkit-tool-history-omission";
-    for (let suffix = 1; messageIds.has(id); suffix += 1) {
-      id = `agentkit-tool-history-omission-${suffix}`;
-    }
-    projectedMessages.push({
+  return omittedUnorderedHistory
+    ? messagesWithOmissionNote(
+        projectedMessages,
+        TOOL_HISTORY_ORDER_OMISSION_TEXT,
+      )
+    : projectedMessages;
+}
+
+// The note goes before a trailing user prompt: a request must end on the
+// user's turn, or the runtime treats the prompt as a standalone turn.
+function messagesWithOmissionNote(
+  messages: AgentMessage[],
+  text: string,
+): AgentMessage[] {
+  const messageIds = new Set(messages.map(({ id }) => id));
+  let id = "agentkit-tool-history-omission";
+  for (let suffix = 1; messageIds.has(id); suffix += 1) {
+    id = `agentkit-tool-history-omission-${suffix}`;
+  }
+  const lastUserMessageIndex =
+    messages.at(-1)?.role === "user" ? messages.length - 1 : messages.length;
+  return [
+    ...messages.slice(0, lastUserMessageIndex),
+    {
       id,
       role: "assistant",
-      parts: [{ type: "text", text: TOOL_HISTORY_ORDER_OMISSION_TEXT }],
+      parts: [{ type: "text", text }],
       status: "complete",
-    });
-  }
-  return projectedMessages;
+    },
+    ...messages.slice(lastUserMessageIndex),
+  ];
 }
 
 function toolCallHistoryParts(
@@ -2734,7 +2740,6 @@ export class AgentKitClient implements AgentKitController {
     const key = this.runKey(input.threadId, result.runId);
     const existingConsumer = this.consumers.get(key);
     if (existingConsumer) {
-      this.scheduleQueuePromotion(input.threadId);
       void (async () => {
         await Promise.allSettled([existingConsumer]);
         if (!this.disposed) {
@@ -2751,7 +2756,6 @@ export class AgentKitClient implements AgentKitController {
       result.runId,
       this.consume(input.threadId, result.runId),
     );
-    this.scheduleQueuePromotion(input.threadId);
   }
 
   public async resolveConnectionRequest(
@@ -3124,6 +3128,31 @@ export class AgentKitClient implements AgentKitController {
         throw error;
       }
     });
+  }
+
+  public supportsRunContinuation(): boolean {
+    return typeof this.transport.continueRun === "function";
+  }
+
+  public async continueRun(
+    threadId: ThreadId,
+    runId: RunId,
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const continueRun = this.transport.continueRun;
+    if (!continueRun) throw new AgentKitOperationError("run continuation");
+    const result = await this.invokeRequest(
+      this.createRequestContext(context),
+      (request) => continueRun({ threadId, runId }, request),
+    );
+    this.assertActive();
+    this.markRunStarted(threadId, result.runId);
+    this.trackConsumer(
+      threadId,
+      result.runId,
+      this.consume(threadId, result.runId),
+    );
   }
 
   public supportsQueuedMessageReordering(): boolean {

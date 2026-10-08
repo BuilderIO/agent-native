@@ -46,7 +46,9 @@ function job(
     name: "chromium / design editor",
     status: "completed",
     conclusion: "failure",
+    started_at: "2026-10-05T12:00:00Z",
     completed_at: "2026-10-05T12:30:00Z",
+    runner_name: "GitHub Actions",
     steps: [step("Run Design E2E", "failure")],
     ...overrides,
   } as WorkflowJob;
@@ -508,6 +510,68 @@ describe("ci-red-report", () => {
       ),
       [45, 44, 42],
     );
+  });
+
+  it("ignores failed workflows cancelled before actionable jobs ran", () => {
+    const cancelled = run(46);
+    const skippedOnly = run(47);
+    const jobs = new Map([
+      [
+        cancelled.id,
+        [
+          job(cancelled.id, 461, {
+            conclusion: "cancelled",
+            started_at: "2026-10-05T12:01:00Z",
+            runner_name: "",
+            steps: [],
+          }),
+          job(cancelled.id, 462, {
+            conclusion: "skipped",
+            steps: [step("Run Design E2E", "skipped")],
+          }),
+        ],
+      ],
+      [
+        skippedOnly.id,
+        [
+          job(skippedOnly.id, 471, {
+            conclusion: "skipped",
+            steps: [step("Run Design E2E", "skipped")],
+          }),
+        ],
+      ],
+    ]);
+
+    const rows = buildCiRedRows([cancelled, skippedOnly], jobs, since, now);
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].runId, skippedOnly.id);
+    assert.equal(rows[0].fingerprintGrain, "workflow");
+  });
+
+  it("keeps a workflow-level failure when a cancelled job has started", () => {
+    const cancelledAfterStart = run(48);
+    const rows = buildCiRedRows(
+      [cancelledAfterStart],
+      new Map([
+        [
+          cancelledAfterStart.id,
+          [
+            job(cancelledAfterStart.id, 481, {
+              conclusion: "cancelled",
+              started_at: "2026-10-05T12:05:00Z",
+              steps: [step("Run Design E2E", "cancelled")],
+            }),
+          ],
+        ],
+      ]),
+      since,
+      now,
+    );
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].runId, cancelledAfterStart.id);
+    assert.equal(rows[0].fingerprintGrain, "workflow");
   });
 
   it("warns and keeps job-step fingerprints when case annotations lack a final summary", async () => {

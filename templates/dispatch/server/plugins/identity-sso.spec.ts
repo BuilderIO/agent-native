@@ -109,7 +109,10 @@ vi.mock("@agent-native/core/org", () => ({
   isGoogleSignInRequiredForEmail: isGoogleSignInRequiredForEmailMock,
   setActiveOrgId: setActiveOrgIdMock,
 }));
-vi.mock("@agent-native/core/server", () => ({
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  queryEchoSafeRedirect: (
+    await importOriginal<typeof import("@agent-native/core/server")>()
+  ).queryEchoSafeRedirect,
   getH3App: vi.fn(() => ({ use: vi.fn() })),
   getSession: getSessionMock,
   hasGoogleAuthIdentity: hasGoogleAuthIdentityMock,
@@ -1109,13 +1112,20 @@ describe("silent browser bootstrap", () => {
 
     const activationEvent = event(
       `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter%23compose`,
-      { cookies: { ...continuationEvent.cookies } },
+      {
+        cookies: { ...continuationEvent.cookies },
+        headers: { "sec-fetch-mode": "navigate" },
+      },
     );
     const activation = await bootstrapActivationHandler(activationEvent);
-    expect(activation.status).toBe(302);
-    expect(activation.headers.get("Location")).toBe(
-      "https://mail.agent-native.com/after#compose",
+    // A page, not a redirect, so the edge cannot copy the spent activation
+    // handle onto the app URL.
+    expect(activation.status).toBe(200);
+    const landing = await activation.text();
+    expect(landing).toContain(
+      'content="0;url=https://mail.agent-native.com/after#compose"',
     );
+    expect(landing).not.toContain(tokenBody.bootstrap_activation);
     expect(addSessionMock).toHaveBeenCalledWith(
       expect.any(String),
       "user@example.test",

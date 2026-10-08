@@ -52,6 +52,24 @@ describe("app layout", () => {
     expect(readLayoutSource()).not.toContain("agent-panel:close");
   });
 
+  it("renders only the page inside an MCP App widget, with no sidebar, header, or agent panel", () => {
+    const source = readLayoutSource();
+    const start = source.indexOf("if (mcpAppWidgetEmbed) {");
+    const widgetBranch = source.slice(
+      start,
+      source.indexOf("\n  return (", start),
+    );
+
+    expect(source).toContain("useIsMcpAppWidgetEmbed()");
+    expect(widgetBranch).toContain("agent-layout-shell");
+    expect(widgetBranch).toContain(
+      "SidebarTriggerContext.Provider value={null}",
+    );
+    expect(widgetBranch).not.toMatch(
+      /DocumentSidebar|AgentSidebar|<Header\b|InvitationBanner|IconMenu2/,
+    );
+  });
+
   it("keeps workspace-wide sidebar data out of scoped OpenAI widgets", () => {
     const source = readLayoutSource();
 

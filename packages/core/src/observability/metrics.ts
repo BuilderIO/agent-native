@@ -79,6 +79,7 @@ interface Instruments {
   agentRuns: MetricCounter;
   toolCalls: MetricCounter;
   flushFailures: MetricCounter;
+  traceWriteFailures: MetricCounter;
 }
 
 let cachedInstruments: Instruments | undefined;
@@ -126,6 +127,13 @@ function instruments(): Instruments | undefined {
       {
         description:
           "Telemetry flushes that timed out or failed; their points were dropped.",
+      },
+    ),
+    traceWriteFailures: meter.createCounter(
+      "agent_native.observability.trace_write_failures",
+      {
+        description:
+          "Runs whose trace spans or summary could not be persisted; their trace is incomplete or missing.",
       },
     ),
   };
@@ -265,6 +273,19 @@ export function recordAgentToolCall(call: AgentToolCallMetric): void {
       ? call.toolName
       : "other",
     ...(call.errorType ? { "error.type": call.errorType } : {}),
+  });
+}
+
+export type TraceWriteStage = "spans" | "summary" | "thread_org" | "write";
+
+/** Counted once per failed stage of a run, never per span. */
+export function recordTraceWriteFailure(
+  stage: TraceWriteStage,
+  error: unknown,
+): void {
+  instruments()?.traceWriteFailures.add(1, {
+    "agent_native.observability.stage": stage,
+    "error.type": flushErrorType(error),
   });
 }
 

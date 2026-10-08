@@ -117,7 +117,6 @@ import {
   type AgentConnectionErrorRenderProps,
   type AgentKitBranchNavigation,
 } from "../agentkit/react/index.js";
-import { AgentKitRoot } from "../agentkit/react/root.js";
 import {
   AgentKitDevCheckpointProvider,
   AgentKitDevCheckpointRestore,
@@ -142,6 +141,7 @@ import {
   AgentKitFilesChangedSummary,
   AgentKitMarkdownText,
 } from "./agentkit-chat/parity-renderers.js";
+import { CoreAgentKitRoot } from "./agentkit-chat/root.js";
 import { AgentApprovalCard } from "./chat/agent-approval-card.js";
 import { renderMarkdownToClipboardHtml } from "./chat/markdown-renderer.js";
 import {
@@ -169,7 +169,9 @@ import {
 } from "./chat/tool-call-display.js";
 import { resolveAgentKitToolSource } from "./chat/tool-integration.js";
 import { ExternalAgentNudge } from "./external-agent-host.js";
+import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
+import { reconcileSettledRun } from "./reconcile-settled-run.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
 
@@ -856,6 +858,11 @@ export const AgentKitAssistantChat = forwardRef<
         shortcut: "{{shortcut}}",
       }),
       feedbackSubmit: t("agentChat.feedback.submit"),
+      feedbackReasonMisread: t("agentChat.feedback.reasonMisread"),
+      feedbackReasonNotDone: t("agentChat.feedback.reasonNotDone"),
+      feedbackReasonWrongNumbers: t("agentChat.feedback.reasonWrongNumbers"),
+      feedbackReasonTooSlow: t("agentChat.feedback.tooSlow"),
+      feedbackCopyDetails: t("agentChat.feedback.copyDetails"),
       fork: t("agentChat.message.forkChat"),
       previousBranch: t("agentChat.message.previousBranch"),
       nextBranch: t("agentChat.message.nextBranch"),
@@ -863,6 +870,8 @@ export const AgentKitAssistantChat = forwardRef<
       error: t("agentChat.error.failed"),
       renderError: t("agentChat.error.render"),
       runFailed: t("agentChat.error.failed"),
+      continueRun: t("agentChat.common.continue"),
+      continueRunUnavailable: t("agentChat.recovery.continueUnavailable"),
       reconnect: t("agentChat.agentPanel.chatgptSubscriptionReconnect"),
       reasoning: t("agentChat.status.thinking"),
       expandActivity: t("agentChat.common.expand"),
@@ -1186,7 +1195,7 @@ export const AgentKitAssistantChat = forwardRef<
   return (
     <ThinkingDisplayProvider value={props.thinkingDisplay}>
       <CoreComposerRuntimeProvider>
-        <AgentKitRoot
+        <CoreAgentKitRoot
           transport={transport}
           clientOptions={{
             transportOwnership: "owned",
@@ -1202,6 +1211,7 @@ export const AgentKitAssistantChat = forwardRef<
           labels={labels}
           branchNavigation={props.branchNavigation}
           loadRunUsage={loadRunUsage}
+          buildFeedbackReport={formatFeedbackReport}
           onThreadForked={(thread) => props.onForkedThread?.(thread.id)}
           onCopyMessage={({ text }) => {
             const html = renderMarkdownToClipboardHtml(text);
@@ -1250,7 +1260,7 @@ export const AgentKitAssistantChat = forwardRef<
               />
             </AgentKitDevCheckpointProvider>
           )}
-        </AgentKitRoot>
+        </CoreAgentKitRoot>
       </CoreComposerRuntimeProvider>
     </ThinkingDisplayProvider>
   );
@@ -1521,6 +1531,15 @@ const AgentKitAssistantChatBody = forwardRef<
   const isThreadRunning = useCallback(
     () => hasActiveAgentRuns(controller.getThread(threadId)),
     [controller, threadId],
+  );
+  const reconcileServerSettled = useCallback(
+    () =>
+      reconcileSettledRun({
+        load: control.load,
+        getThread: () => controller.getThread(threadId),
+        tabId: props.tabId ?? threadId,
+      }),
+    [control.load, controller, props.tabId, threadId],
   );
 
   useEffect(() => {
@@ -3141,6 +3160,7 @@ const AgentKitAssistantChatBody = forwardRef<
           )
         }
         isAwaitingResponse={() => isRunning}
+        onServerSettled={reconcileServerSettled}
         onRetry={() =>
           void sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
         }
@@ -4607,6 +4627,7 @@ function AgentKitRunFailure({
   const surface = useAgentKitSurface();
   const t = useT();
   const [dismissed, setDismissed] = useState<string | null>(null);
+  const [continueFailed, setContinueFailed] = useState(false);
   const authErrorReason =
     error.code === "unauthorized" || error.code === "http_401"
       ? "session-expired"
@@ -4690,6 +4711,17 @@ function AgentKitRunFailure({
     );
   }
   if (wasRetried(thread.messages, runId)) return null;
+  // Continuing resumes the stopped run's own turn, so finished steps are not
+  // run again; that needs it to still be the turn's newest run.
+  const continueStoppedRun = control.canContinueRun
+    ? superseded
+      ? undefined
+      : () => {
+          setContinueFailed(false);
+          control.continueRun(runId).catch(() => setContinueFailed(true));
+        }
+    : () =>
+        void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue");
   const info: RunErrorInfo = {
     message: formatAgentKitErrorText(error, t),
     errorCode: error.code,
@@ -4700,8 +4732,9 @@ function AgentKitRunFailure({
   return (
     <RunErrorRecoveryCard
       info={info}
-      onContinue={() =>
-        void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
+      onContinue={continueStoppedRun}
+      continueError={
+        continueFailed ? t("agentChat.recovery.continueUnavailable") : null
       }
       onRetry={() => void retryFailedTurn()}
       retryHasUnavailableAttachment={retryRequest.hasUnavailableAttachment}

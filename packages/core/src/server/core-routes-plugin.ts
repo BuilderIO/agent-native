@@ -1258,11 +1258,13 @@ const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
 const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
-  "design_make_real_waitlist",
-  "design_system_workflows_waitlist",
-  "design_system_waitlist",
   "docs_build_online_waitlist",
   "docs_edit_online_waitlist",
+]);
+const BUILDER_WAITLIST_USE_CASE_GROUPS = new Map([
+  ["design_make_real_waitlist", "design_publish_app"],
+  ["design_system_workflows_waitlist", "design_publish_app"],
+  ["design_system_waitlist", "design_publish_app"],
 ]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
@@ -1333,9 +1335,16 @@ function cleanBuilderWaitlistText(
 
 function normalizeBuilderWaitlistUseCase(value: unknown): string {
   const useCase = cleanBuilderWaitlistText(value, 100);
-  return useCase && BUILDER_WAITLIST_USE_CASES.has(useCase)
-    ? useCase
-    : BUILDER_WAITLIST_DEFAULT_USE_CASE;
+  if (!useCase) return BUILDER_WAITLIST_DEFAULT_USE_CASE;
+  if (BUILDER_WAITLIST_USE_CASES.has(useCase)) return useCase;
+
+  // The published waitlist form validates this select against its own option
+  // list. Keep new Design entry points in the existing Design category; their
+  // exact surfaces remain in the text `source` field.
+  return (
+    BUILDER_WAITLIST_USE_CASE_GROUPS.get(useCase) ??
+    BUILDER_WAITLIST_DEFAULT_USE_CASE
+  );
 }
 
 function normalizeBuilderWaitlistTemplate(value: unknown): string | undefined {
@@ -6058,16 +6067,35 @@ export function createCoreRoutesPlugin(
             return { error: "Unauthorized" };
           }
           const userEmail = session.email;
-          const result = await runWithRequestContext(
-            { userEmail, orgId: session.orgId },
-            () =>
-              uploadFile({
-                data: filePart.data,
-                filename: filePart.filename,
-                mimeType: filePart.type,
-                ownerEmail: userEmail,
-              }),
-          );
+          let result;
+          try {
+            result = await runWithRequestContext(
+              { userEmail, orgId: session.orgId },
+              () =>
+                uploadFile({
+                  data: filePart.data,
+                  filename: filePart.filename,
+                  mimeType: filePart.type,
+                  ownerEmail: userEmail,
+                }),
+            );
+          } catch (error) {
+            // A thrown provider error (e.g. an upstream API rejecting the
+            // request) carries its own `status`/`statusCode`, which h3 would
+            // otherwise surface verbatim to the client — indistinguishable
+            // from this route's own deliberate 4xx responses above and
+            // useless for the composer's generic "could not upload" copy.
+            // Normalize to one clear failure instead of leaking whatever
+            // status the active provider happened to respond with. Use 503
+            // (not 502/504) since gateway statuses get rewritten by the CDN
+            // layer anyway — see cdnSafeOriginStatus.
+            console.error("[file-upload] provider upload failed", error);
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "The configured storage provider could not upload this file. Try again or check Settings → File uploads.",
+            };
+          }
 
           if (result) {
             setResponseStatus(event, 201);

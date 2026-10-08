@@ -4,6 +4,7 @@ import "../authorization/check-action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
+import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
 
 let _fs: typeof import("fs") | undefined;
@@ -70,41 +71,6 @@ export function mergePackageActions(
   }
 }
 
-function splitShellArgs(input: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let inDouble = false;
-  let inSingle = false;
-  let wasQuoted = false;
-
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-    if (ch === '"' && !inSingle) {
-      inDouble = !inDouble;
-      wasQuoted = true;
-      continue;
-    }
-    if (ch === "'" && !inDouble) {
-      inSingle = !inSingle;
-      wasQuoted = true;
-      continue;
-    }
-    if ((ch === " " || ch === "\t") && !inDouble && !inSingle) {
-      if (current.length > 0 || wasQuoted) {
-        tokens.push(current);
-      }
-      current = "";
-      wasQuoted = false;
-      continue;
-    }
-    current += ch;
-  }
-  if (current.length > 0 || wasQuoted) {
-    tokens.push(current);
-  }
-  return tokens;
-}
-
 function wrapDefaultExport(
   name: string,
   defaultFn: (args: string[]) => Promise<void>,
@@ -126,14 +92,10 @@ function wrapDefaultExport(
   return {
     tool,
     run: async (args: Record<string, string>): Promise<string> => {
-      const cliArgs: string[] = [];
-      if (args.args && Object.keys(args).length === 1) {
-        cliArgs.push(...splitShellArgs(args.args));
-      } else {
-        for (const [k, v] of Object.entries(args)) {
-          cliArgs.push(`--${k}`, v);
-        }
-      }
+      const cliArgs =
+        args.args && Object.keys(args).length === 1
+          ? normalizeShellArgs(args.args)
+          : serializeCliArgs(args);
       return captureCliOutput(() => defaultFn(cliArgs));
     },
   };
@@ -843,6 +805,10 @@ export async function mergeCoreSharingActions(
       () => import("../audit/actions/export-audit-events.js"),
     ],
     [
+      "export-audit-ocsf",
+      () => import("../audit/actions/export-audit-ocsf.js"),
+    ],
+    [
       "export-resource-pack",
       () => import("../resources/actions/export-resource-pack.js"),
     ],
@@ -984,6 +950,14 @@ export async function mergeCoreSharingActions(
     [
       "revoke-org-service-token",
       () => import("../mcp/actions/revoke-org-service-token.js"),
+    ],
+    [
+      "set-service-principal-policy",
+      () => import("../mcp/actions/set-service-principal-policy.js"),
+    ],
+    [
+      "set-service-principal-lifecycle",
+      () => import("../mcp/actions/set-service-principal-lifecycle.js"),
     ],
     ["list-mcp-tools", () => import("../mcp/actions/list-mcp-tools.js")],
     ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],

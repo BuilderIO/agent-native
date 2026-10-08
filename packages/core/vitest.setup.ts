@@ -1,6 +1,12 @@
 import path from "node:path";
 
-import { inject } from "vitest";
+import { afterAll, inject } from "vitest";
+
+import { isolateUserHome } from "./vitest.isolated-home";
+
+// No test may touch the developer's real home folder; see vitest.isolated-home.ts.
+const isolatedHome = isolateUserHome();
+afterAll(() => isolatedHome.restore());
 
 // Test files run in parallel worker processes. A file that opens the database
 // without DATABASE_URL gets the ./data/pglite default, and that directory's

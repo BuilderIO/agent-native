@@ -54,6 +54,7 @@ import {
 import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
+  readVercelSweepCron,
 } from "./build.js";
 import {
   cloneServerBundleForFunction,
@@ -140,19 +141,98 @@ function builtinAgentsEnvSnippet(): string {
 function workspaceDirectoryEnvSnippet(
   workspaceApps: WorkspaceAppManifestEntry[],
 ): string {
-  const orgDirectoryUrl = getAppConfig().workspace.orgDirectoryUrl?.trim();
-  if (!orgDirectoryUrl && !workspaceApps.some((app) => app.isDispatch)) {
+  const configuredOrgDirectoryUrl =
+    getAppConfig().workspace.orgDirectoryUrl?.trim();
+  const dispatchApp = workspaceApps.find((app) => app.isDispatch);
+  if (!configuredOrgDirectoryUrl && !dispatchApp) {
     return builtinAgentsEnvSnippet();
   }
+  const runtimeDirectoryResolver = dispatchApp
+    ? `
+  function logInvalidDirectoryBase() {
+    const logKey = Symbol.for("agent-native.workspace.invalid-directory-base");
+    if (globalThis[logKey]) return;
+    globalThis[logKey] = true;
+    console.error("[workspace] Invalid organization directory base URL");
+  }
+
+  function resolveRuntimeDirectoryUrl() {
+    const isVercelProduction =
+      processRef.env.VERCEL_ENV?.trim().toLowerCase() === "production";
+    const vercelCandidates = processRef.env.VERCEL
+      ? (isVercelProduction
+          ? [
+              processRef.env.VERCEL_PROJECT_PRODUCTION_URL,
+              processRef.env.VERCEL_URL,
+              processRef.env.VERCEL_BRANCH_URL,
+            ]
+          : [processRef.env.VERCEL_URL, processRef.env.VERCEL_BRANCH_URL]
+        )
+          .filter(Boolean)
+          .map((candidate) =>
+            /^https?:\\/\\//i.test(candidate)
+              ? candidate
+              : "https://" + candidate,
+          )
+      : [];
+    const candidates = [
+      processRef.env.APP_URL,
+      processRef.env.URL,
+      processRef.env.DEPLOY_URL,
+      processRef.env.BETTER_AUTH_URL,
+      ...vercelCandidates,
+      processRef.env.WORKSPACE_GATEWAY_URL,
+      processRef.env.VITE_WORKSPACE_GATEWAY_URL,
+    ].filter(Boolean);
+    let loopbackUrl;
+    for (const candidate of candidates) {
+      let baseUrl;
+      try {
+        baseUrl = new URL(candidate);
+      } catch {
+        logInvalidDirectoryBase();
+        continue;
+      }
+      if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
+        logInvalidDirectoryBase();
+        continue;
+      }
+      const directoryUrl = new URL(${JSON.stringify(dispatchApp.path)}, baseUrl)
+      .toString()
+      .replace(/\\/$/, "");
+      const hostname = baseUrl.hostname.toLowerCase().replace(/\\.$/, "");
+      const mappedIpv4 = hostname.match(
+        /^\\[::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}\\]$/,
+      );
+      const isMappedIpv4Loopback =
+        mappedIpv4 !== null &&
+        (Number.parseInt(mappedIpv4[1], 16) >> 8) === 0x7f;
+      if (
+        hostname === "localhost" ||
+        hostname.endsWith(".localhost") ||
+        /^127(?:\\.\\d{1,3}){3}$/.test(hostname) ||
+        /^0(?:\\.\\d{1,3}){3}$/.test(hostname) ||
+        hostname === "[::1]" ||
+        hostname === "::1" ||
+        hostname === "[::]" ||
+        hostname === "::" ||
+        isMappedIpv4Loopback
+      ) {
+        loopbackUrl ??= directoryUrl;
+        continue;
+      }
+      return directoryUrl;
+    }
+    return loopbackUrl ?? null;
+  }
+`
+    : "";
   return `${builtinAgentsEnvSnippet()}
+${runtimeDirectoryResolver}
   const directoryOrigin =
     processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
-    ${JSON.stringify(orgDirectoryUrl ?? null)} ||
-    processRef.env.WORKSPACE_GATEWAY_URL ||
-    processRef.env.APP_URL ||
-    processRef.env.URL ||
-    processRef.env.DEPLOY_URL ||
-    processRef.env.BETTER_AUTH_URL;
+    ${JSON.stringify(configuredOrgDirectoryUrl ?? null)} ||
+    ${dispatchApp ? "resolveRuntimeDirectoryUrl()" : "null"};
   if (directoryOrigin) {
     processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
   }
@@ -254,6 +334,7 @@ export async function runWorkspaceDeploy(
   );
 
   const execFile = opts.execFile ?? execFileSync;
+  const sweepCrons: Array<{ path: string; schedule: string }> = [];
   for (const app of apps) {
     buildOneApp(
       workspaceRoot,
@@ -274,6 +355,14 @@ export async function runWorkspaceDeploy(
       workspaceApps,
       workspaceAuthMode,
     );
+    if (preset === "vercel") {
+      sweepCrons.push(
+        readVercelSweepCron(
+          path.join(appsDir, app, VERCEL_OUTPUT_DIR),
+          `/${app}`,
+        ),
+      );
+    }
   }
   writeWorkspaceAppManifests(workspaceRoot, apps, workspaceApps, preset);
   if (workspaceRootPage === "directory") {
@@ -292,6 +381,7 @@ export async function runWorkspaceDeploy(
       apps,
       workspaceApps,
       workspaceRootPage,
+      sweepCrons,
     );
   }
 
@@ -332,13 +422,8 @@ function buildOneApp(
     workspaceApps,
     app,
   );
-  const workspaceGatewayUrl =
-    process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
-  const orgDirectoryUrl =
-    getAppConfig().workspace.orgDirectoryUrl?.trim() ||
-    (workspaceApps.some((entry) => entry.isDispatch)
-      ? workspaceGatewayUrl
-      : null);
+  const workspaceGatewayUrl = workspaceBaseUrl();
+  const orgDirectoryUrl = getAppConfig().workspace.orgDirectoryUrl?.trim();
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
   const frameworkRoutePrefix = workspaceFrameworkRoutePrefixEnv();
   const env: NodeJS.ProcessEnv = {
@@ -625,6 +710,7 @@ function writeVercelBuildConfig(
   apps: string[],
   workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
+  sweepCrons: Array<{ path: string; schedule: string }>,
 ): void {
   const routes: Array<Record<string, any>> = [
     ...vercelImmutableAssetHeaderRoutes(outputDir, apps),
@@ -698,6 +784,7 @@ function writeVercelBuildConfig(
   const config = {
     version: 3,
     routes,
+    crons: sweepCrons,
   };
   fs.writeFileSync(
     path.join(outputDir, "config.json"),

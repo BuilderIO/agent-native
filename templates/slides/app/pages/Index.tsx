@@ -169,6 +169,8 @@ import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
+import { generationTimingFields } from "../../shared/generation-timing.js";
+
 const LazyDesignSystemSetup = lazy(() =>
   import("@/components/design-system/DesignSystemSetup").then(
     ({ DesignSystemSetup }) => ({
@@ -1274,6 +1276,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     }
     const deckId = deck.id;
     const generationAttemptId = nanoid();
+    const generationStartedAt = Date.now();
     let generationFailureTracked = false;
     const generationSubmitMessageId = nanoid();
     trackEvent("generation_started", {
@@ -1282,6 +1285,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       generation_attempt_id: generationAttemptId,
       output_id: deckId,
       output_type: "deck",
+      started_at_ms: generationStartedAt,
       source: "new_deck_prompt",
     });
     setNewDeckPromptOpen(false);
@@ -1300,12 +1304,14 @@ export default function Index({ active = true }: { active?: boolean }) {
     ) => {
       if (!generationFailureTracked) {
         generationFailureTracked = true;
+        const generationEndedAt = Date.now();
         trackEvent("generation_failed", {
           app_name: "slides",
           template_name: "slides",
           generation_attempt_id: generationAttemptId,
           output_id: deckId,
           output_type: "deck",
+          ...generationTimingFields(generationStartedAt, generationEndedAt),
           failure_code: failureCode,
           failure_stage: "setup",
           source: "new_deck_prompt",
@@ -1572,6 +1578,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       targetSlideCount:
         importedSourceDeck?.slideCount ?? requestedSlideCount(trimmedPrompt),
       generationAttemptId,
+      generationStartedAt,
     };
 
     try {
@@ -1630,12 +1637,14 @@ export default function Index({ active = true }: { active?: boolean }) {
         );
         return;
       }
+      const generationAcceptedAt = Date.now();
       trackEvent("generation_request_accepted", {
         app_name: "slides",
         template_name: "slides",
         generation_attempt_id: generationAttemptId,
         output_id: deckId,
         output_type: "deck",
+        ...generationTimingFields(generationStartedAt, generationAcceptedAt),
         source: "new_deck_prompt",
       });
     } catch (error) {
