@@ -87,6 +87,7 @@ import {
   normalizeReplayEvents,
   replayAvailabilityErrorKey,
   replayInitialViewportDimensions,
+  resolveReplayOffsetFromRecordingStart,
   replayStartedAt,
   replayViewportDimensionsAtTime,
   REPLAY_OVERLAY_STYLE_RULES,
@@ -292,10 +293,11 @@ export default function SessionDetailPage() {
   const { codeRequiredDialog } = useSendToAgentChat();
   const { data, isLoading, error } = useSessionReplayPlayback(recordingId);
   const recording = data?.recording;
-  const initialSeekMs = useMemo(() => {
+  const initialRecordingOffsetMs = useMemo(() => {
     const raw = searchParams.get("atMs");
-    if (!raw || !/^\d+$/.test(raw)) return 0;
-    return Number(raw);
+    if (raw === null || !/^\d+$/.test(raw)) return null;
+    const offsetMs = Number(raw);
+    return Number.isSafeInteger(offsetMs) ? offsetMs : null;
   }, [searchParams]);
 
   return (
@@ -348,7 +350,10 @@ export default function SessionDetailPage() {
         <DetailSkeleton />
       ) : data && recording ? (
         <div className="min-h-0 flex-1">
-          <ReplayWorkbench response={data} initialSeekMs={initialSeekMs} />
+          <ReplayWorkbench
+            response={data}
+            initialRecordingOffsetMs={initialRecordingOffsetMs}
+          />
         </div>
       ) : null}
     </div>
@@ -467,13 +472,35 @@ function AskSessionPopover({
 
 function ReplayWorkbench({
   response,
-  initialSeekMs,
+  initialRecordingOffsetMs,
 }: {
   response: SessionReplayPlaybackResponse;
-  initialSeekMs: number;
+  initialRecordingOffsetMs: number | null;
 }) {
   const t = useT();
   const events = useReplayEvents(response);
+  const offsetResolution = useMemo(
+    () =>
+      initialRecordingOffsetMs === null
+        ? null
+        : resolveReplayOffsetFromRecordingStart(
+            events,
+            Date.parse(response.recording.startedAt),
+            initialRecordingOffsetMs,
+          ),
+    [events, initialRecordingOffsetMs, response.recording.startedAt],
+  );
+  const initialSeekMs =
+    initialRecordingOffsetMs === null
+      ? null
+      : (offsetResolution?.playheadOffsetMs ?? 0);
+  const requestedOffsetStatus =
+    response.isComplete && offsetResolution && !offsetResolution.exact
+      ? {
+          requestedOffsetMs: offsetResolution.requestedOffsetMs,
+          availableOffsetMs: offsetResolution.availableOffsetMs,
+        }
+      : null;
   const appEvents = useLab(ANALYTICS_SESSIONS_TRIAGE_LAB);
   const [pageChangesCollapsed, setPageChangesCollapsed] = useState(false);
   const [savingScreenshot, setSavingScreenshot] = useState(false);
@@ -522,6 +549,7 @@ function ReplayWorkbench({
         markers={markers}
         response={response}
         initialSeekMs={initialSeekMs}
+        requestedOffsetStatus={requestedOffsetStatus}
         onTimeUpdate={setCurrentTime}
         registerSeek={registerSeek}
         frictionLab={appEvents}
@@ -552,6 +580,7 @@ function ReplayPlayer({
   markers,
   response,
   initialSeekMs,
+  requestedOffsetStatus,
   onTimeUpdate,
   registerSeek,
   frictionLab,
@@ -561,7 +590,11 @@ function ReplayPlayer({
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
   response: SessionReplayPlaybackResponse;
-  initialSeekMs: number;
+  initialSeekMs: number | null;
+  requestedOffsetStatus: {
+    requestedOffsetMs: number;
+    availableOffsetMs: number;
+  } | null;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
   frictionLab: boolean;
@@ -849,7 +882,7 @@ function ReplayPlayer({
       const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
       setTotalTime(Number.isFinite(total) ? total : 0);
       const startAt = clamp(
-        initialSeekMs || currentTimeRef.current,
+        initialSeekMs ?? currentTimeRef.current,
         0,
         Number.isFinite(total) ? total : 0,
       );
@@ -1153,6 +1186,21 @@ function ReplayPlayer({
         <Card className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col p-0">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-muted/20 p-2">
+              {status === "ready" && requestedOffsetStatus ? (
+                <p
+                  className="mb-2 rounded-md border bg-background px-3 py-2 text-xs text-muted-foreground"
+                  role="status"
+                >
+                  {t("sessions.replayTargetFallback", {
+                    requested: formatClock(
+                      requestedOffsetStatus.requestedOffsetMs,
+                    ),
+                    available: formatClock(
+                      requestedOffsetStatus.availableOffsetMs,
+                    ),
+                  })}
+                </p>
+              ) : null}
               {currentUrl ? (
                 <div
                   className="flex h-8 shrink-0 items-center rounded-t-md border border-b-0 bg-background px-3 font-mono text-xs text-muted-foreground"

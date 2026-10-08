@@ -53,6 +53,10 @@ type JourneyTree = { window: { from: string; to: string }; app: string; rootN: n
 - An example with `recordingId: null` has no replay the caller can open, and
   `viewportReason` says why the viewport is unknown (`no_recording`,
   `not_captured` for recordings before viewport capture, `unreadable`).
+- `offsetMs` is milliseconds from the recording's `startedAt`, not the first
+  rrweb event.
+- `replayUrl` uses that same offset in `atMs`; the session page converts it to
+  the first-event-relative player clock after replay events load.
 - Test identities are always excluded; `emailFilter` defaults to
   `exclude_builder`, as in the onboarding metrics. A session with any excluded
   identity is dropped whole.
@@ -62,14 +66,17 @@ type JourneyTree = { window: { from: string; to: string }; app: string; rootN: n
 The CLI mints a two-hour recording-scoped replay link with
 `create-session-replay-agent-link`, reads the token-gated manifest and every
 chunk, then renders each recording once with the local `@rrweb/replay` player
-in headless Chromium. It seeks to each `offsetMs`, applies the recorded
-viewport at that time, and uses a native browser screenshot so dialogs and
-other top-layer content remain visible. The token and replay events stay in
-memory; the CLI writes only PNGs and `manifest.json` with `frames`, `failures`
-(explicit, with a reason), and `skipped`. Manifest chunk counts and ordering
-must be complete; the CLI reads bounded batches only through the requested
-offsets and validates every fetched chunk. Fix failures or report them; do not
-paint over a missing frame.
+in headless Chromium. Each JourneyTree `offsetMs` is relative to the recording's
+`startedAt`; the CLI maps `startedAt + offsetMs` to rrweb's first-event-relative
+playhead for seeking, viewport, and route evaluation while preserving the
+original offset in frame metadata. If the target precedes the first replay
+event, report a frame failure instead of clamping the seek to zero. The CLI
+uses a native browser screenshot so dialogs and other top-layer content remain
+visible. The token and replay events stay in memory; the CLI writes only PNGs
+and `manifest.json` with `frames`, `failures` (explicit, with a reason), and
+`skipped`. Manifest chunk counts and ordering must be complete; the CLI reads
+bounded batches only through the requested offsets and validates every fetched
+chunk. Fix failures or report them; do not paint over a missing frame.
 
 Authenticate to the deployed app, never a local database: run
 `npx -y @agent-native/core@latest connect https://analytics.agent-native.com --client codex`

@@ -108,6 +108,77 @@ export function replayRouteAtOffset(
   }
 }
 
+export type ReplayOffsetResolution = {
+  requestedOffsetMs: number;
+  availableOffsetMs: number;
+  playheadOffsetMs: number;
+  exact: boolean;
+  range: "before" | "within" | "after";
+};
+
+/** Maps a recording-start target to rrweb time and reports any clamp. */
+export function resolveReplayOffsetFromRecordingStart(
+  events: readonly AnyReplayEvent[],
+  recordingStartedAtMs: number,
+  recordingOffsetMs: number,
+): ReplayOffsetResolution | null {
+  if (
+    !Number.isFinite(recordingStartedAtMs) ||
+    !Number.isFinite(recordingOffsetMs) ||
+    recordingOffsetMs < 0
+  ) {
+    return null;
+  }
+  let firstEventTimestamp = Number.POSITIVE_INFINITY;
+  let lastEventTimestamp = Number.NEGATIVE_INFINITY;
+  for (const event of events) {
+    const timestamp = Number(event.timestamp);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
+    firstEventTimestamp = Math.min(firstEventTimestamp, timestamp);
+    lastEventTimestamp = Math.max(lastEventTimestamp, timestamp);
+  }
+  const targetTimestamp = recordingStartedAtMs + recordingOffsetMs;
+  if (
+    !Number.isFinite(firstEventTimestamp) ||
+    !Number.isFinite(lastEventTimestamp) ||
+    !Number.isFinite(targetTimestamp)
+  ) {
+    return null;
+  }
+  const range =
+    targetTimestamp < firstEventTimestamp
+      ? "before"
+      : targetTimestamp > lastEventTimestamp
+        ? "after"
+        : "within";
+  const availableTimestamp =
+    range === "before"
+      ? firstEventTimestamp
+      : range === "after"
+        ? lastEventTimestamp
+        : targetTimestamp;
+  return {
+    requestedOffsetMs: recordingOffsetMs,
+    availableOffsetMs: Math.max(0, availableTimestamp - recordingStartedAtMs),
+    playheadOffsetMs: Math.max(0, availableTimestamp - firstEventTimestamp),
+    exact: range === "within",
+    range,
+  };
+}
+
+export function replayOffsetFromRecordingStart(
+  events: readonly AnyReplayEvent[],
+  recordingStartedAtMs: number,
+  recordingOffsetMs: number,
+): number | null {
+  const resolution = resolveReplayOffsetFromRecordingStart(
+    events,
+    recordingStartedAtMs,
+    recordingOffsetMs,
+  );
+  return resolution?.range === "within" ? resolution.playheadOffsetMs : null;
+}
+
 export function buildReplayViewportTimeline(
   events: AnyReplayEvent[],
 ): ReplayViewportChange[] {
@@ -117,9 +188,7 @@ export function buildReplayViewportTimeline(
   const firstMetaTimestamp = events.reduce((best, event) => {
     if (event.type !== RRWEB_EVENT_TYPE.Meta) return best;
     const timestamp = Number(event.timestamp ?? 0);
-    return Number.isFinite(timestamp) && timestamp > 0
-      ? Math.min(best, timestamp)
-      : best;
+    return Number.isFinite(timestamp) ? Math.min(best, timestamp) : best;
   }, Number.POSITIVE_INFINITY);
   const changes: ReplayViewportChange[] = [{ ...initial, offsetMs: 0 }];
   for (const event of events) {

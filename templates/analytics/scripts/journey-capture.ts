@@ -30,6 +30,7 @@ import { isScreenshotSize, pngDimensions } from "../shared/png";
 import {
   buildReplayViewportTimeline,
   normalizeReplayEvents,
+  resolveReplayOffsetFromRecordingStart,
   replayAvailabilityErrorKey,
   replayInitialViewportDimensions,
   replayRouteAtOffset,
@@ -604,9 +605,9 @@ export async function loadReplayEvents(
   contextUrl: string,
   appUrl: string,
   recordingId: string,
-  maxOffsetMs: number,
+  maxRecordingOffsetMs: number,
   timeoutMs: number,
-): Promise<AnyReplayEvent[]> {
+): Promise<{ events: AnyReplayEvent[]; recordingStartedAtMs: number }> {
   const manifestUrl = tokenizedManifestUrl(contextUrl, appUrl, recordingId);
   const accessToken = new URL(contextUrl).searchParams.get(
     SESSION_REPLAY_AGENT_ACCESS_PARAM,
@@ -629,8 +630,13 @@ export async function loadReplayEvents(
     recording.eventCount < 0 ||
     !Number.isSafeInteger(recording.totalBytes) ||
     recording.totalBytes < 0 ||
-    recording.chunkCount !== chunks.length
+    recording.chunkCount !== chunks.length ||
+    typeof recording.startedAt !== "string"
   ) {
+    throw new Error("replay_manifest_invalid");
+  }
+  const recordingStartedAtMs = Date.parse(recording.startedAt);
+  if (!Number.isSafeInteger(recordingStartedAtMs)) {
     throw new Error("replay_manifest_invalid");
   }
 
@@ -666,14 +672,17 @@ export async function loadReplayEvents(
     throw new Error("replay_manifest_incomplete");
   }
 
-  if (!Number.isFinite(maxOffsetMs) || maxOffsetMs < 0) {
+  if (!Number.isFinite(maxRecordingOffsetMs) || maxRecordingOffsetMs < 0) {
+    throw new Error("replay_offset_invalid");
+  }
+  const targetTimestamp = recordingStartedAtMs + maxRecordingOffsetMs;
+  if (!Number.isFinite(targetTimestamp)) {
     throw new Error("replay_offset_invalid");
   }
 
   const events: AnyReplayEvent[] = [];
   let actualBytes = 0;
   let previousTimestamp = Number.NEGATIVE_INFINITY;
-  let targetTimestamp: number | undefined;
   for (let start = 0; start < chunks.length; start += 8) {
     const batch = chunks
       .slice(start, start + 8)
@@ -752,13 +761,10 @@ export async function loadReplayEvents(
         if (events.length > MAX_CAPTURE_EVENTS) {
           throw new Error("replay_prefix_too_large");
         }
-        if (targetTimestamp === undefined) {
-          targetTimestamp = event.timestamp + maxOffsetMs;
-        }
       }
     }
 
-    if (targetTimestamp !== undefined && previousTimestamp > targetTimestamp) {
+    if (previousTimestamp > targetTimestamp) {
       break;
     }
   }
@@ -768,7 +774,7 @@ export async function loadReplayEvents(
   if (replayAvailabilityErrorKey(normalized)) {
     throw new Error("replay_unavailable");
   }
-  return normalized;
+  return { events: normalized, recordingStartedAtMs };
 }
 
 async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
@@ -801,23 +807,24 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
     return failAll(`link_failed: ${reasonFromError(error)}`);
   }
 
-  let events: AnyReplayEvent[];
+  let replay: Awaited<ReturnType<typeof loadReplayEvents>>;
   try {
-    const maxOffsetMs = plan.items.reduce(
+    const maxRecordingOffsetMs = plan.items.reduce(
       (maxOffset, item) => Math.max(maxOffset, item.offsetMs),
       0,
     );
-    events = await loadReplayEvents(
+    replay = await loadReplayEvents(
       contextUrl,
       ctx.appUrl,
       plan.recordingId,
-      maxOffsetMs,
+      maxRecordingOffsetMs,
       ctx.timeoutMs,
     );
   } catch (error) {
     if (error instanceof AuthError) throw error;
     return failAll(`replay_load_failed: ${reasonFromError(error)}`);
   }
+  const { events, recordingStartedAtMs } = replay;
   const initial = replayInitialViewportDimensions(events);
   const timeline = buildReplayViewportTimeline(events);
   if (!initial || timeline.length === 0) {
@@ -920,13 +927,31 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
           reason,
         });
       try {
-        if (item.offsetMs > replayInfo.totalTimeMs) {
+        const offsetResolution = resolveReplayOffsetFromRecordingStart(
+          events,
+          recordingStartedAtMs,
+          item.offsetMs,
+        );
+        if (!offsetResolution) {
+          fail("replay_offset_invalid");
+          continue;
+        }
+        if (offsetResolution.range === "before") {
+          fail("offset_before_replay_start");
+          continue;
+        }
+        if (offsetResolution.range === "after") {
+          fail("offset_out_of_range");
+          continue;
+        }
+        const { playheadOffsetMs } = offsetResolution;
+        if (playheadOffsetMs > replayInfo.totalTimeMs) {
           fail("offset_out_of_range");
           continue;
         }
         const dimensions = replayViewportDimensionsAtTime(
           timeline,
-          item.offsetMs,
+          playheadOffsetMs,
         );
         if (
           !dimensions ||
@@ -942,14 +967,14 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
         await page.setViewportSize(dimensions);
         await withTimeout(
           page.evaluate(
-            async ({ offsetMs, dimensions }) => {
+            async ({ playheadOffsetMs, dimensions }) => {
               const state = (window as any).__anJourneyCapture;
               const stage = document.getElementById("stage");
               const root = document.getElementById("stage-root");
               if (!state || !stage || !root) {
                 throw new Error("replay_stage_unavailable");
               }
-              state.replayer.pause(offsetMs);
+              state.replayer.pause(playheadOffsetMs);
               state.replayer.handleResize?.(dimensions);
               stage.style.width = `${dimensions.width}px`;
               stage.style.height = `${dimensions.height}px`;
@@ -974,7 +999,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
                 ),
               );
             },
-            { offsetMs: item.offsetMs, dimensions },
+            { playheadOffsetMs, dimensions },
           ),
           ctx.timeoutMs,
         );
@@ -1005,7 +1030,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
         }
         const capturedAt = new Date().toISOString();
         const route = normalizeJourneyPath(
-          replayRouteAtOffset(events, item.offsetMs),
+          replayRouteAtOffset(events, playheadOffsetMs),
         );
         const capturedPng = bytes.toString("base64");
         // The file is written before the upload, so a disk failure cannot

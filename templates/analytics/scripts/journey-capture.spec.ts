@@ -152,7 +152,7 @@ describe("journey replay prefix loading", () => {
       const event = {
         id: `event-${index}`,
         type: index === 0 ? 4 : index === 1 ? 2 : 3,
-        timestamp: index === 9 ? 1_001 : 1_000,
+        timestamp: index === 0 ? 500 : index === 9 ? 1_001 : 1_000,
         data:
           index === 0
             ? {
@@ -182,6 +182,7 @@ describe("journey replay prefix loading", () => {
     const manifest = {
       recording: {
         id: recordId,
+        startedAt: new Date(400).toISOString(),
         eventCount: chunkData.length,
         totalBytes: chunkData.reduce(
           (sum, chunk) => sum + Buffer.byteLength(chunk.body, "utf8"),
@@ -218,19 +219,115 @@ describe("journey replay prefix loading", () => {
     const appUrl = `http://127.0.0.1:${port}`;
 
     try {
-      const events = await loadReplayEvents(
+      const replay = await loadReplayEvents(
         `${appUrl}/api/session-replay/agent-context.json?id=${recordId}&agent_access=${accessToken}`,
         appUrl,
         recordId,
-        0,
+        600,
         1_000,
       );
 
-      expect(events.map((event) => event.id)).toEqual(
+      expect(replay.recordingStartedAtMs).toBe(400);
+      expect(replay.events.map((event) => event.id)).toEqual(
         chunkData.map((chunk) => chunk.event.id),
       );
       expect(requestedChunks.sort((a, b) => a - b)).toEqual(
         chunkData.map((chunk) => chunk.seq),
+      );
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("anchors the prefix target to recording start instead of the first replay event", async () => {
+    const recordId = "recording-2";
+    const accessToken = "scoped-token";
+    const chunkData = Array.from({ length: 17 }, (_, index) => {
+      const event = {
+        id: `event-${index}`,
+        type: index === 0 ? 4 : index === 1 ? 2 : 3,
+        timestamp:
+          index === 0 ? 900 : index === 15 ? 1_350 : index === 16 ? 1_401 : 950,
+        data:
+          index === 0
+            ? {
+                href: "https://app.example.test/onboarding",
+                width: 1280,
+                height: 720,
+              }
+            : index === 1
+              ? { node: { type: 0, childNodes: [] } }
+              : { source: 0 },
+      };
+      const body = JSON.stringify([event]);
+      return {
+        body,
+        checksum: createHash("sha256").update(body, "utf8").digest("hex"),
+        event,
+        seq: index,
+      };
+    });
+    const chunks = chunkData.map(({ body, checksum, seq }) => ({
+      bytesPath: `/api/session-replay/recordings/${recordId}/chunks/${seq}?agent_access=${accessToken}`,
+      checksum,
+      byteLength: Buffer.byteLength(body, "utf8"),
+      eventCount: 1,
+      seq,
+    }));
+    const manifest = {
+      recording: {
+        id: recordId,
+        startedAt: new Date(800).toISOString(),
+        eventCount: chunkData.length,
+        totalBytes: chunkData.reduce(
+          (sum, chunk) => sum + Buffer.byteLength(chunk.body, "utf8"),
+          0,
+        ),
+        chunkCount: chunkData.length,
+      },
+      chunks,
+    };
+    const requestedChunks: number[] = [];
+    const server = createServer((request, response) => {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (url.pathname.endsWith("/manifest")) {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify(manifest));
+        return;
+      }
+      const match = /\/chunks\/(\d+)$/.exec(url.pathname);
+      if (!match) {
+        response.writeHead(404).end();
+        return;
+      }
+      const seq = Number(match[1]);
+      const chunk = chunkData[seq]!;
+      requestedChunks.push(seq);
+      response.writeHead(200, {
+        "content-type": "application/json",
+        "x-session-replay-seq": String(seq),
+        "x-session-replay-checksum": chunk.checksum,
+      });
+      response.end(chunk.body);
+    });
+    const port = await listen(server);
+    const appUrl = `http://127.0.0.1:${port}`;
+
+    try {
+      const replay = await loadReplayEvents(
+        `${appUrl}/api/session-replay/agent-context.json?id=${recordId}&agent_access=${accessToken}`,
+        appUrl,
+        recordId,
+        500,
+        1_000,
+      );
+
+      expect(replay.recordingStartedAtMs).toBe(800);
+      expect(replay.events.map((event) => event.id)).toEqual(
+        chunkData.slice(0, 16).map((chunk) => chunk.event.id),
+      );
+      expect(requestedChunks.sort((a, b) => a - b)).toEqual(
+        chunkData.slice(0, 16).map((chunk) => chunk.seq),
       );
     } finally {
       await close(server);
