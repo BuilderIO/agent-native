@@ -6698,6 +6698,94 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).not.toContain("should-be-hidden");
   });
 
+  it.each([
+    { label: "cleared description", description: "" },
+    { label: "long description", description: "Sync history. ".repeat(400) },
+  ])(
+    "returns database rows over the SDK after oversized view metadata ($label)",
+    async ({ description }) => {
+      const propertyIds = Array.from({ length: 60 }, (_, i) => `property-${i}`);
+      const database = {
+        id: "collection-fixture",
+        documentId: "collection-page-fixture",
+        title: "Task board",
+        description,
+        viewConfig: {
+          views: Array.from({ length: 4 }, (_, i) => ({
+            id: `view-${i}`,
+            columnWidths: Object.fromEntries(
+              propertyIds.map((id) => [id, 180]),
+            ),
+            propertyOrderIds: propertyIds,
+            tableColumnOrderIds: propertyIds,
+            hiddenPropertyIds: propertyIds.slice(2),
+          })),
+        },
+      };
+      expect(JSON.stringify(database.viewConfig).length).toBeGreaterThan(2000);
+      const items = [1, 2, 3].map((rank) => ({
+        id: `membership-${rank}`,
+        document: { id: `page-${rank}`, title: `Task ${rank}` },
+        properties: [
+          { definition: { id: "rank", name: "Rank" }, value: rank },
+          { definition: { id: "status", name: "Status" }, value: "todo" },
+        ],
+      }));
+      const payloads = {
+        "get-content-database": {
+          database,
+          properties: [
+            { id: "rank", name: "Rank" },
+            { id: "status", name: "Status" },
+          ],
+          items,
+          pagination: {
+            limit: 3,
+            offset: 0,
+            totalItems: 6,
+            returnedItems: 3,
+            hasMore: true,
+          },
+        },
+        "describe-content-database": {
+          database,
+          properties: [
+            { id: "rank", name: "Rank" },
+            { id: "status", name: "Status" },
+          ],
+        },
+        "get-document": {
+          database,
+          content: "Page body after collection metadata.",
+        },
+      };
+      const actions = Object.fromEntries(
+        Object.entries(payloads).map(([name, payload]) => [
+          name,
+          {
+            tool: { description: name },
+            http: { method: "GET" as const },
+            readOnly: true,
+            run: async () => payload,
+          },
+        ]),
+      );
+      const { client } = await createModernClient({ ...config, actions });
+      try {
+        for (const [name, payload] of Object.entries(payloads)) {
+          const result = await client.callTool({ name, arguments: {} });
+          expect(result.isError).not.toBe(true);
+          const block = result.content[0];
+          if (block.type !== "text") throw new Error("Expected query text");
+          expect(JSON.parse(block.text)).toEqual(payload);
+          expect(result.structuredContent).toEqual(payload);
+        }
+      } finally {
+        await client.close();
+      }
+    },
+  );
+
   it("surfaces sanitized structured payloads for model-visible read-only tools", async () => {
     const readConfig = {
       ...config,

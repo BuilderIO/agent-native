@@ -5,6 +5,25 @@ vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 const { conciseToolResultText } = await import("./build-server.js");
 
 describe("conciseToolResultText", () => {
+  it.each([
+    "body ".repeat(1000),
+    {
+      description: "metadata ".repeat(1000),
+      rows: [{ Rank: 1, Status: "todo" }],
+    },
+    [{ body: "content ".repeat(1000) }, { Rank: 2, Status: "done" }],
+  ])(
+    "preserves a complete query payload beyond the text budget (%#)",
+    (result) => {
+      const text = conciseToolResultText("read", result, {
+        preserveObjectResult: true,
+      });
+      expect(text).toBe(
+        typeof result === "string" ? result : JSON.stringify(result),
+      );
+    },
+  );
+
   it("keeps the deep link and surfaces nextRequiredAction as 'Next: …'", () => {
     const text = conciseToolResultText("update-deck", {
       id: "d1",
