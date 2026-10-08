@@ -378,14 +378,24 @@ export function resumePgliteClientAccess(): void {
   pgliteProcess.__agentNativePgliteClientShutdownRequested = false;
 }
 
-function assertPgliteClientAccessOpen(): void {
-  if (!pgliteProcess.__agentNativePgliteClientShutdownRequested) return;
+function pgliteServiceUnavailableError(
+  message: string,
+  cause?: unknown,
+): Error & { statusCode: number; statusMessage: string } {
   const error = new Error(
-    "PGlite access is paused while the development server restarts.",
+    message,
+    cause === undefined ? undefined : { cause },
   ) as Error & { statusCode: number; statusMessage: string };
   error.statusCode = 503;
   error.statusMessage = "Service Unavailable";
-  throw error;
+  return error;
+}
+
+function assertPgliteClientAccessOpen(): void {
+  if (!pgliteProcess.__agentNativePgliteClientShutdownRequested) return;
+  throw pgliteServiceUnavailableError(
+    "PGlite access is paused while the development server restarts.",
+  );
 }
 
 function assertPgliteClientGeneration(generation: number): void {
@@ -393,12 +403,9 @@ function assertPgliteClientGeneration(generation: number): void {
   if ((pgliteProcess.__agentNativePgliteClientGeneration ?? 0) === generation) {
     return;
   }
-  const error = new Error(
+  throw pgliteServiceUnavailableError(
     "PGlite initialization was interrupted while the development server restarted.",
-  ) as Error & { statusCode: number; statusMessage: string };
-  error.statusCode = 503;
-  error.statusMessage = "Service Unavailable";
-  throw error;
+  );
 }
 
 export function waitForPgliteClientOperations(): Promise<void> {
@@ -626,13 +633,13 @@ export async function getPgliteClient(url: string): Promise<any> {
   assertPgliteClientGeneration(generation);
   const clientKey = pgliteClientKey(dataDir);
   if (_pgliteClientsPendingClose.has(clientKey)) {
-    throw new Error(
+    throw pgliteServiceUnavailableError(
       `PGlite client for "${dataDir}" could not close during the previous database lifecycle. Retry database cleanup before reopening it.`,
     );
   }
   let ready = _pgliteClients.get(clientKey);
   if (ready && _pgliteClientReadyGenerations.get(clientKey) !== generation) {
-    throw new Error(
+    throw pgliteServiceUnavailableError(
       `PGlite client initialization for "${dataDir}" belongs to an earlier database lifecycle.`,
     );
   }
@@ -653,9 +660,13 @@ export async function getPgliteClient(url: string): Promise<any> {
           } catch (closeError) {
             _pgliteClientsPendingClose.set(clientKey, { client });
             retainLockForPendingClose = true;
-            throw new AggregateError(
+            const aggregateError = new AggregateError(
               [error, closeError],
               `PGlite client for "${dataDir}" could not close after its initialization was interrupted.`,
+            );
+            throw pgliteServiceUnavailableError(
+              aggregateError.message,
+              aggregateError,
             );
           }
           throw error;
@@ -2149,7 +2160,7 @@ async function initClient(): Promise<void> {
   const exec = await createDbExecInternal({ url }, true);
   if (generation !== _dbExecGeneration) {
     await exec.close?.();
-    throw new Error(
+    throw pgliteServiceUnavailableError(
       "Database client initialization was interrupted while database clients were closing.",
     );
   }
@@ -2159,12 +2170,9 @@ async function initClient(): Promise<void> {
 function getCurrentDbExec(): DbExec {
   assertPgliteClientAccessOpen();
   if (_exec) return _exec;
-  const error = new Error(
+  throw pgliteServiceUnavailableError(
     "Database client is unavailable while database clients are closing.",
-  ) as Error & { statusCode: number; statusMessage: string };
-  error.statusCode = 503;
-  error.statusMessage = "Service Unavailable";
-  throw error;
+  );
 }
 
 function getInitializedDbExec(generation: number): DbExec {

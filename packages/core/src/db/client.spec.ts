@@ -109,16 +109,24 @@ describe("PGlite dev reloads", () => {
 
       beginPgliteClientShutdown();
       resolveCreate?.(client);
-      await expect(opening).rejects.toThrow(
-        /could not close after its initialization was interrupted/,
-      );
+      await expect(opening).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "could not close after its initialization was interrupted",
+        ),
+        statusCode: 503,
+        statusMessage: "Service Unavailable",
+      });
       expect(client.close).toHaveBeenCalledTimes(1);
       expect(existsSync(lockPath)).toBe(true);
 
       resumePgliteClientAccess();
-      await expect(getPgliteClient(`pglite:${dataDir}`)).rejects.toThrow(
-        /could not close during the previous database lifecycle/,
-      );
+      await expect(getPgliteClient(`pglite:${dataDir}`)).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "could not close during the previous database lifecycle",
+        ),
+        statusCode: 503,
+        statusMessage: "Service Unavailable",
+      });
       await closePgliteClients();
 
       expect(client.close).toHaveBeenCalledTimes(2);
