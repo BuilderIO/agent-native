@@ -158,8 +158,10 @@ describe("agent model config catalog", () => {
       "qwen3-coder",
       "kimi-k2-5",
       "deepseek-v3-1",
+      "deepseek-v4-1-flash",
       "z-ai-glm-4-5",
       "z-ai-glm-5-1",
+      "z-ai-glm-5-3-flash",
     ]);
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-8",

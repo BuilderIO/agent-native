@@ -789,6 +789,10 @@ const messages = {
     exportFailed: "Error al exportar",
     agentRunFailed:
       "A execução do agente falhou antes de criar qualquer slide. Confira os detalhes no chat e tente novamente.",
+    generationFailed:
+      "Os slides não foram criados. Confira os detalhes no chat e tente novamente.",
+    generationOutcomeUnresolved:
+      "Não foi possível confirmar se os slides foram criados. Confira a apresentação ou o chat e tente novamente.",
     deckHasNoSlides: "Esta apresentação não contém slides.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

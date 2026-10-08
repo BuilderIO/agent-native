@@ -941,6 +941,9 @@ export default {
         figmaPasteFailed: "Error al importar el pegado de Figma",
         uploadFailed: "Error al subir el archivo",
         invalidFigFile: "Elige un archivo que termine en .fig.",
+        unsupportedFileType: "Elige un archivo .fig, .html o .htm.",
+        importBusy:
+          "Hay otra importación en curso. Termínala o cancélala primero.",
         figFileTooLarge:
           "Ese .fig es demasiado grande: las subidas están limitadas a {{max}} MB. En Figma, copia solo el frame que quieras a un archivo nuevo y exporta ese archivo como .fig, o usa Pegar desde Figma.",
       },
@@ -980,7 +983,17 @@ export default {
     saveTemplate: "Guardar plantilla",
     templateSaved: "Plantilla guardada en la biblioteca",
     templateSaveFailed: "No se pudo guardar esta plantilla",
-    clickToRename: "Haz clic para cambiar el nombre",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Aplica o descarta tus ediciones visuales pendientes antes de duplicar.",
+      designs: "Diseños",
+      rename: "Renombrar",
+      duplicate: "Duplicar",
+      versionHistory: "Historial de versiones",
+      import: "Importar…",
+      delete: "Eliminar",
+      deleteError: "No se pudo eliminar este diseño",
+    },
     collaborators: "Colaboradores",
     share: "Compartir",
     signUpToSave: "Registrarse",
@@ -1001,6 +1014,10 @@ export default {
       draw: "Dibujar",
       interact: "Interact",
       screens: "Pantallas",
+    },
+    topBar: {
+      modeDesign: "Diseño",
+      modeSwitch: "Modo del editor",
     },
     fileTabs: "Files",
     tools: {

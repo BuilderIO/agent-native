@@ -279,6 +279,90 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("associates a terminal run with its durable assistant message", async () => {
+    const threadId = "thread-terminal-assistant";
+    const runId = "run-terminal-assistant";
+    const assistantMessage = {
+      id: "assistant-terminal",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "Recovered response." }],
+    };
+    const occurredAt = "2026-10-01T00:00:00.000Z";
+    const runEvent = (
+      sequence: number,
+      type: string,
+      message?: Record<string, unknown>,
+    ) => ({
+      id: `event-${sequence}`,
+      threadId,
+      runId,
+      sequence,
+      occurredAt,
+      type,
+      ...(message ? { message } : {}),
+    });
+    const threadData = JSON.stringify({
+      messages: [],
+      agentKit: {
+        messages: [assistantMessage],
+        events: [
+          runEvent(1, "run.started"),
+          runEvent(2, "message.created", {
+            ...assistantMessage,
+            status: "streaming",
+          }),
+          runEvent(3, "message.completed", assistantMessage),
+          runEvent(4, "run.completed"),
+        ],
+        runs: [
+          {
+            id: runId,
+            threadId,
+            status: "completed",
+            lastSequence: 4,
+          },
+        ],
+        activeRunIds: [],
+      },
+    });
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith(`/threads/${threadId}`)) {
+        return json({
+          id: threadId,
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+          threadData,
+        });
+      }
+      if (url.includes(`/runs/active?threadId=${threadId}`)) {
+        return json({ active: false, status: "completed", runId });
+      }
+      if (url.includes(`/runs/${runId}?threadId=${threadId}`)) {
+        return json({
+          id: runId,
+          threadId,
+          status: "completed",
+          lastSequence: 4,
+        });
+      }
+      return json({ error: "Not found" }, 404);
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.runs?.find((run) => run.id === runId)).toMatchObject({
+      status: "completed",
+      activeMessageId: assistantMessage.id,
+    });
+    await transport.dispose();
+  });
+
   it("persists bounded snapshot deltas and retries smaller chunks after a 413", async () => {
     const largeResult = "x".repeat(60_000);
     const previousToolCalls = Array.from({ length: 50 }, (_, index) => ({

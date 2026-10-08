@@ -502,7 +502,7 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.textContent,
-    ).toBe("Sign in with Builder.io account");
+    ).toBe("Use Builder.io");
   });
 
   it("keeps existing-account sign-in available when provisioning is unavailable", () => {
@@ -596,7 +596,7 @@ describe("FirstRunOnboarding", () => {
       connecting: false,
       statusUnavailable: true,
       terminalError: null,
-      error: "Couldn't check the Builder.io connection.",
+      error: "Connection status is unavailable. Retry to check again.",
       start: vi.fn(),
       cancel: vi.fn(),
       retry: vi.fn(),
@@ -625,7 +625,7 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(document.body.textContent).toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
     expect(
       document.body.querySelector('[data-testid="first-run-cancel-builder"]'),
@@ -654,7 +654,7 @@ describe("FirstRunOnboarding", () => {
       failure: "transient status read failure",
       statusUnavailable: true,
       terminalError: null,
-      error: "Couldn't check the Builder.io connection.",
+      error: "Connection status is unavailable. Retry to check again.",
     },
     {
       mode: "existing",
@@ -663,7 +663,7 @@ describe("FirstRunOnboarding", () => {
       failure: "transient status read failure",
       statusUnavailable: true,
       terminalError: null,
-      error: "Couldn't check the Builder.io connection.",
+      error: "Connection status is unavailable. Retry to check again.",
     },
     {
       mode: "provision",
@@ -923,7 +923,7 @@ describe("FirstRunOnboarding", () => {
       connecting: false,
       statusUnavailable: true,
       terminalError: null,
-      error: "Couldn't check the Builder.io connection.",
+      error: "Connection status is unavailable. Retry to check again.",
     };
     let resolveCompletion: (() => void) | undefined;
     mocks.completeFirstRun.mockImplementation(
@@ -1302,6 +1302,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
+    expect(
+      document.body.querySelector("[data-testid='first-run-setup-skip']"),
+    ).toBeNull();
     expect(completedSteps()).toEqual([]);
     expect(skippedSteps()).toEqual(["role"]);
 
@@ -1331,6 +1334,84 @@ describe("FirstRunOnboarding", () => {
       }),
     );
     window.history.replaceState(null, "", "/");
+  });
+
+  it("lets Clips skip provider setup and finish first-run onboarding", async () => {
+    let resolveCompletion: (() => void) | undefined;
+    mocks.completeFirstRun.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "clips",
+        appName: "Clips",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+      await Promise.resolve();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const skipSetupButton = document.body.querySelector(
+      "[data-testid='first-run-setup-skip']",
+    );
+    expect(skipSetupButton?.textContent).toBe("Skip for now");
+
+    act(() => {
+      skipSetupButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+      skipSetupButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    expect(
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([event, properties]) =>
+          event === "onboarding_step_skipped" &&
+          (properties as Record<string, unknown>).step_id === "choice",
+      ),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      resolveCompletion?.();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    expect(window.location.pathname).toBe("/");
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_skipped",
+      expect.objectContaining({
+        flow: "first_run",
+        step_id: "choice",
+        reason: "user_action",
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_method_clicked",
+      expect.anything(),
+    );
   });
 
   it("does not start duplicate manual setup attempts while completion is pending", async () => {
@@ -1680,7 +1761,7 @@ describe("FirstRunOnboarding", () => {
       accountExists: false,
       connecting: false,
       statusUnavailable: true,
-      error: "Couldn't check the Builder.io connection.",
+      error: "Connection status is unavailable. Retry to check again.",
       retry,
       start,
     });
@@ -1717,6 +1798,53 @@ describe("FirstRunOnboarding", () => {
     expect(start).toHaveBeenCalledWith(
       expect.objectContaining({ provisionAccount: true }),
     );
+  });
+
+  it("shows neutral Builder status copy with a retry action", () => {
+    const retry = vi.fn(() => true);
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      statusUnavailable: true,
+      error: "Connection status is unavailable. Retry to check again.",
+      errorKind: "status-read",
+      statusReadSettledCount: 0,
+      retry,
+      start: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-builder-status-error"]',
+      )?.textContent,
+    ).toContain("Connection status is unavailable. Retry to check again.");
+
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-builder-retry-status"]',
+        )
+        ?.click();
+    });
+
+    expect(retry).toHaveBeenCalledOnce();
   });
 
   it("opens Agent › Model without opening the agent sidebar", async () => {

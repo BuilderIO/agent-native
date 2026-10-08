@@ -14,9 +14,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
 
 import {
+  isStorageStatusUnavailable,
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
+  shouldAllowSkippingStorageSetup,
+  shouldPersistFirstRunStorageSetupDismissal,
+  shouldPreserveFirstRunStorageSetupIntent,
+  shouldRedirectToStorageSetupHome,
+  shouldShowFirstRunStorageSetup,
 } from "./record";
 
 describe("record route lifecycle shell", () => {
@@ -34,6 +40,214 @@ describe("record route lifecycle shell", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("does not redirect a queued upload when storage is already configured", () => {
+    expect(
+      shouldRedirectToStorageSetupHome({
+        storageSetupRequested: true,
+        storageConfigured: true,
+        hasPendingUpload: true,
+        uiState: "idle",
+      }),
+    ).toBe(false);
+  });
+
+  it.each(["pickingSources", "countdown", "recording"] as const)(
+    "does not redirect while capture is %s",
+    (uiState) => {
+      expect(
+        shouldRedirectToStorageSetupHome({
+          storageSetupRequested: true,
+          storageConfigured: true,
+          hasPendingUpload: false,
+          uiState,
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it("redirects a storage-only visit after storage is configured", () => {
+    expect(
+      shouldRedirectToStorageSetupHome({
+        storageSetupRequested: true,
+        storageConfigured: true,
+        hasPendingUpload: false,
+        uiState: "idle",
+      }),
+    ).toBe(true);
+  });
+
+  it("offers storage setup on the first unconfigured recorder visit", () => {
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured: false,
+        storageStatusUnavailable: false,
+        dismissal: "not-dismissed",
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("offers the first-run choice and Skip when storage status is unavailable", () => {
+    const storageConfigured = null;
+    const storageStatusUnavailable = isStorageStatusUnavailable({
+      storageConfigured,
+      readFailed: true,
+    });
+    const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
+      storageConfigured,
+      storageStatusUnavailable,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    });
+
+    expect(firstRunStorageSetup).toBe(true);
+    expect(
+      shouldAllowSkippingStorageSetup({
+        firstRunStorageSetup,
+        firstRunStorageSetupIntent: false,
+        connectStorageRequested: false,
+        hasPendingUpload: false,
+        isClipIntake: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps cached configured storage out of first-run setup after a refetch error", () => {
+    const storageConfigured = true;
+
+    expect(
+      isStorageStatusUnavailable({
+        storageConfigured,
+        readFailed: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured,
+        storageStatusUnavailable: true,
+        dismissal: "not-dismissed",
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("preserves first-run setup intent while storage status refreshes", () => {
+    const intent = shouldPreserveFirstRunStorageSetupIntent({
+      firstRunStorageSetup: true,
+      currentIntent: false,
+      dismissal: "not-dismissed",
+    });
+
+    expect(intent).toBe(true);
+    expect(
+      shouldPreserveFirstRunStorageSetupIntent({
+        firstRunStorageSetup: false,
+        currentIntent: intent,
+        dismissal: "not-dismissed",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreserveFirstRunStorageSetupIntent({
+        firstRunStorageSetup: false,
+        currentIntent: intent,
+        dismissal: "dismissed",
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    {
+      label: "the first-run prompt",
+      input: {
+        firstRunStorageSetup: true,
+        firstRunStorageSetupIntent: false,
+        connectStorageRequested: false,
+      },
+    },
+    {
+      label: "a storage setup link",
+      input: {
+        firstRunStorageSetup: false,
+        firstRunStorageSetupIntent: false,
+        connectStorageRequested: true,
+      },
+    },
+  ])("persists a skipped storage choice for $label", ({ input }) => {
+    expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
+  });
+
+  it("keeps Skip available and saves dismissal for latched setup intent", () => {
+    const input = {
+      firstRunStorageSetup: false,
+      firstRunStorageSetupIntent: true,
+      connectStorageRequested: false,
+      hasPendingUpload: false,
+      isClipIntake: false,
+    };
+
+    expect(shouldAllowSkippingStorageSetup(input)).toBe(true);
+    expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
+  });
+
+  it.each([
+    {
+      storageConfigured: true,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: null,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      storageStatusUnavailable: false,
+      dismissal: "dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: true,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: true,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: true,
+    },
+  ] as const)("does not show the first-run prompt for $dismissal", (input) => {
+    expect(shouldShowFirstRunStorageSetup(input)).toBe(false);
   });
 
   it("uses the shared classifier and sanitized body for dropped-file uploads", () => {

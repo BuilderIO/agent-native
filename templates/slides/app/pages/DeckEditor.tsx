@@ -163,7 +163,7 @@ import {
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
-  isNewDeckGenerationFailed,
+  getNewDeckGenerationRecoveryState,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
@@ -979,6 +979,8 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  const slideCountRef = useRef(slideCount);
+  slideCountRef.current = slideCount;
   const deckRole = useDeckRole(id, deck?.createdByMe === true);
   const canEdit = deckRole.canEdit && !readOnlyWidget;
   const canComment = deckRole.canComment && !readOnlyWidget;
@@ -1094,59 +1096,48 @@ export default function DeckEditor() {
     } else if (recovery.kind === "generation_failure") {
       if (recovery.attemptId !== generationAttemptId) return;
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
-      if (
-        generationContext.generationFailureCode === recovery.failureCode &&
-        generationContext.generationFailureAttemptId === recovery.attemptId
-      ) {
-        clearEmptyGenerationRecovery(
-          retryRecoveryStorageKey,
-          serializedRecovery,
-        );
-        return;
-      }
       emptyGenerationRecoveryRef.current = serializedRecovery;
-      updateDeck(id, {
-        generationContext: {
-          ...generationContext,
-          generationFailureCode: recovery.failureCode,
-          generationFailureAttemptId: recovery.attemptId,
-        },
-      });
+      if (
+        generationContext.generationFailureCode !== recovery.failureCode ||
+        generationContext.generationFailureAttemptId !== recovery.attemptId
+      ) {
+        updateDeck(id, {
+          generationContext: {
+            ...generationContext,
+            generationFailureCode: recovery.failureCode,
+            generationFailureAttemptId: recovery.attemptId,
+          },
+        });
+      }
     } else {
       if (recovery.retryAttemptId !== generationAttemptId) return;
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
-      if (
-        generationContext.generationFailureCode == null &&
-        generationContext.generationFailureAttemptId == null
-      ) {
-        clearEmptyGenerationRecovery(
-          retryRecoveryStorageKey,
-          serializedRecovery,
-        );
-        return;
-      }
       emptyGenerationRecoveryRef.current = serializedRecovery;
-      updateDeck(id, {
-        generationContext: {
-          ...generationContext,
-          generationFailureCode: null,
-          generationFailureAttemptId: null,
-        },
-      });
+      if (
+        generationContext.generationFailureAttemptId !==
+          recovery.retryAttemptId &&
+        (generationContext.generationFailureCode != null ||
+          generationContext.generationFailureAttemptId != null)
+      ) {
+        updateDeck(id, {
+          generationContext: {
+            ...generationContext,
+            generationFailureCode: null,
+            generationFailureAttemptId: null,
+          },
+        });
+      }
     }
 
     void flushDeckSave(id)
       .then(() => {
         if (
-          !clearEmptyGenerationRecovery(
+          clearEmptyGenerationRecovery(
             retryRecoveryStorageKey,
             serializedRecovery,
-          )
+          ) &&
+          emptyGenerationRecoveryRef.current === serializedRecovery
         ) {
-          toast.error(t("settings.saveFailed"));
-          return;
-        }
-        if (emptyGenerationRecoveryRef.current === serializedRecovery) {
           emptyGenerationRecoveryRef.current = null;
         }
       })
@@ -1399,6 +1390,49 @@ export default function DeckEditor() {
                 ? "deck_refresh_failed"
                 : "deck_not_visible_after_refresh",
           });
+          if (slideCountRef.current === 0 && generationContext) {
+            const failureCode = "outcome_unresolved";
+            updateDeck(id, {
+              generationContext: {
+                ...generationContext,
+                generationFailureCode: failureCode,
+                generationFailureAttemptId: generationAttemptId,
+              },
+            });
+            const recovery: EmptyGenerationRecovery = {
+              kind: "generation_failure",
+              attemptId: generationAttemptId,
+              failureCode,
+            };
+            const serializedRecovery = JSON.stringify(recovery);
+            if (retryRecoveryStorageKey) {
+              try {
+                window.localStorage.setItem(
+                  retryRecoveryStorageKey,
+                  serializedRecovery,
+                );
+                emptyGenerationRecoveryRef.current = serializedRecovery;
+              } catch (error) {
+                console.error(
+                  "Failed to store Slides generation recovery data.",
+                  error,
+                );
+              }
+            }
+            try {
+              await flushDeckSave(id);
+              if (
+                clearEmptyGenerationRecovery(
+                  retryRecoveryStorageKey,
+                  serializedRecovery,
+                )
+              ) {
+                emptyGenerationRecoveryRef.current = null;
+              }
+            } catch {
+              toast.error(t("editorSidebar.newSlideSaveFailed"));
+            }
+          }
           return;
         }
         const settledSlideCount = refreshResult.deck.slides.length;
@@ -1503,7 +1537,6 @@ export default function DeckEditor() {
     updateDeck,
     flushDeckSave,
     t,
-    slideCount,
     targetSlideCount,
   ]);
 
@@ -1782,7 +1815,7 @@ export default function DeckEditor() {
         generation_attempt_id: generationAttemptId,
         output_id: id,
         output_type: "deck",
-        slide_count: slideCount,
+        slide_count: slideCountRef.current,
         source: "new_deck_prompt",
         ...generationTimingFields(startedAt ?? undefined, endedAt),
       };
@@ -1841,7 +1874,6 @@ export default function DeckEditor() {
     generationContext,
     generationLifecycleOwnedByEditor,
     id,
-    slideCount,
   ]);
   const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
   const openCommentComposer = useCallback(
@@ -1977,8 +2009,9 @@ export default function DeckEditor() {
       isNewDeckRoute: isNewDeckGenerationRoute,
       generating: newDeckGenerationSignal,
       waitingOnQuestions: waitingOnNewDeckQuestions,
+      slideCount,
     });
-  const generationFailed = isNewDeckGenerationFailed({
+  const generationState = {
     slideCount,
     hasGenerationContext: generationContext !== null,
     failureCode: generationContext?.generationFailureCode,
@@ -1986,7 +2019,10 @@ export default function DeckEditor() {
     phase: newDeckGenerationPhase,
     generating: newDeckGenerationSignal,
     waitingOnQuestions: waitingOnNewDeckQuestions,
-  });
+  };
+  const generationRecoveryState =
+    getNewDeckGenerationRecoveryState(generationState);
+  const showGenerationRecovery = generationRecoveryState !== null;
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationSignal,
     isNewDeckCreation,
@@ -4295,7 +4331,7 @@ export default function DeckEditor() {
 
         {!generatingSlideSelected &&
           deck.slides.length === 0 &&
-          (generationFailed ? (
+          (showGenerationRecovery ? (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div
                 className="m-auto flex max-w-md flex-col items-center gap-4 text-center"
@@ -4304,7 +4340,9 @@ export default function DeckEditor() {
                 <p>
                   {generationContext?.generationFailureCode === "agent_error"
                     ? t("deckEditor.agentRunFailed")
-                    : t("deckEditor.deckHasNoSlides")}
+                    : generationRecoveryState === "outcome_unresolved"
+                      ? t("deckEditor.generationOutcomeUnresolved")
+                      : t("deckEditor.generationFailed")}
                 </p>
                 <Button
                   disabled={!canEdit || generationRetryPending}
@@ -4327,7 +4365,7 @@ export default function DeckEditor() {
           ) : null)}
 
         {deck.slides.length === 0 &&
-          !generationFailed &&
+          !showGenerationRecovery &&
           !generatingSlideVisible && (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div className="m-auto w-full max-w-6xl">

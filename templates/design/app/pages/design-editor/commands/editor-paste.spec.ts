@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from "node:fs";
-
 import type { RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +11,7 @@ vi.mock("sonner", () => ({
 import { getDesignClipboardTrustToken } from "@/lib/design-clipboard";
 import { serializeDesignClipboardPayload } from "@/lib/design-import";
 
+import { readDesignEditorSource } from "../read-design-editor-source";
 import { runEditorPaste, type EditorPasteArgs } from "./editor-paste";
 import { parsePastedSvg } from "./pasted-svg";
 
@@ -326,6 +325,7 @@ describe("runEditorPaste", () => {
     );
   });
 
+  // oracle: none — checks that a plain-text paste raises no error toast, not measured Figma behavior.
   it("keeps a plain non-Figma canvas paste silent", () => {
     const h = harness();
     runEditorPaste(h.args, pasteEvent({ "text/plain": "just some text" }));
@@ -335,7 +335,7 @@ describe("runEditorPaste", () => {
 });
 
 describe("the editor paste listener gate", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
 
   it("stays attached when embedded and during the question flow", () => {
     const effect = editorSource.slice(

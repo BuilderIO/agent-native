@@ -12,6 +12,11 @@ vi.mock("h3", () => ({
   getQuery: (event: any) => event.query ?? {},
   getRequestHeader: (event: any, name: string) =>
     event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
+  getRequestIP: (event: any) => event.ip,
+  getRequestURL: (event: any) =>
+    new URL(
+      event.url ?? "https://" + (event.headers?.host ?? "app.test") + "/",
+    ),
   setResponseHeader: (...a: any[]) => setResponseHeader(...a),
 }));
 
@@ -37,6 +42,7 @@ function fakeEvent(
 ) {
   return {
     method,
+    ip: "127.0.0.1",
     query,
     headers: {
       host: "app.test",

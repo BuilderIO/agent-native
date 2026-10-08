@@ -213,8 +213,10 @@ export const AGENT_MODEL_CONFIG = {
       "qwen3-coder",
       "kimi-k2-5",
       "deepseek-v3-1",
+      "deepseek-v4-1-flash",
       "z-ai-glm-4-5",
       "z-ai-glm-5-1",
+      "z-ai-glm-5-3-flash",
     ],
   },
   anthropic: {

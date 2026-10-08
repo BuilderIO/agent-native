@@ -18,6 +18,7 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getForwardedRequestURL: (event: { url: URL | string }) => new URL(event.url),
   getSession: (...args: unknown[]) => mockGetSession(...args),
   signScopedAgentAccessToken: (...args: unknown[]) =>
     mockSignScopedAgentAccessToken(...args),

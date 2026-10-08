@@ -45,11 +45,12 @@ function ToolHarness({
     <MultiScreenCanvas
       screens={[]}
       zoom={100}
-      activeTool={tool}
-      onActiveToolChange={handleToolChange}
+      creation={{ activeTool: tool, onActiveToolChange: handleToolChange }}
       onPick={() => {}}
-      boardFileId={onBoardDrawPrimitive ? "board-file" : undefined}
-      onBoardDrawPrimitive={onBoardDrawPrimitive}
+      board={{
+        boardFileId: onBoardDrawPrimitive ? "board-file" : undefined,
+        onBoardDrawPrimitive,
+      }}
     />
   );
 }
@@ -71,7 +72,11 @@ function PenHarness({
       content: "<!doctype html><html><body></body></html>",
     },
   ],
-  ...props
+  onCreatePrimitive,
+  onPrimitiveCreated,
+  onUpdatePenPath,
+  selectedPenPathNodeId,
+  vectorEdit,
 }: PenHarnessProps) {
   const [tool, setTool] = useState<MultiScreenCanvasTool>("pen");
   return (
@@ -81,13 +86,21 @@ function PenHarness({
         screens={screens}
         zoom={100}
         activeId={screens.length > 0 ? "screen-a" : null}
-        activeTool={tool}
-        geometryById={{
-          "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+        creation={{
+          activeTool: tool,
+          onActiveToolChange: setTool,
+          onCreatePrimitive,
+          onPrimitiveCreated,
+          onUpdatePenPath,
+          vectorEdit,
         }}
-        onActiveToolChange={setTool}
+        geometry={{
+          geometryById: {
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          },
+        }}
+        selection={{ selectedPenPathNodeId }}
         onPick={() => {}}
-        {...props}
       />
     </>
   );
@@ -120,13 +133,17 @@ function MultiSelectionHarness({
         ]}
         zoom={100}
         activeId="screen-a"
-        activeTool="move"
-        selectedScreenIds={selectedScreenIds}
-        geometryById={{
-          "screen-a": { x: 0, y: 0, width: 320, height: 640 },
-          "screen-b": { x: 420, y: 0, width: 320, height: 640 },
+        creation={{ activeTool: "move" }}
+        selection={{
+          selectedScreenIds,
+          onSelectionChange: setSelectedScreenIds,
         }}
-        onSelectionChange={setSelectedScreenIds}
+        geometry={{
+          geometryById: {
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            "screen-b": { x: 420, y: 0, width: 320, height: 640 },
+          },
+        }}
         onPick={onPick}
       />
     </>
@@ -607,15 +624,17 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           activeId="screen-a"
-          selectedScreenIds={selected ? ["screen-a"] : []}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width, height: 640 },
+          selection={{ selectedScreenIds: selected ? ["screen-a"] : [] }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width, height: 640 },
+            },
+            onGeometryChange,
+            onGeometryCommit,
           }}
           onPick={() => {}}
-          onGeometryChange={onGeometryChange}
-          onGeometryCommit={onGeometryCommit}
         />,
       );
     });
@@ -649,11 +668,16 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           activeId="screen-a"
-          selectedScreenIds={["screen-a"]}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          selection={{
+            selectedScreenIds: ["screen-a"],
+            onLayerMarqueeSelectionChange,
+          }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            },
           }}
           renderScreenContent={() => (
             <div className="design-canvas-iframe-wrapper">
@@ -661,7 +685,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             </div>
           )}
           onPick={() => {}}
-          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
         />,
       );
     });
@@ -703,15 +726,21 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           <MultiScreenCanvas
             screens={screens}
             zoom={100}
-            activeTool={nextSelection.activeTool ?? initialActiveTool}
-            clearSelectionRequest={nextSelection.clearSelectionRequest}
-            selectedElementScreenId={nextSelection.selectedElementScreenId}
-            selectedLayerSelectorGroupsByScreen={
-              nextSelection.selectedLayerSelectorGroupsByScreen
-            }
-            geometryById={{
-              "screen-a": { x: 0, y: 0, width: 320, height: 240 },
-              "screen-b": { x: 400, y: 0, width: 320, height: 240 },
+            creation={{
+              activeTool: nextSelection.activeTool ?? initialActiveTool,
+            }}
+            selection={{
+              clearSelectionRequest: nextSelection.clearSelectionRequest,
+              selectedElementScreenId: nextSelection.selectedElementScreenId,
+              selectedLayerSelectorGroupsByScreen:
+                nextSelection.selectedLayerSelectorGroupsByScreen,
+              onLayerMarqueeSelectionChange,
+            }}
+            geometry={{
+              geometryById: {
+                "screen-a": { x: 0, y: 0, width: 320, height: 240 },
+                "screen-b": { x: 400, y: 0, width: 320, height: 240 },
+              },
             }}
             metadataById={{
               "screen-a": { width: 1440, height: 900 },
@@ -721,7 +750,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
               <iframe data-screen-iframe-id={screen.id} />
             )}
             onPick={() => {}}
-            onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
           />,
         );
       });
@@ -842,11 +870,13 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="comment"
+          creation={{ activeTool: "comment" }}
           activeId="screen-a"
-          selectedScreenIds={["screen-a"]}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          selection={{ selectedScreenIds: ["screen-a"] }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            },
           }}
           renderScreenContent={() => (
             <div className="design-canvas-iframe-wrapper">
@@ -894,9 +924,9 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={200}
-          activeTool="comment"
-          onCommentPin={onCommentPin}
-          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
+          creation={{ activeTool: "comment" }}
+          review={{ onCommentPin }}
+          selection={{ onLayerMarqueeSelectionChange }}
           onPick={() => {}}
         />,
       );
@@ -923,9 +953,9 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           onPick={() => {}}
-          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
+          selection={{ onLayerMarqueeSelectionChange }}
         />,
       );
     });
@@ -1290,9 +1320,9 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           onPick={() => {}}
-          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
+          selection={{ onLayerMarqueeSelectionChange }}
         />,
       );
     });
@@ -1366,9 +1396,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            },
           }}
           renderScreenContent={() => (
             <div className="design-canvas-iframe-wrapper" />
@@ -1410,9 +1442,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            },
           }}
           renderScreenContent={() => (
             <div className="design-canvas-iframe-wrapper" />
@@ -1442,10 +1476,12 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
               },
             ]}
             zoom={100}
-            activeTool="move"
-            selectedScreenIds={selectedScreenIds}
-            geometryById={{
-              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            creation={{ activeTool: "move" }}
+            selection={{ selectedScreenIds }}
+            geometry={{
+              geometryById: {
+                "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+              },
             }}
             renderScreenContent={() => (
               <div className="design-canvas-iframe-wrapper" />
@@ -1640,11 +1676,13 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
-          selectedScreenIds={["screen-a", "screen-b"]}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
-            "screen-b": { x: 420, y: 100, width: 320, height: 640 },
+          creation={{ activeTool: "move" }}
+          selection={{ selectedScreenIds: ["screen-a", "screen-b"] }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+              "screen-b": { x: 420, y: 100, width: 320, height: 640 },
+            },
           }}
           onPick={() => {}}
         />,
@@ -1703,9 +1741,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           },
         ]}
         zoom={100}
-        activeTool="move"
-        selectedScreenIds={selectedScreenIds}
-        geometryById={{ "screen-a": { x: 0, y: 0, width: 320, height: 640 } }}
+        creation={{ activeTool: "move" }}
+        selection={{ selectedScreenIds }}
+        geometry={{
+          geometryById: { "screen-a": { x: 0, y: 0, width: 320, height: 640 } },
+        }}
         onDuplicate={onDuplicate}
         onPick={() => {}}
       />
@@ -1763,14 +1803,18 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
-          selectedScreenIds={["screen-a", "screen-b"]}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
-            "screen-b": { x: 420, y: 0, width: 320, height: 640 },
+          creation={{ activeTool: "move" }}
+          selection={{
+            selectedScreenIds: ["screen-a", "screen-b"],
+            onSelectionChange,
+          }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+              "screen-b": { x: 420, y: 0, width: 320, height: 640 },
+            },
           }}
           onDuplicate={onDuplicate}
-          onSelectionChange={onSelectionChange}
           onPick={() => {}}
         />,
       );
@@ -1825,11 +1869,13 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           activeId="screen-a"
-          selectedScreenIds={["screen-a"]}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          selection={{ selectedScreenIds: ["screen-a"] }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            },
           }}
           onDuplicate={onDuplicate}
           onPick={() => {}}
@@ -1888,14 +1934,18 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
-          selectedScreenIds={["screen-a", "screen-b"]}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
-            "screen-b": { x: 420, y: 100, width: 320, height: 640 },
+          creation={{ activeTool: "move" }}
+          selection={{
+            selectedScreenIds: ["screen-a", "screen-b"],
+            onSelectionChange,
+          }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+              "screen-b": { x: 420, y: 100, width: 320, height: 640 },
+            },
           }}
           onDuplicate={onDuplicate}
-          onSelectionChange={onSelectionChange}
           onPick={() => {}}
         />,
       );
@@ -1956,10 +2006,14 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           ]}
           zoom={25}
           activeId="screen-review"
-          pendingReviewScreenIds={new Set(["screen-review"])}
-          onReviewPendingScreen={onReviewPendingScreen}
-          geometryById={{
-            "screen-review": { x: 0, y: 0, width: 320, height: 640 },
+          review={{
+            pendingReviewScreenIds: new Set(["screen-review"]),
+            onReviewPendingScreen,
+          }}
+          geometry={{
+            geometryById: {
+              "screen-review": { x: 0, y: 0, width: 320, height: 640 },
+            },
           }}
           onPick={() => {}}
         />,
@@ -2010,11 +2064,13 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           activeId="screen-a"
-          selectedScreenIds={["screen-a"]}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          selection={{ selectedScreenIds: ["screen-a"] }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            },
           }}
           onPick={onPick}
           onEdit={onEdit}
@@ -2045,10 +2101,12 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           metadataById={{ "screen-a": { width: 1280, height: 640 } }}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 160 },
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 160 },
+            },
           }}
           onPick={() => {}}
         />,
@@ -2447,14 +2505,16 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             { id: "screen-b", filename: "screen-b.html", content: "" },
           ]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           activeId="screen-a"
-          selectedScreenIds={["screen-a"]}
+          selection={{ selectedScreenIds: ["screen-a"] }}
           interactScreenId="screen-a"
           focusedInteractViewport={{ width: 390, height: 844 }}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 390, height: 844 },
-            "screen-b": { x: 500, y: 0, width: 390, height: 844 },
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 390, height: 844 },
+              "screen-b": { x: 500, y: 0, width: 390, height: 844 },
+            },
           }}
           onPick={() => {}}
         />,
@@ -2490,7 +2550,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           activeId="screen-a"
           interactMode
           interactScreenId="screen-a"
@@ -2498,8 +2558,10 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           metadataById={{
             "screen-a": { width: 390, height: 844 },
           }}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 390, height: 844 },
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 390, height: 844 },
+            },
           }}
           onPick={() => {}}
         />,
@@ -2580,16 +2642,18 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           activeId="screen-a"
-          selectedScreenIds={["screen-a"]}
+          selection={{ selectedScreenIds: ["screen-a"] }}
           metadataById={{ "screen-a": { width: 1440, height: 900 } }}
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 200 },
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 200 },
+            },
+            onGeometryChange,
+            onGeometryCommit,
           }}
           onPick={() => {}}
-          onGeometryChange={onGeometryChange}
-          onGeometryCommit={onGeometryCommit}
         />,
       );
     });
@@ -2734,12 +2798,14 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
               },
             ]}
             zoom={100}
-            activeTool={activeTool}
+            creation={{ activeTool }}
             activeId="screen-a"
-            selectedScreenIds={["screen-a"]}
+            selection={{ selectedScreenIds: ["screen-a"] }}
             metadataById={{ "screen-a": { width: 320, height: 240 } }}
-            geometryById={{
-              "screen-a": { x: 0, y: 0, width: 320, height: 240 },
+            geometry={{
+              geometryById: {
+                "screen-a": { x: 0, y: 0, width: 320, height: 240 },
+              },
             }}
             renderScreenContent={() => (
               <iframe data-screen-iframe-id="screen-a" />
@@ -2777,15 +2843,17 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             },
           ]}
           zoom={100}
-          selectedScreenIds={["locked-screen"]}
+          selection={{ selectedScreenIds: ["locked-screen"] }}
           lockedScreenIds={["locked-screen"]}
-          geometryById={{
-            "locked-screen": { x: 40, y: 50, width: 320, height: 640 },
+          geometry={{
+            geometryById: {
+              "locked-screen": { x: 40, y: 50, width: 320, height: 640 },
+            },
+            onGeometryChange,
+            onGeometryCommit,
           }}
           renderScreenContent={() => <div data-test-live-screen-content />}
           onPick={onPick}
-          onGeometryChange={onGeometryChange}
-          onGeometryCommit={onGeometryCommit}
         />,
       );
     });
@@ -2841,7 +2909,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           screens={screens}
           zoom={100}
           hiddenScreenIds={["hidden-screen"]}
-          geometryById={geometryById}
+          geometry={{ geometryById }}
           onPick={() => {}}
         />,
       );
@@ -2859,7 +2927,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           screens={screens}
           zoom={100}
           hiddenScreenIds={[]}
-          geometryById={geometryById}
+          geometry={{ geometryById }}
           onPick={() => {}}
         />,
       );
@@ -2884,11 +2952,10 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       <MultiScreenCanvas
         screens={screens}
         zoom={100}
-        selectAllRequest={selectAllRequest}
+        selection={{ selectAllRequest, onScreenSelectionChange }}
         hiddenScreenIds={["hidden"]}
         lockedScreenIds={["locked"]}
         onPick={() => {}}
-        onScreenSelectionChange={onScreenSelectionChange}
       />
     );
 
@@ -2947,21 +3014,25 @@ describe("canvas iframe identity", () => {
               },
             ]}
             zoom={100}
-            geometryById={{
-              "screen-a": { x: 100, y: 80, width: 320, height: 640 },
+            geometry={{
+              geometryById: {
+                "screen-a": { x: 100, y: 80, width: 320, height: 640 },
+              },
             }}
-            boardFileId="board"
-            boardFileContent={`<!doctype html><html><body>
+            board={{
+              boardFileId: "board",
+              boardFileContent: `<!doctype html><html><body>
               <div data-agent-native-node-id="negative" data-an-primitive="rectangle" style="position:absolute;left:-165px;top:-90px;width:84px;height:76px"></div>
               <div data-agent-native-node-id="positive" data-an-primitive="rectangle" style="position:absolute;left:329px;top:210px;width:100px;height:60px"></div>
-            </body></html>`}
-            boardFrameGeometry={{
-              x: -65536,
-              y: -65536,
-              width: 131072,
-              height: 131072,
+            </body></html>`,
+              boardFrameGeometry: {
+                x: -65536,
+                y: -65536,
+                width: 131072,
+                height: 131072,
+              },
+              boardEditMode: true,
             }}
-            boardEditMode
             onPick={() => {}}
           />,
         );
@@ -3024,21 +3095,25 @@ describe("canvas iframe identity", () => {
               },
             ]}
             zoom={100}
-            activeTool="hand"
-            geometryById={{
-              "screen-a": { x: 100, y: 80, width: 320, height: 640 },
+            creation={{ activeTool: "hand" }}
+            geometry={{
+              geometryById: {
+                "screen-a": { x: 100, y: 80, width: 320, height: 640 },
+              },
             }}
-            boardFileId="board"
-            boardFileContent={`<!doctype html><html><body>
+            board={{
+              boardFileId: "board",
+              boardFileContent: `<!doctype html><html><body>
               <div data-agent-native-node-id="negative" data-an-primitive="rectangle" style="position:absolute;left:-165px;top:-90px;width:84px;height:76px"></div>
-            </body></html>`}
-            boardFrameGeometry={{
-              x: -65536,
-              y: -65536,
-              width: 131072,
-              height: 131072,
+            </body></html>`,
+              boardFrameGeometry: {
+                x: -65536,
+                y: -65536,
+                width: 131072,
+                height: 131072,
+              },
+              boardEditMode: true,
             }}
-            boardEditMode
             onPick={() => {}}
           />,
         );
@@ -3106,20 +3181,22 @@ describe("canvas iframe identity", () => {
           <MultiScreenCanvas
             screens={[]}
             zoom={2}
-            activeTool="move"
-            boardFileId="board"
-            boardFileContent={`<!doctype html><html><body>
+            creation={{ activeTool: "move" }}
+            board={{
+              boardFileId: "board",
+              boardFileContent: `<!doctype html><html><body>
               <script>window.shouldNeverRunInStaticPreview = true</script>
               <div data-agent-native-node-id="left-edge" data-an-primitive="rectangle" style="position:absolute;left:100px;top:100px;width:100px;height:100px;background:#ef4444"></div>
               <div data-agent-native-node-id="right-edge" data-an-primitive="text" style="position:absolute;left:35000px;top:100px;color:#3b82f6">Edge label</div>
-            </body></html>`}
-            boardFrameGeometry={{
-              x: -65536,
-              y: -65536,
-              width: 131072,
-              height: 131072,
+            </body></html>`,
+              boardFrameGeometry: {
+                x: -65536,
+                y: -65536,
+                width: 131072,
+                height: 131072,
+              },
+              boardEditMode: true,
             }}
-            boardEditMode
             onPick={() => {}}
           />,
         );
@@ -3233,9 +3310,7 @@ describe("canvas iframe identity", () => {
         toJSON: () => ({}),
       });
     const root = createRoot(container);
-    const boardProps = {
-      screens: [],
-      zoom: 2,
+    const boardGroup = {
       boardFileId: "board",
       boardFileContent: `<!doctype html><html><body>
         <div data-agent-native-node-id="left-edge" data-an-primitive="rectangle" style="position:absolute;left:100px;top:100px;width:100px;height:100px"></div>
@@ -3253,9 +3328,10 @@ describe("canvas iframe identity", () => {
       await act(async () => {
         root.render(
           <MultiScreenCanvas
-            {...boardProps}
-            activeTool="move"
-            boardEditMode
+            screens={[]}
+            zoom={2}
+            creation={{ activeTool: "move" }}
+            board={{ ...boardGroup, boardEditMode: true }}
             onPick={() => {}}
           />,
         );
@@ -3270,9 +3346,10 @@ describe("canvas iframe identity", () => {
         dispatchMouse(surface, "mousedown", 706, 8);
         root.render(
           <MultiScreenCanvas
-            {...boardProps}
-            activeTool="hand"
-            boardEditMode
+            screens={[]}
+            zoom={2}
+            creation={{ activeTool: "hand" }}
+            board={{ ...boardGroup, boardEditMode: true }}
             onPick={() => {}}
           />,
         );
@@ -3326,13 +3403,15 @@ describe("cold-open iframe culling", () => {
             ]}
             activeId="active"
             zoom={100}
-            geometryById={{
-              active: { x: 0, y: 0, width: 320, height: 640 },
-              "far-away": {
-                x: 100_000,
-                y: 100_000,
-                width: 320,
-                height: 640,
+            geometry={{
+              geometryById: {
+                active: { x: 0, y: 0, width: 320, height: 640 },
+                "far-away": {
+                  x: 100_000,
+                  y: 100_000,
+                  width: 320,
+                  height: 640,
+                },
               },
             }}
             renderScreenContent={renderScreenContent}

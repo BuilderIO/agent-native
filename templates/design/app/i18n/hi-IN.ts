@@ -928,6 +928,8 @@ export default {
         figmaPasteFailed: "Figma paste आयात विफल रहा",
         uploadFailed: "File upload विफल रहा",
         invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
+        unsupportedFileType: "कोई .fig, .html या .htm फ़ाइल चुनें।",
+        importBusy: "एक और आयात जारी है। पहले उसे पूरा करें या रद्द करें।",
         figFileTooLarge:
           "यह .fig बहुत बड़ी है — uploads की सीमा {{max}} MB है। Figma में जिस frame को import करना है उसे एक नई file में copy करें और उस file को .fig के रूप में export करें, या Paste from Figma का उपयोग करें।",
       },
@@ -965,7 +967,16 @@ export default {
     saveTemplate: "टेम्पलेट सहेजें",
     templateSaved: "टेम्पलेट लाइब्रेरी में सहेजा गया",
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
-    clickToRename: "नाम बदलने के लिए क्लिक करें",
+    fileMenu: {
+      pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
+      designs: "डिज़ाइन",
+      rename: "नाम बदलें",
+      duplicate: "डुप्लिकेट करें",
+      versionHistory: "संस्करण इतिहास",
+      import: "आयात करें…",
+      delete: "हटाएँ",
+      deleteError: "इस डिज़ाइन को हटाया नहीं जा सका",
+    },
     collaborators: "सहयोगी",
     share: "साझा करें",
     signUpToSave: "साइन अप करें",
@@ -986,6 +997,10 @@ export default {
       draw: "खींचना",
       interact: "Interact",
       screens: "स्क्रीन",
+    },
+    topBar: {
+      modeDesign: "डिज़ाइन",
+      modeSwitch: "एडिटर मोड",
     },
     fileTabs: "Files",
     tools: {

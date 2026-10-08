@@ -6,7 +6,10 @@ import { fileURLToPath, pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isAgentChatDurableBackgroundEnabled } from "../agent/durable-background.js";
+import {
+  AGENT_TEAM_PROCESS_RUN_PATH,
+  isAgentChatDurableBackgroundEnabled,
+} from "../agent/durable-background.js";
 import { addVercelSweepCron } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
@@ -2232,6 +2235,14 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         `const A2A_PROCESS_TASK_PATH = ${JSON.stringify(
           `/${app}/_agent-native/a2a/_process-task`,
         )}`,
+      );
+      expect(entry).toContain(
+        `const AGENT_TEAM_PROCESS_RUN_PATH = ${JSON.stringify(
+          `/${app}${AGENT_TEAM_PROCESS_RUN_PATH}`,
+        )}`,
+      );
+      expect(entry).toContain(
+        'const BACKGROUND_PROCESSOR_AGENT_TEAM = "agent-team"',
       );
       expect(entry).toContain(
         'const BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor"',

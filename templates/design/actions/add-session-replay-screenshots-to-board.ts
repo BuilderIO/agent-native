@@ -16,6 +16,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  attachmentFailureMessage,
+  detectImageMimeType,
+} from "../server/lib/replay-screenshot-blobs.js";
+import {
   deleteVisualEditSnapshotBlobs,
   queueVisualEditSnapshotBlobCleanupInTransaction,
 } from "../server/lib/visual-edit-snapshot-blobs.js";
@@ -111,40 +115,6 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function detectImageMimeType(
-  data: Uint8Array,
-): UploadedScreenshot["mimeType"] | null {
-  if (
-    data.byteLength >= 8 &&
-    data[0] === 0x89 &&
-    data[1] === 0x50 &&
-    data[2] === 0x4e &&
-    data[3] === 0x47 &&
-    data[4] === 0x0d &&
-    data[5] === 0x0a &&
-    data[6] === 0x1a &&
-    data[7] === 0x0a
-  ) {
-    return "image/png";
-  }
-  if (
-    data.byteLength >= 3 &&
-    data[0] === 0xff &&
-    data[1] === 0xd8 &&
-    data[2] === 0xff
-  ) {
-    return "image/jpeg";
-  }
-  if (
-    data.byteLength >= 12 &&
-    String.fromCharCode(...data.subarray(0, 4)) === "RIFF" &&
-    String.fromCharCode(...data.subarray(8, 12)) === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
 }
 
 function screenshotLabel(screenshot: ScreenshotInput): string {
@@ -284,16 +254,6 @@ async function rollbackBoardWrite(write: BoardWrite): Promise<void> {
     content: write.previousContent,
     expectedVersionHash: write.versionHash,
   });
-}
-
-function attachmentFailureMessage(status: string): string {
-  if (status === "forbiddenScope") {
-    return "Screenshot attachments must be personal files owned by the current user.";
-  }
-  if (status === "storageUnavailable") {
-    return "The screenshot attachment storage is unavailable. Retry with the same attachment reference.";
-  }
-  return "A screenshot attachment is missing, expired, or invalid. Reattach it and retry.";
 }
 
 export default defineAction({
