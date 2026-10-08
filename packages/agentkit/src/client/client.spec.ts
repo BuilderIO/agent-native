@@ -4387,6 +4387,97 @@ describe("AgentKitClient", () => {
     }
   });
 
+  it("settles terminal catch-up when replay fails before its terminal event", async () => {
+    let subscriptions = 0;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Partial response" }],
+        },
+      ],
+      events: [
+        {
+          ...protocolEvent(1, { type: "run.started" }),
+          runId: "run-approval",
+        },
+        {
+          ...protocolEvent(2, {
+            type: "approval.requested",
+            request: { id: "approval-1", title: "Continue?" },
+          }),
+          runId: "run-approval",
+        },
+      ],
+      activeRunIds: [],
+      approvals: [
+        {
+          request: { id: "approval-1", title: "Continue?" },
+          status: "pending",
+          runId: "run-approval",
+        },
+      ],
+    });
+    transport.getRun = async () => ({
+      id: "run-approval",
+      threadId: "thread-1",
+      status: "completed",
+      lastSequence: 7,
+      activeMessageId: "assistant-1",
+    });
+    transport.subscribeToRun = async function* ({ afterSequence }) {
+      subscriptions += 1;
+      expect(afterSequence).toBe(2);
+      yield {
+        ...protocolEvent(3, {
+          type: "approval.resolved",
+          approvalId: "approval-1",
+          response: { decision: "approve", optionIds: ["approve"] },
+        }),
+        runId: "run-approval",
+      };
+      throw Object.assign(new Error("Replay is unavailable"), {
+        retryable: false,
+      });
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 3 },
+    });
+
+    try {
+      await client.loadThread("thread-1");
+      await vi.waitFor(() =>
+        expect(client.getSnapshot().connection).toBe("error"),
+      );
+
+      expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
+        status: "completed",
+        lastSequence: 3,
+      });
+      expect(client.getThread("thread-1").activeRunIds).toEqual([]);
+      expect(hasActiveAgentRuns(client.getThread("thread-1"))).toBe(false);
+      expect(client.getThread("thread-1").messages).toContainEqual(
+        expect.objectContaining({ id: "assistant-1", status: "error" }),
+      );
+
+      await client.loadThread("thread-1");
+      await Promise.resolve();
+      expect(subscriptions).toBe(1);
+      expect(client.getThread("thread-1").messages).toContainEqual(
+        expect.objectContaining({ id: "assistant-1", status: "error" }),
+      );
+    } finally {
+      await client.dispose();
+    }
+  });
+
   it("keeps terminal status and the accepted cursor when catch-up has a sequence gap", async () => {
     const reports: AgentStreamIntegrityReport[] = [];
     const transport = createTransport([]);

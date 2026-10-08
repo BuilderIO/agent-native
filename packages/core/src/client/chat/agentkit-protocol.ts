@@ -1296,12 +1296,13 @@ export function createAgentKitProtocolAdapter(
     const owners = [...runs.values()].filter(
       (run) => run.threadId === threadId && run.turn.id === turnId,
     );
-    if (owners.length > 1) {
+    const activeOwners = owners.filter((run) => !run.terminal);
+    if (activeOwners.length > 1) {
       throw new Error(
-        `Turn ${turnId} is owned by multiple AgentKit runs in thread ${threadId}.`,
+        `Turn ${turnId} is owned by multiple active AgentKit runs in thread ${threadId}.`,
       );
     }
-    return owners[0];
+    return activeOwners[0] ?? owners.at(-1);
   }
 
   function indexRun(

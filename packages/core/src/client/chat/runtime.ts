@@ -1400,21 +1400,21 @@ export function createHttpAgentChatRuntime<
       turn: AgentChatRuntimeTurnInput,
     ): Promise<AgentChatRuntimeTurn<TEvent>> => {
       const turnId = turn.queuePromotion?.turnId ?? createRuntimeId("turn");
+      const { controller, cleanup } = createAbortController(turn.abortSignal);
       latestTurn = turn;
       previousTurns.set(turnId, turn);
-      const { controller, cleanup } = createAbortController(turn.abortSignal);
-      const endpoint =
-        typeof options.endpoint === "function"
-          ? options.endpoint({ session: summary, turn })
-          : options.endpoint;
-      const headers = await resolveHeaders(options.headers, {
-        sessionId,
-        turnId,
-      });
-      if (!headers.has("Content-Type"))
-        headers.set("Content-Type", "application/json");
       let response: Response;
       try {
+        const endpoint =
+          typeof options.endpoint === "function"
+            ? options.endpoint({ session: summary, turn })
+            : options.endpoint;
+        const headers = await resolveHeaders(options.headers, {
+          sessionId,
+          turnId,
+        });
+        if (!headers.has("Content-Type"))
+          headers.set("Content-Type", "application/json");
         response = await fetchImpl(normalizeEndpoint(endpoint), {
           method: options.method ?? "POST",
           headers,

@@ -4148,6 +4148,96 @@ describe("createAgentKitProtocolAdapter", () => {
     );
   });
 
+  it("reuses the continued owner when a queued turn keeps its id", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish?",
+      };
+      await new Promise<void>(() => {});
+    }
+    const startTurn = vi.fn(async () => ({
+      id: "turn-queued",
+      runId: "runtime-queued",
+      sessionId: "thread-1",
+      events: approvalEvents(),
+    }));
+    const continueTurn = vi.fn(async () => ({
+      id: "turn-queued",
+      runId: "runtime-continued",
+      sessionId: "thread-1",
+      events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      })(),
+    }));
+    const runtime = createRuntime(async function* () {}, {
+      capabilities: {
+        messages: { streaming: true, history: true, attachments: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: "runtime-test",
+      startTurn,
+      continueTurn,
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const queuePromotion = {
+      messageId: "queued-message",
+      claimId: "claim-1",
+      turnId: "turn-queued",
+    };
+
+    try {
+      const { runId } = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Publish this queued item")],
+        queuePromotion,
+      });
+      const iterator = transport
+        .subscribeToRun({ threadId: "thread-1", runId })
+        [Symbol.asyncIterator]();
+      while (true) {
+        const next = await iterator.next();
+        if (next.value?.type === "approval.requested") break;
+      }
+
+      const resumed = await transport.resumeRun!({
+        threadId: "thread-1",
+        runId,
+        resume: [
+          resumeEntryFromApproval({
+            approvalId: "approval-1",
+            response: approvalResponse("approve"),
+          }),
+        ],
+      });
+      const promoted = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Publish this queued item")],
+        queuePromotion,
+      });
+
+      expect(promoted.runId).toBe(resumed.runId);
+      expect(startTurn).toHaveBeenCalledOnce();
+      expect(continueTurn).toHaveBeenCalledOnce();
+      await iterator.return?.();
+      const events = await drain(
+        transport.subscribeToRun({
+          threadId: "thread-1",
+          runId: resumed.runId,
+        }),
+      );
+      expect(events.some((event) => event.type === "run.completed")).toBe(true);
+    } finally {
+      await transport.dispose();
+    }
+  });
+
   describe("continuing a stopped run", () => {
     function stoppedRunRuntime(state: ServerRunState) {
       const continueTurn = vi.fn(async () => ({

@@ -251,6 +251,50 @@ describe("createHttpAgentChatRuntime", () => {
     });
   });
 
+  it("forgets turn context when endpoint setup throws", async () => {
+    const fetchMock = vi.fn();
+    const continuedInputs: Array<AgentChatRuntimeTurnInput | undefined> = [];
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: ({ turn }) => {
+        if (turn.prompt === "Fail before the request") {
+          throw new Error("Endpoint setup failed");
+        }
+        return "/agent/chat";
+      },
+      fetch: fetchMock as typeof fetch,
+      continueTurn: ({ continuation, previousTurn }) => {
+        continuedInputs.push(previousTurn);
+        return {
+          id: continuation.turnId ?? "continued-turn",
+          sessionId: "thread-1",
+          events:
+            (async function* (): AsyncIterable<AgentChatRuntimeEvent> {})(),
+        };
+      },
+    });
+    const session = await runtime.createSession({ id: "thread-1" });
+
+    await expect(
+      session.startTurn({
+        prompt: "Fail before the request",
+        queuePromotion: {
+          messageId: "failed-message",
+          claimId: "failed-claim",
+          turnId: "failed-turn",
+        },
+      }),
+    ).rejects.toThrow("Endpoint setup failed");
+
+    await session.continueTurn?.({
+      turnId: "failed-turn",
+      prompt: "Continue the failed turn",
+    });
+    await session.continueTurn?.({ prompt: "Continue the latest turn" });
+
+    expect(continuedInputs).toEqual([undefined, undefined]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("preserves setup error codes from non-streaming HTTP failures", async () => {
     const runtime = createHttpAgentChatRuntime({
       endpoint: "/agent/chat",
