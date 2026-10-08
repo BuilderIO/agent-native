@@ -1085,15 +1085,12 @@ export default function DeckEditor() {
     void flushDeckSave(id)
       .then(() => {
         if (
-          !clearEmptyGenerationRecovery(
+          clearEmptyGenerationRecovery(
             retryRecoveryStorageKey,
             serializedRecovery,
-          )
+          ) &&
+          emptyGenerationRecoveryRef.current === serializedRecovery
         ) {
-          toast.error(t("settings.saveFailed"));
-          return;
-        }
-        if (emptyGenerationRecoveryRef.current === serializedRecovery) {
           emptyGenerationRecoveryRef.current = null;
         }
       })
