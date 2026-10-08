@@ -15,7 +15,7 @@ import type {
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
-import { unified } from "unified";
+import { unified, type Processor } from "unified";
 import { parse as parseYaml } from "yaml";
 
 import {
@@ -189,6 +189,29 @@ const HTML_BLOCK_BREAKS = new Set([
 /** Tags a flattened HTML block reproduces faithfully, so they need no note. */
 const FAITHFUL_HTML_TAGS = new Set(["p", "br", "img", "a", "hr", "pre"]);
 const MAX_BLOCK_NESTING = 64;
+/**
+ * The parser pairs the emphasis, strikethrough, and link delimiters of one
+ * paragraph, heading, or table cell in time that grows with the square of
+ * their number. Past this sum of squares for a file, about a second of
+ * parsing, the blocks holding the most import their delimiters as text.
+ */
+const INLINE_DELIMITER_BUDGET = 20_000_000;
+const INLINE_DELIMITER_RE = /[*_~[\]]/g;
+/** Characters no Markdown construct reads, standing in for each delimiter. */
+const DELIMITER_STAND_INS: Record<string, string> = {
+  "*": "\uE000",
+  _: "\uE001",
+  "~": "\uE002",
+  "[": "\uE003",
+  "]": "\uE004",
+};
+const STAND_IN_RE = /[\uE000-\uE004]/g;
+const STAND_IN_DELIMITERS = Object.fromEntries(
+  Object.entries(DELIMITER_STAND_INS).map(([delimiter, standIn]) => [
+    standIn,
+    delimiter,
+  ]),
+);
 /** Embedded media Content can't show; any fallback text inside is kept. */
 const DROPPED_HTML_MEDIA = new Set([
   "video",
@@ -526,11 +549,7 @@ class MarkdownConverter {
   ) {}
 
   convert(): PMNode[] {
-    const root = unified()
-      .use(remarkParse)
-      .use(remarkGfm)
-      .use(remarkMath)
-      .parse(this.source) as Root;
+    const root = parseMarkdown(this.source, this.notes);
     this.root = root;
     walk(root, (node) => {
       if (node.type === "definition") {
@@ -856,17 +875,19 @@ class MarkdownConverter {
     let summary = "";
     const summaryOpen = /<summary\b[^<>]*>/i.exec(head);
     if (summaryOpen) {
-      // Found by index, not one lazy regex, so many unclosed `<summary>` tags
-      // cost one scan instead of one per tag.
+      // One search from the first `<summary>`, not one lazy regex, so many
+      // unclosed `<summary>` tags cost one scan instead of one per tag.
       const textStart = summaryOpen.index + summaryOpen[0].length;
-      const summaryClose = head.toLowerCase().indexOf("</summary>", textStart);
-      if (summaryClose !== -1) {
+      const summaryClose = /<\/summary>/gi;
+      summaryClose.lastIndex = textStart;
+      const close = summaryClose.exec(head);
+      if (close) {
         summary = collapseWhitespace(
-          htmlVisibleText(head.slice(textStart, summaryClose)),
+          htmlVisibleText(head.slice(textStart, close.index)),
         );
         head =
           head.slice(0, summaryOpen.index) +
-          head.slice(summaryClose + "</summary>".length);
+          head.slice(close.index + close[0].length);
       }
     }
 
@@ -1609,6 +1630,137 @@ function indentContainerBodies(nfm: string, notes: ImportNoteBag): string {
     }
   }
   return out.join("\n");
+}
+
+function markdownParser() {
+  return unified().use(remarkParse).use(remarkGfm).use(remarkMath);
+}
+
+/** Reads emphasis, strikethrough, link, and footnote delimiters as text. */
+function withoutInlineDelimiters(this: Processor) {
+  const data = this.data();
+  (data.micromarkExtensions ??= []).push({
+    disable: {
+      null: [
+        "attention",
+        "strikethrough",
+        "labelStartLink",
+        "labelStartImage",
+        "labelEnd",
+        "gfmFootnoteCall",
+        "gfmPotentialFootnoteCall",
+      ],
+    },
+  });
+}
+
+/**
+ * Parses Markdown within `INLINE_DELIMITER_BUDGET`: the delimiters of the
+ * paragraphs, headings, and table cells that hold the most are first replaced
+ * with stand-ins the parser reads as text, then restored in the parsed text.
+ */
+function parseMarkdown(source: string, notes: ImportNoteBag): Root {
+  if (delimiterCostUpperBound(source) <= INLINE_DELIMITER_BUDGET) {
+    return markdownParser().parse(source) as Root;
+  }
+  // Block structure doesn't depend on inline syntax, so a parse that reads
+  // every delimiter as text finds the same blocks, in linear time.
+  const blocks: Array<{ start: number; end: number; count: number }> = [];
+  let cost = 0;
+  walk(
+    markdownParser().use(withoutInlineDelimiters).parse(source) as Root,
+    (node) => {
+      if (
+        node.type !== "paragraph" &&
+        node.type !== "heading" &&
+        node.type !== "tableCell"
+      ) {
+        return;
+      }
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start === undefined || end === undefined) return;
+      let count = 0;
+      for (let index = start; index < end; index++) {
+        if (source[index] in DELIMITER_STAND_INS) count++;
+      }
+      blocks.push({ start, end, count });
+      cost += count * count;
+    },
+  );
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const block of blocks.sort((a, b) => b.count - a.count)) {
+    if (cost <= INLINE_DELIMITER_BUDGET) break;
+    cost -= block.count * block.count;
+    ranges.push(block);
+    notes.add(
+      "unsupported-markdown",
+      source.slice(block.start, Math.min(block.end, block.start + 200)),
+    );
+  }
+  if (!ranges.length) return markdownParser().parse(source) as Root;
+  ranges.sort((a, b) => a.start - b.start);
+
+  const parts: string[] = [];
+  let last = 0;
+  for (const { start, end } of ranges) {
+    parts.push(
+      source.slice(last, start),
+      source
+        .slice(start, end)
+        .replace(
+          INLINE_DELIMITER_RE,
+          (delimiter) => DELIMITER_STAND_INS[delimiter],
+        ),
+    );
+    last = end;
+  }
+  parts.push(source.slice(last));
+  const root = markdownParser().parse(parts.join("")) as Root;
+
+  // Document order visits nodes by start offset, so one pass over the ranges
+  // finds each node's.
+  let range = 0;
+  const restore = (value: string) =>
+    value.replace(STAND_IN_RE, (standIn) => STAND_IN_DELIMITERS[standIn]);
+  walk(root, (node) => {
+    const start = node.position?.start.offset;
+    if (start === undefined) return;
+    while (range < ranges.length && ranges[range].end <= start) range++;
+    if (range === ranges.length || start < ranges[range].start) return;
+    if ("value" in node && typeof node.value === "string") {
+      node.value = restore(node.value);
+    }
+    if ("url" in node && typeof node.url === "string") {
+      node.url = restore(node.url);
+    }
+  });
+  return root;
+}
+
+/**
+ * A line that always ends the paragraph before it. Other ordered markers and
+ * markers indented four or more spaces can continue that paragraph instead.
+ */
+const PARAGRAPH_ENDING_LIST_ITEM_RE = /^ {0,3}(?:[-*+]|1[.)])[ \t]+\S/;
+
+/**
+ * The delimiter cost of the source as if each run of lines up to a blank line
+ * or a new list item were one block: never less than the blocks' own cost.
+ */
+function delimiterCostUpperBound(source: string): number {
+  let cost = 0;
+  let count = 0;
+  for (const line of source.split("\n")) {
+    if (!line.trim() || PARAGRAPH_ENDING_LIST_ITEM_RE.test(line)) {
+      cost += count * count;
+      count = 0;
+    }
+    for (const character of line) {
+      if (character in DELIMITER_STAND_INS) count++;
+    }
+  }
+  return cost + count * count;
 }
 
 /** The text a reader sees in a parsed node and its descendants. */

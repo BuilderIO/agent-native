@@ -872,6 +872,40 @@ ${"<span>".repeat(70)}deep
     ).toEqual(["One: Inside one", "After"]);
   });
 
+  it.each([
+    ["nested emphasis", `${"*a ".repeat(3000)}b${" a*".repeat(3000)}`],
+    ["unmatched link brackets", "a]".repeat(20000)],
+  ])("reads a paragraph with too many %s as plain text", (_, paragraph) => {
+    const page = importMarkdown(`Before *kept*\n\n${paragraph}\n\nAfter`);
+
+    expect(noteKinds(page)).toContain("unsupported-markdown");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+    expect(textOf(page.doc)).toContain(paragraph.slice(0, 60));
+    expect(
+      nodesOfType(page.doc, "text").find((node) => node.text === "kept")?.marks,
+    ).toEqual([{ type: "italic" }]);
+    expect(page.content).toContain("After");
+  });
+
+  it("finds closing tags after text that lengthens when lowercased", () => {
+    const dotted = "İ".repeat(12);
+    const page = importMarkdown(
+      [
+        `<div><script>"${dotted}"</script>Visible after</div>`,
+        "",
+        `<details><summary>${dotted}</summary>Inside</details>`,
+      ].join("\n"),
+    );
+
+    expect(page.content).toContain("Visible after");
+    const [toggle] = nodesOfType(page.doc, "notionToggle");
+    expect([toggle?.attrs?.summary, textOf(toggle).trim()]).toEqual([
+      dotted,
+      "Inside",
+    ]);
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
   it("keeps a __proto__ frontmatter key with the import record", () => {
     const page = importMarkdown('---\n"__proto__": kept\n---\nBody');
 

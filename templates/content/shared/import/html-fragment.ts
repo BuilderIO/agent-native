@@ -20,7 +20,15 @@ export const HIDDEN_HTML_ELEMENTS = new Set([
   "title",
 ]);
 
-const RAW_TEXT_ELEMENTS = new Set(["script", "style"]);
+/**
+ * Where script and style bodies end. Matched case-insensitively in place:
+ * lowercasing first can lengthen the text (`İ` becomes two characters) and
+ * shift every offset after it.
+ */
+const RAW_TEXT_CLOSE = new Map([
+  ["script", /<\/script/gi],
+  ["style", /<\/style/gi],
+]);
 
 const TOKEN_RE =
   /<!--[\s\S]*?(?:-->|$)|<![\s\S]*?(?:>|$)|<\?[\s\S]*?(?:\?>|$)|<\/([a-zA-Z][\w:-]*)\s*>|<([a-zA-Z][\w:-]*)((?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/g;
@@ -86,7 +94,6 @@ export function decodeHtmlEntities(text: string): string {
 export function tokenizeHtml(html: string): HtmlToken[] {
   const tokens: HtmlToken[] = [];
   const pattern = new RegExp(TOKEN_RE);
-  let lowered: string | null = null;
   let last = 0;
   for (;;) {
     const match = pattern.exec(html);
@@ -111,10 +118,11 @@ export function tokenizeHtml(html: string): HtmlToken[] {
       });
       // Script and style bodies are raw text: a `<` or `<!--` inside them
       // opens nothing, so the body runs to the element's own closing tag.
-      if (RAW_TEXT_ELEMENTS.has(name) && !selfClosing) {
-        lowered ??= html.toLowerCase();
-        const close = lowered.indexOf(`</${name}`, last);
-        const end = close === -1 ? html.length : close;
+      const rawTextClose = selfClosing ? undefined : RAW_TEXT_CLOSE.get(name);
+      if (rawTextClose) {
+        rawTextClose.lastIndex = last;
+        const close = rawTextClose.exec(html);
+        const end = close ? close.index : html.length;
         if (end > last)
           tokens.push({ type: "text", text: html.slice(last, end) });
         last = end;
