@@ -4961,10 +4961,12 @@ async function runAuthoringFuzzQa(
       await runSetupAsCouldNotRun("could not sign in authoring fuzz page", () =>
         ensureSignedIn(activePage),
       );
-      await activePage.setViewportSize(
-        profile?.kind === "scaled"
-          ? { width: 850, height: 650 }
-          : { width: 1600, height: 1000 },
+      await runSetupAsCouldNotRun("could not size authoring fuzz page", () =>
+        activePage.setViewportSize(
+          profile?.kind === "scaled"
+            ? { width: 850, height: 650 }
+            : { width: 1600, height: 1000 },
+        ),
       );
       const created = await action(activePage, "create-deck", {
         title: `[edit-fidelity] authoring fuzz ${seed}`,
