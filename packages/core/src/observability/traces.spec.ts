@@ -915,12 +915,12 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     const otelRunSpan = spans.find((span) => span.name === "invoke_agent");
     expect(llmSpan?.errorMessage).toContain("[REDACTED]");
     expect(parentSpan?.errorMessage).toContain("[REDACTED]");
-    expect(event?.properties?.error_message).toContain("[REDACTED]");
+    expect(event?.properties).not.toHaveProperty("error_message");
     expect(
       (event?.properties?.["$ai_error"] as { message: string })?.message,
-    ).toContain("[REDACTED]");
-    expect(otelModelSpan?.status?.message).toContain("[REDACTED]");
-    expect(otelRunSpan?.status?.message).toContain("[REDACTED]");
+    ).toBe("Agent run failed (unknown)");
+    expect(otelModelSpan?.status?.message).toBe("Agent run failed (unknown)");
+    expect(otelRunSpan?.status?.message).toBe("Agent run failed (unknown)");
     const serialized = JSON.stringify({ persistedSpans, events, spans });
     for (const secret of [
       "sk-proj-FAKE000000000000",
@@ -3975,7 +3975,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(
       (generations[1]?.properties?.["$ai_error"] as { message: string })
         ?.message,
-    ).toBe("second model call failed before streaming");
+    ).toBe("Agent run failed (unknown)");
     expect(byName.get("$ai_trace")?.[0]?.properties?.llm_calls).toBe(2);
   });
 
