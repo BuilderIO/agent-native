@@ -74,6 +74,7 @@ import { readValueOption } from "./run-options.ts";
 import {
   ActionTransportError,
   CouldNotRun,
+  isActionEvaluationTransportFailure,
   rethrowIfCouldNotRun,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
@@ -659,7 +660,7 @@ async function action<T = any>(
   method: "DELETE" | "GET" | "POST" = "POST",
 ): Promise<T> {
   const timeoutMs = 30_000;
-  const res = await page.evaluate(
+  const evaluation = page.evaluate(
     async ({ name, body, method, timeoutMs }: any) => {
       const url =
         method === "GET"
@@ -705,6 +706,14 @@ async function action<T = any>(
     },
     { name, body, method, timeoutMs },
   );
+  const res = await evaluation.catch((error: unknown) => {
+    if (isActionEvaluationTransportFailure(error)) {
+      throw new ActionTransportError(
+        `${name} action evaluation failed: ${String(error)}`,
+      );
+    }
+    throw error;
+  });
   if (!res.ok) {
     if (res.status === 0) {
       throw new ActionTransportError(

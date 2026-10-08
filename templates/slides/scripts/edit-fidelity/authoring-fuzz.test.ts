@@ -23,6 +23,7 @@ import type { Snapshot } from "./lib/in-page.ts";
 import {
   ActionTransportError,
   CouldNotRun,
+  isActionEvaluationTransportFailure,
   rethrowIfCouldNotRun,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
@@ -102,6 +103,29 @@ it("classifies authoring action transport failures without masking HTTP errors",
       },
     ),
   ).rejects.toBe(unexpectedError);
+});
+
+it("recognizes Playwright action evaluation transport failures only", () => {
+  expect(
+    isActionEvaluationTransportFailure(
+      new Error(
+        "Execution context was destroyed, most likely because of a navigation",
+      ),
+    ),
+  ).toBe(true);
+  expect(
+    isActionEvaluationTransportFailure(
+      new Error("Protocol error (Runtime.callFunctionOn): Target closed"),
+    ),
+  ).toBe(true);
+  expect(
+    isActionEvaluationTransportFailure(
+      new Error("create-deck returned HTTP 500"),
+    ),
+  ).toBe(false);
+  expect(
+    isActionEvaluationTransportFailure(new Error("canvas not found")),
+  ).toBe(false);
 });
 
 it("requires a markdown shortcut to add its result markup", () => {
