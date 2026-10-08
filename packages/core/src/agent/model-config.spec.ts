@@ -351,6 +351,17 @@ describe("getContextWindowForModel", () => {
     );
   });
 
+  it("returns DeepSeek V4 Pro provider context and output limits", () => {
+    expect(getContextWindowForModel("deepseek-v4-pro")).toBe(1_048_576);
+    expect(getContextWindowForModel("deepseek/deepseek-v4-pro")).toBe(
+      1_048_576,
+    );
+    expect(getMaxOutputTokensForModel("deepseek-v4-pro")).toBe(393_216);
+    expect(getMaxOutputTokensForModel("deepseek/deepseek-v4-pro")).toBe(
+      393_216,
+    );
+  });
+
   it("returns 1M for Claude Fable 5, Sonnet 5.5/4.6, and Opus 4.6+", () => {
     expect(getContextWindowForModel("claude-fable-5")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-sonnet-5")).toBe(1_000_000);

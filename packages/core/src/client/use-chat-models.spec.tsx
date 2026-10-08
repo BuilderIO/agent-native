@@ -181,6 +181,37 @@ describe("useChatModels", () => {
     ).toBe("gemini-3-8-flash");
   });
 
+  it("upgrades a Builder default from a non-first picker group", async () => {
+    stubCatalog({
+      builderConnected: true,
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: [
+            "gpt-6-1-sol",
+            "claude-haiku-5-5",
+            "claude-sonnet-5-5",
+            "gemini-3-8-flash",
+          ],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        },
+      ],
+      current: { engine: "builder", model: "claude-sonnet-4-6" },
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="fresh-builder-chat" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("claude-sonnet-5-5");
+  });
+
   it("defaults effort to high", async () => {
     await act(async () => {
       root.render(<ChatModelsProbe enabled={false} />);
