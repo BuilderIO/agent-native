@@ -74,6 +74,7 @@ type ProviderSetupOutcome =
   | "started"
   | "accepted"
   | "rejected"
+  | "missing_key"
   | "invalid_endpoint"
   | "unreachable"
   | "provider_error"
@@ -111,8 +112,9 @@ function providerCheckOutcome(
   switch (result.code) {
     case "rejected":
     case "wrong-provider":
-    case "missing-key":
       return "rejected";
+    case "missing-key":
+      return "missing_key";
     case "invalid-endpoint":
       return "invalid_endpoint";
     case "unreachable":
@@ -549,7 +551,6 @@ function ProviderDialogForm({
     }
     const gateway = isOpenAi && endpointOpen ? endpoint.trim() : "";
     const endpointChanged = isOpenAi && gateway !== (existing?.endpoint ?? "");
-    const keySettingsChanged = replacing || endpointChanged;
     const modelsChanged =
       mode !== "manage" || !sameModels(checked, initialSelection ?? []);
 
@@ -580,12 +581,6 @@ function ProviderDialogForm({
           scope,
         });
         keySaved = true;
-        trackProviderSetupEvent(
-          trackingFlow,
-          "integration_key_save_outcome",
-          "save",
-          "saved",
-        );
       }
       if (modelsChanged) {
         await callAction(
@@ -603,7 +598,7 @@ function ProviderDialogForm({
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (keySettingsChanged && !keySaved) {
+      if (replacing && !keySaved) {
         trackProviderSetupEvent(
           trackingFlow,
           "integration_key_save_outcome",

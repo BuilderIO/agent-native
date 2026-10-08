@@ -368,6 +368,76 @@ describe("ProviderDialog", () => {
     });
   });
 
+  it("tracks missing saved credentials separately from rejected keys", async () => {
+    state.listing = listing(
+      {},
+      {
+        anthropic: {
+          org: { scope: "org", masked: "••••1234", updatedAt: 1 },
+        },
+      },
+    );
+    keyMock.fetchProviderModels.mockResolvedValue({
+      ok: false,
+      provider: "anthropic",
+      models: [],
+      code: "missing-key",
+      checkedAt: 2,
+    });
+    render({ mode: "manage", provider: "anthropic", scope: "org" });
+
+    await act(async () => {
+      button("Check again").click();
+    });
+    await vi.waitFor(() => {
+      expect(setupTelemetryMock).toHaveBeenCalledWith(
+        "integration_key_validation_outcome",
+        expect.objectContaining({ action: "validate", outcome: "missing_key" }),
+      );
+    });
+    expect(setupTelemetryMock).not.toHaveBeenCalledWith(
+      "integration_key_validation_outcome",
+      expect.objectContaining({ action: "validate", outcome: "rejected" }),
+    );
+  });
+
+  it("does not count an endpoint-only save as a key save", async () => {
+    state.listing = listing(
+      {},
+      {
+        openai: {
+          org: {
+            scope: "org",
+            masked: "••••1234",
+            updatedAt: 1,
+            endpoint: "https://old.example/v1",
+          },
+        },
+      },
+    );
+    const { onSaved } = render({
+      mode: "manage",
+      provider: "openai",
+      scope: "org",
+    });
+
+    typeInto(inputByLabel("Endpoint URL"), "https://new.example/v1");
+    await act(async () => {
+      button("Save").click();
+    });
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    expect(keyMock.saveAgentEngineProviderSettings).toHaveBeenCalledWith({
+      provider: "openai",
+      baseUrl: "https://new.example/v1",
+      scope: "org",
+    });
+    expect(setupTelemetryMock).not.toHaveBeenCalledWith(
+      "integration_key_save_outcome",
+      expect.anything(),
+    );
+  });
+
   it("keeps Add disabled until the key checks out and keeps a failed save open", async () => {
     keyMock.fetchProviderModels.mockResolvedValue({
       ok: true,
