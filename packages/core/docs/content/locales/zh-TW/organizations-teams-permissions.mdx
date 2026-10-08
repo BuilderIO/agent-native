@@ -17,6 +17,31 @@ description: 管理組織內容、團隊與應用程式角色以及資源存取�
 
 邀請和設定請參閱[管理式部署指南](/docs/administered-deployments)。資料存取請參閱[資料範圍控制](/docs/security#data-scoping)。
 
+## 可選權限政策
+
+預設情況下，權限檢查要求已指派的應用程式角色。透過 `defineAppRoles` 的可選第二個參數，可以變更伺服器端政策。Forms 使用：
+
+```ts
+const formsAccess = defineAppRoles(
+  {
+    appId: "forms",
+    roles: ["editor", "reviewer"] as const,
+    permissions: {
+      "forms.edit": ["editor"],
+      "forms.review": ["editor", "reviewer"],
+    },
+  },
+  { unassignedRole: "editor", allowOrgAdmins: true },
+);
+```
+
+- `unassignedRole` 將已宣告角色的權限套用至沒有應用程式角色指派的有效成員。權限覆寫仍然生效。它不會建立角色指派，也不適用於已移除的成員或僅包含已廢棄角色的指派。清除全部指派後，會恢復此預設行為。
+- `allowOrgAdmins: true` 允許組織的有效擁有者和管理員通過任何已宣告的應用程式權限檢查，不受其應用程式角色或權限覆寫影響。它不會向應用程式管理員授予組織管理權限。
+
+這些選項僅影響 `requirePermission` 和 `assertPermission`。`resolve`、`requireAny` 和 `assertAny` 仍使用明確指派；`defaultRole` 仍僅用於顯示。省略選項時保留嚴格政策。兩者都不取代資源授權：請保留 `accessFilter` 和 `assertAccess` 檢查。
+
+Forms 保留現有未指派角色成員的編輯權限。明確指派的 Reviewer 可以審查提交內容，但不能編輯表單；Editor 可以執行兩種操作。資源分享仍決定他們能存取哪些表單和提交內容。
+
 ## 使用者群組 {#user-groups}
 
 組織可以建立由目前成員組成的可重複使用使用者群組。擁有者和管理員負責管理群組成員，同一個人可以加入多個群組。應用程式可以使用群組來分享支援群組分享的資源，或限制可使用工作區連線的人員。

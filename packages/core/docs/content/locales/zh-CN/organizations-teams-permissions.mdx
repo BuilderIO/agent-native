@@ -17,6 +17,31 @@ description: 管理组织上下文、团队和应用角色以及资源访问。
 
 邀请和配置请参阅[管理式部署指南](/docs/administered-deployments)。数据访问请参阅[数据范围控制](/docs/security#data-scoping)。
 
+## 可选权限策略
+
+默认情况下，权限检查要求已分配的应用角色。通过 `defineAppRoles` 的可选第二个参数，可以更改服务器端策略。Forms 使用：
+
+```ts
+const formsAccess = defineAppRoles(
+  {
+    appId: "forms",
+    roles: ["editor", "reviewer"] as const,
+    permissions: {
+      "forms.edit": ["editor"],
+      "forms.review": ["editor", "reviewer"],
+    },
+  },
+  { unassignedRole: "editor", allowOrgAdmins: true },
+);
+```
+
+- `unassignedRole` 将已声明角色的权限应用于没有应用角色分配的有效成员。权限覆盖仍然生效。它不会创建角色分配，也不适用于已移除的成员或仅包含已废弃角色的分配。清除全部分配后，会恢复此默认行为。
+- `allowOrgAdmins: true` 允许组织的有效所有者和管理员通过任何已声明的应用权限检查，不受其应用角色或权限覆盖影响。它不会向应用管理员授予组织管理权限。
+
+这些选项仅影响 `requirePermission` 和 `assertPermission`。`resolve`、`requireAny` 和 `assertAny` 仍使用显式分配；`defaultRole` 仍仅用于显示。省略选项时保留严格策略。两者都不替代资源授权：请保留 `accessFilter` 和 `assertAccess` 检查。
+
+Forms 保留现有未分配角色成员的编辑权限。显式分配的 Reviewer 可以审核提交，但不能编辑表单；Editor 可以执行两种操作。资源共享仍决定他们能访问哪些表单和提交。
+
 ## 用户组 {#user-groups}
 
 组织可以创建由当前成员组成的可复用用户组。所有者和管理员负责管理组成员，一个人可以加入多个组。应用可以使用用户组共享支持组共享的资源，也可以限制哪些人可以使用工作区连接。

@@ -186,7 +186,7 @@ import { defineAppRoles } from "@agent-native/core/org-team";
 export const coachAccess = defineAppRoles({
   appId: "coach",
   roles: ["member", "coach-admin"] as const,
-  defaultRole: "member", // display only — never satisfies a guard
+  defaultRole: "member", // display only — does not grant permissions
   label: "Coach role", // column header in TeamPage
   roleLabels: { "coach-admin": "Coach admin" },
   permissions: { approve: ["coach-admin"] },
@@ -217,6 +217,44 @@ declared permission to existing app roles without a deployment, but they cannot
 invent a new permission key from the UI. The organization owner or admin still
 controls these settings, and changing an app role never grants organization
 administration.
+
+### Opt-in permission policies
+
+By default, permission guards require an assigned app role. Pass an optional
+second argument to `defineAppRoles` to change that policy on the server. Forms
+uses:
+
+```ts
+const formsAccess = defineAppRoles(
+  {
+    appId: "forms",
+    roles: ["editor", "reviewer"] as const,
+    permissions: {
+      "forms.edit": ["editor"],
+      "forms.review": ["editor", "reviewer"],
+    },
+  },
+  { unassignedRole: "editor", allowOrgAdmins: true },
+);
+```
+
+- `unassignedRole` uses a declared role's permissions for active members with
+  no app-role assignments. Permission overrides still apply. It does not
+  create an assignment or apply to removed members or assignments containing
+  only retired roles. Clearing all assignments restores this fallback.
+- `allowOrgAdmins: true` lets active organization owners and admins pass any
+  declared app-permission guard, regardless of their app roles or permission
+  overrides. It does not grant organization administration to app admins.
+
+These options affect only `requirePermission` and `assertPermission`.
+`resolve`, `requireAny`, and `assertAny` retain their explicit-assignment
+semantics, and `defaultRole` remains display only. Both options are opt-in;
+omitting them keeps the strict permission policy. Neither option replaces
+resource authorization: keep `accessFilter` and `assertAccess` checks.
+
+Forms keeps existing unassigned members' editing access. An explicitly assigned
+Reviewer can review submissions but cannot edit forms; Editor can do both.
+Resource sharing still determines which forms and submissions they can access.
 
 ```ts
 // actions/archive-plan.ts
@@ -272,7 +310,8 @@ null })` means "this run has no user" and does not fall back to the ambient
   an app id the server never declared.
 - **An app admin is not an org admin.** Only org owners and admins may change
   app-role assignments, and nothing in the org handlers reads an app role. The
-  implication does not run in either direction.
+  `allowOrgAdmins` policy can exempt org owners/admins from app-permission
+  checks, but never grants org administration to an app role.
 
 In the browser, `<TeamPage appRoles={coachRoles} />` adds a role column and
 picker next to the org role. The argument is the descriptor — the serializable

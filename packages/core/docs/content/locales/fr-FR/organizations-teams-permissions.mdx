@@ -17,6 +17,31 @@ L’application déclare les rôles et les clés de permission dans le code. Un 
 
 Consultez [Déploiements administrés](/docs/administered-deployments) pour les invitations et la configuration. Consultez [Cloisonnement des données](/docs/security#data-scoping) pour l’accès aux données.
 
+## Politiques de permissions facultatives
+
+Par défaut, les contrôles de permissions exigent un rôle applicatif attribué. Le second argument facultatif de `defineAppRoles` modifie cette politique côté serveur. Forms utilise :
+
+```ts
+const formsAccess = defineAppRoles(
+  {
+    appId: "forms",
+    roles: ["editor", "reviewer"] as const,
+    permissions: {
+      "forms.edit": ["editor"],
+      "forms.review": ["editor", "reviewer"],
+    },
+  },
+  { unassignedRole: "editor", allowOrgAdmins: true },
+);
+```
+
+- `unassignedRole` applique les permissions d’un rôle déclaré aux membres actifs sans attribution de rôle applicatif. Les remplacements de permissions restent applicables. Cela ne crée aucune attribution et ne concerne ni les membres supprimés ni les attributions contenant uniquement des rôles retirés. Effacer toutes les attributions rétablit ce comportement par défaut.
+- `allowOrgAdmins: true` autorise les propriétaires et administrateurs actifs de l’organisation à passer tout contrôle de permission applicative déclarée, quels que soient leurs rôles applicatifs ou les remplacements de permissions. Cela ne donne pas aux administrateurs d’application le droit d’administrer l’organisation.
+
+Ces options ne concernent que `requirePermission` et `assertPermission`. `resolve`, `requireAny` et `assertAny` conservent leur fonctionnement fondé sur des attributions explicites ; `defaultRole` reste réservé à l’affichage. Sans ces options, la politique stricte reste en vigueur. Aucune ne remplace l’autorisation des ressources : conservez les contrôles `accessFilter` et `assertAccess`.
+
+Forms conserve les droits de modification des membres existants sans rôle attribué. Un Reviewer explicitement attribué peut examiner les soumissions, mais pas modifier les formulaires ; Editor peut faire les deux. Le partage détermine toujours les formulaires et soumissions accessibles.
+
 ## Groupes d’utilisateurs {#user-groups}
 
 Une organisation peut définir des groupes réutilisables composés de ses membres actuels. Les propriétaires et les administrateurs gèrent les adhésions, et une personne peut appartenir à plusieurs groupes. Les applications peuvent utiliser un groupe pour partager une ressource compatible avec le partage par groupe ou limiter l’accès à une connexion d’espace de travail.
