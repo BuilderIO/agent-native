@@ -25,6 +25,7 @@ const keyMock = vi.hoisted(() => ({
 const callActionMock = vi.hoisted(() => vi.fn());
 const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
 const onboardingAbandonmentRequestMock = vi.hoisted(() => vi.fn());
+const onboardingSetupKindMock = vi.hoisted(() => vi.fn());
 const credentialSaveBoundaryMock = vi.hoisted(() => vi.fn());
 const localEndpointSaveBoundaryMock = vi.hoisted(() => vi.fn());
 
@@ -48,6 +49,7 @@ vi.mock("@agent-native/core/client/agent-engine-key", () => keyMock);
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   requestCustomKeyOnboardingAbandonment: onboardingAbandonmentRequestMock,
+  setCustomKeyOnboardingSetupKind: onboardingSetupKindMock,
   trackCustomKeyOnboardingOutcome: onboardingOutcomeMock,
   withCustomKeyOnboardingCredentialSave: async (
     save: () => Promise<unknown>,
@@ -214,6 +216,7 @@ describe("ProviderDialog", () => {
     callActionMock.mockReset().mockResolvedValue({});
     onboardingOutcomeMock.mockReset();
     onboardingAbandonmentRequestMock.mockReset();
+    onboardingSetupKindMock.mockReset();
     credentialSaveBoundaryMock.mockReset();
     localEndpointSaveBoundaryMock.mockReset();
     container = document.createElement("div");
@@ -488,6 +491,8 @@ describe("ProviderDialog", () => {
 
   it("classifies dismissing Ollama setup separately from skipping credentials", () => {
     render({ provider: "ollama" });
+
+    expect(onboardingSetupKindMock).toHaveBeenCalledWith("local_endpoint");
 
     act(() => button("Cancel").click());
 

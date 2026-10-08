@@ -33,6 +33,7 @@ type CustomKeyOnboardingSaveOutcome =
 type CustomKeyOnboardingAbandonmentOutcome =
   | "credential_abandoned"
   | "local_endpoint_abandoned";
+type CustomKeyOnboardingSetupKind = "credential" | "local_endpoint";
 const pendingCustomKeyCredentialSaves = new Map<
   string,
   {
@@ -77,18 +78,30 @@ interface CustomKeyOnboardingAttempt {
   identityKey: string;
   // A restored BFCache page keeps this ID; a new document must not inherit it.
   documentId: string;
+  setupKind?: CustomKeyOnboardingSetupKind;
   entryStarted?: boolean;
   credentialValidated?: boolean;
 }
 
+interface PendingCustomKeyOnboardingAttempt {
+  attempt: Omit<CustomKeyOnboardingAttempt, "identityKey"> & {
+    identityKey?: string;
+  };
+  status: "resolving" | "stored" | "memory" | "unavailable";
+  outcomes: CustomKeyOnboardingOutcome[];
+}
+
 type CustomKeyAttemptRead =
   | { kind: "available"; attempt: CustomKeyOnboardingAttempt | null }
+  | { kind: "pending"; pending: PendingCustomKeyOnboardingAttempt }
   | { kind: "stale" }
   | { kind: "unavailable" };
 
 type CustomKeyOutcomeResult =
   | "tracked"
+  | "tracked_uncorrelated"
   | "tracked_storage_unavailable"
+  | "pending"
   | "missing"
   | "unavailable"
   | "stale"
@@ -108,11 +121,41 @@ function getOnboardingDocumentId(): string {
   return (onboardingDocumentId ??= createOnboardingCorrelationId());
 }
 
+// Keep the handoff alive while the SPA opens settings before auth refresh settles.
+let pendingCustomKeyOnboardingAttempt: PendingCustomKeyOnboardingAttempt | null =
+  null;
+
+function flushPendingCustomKeyOnboardingOutcomes(
+  pending: PendingCustomKeyOnboardingAttempt,
+): void {
+  const outcomes = pending.outcomes.splice(0);
+  for (const outcome of outcomes) {
+    trackCustomKeyOnboardingOutcome(outcome);
+  }
+}
+
 function readCustomKeyOnboardingAttempt(): CustomKeyAttemptRead {
   if (typeof window === "undefined") return { kind: "unavailable" };
+  const pending = pendingCustomKeyOnboardingAttempt;
+  if (pending?.attempt.documentId === getOnboardingDocumentId()) {
+    if (pending.status === "resolving" || pending.status === "unavailable") {
+      return { kind: "pending", pending };
+    }
+  }
   try {
     const value = window.sessionStorage.getItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
-    if (!value) return { kind: "available", attempt: null };
+    if (!value) {
+      if (
+        pending?.attempt.documentId === getOnboardingDocumentId() &&
+        pending.attempt.identityKey
+      ) {
+        return {
+          kind: "available",
+          attempt: pending.attempt as CustomKeyOnboardingAttempt,
+        };
+      }
+      return { kind: "available", attempt: null };
+    }
     const parsed: unknown = JSON.parse(value);
     if (!parsed || typeof parsed !== "object") {
       return { kind: "unavailable" };
@@ -125,30 +168,113 @@ function readCustomKeyOnboardingAttempt(): CustomKeyAttemptRead {
     if (typeof attempt.identityKey !== "string") {
       return { kind: "unavailable" };
     }
+    if (
+      pending?.attempt.id === attempt.id &&
+      pending.attempt.documentId === attempt.documentId &&
+      pending.attempt.identityKey
+    ) {
+      return {
+        kind: "available",
+        attempt: pending.attempt as CustomKeyOnboardingAttempt,
+      };
+    }
     return {
       kind: "available",
       attempt: attempt as CustomKeyOnboardingAttempt,
     };
   } catch {
+    if (
+      pending?.attempt.documentId === getOnboardingDocumentId() &&
+      pending.attempt.identityKey
+    ) {
+      return {
+        kind: "available",
+        attempt: pending.attempt as CustomKeyOnboardingAttempt,
+      };
+    }
     return { kind: "unavailable" };
   }
 }
 
-export async function setCustomKeyOnboardingAttempt(
-  id: string,
-): Promise<"stored" | "no_session" | "unavailable"> {
-  if (typeof window === "undefined") return "unavailable";
-  const sessionId = getAnalyticsSessionId();
-  const identityKey = await resolveAnalyticsIdentityKey();
-  if (!sessionId || !identityKey) return "no_session";
+function writePendingCustomKeyOnboardingAttempt(
+  pending: PendingCustomKeyOnboardingAttempt,
+  identityKey: string,
+): "stored" | "unavailable" {
+  pending.attempt.identityKey = identityKey;
   try {
     window.sessionStorage.setItem(
       CUSTOM_KEY_ATTEMPT_STORAGE_KEY,
-      JSON.stringify({
-        id,
+      JSON.stringify(pending.attempt),
+    );
+    pending.status = "stored";
+    return "stored";
+  } catch {
+    pending.status = "memory";
+    return "unavailable";
+  }
+}
+
+export function setCustomKeyOnboardingAttempt(
+  id: string,
+): Promise<"stored" | "no_session" | "unavailable"> {
+  if (typeof window === "undefined") return Promise.resolve("unavailable");
+  const sessionId = getAnalyticsSessionId();
+  const pending: PendingCustomKeyOnboardingAttempt = {
+    attempt: {
+      id,
+      documentId: getOnboardingDocumentId(),
+      setupKind: "credential",
+    },
+    status: "resolving",
+    outcomes: [],
+  };
+  pendingCustomKeyOnboardingAttempt = pending;
+
+  return resolveAnalyticsIdentityKey()
+    .then((identityKey) => {
+      if (!sessionId || !identityKey) {
+        pending.status = "unavailable";
+        flushPendingCustomKeyOnboardingOutcomes(pending);
+        return "no_session" as const;
+      }
+      const result = writePendingCustomKeyOnboardingAttempt(
+        pending,
         identityKey,
-        documentId: getOnboardingDocumentId(),
-      }),
+      );
+      flushPendingCustomKeyOnboardingOutcomes(pending);
+      return result;
+    })
+    .catch(() => {
+      pending.status = "unavailable";
+      flushPendingCustomKeyOnboardingOutcomes(pending);
+      return "unavailable" as const;
+    });
+}
+
+export function setCustomKeyOnboardingSetupKind(
+  setupKind: CustomKeyOnboardingSetupKind,
+): "stored" | "memory" | "missing" | "unavailable" {
+  const pending = pendingCustomKeyOnboardingAttempt;
+  if (pending && pending.attempt.documentId === getOnboardingDocumentId()) {
+    pending.attempt.setupKind = setupKind;
+    if (pending.status === "resolving") return "memory";
+    if (pending.status === "unavailable") return "unavailable";
+  }
+
+  const stored = readCustomKeyOnboardingAttempt();
+  if (stored.kind === "pending") {
+    stored.pending.attempt.setupKind = setupKind;
+    return stored.pending.status === "resolving" ? "memory" : "unavailable";
+  }
+  if (stored.kind !== "available" || !stored.attempt) {
+    return stored.kind === "available" ? "missing" : "unavailable";
+  }
+  const attempt = { ...stored.attempt, setupKind };
+  if (pending?.attempt.id === attempt.id) pending.attempt.setupKind = setupKind;
+  try {
+    window.sessionStorage.setItem(
+      CUSTOM_KEY_ATTEMPT_STORAGE_KEY,
+      JSON.stringify(attempt),
     );
     return "stored";
   } catch {
@@ -156,11 +282,44 @@ export async function setCustomKeyOnboardingAttempt(
   }
 }
 
+function trackUnavailableCustomKeyOnboardingOutcome(
+  pending: PendingCustomKeyOnboardingAttempt,
+  outcome: CustomKeyOnboardingOutcome,
+): CustomKeyOutcomeResult {
+  const attemptOutcomeKey = `${pending.attempt.id}:${outcome}`;
+  if (locallyTrackedCustomKeyOutcomes.has(attemptOutcomeKey)) {
+    return "duplicate";
+  }
+  trackOnboardingEvent("onboarding_method_outcome", {
+    flow: "first_run",
+    step_id: "choice",
+    method_id: "custom_keys",
+    onboarding_attempt_id: pending.attempt.id,
+    outcome,
+    correlation_status: "unavailable",
+  });
+  locallyTrackedCustomKeyOutcomes.add(attemptOutcomeKey);
+  if (isTerminalCustomKeyOnboardingOutcome(outcome)) {
+    if (pendingCustomKeyOnboardingAttempt === pending) {
+      pendingCustomKeyOnboardingAttempt = null;
+    }
+  }
+  return "tracked_uncorrelated";
+}
+
 export function trackCustomKeyOnboardingOutcome(
   outcome: CustomKeyOnboardingOutcome,
 ): CustomKeyOutcomeResult {
   const stored = readCustomKeyOnboardingAttempt();
   if (stored.kind === "unavailable") return "unavailable";
+  if (stored.kind === "pending") {
+    if (stored.pending.status === "resolving") {
+      if (stored.pending.outcomes.includes(outcome)) return "duplicate";
+      stored.pending.outcomes.push(outcome);
+      return "pending";
+    }
+    return trackUnavailableCustomKeyOnboardingOutcome(stored.pending, outcome);
+  }
   if (stored.kind === "stale") {
     // A duplicated tab can copy sessionStorage while the original attempt is live.
     try {
@@ -176,7 +335,13 @@ export function trackCustomKeyOnboardingOutcome(
     try {
       window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
     } catch {
+      if (pendingCustomKeyOnboardingAttempt?.attempt.id === attempt.id) {
+        pendingCustomKeyOnboardingAttempt = null;
+      }
       return "unavailable";
+    }
+    if (pendingCustomKeyOnboardingAttempt?.attempt.id === attempt.id) {
+      pendingCustomKeyOnboardingAttempt = null;
     }
     return "identity_mismatch";
   }
@@ -221,14 +386,31 @@ export function trackCustomKeyOnboardingOutcome(
             : "credentialValidated"]: true,
         }),
       );
+      if (pendingCustomKeyOnboardingAttempt?.attempt.id === attempt.id) {
+        pendingCustomKeyOnboardingAttempt.attempt = {
+          ...pendingCustomKeyOnboardingAttempt.attempt,
+          ...attempt,
+          [outcome === "credential_entry_started"
+            ? "entryStarted"
+            : "credentialValidated"]: true,
+        };
+      }
     } catch {
-      return "tracked_storage_unavailable";
+      if (pendingCustomKeyOnboardingAttempt?.attempt.id !== attempt.id) {
+        return "tracked_storage_unavailable";
+      }
+      pendingCustomKeyOnboardingAttempt.status = "memory";
     }
   } else if (isTerminalCustomKeyOnboardingOutcome(outcome)) {
     try {
       window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
     } catch {
-      return "tracked_storage_unavailable";
+      if (pendingCustomKeyOnboardingAttempt?.attempt.id !== attempt.id) {
+        return "tracked_storage_unavailable";
+      }
+    }
+    if (pendingCustomKeyOnboardingAttempt?.attempt.id === attempt.id) {
+      pendingCustomKeyOnboardingAttempt = null;
     }
   }
   return "tracked";
@@ -240,9 +422,14 @@ function trackCustomKeyOnboardingOutcomeForAttempt(
 ): CustomKeyOutcomeResult {
   const stored = readCustomKeyOnboardingAttempt();
   if (
-    stored.kind !== "available" ||
-    stored.attempt?.id !== attemptId ||
-    stored.attempt.identityKey !== getAnalyticsIdentityKey()
+    (stored.kind !== "available" && stored.kind !== "pending") ||
+    (stored.kind === "available" && stored.attempt?.id !== attemptId) ||
+    (stored.kind === "pending" && stored.pending.attempt.id !== attemptId) ||
+    (stored.kind === "available" &&
+      stored.attempt?.identityKey !== getAnalyticsIdentityKey()) ||
+    (stored.kind === "pending" &&
+      stored.pending.attempt.identityKey !== undefined &&
+      stored.pending.attempt.identityKey !== getAnalyticsIdentityKey())
   ) {
     return "missing";
   }
@@ -256,15 +443,34 @@ function beginCustomKeyOnboardingSave(
   finish: (saved: boolean) => void;
 } | null {
   const stored = readCustomKeyOnboardingAttempt();
-  if (
-    stored.kind !== "available" ||
-    !stored.attempt ||
-    stored.attempt.identityKey !== getAnalyticsIdentityKey()
-  ) {
-    return null;
+  if (stored.kind === "available" && stored.attempt) {
+    if (stored.attempt.identityKey !== getAnalyticsIdentityKey()) return null;
+    return beginCustomKeyOnboardingSaveForAttempt(
+      stored.attempt.id,
+      saveOutcome,
+      abandonmentOutcome,
+    );
   }
+  if (
+    stored.kind === "pending" &&
+    stored.pending.attempt.documentId === getOnboardingDocumentId() &&
+    (stored.pending.attempt.identityKey === undefined ||
+      stored.pending.attempt.identityKey === getAnalyticsIdentityKey())
+  ) {
+    return beginCustomKeyOnboardingSaveForAttempt(
+      stored.pending.attempt.id,
+      saveOutcome,
+      abandonmentOutcome,
+    );
+  }
+  return null;
+}
 
-  const attemptId = stored.attempt.id;
+function beginCustomKeyOnboardingSaveForAttempt(
+  attemptId: string,
+  saveOutcome: CustomKeyOnboardingSaveOutcome,
+  abandonmentOutcome: CustomKeyOnboardingAbandonmentOutcome,
+): { finish: (saved: boolean) => void } {
   const pending = pendingCustomKeyCredentialSaves.get(attemptId) ?? {
     count: 0,
     abandonmentRequested: false,
@@ -291,6 +497,7 @@ function beginCustomKeyOnboardingSave(
           );
           if (
             result === "tracked" ||
+            result === "tracked_uncorrelated" ||
             result === "tracked_storage_unavailable" ||
             result === "duplicate"
           ) {
@@ -356,8 +563,17 @@ function handleCustomKeyOnboardingAbandonment(
   deferWhileSavePending = true,
 ): void {
   const stored = readCustomKeyOnboardingAttempt();
-  const attempt = stored.kind === "available" ? stored.attempt : null;
-  if (attempt && attempt.identityKey === getAnalyticsIdentityKey()) {
+  const attempt =
+    stored.kind === "available"
+      ? stored.attempt
+      : stored.kind === "pending"
+        ? stored.pending.attempt
+        : null;
+  if (
+    attempt &&
+    (attempt.identityKey === undefined ||
+      attempt.identityKey === getAnalyticsIdentityKey())
+  ) {
     const attemptId = attempt.id;
     const completedOutcome = (
       [
@@ -387,6 +603,12 @@ function handleCustomKeyOnboardingAbandonment(
       }
       return;
     }
+    trackCustomKeyOnboardingOutcome(
+      attempt.setupKind === "local_endpoint"
+        ? "local_endpoint_abandoned"
+        : "credential_abandoned",
+    );
+    return;
   }
   trackCustomKeyOnboardingOutcome("credential_abandoned");
 }

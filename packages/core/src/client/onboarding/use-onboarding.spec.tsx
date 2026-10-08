@@ -25,6 +25,7 @@ import {
   createOnboardingCorrelationId,
   requestCustomKeyOnboardingAbandonment,
   setCustomKeyOnboardingAttempt,
+  setCustomKeyOnboardingSetupKind,
   trackCustomKeyOnboardingOutcome,
   trackOnboardingEvent,
   useCustomKeyOnboardingAttemptLifecycle,
@@ -500,8 +501,12 @@ describe("trackOnboardingEvent", () => {
         "agent-native.onboarding.custom_keys_attempt",
       ),
     ).toBeNull();
+    expect(trackCustomKeyOnboardingOutcome("credential_entry_started")).toBe(
+      "pending",
+    );
 
     resolveIdentity("resolved-user-identity");
+    analyticsIdentityKeyMock.mockReturnValue("resolved-user-identity");
     expect(await attempt).toBe("stored");
     const stored = JSON.parse(
       window.sessionStorage.getItem(
@@ -509,6 +514,59 @@ describe("trackOnboardingEvent", () => {
       ) ?? "null",
     ) as { identityKey?: string } | null;
     expect(stored?.identityKey).toBe("resolved-user-identity");
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-unresolved-identity",
+        outcome: "credential_entry_started",
+      }),
+    );
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
+  });
+
+  it("marks outcomes explicitly when no safe analytics identity resolves", async () => {
+    analyticsIdentityResolverMock.mockResolvedValueOnce(undefined);
+
+    expect(await setCustomKeyOnboardingAttempt("attempt-no-session")).toBe(
+      "no_session",
+    );
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe(
+      "tracked_uncorrelated",
+    );
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-no-session",
+        outcome: "credential_saved",
+        correlation_status: "unavailable",
+      }),
+    );
+  });
+
+  it("uses the in-memory attempt if session storage becomes unavailable", async () => {
+    const storagePrototype = Object.getPrototypeOf(window.sessionStorage);
+    const originalSetItem = storagePrototype.setItem;
+    const setItem = vi
+      .spyOn(storagePrototype, "setItem")
+      .mockImplementation(function (this: Storage, key: string, value: string) {
+        if (key === "agent-native.onboarding.custom_keys_attempt") {
+          throw new Error("session storage unavailable");
+        }
+        originalSetItem.call(this, key, value);
+      });
+
+    expect(await setCustomKeyOnboardingAttempt("attempt-memory-fallback")).toBe(
+      "unavailable",
+    );
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-memory-fallback",
+        outcome: "credential_saved",
+      }),
+    );
+    setItem.mockRestore();
   });
 
   it("uses a terminal local-endpoint outcome without a credential outcome", async () => {
@@ -621,6 +679,30 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
         onboarding_attempt_id: "attempt-route-exit",
         outcome: "credential_abandoned",
       }),
+    );
+  });
+
+  it("records local endpoint abandonment on page exit", async () => {
+    await setCustomKeyOnboardingAttempt("attempt-local-endpoint-route-exit");
+    expect(setCustomKeyOnboardingSetupKind("local_endpoint")).toBe("stored");
+    await act(async () => root?.render(<Harness />));
+    await act(async () => {
+      const pagehide = new Event("pagehide");
+      Object.defineProperty(pagehide, "persisted", { value: false });
+      window.dispatchEvent(pagehide);
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-local-endpoint-route-exit",
+        outcome: "local_endpoint_abandoned",
+      }),
+    );
+    expect(trackEventMock).not.toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({ outcome: "credential_abandoned" }),
     );
   });
 

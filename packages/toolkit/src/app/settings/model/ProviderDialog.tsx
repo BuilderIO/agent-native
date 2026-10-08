@@ -12,6 +12,7 @@ import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   requestCustomKeyOnboardingAbandonment,
+  setCustomKeyOnboardingSetupKind,
   trackCustomKeyOnboardingOutcome,
   withCustomKeyOnboardingCredentialSave,
   withCustomKeyOnboardingLocalEndpointSave,
@@ -153,6 +154,9 @@ export function ProviderDialog(props: ProviderDialogProps) {
   );
   const reportSelectedProvider = useCallback((provider: AgentProviderId) => {
     selectedProvider.current = provider;
+    setCustomKeyOnboardingSetupKind(
+      provider === "ollama" ? "local_endpoint" : "credential",
+    );
   }, []);
   const dismiss = () => {
     if (selectedProvider.current === "ollama" && !savePending.current) {

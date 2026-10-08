@@ -594,8 +594,23 @@ export function FirstRunOnboarding({
       );
       return;
     }
-    if (attempt) await setCustomKeyOnboardingAttempt(attempt.id);
+    const attemptStorage = attempt
+      ? setCustomKeyOnboardingAttempt(attempt.id)
+      : null;
     trackFirstRunSetupOutcome(attempt, "settings_opened");
+    if (attempt && attemptStorage) {
+      void attemptStorage.then((status) => {
+        if (status !== "stored") {
+          trackOnboardingEvent("onboarding_correlation_unavailable", {
+            flow: "first_run",
+            step_id: "choice",
+            method_id: "custom_keys",
+            onboarding_attempt_id: attempt.id,
+            correlation_status: status,
+          });
+        }
+      });
+    }
     if (typeof window === "undefined") return;
     const search = new URLSearchParams(window.location.search);
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
