@@ -78,11 +78,19 @@ function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
   recoverable?: boolean;
+  providerRetryable?: boolean;
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
-  if (code === "builder_gateway_error") return false;
-  if (event.recoverable === false) return false;
+  if (
+    event.providerRetryable === false ||
+    event.recoverable === false ||
+    code === "builder_gateway_error" ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||

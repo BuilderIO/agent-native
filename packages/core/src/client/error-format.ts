@@ -410,7 +410,10 @@ export function normalizeChatError(
 ): NormalizedChatError {
   const raw = String(errorMessage || "Unknown error");
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
-  const text = looksHtml ? htmlToText(raw) : raw.trim();
+  const providerText = looksHtml ? htmlToText(raw) : raw.trim();
+  const text = /^Gateway error \(no detail; raw event:/i.test(providerText)
+    ? "Gateway error (no detail)"
+    : providerText;
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
   const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const credential = chatCredentialState(text, code);
@@ -505,14 +508,6 @@ export function normalizeChatError(
     };
   }
 
-  if (/^Gateway error \(no detail; raw event:/i.test(text)) {
-    return {
-      message:
-        "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
-      details: text,
-    };
-  }
-
   if (/inactivity timeout/i.test(text)) {
     return {
       message:
@@ -534,6 +529,14 @@ export function normalizeChatError(
       message: ATTACHMENT_REJECTION_PATTERN.test(text)
         ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE
         : MALFORMED_REQUEST_MESSAGE,
+      details: text,
+    };
+  }
+
+  if (/^Gateway error \(no detail(?:;|\))/i.test(text)) {
+    return {
+      message:
+        "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
       details: text,
     };
   }
