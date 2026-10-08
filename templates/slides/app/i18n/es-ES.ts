@@ -796,6 +796,10 @@ const messages = {
     exportFailed: "Error al exportar",
     agentRunFailed:
       "La ejecución del agente falló antes de crear diapositivas. Consulta los detalles del chat y vuelve a intentarlo.",
+    generationFailed:
+      "No se crearon diapositivas. Consulta los detalles del chat y vuelve a intentarlo.",
+    generationOutcomeUnresolved:
+      "No pudimos confirmar si se crearon las diapositivas. Revisa la presentación o el chat y vuelve a intentarlo.",
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
