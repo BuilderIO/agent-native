@@ -204,6 +204,7 @@ import {
   cloneSlideObject,
   collectMovableSlideObjects,
   copySlideObjects,
+  duplicateSlideObjectMembers,
   computeSlideObjectZOrder,
   computeSlideObjectZOrderForSelection,
   createSlideLinePlacementGeometry,
@@ -4183,6 +4184,7 @@ export default function SlideEditor({
         // The cancel restores the selection the gesture started with; Escape
         // then clears it, as in Google Slides.
         activeGestureCancelRef.current?.();
+        clearMultiSelection();
         clearSelectedElement();
         syncSelectionToAppState(null);
         // The button is still down: its release must not click-select the
@@ -6871,6 +6873,17 @@ export default function SlideEditor({
       let promotionsRestored = false;
       let groupPositioningLayer: HTMLElement | null = null;
       let groupContainingBlock: HTMLElement | null = null;
+      // Alt-drag copies exist only while Alt is held: the originals stay put
+      // and the copies take the delta. `rectIds` is what the selection chrome
+      // follows, the copies while they exist.
+      let clones: typeof members = [];
+      let rectIds = ids;
+
+      const removeClones = () => {
+        for (const clone of clones) clone.element.remove();
+        clones = [];
+        rectIds = ids;
+      };
 
       const restoreGroupPromotions = () => {
         if (promotionsRestored) return;
@@ -7017,6 +7030,20 @@ export default function SlideEditor({
           // Claim the click only once a real drag starts, so a click without
           // movement on a multi-selected object remains normal editor input.
           suppressNextClickRef.current = true;
+          if (clones.length > 0 && !gesture.duplicate) removeClones();
+          if (clones.length === 0 && gesture.duplicate) {
+            // The originals may have been moved while Alt was up.
+            applySlideObjectMoveDelta(members, 0, 0, applyObjectGeometry);
+            clones = duplicateSlideObjectMembers(members);
+            for (const { element } of clones) {
+              ensureBuilderId(element);
+              stampBuilderIds(element);
+            }
+            rectIds = new Set(
+              clones.map(({ element }) => ensureBuilderId(element)),
+            );
+          }
+          const dragged = clones.length > 0 ? clones : members;
           const moving = unionSlideObjectGeometries(
             members.map((member) => member.start),
           );
@@ -7040,7 +7067,7 @@ export default function SlideEditor({
             deltaX: gesture.canvasDelta.x,
             deltaY: gesture.canvasDelta.y,
             peers: getSnapPeerGeometries(
-              members.map((member) => member.element),
+              dragged.map((member) => member.element),
               positioningLayer,
             ),
             canvas: snapCanvas,
@@ -7051,19 +7078,34 @@ export default function SlideEditor({
               Boolean(viewport.toLocalDelta),
           });
           applySlideObjectMoveDelta(
-            members,
+            dragged,
             snap.deltaX,
             snap.deltaY,
             applyObjectGeometry,
           );
           updateAlignmentGuides(snap.guides, containingBlock, snapCanvas);
-          scheduleMultiSelectionRects(ids);
+          scheduleMultiSelectionRects(rectIds);
           return { handled: true };
         },
-        commit: () => {
+        commit: (gesture) => {
           if (members.length === 0) {
             return { handled: false, reason: "unhandled" };
           }
+          // Alt released before drop turns the copy drag back into a move.
+          if (clones.length > 0 && !gesture.duplicate) {
+            clones.forEach((clone, index) => {
+              const original = members[index].element;
+              applyObjectGeometry(
+                original,
+                planSlideObjectGeometry(
+                  original,
+                  getObjectGeometry(clone.element),
+                ),
+              );
+            });
+            removeClones();
+          }
+          const committed = clones.length > 0 ? clones : members;
           // Serialize while the promoted elements still live in their fmd
           // canvas. Markdown promotion restores the React tree below, but
           // the persisted HTML must retain the canvas and absolute geometry.
@@ -7071,7 +7113,7 @@ export default function SlideEditor({
             preserveSlideObjectLayoutSpacer(promotion.element);
           }
           if (!promotions.some((promotion) => promotion.restoreMarkdownTree)) {
-            for (const member of members) {
+            for (const member of committed) {
               const layer = resolveSlidePositioningLayer(member.element);
               if (layer) releaseSlideObjectFromLeftBoxes(member.element, layer);
             }
@@ -7093,7 +7135,7 @@ export default function SlideEditor({
           }
           if (html !== null) {
             pendingMultiSelectionResyncRef.current = {
-              objectIds: members.map((member) => member.objectId),
+              objectIds: committed.map((member) => member.objectId),
               paths: [],
             };
             onUpdateSlideRef.current({ content: html }, undefined, {
@@ -7103,6 +7145,7 @@ export default function SlideEditor({
           return { handled: true };
         },
         cancel: () => {
+          removeClones();
           if (members.length > 0) {
             applySlideObjectMoveDelta(members, 0, 0, applyObjectGeometry);
             refreshMultiSelectionRects(ids);

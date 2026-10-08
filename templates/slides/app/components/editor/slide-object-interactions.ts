@@ -3020,6 +3020,25 @@ export function collectMovableSlideObjects(
   return members;
 }
 
+/**
+ * Insert a fresh copy of every member right after its original, in the same
+ * parent. Each copy has its own object id (and fresh ids for nested objects),
+ * no transient builder ids, and the member's starting geometry.
+ */
+export function duplicateSlideObjectMembers(
+  members: readonly SlideObjectMoveMember[],
+): SlideObjectMoveMember[] {
+  return members.map((member) => {
+    const clone = cloneSlideObject(member.element);
+    member.element.after(clone);
+    return {
+      objectId: clone.getAttribute("data-slide-object-id")!,
+      element: clone,
+      start: member.start,
+    };
+  });
+}
+
 export function applySlideObjectMoveDelta(
   members: SlideObjectMoveMember[],
   deltaX: number,

@@ -216,7 +216,7 @@ async function mountEditor(
     <SlideEditor
       {...props}
       slide={slide}
-      onUpdateSlide={() => undefined}
+      onUpdateSlide={props.onUpdateSlide ?? (() => undefined)}
       onGenerateImage={noop}
       onOpenAssetLibrary={noop}
       onUploadImage={noop}
@@ -733,5 +733,128 @@ describe("SlideEditor pointer pipeline on groups", () => {
     });
     expect(editor.isEditing("memberB")).toBe(true);
     expect(editor.isEditing("group")).toBe(false);
+  });
+});
+
+describe("SlideEditor pointer pipeline Alt-drag of a multi-selection", () => {
+  const mountSelectedPair = async () => {
+    const updates: string[] = [];
+    const editor = await mountEditor(CLIP_SLIDE, {
+      onUpdateSlide: (update) => {
+        if (typeof update.content === "string") updates.push(update.content);
+      },
+    });
+    editor.click("callout", { x: 85, y: 262 });
+    editor.click("card", { x: 85, y: 300 }, { shiftKey: true });
+    return { editor, updates };
+  };
+  const dragTo = (x: number, y: number, extra: Record<string, unknown> = {}) =>
+    fireEvent.pointerMove(window, {
+      clientX: x,
+      clientY: y,
+      pointerId: 1,
+      ...extra,
+    });
+  const dropAt = (x: number, y: number, extra: Record<string, unknown> = {}) =>
+    fireEvent.pointerUp(window, {
+      clientX: x,
+      clientY: y,
+      pointerId: 1,
+      ...extra,
+    });
+  /** Object id -> left/top of every absolutely positioned object in html. */
+  const placements = (html: string) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return Array.from(
+      doc.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+    ).map((node) => ({
+      id: node.getAttribute("data-slide-object-id"),
+      text: (node.textContent ?? "").trim().slice(0, 12),
+      left: node.style.left,
+      top: node.style.top,
+    }));
+  };
+
+  it("leaves the originals and drops selected copies at the drag delta", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    expect(editor.el("callout").style.left).toBe("80px");
+    expect(editor.el("card").style.top).toBe("290px");
+    dropAt(125, 292, { altKey: true });
+
+    expect(updates).toHaveLength(1);
+    const objects = placements(updates[0]);
+    expect(objects).toHaveLength(4);
+    expect(new Set(objects.map((object) => object.id)).size).toBe(4);
+    // Snapping may trim the delta, but it trims it for both copies alike.
+    const copyOffset = (text: string, originalTop: number) => {
+      const [original, copy] = objects
+        .filter((object) => object.text.startsWith(text))
+        .sort((a, b) => Number.parseFloat(a.left) - Number.parseFloat(b.left));
+      expect(original).toMatchObject({ left: "80px", top: `${originalTop}px` });
+      expect(copy.left).toBe("120px");
+      return Number.parseFloat(copy.top) - originalTop;
+    };
+    const calloutDy = copyOffset("Eruption", 235);
+    expect(copyOffset("Stat", 290)).toBe(calloutDy);
+    expect(calloutDy).toBeGreaterThan(20);
+  });
+
+  it("moves the originals when Alt is released before the drop", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    dragTo(125, 292);
+    dropAt(125, 292);
+
+    expect(updates).toHaveLength(1);
+    const objects = placements(updates[0]);
+    expect(objects).toHaveLength(2);
+    expect(objects[0]).toMatchObject({ left: "120px", top: "265px" });
+    expect(objects[1]).toMatchObject({ left: "120px", top: "320px" });
+  });
+
+  it("moves the originals when Alt is released on the drop itself", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    dropAt(125, 292);
+
+    const objects = placements(updates[0]);
+    expect(objects).toHaveLength(2);
+    expect(objects[0]).toMatchObject({ left: "120px", top: "265px" });
+  });
+
+  it("removes the copies and persists nothing when Escape cancels", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    fireEvent.keyDown(window, { key: "Escape" });
+    dropAt(125, 292, { altKey: true });
+
+    expect(updates).toHaveLength(0);
+    expect(
+      editor.container.querySelectorAll("[data-slide-object-id]"),
+    ).toHaveLength(0);
+    expect(editor.el("callout").style.position).toBe("");
+    expect(editor.hasSelection()).toBe(false);
+  });
+
+  it("persists nothing for an Alt press that never crosses the drag threshold", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(86, 262, { altKey: true });
+    dropAt(86, 262, { altKey: true });
+
+    expect(updates).toHaveLength(0);
+    expect(
+      editor.container.querySelectorAll("[data-slide-object-id]"),
+    ).toHaveLength(0);
   });
 });

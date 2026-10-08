@@ -14,6 +14,7 @@ import {
   clientPointToSlideCoordinates,
   cloneSlideObject,
   collectMovableSlideObjects,
+  duplicateSlideObjectMembers,
   computeSlideObjectZOrder,
   clampSlideObjectPlacementPosition,
   computeSlideObjectZOrderForSelection,
@@ -1922,6 +1923,47 @@ describe("slide object interactions", () => {
     expect(
       resolveSlideObjectMoveRoots([label], new Set(["label"]), slideContent),
     ).toEqual([label]);
+  });
+
+  it("duplicates members after their originals with fresh ids and no builder ids", () => {
+    const parent = document.createElement("div");
+    const a = createFreeformObject("a", { left: 10, top: 20 });
+    a.dataset.builderId = "b-1";
+    const group = createFreeformObject("group", { left: 30, top: 40 });
+    const nested = createFreeformObject("nested", { left: 1, top: 2 });
+    nested.dataset.builderId = "b-3";
+    group.append(nested);
+    const tail = createFreeformObject("tail");
+    parent.append(a, group, tail);
+    const members = collectMovableSlideObjects([a, group], (element) => ({
+      x: Number.parseFloat(element.style.left),
+      y: Number.parseFloat(element.style.top),
+      width: 50,
+      height: 50,
+    }));
+
+    const clones = duplicateSlideObjectMembers(members);
+
+    expect(Array.from(parent.children)).toEqual([
+      a,
+      clones[0].element,
+      group,
+      clones[1].element,
+      tail,
+    ]);
+    const ids = Array.from(
+      parent.querySelectorAll("[data-slide-object-id]"),
+    ).map((element) => element.getAttribute("data-slide-object-id"));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(clones.map((clone) => clone.objectId)).toEqual(
+      clones.map((clone) => clone.element.getAttribute("data-slide-object-id")),
+    );
+    expect(clones.map((clone) => clone.start)).toEqual(
+      members.map((member) => member.start),
+    );
+    expect(clones[1].element.querySelector("[data-builder-id]")).toBeNull();
+    expect(clones[0].element.hasAttribute("data-builder-id")).toBe(false);
+    expect(a.dataset.builderId).toBe("b-1");
   });
 
   it("does not promote a bordered flow card with positioned descendants", () => {
