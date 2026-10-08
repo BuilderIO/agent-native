@@ -126,7 +126,7 @@ const messages = {
     googleOAuthNotConfigured:
       "이 배포에는 Google OAuth가 구성되어 있지 않습니다.",
     googlePickerNeedsKeys:
-      "Google Picker를 사용하려면 GOOGLE_PICKER_API_KEY와 GOOGLE_PICKER_APP_ID가 필요합니다.",
+      "Google Drive 파일 선택 기능이 설정되지 않았습니다. 문서 링크를 붙여넣어 계속 가져올 수 있습니다.",
     imageUploadFailed: "이미지 업로드 실패",
     imageUploadNeedsBuilder:
       "이미지를 업로드하려면 개체 스토리지를 연결하세요. Builder.io(무료)를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
@@ -254,6 +254,16 @@ const messages = {
     generateImage: "이미지 생성",
     assetLibrary: "에셋 라이브러리",
     imageOptions: "이미지 옵션",
+    videoPlayback: "동영상 재생",
+    autoplayVideo: "자동 재생",
+    loopVideo: "동영상 반복 재생",
+    videoUploading: "동영상 업로드 중…",
+    videoAdded: "동영상이 추가되었습니다",
+    videoUploadFailed: "동영상 업로드 실패",
+    videoUploadError: "이 동영상을 업로드할 수 없습니다.",
+    videoFormatUnsupported: "MP4 및 WebM 동영상만 지원됩니다.",
+    videoTooLarge: "동영상 크기는 50MB 이하여야 합니다.",
+    videoUploadNeedsBuilder: "동영상 저장소가 설정되지 않았습니다.",
     cropImage: "이미지 자르기",
     cropHandle: "이미지 {{position}} 자르기",
     diagrams: "다이어그램",
@@ -306,6 +316,9 @@ const messages = {
     conflictStatus: "텍스트 충돌",
     conflictStatusDescription:
       "다른 변경 사항을 저장하기 전에 충돌한 텍스트를 확인하세요.",
+    accessLost: "액세스 권한 상실",
+    accessLostDescription:
+      "이 덱에 대한 액세스 권한이 변경되었습니다. 편집 내용은 화면에 그대로 남아 있습니다. 액세스가 복구되면 다시 시도하거나 백업을 다운로드하세요.",
     reviewConflict: "충돌 검토",
     conflictTitle: "슬라이드 {{number}}의 텍스트 충돌",
     conflictDescription:
@@ -760,6 +773,10 @@ const messages = {
     exportFailed: "导出失败",
     agentRunFailed:
       "슬라이드를 만들기 전에 에이전트 실행이 실패했습니다. 채팅에서 세부 정보를 확인한 뒤 다시 시도하세요.",
+    generationFailed:
+      "슬라이드를 만들지 못했습니다. 채팅에서 세부 정보를 확인한 뒤 다시 시도하세요.",
+    generationOutcomeUnresolved:
+      "슬라이드가 생성되었는지 확인할 수 없습니다. 덱이나 채팅을 확인한 다음 다시 시도하세요.",
     deckHasNoSlides: "덱에 슬라이드가 없습니다.",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { writeClientAppState } = vi.hoisted(() => ({
+const { writeClientAppState, readOnlyWidget } = vi.hoisted(() => ({
   writeClientAppState: vi.fn(),
+  readOnlyWidget: { value: false },
 }));
 
 vi.mock("@agent-native/core/client/application-state", () => ({
   writeClientAppState,
+}));
+vi.mock("@agent-native/core/client/host", () => ({
+  isMcpDirectoryWidgetReadOnlyEmbed: () => readOnlyWidget.value,
 }));
 
 import {
@@ -16,6 +20,25 @@ import {
 describe("rememberContentLandingDocument", () => {
   beforeEach(() => {
     writeClientAppState.mockReset();
+    readOnlyWidget.value = false;
+  });
+
+  it("writes nothing and does not fail inside a read-only directory widget", async () => {
+    readOnlyWidget.value = true;
+
+    await expect(
+      rememberContentLandingDocument({ documentId: "doc-1" }, "space-1"),
+    ).resolves.toBeUndefined();
+
+    expect(writeClientAppState).not.toHaveBeenCalled();
+  });
+
+  it("still surfaces a failed write in a normal session", async () => {
+    writeClientAppState.mockRejectedValue(new Error("offline"));
+
+    await expect(
+      rememberContentLandingDocument({ documentId: "doc-1" }),
+    ).rejects.toThrow("offline");
   });
 
   it("stores the successfully loaded page separately from agent navigation", async () => {

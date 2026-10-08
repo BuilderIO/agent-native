@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
 import {
@@ -7,6 +7,7 @@ import {
 } from "../tracking/registry.js";
 import type { TrackingEvent } from "../tracking/types.js";
 import {
+  INFERRED_SENTIMENT_TIMEOUT_MS,
   inferAndTrackSentiment,
   isFirstPartyHostedAgentNative,
   parseInferredSentiment,
@@ -188,38 +189,205 @@ describe("inferAndTrackSentiment", () => {
     expect(events[0].properties).not.toHaveProperty("text");
   });
 
-  it("fails silently when the active engine cannot run the classifier model", async () => {
-    const events: TrackingEvent[] = [];
-    registerTrackingProvider({
-      name: "sentiment-test",
-      track(event) {
-        events.push(event);
-      },
-    });
-    const engine = {
-      name: "anthropic",
-      label: "Anthropic",
-      defaultModel: "claude-test",
-      supportedModels: ["claude-test"],
-      capabilities: {},
-      async *stream(): AsyncIterable<EngineEvent> {
-        throw new Error("must not run");
-      },
-    } as AgentEngine;
+  describe("failures", () => {
+    const base = {
+      classifierModel: "gpt-5-6-luna",
+      precedingResponseModel: "claude-test",
+      text: "private words that must never leave",
+      precedingRunId: "run-before",
+      classificationTriggerRunId: "run-2",
+      threadId: "thread-1",
+      userId: "person@example.com",
+      sampleRate: 1,
+    };
 
-    await expect(
-      inferAndTrackSentiment({
-        engine,
-        classifierModel: "gpt-5-6-luna",
-        precedingResponseModel: "claude-test",
-        text: "hello",
-        precedingRunId: "run-before",
-        classificationTriggerRunId: "run-2",
-        threadId: null,
-        userId: null,
-        sampleRate: 1,
-      }),
-    ).resolves.toBeUndefined();
-    expect(events).toHaveLength(0);
+    function lunaEngine(
+      stream: (options: any) => AsyncIterable<EngineEvent>,
+      overrides: Partial<AgentEngine> = {},
+    ) {
+      return {
+        name: "builder",
+        label: "Builder",
+        defaultModel: "gpt-5-6-luna",
+        supportedModels: ["gpt-5-6-luna"],
+        capabilities: {},
+        stream,
+        ...overrides,
+      } as AgentEngine;
+    }
+
+    function captureEvents() {
+      const events: TrackingEvent[] = [];
+      registerTrackingProvider({
+        name: "sentiment-test",
+        track(event) {
+          events.push(event);
+        },
+      });
+      return events;
+    }
+
+    function expectOnlyFailure(
+      events: TrackingEvent[],
+      reason: string,
+      engineName: string | undefined = "builder",
+    ) {
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        name: "$ai_sentiment_failed",
+        userId: "person@example.com",
+        properties: {
+          reason,
+          method: "llm",
+          source: "agent_observability",
+          classifier_model: "gpt-5-6-luna",
+          classifier_engine: engineName,
+          run_id: "run-before",
+          classification_trigger_run_id: "run-2",
+          thread_id: "thread-1",
+        },
+      });
+      expect(events[0].properties).not.toHaveProperty("sentiment");
+      expect(JSON.stringify(events[0])).not.toContain("private words");
+    }
+
+    it("reports engine_unavailable when the engine cannot serve the classifier model", async () => {
+      const events = captureEvents();
+      const engine = lunaEngine(
+        async function* () {
+          throw new Error("must not run");
+        },
+        { name: "anthropic", supportedModels: ["claude-test"] },
+      );
+
+      await expect(
+        inferAndTrackSentiment({ ...base, engine }),
+      ).resolves.toBeUndefined();
+
+      expectOnlyFailure(events, "engine_unavailable", "anthropic");
+    });
+
+    it("reports engine_unavailable when the stream errors", async () => {
+      const events = captureEvents();
+      const engine = lunaEngine(async function* () {
+        yield {
+          type: "stop",
+          reason: "error",
+          error: "gateway refused: no credentials",
+        };
+      });
+
+      await inferAndTrackSentiment({ ...base, engine });
+
+      expectOnlyFailure(events, "engine_unavailable");
+      expect(JSON.stringify(events[0])).not.toContain("gateway refused");
+    });
+
+    it("reports engine_unavailable when the stream throws", async () => {
+      const events = captureEvents();
+      const engine = lunaEngine(async function* () {
+        throw new Error("401 from gateway");
+      });
+
+      await inferAndTrackSentiment({ ...base, engine });
+
+      expectOnlyFailure(events, "engine_unavailable");
+    });
+
+    it("reports timeout when the classifier never answers", async () => {
+      vi.useFakeTimers();
+      try {
+        const events = captureEvents();
+        const engine = lunaEngine(async function* (options: any) {
+          await new Promise<void>((resolve) =>
+            options.abortSignal.addEventListener("abort", () => resolve()),
+          );
+        });
+
+        const run = inferAndTrackSentiment({ ...base, engine });
+        await vi.advanceTimersByTimeAsync(INFERRED_SENTIMENT_TIMEOUT_MS + 1);
+        await run;
+
+        expectOnlyFailure(events, "timeout");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reports parse_failed when the answer is not one of the three labels", async () => {
+      const events = captureEvents();
+      const engine = lunaEngine(async function* () {
+        yield { type: "text-delta", text: "kind of annoyed?" };
+        yield { type: "stop", reason: "end_turn" };
+      });
+
+      await inferAndTrackSentiment({ ...base, engine });
+
+      expectOnlyFailure(events, "parse_failed");
+    });
+
+    it("reports empty when the model answers nothing", async () => {
+      const events = captureEvents();
+      const engine = lunaEngine(async function* () {
+        yield { type: "stop", reason: "end_turn" };
+      });
+
+      await inferAndTrackSentiment({ ...base, engine });
+
+      expectOnlyFailure(events, "empty");
+    });
+
+    it("reports empty when there is no text to classify, without calling the engine", async () => {
+      const events = captureEvents();
+      const stream = vi.fn(async function* () {
+        yield { type: "text-delta", text: "neutral" } as EngineEvent;
+      });
+      const engine = lunaEngine(stream);
+
+      await inferAndTrackSentiment({ ...base, text: "   ", engine });
+
+      expectOnlyFailure(events, "empty");
+      expect(stream).not.toHaveBeenCalled();
+    });
+
+    it("warns instead of vanishing when something outside the classifier throws", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const events = captureEvents();
+      const engine = lunaEngine(async function* () {}, {
+        supportedModels: undefined as unknown as string[],
+      });
+
+      try {
+        await expect(
+          inferAndTrackSentiment({ ...base, engine }),
+        ).resolves.toBeUndefined();
+
+        expect(events).toHaveLength(0);
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining("sentiment inference failed"),
+          expect.any(String),
+        );
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("classifies with the run's own engine when it serves the model", async () => {
+      const events = captureEvents();
+      const stream = vi.fn(async function* () {
+        yield { type: "text-delta", text: "positive" } as EngineEvent;
+        yield { type: "stop", reason: "end_turn" } as EngineEvent;
+      });
+      const runEngine = lunaEngine(stream, { name: "builder-run" });
+
+      await inferAndTrackSentiment({ ...base, runEngine });
+
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        name: "$ai_sentiment",
+        properties: { sentiment: "positive", classifier_engine: "builder-run" },
+      });
+    });
   });
 });

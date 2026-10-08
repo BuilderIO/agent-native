@@ -6,12 +6,13 @@ import { appStateGet } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   getSession,
+  getForwardedRequestURL,
   signScopedAgentAccessToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { isImageRecording } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
-import { getRequestURL, setResponseHeader, type H3Event } from "h3";
+import { setResponseHeader, type H3Event } from "h3";
 
 import {
   buildAgentApiUrls,
@@ -680,7 +681,7 @@ export function buildPublicAgentContext({
   bugReport?: PublicAgentBugReport;
 }) {
   const recording = access.recording;
-  const requestUrl = getRequestURL(event);
+  const requestUrl = getForwardedRequestURL(event);
   const api = buildAgentApiUrls(recording.id, {
     origin: requestUrl.origin,
     basePath: getServerAppBasePath(),

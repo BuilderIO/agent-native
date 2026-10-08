@@ -421,6 +421,142 @@ Core also records metrics once the host registers a meter provider with `registe
 
 On metrics, `gen_ai.tool.name` is a framework action's name or `other`, and `gen_ai.request.model` is the model id only when the engine lists it as supported, otherwise `_OTHER`. App-defined tools and caller-supplied model ids therefore cannot create unbounded series; spans keep the exact values.
 
+## Connecting an OpenTelemetry back end {#otel-provider}
+
+Core ships no OpenTelemetry SDK or exporter. An app builds its own SDK providers and hands them to core with `registerObservabilityProvider()` from `@agent-native/core/server`. Core then emits the [spans](#otel) and [metrics](#otel-metrics) above through them, and the app's exporter sends them to any OTLP back end.
+
+### `registerObservabilityProvider()` {#register-observability-provider}
+
+`registerObservabilityProvider()` takes one object with two optional fields:
+
+- **tracerProvider**: an object with `getTracer(name, version?)`. Core takes its tracer from here. Without one, spans use the global `@opentelemetry/api` tracer.
+- **meterProvider**: an object with `getMeter(name, version?)`. Metrics are recorded only when a meter provider is registered. They have no global fallback, so without one every metric is a no-op.
+
+Either provider may also implement `forceFlush()`, which core calls after each response (see [Flushing on serverless](#otel-flush)). The SDK's `BasicTracerProvider` and `MeterProvider` already match these shapes.
+
+```ts
+function registerObservabilityProvider(
+  provider: ObservabilityProvider,
+): () => void;
+
+interface ObservabilityProvider {
+  tracerProvider?: ObservabilityTracerProvider;
+  meterProvider?: ObservabilityMeterProvider;
+}
+
+interface ObservabilityTracerProvider {
+  getTracer(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+
+interface ObservabilityMeterProvider {
+  getMeter(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+```
+
+A later call replaces the earlier provider. The returned function unregisters the provider if it is still the registered one. Spans also need `@opentelemetry/api` installed in the app. Without it, core turns tracing off and logs one warning.
+
+### Flushing on serverless {#otel-flush}
+
+Serverless functions freeze between invocations, so an SDK's export timer may never fire. When a registered provider implements `forceFlush()`, core calls it from the response hook after every request and waits for it. Each flush races one shared 2-second timeout, so telemetry never holds a response longer than that.
+
+When a flush fails or times out, core stops waiting for it and adds 1 to `agent_native.telemetry.flush_failures`, which the next flush exports. A timed-out export keeps running and can still arrive, unless the runtime freezes the process first. The failure's `error.type` is `timeout`, `suspended` when the runtime froze the process mid-flush, or the error's name.
+
+On a long-running server, a flush after every response means one export per request. Register providers without `forceFlush()` there and let the SDK's own timers export. `isServerlessRuntime()` from `@agent-native/core/server` tells the two apart. It is true on Netlify, Vercel, AWS Lambda, and Cloudflare.
+
+### Example: OTLP over HTTP {#otel-example}
+
+This server plugin wires the OpenTelemetry JS SDK to core. Install the SDK packages first:
+
+```bash
+pnpm add @opentelemetry/api @opentelemetry/context-async-hooks @opentelemetry/exporter-metrics-otlp-proto @opentelemetry/exporter-trace-otlp-proto @opentelemetry/resources @opentelemetry/sdk-metrics @opentelemetry/sdk-trace-base
+```
+
+```ts filename="server/plugins/otel.ts"
+import { randomUUID } from "node:crypto";
+
+import {
+  defineNitroPlugin,
+  isServerlessRuntime,
+  registerObservabilityProvider,
+} from "@agent-native/core/server";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import {
+  defaultResource,
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
+import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+
+export default defineNitroPlugin(() => {
+  if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
+
+  // Metric counters are cumulative and restart with each process, so each
+  // process needs its own series.
+  const resource = defaultResource()
+    .merge(resourceFromAttributes({ "service.instance.id": randomUUID() }))
+    .merge(detectResources({ detectors: [envDetector] }));
+
+  const meterProvider = new MeterProvider({
+    resource,
+    readers: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+        exportIntervalMillis: 60_000,
+      }),
+    ],
+  });
+
+  context.setGlobalContextManager(
+    new AsyncLocalStorageContextManager().enable(),
+  );
+  const tracerProvider = new BasicTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+  });
+
+  if (isServerlessRuntime()) {
+    registerObservabilityProvider({ meterProvider, tracerProvider });
+    return;
+  }
+  // Without forceFlush(), core leaves exporting to the SDK's own timers.
+  registerObservabilityProvider({
+    meterProvider: {
+      getMeter: (name, version) => meterProvider.getMeter(name, version),
+    },
+    tracerProvider: {
+      getTracer: (name, version) => tracerProvider.getTracer(name, version),
+    },
+  });
+});
+```
+
+The plugin does nothing until `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The SDK reads the rest of its configuration from the standard OpenTelemetry environment variables:
+
+| Variable                                          | Effect                                                                                |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                     | Base URL of the OTLP receiver. The exporters append `/v1/traces` and `/v1/metrics`.   |
+| `OTEL_EXPORTER_OTLP_HEADERS`                      | Headers sent with every export, e.g. `Authorization=Bearer%20<token>`                 |
+| `OTEL_SERVICE_NAME`                               | `service.name` on every span and metric                                               |
+| `OTEL_RESOURCE_ATTRIBUTES`                        | Extra resource attributes, e.g. `deployment.environment.name=production`              |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | Trace sampling, e.g. `parentbased_traceidratio` and `0.1`. Metrics are never sampled. |
+
+The `-proto` exporters send OTLP over HTTP with protobuf, so point the endpoint at the receiver's HTTP port (4318 by default), not its gRPC port. Spans carry no prompt or completion text. The `capture*` settings under [Configuration](#config) apply to the SQL traces and PostHog, not to OTLP.
+
+The repository's [`packages/otel`](https://github.com/BuilderIO/agent-native/tree/main/packages/otel) holds a fuller version of this plugin with per-signal endpoints and exporter validation. It is not published to npm, so start from the plugin above instead of installing it.
+
 ## Error reporting (Sentry or PostHog) {#sentry}
 
 Server-side errors that escape Nitro route handlers are reported to Sentry when a DSN is configured. Without it the SDK silently no-ops, so it's safe to leave the env vars unset in dev. Browser and server events can go to the same Sentry project; split them into separate projects only when you want operational separation for ownership, volume, quotas, or alert routing.

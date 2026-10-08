@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -11,6 +12,7 @@ import {
   isInstructionPath,
   isWorkspacePath,
   normalizeChangedPath,
+  runtimeSourceChangesInTestTitledPr,
   scriptTestsForPaths,
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
@@ -49,6 +51,63 @@ test("normalizes paths from git output", () => {
   assert.equal(
     normalizeChangedPath("packages\\docs\\README.md"),
     "packages/docs/README.md",
+  );
+});
+
+test("rejects runtime changes hidden under a test-only PR title", () => {
+  assert.deepEqual(
+    runtimeSourceChangesInTestTitledPr("test: prove parity", [
+      "templates/design/actions/generate-design.ts",
+      "templates/design/app/pages/design-editor/editor-state.ts",
+      "templates/design/server/plugins/core-routes.ts",
+      "templates/design/shared/canvas-math.ts",
+      "templates/design/.generated/bridge/editor-chrome.generated.ts",
+      "packages/core/src/index.ts",
+      "templates/design/ssr-entry.ts",
+      "templates/design/agent-native.config.ts",
+      "templates/design/agent-native.json",
+      "templates/design/react-router.config.ts",
+      "templates/design/vite.config.ts",
+      "templates/design/public/logo.svg",
+      "templates/design/app/pages/design-editor/editor-state.spec.ts",
+      "templates/design/app/hooks/use-navigation-state.test.ts",
+      "templates/design/scripts/visual-edit-runtime-proof.ts",
+      "templates/slides/public/visual-edit-structure-proof.html",
+    ]),
+    [
+      "templates/design/actions/generate-design.ts",
+      "templates/design/app/pages/design-editor/editor-state.ts",
+      "templates/design/server/plugins/core-routes.ts",
+      "templates/design/shared/canvas-math.ts",
+      "templates/design/.generated/bridge/editor-chrome.generated.ts",
+      "packages/core/src/index.ts",
+      "templates/design/ssr-entry.ts",
+      "templates/design/agent-native.config.ts",
+      "templates/design/agent-native.json",
+      "templates/design/react-router.config.ts",
+      "templates/design/vite.config.ts",
+      "templates/design/public/logo.svg",
+    ],
+  );
+  assert.deepEqual(
+    runtimeSourceChangesInTestTitledPr("test(design)!: prove parity", [
+      "templates/design/app/pages/design-editor/editor-state.ts",
+    ]),
+    ["templates/design/app/pages/design-editor/editor-state.ts"],
+  );
+  assert.deepEqual(
+    runtimeSourceChangesInTestTitledPr("fix: correct editor state", [
+      "templates/design/app/pages/design-editor/editor-state.ts",
+    ]),
+    [],
+  );
+});
+
+test("passes the pull request title to the change-scope guard", () => {
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  assert.match(
+    workflow,
+    /CI_PR_TITLE:\s*\$\{\{\s*github\.event\.pull_request\.title\s*\}\}/u,
   );
 });
 
@@ -427,6 +486,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/e2e/parity-report-interactions.spec.ts",
     "templates/design/e2e/parity-oversized-nested.spec.ts",
     "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
+    "templates/design/e2e/parity-selection.spec.ts",
     "templates/design/e2e/z-order-parity.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
     "templates/design/e2e/responsive-overview-regressions.spec.ts",
@@ -457,7 +517,6 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/app/i18n-keyboard-shortcuts.ts",
     "templates/design/app/assets/icon.ts",
     "templates/design/public/favicon.svg",
-    "templates/design/e2e/overview-wheel-zoom.spec.ts",
   ]) {
     assert.equal(
       classifyChangedPaths([path]).checks.design_canvas_interaction_e2e,
@@ -465,6 +524,29 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
       path,
     );
   }
+
+  for (const path of [
+    "templates/design/e2e/overview-wheel-zoom.spec.ts",
+    "templates/design/e2e/position-alignment.spec.ts",
+    "templates/design/e2e/drag-and-drop.drag-feedback.spec.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.design_canvas_interaction_e2e, true, path);
+  }
+
+  assert.deepEqual(
+    classifyChangedPaths([
+      "templates/design/e2e/position-alignment.spec.ts",
+      "templates/design/e2e/inspector-styles.spec.ts",
+      "templates/design/e2e/fixture.test.tsx",
+      "templates/design/app/components/design/EditPanel.tsx",
+    ]).designCanvasE2eSpecs,
+    [
+      "templates/design/e2e/fixture.test.tsx",
+      "templates/design/e2e/inspector-styles.spec.ts",
+      "templates/design/e2e/position-alignment.spec.ts",
+    ],
+  );
 
   assert.equal(
     classifyChangedPaths([".github/workflows/ci.yml"]).checks
@@ -476,6 +558,512 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
       .design_canvas_interaction_e2e,
     false,
   );
+});
+
+test("the Design interaction gate runs the bounded regression acceptance cases", () => {
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+
+  const step = (name: string) => {
+    const marker = `      - name: ${name}\n`;
+    const start = workflow.indexOf(marker);
+    assert.notEqual(start, -1, `missing workflow step: ${name}`);
+    const next = workflow.indexOf("\n      - name: ", start + marker.length);
+    return workflow.slice(start, next === -1 ? undefined : next);
+  };
+  const regressionCases = step("Run focused Design regression cases");
+  const screenSelectionRegressions = step(
+    "Run focused Screen selection history regressions",
+  );
+  assert.match(
+    screenSelectionRegressions,
+    /^        if: startsWith\(matrix\.shard, 'screen-history-'\)$/m,
+    "Screen-selection regressions must run only on their dedicated shards",
+  );
+  assert.match(
+    regressionCases,
+    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
+    "focused Design selectors must not run on Screen-history shards",
+  );
+  assert.ok(
+    screenSelectionRegressions.includes(
+      "E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+    "each Screen-history shard needs isolated application state",
+  );
+  const screenHistoryShardSelectors = [
+    ...screenSelectionRegressions.matchAll(
+      /\s+(screen-history-\d)\)\s+grep='([^']+)'/g,
+    ),
+  ].map(([, shard, selectors]) => ({ shard, selectors: selectors.split("|") }));
+  assert.deepEqual(
+    screenHistoryShardSelectors.map(({ shard }) => shard),
+    ["screen-history-1", "screen-history-2", "screen-history-3"],
+    "Screen-history regressions must stay split across three shards",
+  );
+  assert.deepEqual(
+    screenHistoryShardSelectors.map(({ selectors }) => selectors.length),
+    [5, 5, 5],
+    "Screen-history regressions must stay balanced across the three shards",
+  );
+  const screenHistoryCases = [
+    "undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id",
+    "deleting a selected child layer keeps its owning Screen",
+    "undo restores a child layer with its additive Screen selection",
+    "marquee-selecting child elements after a Screen pick deletes only the elements",
+    "undoing a canvas element click restores its explicit Screen target for Delete",
+    "failed Screen deletion keeps the explicit Screen target for retry",
+    "a newer layer selection survives failed Screen deletion settlement",
+    "Shift-marquee adds a hit Screen to the existing Delete selection",
+    "a newer Screen pick survives failed Screen deletion settlement",
+    "a newer sidebar Screen selection survives failed Screen deletion settlement",
+    "Select All Screens survives failed Screen deletion settlement",
+    "marquee selection persists and deletes Screens after a prior layer selection",
+    "deep-select marquee over a Screen deletes only the child",
+    "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
+    "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
+  ];
+  const screenHistorySpec = readFileSync(
+    "templates/design/e2e/parity-selection-history-delete-screen.spec.ts",
+    "utf8",
+  );
+  for (const title of screenHistoryCases) {
+    assert.equal(
+      screenHistorySpec.split(title).length - 1,
+      1,
+      `Screen-history case must exist exactly once: ${title}`,
+    );
+  }
+  assert.deepEqual(
+    screenHistoryShardSelectors.flatMap(({ selectors }) => selectors).sort(),
+    [...screenHistoryCases].sort(),
+    "Screen-history selectors must cover each intended case once",
+  );
+  assert.deepEqual(
+    [...regressionCases.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
+      Number(count),
+    ),
+    [1, 1],
+  );
+  const designJobStart = workflow.indexOf(
+    "  design-canvas-interaction-acceptance:\n",
+  );
+  assert.notEqual(designJobStart, -1);
+  const designJobEnd = workflow.indexOf("\n  fast-tests:", designJobStart);
+  const designJob = workflow.slice(
+    designJobStart,
+    designJobEnd === -1 ? undefined : designJobEnd,
+  );
+  assert.ok(designJob.includes("needs: change-scope"));
+  assert.ok(
+    designJob.includes(
+      "if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
+    ),
+  );
+  assert.match(
+    designJob,
+    /^\s+run: pnpm exec playwright install --only-shell chromium$/m,
+    "Design shards must reuse the runner's browser libraries",
+  );
+  const jobTimeout = Number(
+    designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
+  );
+  const stepTimeout = Number(
+    regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
+  const screenHistoryStepTimeout = Number(
+    screenSelectionRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
+  assert.ok(
+    Number.isInteger(jobTimeout) && jobTimeout === 30,
+    `Design acceptance job needs a bounded 30-minute budget (got ${jobTimeout})`,
+  );
+  assert.ok(
+    Number.isInteger(stepTimeout) &&
+      stepTimeout === 20 &&
+      jobTimeout >= stepTimeout + 10,
+    `focused Design tests need a 20-minute cap and ten minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+  );
+  assert.ok(
+    Number.isInteger(screenHistoryStepTimeout) &&
+      screenHistoryStepTimeout === 4 &&
+      jobTimeout >= screenHistoryStepTimeout + 10,
+    `Screen-history tests need a four-minute cap with ten minutes for setup (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
+  );
+  assert.match(
+    designJob,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,\s*screen-history-1,\s*screen-history-2,\s*screen-history-3,?\s*\]/,
+  );
+  const fixedLocations = (start: number, end: number) =>
+    [
+      ...regressionCases.slice(start, end).matchAll(/e2e\/[^ \n]+(?::\d+)?/g),
+    ].map(([location]) => location);
+  const shardStart = (name: string) =>
+    regressionCases.indexOf(`            ${name})`);
+  const inspectorOneStart = shardStart("inspector-1");
+  const inspectorTwoStart = shardStart("inspector-2");
+  const inspectorThreeStart = shardStart("inspector-3");
+  const inspectorFourStart = shardStart("inspector-4");
+  const dragOneStart = shardStart("drag-1");
+  const dragTwoStart = shardStart("drag-2");
+  assert.ok(
+    inspectorOneStart >= 0 &&
+      inspectorTwoStart > inspectorOneStart &&
+      inspectorThreeStart > inspectorTwoStart &&
+      inspectorFourStart > inspectorThreeStart &&
+      dragOneStart > inspectorFourStart,
+  );
+  assert.deepEqual(fixedLocations(inspectorOneStart, inspectorTwoStart), [
+    "e2e/canvas-invariants.spec.ts:508",
+    "e2e/canvas-invariants.spec.ts:1286",
+    "e2e/inspector-styles.spec.ts:176",
+    "e2e/inspector-styles.spec.ts:238",
+    "e2e/inspector-styles.spec.ts:314",
+  ]);
+  assert.deepEqual(fixedLocations(inspectorTwoStart, inspectorThreeStart), [
+    "e2e/canvas-invariants.spec.ts:383",
+    "e2e/canvas-invariants.spec.ts:538",
+    "e2e/inspector-styles.spec.ts:452",
+    "e2e/inspector-styles.spec.ts:610",
+    "e2e/inspector-styles.spec.ts:737",
+  ]);
+  assert.deepEqual(fixedLocations(inspectorFourStart, dragOneStart), [
+    "e2e/canvas-invariants.spec.ts:553",
+    "e2e/inspector-styles.spec.ts:541",
+    "e2e/inspector-styles.spec.ts:667",
+    "e2e/inspector-styles.spec.ts:798",
+    "e2e/inspector-styles.spec.ts:426",
+  ]);
+  assert.deepEqual(fixedLocations(inspectorThreeStart, inspectorFourStart), [
+    "e2e/canvas-invariants.spec.ts:1170",
+    "e2e/canvas-invariants.spec.ts:1320",
+    "e2e/inspector-styles.spec.ts:833",
+    "e2e/inspector-styles.spec.ts:880",
+    "e2e/inspector-styles.spec.ts:999",
+  ]);
+  const positionOneStart = shardStart("position-1");
+  const positionTwoStart = shardStart("position-2");
+  const positionThreeStart = shardStart("position-3");
+  const fallbackStart = shardStart("*");
+  assert.ok(
+    positionOneStart >= 0 &&
+      dragTwoStart > dragOneStart &&
+      positionTwoStart > positionOneStart &&
+      positionThreeStart > positionTwoStart &&
+      fallbackStart > positionThreeStart,
+  );
+  assert.deepEqual(fixedLocations(dragTwoStart, positionOneStart), [
+    "e2e/drag-and-drop.moving-by-drag.spec.ts:105",
+    "e2e/parity-alt-drag-duplicate.spec.ts:1293",
+    "e2e/parity-selection.spec.ts:313",
+    "e2e/parity-selection.spec.ts:451",
+    "e2e/parity-selection.spec.ts:572",
+  ]);
+  assert.deepEqual(fixedLocations(positionOneStart, positionTwoStart), [
+    "e2e/pasted-svg-image-inspector.spec.ts:656",
+    "e2e/pasted-svg-image-inspector.spec.ts:693",
+    "e2e/position-alignment.spec.ts:361",
+    "e2e/position-alignment.spec.ts:431",
+    "e2e/position-alignment.spec.ts:509",
+  ]);
+  assert.deepEqual(fixedLocations(positionTwoStart, positionThreeStart), [
+    "e2e/position-alignment.spec.ts:292",
+    "e2e/position-alignment.spec.ts:570",
+    "e2e/position-alignment.spec.ts:615",
+    "e2e/position-alignment.spec.ts:661",
+  ]);
+  assert.deepEqual(fixedLocations(positionThreeStart, fallbackStart), [
+    "e2e/position-alignment.spec.ts:312",
+    "e2e/position-alignment.spec.ts:708",
+    "e2e/position-alignment.spec.ts:740",
+    "e2e/position-alignment.spec.ts:780",
+  ]);
+  assert.ok(
+    regressionCases.includes(
+      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+  );
+  assert.ok(
+    regressionCases.includes(
+      "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
+    ),
+  );
+  assert.ok(
+    regressionCases.includes(
+      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"',
+    ),
+  );
+  assert.ok(
+    regressionCases.includes(
+      "mapfile -d '' -t changed_specs < \"$changed_specs_file\"",
+    ),
+  );
+  assert.ok(regressionCases.includes('if [[ -f "$spec" ]]; then'));
+  const fastTestsJobStart = workflow.indexOf("  fast-tests:\n");
+  assert.notEqual(fastTestsJobStart, -1, "missing fast-tests workflow job");
+  const nextJobHeader = workflow
+    .slice(fastTestsJobStart + 1)
+    .match(/\n  [a-z][a-z0-9_-]*:\n/);
+  const nextJobIndex = nextJobHeader?.index;
+  const fastTestsJobEnd =
+    nextJobIndex === undefined
+      ? undefined
+      : fastTestsJobStart + 1 + nextJobIndex;
+  const fastTestsJob = workflow.slice(fastTestsJobStart, fastTestsJobEnd);
+  assert.doesNotMatch(
+    fastTestsJob,
+    /\n  [a-z][a-z0-9_-]*:\n/,
+    "fast-tests assertions must stop before the next top-level job",
+  );
+  const needsStart = fastTestsJob.indexOf("    needs:");
+  const needsEnd = fastTestsJob.indexOf("    if:", needsStart);
+  assert.ok(
+    fastTestsJob
+      .slice(needsStart, needsEnd)
+      .includes("design-canvas-interaction-acceptance"),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}",
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes('if [ "$DESIGN_CANVAS_E2E" = "true" ]; then'),
+  );
+  assert.ok(
+    fastTestsJob.includes('if [ "$DESIGN_CANVAS_RESULT" != "success" ]; then'),
+  );
+  assert.match(
+    fastTestsJob,
+    /if \[ "\$DESIGN_CANVAS_E2E" = "true" \]; then\s+if \[ "\$DESIGN_CANVAS_RESULT" != "success" \]; then\s+echo "::error::Design canvas interaction acceptance did not succeed \(\$DESIGN_CANVAS_RESULT\)"\s+exit 1\s+fi/,
+  );
+  const selectedTests = [
+    [
+      "e2e/canvas-invariants.spec.ts",
+      383,
+      "X/Y match the element's real position, not 0,0",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      538,
+      "setting X moves the element by exactly that amount",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      553,
+      "setting Y moves the element by exactly that amount",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      508,
+      "a child of an auto-layout parent still reports real geometry",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      1286,
+      "deleting a layer removes it from the document",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      1170,
+      "Escape on a rect drawn inside a frame clears, and never lands on the screen",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      1320,
+      "basic authoring raises no uncaught page errors",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      176,
+      "text fills hide and restore without losing the original color",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      238,
+      "selection hide and Appearance visibility stay in sync with opacity",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      314,
+      "text gradient apply and removal survive reselection; box gradient editor persists",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      426,
+      "style layer row actions stay visible and toggle visibility state",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      452,
+      "typography edits update size and spacing inputs",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      541,
+      "search selects Lato Medium and keeps custom font names offline",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      610,
+      "numeric scrub handles use terse tooltips and drag from compact labels",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      667,
+      "numeric input applies Figma math and starts an Option scrub drag",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      737,
+      "appearance controls use droplet blend menu and inline independent corners",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      798,
+      "export rows add, remove, and reset when selection changes",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      833,
+      "resizing a selected element emits a visual-style-change payload",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      880,
+      "pointercancel restores a scrubbed value without adding a history step",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      999,
+      "can capture a screenshot of inspector coverage via CDP",
+    ],
+    [
+      "e2e/drag-and-drop.drag-feedback.spec.ts",
+      24,
+      "snap guides appear when an edge aligns with a sibling",
+    ],
+    [
+      "e2e/drag-and-drop.moving-by-drag.spec.ts",
+      42,
+      "dropping over a sibling keeps the moved position after reload",
+    ],
+    [
+      "e2e/drag-and-drop.moving-by-drag.spec.ts",
+      105,
+      "Alt+drag leaves the original and creates a copy",
+    ],
+    [
+      "e2e/parity-selection.spec.ts",
+      313,
+      "board regression: an overlapping Frame drop into another board Frame persists after reload",
+    ],
+    [
+      "e2e/parity-selection.spec.ts",
+      451,
+      "board regression: overlapping board Frames keep the pointer drop without cancel or revert",
+    ],
+    [
+      "e2e/parity-selection.spec.ts",
+      572,
+      "selected nested frame drag from its grandchild tracks the pointer and persists",
+    ],
+    [
+      "e2e/corner-radius-handle-drag.spec.ts",
+      239,
+      "canvas corner-radius handle follows the drag and persists the radius",
+    ],
+    [
+      "e2e/overview-wheel-zoom.spec.ts",
+      185,
+      "the zoom percentage input updates the overview canvas scale",
+    ],
+    [
+      "e2e/pasted-svg-image-inspector.spec.ts",
+      656,
+      "clipboard SVG File paste in the parent editor stays editable after reload",
+    ],
+    [
+      "e2e/pasted-svg-image-inspector.spec.ts",
+      693,
+      "rejected SVG HTML is consumed instead of inserted as native markup",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      292,
+      "Left and Right alignment controls move to their named edges",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      312,
+      "Top and Bottom alignment controls move to their named edges",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      361,
+      "Auto Layout matrix centers both axes and persists after reload",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      431,
+      "canvas and Layers selection show parent-relative position after iframe scroll",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      509,
+      "fixed Position stays viewport-relative after iframe scroll and reload",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      570,
+      "Position stays Frame-relative through Groups and resets at nested Frames",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      615,
+      "Position edits use the CSS containing block through static wrappers and borders",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      661,
+      "Position stays Frame-relative through a positioned plain wrapper",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      708,
+      "unframed absolute positions use the initial containing block through static wrappers",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      740,
+      "Position edits invert own and static-containing-block transforms and persist",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      780,
+      "Align uses a Group's bounds while Position stays Frame-relative",
+    ],
+    [
+      "e2e/parity-alt-drag-duplicate.spec.ts",
+      1293,
+      "copies a root auto-layout Frame as a selected board-root layer and preserves its original",
+    ],
+  ] as const;
+  for (const [file, line, title] of selectedTests) {
+    const location = `${file}:${line}`;
+    assert.ok(regressionCases.includes(location), location);
+    const sourceLine = readFileSync(`templates/design/${file}`, "utf8").split(
+      "\n",
+    )[line - 1];
+    assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
+  }
+});
+
+test("a deleted Design E2E path runs the focused interaction suite", () => {
+  const scope = classifyChangedPaths([
+    "templates/design/e2e/removed-by-this-change.spec.ts",
+  ]);
+
+  assert.equal(scope.checks.design_canvas_interaction_e2e, true);
 });
 
 test("selects the Content two-tab convergence lane for its runtime dependencies", () => {

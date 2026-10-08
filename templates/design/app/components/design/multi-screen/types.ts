@@ -213,7 +213,10 @@ export interface MultiScreenCanvasProps {
   toolProps?: CanvasToolProps;
   onActiveToolChange?: (tool: MultiScreenCanvasTool) => void;
   onCommentPin?: (point: Point) => void;
-  onPick: (id: string) => void;
+  onPick: (
+    id: string,
+    selectionToggle?: { screenId: string; selected: boolean },
+  ) => void;
   onEdit?: (id: string) => void;
   metadataById?: Record<string, ScreenMetadata | undefined>;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
@@ -301,7 +304,10 @@ export interface MultiScreenCanvasProps {
       onRuntimeReload?: () => void;
     },
   ) => ReactNode;
-  onScreenSelectionChange?: (ids: string[]) => void;
+  onScreenSelectionChange?: (
+    ids: string[],
+    intent?: ElementSelectionIntent,
+  ) => void;
   selectAllRequest?: number;
   clearSelectionRequest?: number;
   onAddBreakpoint?: (widthPx: number) => void;
@@ -317,7 +323,10 @@ export interface MultiScreenCanvasProps {
     nextWidthPx: number,
   ) => void;
   onEditBreakpoint?: (screenId: string, widthPx: number) => void;
-  onSelectionChange?: (selectedIds: string[]) => void;
+  onSelectionChange?: (
+    selectedIds: string[],
+    intent?: ElementSelectionIntent,
+  ) => void;
   onLayerMarqueeSelectionChange?: (
     selection: CanvasLayerMarqueeSelection[],
     intent: ElementSelectionIntent & { final?: boolean },
@@ -345,7 +354,7 @@ export interface MultiScreenCanvasProps {
     targetAnchorRect?: CrossScreenHitTestAnchorRect;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
-    targetOutsideBoardRenderGeometry?: boolean;
+    targetOutsideBoardContentBounds?: boolean;
     sourcePointerOffset?: Point;
     sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;
@@ -502,6 +511,16 @@ export interface MultiScreenCanvasProps {
   } | null;
   preserveCameraOnScreenCountChange?: boolean;
   deferLineupZoomChange?: boolean;
+  /**
+   * Omitted: the first layout fits every screen. Set (a screen id, or null for
+   * the first screen): it fits that one screen to the pane width instead.
+   */
+  initialFitScreenId?: string | null;
+  /**
+   * With `initialFitScreenId` set: render that screen at least as tall as the
+   * pane so it reflows into the pane instead of leaving empty canvas below it.
+   */
+  fillFocusedViewport?: boolean;
   chromeInsetLeft?: number;
   chromeInsetRight?: number;
   visibleCanvasRectRef?: RefObject<(() => VisibleCanvasRect | null) | null>;
@@ -718,6 +737,8 @@ export interface MarqueeDragState {
   baseSelectedIds: string[];
   baseSelectedDraftIds: string[];
   additive: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
   hasMoved: boolean;
 }
 

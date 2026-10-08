@@ -27,6 +27,7 @@ import {
   WORKSPACE_OWNER,
   workspaceResourceOwner,
 } from "../../resources/store.js";
+import type { ContextStatus } from "../../shared/context-status.js";
 import type {
   ContextGovernanceTier,
   ContextManifestSourceRef,
@@ -418,6 +419,29 @@ function ensureSentence(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+/** The compact prompt's skills index. `skillReadTool` is the tool the request
+ *  registry actually has for reading a skill; with none, the index is dropped
+ *  because it would send the model to a tool it cannot call. */
+export function buildCompactSkillsSummary(
+  skills: ReadonlyArray<{ meta: { name: string; description?: string } }>,
+  skillReadTool: string | null,
+): string | null {
+  if (skills.length === 0 || !skillReadTool) return null;
+  const listedSkills = skills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
+  const lines = listedSkills.map((s) => {
+    const description = s.meta.description?.trim()
+      ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
+      : "";
+    return `- \`${s.meta.name}\`${description} Read with \`${skillReadTool} --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
+  });
+  if (skills.length > listedSkills.length) {
+    lines.push(
+      `- ...${skills.length - listedSkills.length} more codebase skills. Use \`${skillReadTool} --query "<topic>"\` to discover the relevant one.`,
+    );
+  }
+  return `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as ${skillReadTool} pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent ${skillReadTool} lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`;
 }
 
 function escapeXmlAttribute(value: string): string {
@@ -1227,7 +1251,18 @@ function recordAnalyticsPreloadedReferenceCount(input: {
   };
 }
 
-export async function preloadJevContextForPrompt(options: {
+export interface JevPreloadResult {
+  context: string;
+  status: ContextStatus;
+}
+
+export async function preloadJevContextForPrompt(
+  options: Parameters<typeof preloadJevContextWithStatus>[0],
+): Promise<string> {
+  return (await preloadJevContextWithStatus(options)).context;
+}
+
+export async function preloadJevContextWithStatus(options: {
   request: string;
   appId?: string;
   owner?: string;
@@ -1242,12 +1277,12 @@ export async function preloadJevContextForPrompt(options: {
   contextPrefetchDeadlineAt?: number;
   dispatchToBackground?: boolean;
   internalContinuation?: boolean;
-}): Promise<string> {
+}): Promise<JevPreloadResult> {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
   const personalApiKey = options.personalApiKey?.trim();
   if (!request || options.maxChars === 0 || options.dispatchToBackground) {
-    return "";
+    return { context: "", status: "empty" };
   }
 
   const deadlineAt =
@@ -1258,6 +1293,13 @@ export async function preloadJevContextForPrompt(options: {
     candidates: JevPromptCandidate[];
     fallbackIds: string[];
   } = { candidates: [], fallbackIds: [] };
+  // A stage that timed out or threw only matters when nothing was injected: an
+  // empty result is then a loss, not an answer, and the model has to be told.
+  let degraded: "timed_out" | "failed" | undefined;
+  const finish = (context: string, injected: number): JevPreloadResult => ({
+    context,
+    status: injected > 0 ? "ok" : (degraded ?? "empty"),
+  });
   try {
     const collection = await withinPromptBudget(
       (signal) =>
@@ -1283,11 +1325,13 @@ export async function preloadJevContextForPrompt(options: {
       runtimeCandidates = collection.value[0];
       memoryContext = collection.value[1];
     } else {
+      degraded = "timed_out";
       console.warn(
         "[agent] Prompt context candidates exceeded the preload budget; keeping Analytics retrieval fallback.",
       );
     }
   } catch (error) {
+    degraded = "failed";
     console.warn(
       "[agent] Prompt context candidates unavailable; keeping Analytics retrieval fallback.",
       error instanceof Error ? error.message : "unknown error",
@@ -1307,7 +1351,7 @@ export async function preloadJevContextForPrompt(options: {
       candidates,
       selectedIds: [],
     });
-    return "";
+    return finish("", 0);
   }
 
   const categoryFor = (candidate: JevPromptCandidate) => {
@@ -1369,17 +1413,27 @@ export async function preloadJevContextForPrompt(options: {
           if (result) rankings.set(category, result);
         }
       } else {
+        degraded ??= "timed_out";
         console.warn(
           "[agent] Jev ranking exceeded the preload budget; using bounded retrieval fallbacks.",
         );
       }
     } catch (error) {
+      degraded ??= "failed";
       console.warn(
         "[agent] Jev ranking unavailable; using bounded retrieval fallbacks.",
         error instanceof Error ? error.message : "unknown error",
       );
     }
   }
+  // A ranking that was attempted and lost is a degraded turn, not an empty
+  // answer; the fallbacks below still run for it.
+  for (const result of rankings.values()) {
+    if (result.status === "failed") degraded = "failed";
+    else if (result.status === "timed_out") degraded ??= "timed_out";
+  }
+  const isRanked = (result: { status: string } | undefined) =>
+    result?.status === "selected" || result?.status === "no-match";
   const jevSelectedIds = [...rankings.values()]
     .filter((result) => result.status === "selected")
     .flatMap((result) => result.ids);
@@ -1405,13 +1459,13 @@ export async function preloadJevContextForPrompt(options: {
       for (const id of options.fallbackCandidateIds ?? []) selected.add(id);
     } else if (highSimilarityReferenceIds.length > 0) {
       for (const id of highSimilarityReferenceIds) selected.add(id);
-    } else if (!referenceRanking || referenceRanking.status === "unavailable") {
+    } else if (!isRanked(referenceRanking)) {
       for (const id of options.fallbackCandidateIds ?? []) selected.add(id);
     }
   }
   const memoryRanking = rankings.get("memory");
   if (
-    (!hasJev || !memoryRanking || memoryRanking.status === "unavailable") &&
+    (!hasJev || !isRanked(memoryRanking)) &&
     memoryContext.fallbackIds.length > 0
   ) {
     for (const id of memoryContext.fallbackIds) selected.add(id);
@@ -1469,7 +1523,7 @@ export async function preloadJevContextForPrompt(options: {
       candidates,
       injectedIds: new Set(),
     });
-    return "";
+    return finish("", 0);
   }
 
   const maxItemChars = options.compact ? 6_000 : JEV_CONTEXT_ITEM_MAX_CHARS;
@@ -1519,8 +1573,11 @@ export async function preloadJevContextForPrompt(options: {
     candidates,
     injectedIds,
   });
-  if (blocks.length === 0) return "";
-  return `${JEV_CONTEXT_PREFIX}${escapeJevContextFence(blocks.join(JEV_CONTEXT_SEPARATOR))}${JEV_CONTEXT_SUFFIX}`;
+  if (blocks.length === 0) return finish("", 0);
+  return finish(
+    `${JEV_CONTEXT_PREFIX}${escapeJevContextFence(blocks.join(JEV_CONTEXT_SEPARATOR))}${JEV_CONTEXT_SUFFIX}`,
+    blocks.length,
+  );
 }
 
 /**
@@ -1551,9 +1608,17 @@ export async function loadResourcesForPrompt(
   compact = false,
   selfAppId?: string,
   orgId: string | null = getRequestOrgId() ?? null,
-  opts?: { disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup> },
+  opts?: {
+    disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
+    /** The tool the compact skills summary sends the model to for skill text,
+     *  or `null` when the request registry has none. Omitted means
+     *  `docs-search`, the framework default. */
+    skillReadTool?: string | null;
+  },
 ): Promise<string> {
   await ensurePersonalDefaults(owner);
+  const skillReadTool =
+    opts?.skillReadTool === undefined ? "docs-search" : opts.skillReadTool;
 
   const sections: PromptSection[] = [];
   const addSection = (
@@ -1615,22 +1680,8 @@ export async function loadResourcesForPrompt(
   if (!compact) {
     const skillsBlock = generateSkillsPromptBlock(bundle, runtimeSkills);
     addSection(skillsBlock);
-  } else if (runtimeSkills.length > 0) {
-    const listedSkills = runtimeSkills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
-    const lines = listedSkills.map((s) => {
-      const description = s.meta.description?.trim()
-        ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
-        : "";
-      return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
-    });
-    if (runtimeSkills.length > listedSkills.length) {
-      lines.push(
-        `- ...${runtimeSkills.length - listedSkills.length} more codebase skills. Use \`docs-search --query "<topic>"\` to discover the relevant one.`,
-      );
-    }
-    addSection(
-      `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent docs-search lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`,
-    );
+  } else {
+    addSection(buildCompactSkillsSummary(runtimeSkills, skillReadTool));
   }
 
   const workspaceOwner = workspaceResourceOwner(orgId);
@@ -1765,7 +1816,7 @@ export async function loadResourcesForPrompt(
       addSection(block);
     }
     addSection(
-      `<context-note>Organization learnings above and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool. Save durable team facts and routing conventions to shared LEARNINGS.md; keep personal preferences in save-memory.</context-note>`,
+      `<context-note>\`resources\` reads personal memory (memory/MEMORY.md) and organization learnings. Keep setup findings personal; shared LEARNINGS.md or organization-memory writes require approval. "Remember this" alone is not approval.</context-note>`,
       "required",
     );
   } else {

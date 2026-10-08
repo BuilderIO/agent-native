@@ -2624,6 +2624,7 @@ const messages = {
     planAutomations: "事件與自動化",
     planLocalAndDesktop: "本機檔案與桌面",
     planDevelopers: "開發者指南",
+    turnIntoApp: "轉換為應用程式",
     prVisualRecap: "PR 視覺化回顧",
     planPluginMarketplace: "Plan 外掛與市場",
     slides: "幻燈片",

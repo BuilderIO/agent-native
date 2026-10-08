@@ -523,9 +523,12 @@ export function RunErrorRecoveryCard({
   onFork,
   onDismiss,
   onProviderConnected,
+  continueError,
 }: {
   info: RunErrorInfo;
-  onContinue: () => void;
+  /** Absent when the stopped run can no longer be continued. */
+  onContinue?: () => void;
+  continueError?: string | null;
   onRetry: () => void;
   retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
@@ -801,7 +804,7 @@ export function RunErrorRecoveryCard({
             </button>
           </DeferredBuilderConnectPopover>
         )}
-        {canRecover && (
+        {canRecover && onContinue && (
           <button
             type="button"
             onClick={onContinue}
@@ -901,6 +904,11 @@ export function RunErrorRecoveryCard({
       )}
       {forkError && (
         <p className="mt-2 text-xs leading-relaxed text-red-500">{forkError}</p>
+      )}
+      {continueError && (
+        <p className="mt-2 text-xs leading-relaxed text-destructive">
+          {continueError}
+        </p>
       )}
     </div>
   );

@@ -591,8 +591,9 @@ export function applyProviderModelSelection(
 
 /**
  * The model to run when nothing picked one and the engine's default is no
- * longer checked: the first checked model. `undefined` keeps the engine
- * default, which is also what happens when the selection can't be read.
+ * longer checked: the first checked model in the order it was saved, which is
+ * not a ranking of the models. `undefined` keeps the engine default, which is
+ * also what happens when the selection can't be read.
  */
 export async function resolveUncheckedDefaultModelReplacement(engine: {
   name: string;
@@ -616,4 +617,25 @@ export async function resolveUncheckedDefaultModelReplacement(engine: {
       ) ?? engine.defaultModel);
   if (selection.models.includes(currentDefault)) return undefined;
   return selection.models[0];
+}
+
+/**
+ * `selection` with the unchecked-default replacement applied. Only the engine
+ * default yields to the provider's checked models: a model the request or a
+ * stored default names still runs after it is unchecked, so chats already on
+ * it keep working. A replaced model is labelled `provider-selection-fallback`,
+ * never `default`, so logs and traces can tell a checkbox swap from the
+ * engine's own default.
+ */
+export async function applyUncheckedDefaultModelReplacement<
+  Source extends string,
+>(
+  engine: { name: string; defaultModel: string },
+  selection: { model: string; source: Source },
+): Promise<{ model: string; source: Source | "provider-selection-fallback" }> {
+  if (selection.source !== "default") return selection;
+  const replacement = await resolveUncheckedDefaultModelReplacement(engine);
+  return replacement
+    ? { model: replacement, source: "provider-selection-fallback" }
+    : selection;
 }

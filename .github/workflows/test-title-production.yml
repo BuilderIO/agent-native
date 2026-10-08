@@ -1,0 +1,48 @@
+name: Test-title production guard
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-title-production-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-title-production:
+    name: Test-title production guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Fetch the pull request head without checking out its code
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "refs/pull/${PR_NUMBER}/head:refs/guard/pull-request-head"
+          fetched_head="$(git rev-parse refs/guard/pull-request-head)"
+          if [ "${fetched_head}" != "${EXPECTED_HEAD_SHA}" ]; then
+            echo "::error::pull request head changed during policy inspection"
+            exit 2
+          fi
+          git cat-file -e "${BASE_SHA}^{commit}"
+
+      - name: Check test-title production paths
+        run: node --experimental-strip-types scripts/guard-test-title-production.ts

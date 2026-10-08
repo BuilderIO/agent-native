@@ -1,4 +1,4 @@
-import { createApp } from "h3";
+import { createApp, H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -30,6 +30,27 @@ const threadStoreMocks = vi.hoisted(() => ({
   resolveThreadAccess: vi.fn(),
   updateThreadData: vi.fn(),
 }));
+
+const handlerHarness = vi.hoisted(() => ({
+  options: [] as Array<{
+    actions: Record<string, unknown>;
+    systemPrompt: (event: unknown) => Promise<string>;
+  }>,
+}));
+
+vi.mock("../agent/production-agent.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../agent/production-agent.js")>();
+  return {
+    ...actual,
+    createProductionAgentHandler: (
+      options: Parameters<typeof actual.createProductionAgentHandler>[0],
+    ) => {
+      handlerHarness.options.push(options as never);
+      return actual.createProductionAgentHandler(options);
+    },
+  };
+});
 
 function runtimeSkillsFromBundle(bundle: { skills?: Record<string, any> }) {
   return Object.values(bundle.skills ?? {}).filter(
@@ -111,6 +132,7 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
 import {
   createAgentChatPlugin,
   loadResourcesForPrompt,
+  type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 import {
   promptResourceManifestSections,
@@ -242,6 +264,7 @@ function meta(id: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   routeHarness.initPromises.length = 0;
+  handlerHarness.options.length = 0;
   threadStoreMocks.mutateThreadQueuedMessages.mockReset();
   threadStoreMocks.resolveThreadAccess.mockReset();
   threadStoreMocks.updateThreadData.mockReset();
@@ -1037,6 +1060,19 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("requires approval before shared memory writes in the compact prompt", async () => {
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain("Keep setup findings personal");
+    expect(prompt).toContain(
+      "shared LEARNINGS.md or organization-memory writes require approval",
+    );
+    expect(prompt).toContain('"Remember this" alone is not approval');
+    expect(prompt).not.toContain(
+      "Save durable team facts and routing conventions to shared LEARNINGS.md",
+    );
+  });
+
   it("fails the prompt build when Lab-gated skill state cannot be read", async () => {
     const failure = new Error("Labs settings unavailable");
     mocks.getRuntimeSkillsForUser.mockRejectedValueOnce(failure);
@@ -1674,5 +1710,106 @@ describe("loadResourcesForPrompt", () => {
     );
     expect(prompt).toContain("truncated after 30,000 characters");
     expect(prompt.length).toBeLessThan(hugeMemory.length);
+  });
+});
+
+describe("compact skills summary and the request registry", () => {
+  const deepReviewBundle = {
+    workspaceAgentsMd: "",
+    agentsMd: "",
+    skills: {
+      "deep-review": {
+        meta: {
+          name: "deep-review",
+          description: "Use when reviewing risky changes.",
+          scope: "both",
+        },
+        content: "---\nname: deep-review\n---\n# Deep Review",
+        dir: ".agents/skills/deep-review",
+        extraFiles: [],
+      },
+    },
+  };
+
+  async function mountLeanHandler(
+    frameworkTools: AgentChatPluginOptions["frameworkTools"],
+  ) {
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools,
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({ h3App: createApp(), hooks: { hook: vi.fn() } });
+    await routeHarness.initPromises.at(-1);
+    const handler = handlerHarness.options[0];
+    if (!handler) throw new Error("Lean agent handler was not created");
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    mocks.loadAgentsBundle.mockResolvedValue(deepReviewBundle);
+    const systemPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () =>
+        handler.systemPrompt(
+          new H3Event(new Request("https://app.example.test/chat")),
+        ),
+    );
+    return { registry: handler.actions, systemPrompt };
+  }
+
+  function toolsNamedBySkillsSummary(systemPrompt: string): string[] {
+    const summary =
+      /<skills-summary>[\s\S]*<\/skills-summary>/.exec(systemPrompt)?.[0] ?? "";
+    return [...summary.matchAll(/`([a-z][a-z0-9-]*) --(?:slug|query)/g)].map(
+      (match) => match[1]!,
+    );
+  }
+
+  it("gives the lean hosted registry every tool the skills summary names", async () => {
+    const { registry, systemPrompt } = await mountLeanHandler({
+      preset: "minimal",
+      docs: true,
+    });
+
+    const named = toolsNamedBySkillsSummary(systemPrompt);
+    expect(named).toContain("docs-search");
+    for (const name of named) expect(registry).toHaveProperty(name);
+    // Only the skill reader joins the lean first request.
+    expect(registry).not.toHaveProperty("framework-search");
+    // The lean prompt omits the compact framework prompt, so it carries the
+    // batching rule itself.
+    expect(systemPrompt).toContain("emit them in the same step");
+  });
+
+  it("drops the skills summary when the registry has no skill-read tool", async () => {
+    const { registry, systemPrompt } = await mountLeanHandler("minimal");
+
+    expect(registry).not.toHaveProperty("docs-search");
+    expect(systemPrompt).not.toContain("<skills-summary>");
+  });
+
+  it("names the skill-read tool the caller passes, and drops the summary for null", async () => {
+    mocks.loadAgentsBundle.mockResolvedValue(deepReviewBundle);
+
+    const renamed = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      undefined,
+      { skillReadTool: "read-skill" },
+    );
+    expect(renamed).toContain(
+      'Read with `read-skill --slug "skill-deep-review"`',
+    );
+    expect(renamed).not.toContain("docs-search");
+
+    const absent = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      undefined,
+      { skillReadTool: null },
+    );
+    expect(absent).not.toContain("<skills-summary>");
+    expect(absent).not.toContain("deep-review");
   });
 });

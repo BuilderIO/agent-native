@@ -1,4 +1,7 @@
-import { verifyScopedAgentAccessToken } from "@agent-native/core/server";
+import {
+  getForwardedRequestOrigin,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
 import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 import {
   injectDocumentMarkup,
@@ -139,7 +142,7 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
   if (tokenGrantsAgentAccess) return null;
 
   const agentContextUrl = buildAgentApiUrls(recording.id, {
-    origin: requestUrl.origin,
+    origin: getForwardedRequestOrigin(event),
     basePath: getServerAppBasePath(),
   }).contextUrl;
   const discovery = buildAgentDiscoveryPayload({

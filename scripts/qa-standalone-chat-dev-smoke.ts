@@ -31,6 +31,7 @@ import {
   MISSING_BROWSER_HINT,
   MISSING_HEADED_BROWSER_HINT,
 } from "./playwright-browser-hint";
+import { originalUserPrompt } from "./qa-standalone-chat-dev-smoke-prompt";
 import {
   isRetryableSessionReadErrorMessage,
   isTransientCommittedNavigationResponse,
@@ -1044,6 +1045,13 @@ function isBenignHttpError(
   ) {
     return true;
   }
+  // The runtime maps this lookup's 404 response to the explicit missing state.
+  if (
+    status === 404 &&
+    new URL(url).pathname === "/_agent-native/agent-chat/runs/latest"
+  ) {
+    return true;
+  }
   if (status === 404 && url.includes("/_agent-native/speculation-rules.json")) {
     return true;
   }
@@ -1442,6 +1450,17 @@ interface LoopbackRequestRecord {
   prompt: string;
   toolNames: string[];
   toolResultIds: string[];
+  promptDiagnostics?: {
+    requestKeys: string[];
+    userMessages: Array<{
+      contentType: string;
+      textLength: number;
+      fieldNames: string[];
+      containsApprovalPrompt: boolean;
+      containsApprovedContinuationPrompt: boolean;
+    }>;
+    assistantToolCallNames: string[];
+  };
 }
 
 interface LoopbackProviderState {
@@ -1567,22 +1586,6 @@ async function streamToolCallResponse(
   response.end("data: [DONE]\n\n");
 }
 
-function originalUserPrompt(value: string): string {
-  if (value.trim() === approvedContinuationPrompt) return approvalPrompt;
-  const frameworkSuffixes = [
-    "\n\n<current-time>",
-    "\n\n<current-screen>",
-    "\n\nContinue from where you left off",
-    approvedContinuationPrompt,
-  ];
-  const suffixIndexes = frameworkSuffixes
-    .map((suffix) => value.indexOf(suffix))
-    .filter((index) => index >= 0);
-  const end =
-    suffixIndexes.length > 0 ? Math.min(...suffixIndexes) : value.length;
-  return value.slice(0, end).trim();
-}
-
 async function handleLoopbackCompletion(
   request: IncomingMessage,
   response: ServerResponse,
@@ -1596,7 +1599,11 @@ async function handleLoopbackCompletion(
     ? body.tools.map((item) => jsonRecord(item))
     : [];
   const userMessages = messages.filter((item) => item.role === "user");
-  const prompt = originalUserPrompt(contentText(userMessages.at(-1)?.content));
+  const prompt = originalUserPrompt(
+    contentText(userMessages.at(-1)?.content),
+    approvalPrompt,
+    approvedContinuationPrompt,
+  );
   const toolNames = tools.flatMap((item) => {
     const fn = item.function;
     if (!fn || typeof fn !== "object") return [];
@@ -1607,7 +1614,49 @@ async function handleLoopbackCompletion(
   const toolResultIds = toolResults.flatMap((item) =>
     typeof item.tool_call_id === "string" ? [item.tool_call_id] : [],
   );
-  state.requests.push({ prompt, toolNames, toolResultIds });
+  const assistantToolCallNames = messages
+    .filter((item) => item.role === "assistant")
+    .flatMap((item) =>
+      Array.isArray(item.tool_calls)
+        ? item.tool_calls.flatMap((value) => {
+            const call = jsonRecord(value);
+            const fn = call.function;
+            if (!fn || typeof fn !== "object") return [];
+            const name = (fn as Record<string, unknown>).name;
+            return typeof name === "string" ? [name] : [];
+          })
+        : [],
+    )
+    .slice(-8);
+  const promptDiagnostics =
+    prompt === ""
+      ? {
+          requestKeys: Object.keys(body).sort(),
+          userMessages: userMessages.slice(-8).map((message) => {
+            const content = message.content;
+            const text = contentText(content);
+            return {
+              contentType: Array.isArray(content) ? "array" : typeof content,
+              textLength: text.length,
+              fieldNames:
+                content && typeof content === "object"
+                  ? Object.keys(content).slice(0, 8)
+                  : [],
+              containsApprovalPrompt: text.includes(approvalPrompt),
+              containsApprovedContinuationPrompt: text.includes(
+                approvedContinuationPrompt,
+              ),
+            };
+          }),
+          assistantToolCallNames,
+        }
+      : undefined;
+  state.requests.push({
+    prompt,
+    toolNames,
+    toolResultIds,
+    ...(promptDiagnostics ? { promptDiagnostics } : {}),
+  });
   const requestNumber = state.requests.length;
   log(
     `loopback request ${requestNumber}: prompt=${JSON.stringify(prompt)} tools=${toolNames.length} toolResults=${toolResultIds.length}`,
@@ -2319,11 +2368,14 @@ async function readCurrentActivityTrace(page: Page): Promise<string[]> {
   });
 }
 
-async function assertActionWidgetOutsideActivity(
+async function assertAssistantContentOutsideActivity(
   page: Page,
   text: string,
 ): Promise<Locator> {
-  const target = page.getByText(text, { exact: true }).first();
+  const target = page
+    .getByText(text, { exact: true })
+    .filter({ visible: true })
+    .first();
   await target.waitFor({ state: "visible" });
   assert.equal(
     await target.evaluate((element) =>
@@ -2362,7 +2414,10 @@ async function assertActivitiesCollapsed(
 }
 
 async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
-  await assertActionWidgetOutsideActivity(page, "AgentKit acceptance draft");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "AgentKit acceptance draft",
+  );
   const draftCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "AgentKit acceptance draft" });
@@ -2384,7 +2439,10 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     state: "visible",
   });
 
-  await assertActionWidgetOutsideActivity(page, "From: digest@example.test");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "From: digest@example.test",
+  );
   const filterCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "From: digest@example.test" });
@@ -2396,7 +2454,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
   const filtersUrl = new URL((await filtersLink.getAttribute("href")) ?? "");
   assert.equal(filtersUrl.hash, "#settings/filters");
 
-  await assertActionWidgetOutsideActivity(
+  await assertAssistantContentOutsideActivity(
     page,
     "AgentKit sample form insights",
   );
@@ -2404,12 +2462,15 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     .getByRole("cell", { name: "AgentKit acceptance", exact: true })
     .waitFor({ state: "visible" });
 
-  await assertActionWidgetOutsideActivity(page, "Sample analytics table");
+  await assertAssistantContentOutsideActivity(page, "Sample analytics table");
   await page
     .getByRole("cell", { name: "/agentkit-acceptance", exact: true })
     .waitFor({ state: "visible" });
 
-  await assertActionWidgetOutsideActivity(page, "AgentKit acceptance event");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "AgentKit acceptance event",
+  );
   const eventCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "AgentKit acceptance event" });
@@ -2420,7 +2481,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     state: "visible",
   });
 
-  await assertActionWidgetOutsideActivity(page, "Best shared time");
+  await assertAssistantContentOutsideActivity(page, "Best shared time");
   const timeChoiceCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "Best shared time" });
@@ -2439,7 +2500,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     "the time-choice widget must open its Calendar draft link",
   );
 
-  await assertActionWidgetOutsideActivity(page, "Booking link");
+  await assertAssistantContentOutsideActivity(page, "Booking link");
   const bookingLinkCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "Booking link" });
@@ -2970,10 +3031,12 @@ async function assertAgentKitChatAcceptance(
   try {
     await page
       .locator('[data-agent-composer-slot="stop-button"]')
+      .filter({ visible: true })
+      .first()
       .waitFor({ state: "visible" });
   } catch (error) {
     throw new Error(
-      "The composer no longer counts the run as active while its approval card is pending, so a follow-up would bypass the queue.",
+      "The composer did not render a visible stop button while its approval card was pending, so a follow-up could bypass the queue.",
       { cause: error },
     );
   }
@@ -3306,7 +3369,13 @@ async function assertAgentKitChatAcceptance(
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
   await page
     .getByText("All seven local sample widgets are ready.", { exact: true })
+    .filter({ visible: true })
+    .first()
     .waitFor({ state: "visible" });
+  await assertAssistantContentOutsideActivity(
+    page,
+    "All seven local sample widgets are ready.",
+  );
   await assertAgentKitWidgetSamples(page);
   await assertActivitiesCollapsed(page);
 

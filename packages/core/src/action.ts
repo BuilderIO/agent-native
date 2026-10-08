@@ -16,6 +16,7 @@ import {
   assertRegisteredActionAccess,
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
+import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export type ActionCaller =
@@ -62,6 +63,8 @@ export interface ActionRunContext {
   attachments?: AgentChatAttachment[];
   signal?: AbortSignal;
   actionName?: string;
+  /** Present only on frontend GETs authorized by a scoped directory-widget read capability. */
+  mcpDirectoryWidgetReadOnly?: true;
   threadId?: string;
   runId?: string;
   turnId?: string;
@@ -126,6 +129,35 @@ export function fail(message: string, options: FailOptions = {}): never {
     statusCode: options.statusCode ?? 400,
     ...(options.details === undefined ? {} : { details: options.details }),
   });
+}
+
+/**
+ * What a write action verified about its own effect. An action opts in by
+ * returning a plain-object result with a reserved `_receipt: WriteReceipt`.
+ * The agent loop reads it before the result is stringified and truncated, so
+ * the final answer is reconciled with what the write did instead of with the
+ * model's reading of a JSON string.
+ *
+ * - `changed: false`: nothing was written (a no-op); not a completed side effect.
+ * - `verified: true`: the effect was observed. `false`: it was checked and did
+ *   not hold. `"unverified"`: it could not be checked.
+ * - `subject`: the stable target of the write, such as a dashboard id. Later
+ *   receipts from the same action with the same subject that are `changed` and
+ *   `verified: true` supersede this one, so a no-op that was then fixed does
+ *   not flag the answer. A receipt with failing checks is superseded only when
+ *   those later receipts carry an `ok` check with the same `id` for every
+ *   check that failed here, because a verified write speaks only for what it
+ *   checked. Without a subject a receipt is never superseded.
+ * - Bounds, enforced by the loop: summary and subject 200 chars, 8 checks, 5
+ *   warnings.
+ */
+export interface WriteReceipt {
+  changed: boolean;
+  verified: true | false | "unverified";
+  summary: string;
+  subject?: string;
+  checks?: Array<{ id: string; ok: boolean; detail?: string }>;
+  warnings?: string[];
 }
 
 export class AgentActionStopError extends Error {
@@ -320,6 +352,7 @@ export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
   destructiveHint: boolean;
   openWorldHint: boolean;
+  idempotentHint?: boolean;
 }
 
 interface DefineActionWithSchema<
@@ -560,25 +593,21 @@ export function defineAction<
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
+  // Converting a schema to JSON Schema is the dominant module-scope cost of an
+  // action-heavy app's cold start, so convert only the schema the agent sees.
   let toolParameters: ActionTool["parameters"];
   if (hasSchema) {
-    toolParameters = schemaToJsonSchema(options.schema, options.description);
+    toolParameters = schemaToJsonSchema(
+      options.agentInputSchema && "~standard" in options.agentInputSchema
+        ? options.agentInputSchema
+        : options.schema,
+      options.description,
+    );
   } else if (options.parameters) {
     toolParameters = {
       type: "object" as const,
       properties: options.parameters,
     };
-  }
-
-  if (
-    hasSchema &&
-    options.agentInputSchema &&
-    "~standard" in options.agentInputSchema
-  ) {
-    toolParameters = schemaToJsonSchema(
-      options.agentInputSchema,
-      options.description,
-    );
   }
 
   const guardedRun =
@@ -638,7 +667,9 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(auditConfig, readOnly)
     ? wrapRunWithAudit(run, auditConfig)
     : run;
-  const trackedRun = wrapRunWithActionTracking(finalRun, readOnly);
+  const trackedRun = wrapRunWithServicePrincipalGrant(
+    wrapRunWithActionTracking(finalRun, readOnly),
+  );
 
   const toolCallable: boolean | undefined =
     typeof options.toolCallable === "boolean"
@@ -656,11 +687,13 @@ export function defineAction(options: any) {
           !Array.isArray(options.mcpAnnotations) &&
           typeof options.mcpAnnotations.readOnlyHint === "boolean" &&
           typeof options.mcpAnnotations.destructiveHint === "boolean" &&
-          typeof options.mcpAnnotations.openWorldHint === "boolean"
+          typeof options.mcpAnnotations.openWorldHint === "boolean" &&
+          (options.mcpAnnotations.idempotentHint === undefined ||
+            typeof options.mcpAnnotations.idempotentHint === "boolean")
         ? options.mcpAnnotations
         : (() => {
             throw new TypeError(
-              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values.",
+              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values; idempotentHint is an optional boolean.",
             );
           })();
   const deferLoading: boolean | undefined =
@@ -841,6 +874,30 @@ function wrapRunWithAccess(
       }
     }
     return run(args, ctx);
+  };
+}
+
+/**
+ * Outermost wrapper, so a refused call is audited once as a denial and never
+ * as a failed run of the action. Every route to running an action as a service
+ * identity (MCP, HTTP, delegated agent runs, sandbox bridges) passes here.
+ */
+function wrapRunWithServicePrincipalGrant(
+  run: (args: any, ctx?: ActionRunContext) => any,
+): (args: any, ctx?: ActionRunContext) => any {
+  return function grantCheckedRun(args: any, ctx?: ActionRunContext) {
+    if (!parseServiceIdentityEmail(ctx?.userEmail)) return run(args, ctx);
+    return import("./org/service-principal-guard.js")
+      .then(({ enforceServicePrincipalActionGrant }) =>
+        enforceServicePrincipalActionGrant({
+          email: ctx!.userEmail,
+          orgId: ctx!.orgId,
+          // A missing name only passes an unrestricted grant.
+          actionName: ctx!.actionName ?? "",
+          caller: ctx!.caller,
+        }),
+      )
+      .then(() => run(args, ctx));
   };
 }
 

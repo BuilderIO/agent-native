@@ -25,6 +25,7 @@ import {
 } from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
+import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
   getRequestRunContext,
@@ -8236,6 +8237,158 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("quotes the last error's first line when the across-arguments breaker stops the turn", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3].map((id) => ({
+        name: "edit-panel",
+        input: { id },
+      })),
+      {
+        "edit-panel": {
+          ...actionEntry({ readOnly: false }),
+          run: async () =>
+            fail("panel width must be a number\nsecond line of detail"),
+        },
+      },
+    );
+
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({ reason: "loop_breaker" });
+    const message = (done as { message?: string }).message ?? "";
+    expect(message).toContain("rejected 3 different attempts the same way");
+    expect(message).toContain("Last error: panel width must be a number");
+    expect(message).not.toContain("second line of detail");
+  });
+
+  it.each([
+    [
+      "parses a JSON error into its cause",
+      undefined,
+      "Last error: bigquery_error: Unrecognized name: foo",
+    ],
+    [
+      "skips the bare opening brace when a suffix keeps the JSON from parsing",
+      { errorCode: "bad_query" },
+      'Last error: "error": "bigquery_error"',
+    ],
+  ])(
+    "names the cause in the across-arguments stop when the error is pretty-printed JSON (%s)",
+    async (_label, failOptions, expectedLine) => {
+      const events = await runToolCallSequence(
+        [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
+        {
+          "run-query": {
+            ...actionEntry({ readOnly: false }),
+            run: async () =>
+              fail(
+                JSON.stringify(
+                  {
+                    error: "bigquery_error",
+                    message: "Unrecognized name: foo",
+                  },
+                  null,
+                  2,
+                ),
+                failOptions,
+              ),
+          },
+        },
+      );
+
+      const done = events.find((event) => event.type === "done");
+      expect(done).toMatchObject({ reason: "loop_breaker" });
+      const message = (done as { message?: string }).message ?? "";
+      expect(message).toContain("rejected 3 different attempts the same way");
+      expect(message).toContain(expectedLine);
+      expect(message).not.toMatch(/Last error: (Error running \S+: )?[{[]?\n/);
+    },
+  );
+
+  it.each([
+    [
+      "the offending column name",
+      "Unrecognized name: weekly_active_users_7d at [1:20]",
+      "Last error: Unrecognized name: weekly_active_users_7d at [1:20]",
+    ],
+    [
+      "the account that lacks access",
+      "ana.person@example.com does not have access to dataset growth_2026",
+      "Last error: ana.person@example.com does not have access to dataset growth_2026",
+    ],
+    [
+      "the cause without a credential",
+      "Request to the warehouse failed (token=fake-test-token-1234567890)",
+      "Last error: Request to the warehouse failed (token=[REDACTED",
+    ],
+  ])(
+    "keeps %s in the across-arguments stop message",
+    async (_label, errorText, expectedLine) => {
+      const events = await runToolCallSequence(
+        [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
+        {
+          "run-query": {
+            ...actionEntry({ readOnly: false }),
+            run: async () => fail(errorText),
+          },
+        },
+      );
+
+      const done = events.find((event) => event.type === "done");
+      expect(done).toMatchObject({ reason: "loop_breaker" });
+      const message = (done as { message?: string }).message ?? "";
+      expect(message).toContain(expectedLine);
+      expect(message).not.toContain("[id]");
+      expect(message).not.toContain("[email]");
+      expect(message).not.toContain("fake-test-token");
+    },
+  );
+
+  it("never cuts the across-arguments stop message inside an emoji", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
+      {
+        "run-query": {
+          ...actionEntry({ readOnly: false }),
+          run: async () => fail(`${"a".repeat(299)}${"😀".repeat(5)}`),
+        },
+      },
+    );
+
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({ reason: "loop_breaker" });
+    const message = (done as { message?: string }).message ?? "";
+    expect(message).toContain(`${"a".repeat(299)}…`);
+    expect(message).not.toMatch(
+      /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/,
+    );
+  });
+
+  it("does not trip the across-arguments breaker when each error names a different target", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3, 4].map((id) => ({
+        name: "edit-panel",
+        input: { id },
+      })),
+      {
+        "edit-panel": {
+          ...actionEntry({ readOnly: false }),
+          run: async (args: Record<string, unknown>) =>
+            fail(`panel[${args.id}].width must be a number`),
+        },
+      },
+    );
+
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      4,
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Done." }),
+    );
+  });
+
   it("lets a long turn keep going while each tool call is genuinely different", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => "distinct answer");
@@ -11173,7 +11326,8 @@ describe("runAgentLoop", () => {
         provider: "slack",
         reason: "grant",
         appId: "dispatch",
-        detail: "Connect Slack to continue.",
+        detail:
+          "Connect Slack to continue. Ask a workspace admin to grant this app access to the existing connection.",
         source: { id: "dispatch", kind: "app", label: "Dispatch" },
       }),
     );
@@ -11184,7 +11338,8 @@ describe("runAgentLoop", () => {
       {
         state: "input_required",
         code: "connection_required",
-        message: "Connect Slack to continue.",
+        message:
+          "Connect Slack to continue. Ask a workspace admin to grant this app access to the existing connection.",
       },
     ]);
   });
@@ -13194,6 +13349,7 @@ describe("runAgentLoop", () => {
 
   const approvalEngine = (
     toolInput: Record<string, unknown> = { to: "a@b.com" },
+    toolName = "send-email",
   ): { engine: AgentEngine; streamCalls: () => number } => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -13217,7 +13373,7 @@ describe("runAgentLoop", () => {
               {
                 type: "tool-call" as const,
                 id: "approval-call-1",
-                name: "send-email",
+                name: toolName,
                 input: toolInput,
               },
             ],
@@ -13324,6 +13480,60 @@ describe("runAgentLoop", () => {
         message: "Waiting for your approval to run send-email.",
       },
     ]);
+  });
+
+  it("requires fresh approval before shared resource and organization-memory writes", async () => {
+    const entries = await createResourceScriptEntries();
+    const cases = [
+      {
+        name: "resources",
+        input: {
+          action: "write",
+          path: "LEARNINGS.md",
+          content: "Shared learning proposal",
+        },
+      },
+      {
+        name: "save-memory",
+        input: {
+          name: "coding-style",
+          type: "feedback",
+          description: "A shared preference",
+          content: "Shared learning proposal",
+          scope: "current-org",
+        },
+      },
+    ] as const;
+
+    for (const { name, input } of cases) {
+      const entry = entries[name];
+      expect(entry).toBeDefined();
+      if (!entry) throw new Error(`Missing ${name} action entry`);
+
+      const { engine } = approvalEngine(input, name);
+      const run = vi.fn(async () => "saved");
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: { [name]: { ...entry, run } },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(run).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "approval_required",
+          tool: name,
+          allowPersistentApproval: false,
+        }),
+      );
+    }
   });
 
   it("does not run later tool calls in the same message while approval is pending", async () => {
