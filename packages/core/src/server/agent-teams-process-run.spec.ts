@@ -27,6 +27,7 @@ let failTaskProjectionFor: {
   status?: string;
   step?: string;
 } | null = null;
+let beforeNextAppStateCas: (() => void) | null = null;
 let transactionTail: Promise<void> = Promise.resolve();
 const transactionContext = new AsyncLocalStorage<{ aborted: boolean }>();
 function affected(n: number) {
@@ -389,6 +390,38 @@ vi.mock("../application-state/script-helpers.js", () => ({
     }
     appState.set(k, structuredClone(v));
   }),
+  compareAndSetAppState: vi.fn(async (k: string, expected: any, next: any) => {
+    requireMockRequestContext();
+    beforeNextAppStateCas?.();
+    beforeNextAppStateCas = null;
+    const current = appState.has(k) ? appState.get(k) : null;
+    if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+    if (next === null) appState.delete(k);
+    else appState.set(k, structuredClone(next));
+    return true;
+  }),
+  compareAndSetManyAppState: vi.fn(async (operations: any[]) => {
+    requireMockRequestContext();
+    beforeNextAppStateCas?.();
+    beforeNextAppStateCas = null;
+    if (
+      operations.some((operation) => {
+        const current = appState.has(operation.key)
+          ? appState.get(operation.key)
+          : null;
+        return (
+          JSON.stringify(current) !== JSON.stringify(operation.expectedValue)
+        );
+      })
+    ) {
+      return false;
+    }
+    for (const operation of operations) {
+      if (operation.nextValue === null) appState.delete(operation.key);
+      else appState.set(operation.key, structuredClone(operation.nextValue));
+    }
+    return true;
+  }),
   deleteAppState: vi.fn(async (k: string) => {
     requireMockRequestContext();
     return appState.delete(k);
@@ -432,6 +465,7 @@ const runAgentLoopMock = vi.fn();
 const instrumentAgentLoopMock = vi.fn();
 const getObservabilityConfigMock = vi.fn();
 const abortRunMock = vi.fn();
+const getActiveRunForThreadAsyncMock = vi.fn(async () => null as any);
 const getRunMock = vi.fn();
 const subscribeToRunMock = vi.fn();
 const persistedRunEventIds: string[] = [];
@@ -517,7 +551,7 @@ vi.mock("../agent/run-manager.js", () => ({
     };
   },
   abortRun: abortRunMock,
-  getActiveRunForThreadAsync: vi.fn(async () => null),
+  getActiveRunForThreadAsync: getActiveRunForThreadAsyncMock,
   getRun: getRunMock,
   subscribeToRun: subscribeToRunMock,
 }));
@@ -719,6 +753,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     failParentCompletionReadFor = null;
     rejectNextThreadDataUpdate = false;
     failTaskProjectionFor = null;
+    beforeNextAppStateCas = null;
     transactionTail = Promise.resolve();
     appState.clear();
     threadData.clear();
@@ -739,6 +774,8 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       (runId: string) => activeRunMocks.get(runId) ?? null,
     );
     abortRunMock.mockReset();
+    getActiveRunForThreadAsyncMock.mockReset();
+    getActiveRunForThreadAsyncMock.mockResolvedValue(null);
     persistedRunEventIds.length = 0;
     persistedTerminalRunEventIds.length = 0;
     subscribeToRunMock.mockReset();
@@ -877,6 +914,125 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     ).toBe("done");
     expect(abortRunMock).not.toHaveBeenCalled();
     expect(completeProgressRunMock).not.toHaveBeenCalled();
+  });
+
+  it("does not stop a legacy task whose projection completed concurrently", async () => {
+    const taskId = "legacy-stop-after-completion";
+    appState.set(`agent-task:${taskId}`, {
+      taskId,
+      threadId: "thread-1",
+      runId: `run-task-${taskId}`,
+      parentThreadId: "parent-thread",
+      ownerEmail: OWNER,
+      description: "legacy task",
+      status: "running",
+      preview: "",
+      summary: "",
+      currentStep: "Working",
+      createdAt: Date.now(),
+    });
+    beforeNextAppStateCas = () => {
+      const currentTask = appState.get(`agent-task:${taskId}`);
+      appState.set(`agent-task:${taskId}`, {
+        ...currentTask,
+        status: "completed",
+        summary: "The worker completed.",
+        currentStep: "",
+        terminalProgressStatus: "succeeded",
+      });
+    };
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+      ),
+    ).resolves.toEqual({ ok: false, error: "Task is not running" });
+
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "completed",
+      summary: "The worker completed.",
+    });
+    expect(abortRunMock).not.toHaveBeenCalled();
+    expect(completeProgressRunMock).not.toHaveBeenCalled();
+  });
+
+  it("does not let a legacy completion overwrite a concurrent stop", async () => {
+    const taskId = "legacy-completion-after-stop";
+    appState.set(`agent-task:${taskId}`, {
+      taskId,
+      threadId: "thread-1",
+      runId: `run-task-${taskId}`,
+      parentThreadId: "parent-thread",
+      ownerEmail: OWNER,
+      description: "legacy task",
+      status: "running",
+      preview: "",
+      summary: "",
+      currentStep: "Working",
+      createdAt: Date.now(),
+    });
+    getActiveRunForThreadAsyncMock.mockResolvedValue({ status: "completed" });
+    beforeNextAppStateCas = () => {
+      const currentTask = appState.get(`agent-task:${taskId}`);
+      appState.set(`agent-task:${taskId}`, {
+        ...currentTask,
+        status: "errored",
+        summary: "Task stopped.",
+        error: "Task stopped.",
+        currentStep: "",
+        terminalProgressStatus: "cancelled",
+      });
+    };
+
+    const task = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask(taskId),
+    );
+
+    expect(task).toMatchObject({
+      status: "errored",
+      summary: "Task stopped.",
+      terminalProgressStatus: "cancelled",
+    });
+    expect(appState.has(`parent-completion:parent-thread:inj-${taskId}`)).toBe(
+      false,
+    );
+    expect(completeProgressRunMock).not.toHaveBeenCalled();
+    expect(insertNotificationMock).not.toHaveBeenCalled();
+  });
+
+  it("records legacy completion with its parent injection atomically", async () => {
+    const taskId = "legacy-completion-with-parent";
+    appState.set(`agent-task:${taskId}`, {
+      taskId,
+      threadId: "thread-1",
+      runId: `run-task-${taskId}`,
+      parentThreadId: "parent-thread",
+      ownerEmail: OWNER,
+      description: "legacy task",
+      status: "running",
+      preview: "",
+      summary: "The worker result.",
+      currentStep: "Working",
+      createdAt: Date.now(),
+    });
+    getActiveRunForThreadAsyncMock.mockResolvedValue({ status: "completed" });
+
+    const task = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask(taskId),
+    );
+
+    expect(task).toMatchObject({
+      status: "completed",
+      summary: "The worker result.",
+      parentCompletionEnqueued: true,
+    });
+    expect(
+      appState.get(`parent-completion:parent-thread:inj-${taskId}`),
+    ).toMatchObject({
+      taskId,
+      status: "completed",
+      summaryExcerpt: "The worker result.",
+    });
   });
 
   it("does not replay completed actions when terminal transcript persistence fails", async () => {
@@ -1803,6 +1959,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     Object.assign(task, {
       status: "errored",
       terminalProgressStatus: "failed",
+      transcriptRunIds: [`run-task-${taskId}-a2-c1`],
     });
     appState.set(`agent-task:${taskId}`, task);
     const row = queueRows.find((candidate) => candidate.task_id === taskId);
@@ -1821,7 +1978,17 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
               }),
             },
           ]
-        : [],
+        : runId === `run-task-${taskId}-a2-c1`
+          ? [
+              {
+                seq: 0,
+                eventData: JSON.stringify({
+                  type: "text",
+                  text: "output from earlier attempt",
+                }),
+              },
+            ]
+          : [],
     );
 
     const events = await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -1829,9 +1996,13 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
 
     expect(events.map((event) => event.message)).toEqual([
+      "output from earlier attempt",
       "output from failed attempt",
     ]);
-    expect(events[0]?.metadata?.sourceRunId).toBe(`run-task-${taskId}-a3-c2`);
+    expect(events.map((event) => event.metadata?.sourceRunId)).toEqual([
+      `run-task-${taskId}-a2-c1`,
+      `run-task-${taskId}-a3-c2`,
+    ]);
   });
 
   it("fails a live transcript read when active queue state is unreadable", async () => {

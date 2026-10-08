@@ -37,7 +37,10 @@ import {
 import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import type { RunEvent } from "../agent/types.js";
+import type { AppStateCompareAndSetOperation } from "../application-state/index.js";
 import {
+  compareAndSetAppState,
+  compareAndSetManyAppState,
   readAppState,
   writeAppState,
   listAppState,
@@ -295,6 +298,21 @@ async function appendParentCompletionInjection(
   ) {
     return;
   }
+  await writeAppState(
+    `${parentCompletionQueuePrefix(parentThreadId)}${id}`,
+    parentCompletionInjectionValue(task, terminal) as any,
+  );
+}
+
+function parentCompletionInjectionValue(
+  task: AgentTask,
+  terminal: {
+    taskStatus: "completed" | "errored";
+    summary: string;
+    hitContinuationLimit?: boolean;
+  },
+): ParentCompletionInjection {
+  const id = `inj-${task.taskId}`;
   const summaryExcerpt =
     terminal.summary.length > PARENT_COMPLETION_INLINE_MAX
       ? terminal.summary.slice(0, PARENT_COMPLETION_INLINE_MAX)
@@ -310,10 +328,7 @@ async function appendParentCompletionInjection(
       terminal.summary.length > PARENT_COMPLETION_INLINE_MAX,
     timestamp: Date.now(),
   };
-  await writeAppState(
-    `${parentCompletionQueuePrefix(parentThreadId)}${id}`,
-    injection as any,
-  );
+  return injection;
 }
 
 function formatParentCompletionInjection(
@@ -546,6 +561,74 @@ async function saveTask(task: AgentTask): Promise<void> {
   });
 }
 
+async function saveTaskIfCurrent(
+  task: AgentTask,
+  expectedTask: AgentTask,
+): Promise<boolean> {
+  task.updatedAt = Date.now();
+  if (
+    !(await compareAndSetAppState(
+      `${TASK_PREFIX}${task.taskId}`,
+      expectedTask as any,
+      task as any,
+    ))
+  ) {
+    return false;
+  }
+  await writeAppState(`${THREAD_PREFIX}${task.threadId}`, {
+    taskId: task.taskId,
+  });
+  return true;
+}
+
+async function saveLegacyTaskCompletionIfCurrent(
+  task: AgentTask,
+  expectedTask: AgentTask,
+  terminal: {
+    taskStatus: "completed" | "errored";
+    summary: string;
+    hitContinuationLimit?: boolean;
+  },
+): Promise<boolean> {
+  if (!task.parentThreadId) {
+    task.parentCompletionEnqueued = true;
+    if (await saveTaskIfCurrent(task, expectedTask)) return true;
+    const currentTask = await loadTask(task.taskId);
+    if (currentTask) Object.assign(task, currentTask);
+    return false;
+  }
+
+  task.parentCompletionEnqueued = true;
+  task.updatedAt = Date.now();
+  const operations: AppStateCompareAndSetOperation[] = [
+    {
+      key: `${TASK_PREFIX}${task.taskId}`,
+      expectedValue: expectedTask as any,
+      nextValue: task as any,
+    },
+  ];
+  const key = `${parentCompletionQueuePrefix(task.parentThreadId)}inj-${task.taskId}`;
+  const existing = await readAppState(key);
+  if (existing && existing.taskId !== task.taskId) {
+    throw new Error("Parent completion state is unreadable.");
+  }
+  operations.push({
+    key,
+    expectedValue: existing,
+    nextValue: (existing ??
+      parentCompletionInjectionValue(task, terminal)) as any,
+  });
+  if (!(await compareAndSetManyAppState(operations))) {
+    const currentTask = await loadTask(task.taskId);
+    if (currentTask) Object.assign(task, currentTask);
+    return false;
+  }
+  await writeAppState(`${THREAD_PREFIX}${task.threadId}`, {
+    taskId: task.taskId,
+  });
+  return true;
+}
+
 async function loadTask(taskId: string): Promise<AgentTask | null> {
   const data = await readAppState(`${TASK_PREFIX}${taskId}`);
   return data ? (data as unknown as AgentTask) : null;
@@ -634,13 +717,14 @@ async function completeReconciledTask(
     Awaited<ReturnType<typeof getAgentTeamRunDispatchState>>
   >,
 ): Promise<AgentTask> {
+  const expectedLegacyTask = expectedDispatch ? null : structuredClone(task);
   let progressReconciled = true;
   const persistedSummary = await readPersistedTaskAssistantText(task);
   const hitContinuationLimit = Boolean(
     task.hitContinuationLimit || expectedDispatch?.payload.hitContinuationLimit,
   );
   task.hitContinuationLimit = hitContinuationLimit;
-  const complete = async () => {
+  const complete = async (): Promise<boolean> => {
     task.status = "completed";
     const summary =
       (persistedSummary.trim() ? persistedSummary : "") ||
@@ -657,15 +741,30 @@ async function completeReconciledTask(
     task.terminalEffectsReconciled = false;
     task.terminalProgressStatus = "succeeded";
     task.parentCompletionEnqueued = !task.parentThreadId;
-    if (task.parentThreadId) {
-      await appendParentCompletionInjection(task.parentThreadId, task, {
-        taskStatus: "completed",
-        summary: task.summary,
-        hitContinuationLimit,
-      });
+    const terminal = {
+      taskStatus: "completed" as const,
+      summary: task.summary,
+      hitContinuationLimit,
+    };
+    if (expectedDispatch && task.parentThreadId) {
+      await appendParentCompletionInjection(
+        task.parentThreadId,
+        task,
+        terminal,
+      );
       task.parentCompletionEnqueued = true;
     }
-    await saveTask(task);
+    if (expectedDispatch) {
+      await saveTask(task);
+    } else if (
+      !(await saveLegacyTaskCompletionIfCurrent(
+        task,
+        expectedLegacyTask!,
+        terminal,
+      ))
+    ) {
+      return false;
+    }
     if (ownerEmail) {
       progressReconciled = await completeTaskProgressRun(
         task,
@@ -674,6 +773,7 @@ async function completeReconciledTask(
         "Task completed.",
       );
     }
+    return true;
   };
 
   if (expectedDispatch) {
@@ -683,9 +783,9 @@ async function completeReconciledTask(
       complete,
       { statuses: ["done"], expectedUpdatedAt: expectedDispatch.updatedAt },
     );
-    if (!result.current) return task;
-  } else {
-    await complete();
+    if (!result.current || !result.value) return task;
+  } else if (!(await complete())) {
+    return task;
   }
   const notificationReconciled = ownerEmail
     ? await ensureTaskCompletionNotification(
@@ -2790,6 +2890,7 @@ async function transcriptRunIdsForTask(
   if (
     !hasTranscriptRunIds ||
     task?.status === "running" ||
+    task?.status === "errored" ||
     task?.terminalProgressStatus === "cancelled"
   ) {
     dispatch = await getAgentTeamRunDispatchState(taskId);
@@ -2995,9 +3096,11 @@ export async function stopAgentTeamBackgroundRun(
       taskMatchesOwnerScope(currentTask, ownerScope) &&
       currentTask.status === "running"
     ) {
+      const expectedTask = structuredClone(currentTask);
       markStopped(currentTask);
-      await saveTask(currentTask);
-      stoppedTask = currentTask;
+      if (await saveTaskIfCurrent(currentTask, expectedTask)) {
+        stoppedTask = currentTask;
+      }
     }
   }
 
