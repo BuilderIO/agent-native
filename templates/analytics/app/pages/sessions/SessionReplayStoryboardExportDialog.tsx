@@ -446,7 +446,7 @@ export function SessionReplayStoryboardExportDialog({
         response?: string;
         boardUrl?: string;
         cleanupPending?: boolean;
-        data?: { cleanupPending?: boolean };
+        data?: { cleanupPending?: boolean; saveOutcomeUnknown?: boolean };
         error?: string | boolean;
         message?: string;
         statusMessage?: string;
@@ -469,6 +469,9 @@ export function SessionReplayStoryboardExportDialog({
         );
       }
       if (!upload.ok) {
+        if (result?.data?.saveOutcomeUnknown) {
+          throw new Error(t("sessions.storyboardSaveOutcomeUnknown"));
+        }
         const errorMessage =
           (typeof result?.error === "string" && result.error.trim()) ||
           result?.statusMessage?.trim() ||

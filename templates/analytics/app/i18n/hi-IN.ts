@@ -1594,6 +1594,8 @@ export default {
       "स्टोरीबोर्ड निर्यात विफल हुआ और अस्थायी स्क्रीनशॉट फ़ाइलें हटाई नहीं जा सकीं।",
     storyboardUnexpectedResponse:
       "स्क्रीनशॉट निर्यात से अपठनीय प्रतिक्रिया मिली। फिर से प्रयास करें।",
+    storyboardSaveOutcomeUnknown:
+      "Design ने स्टोरीबोर्ड सहेजा हो सकता है। दोबारा कोशिश करने से पहले Design देखें।",
     openStoryboard: "Design में स्टोरीबोर्ड खोलें",
     cancelStoryboardCapture: "कैप्चर रद्द करें",
     captureToDesign: "कैप्चर करके Design में जोड़ें",

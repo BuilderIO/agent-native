@@ -55,7 +55,7 @@ export async function resolveA2ACallerAuth(options?: {
     userEmail &&
     options?.audience &&
     globalSecret &&
-    (!orgId || orgDomain?.trim())
+    (options?.userIdentityOnly || !orgId || orgDomain?.trim())
   ) {
     addApiKeyAttempt(
       await signA2AToken(

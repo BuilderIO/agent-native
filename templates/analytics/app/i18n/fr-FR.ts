@@ -1676,6 +1676,8 @@ export default {
       "L’exportation du storyboard a échoué et les captures temporaires n’ont pas pu être supprimées.",
     storyboardUnexpectedResponse:
       "L’export des captures a renvoyé une réponse illisible. Réessayez.",
+    storyboardSaveOutcomeUnknown:
+      "Design a peut-être enregistré le storyboard. Vérifiez Design avant de réessayer.",
     openStoryboard: "Ouvrir le storyboard dans Design",
     cancelStoryboardCapture: "Annuler la capture",
     captureToDesign: "Capturer et ajouter à Design",

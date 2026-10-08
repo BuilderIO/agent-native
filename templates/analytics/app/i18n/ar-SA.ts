@@ -1607,6 +1607,8 @@ export default {
       "فشل تصدير لوحة القصص، وتعذّر حذف ملفات لقطات الشاشة المؤقتة.",
     storyboardUnexpectedResponse:
       "أعاد تصدير لقطات الشاشة استجابة يتعذّر قراءتها. أعد المحاولة.",
+    storyboardSaveOutcomeUnknown:
+      "ربما حفظ Design لوحة القصص. تحقّق من Design قبل إعادة المحاولة.",
     openStoryboard: "فتح اللوحة القصصية في Design",
     cancelStoryboardCapture: "إلغاء الالتقاط",
     captureToDesign: "التقاط وإضافة إلى Design",

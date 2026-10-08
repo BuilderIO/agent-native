@@ -254,6 +254,17 @@ describe("POST /api/session-replay/storyboard", () => {
         requireDispatcher: true,
       },
     );
+    for (const [options] of mocks.invokeAgentAction.mock.calls) {
+      expect(options).toEqual(
+        expect.objectContaining({
+          target: designUrl,
+          apiKey: "test-a2a-token",
+          userEmail: "ada@example.test",
+        }),
+      );
+      expect(options).not.toHaveProperty("orgDomain");
+      expect(options).not.toHaveProperty("orgSecret");
+    }
     expect(mocks.invokeAgentAction).toHaveBeenCalledTimes(4);
   });
 
@@ -477,7 +488,39 @@ describe("POST /api/session-replay/storyboard", () => {
       (handler as any)(makeEvent(makeFormData())),
     ).rejects.toMatchObject({
       statusCode: 502,
-      statusMessage: "Design screenshot upload response was too large",
+      statusMessage: expect.stringContaining("Check Design before retrying"),
+      data: { saveOutcomeUnknown: true },
+    });
+  });
+
+  it("marks a failed 2xx response-body read as an unknown save outcome", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error("response stream failed"));
+      },
+    });
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(new Response(body));
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 502,
+      statusMessage: expect.stringContaining("Check Design before retrying"),
+      data: { saveOutcomeUnknown: true },
+    });
+  });
+
+  it("marks malformed 2xx upload JSON as an unknown save outcome", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(
+      new Response("not valid JSON", { status: 200 }),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 502,
+      statusMessage: expect.stringContaining("Check Design before retrying"),
+      data: { saveOutcomeUnknown: true },
     });
   });
 

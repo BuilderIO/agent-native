@@ -1650,6 +1650,8 @@ export default {
       "A exportação do storyboard falhou e não foi possível remover os arquivos temporários de captura.",
     storyboardUnexpectedResponse:
       "A exportação das capturas retornou uma resposta ilegível. Tente novamente.",
+    storyboardSaveOutcomeUnknown:
+      "O Design pode ter salvo o storyboard. Verifique o Design antes de tentar novamente.",
     openStoryboard: "Abrir storyboard no Design",
     cancelStoryboardCapture: "Cancelar captura",
     captureToDesign: "Capturar e adicionar ao Design",

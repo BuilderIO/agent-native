@@ -1671,6 +1671,8 @@ export default {
       "Der Storyboard-Export ist fehlgeschlagen, und temporäre Screenshots konnten nicht entfernt werden.",
     storyboardUnexpectedResponse:
       "Der Screenshot-Export hat eine unlesbare Antwort zurückgegeben. Bitte erneut versuchen.",
+    storyboardSaveOutcomeUnknown:
+      "Design hat das Storyboard möglicherweise gespeichert. Prüfen Sie Design, bevor Sie es erneut versuchen.",
     openStoryboard: "Storyboard in Design öffnen",
     cancelStoryboardCapture: "Aufnahme abbrechen",
     captureToDesign: "Aufnehmen und zu Design hinzufügen",

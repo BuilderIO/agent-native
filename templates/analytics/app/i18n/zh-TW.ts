@@ -1630,6 +1630,8 @@ export default {
     storyboardTemporaryCleanupFailed:
       "故事板匯出失敗，且無法刪除暫存截圖檔案。",
     storyboardUnexpectedResponse: "截圖匯出傳回了無法讀取的回應。請重試。",
+    storyboardSaveOutcomeUnknown:
+      "Design 可能已儲存故事板。重試前請先檢查 Design。",
     openStoryboard: "在 Design 中開啟故事板",
     cancelStoryboardCapture: "取消擷取",
     captureToDesign: "擷取並新增至 Design",

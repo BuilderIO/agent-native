@@ -47,8 +47,55 @@ type HandoffScreenshot = Omit<ScreenshotInput, "recordingId"> & {
   replayId: string;
 };
 
+type DesignUploadResult = {
+  response?: string;
+  boardUrl?: string;
+  designId?: string;
+  screenshotCount?: number;
+  cleanupPending?: boolean;
+  message?: string;
+  statusMessage?: string;
+  data?: Record<string, unknown>;
+};
+
 function badRequest(message: string, statusCode = 400): never {
   throw createError({ statusCode, statusMessage: message });
+}
+
+function unknownSaveOutcomeError(message: string, cause?: unknown) {
+  return createError({
+    statusCode: 502,
+    statusMessage: message,
+    data: { saveOutcomeUnknown: true },
+    ...(cause === undefined ? {} : { cause }),
+  });
+}
+
+function isDesignUploadResult(value: unknown): value is DesignUploadResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  const stringFields = [
+    "response",
+    "boardUrl",
+    "designId",
+    "message",
+    "statusMessage",
+  ];
+  return (
+    stringFields.every(
+      (field) =>
+        result[field] === undefined || typeof result[field] === "string",
+    ) &&
+    (result.screenshotCount === undefined ||
+      (typeof result.screenshotCount === "number" &&
+        Number.isSafeInteger(result.screenshotCount))) &&
+    (result.cleanupPending === undefined ||
+      typeof result.cleanupPending === "boolean") &&
+    (result.data === undefined ||
+      (result.data !== null &&
+        typeof result.data === "object" &&
+        !Array.isArray(result.data)))
+  );
 }
 
 async function readDesignUploadResponseText(
@@ -346,16 +393,14 @@ async function readDesignStoryboard(
   target: string,
   designId: string,
   userEmail: string,
-  caller: Awaited<ReturnType<typeof resolveA2ACallerAuth>>,
+  apiKey: string,
 ): Promise<{ targetUrl: string; content: string } | null> {
   const invokeRead = (target: string, input: Record<string, unknown>) =>
     invokeAgentAction({
       target,
       selfAppId: "analytics",
       userEmail,
-      ...(caller.apiKey ? { apiKey: caller.apiKey } : {}),
-      ...(caller.orgDomain ? { orgDomain: caller.orgDomain } : {}),
-      ...(caller.orgSecret ? { orgSecret: caller.orgSecret } : {}),
+      apiKey,
       requestTimeoutMs: 30_000,
       action: "get-design",
       input,
@@ -604,10 +649,10 @@ export default defineEventHandler(async (event) =>
       let designTargetUrl = designTarget.url;
       if (manifest.designId) {
         const previous = await readDesignStoryboard(
-          "design",
+          designTarget.url,
           manifest.designId,
           ctx.userEmail,
-          caller,
+          uploadToken,
         );
         if (!previous) {
           badRequest(
@@ -663,10 +708,19 @@ export default defineEventHandler(async (event) =>
                 requireDispatcher: true,
               },
             );
-            return {
-              response,
-              body: await readDesignUploadResponseText(response),
-            };
+            uploadResponse = response;
+            try {
+              return {
+                response,
+                body: await readDesignUploadResponseText(response),
+              };
+            } catch (error) {
+              if (!response.ok) throw error;
+              throw unknownSaveOutcomeError(
+                "Design may have saved the storyboard, but Analytics could not read its response. Check Design before retrying.",
+                error,
+              );
+            }
           })(),
           timeoutFailure,
         ]);
@@ -688,21 +742,20 @@ export default defineEventHandler(async (event) =>
       if (!uploadResponse) {
         badRequest("Design screenshot upload did not return a response", 502);
       }
-      let uploadResult: {
-        response?: string;
-        boardUrl?: string;
-        designId?: string;
-        screenshotCount?: number;
-        cleanupPending?: boolean;
-        message?: string;
-        statusMessage?: string;
-        data?: Record<string, unknown>;
-      };
+      let uploadResult: DesignUploadResult;
       try {
-        uploadResult = JSON.parse(
-          uploadResponseBody ?? "",
-        ) as typeof uploadResult;
-      } catch {
+        const parsed: unknown = JSON.parse(uploadResponseBody ?? "");
+        if (!isDesignUploadResult(parsed)) {
+          throw new Error("Design screenshot upload response was invalid");
+        }
+        uploadResult = parsed;
+      } catch (error) {
+        if (uploadResponse.ok) {
+          throw unknownSaveOutcomeError(
+            "Design may have saved the storyboard, but Analytics could not read its response. Check Design before retrying.",
+            error,
+          );
+        }
         badRequest(
           "Design returned an unexpected screenshot upload response",
           502,
@@ -729,9 +782,8 @@ export default defineEventHandler(async (event) =>
       }
       const designId = uploadResult.designId ?? manifest.designId;
       if (!designId) {
-        badRequest(
+        throw unknownSaveOutcomeError(
           "Design may have saved the storyboard, but its ID could not be recovered. Check Design before retrying.",
-          502,
         );
       }
       let confirmation: Awaited<ReturnType<typeof readDesignStoryboard>>;
@@ -740,12 +792,11 @@ export default defineEventHandler(async (event) =>
           designTargetUrl,
           designId,
           ctx.userEmail,
-          caller,
+          uploadToken,
         );
       } catch {
-        badRequest(
+        throw unknownSaveOutcomeError(
           "Design may have saved the storyboard, but Analytics could not read it back. Check Design before retrying.",
-          502,
         );
       }
       if (
@@ -756,9 +807,8 @@ export default defineEventHandler(async (event) =>
           previousBoardContent,
         )
       ) {
-        badRequest(
+        throw unknownSaveOutcomeError(
           "Design did not confirm the saved storyboard. It may have been saved; check Design before retrying.",
-          502,
         );
       }
       responseBody = {

@@ -1657,6 +1657,8 @@ export default {
       "La exportación del guion gráfico falló y no se pudieron eliminar los archivos temporales de captura.",
     storyboardUnexpectedResponse:
       "La exportación de capturas devolvió una respuesta ilegible. Vuelve a intentarlo.",
+    storyboardSaveOutcomeUnknown:
+      "Es posible que Design haya guardado el guion gráfico. Comprueba Design antes de volver a intentarlo.",
     openStoryboard: "Abrir guion gráfico en Design",
     cancelStoryboardCapture: "Cancelar captura",
     captureToDesign: "Capturar y añadir a Design",

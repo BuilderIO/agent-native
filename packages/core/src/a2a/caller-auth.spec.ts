@@ -178,6 +178,34 @@ describe("resolveA2ACallerAuth", () => {
     );
   });
 
+  it("scopes identity-only tokens to domainless organizations by id", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgDomainMock.mockResolvedValueOnce(null);
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+          userIdentityOnly: true,
+        });
+
+        expect(auth.apiKey).toBeTruthy();
+        expect(auth.apiKeyFallbacks).toBeUndefined();
+        const { payload } = await jose.jwtVerify(
+          auth.apiKey!,
+          new TextEncoder().encode("global-a2a-secret"),
+        );
+        expect(payload).toMatchObject({
+          sub: "alice+qa@agent-native.test",
+          org_id: "org-qa",
+          aud: "https://peer.example.test",
+        });
+        expect(payload).not.toHaveProperty("org_domain");
+      },
+    );
+  });
+
   it("falls back to the org A2A secret when no shared secret is configured", async () => {
     delete process.env.A2A_SECRET;
 

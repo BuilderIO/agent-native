@@ -1649,6 +1649,8 @@ export default {
       "ストーリーボードのエクスポートに失敗し、一時スクリーンショットを削除できませんでした。",
     storyboardUnexpectedResponse:
       "スクリーンショットのエクスポートから読み取れない応答が返されました。もう一度お試しください。",
+    storyboardSaveOutcomeUnknown:
+      "Design にストーリーボードが保存された可能性があります。再試行する前に Design を確認してください。",
     openStoryboard: "Design でストーリーボードを開く",
     cancelStoryboardCapture: "キャプチャをキャンセル",
     captureToDesign: "キャプチャして Design に追加",

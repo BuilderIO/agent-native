@@ -1702,6 +1702,8 @@ export default {
       "The storyboard export failed, and temporary screenshot files could not be removed.",
     storyboardUnexpectedResponse:
       "The screenshot export returned an unreadable response. Retry the export.",
+    storyboardSaveOutcomeUnknown:
+      "Design may have saved the storyboard. Check Design before retrying.",
     openStoryboard: "Open storyboard in Design",
     cancelStoryboardCapture: "Cancel capture",
     captureToDesign: "Capture and add to Design",
