@@ -2419,7 +2419,7 @@ describe("published recap readback workflow", () => {
       );
     }
 
-    const token = "abcdefghijklmnopqrstuvwxyz123456";
+    const token = "abcdefghijklmnopqrstuvwxyz+123456/==tail";
     const diagnostic = executeShotDiagnostic(
       scripts[0]!,
       `get-visual-plan returned HTTP 403; Authorization: Bearer ${token}`,
