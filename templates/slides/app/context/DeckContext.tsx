@@ -1160,6 +1160,9 @@ function requestDeckResync(deckId: string) {
 // open. Unlike the sync deferred above, the edit ending is not what unblocks
 // it, so it retries as soon as the writes settle.
 const inlineEditRemoteRetryDecks = new Set<string>();
+// Decks whose remote change waits for an IME composition to end. Save settling
+// must not retry these: the composition is still open and would hold it again.
+const inlineEditCompositionHeldDecks = new Set<string>();
 
 function flushDeferredRemoteSyncs() {
   for (const deckId of [...inlineEditRemoteRetryDecks]) {
@@ -1179,7 +1182,11 @@ function flushDeferredRemoteSyncs() {
   }
 }
 
-onInlineEditRemoteRetry(() => flushDeferredRemoteSyncs());
+onInlineEditRemoteRetry((deckId) => {
+  if (!inlineEditCompositionHeldDecks.delete(deckId)) return;
+  inlineEditRemoteRetryDecks.add(deckId);
+  flushDeferredRemoteSyncs();
+});
 
 // Slides whose pending save carries a merge of another writer's edits, with
 // the local draft the merge started from. Until the editor re-reads the merged
@@ -3785,7 +3792,7 @@ function adoptRemoteSlideUnderInlineEdit(
     confirmed,
     serverSlide.content,
   );
-  if (result === "later") inlineEditRemoteRetryDecks.add(deckId);
+  if (result === "later") inlineEditCompositionHeldDecks.add(deckId);
   if (result !== "applied") return false;
   rememberConfirmedSlideContent(deckId, slide.id, serverSlide.content);
   const sent = sentSlideContent.get(deckId);
@@ -5122,6 +5129,7 @@ export function DeckProvider({
       sentSlideContent.delete(deckId);
       activeInlineEditSlides.delete(deckId);
       inlineEditRemoteRetryDecks.delete(deckId);
+      inlineEditCompositionHeldDecks.delete(deckId);
     }
 
     ++deckBaselineRequestIdRef.current;

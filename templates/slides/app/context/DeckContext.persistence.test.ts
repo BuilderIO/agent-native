@@ -4434,6 +4434,22 @@ describe("DeckContext deck creation persistence", () => {
           initial.slides[0]!.content,
         );
 
+        // A save settling mid-composition must not read the deck again.
+        const deckReads = () =>
+          api.fetchMock.mock.calls.filter(([url]) =>
+            requestString(url).includes("/_agent-native/actions/get-deck"),
+          ).length;
+        const readsWhileComposing = deckReads();
+        act(() => {
+          result.current.updateDeck(initial.id, { title: "Renamed" });
+        });
+        await act(async () => {
+          await result.current.flushDeckSave(initial.id);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+        expect(deckReads()).toBe(readsWhileComposing);
+        expect(applier).toHaveBeenCalledTimes(1);
+
         result_ = "applied";
         await act(async () => {
           requestInlineEditRemoteRetry(initial.id);

@@ -110,10 +110,13 @@ export function applyRemoteHtmlUnderEdit(
     }
     if (attrs.length === 0 && texts.length === 0) continue;
 
-    const live = stamp
-      ? root.querySelector<HTMLElement>(`[${SOURCE_STAMP_ATTR}="${stamp}"]`)
-      : null;
-    if (!live) return "unsupported";
+    // A stamp shared by parser-rebuilt copies or an Enter-split row does not
+    // name one element, so a delta cannot be routed by it.
+    const matches = stamp
+      ? root.querySelectorAll<HTMLElement>(`[${SOURCE_STAMP_ATTR}="${stamp}"]`)
+      : [];
+    if (matches.length !== 1) return "unsupported";
+    const live = matches[0];
     if (live === edited || edited.contains(live)) {
       overlap = true;
       continue;

@@ -3224,10 +3224,15 @@ export default function SlideEditor({
           remote,
         );
         if (result !== "applied") return "held";
+        // The no-change baseline is the stored copy the edit started from.
+        // Once that copy moved on, a stale one would be saved over the other
+        // writer's change when the typing nets out, so only an exact match is
+        // carried forward; otherwise the live canvas is serialized instead.
         const initial = inlineEditInitialContentRef.current;
-        if (initial?.slideId === slideId && initial.content === confirmed) {
-          inlineEditInitialContentRef.current = { slideId, content: remote };
-        }
+        inlineEditInitialContentRef.current =
+          initial?.slideId === slideId && initial.content === confirmed
+            ? { slideId, content: remote }
+            : null;
         return "applied";
       },
     );

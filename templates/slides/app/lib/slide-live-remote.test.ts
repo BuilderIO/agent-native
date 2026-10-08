@@ -112,6 +112,20 @@ describe("applyRemoteHtmlUnderEdit", () => {
     expect(liveOther.className).toBe("x");
   });
 
+  it("does not route a delta by a stamp that names more than one live element", () => {
+    const twin = (text: string) =>
+      `<b ${stamp(2)}>${text}</b><b ${stamp(2)}>${text}</b>`;
+    const prev = slide(box(1, "a", "Alpha"), twin("Bold"));
+    const next = slide(box(1, "a", "Alpha"), twin("Bold by remote"));
+    const root = mount(prev);
+    const edited = startEditing(root, "a");
+
+    expect(applyRemoteHtmlUnderEdit(root, edited, prev, next)).toBe(
+      "unsupported",
+    );
+    expect(root.querySelectorAll("b")[0].textContent).toBe("Bold");
+  });
+
   it("reports an overlap and writes nothing when the edited text changed too", () => {
     const prev = slide(box(1, "a", "Alpha"), box(2, "b", "Beta"));
     const next = slide(

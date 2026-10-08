@@ -837,6 +837,9 @@ const EDITING_SELECTOR = '[contenteditable="true"]';
  * is registered as rendered from `remote`, so the same content arriving as a
  * prop later is recognized as already shown.
  */
+// How each canvas root was rendered, so a remote copy is rendered the same way.
+const renderedVideoAutoplayDisabled = new WeakMap<HTMLElement, boolean>();
+
 export function applyRemoteSlideContentUnderEdit(
   root: HTMLElement,
   confirmed: string,
@@ -850,6 +853,7 @@ export function applyRemoteSlideContentUnderEdit(
     renderRawSlideHtml(content, {
       scopeSelector: `[data-slide-content-scope="${scopeId}"]`,
       stampNonce: source.nonce,
+      disableVideoAutoplay: renderedVideoAutoplayDisabled.get(root),
     });
   const prev = render(confirmed);
   const next = render(remote);
@@ -939,12 +943,14 @@ function RawSlideHtmlContent({
   slideId,
   source,
   mermaidBlocks,
+  disableVideoAutoplay,
 }: {
   html: string;
   scopeId: string;
   slideId: string;
   source: RenderedSlideSource | null;
   mermaidBlocks: string[];
+  disableVideoAutoplay?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const renderedHtmlRef = useRef(html);
@@ -954,6 +960,7 @@ function RawSlideHtmlContent({
   useLayoutEffect(() => {
     const root = contentRef.current;
     if (!root) return;
+    renderedVideoAutoplayDisabled.set(root, disableVideoAutoplay === true);
     if (renderedHtmlRef.current !== html) {
       const currentSource = getRenderedSlideSource(root);
       const sameSlide = currentSource?.nonce === source?.nonce;
@@ -1095,6 +1102,7 @@ function BlankSlideContent({
       slideId={slideId}
       source={source}
       mermaidBlocks={mermaidBlocks}
+      disableVideoAutoplay={disableVideoAutoplay}
     />
   );
 }

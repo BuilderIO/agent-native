@@ -205,6 +205,61 @@ describe("SlideEditor with a newer version of the edited slide", () => {
       expect(edited.textContent).toBe("Alpha typed");
     });
 
+    it("does not save the edit's start copy over the remote change when the typing nets out", () => {
+      const base = objects("Alpha", "Beta");
+      const onUpdateSlide = vi.fn(
+        (_updates: Partial<Slide>, _slideId?: string, _options?: object) =>
+          undefined,
+      );
+      vi.stubGlobal("fetch", () => new Promise(() => {}));
+      const noop = () => {};
+      const slide = {
+        id: "slide-live-baseline",
+        content: base,
+        layout: "blank",
+      } as Slide;
+      render(
+        <SlideEditor
+          slide={slide}
+          deckId="deck-live"
+          onUpdateSlide={onUpdateSlide}
+          onGenerateImage={noop}
+          onOpenAssetLibrary={noop}
+          onUploadImage={noop}
+          onToggleObjectFit={noop}
+          onChangeObjectPosition={noop}
+        />,
+        { wrapper: Providers },
+      );
+      const edited = document.querySelector<HTMLElement>(
+        '.slide-content [data-slide-object-id="a"]',
+      )!;
+      fireEvent.doubleClick(edited, { detail: 2 });
+      (edited.firstChild as Text).data = "Alpha typed";
+      fireEvent.input(edited);
+      fireEvent(window, new Event("pagehide"));
+      // That draft is what the canvas last matched the server on.
+      const confirmed = objects("Alpha typed", "Beta");
+      expect(onUpdateSlide).toHaveBeenCalledTimes(1);
+
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-baseline",
+          confirmed,
+          objects("Alpha typed", "Beta by remote"),
+        ),
+      ).toBe("applied");
+      // The typing nets out to the text the edit started with.
+      (edited.firstChild as Text).data = "Alpha";
+      fireEvent(window, new Event("pagehide"));
+
+      expect(onUpdateSlide).toHaveBeenCalledTimes(2);
+      expect(
+        (onUpdateSlide.mock.calls[1]![0] as Partial<Slide>).content,
+      ).toContain("Beta by remote");
+    });
+
     it("holds a change to the edited text and one that arrives after the edit ended", () => {
       const base = objects("Alpha", "Beta");
       openEdit("slide-live-held", base);
