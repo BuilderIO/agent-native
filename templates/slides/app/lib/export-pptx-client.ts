@@ -1255,6 +1255,7 @@ function stopPaint(color: string): { color: string; opacity?: string } {
     };
   }
   if (color.toLowerCase() === "transparent") {
+    // guard:allow-raw-color — CSS `transparent` as Chrome computes it, not a theme color
     return stopPaint("rgba(0, 0, 0, 0)");
   }
   const hex8 = color.match(/^#([\da-f]{6})([\da-f]{2})$/i);
