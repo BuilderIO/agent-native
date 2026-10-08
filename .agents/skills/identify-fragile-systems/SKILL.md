@@ -158,6 +158,9 @@ instance of a pattern that will keep producing bugs". One run per report.
     `bug-verdict.ts --run <id> --symptom <label> --verdict one-off|pattern|known --root-cause "<file:line, what goes wrong>" --reason "<why>"`,
     plus `--fix "<local fix>"` for one-off, `--plan <file>` for pattern
     (with `--unfiled "<why>"` if it has no ticket), or `--ticket KEY` for known.
+    Use `needs-info` with `--ask "<log, repro, or detail>"` when code and
+    history cannot decide it, for example when a desktop log would tell
+    which of two causes it is. Don't guess a verdict to finish the run.
 11. **Summarize**: `summarize.ts --run <id>`. Exit 1 means no verdict yet.
 
 Report, per symptom: the verdict, the root cause with file:line, and the

@@ -79,6 +79,7 @@ export interface FocusFile {
   commits: number;
   fixes: number;
   fixCommits: CommitRef[];
+  broadCommits: number;
 }
 
 export interface SystemReport {
@@ -157,6 +158,7 @@ main((args) => {
   let releaseCommits = 0;
   let sweepCommits = 0;
   let fixCommits = 0;
+  const sweepShas = new Set<string>();
   let countedCommits = 0;
   const touches = new Map<string, Touch[]>();
   const mechanicalShare = new Map<
@@ -178,6 +180,7 @@ main((args) => {
     }
     if (bySystem.size > SWEEP_SYSTEMS) {
       sweepCommits++;
+      sweepShas.add(commit.sha);
       continue;
     }
     countedCommits++;
@@ -241,7 +244,7 @@ main((args) => {
           ),
           focus: focus
             .filter((f) => systemOf(f, config) === system)
-            .map((f) => focusFile(f, data.commits, ignoredSubject)),
+            .map((f) => focusFile(f, data.commits, ignoredSubject, sweepShas)),
         }))
         .sort((a, b) => b.score - a.score)
     : all
@@ -296,10 +299,10 @@ main((args) => {
   for (const r of hot) {
     for (const f of r.focus ?? [])
       console.log(
-        `  focus ${f.path}: ${f.commits} commits, ${f.fixes} fixes in the lookback`,
+        `  focus ${f.path}: ${f.commits} commits, ${f.fixes} fixes in the lookback${f.broadCommits ? ` (+${f.broadCommits} broad commits not counted)` : ""}`,
       );
     console.log(
-      `  ${String(r.score).padStart(3)}  ${r.verdict.padEnd(19)} ${r.system}  window ${r.window.commits}c/${r.window.fixes}f  lookback ${r.lookback.commits}c/${r.lookback.fixes}f  weekly fixes ${r.lookback.weekly.map((w) => w.fixes).join("→")}`,
+      `  ${String(r.score).padStart(3)}  ${r.verdict.padEnd(19)} ${r.system}  ${bug ? "" : `window ${r.window.commits}c/${r.window.fixes}f  `}lookback ${r.lookback.commits}c/${r.lookback.fixes}f  weekly fixes ${r.lookback.weekly.map((w) => w.fixes).join("→")}`,
     );
   }
 });
@@ -340,16 +343,21 @@ function focusFile(
   file: string,
   commits: Commit[],
   ignoredSubject: (s: string) => boolean,
+  sweeps: Set<string>,
 ): FocusFile {
   const touching = commits.filter(
     (c) => !ignoredSubject(c.subject) && c.files.some((f) => f.path === file),
   );
-  const fixes = touching.filter(isFix);
+  // Broad commits (over SWEEP_SYSTEMS systems) are excluded from system scores,
+  // so they are excluded here too, or the file and system counts disagree.
+  const counted = touching.filter((c) => !sweeps.has(c.sha));
+  const fixes = counted.filter(isFix);
   return {
     path: file,
-    commits: touching.length,
+    commits: counted.length,
     fixes: fixes.length,
     fixCommits: fixes.map(commitRef),
+    broadCommits: touching.length - counted.length,
   };
 }
 
@@ -646,7 +654,7 @@ function renderMarkdown(a: Analysis): string {
     for (const f of r.focus ?? []) {
       lines.push(
         "",
-        `Focus file \`${f.path}\`: ${f.commits} commits, ${f.fixes} fixes in the lookback.`,
+        `Focus file \`${f.path}\`: ${f.commits} commits, ${f.fixes} fixes in the lookback${f.broadCommits ? `, plus ${f.broadCommits} broad commits (over 12 systems) not counted` : ""}.`,
       );
       for (const c of f.fixCommits) lines.push(`- ${c.date} ${c.subject}`);
     }

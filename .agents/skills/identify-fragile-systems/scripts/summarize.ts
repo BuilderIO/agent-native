@@ -131,6 +131,7 @@ function renderBug(
     "one-off": "one-off bug",
     pattern: "systemic pattern",
     known: "known pattern",
+    "needs-info": "undecided, needs info",
   };
   const lines = [
     `# Bug triage run ${id}`,
@@ -143,9 +144,11 @@ function renderBug(
     const outcome =
       v.verdict === "one-off"
         ? `Suggested fix: ${v.fix}`
-        : v.ticket
-          ? `${v.plan ? `Plan [${path.basename(v.plan)}](./${path.basename(v.plan)}), ticket` : "Ticket"} [${v.ticket}](${jiraBase}/browse/${v.ticket})`
-          : `Plan [${path.basename(v.plan!)}](./${path.basename(v.plan!)}), not filed: ${v.unfiled}`;
+        : v.verdict === "needs-info"
+          ? `Ask the reporter for: ${v.ask}`
+          : v.ticket
+            ? `${v.plan ? `Plan [${path.basename(v.plan)}](./${path.basename(v.plan)}), ticket` : "Ticket"} [${v.ticket}](${jiraBase}/browse/${v.ticket})`
+            : `Plan [${path.basename(v.plan!)}](./${path.basename(v.plan!)}), not filed: ${v.unfiled}`;
     lines.push(
       `## ${v.symptom}: ${label[v.verdict]}`,
       "",

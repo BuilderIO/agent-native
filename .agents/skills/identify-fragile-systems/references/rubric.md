@@ -65,6 +65,10 @@ missing case specific to one feature, an environment or config slip. No
 earlier fix of the same kind, no sibling sites. A one-off still gets a root
 cause and a suggested fix, so the report is answered.
 
+When two or more causes fit and only the reporter's environment can tell
+them apart (a log line, an OS version, a setting), the verdict is
+`needs-info`. Name the evidence that decides it and what each answer means.
+
 One report can hold both: several symptoms with different verdicts. A
 symptom whose cause is a recent feature still settling is usually a one-off.
 Say so, because the nightly run will catch it if the fixes keep coming.

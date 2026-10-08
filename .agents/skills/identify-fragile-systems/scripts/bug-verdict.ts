@@ -2,6 +2,7 @@
 //   one-off  → a local defect; the root cause and the suggested local fix
 //   pattern  → an instance of a systemic problem; a plan (filed or not)
 //   known    → an existing refactor-findings ticket already covers it
+//   needs-info → cannot be decided from code and history; what to ask for
 // Re-running with the same --symptom replaces that entry.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -22,7 +23,7 @@ import { readPlan } from "./plan.ts";
 
 export interface BugVerdict {
   symptom: string;
-  verdict: "one-off" | "pattern" | "known";
+  verdict: "one-off" | "pattern" | "known" | "needs-info";
   rootCause: string;
   reason: string;
   fix: string | null;
@@ -30,10 +31,11 @@ export interface BugVerdict {
   ticket: string | null;
   ticketUrl: string | null;
   unfiled: string | null;
+  ask: string | null;
   at: string;
 }
 
-const VERDICTS = ["one-off", "pattern", "known"] as const;
+const VERDICTS = ["one-off", "pattern", "known", "needs-info"] as const;
 
 main((args) => {
   const verdict = argString(args, "verdict");
@@ -41,7 +43,7 @@ main((args) => {
   const reason = argString(args, "reason");
   if (args.help || !verdict || !rootCause || !reason) {
     console.log(
-      'bug-verdict --run <id> --verdict one-off|pattern|known --root-cause "<file:line, what goes wrong>" --reason "<why>" [--symptom "<label>"] [--fix "<local fix>"] [--plan <file>] [--unfiled "<why no ticket>"] [--ticket ENG-123]\n  one-off needs --fix; pattern needs --plan; known needs --ticket with a sighting recorded in this run.',
+      'bug-verdict --run <id> --verdict one-off|pattern|known|needs-info --root-cause "<file:line, what goes wrong>" --reason "<why>" [--symptom "<label>"] [--fix "<local fix>"] [--plan <file>] [--unfiled "<why no ticket>"] [--ticket ENG-123] [--ask "<what to get from the reporter>"]\n  one-off needs --fix; pattern needs --plan; known needs --ticket with a sighting recorded in this run; needs-info needs --ask.',
     );
     if (!args.help) process.exitCode = 1;
     return;
@@ -59,6 +61,7 @@ main((args) => {
   const fix = argString(args, "fix") ?? null;
   const planArg = argString(args, "plan");
   const unfiled = argString(args, "unfiled") ?? null;
+  const ask = argString(args, "ask") ?? null;
   let ticket = argString(args, "ticket") ?? null;
   let plan: string | null = null;
 
@@ -83,6 +86,14 @@ main((args) => {
       );
     }
   }
+  if (verdict === "needs-info") {
+    if (!ask)
+      throw new ScriptError(
+        "needs-info needs --ask with the log, repro, or detail that would decide it",
+      );
+    if (planArg || ticket)
+      throw new ScriptError("needs-info takes no --plan or --ticket");
+  }
   if (verdict === "known") {
     if (!ticket) throw new ScriptError("known needs --ticket ENG-123");
     const results = resultsFor(dir);
@@ -103,6 +114,7 @@ main((args) => {
     ticket,
     ticketUrl: ticket ? `${config.jira.baseUrl}/browse/${ticket}` : null,
     unfiled,
+    ask,
     at: new Date().toISOString(),
   };
   const file = path.join(dir, "verdict.json");

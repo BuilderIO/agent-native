@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { Analysis } from "./analyze.ts";
+import type { BugReport } from "./bug-intake.ts";
 import {
   argString,
   fingerprintFor,
@@ -57,12 +58,24 @@ main((args) => {
 
   const lead = [...reports].sort((a, b) => b.score - a.score)[0];
   const bug = analysis.bug;
+  // Pasted reports have no link, so the plan (and the ticket) carry the text.
+  const quoted =
+    bug && !bug.url
+      ? readJson<BugReport>(path.join(runDir(config, id), "bug.json"))
+          .body.trim()
+          .split("\n")
+          .slice(0, 20)
+          .map((line) => `> ${line}`.trimEnd())
+      : [];
   const paths = [
     ...new Set(
-      reports.flatMap((r) => [
-        ...(r.focus ?? []).map((f) => f.path),
-        ...r.topFiles.map((f) => f.path),
-      ]),
+      // A bug plan is about the defect's files; a system's other hot files
+      // are context in the evidence block, not affected files.
+      reports.flatMap((r) =>
+        bug
+          ? (r.focus ?? []).map((f) => f.path)
+          : r.topFiles.map((f) => f.path),
+      ),
     ),
   ];
   const focusEvidence = reports.flatMap((r) =>
@@ -111,13 +124,16 @@ main((args) => {
           "",
           `Bug report: ${bug.url ? `[${bug.title}](${bug.url})` : bug.title} (${bug.ref}).`,
           "",
+          ...(quoted.length ? [...quoted, ""] : []),
           `${TODO}: where the defect is (file:line), what goes wrong, and why it is one instance of the pattern below rather than a local mistake.`,
           "",
         ]
       : []),
     "## Verdict",
     "",
-    `${TODO}: fragile or fast-moving, and why. Cite the diffs you read (PR numbers) and state what would change your mind.`,
+    bug
+      ? `${TODO}: pattern, and why, per "Bug reports" in the rubric. The system scores above describe its history, not this bug. Cite the diffs you read (PR numbers) and state what would change your mind.`
+      : `${TODO}: fragile or fast-moving, and why. Cite the diffs you read (PR numbers) and state what would change your mind.`,
     "",
     "## Evidence",
     "",
@@ -164,7 +180,7 @@ main((args) => {
       area: argString(args, "area") ?? "Framework",
       systems,
       paths,
-      verdict: lead.verdict,
+      verdict: bug ? "bug-pattern" : lead.verdict,
       confidence: "TODO",
       score: lead.score,
       windowCommits: bug
