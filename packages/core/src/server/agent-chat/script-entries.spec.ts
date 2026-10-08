@@ -110,7 +110,7 @@ describe("mixed script entry Plan-mode effects", () => {
     );
     expect(classify(resources, { action: "write" })).toBe("write");
     expect(resources.tool.description).toContain(
-      "A generic request to remember something is not approval",
+      "Shared writes, promotions, and deletions require per-action approval",
     );
     expect(classify(chats, { action: "search" })).toBe("read");
     expect(classify(chats, { action: "open" })).toBe("write");
