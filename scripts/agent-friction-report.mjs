@@ -2222,6 +2222,17 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [false, `${"deployment ".repeat(4000)}${"failure ".repeat(4000)}`],
 ];
 
+const E2E_ISSUE_FANOUT_RE =
+  /\b(?:e2e|end[- ]to[- ]end|playwright)\b[^.!?\n]{0,120}\b(?:too many|multiple|100|separate|per[- ](?:test|spec)|flood|overload|duplicate)\b[^.!?\n]{0,80}\b(?:issues?|tickets?)\b|\b(?:too many|multiple|100|separate|per[- ](?:test|spec)|flood|overload|duplicate)\b[^.!?\n]{0,80}\b(?:issues?|tickets?)\b[^.!?\n]{0,120}\b(?:e2e|end[- ]to[- ]end|playwright)\b/i;
+const E2E_ISSUE_FANOUT_REGEX_CASES = [
+  [true, "When an E2E test fails, don't open up 100 issues. Just one."],
+  [true, "Stop creating a separate issue for every Design E2E spec."],
+  [true, "There are multiple duplicate tickets for Playwright failures."],
+  [false, "The E2E suite had 100 failing tests."],
+  [false, "There are 100 issues in this unrelated database test."],
+  [false, "The Design E2E failure is tracked in one issue."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -2270,6 +2281,11 @@ if (process.argv.includes("--self-test")) {
     ...FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.filter(
       ([expected, message]) =>
         matchesFeedbackReleaseCoverage(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...E2E_ISSUE_FANOUT_REGEX_CASES.filter(
+      ([expected, message]) => E2E_ISSUE_FANOUT_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -2366,7 +2382,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2647,6 +2663,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback (2026-09-01 three-question budget)",
     re: /\b(?:too many|so many|stop asking|spam(?:ming|med)?|carpet|blast(?:ed|ing)?|barrage|flood(?:ed|ing)?)\b[^.!?\n]{0,80}\b(?:questions?|asks?|replies|messages?|threads?)\b|\b(?:questions?|asks?|replies|messages?)\b[^.!?\n]{0,60}\b(?:odd|weird|strange|pointless|useless|low[- ]value|generic|templated|robotic|noisy|annoying)\b|\b(?:don['’]?t|do not|stop|quit)\b[^.!?\n]{0,60}\b(?:ask(?:ing)?|reply(?:ing)?|post(?:ing)?)\b[^.!?\n]{0,60}\b(?:every|each|all)\b[^.!?\n]{0,40}\b(?:thread|report|message|item)\b/i,
+  },
+  {
+    key: "e2e-issue-fanout",
+    label: "Had to stop per-test E2E issue creation",
+    fixedBy:
+      ".agents/skills/review-latest-feedback/references/ci-red-report.md (2026-10-08)",
+    re: E2E_ISSUE_FANOUT_RE,
   },
   {
     key: "feedback-channel-coverage",
