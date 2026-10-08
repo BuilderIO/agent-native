@@ -146,6 +146,7 @@ export const JOURNALED_TOOL_REPLAY_PREFIX =
 export const RECOVERED_TOOL_REPLAY_PREFIX =
   "(Recovered from prior interrupted chunk — action already completed.)\n\n";
 const LOADED_SKILL_CONTEXT_MAX_CHARS = 40_000;
+const OMITTED_NOTICE_RESERVE_CHARS = 1_000;
 
 export function loadedSkillPagesContext(
   results: readonly PriorTurnToolResultSummary[],
@@ -188,7 +189,10 @@ function renderLoadedSkillPages(pages: ReadonlyMap<string, string>): string {
     "<already-loaded-skills>These skill pages were already read earlier in this conversation. Reuse them instead of calling docs-search again. If a page is marked truncated or listed as omitted, read it with docs-search when missing detail matters.\n";
   const closing = "\n</already-loaded-skills>";
   let remaining =
-    LOADED_SKILL_CONTEXT_MAX_CHARS - opening.length - closing.length;
+    LOADED_SKILL_CONTEXT_MAX_CHARS -
+    opening.length -
+    closing.length -
+    OMITTED_NOTICE_RESERVE_CHARS;
   const blocks: string[] = [];
   const entries = [...pages].reverse();
   let omitted: string[] = [];
@@ -215,9 +219,12 @@ function renderLoadedSkillPages(pages: ReadonlyMap<string, string>): string {
   }
   if (blocks.length === 0) return "";
   if (omitted.length > 0) {
-    blocks.push(
-      `\n[Omitted to fit loaded-skill context; read with docs-search if needed: ${omitted.join(", ")}]`,
-    );
+    const prefix =
+      "\n[Omitted to fit loaded-skill context; read with docs-search if needed: ";
+    const names = omitted
+      .join(", ")
+      .slice(0, OMITTED_NOTICE_RESERVE_CHARS - prefix.length - 4);
+    blocks.push(`${prefix}${names}]`);
   }
   return `${opening}${blocks.join("\n")}${closing}`;
 }

@@ -448,4 +448,18 @@ describe("loadedSkillPagesContext", () => {
     expect(result).toContain("read with docs-search if needed: skill-old]");
     expect(result).not.toContain("## skill-old\n");
   });
+
+  it("keeps the omitted notice within the context cap for many long slugs", () => {
+    const pages = new Map<string, string>();
+    for (let i = 0; i < 16; i++) {
+      pages.set(
+        `skill-${i}-${"s".repeat(190)}`,
+        `# Skill: s\n${"p".repeat(30_000)}`,
+      );
+    }
+    const result = loadedSkillPagesContext([], pages, new Set());
+
+    expect(result.length).toBeLessThanOrEqual(40_000);
+    expect(result).toContain("Omitted to fit loaded-skill context");
+  });
 });
