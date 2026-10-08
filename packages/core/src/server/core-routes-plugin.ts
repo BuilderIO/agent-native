@@ -2496,6 +2496,16 @@ export async function activateBuilderAccount(
         account_provisioned: true,
       },
     );
+    track(
+      "llm_credential_changed",
+      {
+        change_type: "connected",
+        provider: "builder",
+        scope: written.scope,
+        credential_kind: "builder",
+      },
+      { userId: ownerEmail },
+    );
     await recordBuilderConnectionAudit({
       connected: true,
       ownerEmail,
@@ -5334,6 +5344,16 @@ export function createCoreRoutesPlugin(
               stage: "callback",
               credential_scope: credentialScope,
             },
+          );
+          track(
+            "llm_credential_changed",
+            {
+              change_type: "connected",
+              provider: "builder",
+              scope: credentialScope,
+              credential_kind: "builder",
+            },
+            { userId: ownerEmail },
           );
           await recordBuilderConnectionAudit({
             connected: true,

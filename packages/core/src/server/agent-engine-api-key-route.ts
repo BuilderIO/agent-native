@@ -17,7 +17,13 @@ import {
 } from "../agent/engine/provider-env-vars.js";
 import { getOrgContext } from "../org/context.js";
 import { secretKeyNames } from "../secrets/key-aliases.js";
-import { deleteAppSecret, writeAppSecret } from "../secrets/storage.js";
+import {
+  deleteAppSecret,
+  hasAppSecret,
+  writeAppSecret,
+} from "../secrets/storage.js";
+import { normalizeLlmConnection } from "../shared/llm-connection.js";
+import { track } from "../tracking/registry.js";
 import {
   readDefaultModelSelectionRequest,
   selectDefaultModelForSavedKey,
@@ -51,6 +57,13 @@ const BASE_URL_KEYS = new Set([
   OLLAMA_BASE_URL_ENV_VAR,
 ]);
 const OPENAI_PROVIDER_KEY = PROVIDER_TO_ENV_VAR.get("openai") ?? "";
+
+function credentialProviderForKey(key: string): string {
+  return normalizeLlmConnection(
+    providerForKeyEnvVar(key) ??
+      (key === OLLAMA_BASE_URL_ENV_VAR ? "ollama" : "openai"),
+  );
+}
 
 type AgentEngineApiKeyScope = "user" | "org";
 
@@ -97,6 +110,7 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
       baseUrl?: string;
       clearBaseUrl: boolean;
       scope: AgentEngineApiKeyScope;
+      surface?: "settings" | "onboarding" | "setup_card";
     }
   | { ok: false; statusCode: number; error: string } {
   const payload = body && typeof body === "object" ? body : {};
@@ -109,6 +123,7 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
     endpointUrl?: unknown;
     clearBaseUrl?: unknown;
     scope?: unknown;
+    surface?: unknown;
   };
 
   const provider = typeof raw.provider === "string" ? raw.provider.trim() : "";
@@ -196,6 +211,11 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
     ...(baseUrl ? { baseUrl } : {}),
     clearBaseUrl,
     scope: raw.scope === "org" ? "org" : "user",
+    ...(raw.surface === "settings" ||
+    raw.surface === "onboarding" ||
+    raw.surface === "setup_card"
+      ? { surface: raw.surface }
+      : {}),
   };
 }
 
@@ -318,6 +338,7 @@ export function createAgentEngineApiKeyHandler() {
         setResponseStatus(event, resolved.statusCode);
         return { error: resolved.error };
       }
+      const session = await getSession(event);
       // A row saved under an older name of the same key, or in the legacy
       // workspace row the resolver reads after this scope, would otherwise
       // keep the provider working after it was removed.
@@ -325,6 +346,9 @@ export function createAgentEngineApiKeyHandler() {
         ...secretKeyNames(payload.key),
         ...(payload.endpointKey ? [payload.endpointKey] : []),
       ];
+      const hadCredential = await Promise.all(
+        keys.map((key) => hasAppSecret({ key, ...resolved.target })),
+      ).then((matches) => matches.some(Boolean));
       for (const target of [
         resolved.target,
         legacyWorkspaceRowFor(resolved.target),
@@ -332,6 +356,23 @@ export function createAgentEngineApiKeyHandler() {
         for (const key of keys) {
           await deleteAppSecret({ key, ...target });
         }
+      }
+      if (hadCredential) {
+        track(
+          "llm_credential_changed",
+          {
+            change_type: "disconnected",
+            provider: credentialProviderForKey(payload.key),
+            scope: resolved.target.scope,
+            credential_kind:
+              payload.key === OLLAMA_BASE_URL_ENV_VAR
+                ? "base_url"
+                : payload.endpointKey
+                  ? "api_key_and_base_url"
+                  : "api_key",
+          },
+          { userId: session?.email },
+        );
       }
       return { ok: true, key: payload.key, scope: resolved.target.scope };
     }
@@ -363,6 +404,7 @@ export function createAgentEngineApiKeyHandler() {
       return { error: resolved.error };
     }
     // Removing a personal key stays allowed; only new personal saves stop.
+    const session = await getSession(event);
     if (
       resolved.target.scope === "user" &&
       (payload.value || payload.baseUrl)
@@ -408,7 +450,6 @@ export function createAgentEngineApiKeyHandler() {
       // runtime resolves across the caller's personal and org rows.
       const needsSavedEndpoint =
         payload.key === OPENAI_PROVIDER_KEY && baseUrl === undefined;
-      const session = await getSession(event);
       const orgId =
         resolved.target.scope === "org"
           ? resolved.target.scopeId
@@ -424,6 +465,20 @@ export function createAgentEngineApiKeyHandler() {
         return { error: keyValidation.error, code: keyValidation.code };
       }
     }
+
+    const credentialKeys = [
+      ...secretKeyNames(payload.key),
+      ...(payload.baseUrl || payload.clearBaseUrl
+        ? [
+            payload.key === OLLAMA_BASE_URL_ENV_VAR
+              ? OLLAMA_BASE_URL_ENV_VAR
+              : OPENAI_BASE_URL_ENV_VAR,
+          ]
+        : []),
+    ];
+    const hadCredential = await Promise.all(
+      credentialKeys.map((key) => hasAppSecret({ key, ...resolved.target })),
+    ).then((matches) => matches.some(Boolean));
 
     if (payload.value) {
       await writeAppSecret({
@@ -458,6 +513,23 @@ export function createAgentEngineApiKeyHandler() {
         scopeId: resolved.target.scopeId,
       });
     }
+
+    track(
+      "llm_credential_changed",
+      {
+        change_type: hadCredential ? "key_updated" : "connected",
+        provider: credentialProviderForKey(payload.key),
+        scope: resolved.target.scope,
+        ...(payload.surface ? { surface: payload.surface } : {}),
+        credential_kind:
+          payload.value && (payload.baseUrl || payload.clearBaseUrl)
+            ? "api_key_and_base_url"
+            : payload.value
+              ? "api_key"
+              : "base_url",
+      },
+      { userId: session?.email },
+    );
 
     // Personal and organization rows for one provider coexist: an org save
     // never touches the caller's personal row, which the resolver keeps using

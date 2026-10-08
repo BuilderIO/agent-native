@@ -460,6 +460,15 @@ export interface SecretMeta {
   updatedAt: number;
 }
 
+export async function hasAppSecret(ref: SecretRef): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    args: [ref.scope, ref.scopeId, ref.key],
+  });
+  return rows.length > 0;
+}
+
 export async function readAppSecretMeta(
   ref: SecretRef,
 ): Promise<SecretMeta | null> {
