@@ -81,8 +81,7 @@ the deck while varying composition and information hierarchy. Never alternate
 light and dark slides or introduce a new font/palette for a single slide unless
 the user explicitly asks for it. Use semantic roles for labels, headings,
 body, rules, and surfaces; avoid decorative card grids, gradient text, glass
-panels, fake logos, and filler bullets. Consistency shapes the slides you are
-changing; it never justifies editing slides the user did not ask about.
+panels, fake logos, and filler bullets.
 
 ## Fit and Density
 
@@ -96,9 +95,7 @@ text must remain at least 16px. Explicitly reduced slide padding is allowed when
 the content still needs the space.
 
 After all deck edits, call `get-layout-overflows` once. If you repair a
-measured overflow, call it once more; do not check between writes. It measures
-every slide, but repair only slides this turn created or changed; report
-overflow elsewhere without editing it. If status is
+measured overflow, call it once more; do not check between writes. If status is
 unknown, name the unmeasured slide numbers and IDs. The action reads current
 measurements from the open editor tab and cannot trigger or wait for them, so
 repeating the call this turn will not change the result unless the editor has
@@ -113,11 +110,9 @@ layout-fit repairs, and right before the final response. Also use it whenever
 the user asks about readability or accessibility. If it cannot run because the
 deck is not open in the editor, say contrast was not checked.
 
-The audit covers every slide, but fix failures only on slides this turn created
-or changed; report the rest as already present without editing them. Fix them
-in one bounded pass: adjust the offending role (`--deck-muted`, `--deck-ink`, a
-surface) on those slides' wrappers rather than recoloring one element with a
-new hex. Every replacement color must match the deck's theme:
+Fix failures in one bounded pass: adjust the offending role (`--deck-muted`,
+`--deck-ink`, a surface) rather than recoloring one element with a new hex.
+Every replacement color must match the deck's theme:
 
 - Design system linked: choose a passing color from that system's own palette
   (from `get-design-system`). If none passes, keep the token and report it

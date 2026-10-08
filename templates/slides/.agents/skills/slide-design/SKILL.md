@@ -158,4 +158,4 @@ Bounded visual QA in `create-deck`), check each changed slide:
 7. **Craft:** no orphans, straight quotes, awkward breaks, blurry images, or
    off-system colors and fonts.
 
-Fix findings in the same single correction pass, on the slides you changed only.
+Fix findings in the same single correction pass.
