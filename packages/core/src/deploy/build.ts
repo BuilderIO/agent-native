@@ -4921,15 +4921,73 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
   const nodeModulesDir = path.join(functionDir, "node_modules");
   if (!fs.existsSync(path.join(nodeModulesDir, "@puppeteer/browsers")))
     return new Set();
+  const functionRoot = fs.realpathSync(functionDir);
+  const isWithinFunction = (directory: string): boolean => {
+    const relative = path.relative(functionRoot, directory);
+    return (
+      relative === "" ||
+      (relative !== ".." &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative))
+    );
+  };
+  const packageSegments = (name: string): string[] | null => {
+    const segments = name.split("/");
+    if (
+      !name ||
+      name.includes("\\") ||
+      segments.some(
+        (segment) => !segment || segment === "." || segment === "..",
+      ) ||
+      segments.length > 2 ||
+      (segments.length === 2 && !segments[0].startsWith("@")) ||
+      (segments.length === 1 && segments[0].startsWith("@"))
+    )
+      return null;
+    return segments;
+  };
+  const resolvePackageDirectory = (
+    segments: string[],
+    fromPackageDir?: string,
+  ): string | null => {
+    let current = fromPackageDir ?? functionRoot;
+    if (!isWithinFunction(current)) return null;
+    while (isWithinFunction(current)) {
+      if (
+        current === functionRoot ||
+        path.basename(current) !== "node_modules"
+      ) {
+        const candidate = path.join(current, "node_modules", ...segments);
+        if (fs.existsSync(candidate)) {
+          const resolved = fs.realpathSync(candidate);
+          // A nearer out-of-bound install must not fall through to another version.
+          if (!isWithinFunction(resolved)) return null;
+          if (fs.statSync(resolved).isDirectory()) return resolved;
+          return null;
+        }
+      }
+      if (current === functionRoot) break;
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+    return null;
+  };
   const collect = (names: Iterable<string>): Set<string> => {
-    const seen = new Set<string>();
-    const visit = (name: string) => {
-      if (seen.has(name)) return;
-      seen.add(name);
-      const local = path.join(nodeModulesDir, ...name.split("/"));
-      // Missing bundle packages cannot supply a trustworthy dependency graph;
-      // the workspace may contain a different version than Nitro traced.
-      const manifest = readPackageManifest(local);
+    const collected = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (name: string, fromPackageDir?: string) => {
+      const segments = packageSegments(name);
+      if (!segments) return;
+      collected.add(name);
+      const packageDir = resolvePackageDirectory(segments, fromPackageDir);
+      if (!packageDir) return;
+      const manifest = readPackageManifest(packageDir);
+      const version =
+        typeof manifest?.version === "string" ? manifest.version : "";
+      const identity = `${packageDir}\0${version}`;
+      if (visited.has(identity)) return;
+      visited.add(identity);
       for (const field of [
         ...RUNTIME_PACKAGE_DEPENDENCY_FIELDS,
         "peerDependencies",
@@ -4941,11 +4999,12 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
           Array.isArray(dependencies)
         )
           continue;
-        for (const dependency of Object.keys(dependencies)) visit(dependency);
+        for (const dependency of Object.keys(dependencies))
+          visit(dependency, packageDir);
       }
     };
     for (const name of names) visit(name);
-    return seen;
+    return collected;
   };
   const candidates = collect([
     "puppeteer",

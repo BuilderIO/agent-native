@@ -3986,6 +3986,93 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     },
   );
 
+  it("retains installer dependencies needed by a nested runtime package version", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const writePackage = (
+      packageDir: string,
+      name: string,
+      version: string,
+      dependencies: Record<string, string> = {},
+    ) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, version, dependencies }),
+      );
+    };
+
+    writePackage(
+      path.join(nodeModulesDir, "@puppeteer", "browsers"),
+      "@puppeteer/browsers",
+      "1.0.0",
+      { "versioned-helper": "1", "installer-child": "1" },
+    );
+    writePackage(
+      path.join(nodeModulesDir, "versioned-helper"),
+      "versioned-helper",
+      "1.0.0",
+      { "installer-only-child": "1" },
+    );
+    writePackage(
+      path.join(nodeModulesDir, "installer-child"),
+      "installer-child",
+      "1.0.0",
+    );
+    writePackage(
+      path.join(nodeModulesDir, "installer-only-child"),
+      "installer-only-child",
+      "1.0.0",
+    );
+    writePackage(path.join(nodeModulesDir, "runtime"), "runtime", "1.0.0", {
+      "versioned-helper": "2",
+    });
+    writePackage(
+      path.join(nodeModulesDir, "runtime", "node_modules", "versioned-helper"),
+      "versioned-helper",
+      "2.0.0",
+      { "installer-child": "1" },
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@puppeteer/browsers": "1",
+          "versioned-helper": "1",
+          "installer-child": "1",
+          "installer-only-child": "1",
+          runtime: "1",
+        },
+      }),
+    );
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "installer-child",
+      "runtime",
+      "versioned-helper",
+    ]);
+    expect(fs.existsSync(path.join(nodeModulesDir, "installer-child"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "installer-only-child")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          nodeModulesDir,
+          "runtime",
+          "node_modules",
+          "versioned-helper",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("retains a browser installer explicitly imported by server code", () => {
     const functionDir = setupFunctionDir();
     for (const [name, dependencies] of Object.entries({

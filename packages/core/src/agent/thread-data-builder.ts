@@ -3873,17 +3873,16 @@ export function extractThreadMeta(repo: any): {
       : typeof msg.content === "string"
         ? msg.content
         : "";
-    if (textParts.trim()) {
-      if (!title)
-        title = textParts
-          .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
-          .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
-          .replace(/<\/context>/gi, "")
-          .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 80);
-      preview = textParts.trim().slice(0, 120);
+    const visiblePrompt = textParts
+      .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+      .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
+      .replace(/<\/context>/gi, "")
+      .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (visiblePrompt) {
+      if (!title) title = visiblePrompt.slice(0, 80);
+      preview = visiblePrompt.slice(0, 120);
     }
   }
   return { title: titleOverride || title, preview };

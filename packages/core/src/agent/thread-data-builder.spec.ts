@@ -173,6 +173,26 @@ describe("a client thread save after a refused turn", () => {
 });
 
 describe("extractThreadMeta", () => {
+  it.each([
+    [
+      "<context>Private instructions</context>\nPlan   next week",
+      "Plan next week",
+    ],
+    [
+      "Plan next week\n<context>Private trailing instructions",
+      "Plan next week",
+    ],
+    ["Ask @[Steve|private-id]   next week", "Ask @Steve next week"],
+    ["<context>Only private instructions</context>", ""],
+  ])(
+    "strips hidden prompt context from titles and previews: %s",
+    (prompt, visible) => {
+      expect(
+        extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+      ).toEqual({ title: visible, preview: visible });
+    },
+  );
+
   it("prefers a manual title override while keeping the message preview", () => {
     const meta = extractThreadMeta({
       _titleOverride: "  Renamed   chat ",
