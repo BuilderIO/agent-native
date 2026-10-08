@@ -1,0 +1,17 @@
+===================================================================
+--- a/public/manifest.json
++++ b/public/manifest.json
+@@ -1,9 +1,9 @@
+ {
+-  "name": "Chat",
+-  "short_name": "Chat",
+-  "description": "Chat-first agent-native app ready to customize",
+-  "start_url": "./home",
++  "name": "App",
++  "short_name": "App",
++  "description": "Agent-Native app starter ready to customize",
++  "start_url": "./",
+   "background_color": "#111111",
+   "theme_color": "#18181B",
+   "icons": [
+     {

@@ -32,6 +32,7 @@ jobs:
       build: ${{ steps.scope.outputs.build }}
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
+      builder_code_starter_scaffold: ${{ steps.scope.outputs.builder_code_starter_scaffold }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
       ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
@@ -1299,6 +1300,17 @@ jobs:
           pnpm --filter @agent-native/core exec vitest run
           src/cli/create-e2e.spec.ts
           -t "pnpm install, pnpm typecheck, and pnpm action hello all succeed"
+
+      - name: Builder Code starter — materialize + pnpm install + typecheck
+        if: needs.change-scope.outputs.builder_code_starter_scaffold == 'true'
+        env:
+          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
+        run: |
+          out="$(mktemp -d)/app"
+          node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" template materialize --template builder-code-starter --name app --out "$out"
+          cd "$out"
+          pnpm install
+          pnpm typecheck
 
       - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
         env:
