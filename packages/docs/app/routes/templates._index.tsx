@@ -5,6 +5,7 @@ import { useLoaderData, useSearchParams } from "react-router";
 
 import { BuildOnlinePopover } from "../components/BuilderWaitlistPopover";
 import {
+  SHOW_COMMUNITY_APPS,
   communityApps as seedCommunityApps,
   type CommunityApp,
 } from "../components/community-apps";
@@ -20,7 +21,6 @@ import {
 
 const SECTION_HEADING_CLASS =
   "font-[family-name:var(--b-font-sans)] text-[32px] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]";
-const SHOW_COMMUNITY_APPS = false;
 
 export async function loader() {
   return { apps: seedCommunityApps };
