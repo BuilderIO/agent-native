@@ -945,6 +945,7 @@ export default {
     templateSaved: "模板已保存到模板库",
     templateSaveFailed: "无法保存此模板",
     fileMenu: {
+      pendingEditsBlocked: "复制前，请先应用或放弃待处理的可视化编辑。",
       designs: "设计",
       rename: "重命名",
       duplicate: "复制",

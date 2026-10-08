@@ -983,6 +983,8 @@ export default {
     templateSaved: "テンプレートをライブラリに保存しました",
     templateSaveFailed: "このテンプレートを保存できませんでした",
     fileMenu: {
+      pendingEditsBlocked:
+        "複製する前に、保留中のビジュアル編集を適用または破棄してください。",
       designs: "デザイン",
       rename: "名前を変更",
       duplicate: "複製",

@@ -989,6 +989,8 @@ export default {
     templateSaved: "Modèle enregistré dans la bibliothèque",
     templateSaveFailed: "Impossible d’enregistrer ce modèle",
     fileMenu: {
+      pendingEditsBlocked:
+        "Appliquez ou annulez vos modifications visuelles en attente avant de dupliquer.",
       designs: "Designs",
       rename: "Renommer",
       duplicate: "Dupliquer",

@@ -4481,6 +4481,7 @@ function DesignEditor() {
   const deleteDesignMutation = useActionMutation("delete-design");
   const [trashDialogOpen, setTrashDialogOpen] = useState(false);
   const importPanelRef = useRef<DesignImportPanelHandle | null>(null);
+  const skipPendingEditNavigationBlockRef = useRef(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const suppressFileMenuReturnFocusRef = useRef(false);
@@ -19370,6 +19371,7 @@ function DesignEditor() {
   const pendingVisualStyleNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
+        !skipPendingEditNavigationBlockRef.current &&
         shouldBlockPendingVisualStyleNavigation({
           hasPendingVisualStyleEdits,
           currentPathname: currentLocation.pathname,
@@ -26094,6 +26096,10 @@ function DesignEditor() {
 
   const handleDuplicateDesign = useCallback(() => {
     if (!id) return;
+    if (hasPendingVisualStyleEdits) {
+      toast.error(t("designEditor.fileMenu.pendingEditsBlocked"));
+      return;
+    }
     duplicateDesignMutation
       .mutateAsync({ id } as any)
       .then((result: any) => {
@@ -26101,7 +26107,7 @@ function DesignEditor() {
         void navigate(`/design/${result.id}`);
       })
       .catch(() => toast.error(t("designEditor.toasts.saveCopyError")));
-  }, [duplicateDesignMutation, id, navigate, t]);
+  }, [duplicateDesignMutation, hasPendingVisualStyleEdits, id, navigate, t]);
 
   const handleMoveToTrash = useCallback(() => {
     if (!id) return;
@@ -26112,10 +26118,22 @@ function DesignEditor() {
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
         });
+        // The design is gone, so its pending edits are moot; skip the
+        // Stay/Discard prompt that would otherwise follow the delete.
+        skipPendingEditNavigationBlockRef.current = true;
+        clearPendingLiveEditState();
+        clearPendingEditSessionMarker(id);
         void navigate("/home");
       })
       .catch(() => toast.error(t("designEditor.fileMenu.deleteError")));
-  }, [deleteDesignMutation, id, navigate, queryClient, t]);
+  }, [
+    clearPendingLiveEditState,
+    deleteDesignMutation,
+    id,
+    navigate,
+    queryClient,
+    t,
+  ]);
 
   const handleImportFileChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {

@@ -982,6 +982,8 @@ export default {
     templateSaved: "Plantilla guardada en la biblioteca",
     templateSaveFailed: "No se pudo guardar esta plantilla",
     fileMenu: {
+      pendingEditsBlocked:
+        "Aplica o descarta tus ediciones visuales pendientes antes de duplicar.",
       designs: "Diseños",
       rename: "Renombrar",
       duplicate: "Duplicar",

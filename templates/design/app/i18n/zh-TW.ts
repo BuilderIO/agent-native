@@ -1073,6 +1073,7 @@ export default {
     notFound: "未找到設計",
     backToDesigns: "返回設計",
     fileMenu: {
+      pendingEditsBlocked: "複製前，請先套用或捨棄待處理的視覺編輯。",
       designs: "設計",
       rename: "重新命名",
       duplicate: "複製",

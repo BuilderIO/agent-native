@@ -977,6 +977,8 @@ export default {
     templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
     fileMenu: {
+      pendingEditsBlocked:
+        "Apply or discard your pending visual edits before duplicating.",
       designs: "Designs",
       rename: "Rename",
       duplicate: "Duplicate",

@@ -970,6 +970,8 @@ export default {
     templateSaved: "템플릿을 라이브러리에 저장했습니다",
     templateSaveFailed: "이 템플릿을 저장할 수 없습니다",
     fileMenu: {
+      pendingEditsBlocked:
+        "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",
       designs: "디자인",
       rename: "이름 바꾸기",
       duplicate: "복제",

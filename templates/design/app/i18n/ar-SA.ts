@@ -962,6 +962,8 @@ export default {
     templateSaved: "تم حفظ القالب في المكتبة",
     templateSaveFailed: "تعذر حفظ هذا القالب",
     fileMenu: {
+      pendingEditsBlocked:
+        "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
       designs: "التصاميم",
       rename: "إعادة التسمية",
       duplicate: "تكرار",

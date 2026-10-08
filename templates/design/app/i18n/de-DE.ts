@@ -987,6 +987,8 @@ export default {
     templateSaved: "Vorlage in der Bibliothek gespeichert",
     templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
     fileMenu: {
+      pendingEditsBlocked:
+        "Wende deine ausstehenden visuellen Änderungen an oder verwirf sie, bevor du dupliziert.",
       designs: "Designs",
       rename: "Umbenennen",
       duplicate: "Duplizieren",

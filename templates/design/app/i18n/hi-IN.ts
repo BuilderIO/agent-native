@@ -967,6 +967,7 @@ export default {
     templateSaved: "टेम्पलेट लाइब्रेरी में सहेजा गया",
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
     fileMenu: {
+      pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
       designs: "डिज़ाइन",
       rename: "नाम बदलें",
       duplicate: "डुप्लिकेट करें",

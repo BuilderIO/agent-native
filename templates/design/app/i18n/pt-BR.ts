@@ -980,6 +980,8 @@ export default {
     templateSaved: "Modelo salvo na biblioteca",
     templateSaveFailed: "Não foi possível salvar este modelo",
     fileMenu: {
+      pendingEditsBlocked:
+        "Aplique ou descarte suas edições visuais pendentes antes de duplicar.",
       designs: "Designs",
       rename: "Renomear",
       duplicate: "Duplicar",
