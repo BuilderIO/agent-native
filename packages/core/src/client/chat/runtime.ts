@@ -860,11 +860,7 @@ export interface CreateHttpAgentChatRuntimeOptions<
       runId?: string;
     },
   ) => TEvent | readonly TEvent[] | null;
-  /**
-   * Continues a paused turn through the same transport. The callback receives
-   * the most recent turn input so protocol-specific adapters can preserve the
-   * conversation context without teaching UI layers how to replay a request.
-   */
+  /** Continues a paused turn using that turn's original request context. */
   readonly continueTurn?: (input: {
     session: AgentChatRuntimeSessionSummary;
     continuation: AgentChatRuntimeContinueInput;
@@ -1353,6 +1349,11 @@ function withTurnId(error: unknown, turnId: string): unknown {
   return error;
 }
 
+function isRetryableRuntimeFailure(error: unknown): boolean {
+  const record = asRecord(error);
+  return (record?.retryable ?? record?.recoverable) === true;
+}
+
 export function createHttpAgentChatRuntime<
   TEvent extends AgentChatRuntimeEventBase = AgentChatRuntimeKnownEvent,
 >(
@@ -1390,26 +1391,35 @@ export function createHttpAgentChatRuntime<
       updatedAt: new Date().toISOString(),
       metadata: input?.metadata,
     };
-    let previousTurn: AgentChatRuntimeTurnInput | undefined;
+    let latestTurn: AgentChatRuntimeTurnInput | undefined;
+    const previousTurns = new Map<string, AgentChatRuntimeTurnInput>();
+    const forgetTurnContext = (
+      turnId: string,
+      turn: AgentChatRuntimeTurnInput,
+    ) => {
+      if (previousTurns.get(turnId) === turn) previousTurns.delete(turnId);
+      if (latestTurn === turn) latestTurn = undefined;
+    };
 
     const startTurn = async (
       turn: AgentChatRuntimeTurnInput,
     ): Promise<AgentChatRuntimeTurn<TEvent>> => {
-      previousTurn = turn;
       const turnId = turn.queuePromotion?.turnId ?? createRuntimeId("turn");
       const { controller, cleanup } = createAbortController(turn.abortSignal);
-      const endpoint =
-        typeof options.endpoint === "function"
-          ? options.endpoint({ session: summary, turn })
-          : options.endpoint;
-      const headers = await resolveHeaders(options.headers, {
-        sessionId,
-        turnId,
-      });
-      if (!headers.has("Content-Type"))
-        headers.set("Content-Type", "application/json");
+      latestTurn = turn;
+      previousTurns.set(turnId, turn);
       let response: Response;
       try {
+        const endpoint =
+          typeof options.endpoint === "function"
+            ? options.endpoint({ session: summary, turn })
+            : options.endpoint;
+        const headers = await resolveHeaders(options.headers, {
+          sessionId,
+          turnId,
+        });
+        if (!headers.has("Content-Type"))
+          headers.set("Content-Type", "application/json");
         response = await fetchImpl(normalizeEndpoint(endpoint), {
           method: options.method ?? "POST",
           headers,
@@ -1423,22 +1433,44 @@ export function createHttpAgentChatRuntime<
         });
       } catch (error) {
         cleanup();
+        if (!isRetryableRuntimeFailure(error)) {
+          forgetTurnContext(turnId, turn);
+        }
         throw withTurnId(error, turnId);
       }
       if (!response.ok) {
         cleanup();
-        throw withTurnId(await readHttpRuntimeError(response), turnId);
+        const error = await readHttpRuntimeError(response);
+        if (!isRetryableRuntimeFailure(error)) {
+          forgetTurnContext(turnId, turn);
+        }
+        throw withTurnId(error, turnId);
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
       const events = (async function* () {
+        let retryableFailure = false;
         try {
-          yield* streamResponseEvents(response, {
+          for await (const event of streamResponseEvents(response, {
             sessionId,
             turnId,
             runId,
             mapEvent,
-          });
+          })) {
+            if (event.type === "error") {
+              retryableFailure = isRetryableRuntimeFailure(event);
+            } else if (event.type === "done") {
+              const reason = asRecord(event)?.reason;
+              if (
+                reason !== "tool-use" &&
+                reason !== "interrupted" &&
+                !(reason === "error" && retryableFailure)
+              ) {
+                forgetTurnContext(turnId, turn);
+              }
+            }
+            yield event;
+          }
         } finally {
           cleanup();
         }
@@ -1493,13 +1525,32 @@ export function createHttpAgentChatRuntime<
     };
 
     const continueTurn = options.continueTurn
-      ? (continuation: AgentChatRuntimeContinueInput = {}) =>
-          options.continueTurn!({
+      ? (continuation: AgentChatRuntimeContinueInput = {}) => {
+          let previousTurnId = continuation.turnId;
+          const previousTurn = previousTurnId
+            ? previousTurns.get(previousTurnId)
+            : latestTurn;
+          if (!previousTurnId && previousTurn) {
+            for (const [turnId, turn] of previousTurns) {
+              if (turn === previousTurn) {
+                previousTurnId = turnId;
+                break;
+              }
+            }
+          }
+          const continuedTurn = options.continueTurn!({
             session: summary,
             continuation,
             previousTurn,
             startTurn,
-          })
+          });
+          return Promise.resolve(continuedTurn).then((result) => {
+            if (previousTurn && previousTurnId) {
+              forgetTurnContext(previousTurnId, previousTurn);
+            }
+            return result;
+          });
+        }
       : undefined;
 
     return {
@@ -1517,7 +1568,10 @@ export function createHttpAgentChatRuntime<
         messages: input?.messages,
         resumeState: input?.resumeState,
       }),
-      dispose: () => undefined,
+      dispose: () => {
+        previousTurns.clear();
+        latestTurn = undefined;
+      },
     };
   };
 

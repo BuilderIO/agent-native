@@ -13,6 +13,7 @@ import {
   type NormalizedHotChannel,
   type Plugin,
   type UserConfig,
+  type ViteDevServer,
 } from "vite";
 
 import { getAppConfig } from "../app-config/index.js";
@@ -3739,6 +3740,568 @@ function localWorkspacePackageAliases(
   return aliases;
 }
 
+interface NitroDevServerLifecycle {
+  databaseShutdownPending: boolean;
+  restartClosePrepared: boolean;
+  restartPromise?: Promise<void>;
+  restartRetryTimer?: ReturnType<typeof setTimeout>;
+  restartRetryDelayMs: number;
+  resumeRetryTimer?: ReturnType<typeof setTimeout>;
+  resumeRetryDelayMs: number;
+  resumePromise?: Promise<void>;
+  lifecycleGeneration: number;
+  restartCloseInProgress: boolean;
+  shutdownRequested: boolean;
+  viteInternalCloseExpected: boolean;
+}
+
+const nitroDevServerLifecycleKey = Symbol.for(
+  "agent-native.nitro-dev-server-lifecycle",
+);
+
+function getNitroDevServerLifecycle(
+  inlineConfig: object,
+): NitroDevServerLifecycle {
+  const existing = Reflect.get(inlineConfig, nitroDevServerLifecycleKey) as
+    | NitroDevServerLifecycle
+    | undefined;
+  if (existing) return existing;
+
+  const lifecycle: NitroDevServerLifecycle = {
+    databaseShutdownPending: false,
+    restartClosePrepared: false,
+    restartRetryDelayMs: 1_000,
+    resumeRetryDelayMs: 250,
+    lifecycleGeneration: 0,
+    restartCloseInProgress: false,
+    shutdownRequested: false,
+    viteInternalCloseExpected: false,
+  };
+  Object.defineProperty(inlineConfig, nitroDevServerLifecycleKey, {
+    value: lifecycle,
+  });
+  return lifecycle;
+}
+
+const nitroDevServerRestartCancelledCode =
+  "AGENT_NATIVE_VITE_RESTART_CANCELLED";
+
+function nitroDevServerRestartCancelled(): Error {
+  return Object.assign(
+    new Error("Vite dev server restart was cancelled by an explicit shutdown."),
+    { code: nitroDevServerRestartCancelledCode },
+  );
+}
+
+function isNitroDevServerRestartCancelled(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === nitroDevServerRestartCancelledCode
+  );
+}
+
+function nitroDevEnvironmentClosePlugin(): Plugin {
+  let lifecycle: NitroDevServerLifecycle | undefined;
+  const state = () => {
+    if (!lifecycle) {
+      throw new Error("Nitro dev server lifecycle was not initialized.");
+    }
+    return lifecycle;
+  };
+
+  const clearRestartRetry = () => {
+    const current = state();
+    if (!current.restartRetryTimer) return;
+    clearTimeout(current.restartRetryTimer);
+    current.restartRetryTimer = undefined;
+  };
+
+  const clearResumeRetry = () => {
+    const current = state();
+    if (!current.resumeRetryTimer) return;
+    clearTimeout(current.resumeRetryTimer);
+    current.resumeRetryTimer = undefined;
+  };
+
+  const requestResume = (
+    environment: Parameters<typeof requestNitroDevDatabaseResume>[0],
+  ) => {
+    const current = state();
+    if (current.restartCloseInProgress || current.shutdownRequested) {
+      return Promise.reject(
+        new Error("Nitro dev database resume was blocked by server shutdown."),
+      );
+    }
+    if (current.resumePromise) return current.resumePromise;
+
+    const generation = current.lifecycleGeneration;
+    let currentPromise: Promise<void>;
+    currentPromise = requestNitroDevDatabaseResume(environment)
+      .then(() => {
+        if (generation !== current.lifecycleGeneration) {
+          throw new Error(
+            "Nitro dev database resume completed during a newer lifecycle transition.",
+          );
+        }
+        current.databaseShutdownPending = false;
+        current.resumeRetryDelayMs = 250;
+      })
+      .finally(() => {
+        if (current.resumePromise === currentPromise) {
+          current.resumePromise = undefined;
+        }
+      });
+    current.resumePromise = currentPromise;
+    return currentPromise;
+  };
+
+  const scheduleResumeRetry = (
+    environment: Parameters<typeof requestNitroDevDatabaseResume>[0],
+    logger: ViteDevServer["config"]["logger"],
+    delay?: number,
+  ) => {
+    const current = state();
+    if (
+      current.resumeRetryTimer ||
+      current.shutdownRequested ||
+      current.restartCloseInProgress ||
+      !current.databaseShutdownPending
+    ) {
+      return;
+    }
+    current.resumeRetryTimer = setTimeout(() => {
+      current.resumeRetryTimer = undefined;
+      if (
+        current.shutdownRequested ||
+        current.restartCloseInProgress ||
+        !current.databaseShutdownPending
+      ) {
+        return;
+      }
+      void requestResume(environment).then(
+        () => {},
+        (error) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          logger.error(
+            `Nitro dev database access is still paused; retrying resume: ${detail}`,
+            { timestamp: true },
+          );
+          current.resumeRetryDelayMs = Math.min(
+            current.resumeRetryDelayMs * 2,
+            5_000,
+          );
+          scheduleResumeRetry(environment, logger);
+        },
+      );
+    }, delay ?? current.resumeRetryDelayMs);
+    current.resumeRetryTimer.unref?.();
+  };
+
+  const scheduleRestartRetry = (
+    server: ViteDevServer,
+    forceOptimize: boolean | undefined,
+  ) => {
+    const current = state();
+    if (current.restartRetryTimer || current.shutdownRequested) return;
+    const delay = current.restartRetryDelayMs;
+    current.restartRetryDelayMs = Math.min(
+      current.restartRetryDelayMs * 2,
+      5_000,
+    );
+    current.restartRetryTimer = setTimeout(() => {
+      current.restartRetryTimer = undefined;
+      if (current.shutdownRequested) return;
+      if (current.restartPromise) {
+        scheduleRestartRetry(server, forceOptimize);
+        return;
+      }
+      void server.restart(forceOptimize).catch(() => {});
+    }, delay);
+    current.restartRetryTimer.unref?.();
+  };
+
+  return {
+    name: "agent-native-nitro-dev-environment-close",
+    apply: "serve",
+    configureServer(server) {
+      lifecycle = getNitroDevServerLifecycle(server.config.inlineConfig);
+      const closeServer = server.close.bind(server);
+      const listenServer = server.listen.bind(server);
+      const restartServer = server.restart.bind(server);
+      server.restart = (forceOptimize) => {
+        const current = state();
+        if (current.restartPromise) return current.restartPromise;
+        current.shutdownRequested = false;
+        current.viteInternalCloseExpected = false;
+        clearRestartRetry();
+        clearResumeRetry();
+        current.lifecycleGeneration++;
+        current.restartCloseInProgress = true;
+
+        const environment = server.environments.nitro as unknown as {
+          devServer?: { closed?: boolean; ready?: boolean };
+          hot?: {
+            off?: (event: string, listener: (payload: any) => void) => void;
+            on?: (event: string, listener: (payload: any) => void) => void;
+            send?: (payload: any) => void;
+          };
+        };
+        const restartPromise = (async () => {
+          const runner = environment?.devServer;
+          const pendingResume = current.resumePromise;
+          if (pendingResume) await pendingResume.catch(() => {});
+
+          if (runner && !runner.closed && runner.ready) {
+            current.databaseShutdownPending = true;
+            try {
+              await requestNitroDevDatabaseClose(environment, (error) => {
+                server.config.logger.warn(
+                  `Nitro dev database cleanup is still waiting for active PGlite operations: ${error.message}`,
+                  { timestamp: true },
+                );
+              });
+              if (current.shutdownRequested) return;
+              current.restartCloseInProgress = false;
+              current.restartClosePrepared = true;
+              current.restartRetryDelayMs = 1_000;
+            } catch (error) {
+              current.restartCloseInProgress = false;
+              const detail =
+                error instanceof Error ? error.message : String(error);
+              server.config.logger.error(
+                `Nitro dev database cleanup was not acknowledged before Vite restart: ${detail}. The existing server is kept alive and the restart will retry.`,
+                { timestamp: true },
+              );
+              scheduleRestartRetry(server, forceOptimize);
+              throw error;
+            }
+          } else {
+            current.restartCloseInProgress = false;
+          }
+
+          try {
+            await restartServer(forceOptimize);
+          } catch (error) {
+            if (
+              isNitroDevServerRestartCancelled(error) &&
+              current.shutdownRequested
+            ) {
+              return;
+            }
+            throw error;
+          } finally {
+            if (current.restartClosePrepared) {
+              // Vite can report a failed replacement-server creation without
+              // closing the old worker. Restore its database access in that case.
+              current.restartClosePrepared = false;
+              scheduleResumeRetry(environment, server.config.logger);
+            }
+            current.restartCloseInProgress = false;
+          }
+        })().finally(() => {
+          current.restartCloseInProgress = false;
+          current.restartPromise = undefined;
+        });
+        current.restartPromise = restartPromise;
+        return current.restartPromise;
+      };
+      server.listen = async (...args) => {
+        const current = state();
+        if (current.shutdownRequested) {
+          await closeServer();
+          throw nitroDevServerRestartCancelled();
+        }
+        if (!current.databaseShutdownPending) return listenServer(...args);
+
+        const environment = server.environments.nitro as unknown as {
+          devServer?: { closed?: boolean; ready?: boolean };
+          hot?: {
+            off?: (event: string, listener: (payload: any) => void) => void;
+            on?: (event: string, listener: (payload: any) => void) => void;
+            send?: (payload: any) => void;
+          };
+        };
+        try {
+          await requestNitroDevDatabaseClose(environment, (error) => {
+            server.config.logger.warn(
+              `Replacement Nitro dev database cleanup is still waiting for active PGlite operations: ${error.message}`,
+              { timestamp: true },
+            );
+          });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          server.config.logger.error(
+            `Replacement Nitro dev database cleanup was not acknowledged before Vite listen: ${detail}. The replacement server is kept closed and the restart will retry.`,
+            { timestamp: true },
+          );
+          scheduleRestartRetry(server, undefined);
+          throw error;
+        }
+
+        if (current.shutdownRequested) {
+          await closeServer();
+          throw nitroDevServerRestartCancelled();
+        }
+
+        let resumeAcknowledged = false;
+        let resumeFailure: unknown;
+        try {
+          await requestResume(environment);
+          resumeAcknowledged = true;
+        } catch (error) {
+          resumeFailure = error;
+          // Retry after listening; the replacement Nitro worker may not be ready yet.
+        }
+
+        if (current.shutdownRequested) {
+          await closeServer();
+          throw nitroDevServerRestartCancelled();
+        }
+
+        let result: Awaited<ReturnType<typeof listenServer>>;
+        try {
+          result = await listenServer(...args);
+        } catch (error) {
+          if (!resumeAcknowledged) {
+            scheduleResumeRetry(environment, server.config.logger);
+          }
+          throw error;
+        }
+        if (current.shutdownRequested) {
+          await closeServer();
+          throw nitroDevServerRestartCancelled();
+        }
+        if (resumeAcknowledged) return result;
+
+        try {
+          await requestResume(environment);
+        } catch (error) {
+          const detail = [resumeFailure, error]
+            .map((failure) =>
+              failure instanceof Error ? failure.message : String(failure),
+            )
+            .join("; retry after listening also failed: ");
+          server.config.logger.error(
+            `Nitro dev database access remains paused after Vite resumed listening: ${detail}`,
+            { timestamp: true },
+          );
+          scheduleResumeRetry(environment, server.config.logger);
+        }
+
+        return result;
+      };
+      let closePromise: Promise<void> | undefined;
+      server.close = () => {
+        const current = state();
+        if (current.shutdownRequested) {
+          clearRestartRetry();
+          clearResumeRetry();
+          closePromise ??= closeServer().catch((error) => {
+            closePromise = undefined;
+            throw error;
+          });
+          return closePromise;
+        }
+
+        if (current.viteInternalCloseExpected) {
+          current.viteInternalCloseExpected = false;
+          current.restartClosePrepared = false;
+          closePromise ??= closeServer().catch((error) => {
+            closePromise = undefined;
+            throw error;
+          });
+          return closePromise;
+        }
+
+        if (current.restartClosePrepared) {
+          current.shutdownRequested = true;
+          clearRestartRetry();
+          clearResumeRetry();
+          closePromise ??= closeServer().catch((error) => {
+            closePromise = undefined;
+            throw error;
+          });
+          return closePromise;
+        }
+
+        current.shutdownRequested = true;
+        current.lifecycleGeneration++;
+        clearRestartRetry();
+        clearResumeRetry();
+        closePromise ??= (async () => {
+          const pendingResume = current.resumePromise;
+          if (pendingResume) await pendingResume.catch(() => {});
+
+          const environment = server.environments.nitro as unknown as {
+            devServer?: {
+              closed?: boolean;
+              ready?: boolean;
+            };
+            hot?: {
+              off?: (event: string, listener: (payload: any) => void) => void;
+              on?: (event: string, listener: (payload: any) => void) => void;
+              send?: (payload: any) => void;
+            };
+          };
+          const runner = environment?.devServer;
+          if (runner && !runner.closed) {
+            if (runner.ready) {
+              current.databaseShutdownPending = true;
+              try {
+                await requestNitroDevDatabaseClose(environment, (error) => {
+                  const detail = error.message;
+                  server.config.logger.warn(
+                    `Nitro dev database cleanup is still waiting for active PGlite operations: ${detail}`,
+                    { timestamp: true },
+                  );
+                });
+              } catch (error) {
+                const detail =
+                  error instanceof Error ? error.message : String(error);
+                server.config.logger.error(
+                  `Nitro dev database cleanup was not acknowledged before shutdown: ${detail}. Proceeding with Vite shutdown; any unclosed PGlite client will keep its lock until cleanup or process exit.`,
+                  { timestamp: true },
+                );
+              }
+            }
+          }
+          await closeServer();
+        })().catch((error) => {
+          closePromise = undefined;
+          throw error;
+        });
+        return closePromise;
+      };
+      return () => {
+        const current = state();
+        if (current.restartPromise && !current.shutdownRequested) {
+          current.viteInternalCloseExpected = true;
+        }
+      };
+    },
+  };
+}
+
+async function requestNitroDevDatabaseClose(
+  environment: {
+    hot?: {
+      off?: (event: string, listener: (payload: any) => void) => void;
+      on?: (event: string, listener: (payload: any) => void) => void;
+      send?: (payload: any) => void;
+    };
+  },
+  onRetry: (error: NitroDevDatabaseLifecycleTimeout) => void,
+): Promise<void> {
+  const requestId = randomUUID();
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await requestNitroDevDatabaseLifecycleEvent(
+        environment,
+        "agent-native:dev-database-close",
+        "agent-native:dev-database-closed",
+        "cleanup",
+        requestId,
+      );
+      return;
+    } catch (error) {
+      if (!(error instanceof NitroDevDatabaseLifecycleTimeout)) throw error;
+      onRetry(error);
+      if (attempt === maxAttempts) {
+        throw new Error(
+          `Nitro dev database cleanup was not acknowledged after ${maxAttempts} attempts. ` +
+            "The restart was aborted to avoid releasing the PGlite lock while the previous Nitro worker may still be active.",
+          { cause: error },
+        );
+      }
+    }
+  }
+}
+
+async function requestNitroDevDatabaseResume(environment: {
+  hot?: {
+    off?: (event: string, listener: (payload: any) => void) => void;
+    on?: (event: string, listener: (payload: any) => void) => void;
+    send?: (payload: any) => void;
+  };
+}): Promise<void> {
+  await requestNitroDevDatabaseLifecycleEvent(
+    environment,
+    "agent-native:dev-database-resume",
+    "agent-native:dev-database-resumed",
+    "resume",
+  );
+}
+
+async function requestNitroDevDatabaseLifecycleEvent(
+  environment: {
+    hot?: {
+      off?: (event: string, listener: (payload: any) => void) => void;
+      on?: (event: string, listener: (payload: any) => void) => void;
+      send?: (payload: any) => void;
+    };
+  },
+  requestEvent: string,
+  acknowledgementEvent: string,
+  operation: "cleanup" | "resume",
+  requestId = randomUUID(),
+): Promise<void> {
+  const hot = environment.hot;
+  if (!hot?.on || !hot.off || !hot.send) {
+    throw new Error(
+      `Nitro dev environment cannot acknowledge database ${operation} before restart.`,
+    );
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout);
+      hot.off?.(acknowledgementEvent, onClosed);
+    };
+    const onClosed = (payload: any) => {
+      if (payload?.requestId !== requestId) return;
+      cleanup();
+      if (typeof payload.error === "string") {
+        reject(
+          new Error(
+            `Nitro dev database ${operation} failed before restart: ${payload.error}`,
+          ),
+        );
+      } else {
+        resolve();
+      }
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(
+        new NitroDevDatabaseLifecycleTimeout(
+          `Nitro dev environment did not acknowledge database ${operation} before restart.`,
+        ),
+      );
+    }, 5_000);
+    hot.on?.(acknowledgementEvent, onClosed);
+    try {
+      hot.send?.({
+        type: "custom",
+        event: requestEvent,
+        data: { requestId },
+      });
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
+}
+
+class NitroDevDatabaseLifecycleTimeout extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NitroDevDatabaseLifecycleTimeout";
+  }
+}
+
 function localWorkspaceExportTarget(
   packageDir: string,
   target: unknown,
@@ -4051,9 +4614,9 @@ function createAgentNativePlugins(
     silenceConnectionResets(),
     rolldownInputFix(),
     ...(useServeOnlyNitroPlugin
-      ? [forceServeOnly(nitroPlugin)]
+      ? [forceServeOnly(nitroPlugin), nitroDevEnvironmentClosePlugin()]
       : includeNitro
-        ? [nitroPlugin]
+        ? [nitroPlugin, nitroDevEnvironmentClosePlugin()]
         : []),
     nitroStartupRecovery(),
     includeReactTransform ? createReactTransformPlugin() : null,

@@ -17,6 +17,7 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
 import { getDisabledDefaultPlugins } from "./default-plugins.js";
+import { installDevDatabaseCloseHook } from "./dev-database-lifecycle.js";
 import { PUBLIC_PATHNAME_CONTEXT_KEY } from "./framework-request-context.js";
 import {
   getFrameworkRoutePrefix,
@@ -186,6 +187,7 @@ export function getH3App(nitroApp: any): H3AppShim {
   ensureGlobalMiddlewareDispatch(nitroApp);
   installHttpResponseTelemetryHooks(nitroApp);
   installDevConnectionCloseHook(nitroApp);
+  installDevDatabaseCloseHook(nitroApp);
 
   const cached = nitroApp[APP_SHIM_KEY] as H3AppShim | undefined;
   if (cached) return cached;
