@@ -4,7 +4,7 @@ import {
   type AutomationExecutionIdentity,
 } from "../automations/service.js";
 import { isProductionServerlessFunctionRuntime } from "../db/client.js";
-import { subscribe, unsubscribe } from "../event-bus/index.js";
+import { subscribeAll, unsubscribe } from "../event-bus/index.js";
 import type { EventMeta } from "../event-bus/types.js";
 import {
   countAutomationCredentialState,
@@ -54,7 +54,6 @@ import {
   claimNextAutomationTriggerEvent,
   completeAutomationTriggerEvent,
   enqueueAutomationTriggerEvent,
-  ensureAutomationTriggerEventQueue,
   expireStaleAutomationTriggerEvents,
   expireAutomationTriggerEvent,
   failAutomationTriggerEvent,
@@ -102,7 +101,6 @@ export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
 
 export type AutomationWebhookTaskResult = "completed" | "retry";
 
-const _eventSubscriptions = new Map<string, string>();
 const _dispatchingTriggers = new Set<string>();
 const _drainingTriggers = new Map<string, Promise<boolean>>();
 const MAX_TRIGGER_PAYLOAD_PROMPT_CHARS = 4_000;
@@ -123,7 +121,13 @@ const DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS: AutomationTriggerQueueQueryOptions =
   {
     timeoutMs: DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS,
   };
+const EVENT_AUTOMATION_NAMES_TTL_MS = 60_000;
 let _deps: TriggerDispatcherDeps | null = null;
+let _anyEventSubscriptionId: string | null = null;
+// null = not loaded, or the last load failed. Never read as "no automations".
+let _eventAutomationNames: { names: Set<string>; loadedAt: number } | null =
+  null;
+let _pendingEventAutomationNames: Promise<Set<string>> | null = null;
 let _triggerQueueWorkerStarted = false;
 // ponytail: warm-process backoff resets on cold start; persist only if cold churn warrants it.
 let _triggerQueueIdleBackoffMs = 0;
@@ -300,8 +304,13 @@ export async function initTriggerDispatcher(
 ): Promise<void> {
   _deps = deps;
   resetTriggerQueueWorkerBackoff();
-  await ensureAutomationTriggerEventQueue();
-  await refreshEventSubscriptions();
+  // Init runs in an un-awaited Nitro plugin, so on a serverless request
+  // function any query here outlives the response and the frozen instance
+  // thaws into a timeout. Automations load on the first emitted event instead.
+  _eventAutomationNames = null;
+  _pendingEventAutomationNames = null;
+  if (_anyEventSubscriptionId) unsubscribe(_anyEventSubscriptionId);
+  _anyEventSubscriptionId = subscribeAll(handleAnyEvent);
   registerRecurringSweepHandler("automation-trigger-queue", async (context) => {
     await drainReadyTriggerQueue(context);
   });
@@ -655,57 +664,97 @@ async function drainReadyTriggerQueue(
 }
 
 /**
- * Refreshes are serialized: a snapshot taken before a concurrent define or
- * delete must not run after it and unsubscribe the newer automation. The event
- * bus is process-local, so a per-process queue is the whole scope.
+ * Loads are serialized: a snapshot taken before a concurrent define or delete
+ * must not land after it and hide the newer automation. The event bus is
+ * process-local, so a per-process queue is the whole scope.
  */
 let _subscriptionRefreshQueue: Promise<unknown> = Promise.resolve();
 
-export function refreshEventSubscriptions(): Promise<boolean> {
-  const refresh = _subscriptionRefreshQueue.then(() =>
-    refreshEventSubscriptionsOnce(),
-  );
-  _subscriptionRefreshQueue = refresh.then(
+function loadEventAutomationNames(): Promise<Set<string>> {
+  const load = _subscriptionRefreshQueue.then(readEventAutomationNames);
+  _subscriptionRefreshQueue = load.then(
     () => undefined,
     () => undefined,
   );
-  return refresh;
+  _pendingEventAutomationNames = load;
+  void load
+    .finally(() => {
+      if (_pendingEventAutomationNames === load) {
+        _pendingEventAutomationNames = null;
+      }
+    })
+    .catch(() => undefined);
+  return load;
 }
 
-async function refreshEventSubscriptionsOnce(): Promise<boolean> {
+async function readEventAutomationNames(): Promise<Set<string>> {
   try {
     const jobResources = await resourceListAllOwners("jobs/");
-    const eventNames = new Set<string>();
-
+    const names = new Set<string>();
     for (const resource of jobResources) {
       if (!resource.path.endsWith(".md")) continue;
       const { meta } = parseTriggerFrontmatter(resource.content);
       if (!jobBelongsToApp(meta, _deps?.appId)) continue;
       if (meta.triggerType === "event" && meta.event && meta.enabled) {
-        eventNames.add(meta.event);
+        names.add(meta.event);
       }
     }
+    _eventAutomationNames = { names, loadedAt: Date.now() };
+    return names;
+  } catch (err) {
+    _eventAutomationNames = null;
+    throw err;
+  }
+}
 
-    for (const [eventName, subId] of [..._eventSubscriptions]) {
-      if (!eventNames.has(eventName)) {
-        unsubscribe(subId);
-        _eventSubscriptions.delete(eventName);
-      }
-    }
-
-    for (const eventName of eventNames) {
-      if (!_eventSubscriptions.has(eventName)) {
-        const subId = subscribe(eventName, (payload, eventMeta) =>
-          handleEvent(eventName, payload, eventMeta),
-        );
-        _eventSubscriptions.set(eventName, subId);
-      }
-    }
+/**
+ * Reloads which events have automations, e.g. after one is defined or
+ * deleted. `false` means the load failed; the next emitted event retries it.
+ */
+export async function refreshEventSubscriptions(): Promise<boolean> {
+  try {
+    await loadEventAutomationNames();
     return true;
   } catch (err) {
     console.error("[triggers] Failed to refresh event subscriptions:", err);
     return false;
   }
+}
+
+/**
+ * Whether an enabled event automation in this app listens for `eventName`.
+ * Rejects when automations cannot be read, so a caller never mistakes an
+ * unreadable store for "nobody is listening".
+ */
+export async function hasEventAutomation(eventName: string): Promise<boolean> {
+  return (await currentEventAutomationNames()).has(eventName);
+}
+
+function currentEventAutomationNames(): Promise<Set<string>> {
+  const cached = _eventAutomationNames;
+  if (cached && Date.now() - cached.loadedAt < EVENT_AUTOMATION_NAMES_TTL_MS) {
+    return Promise.resolve(cached.names);
+  }
+  return _pendingEventAutomationNames ?? loadEventAutomationNames();
+}
+
+async function handleAnyEvent(
+  eventName: string,
+  payload: unknown,
+  eventMeta: EventMeta,
+): Promise<void> {
+  if (!_deps) return;
+  let names: Set<string>;
+  try {
+    names = await currentEventAutomationNames();
+  } catch (err) {
+    console.error(
+      `[triggers] Could not load event automations; "${eventName}" was not queued:`,
+      err,
+    );
+    throw err;
+  }
+  if (names.has(eventName)) await handleEvent(eventName, payload, eventMeta);
 }
 
 async function handleEvent(
