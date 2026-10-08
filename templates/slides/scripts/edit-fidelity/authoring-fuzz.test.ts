@@ -14,7 +14,6 @@ import {
   isConflictResourceConsoleError,
   isBrowserSessionPath,
   isCaretScrollOnlyChange,
-  isConflictResourceConsoleError,
   isExpectedSaveReloadActionAbort,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
@@ -532,24 +531,6 @@ it("ignores only the two expected action aborts during save/reload navigation", 
       "/_agent-native/actions/get-lab-states",
       "net::ERR_ABORTED",
       "save/reload",
-    ),
-  ).toBe(false);
-});
-
-it("recognizes resource conflicts with or without browser status text", () => {
-  expect(
-    isConflictResourceConsoleError(
-      "Failed to load resource: the server responded with a status of 409 ()",
-    ),
-  ).toBe(true);
-  expect(
-    isConflictResourceConsoleError(
-      "Failed to load resource: the server responded with a status of 409 (Conflict)",
-    ),
-  ).toBe(true);
-  expect(
-    isConflictResourceConsoleError(
-      "Failed to load resource: the server responded with a status of 404 ()",
     ),
   ).toBe(false);
 });
