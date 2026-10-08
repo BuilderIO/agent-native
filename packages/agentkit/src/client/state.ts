@@ -733,6 +733,11 @@ export function reduceAgentEvent(
         event.occurredAt,
       );
     case "message.created": {
+      if (event.message.role === "assistant") {
+        next = updateRun(next, event.runId, {
+          activeMessageId: event.message.id,
+        });
+      }
       const current = next.messages.find(
         (message) => message.id === event.message.id,
       );
@@ -753,6 +758,11 @@ export function reduceAgentEvent(
       };
     }
     case "message.completed": {
+      if (event.message.role === "assistant") {
+        next = updateRun(next, event.runId, {
+          activeMessageId: event.message.id,
+        });
+      }
       const current = next.messages.find(
         (message) => message.id === event.message.id,
       );
@@ -781,6 +791,9 @@ export function reduceAgentEvent(
       };
     }
     case "message.delta":
+      next = updateRun(next, event.runId, {
+        activeMessageId: event.messageId,
+      });
       return {
         ...next,
         messages: appendMessageText(
@@ -792,6 +805,9 @@ export function reduceAgentEvent(
         ),
       };
     case "reasoning.delta":
+      next = updateRun(next, event.runId, {
+        activeMessageId: event.messageId,
+      });
       return {
         ...next,
         messages: appendMessageText(
