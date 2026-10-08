@@ -242,6 +242,11 @@ export function ReplayStorageHint({
     storageStatus.isLoading ||
     builderStatus.loading ||
     !builderConnect.hasFetchedStatus;
+  const builderConnectionScope =
+    builderConnect.effective === "org" ||
+    builderConnect.effective === "personal"
+      ? builderConnect.effective
+      : undefined;
   const [s3Expanded, setS3Expanded] = useState(false);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
   const [savingStorage, setSavingStorage] = useState(false);
@@ -327,7 +332,17 @@ export function ReplayStorageHint({
             </div>
           ) : null}
           <div className="flex max-w-full flex-wrap items-center gap-3">
-            <BuilderConnectPopover flow={builderConnect}>
+            <BuilderConnectPopover
+              flow={builderConnect}
+              onConnect={(provisionAccount) =>
+                builderConnect.start({
+                  provisionAccount,
+                  ...(builderConnectionScope
+                    ? { scope: builderConnectionScope }
+                    : {}),
+                })
+              }
+            >
               <Button
                 type="button"
                 size="sm"

@@ -15,19 +15,50 @@ const storageMocks = vi.hoisted(() => ({
   refetch: vi.fn(),
 }));
 
+const builderMocks = vi.hoisted(() => ({
+  configured: false,
+  effective: null as "org" | "personal" | "workspace" | "env" | null,
+  start: vi.fn(),
+  status: null as { configured?: boolean; effective?: string } | null,
+  statusLoading: false,
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
 vi.mock("@agent-native/toolkit/app/settings", () => ({
-  BuilderConnectPopover: ({ children }: { children: ReactNode }) => children,
+  BuilderConnectPopover: ({
+    children,
+    onConnect,
+  }: {
+    children: ReactNode;
+    onConnect?: (provisionAccount: boolean) => void;
+  }) => (
+    <>
+      {children}
+      {onConnect ? (
+        <button
+          type="button"
+          data-testid="builder-connect-existing"
+          onClick={() => onConnect(false)}
+        />
+      ) : null}
+    </>
+  ),
   useBuilderConnectFlow: () => ({
-    configured: false,
+    configured: builderMocks.configured,
     connecting: false,
+    effective: builderMocks.effective,
     hasFetchedStatus: true,
-    start: vi.fn(),
+    canConnect: { org: true, personal: true },
+    start: builderMocks.start,
   }),
-  useBuilderStatus: () => ({ status: null, loading: false, refetch: vi.fn() }),
+  useBuilderStatus: () => ({
+    status: builderMocks.status,
+    loading: builderMocks.statusLoading,
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock("@/hooks/use-replay-storage-status", () => ({
@@ -133,6 +164,11 @@ describe("ReplayStorageHint", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     storageMocks.refetch.mockReset();
+    builderMocks.configured = false;
+    builderMocks.effective = null;
+    builderMocks.start.mockReset();
+    builderMocks.status = null;
+    builderMocks.statusLoading = false;
     storageMocks.useReplayStorageStatus.mockReturnValue({
       data: undefined,
       isError: true,
@@ -184,4 +220,43 @@ describe("ReplayStorageHint", () => {
       ),
     ).toBe(true);
   });
+
+  it.each(["org", "personal"] as const)(
+    "waits for the existing %s Builder grant when requesting file-upload access",
+    async (scope) => {
+      builderMocks.configured = true;
+      builderMocks.effective = scope;
+      builderMocks.status = { configured: true, effective: scope };
+      storageMocks.useReplayStorageStatus.mockReturnValue({
+        data: {
+          configured: false,
+          builderConfigured: true,
+          builderUploadConfigured: false,
+        },
+        isError: false,
+        isFetching: false,
+        isLoading: false,
+        isSuccess: true,
+        refetch: storageMocks.refetch,
+      });
+
+      await act(async () => {
+        root.render(<ReplayStorageHint />);
+      });
+
+      expect(container.textContent).toContain(
+        "sessions.builderAiConnectedStorageNeedsGrant",
+      );
+      const connectExisting = container.querySelector<HTMLButtonElement>(
+        '[data-testid="builder-connect-existing"]',
+      );
+      expect(connectExisting).toBeDefined();
+      await act(async () => connectExisting?.click());
+
+      expect(builderMocks.start).toHaveBeenCalledExactlyOnceWith({
+        provisionAccount: false,
+        scope,
+      });
+    },
+  );
 });
