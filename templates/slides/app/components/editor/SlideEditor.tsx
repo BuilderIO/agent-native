@@ -4247,10 +4247,15 @@ export default function SlideEditor({
         suppressNextClickRef.current = true;
         cancelClickSuppressionRef.current?.();
         // The release can be lost (mouseup outside the window, alt-tab), and
-        // the flag would then swallow a later real click.
+        // the flag would then swallow a later real click. A button still held
+        // past the timeout keeps the flag until its release or a pointer event
+        // that reports no button down.
+        let buttonDown = true;
+        let timedOut = false;
         const settle = (afterClick: boolean) => {
           window.removeEventListener("pointerup", onRelease);
           window.removeEventListener("pointercancel", onRelease);
+          window.removeEventListener("pointermove", onMove);
           window.removeEventListener("pointerdown", onLost, true);
           window.removeEventListener("blur", onLost);
           window.clearTimeout(timer);
@@ -4265,13 +4270,18 @@ export default function SlideEditor({
         };
         const onRelease = () => settle(true);
         const onLost = () => settle(false);
-        const timer = window.setTimeout(
-          onLost,
-          CANCEL_CLICK_SUPPRESSION_TIMEOUT_MS,
-        );
+        const onMove = (moveEvent: PointerEvent) => {
+          buttonDown = moveEvent.buttons !== 0;
+          if (timedOut && !buttonDown) onLost();
+        };
+        const timer = window.setTimeout(() => {
+          timedOut = true;
+          if (!buttonDown) onLost();
+        }, CANCEL_CLICK_SUPPRESSION_TIMEOUT_MS);
         cancelClickSuppressionRef.current = onLost;
         window.addEventListener("pointerup", onRelease);
         window.addEventListener("pointercancel", onRelease);
+        window.addEventListener("pointermove", onMove);
         window.addEventListener("pointerdown", onLost, true);
         window.addEventListener("blur", onLost);
       } else if (action === "mode") {

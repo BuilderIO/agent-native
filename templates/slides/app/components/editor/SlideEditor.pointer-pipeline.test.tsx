@@ -939,16 +939,40 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
       expect(editor.lastSelected()).toBe(editor.el("card"));
     });
 
-    it("stops swallowing clicks after a timeout", async () => {
+    it("stops swallowing clicks after a timeout once no button is down", async () => {
       // Fake timers go in after mounting, which waits on real ones.
       const editor = await cancelDrag(() => vi.useFakeTimers());
       try {
         act(() => vi.advanceTimersByTime(5000));
+        fireEvent.pointerMove(window, {
+          clientX: 125,
+          clientY: 330,
+          pointerId: 1,
+          buttons: 0,
+        });
       } finally {
         vi.useRealTimers();
       }
       fireEvent.click(editor.el("card"), { clientX: 85, clientY: 300 });
       expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    it("keeps swallowing the release click while the button is held past the timeout", async () => {
+      const editor = await cancelDrag(() => vi.useFakeTimers());
+      try {
+        act(() => vi.advanceTimersByTime(5000));
+        fireEvent.pointerMove(window, {
+          clientX: 130,
+          clientY: 335,
+          pointerId: 1,
+          buttons: 1,
+        });
+        act(() => vi.advanceTimersByTime(5000));
+        editor.release("card", { x: 130, y: 335 });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(enterSelectionMode).not.toHaveBeenCalled();
     });
   });
 });
