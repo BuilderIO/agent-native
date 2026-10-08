@@ -71,6 +71,7 @@ import {
 } from "./lib/metrics.ts";
 import { isRetryableInfraError } from "./retry-infra.ts";
 import { readValueOption } from "./run-options.ts";
+import { CouldNotRun, rethrowIfCouldNotRun } from "./run-outcomes.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCENARIOS = [
@@ -83,8 +84,6 @@ const SCENARIOS = [
 type Scenario = (typeof SCENARIOS)[number];
 /** Scenarios whose net text change is zero: nothing may change at all. */
 const NET_NOOP = new Set<Scenario>(["noop", "typedelete", "clickout"]);
-
-class CouldNotRun extends Error {}
 
 // ------------------------------------------------------------------- cli ---
 
@@ -795,6 +794,15 @@ async function settle(page: Page) {
       );
       return { failed, pending };
     };
+    const currentState = (settled: boolean) => {
+      const stylesheets = stylesheetState();
+      return {
+        settled,
+        fonts: document.fonts.status,
+        pendingStylesheets: stylesheets.pending.length,
+        failedStylesheets: stylesheets.failed.map((link) => link.href),
+      };
+    };
     // Imported-font stylesheets are appended by a passive effect after render.
     await frame();
     let ready = false;
@@ -806,12 +814,7 @@ async function settle(page: Page) {
       await frame();
       const stylesheets = stylesheetState();
       if (stylesheets.failed.length > 0) {
-        return {
-          settled: false,
-          fonts: document.fonts.status,
-          pendingStylesheets: stylesheets.pending.length,
-          failedStylesheets: stylesheets.failed.map((link) => link.href),
-        };
+        return currentState(false);
       }
       if (
         stylesheets.pending.length === 0 &&
@@ -823,12 +826,7 @@ async function settle(page: Page) {
       await new Promise((r) => setTimeout(r, 100));
     }
     if (!ready) {
-      return {
-        settled: false,
-        fonts: document.fonts.status,
-        pendingStylesheets: stylesheetState().pending.length,
-        failedStylesheets: [],
-      };
+      return currentState(false);
     }
     // Only the main canvas: sidebar thumbnails are lazy and may never load.
     // A broken image fires "error", never "load"; both views see the same one.
@@ -852,11 +850,13 @@ async function settle(page: Page) {
     await new Promise((r) =>
       requestAnimationFrame(() => requestAnimationFrame(r)),
     );
+    const finalState = currentState(true);
     return {
-      settled: true,
-      fonts: document.fonts.status,
-      pendingStylesheets: stylesheetState().pending.length,
-      failedStylesheets: [],
+      ...finalState,
+      settled:
+        finalState.fonts === "loaded" &&
+        finalState.pendingStylesheets === 0 &&
+        finalState.failedStylesheets.length === 0,
     };
   }, MASK_CSS);
   if (!settleState.settled) {
@@ -5040,6 +5040,7 @@ async function runAuthoringFuzzQa(
         `[edit-fidelity] fuzz seed=${result.seed} passed ${result.stepsRun} steps on ${profile ? `committed-${profile.kind}` : "synthetic"} (${result.undoSteps} undo steps)`,
       );
     } catch (error) {
+      rethrowIfCouldNotRun(error);
       const problem = `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`;
       problems.push(problem);
       console.error(`[edit-fidelity] ${problem}`);
