@@ -2784,16 +2784,19 @@ export async function createMCPServerForRequest(
               entry.tool.description ??
               name;
             const title = agentNativeToolTitle(name, entry.tool.title);
-            const annotations: Record<string, unknown> = directoryCatalog
-              ? { title, ...entry.mcpAnnotations }
-              : {
-                  title,
-                  readOnlyHint: entry.readOnly === true,
-                  destructiveHint:
-                    entry.publicAgent?.isConsequential === true ||
-                    entry.needsApproval !== undefined,
-                  openWorldHint: false,
-                };
+            const annotations: Record<string, unknown> = {
+              title,
+              ...(entry.mcpAnnotations ??
+                (directoryCatalog
+                  ? undefined
+                  : {
+                      readOnlyHint: entry.readOnly === true,
+                      destructiveHint:
+                        entry.publicAgent?.isConsequential === true ||
+                        entry.needsApproval !== undefined,
+                      openWorldHint: false,
+                    })),
+            };
             if (directoryCatalog) {
               delete annotations["agent-native/producesOpenLink"];
             } else if (hasLink) {

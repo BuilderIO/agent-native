@@ -80,6 +80,7 @@ export default defineAction({
     purpose: purposeSchema.optional(),
     allowedActions: allowedActionsSchema.nullable().optional(),
   }),
+  requiresAuth: true,
   toolCallable: false,
   audit: orgAdminAudit({
     targetType: "service-principal",
