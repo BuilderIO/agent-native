@@ -2,14 +2,14 @@ import { expect, it } from "vitest";
 
 import { authoredTargetPointForDrop } from "./cross-screen-element-drop";
 
-it("uses board coordinates for an unanchored drop inside the rendered board", () => {
+it("uses local coordinates for an unanchored drop inside board content", () => {
   expect(
     authoredTargetPointForDrop({
       boardFileId: "board",
       targetScreenId: "board",
-      targetOutsideBoardRenderGeometry: false,
+      targetOutsideBoardContentBounds: false,
       targetCanvasPoint: { x: 310, y: 220 },
       targetLocalPoint: { x: 44, y: 28 },
     }),
-  ).toEqual({ x: 310, y: 220 });
+  ).toEqual({ x: 44, y: 28 });
 });

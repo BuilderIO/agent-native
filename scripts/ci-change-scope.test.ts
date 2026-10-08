@@ -604,14 +604,14 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
   assert.ok(
-    Number.isInteger(jobTimeout) && jobTimeout > 0 && jobTimeout < 10,
-    `Design acceptance job must stop before ten minutes (got ${jobTimeout})`,
+    Number.isInteger(jobTimeout) && jobTimeout >= 25 && jobTimeout <= 30,
+    `Design acceptance job needs a bounded 25-minute budget (got ${jobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout <= 4 &&
-      jobTimeout >= stepTimeout + 5,
-    `focused Design tests need a four-minute cap and five minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout === 15 &&
+      jobTimeout >= stepTimeout + 10,
+    `focused Design tests need a 15-minute cap and ten minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.match(
     designJob,
@@ -628,6 +628,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const inspectorThreeStart = shardStart("inspector-3");
   const inspectorFourStart = shardStart("inspector-4");
   const dragOneStart = shardStart("drag-1");
+  const dragTwoStart = shardStart("drag-2");
   assert.ok(
     inspectorOneStart >= 0 &&
       inspectorTwoStart > inspectorOneStart &&
@@ -669,10 +670,18 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const fallbackStart = shardStart("*");
   assert.ok(
     positionOneStart >= 0 &&
+      dragTwoStart > dragOneStart &&
       positionTwoStart > positionOneStart &&
       positionThreeStart > positionTwoStart &&
       fallbackStart > positionThreeStart,
   );
+  assert.deepEqual(fixedLocations(dragTwoStart, positionOneStart), [
+    "e2e/drag-and-drop.moving-by-drag.spec.ts:105",
+    "e2e/parity-alt-drag-duplicate.spec.ts:1293",
+    "e2e/parity-selection.spec.ts:313",
+    "e2e/parity-selection.spec.ts:451",
+    "e2e/parity-selection.spec.ts:572",
+  ]);
   assert.deepEqual(fixedLocations(positionOneStart, positionTwoStart), [
     "e2e/pasted-svg-image-inspector.spec.ts:656",
     "e2e/pasted-svg-image-inspector.spec.ts:693",
@@ -882,7 +891,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/corner-radius-handle-drag.spec.ts",
-      234,
+      239,
       "canvas corner-radius handle follows the drag and persists the radius",
     ],
     [
@@ -954,6 +963,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/position-alignment.spec.ts",
       780,
       "Align uses a Group's bounds while Position stays Frame-relative",
+    ],
+    [
+      "e2e/parity-alt-drag-duplicate.spec.ts",
+      1293,
+      "copies a root auto-layout Frame as a selected board-root layer and preserves its original",
     ],
   ] as const;
   for (const [file, line, title] of selectedTests) {

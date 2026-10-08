@@ -210,10 +210,15 @@ async function dragSouthEastRadius(
         );
       })
       .toBeLessThan(1);
-    const radius = await target.evaluate((element) =>
-      parseFloat(getComputedStyle(element).borderTopLeftRadius),
-    );
-    expect(radius).toBeGreaterThan(previousRadius);
+    let radius = previousRadius;
+    await expect
+      .poll(async () => {
+        radius = await target.evaluate((element) =>
+          parseFloat(getComputedStyle(element).borderTopLeftRadius),
+        );
+        return radius;
+      })
+      .toBeGreaterThan(previousRadius);
     previousRadius = radius;
     if (process.env.E2E_CAPTURE_RADIUS_SCREENSHOT === "1" && distance === 8) {
       await page.screenshot({

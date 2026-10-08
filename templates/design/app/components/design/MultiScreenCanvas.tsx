@@ -3656,18 +3656,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   boardSurfaceRenderGeometry,
                 )
               : lastBoardPoint;
-            const targetOutsideBoardRenderGeometry =
-              boardSurfaceRenderGeometry !== undefined &&
-              !geometryContainsPoint(
-                boardSurfaceRenderGeometry,
-                lastBoardPoint,
-              );
+            const targetOutsideBoardContentBounds =
+              !boardSurfaceContentBounds ||
+              !geometryContainsPoint(boardSurfaceContentBounds, lastBoardPoint);
             const transactionBeforeDrop =
               runtimeStructurePendingTransactionRef?.current ?? null;
             trace("drop", "board-commit-point", {
               targetCanvasPoint: lastBoardPoint,
               targetLocalPoint,
-              targetOutsideBoardRenderGeometry,
+              targetOutsideBoardContentBounds,
               boardSurfaceRenderOrigin: boardSurfaceRenderGeometry
                 ? {
                     x: boardSurfaceRenderGeometry.x,
@@ -3694,7 +3691,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               targetAnchorRect: anchorRect,
               targetCanvasPoint: lastBoardPoint,
               targetLocalPoint,
-              targetOutsideBoardRenderGeometry,
+              targetOutsideBoardContentBounds,
               sourcePointerOffset: payload.sourcePointerOffset,
               sourceComputedSize: payload.sourceComputedSize,
               sourceHtmlSnapshot: payload.sourceHtmlSnapshot,
