@@ -27,9 +27,14 @@ export type NewDeckReferenceSource = NonNullable<
 export function withoutAutomaticReferenceDeck(
   selection: NewDeckReferenceSelection,
 ): NewDeckReferenceSelection {
+  const staleAutomaticReferenceDeckId =
+    selection.referenceDeckIdSource === "selection" &&
+    selection.referenceDeckId === selection.automaticReferenceDeckId
+      ? null
+      : selection.automaticReferenceDeckId;
   const automaticDeckIds = new Set(
     [
-      selection.automaticReferenceDeckId,
+      staleAutomaticReferenceDeckId,
       selection.referenceDeckIdSource === "automatic"
         ? selection.referenceDeckId
         : null,

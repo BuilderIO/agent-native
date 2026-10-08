@@ -10,12 +10,19 @@ vi.mock("../db/client.js", () => ({
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let writes: Array<{ sql: string; args: unknown[] }> = [];
+let failLearnSharedApprovalMigration = false;
 
 const sharedClient = {
   async execute(arg: string | { sql: string; args?: unknown[] }) {
     const sql = typeof arg === "string" ? arg : arg.sql;
     const args = typeof arg === "string" ? [] : (arg.args ?? []);
     if (!/^\s*(select|create)/i.test(sql)) writes.push({ sql, args });
+    if (
+      failLearnSharedApprovalMigration &&
+      /^\s*UPDATE resources SET content = \?/i.test(sql)
+    ) {
+      throw new Error("injected migration failure");
+    }
     if (/^\s*create/i.test(sql)) {
       await pglite.exec(sql);
       return { rows: [], rowsAffected: 0 };
@@ -44,10 +51,12 @@ function learnSharedContentMigrationPaths(): unknown[] {
 beforeEach(async () => {
   pglite = await createTestPglite();
   writes = [];
+  failLearnSharedApprovalMigration = false;
   vi.resetModules();
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await pglite.close();
 });
 
@@ -107,6 +116,39 @@ describe("default resource seeding is once per database, not per process", () =>
       "skills/learn-shared/SKILL.md",
       "skills/learn-shared.md",
     ]);
+  });
+
+  it("keeps initialization available and retries a failed approval migration", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    failLearnSharedApprovalMigration = true;
+
+    const first = await import("./store.js");
+    const rows = await first.resourceList("__shared__");
+
+    expect(rows.map((row) => row.path)).toContain("AGENTS.md");
+    expect(rows.map((row) => row.path)).toContain("LEARNINGS.md");
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(
+      writes.some(({ args }) =>
+        args.includes("resources-migrated:shared:learn-shared-approval:v1"),
+      ),
+    ).toBe(false);
+
+    failLearnSharedApprovalMigration = false;
+    writes = [];
+    vi.resetModules();
+    const second = await import("./store.js");
+    await second.resourceList("__shared__");
+
+    expect(learnSharedContentMigrationPaths()).toEqual([
+      "skills/learn-shared/SKILL.md",
+      "skills/learn-shared.md",
+    ]);
+    expect(
+      writes.some(({ args }) =>
+        args.includes("resources-migrated:shared:learn-shared-approval:v1"),
+      ),
+    ).toBe(true);
   });
 
   it("does not re-seed personal defaults for the same owner on a new process", async () => {

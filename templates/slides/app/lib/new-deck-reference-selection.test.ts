@@ -105,6 +105,45 @@ describe("withoutAutomaticReferenceDeck", () => {
       }),
     ).toEqual({ designSystemId: "system-1" });
   });
+
+  it("preserves explicit composer context when a legacy automatic marker matches it", () => {
+    const selection = {
+      automaticReferenceDeckId: "chosen-deck",
+      referenceDeckId: "chosen-deck",
+      referenceDeckIdSource: "selection" as const,
+      composerContext: {
+        designSystemId: null,
+        references: [
+          { source: "slides" as const, id: "chosen-deck", title: "Chosen" },
+        ],
+      },
+      contextItems: [
+        {
+          key: "slides:chosen-deck:",
+          title: "Chosen",
+          context: "",
+          status: "ready" as const,
+        },
+      ],
+    };
+
+    expect(withoutAutomaticReferenceDeck(selection)).toEqual({
+      referenceDeckId: "chosen-deck",
+      referenceDeckIdSource: "selection",
+      composerContext: {
+        designSystemId: null,
+        references: [{ source: "slides", id: "chosen-deck", title: "Chosen" }],
+      },
+      contextItems: [
+        {
+          key: "slides:chosen-deck:",
+          title: "Chosen",
+          context: "",
+          status: "ready",
+        },
+      ],
+    });
+  });
 });
 
 describe("resolveRetryReferenceDeckSelection", () => {

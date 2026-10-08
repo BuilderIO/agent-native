@@ -662,18 +662,27 @@ async function migrateDefaultResourceContent({
   resourcePath: string;
   previousContent: string;
   content: string;
-}): Promise<void> {
-  await client.execute({
-    sql: `UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND content = ?`,
-    args: [
-      content,
-      Buffer.byteLength(content, "utf8"),
-      Date.now(),
-      owner,
-      resourcePath,
-      previousContent,
-    ],
-  });
+}): Promise<boolean> {
+  try {
+    await client.execute({
+      sql: `UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND content = ?`,
+      args: [
+        content,
+        Buffer.byteLength(content, "utf8"),
+        Date.now(),
+        owner,
+        resourcePath,
+        previousContent,
+      ],
+    });
+    return true;
+  } catch (error) {
+    console.warn(
+      `[resources] learn-shared approval migration failed for ${resourcePath}; will retry on a later initialization:`,
+      (error as Error)?.message ?? error,
+    );
+    return false;
+  }
 }
 
 function normalizeCreatedBy(value: unknown): ResourceCreatedBy {
@@ -1203,19 +1212,22 @@ async function _doEnsureTable(): Promise<void> {
   // This marker stays separate from the shared seed version so it cannot
   // resurrect deleted defaults or rerun personal seeding.
   if (!(await alreadySeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY))) {
+    let migrationSucceeded = true;
     for (const resourcePath of [
       "skills/learn-shared/SKILL.md",
       "skills/learn-shared.md",
     ]) {
-      await migrateDefaultResourceContent({
-        client,
-        owner: SHARED_OWNER,
-        resourcePath,
-        previousContent: PREVIOUS_DEFAULT_SKILL_LEARN_SHARED_MD,
-        content: DEFAULT_SKILL_LEARN_SHARED_MD,
-      });
+      migrationSucceeded =
+        (await migrateDefaultResourceContent({
+          client,
+          owner: SHARED_OWNER,
+          resourcePath,
+          previousContent: PREVIOUS_DEFAULT_SKILL_LEARN_SHARED_MD,
+          content: DEFAULT_SKILL_LEARN_SHARED_MD,
+        })) && migrationSucceeded;
     }
-    await markSeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY);
+    if (migrationSucceeded)
+      await markSeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY);
   }
 
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid

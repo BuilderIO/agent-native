@@ -25,6 +25,7 @@ import {
 } from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
+import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
   getRequestRunContext,
@@ -13346,6 +13347,7 @@ describe("runAgentLoop", () => {
 
   const approvalEngine = (
     toolInput: Record<string, unknown> = { to: "a@b.com" },
+    toolName = "send-email",
   ): { engine: AgentEngine; streamCalls: () => number } => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -13369,7 +13371,7 @@ describe("runAgentLoop", () => {
               {
                 type: "tool-call" as const,
                 id: "approval-call-1",
-                name: "send-email",
+                name: toolName,
                 input: toolInput,
               },
             ],
@@ -13476,6 +13478,60 @@ describe("runAgentLoop", () => {
         message: "Waiting for your approval to run send-email.",
       },
     ]);
+  });
+
+  it("requires fresh approval before shared resource and organization-memory writes", async () => {
+    const entries = await createResourceScriptEntries();
+    const cases = [
+      {
+        name: "resources",
+        input: {
+          action: "write",
+          path: "LEARNINGS.md",
+          content: "Shared learning proposal",
+        },
+      },
+      {
+        name: "save-memory",
+        input: {
+          name: "coding-style",
+          type: "feedback",
+          description: "A shared preference",
+          content: "Shared learning proposal",
+          scope: "current-org",
+        },
+      },
+    ] as const;
+
+    for (const { name, input } of cases) {
+      const entry = entries[name];
+      expect(entry).toBeDefined();
+      if (!entry) throw new Error(`Missing ${name} action entry`);
+
+      const { engine } = approvalEngine(input, name);
+      const run = vi.fn(async () => "saved");
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: { [name]: { ...entry, run } },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(run).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "approval_required",
+          tool: name,
+          allowPersistentApproval: false,
+        }),
+      );
+    }
   });
 
   it("does not run later tool calls in the same message while approval is pending", async () => {

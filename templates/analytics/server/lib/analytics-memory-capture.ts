@@ -318,6 +318,13 @@ async function processJob(job: CaptureJob): Promise<void> {
         return;
       }
 
+      if (orgId !== null) {
+        // Personal memories follow the user across orgs; org writes need approval.
+        await deleteJob(job);
+        await trackCaptureOutcome(owner, orgId, "skipped", 0, 0);
+        return;
+      }
+
       const candidates = extractAnalyticsMemoryCandidates(
         threadMessages(thread.threadData),
       );
