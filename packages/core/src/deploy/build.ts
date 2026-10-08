@@ -2982,6 +2982,7 @@ const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
   "playwright",
   "puppeteer",
   "puppeteer-core",
+  "@puppeteer/browsers",
   "chromium-bidi",
 ]);
 
@@ -4917,6 +4918,76 @@ function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
   );
 }
 
+function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
+  const nodeModulesDir = path.join(functionDir, "node_modules");
+  if (!fs.existsSync(path.join(nodeModulesDir, "@puppeteer/browsers")))
+    return new Set();
+  const collect = (names: Iterable<string>): Set<string> => {
+    const seen = new Set<string>();
+    const visit = (name: string) => {
+      if (seen.has(name)) return;
+      seen.add(name);
+      const local = path.join(nodeModulesDir, ...name.split("/"));
+      // Missing bundle packages cannot supply a trustworthy dependency graph;
+      // the workspace may contain a different version than Nitro traced.
+      const manifest = readPackageManifest(local);
+      for (const field of [
+        ...RUNTIME_PACKAGE_DEPENDENCY_FIELDS,
+        "peerDependencies",
+      ]) {
+        const dependencies = manifest?.[field];
+        if (
+          !dependencies ||
+          typeof dependencies !== "object" ||
+          Array.isArray(dependencies)
+        )
+          continue;
+        for (const dependency of Object.keys(dependencies)) visit(dependency);
+      }
+    };
+    for (const name of names) visit(name);
+    return seen;
+  };
+  const candidates = collect([
+    "puppeteer",
+    "puppeteer-core",
+    "chromium-bidi",
+    "@puppeteer/browsers",
+  ]);
+  const manifest = readPackageManifest(functionDir);
+  // Nitro's manifest flattens transitive dependencies, so installer children
+  // are not independent runtime roots merely because they appear there.
+  const retained = new Set(
+    PACKAGE_DEPENDENCY_FIELDS.flatMap((field) =>
+      Object.keys((manifest?.[field] as Record<string, unknown>) ?? {}),
+    ).filter(
+      (name) =>
+        !candidates.has(name) &&
+        !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name),
+    ),
+  );
+  for (const entry of fs.readdirSync(functionDir)) {
+    if (entry === "node_modules") continue;
+    const file = path.join(functionDir, entry);
+    const inspect = (filePath: string) => {
+      const source = fs.readFileSync(filePath, "utf8");
+      for (const name of candidates) {
+        if (
+          !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name) &&
+          (hasExternalSsrRuntimeReference(source, name) ||
+            source.includes(`node_modules/${name}/`))
+        )
+          retained.add(name);
+      }
+    };
+    if (fs.statSync(file).isDirectory())
+      walkServerJavaScriptFiles(file, inspect);
+    else if (/\.(?:[cm]?js)$/.test(entry)) inspect(file);
+  }
+  const needed = collect(retained);
+  return new Set([...candidates].filter((name) => !needed.has(name)));
+}
+
 export function sanitizeServerlessFunctionPackageManifest(
   functionDir: string | undefined,
 ): void {
@@ -4932,12 +5003,16 @@ export function sanitizeServerlessFunctionPackageManifest(
     return;
   }
 
+  const deniedPackages = new Set([
+    ...SERVERLESS_FUNCTION_PACKAGE_DENYLIST,
+    ...exclusiveBrowserInstallerPackages(functionDir),
+  ]);
   let removed = 0;
   for (const field of PACKAGE_DEPENDENCY_FIELDS) {
     const deps = packageJson[field];
     if (!deps || typeof deps !== "object" || Array.isArray(deps)) continue;
     const depRecord = deps as Record<string, unknown>;
-    for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+    for (const packageName of deniedPackages) {
       if (Object.prototype.hasOwnProperty.call(depRecord, packageName)) {
         delete depRecord[packageName];
         removed++;
@@ -4949,7 +5024,7 @@ export function sanitizeServerlessFunctionPackageManifest(
   }
 
   const nodeModulesDir = path.join(functionDir, "node_modules");
-  for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+  for (const packageName of deniedPackages) {
     const packageDir = path.join(nodeModulesDir, ...packageName.split("/"));
     if (fs.existsSync(packageDir)) {
       fs.rmSync(packageDir, { recursive: true, force: true });

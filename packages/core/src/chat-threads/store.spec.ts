@@ -407,6 +407,35 @@ describe("chat thread store", () => {
     ]);
   });
 
+  it("seeds a blank title from the first prompt without replacing it on later saves", async () => {
+    row!.title = "";
+    row!.thread_data = "{}";
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "first-prompt",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context>Private instructions</context>\nPlan   next week",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    };
+    await updateThreadData("thread-1", JSON.stringify(repository), "", "", 1);
+    expect(row!.title).toBe("Plan next week");
+    await updateThreadData("thread-1", "{}", "", "", 1);
+    expect(row!.title).toBe("Plan next week");
+    await renameThread("thread-1", "My renamed thread");
+    await updateThreadData("thread-1", JSON.stringify(repository), "", "", 1);
+    expect(row!.title).toBe("My renamed thread");
+  });
+
   it("reports when the thread disappeared before a save", async () => {
     row = null;
 

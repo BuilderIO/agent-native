@@ -3909,6 +3909,81 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
       fs.existsSync(path.join(functionDir, "node_modules", "playwright-core")),
     ).toBe(true);
   });
+
+  it.each([
+    'import value from "imported"; console.log(value);',
+    'import value from "./node_modules/imported/index.js"; console.log(value);',
+    'const value = require("imported/subpath"); console.log(value);',
+  ])(
+    "prunes browser-installer dependencies while retaining runtime reference %s",
+    (entry) => {
+      const functionDir = setupFunctionDir();
+      const manifests: Record<string, Record<string, string>> = {
+        "@puppeteer/browsers": {
+          "installer-cli": "1",
+          shared: "1",
+          imported: "1",
+          peer: "1",
+          "missing-installer-child": "1",
+        },
+        "installer-cli": { "installer-parser": "1" },
+        "installer-parser": {},
+        shared: {},
+        imported: {},
+        runtime: { shared: "1" },
+        peer: {},
+      };
+      for (const [name, dependencies] of Object.entries(manifests)) {
+        const directory = path.join(functionDir, "node_modules", name);
+        fs.mkdirSync(directory, { recursive: true });
+        fs.writeFileSync(
+          path.join(directory, "package.json"),
+          JSON.stringify({
+            name,
+            dependencies,
+            ...(name === "runtime" ? { peerDependencies: { peer: "1" } } : {}),
+          }),
+        );
+        fs.writeFileSync(
+          path.join(directory, "index.js"),
+          "export default {};",
+        );
+      }
+      fs.writeFileSync(
+        path.join(functionDir, "package.json"),
+        JSON.stringify({
+          dependencies: Object.fromEntries(
+            Object.keys(manifests).map((name) => [name, "1"]),
+          ),
+        }),
+      );
+      fs.writeFileSync(path.join(functionDir, "server.mjs"), entry);
+      sanitizeServerlessFunctionPackageManifest(functionDir);
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+      );
+      expect(Object.keys(manifest.dependencies).sort()).toEqual([
+        "imported",
+        "peer",
+        "runtime",
+        "shared",
+      ]);
+      for (const name of [
+        "@puppeteer/browsers",
+        "installer-cli",
+        "installer-parser",
+      ]) {
+        expect(
+          fs.existsSync(path.join(functionDir, "node_modules", name)),
+        ).toBe(false);
+      }
+      for (const name of ["imported", "peer", "runtime", "shared"]) {
+        expect(
+          fs.existsSync(path.join(functionDir, "node_modules", name)),
+        ).toBe(true);
+      }
+    },
+  );
 });
 
 describe("isServerlessNativePlatformPackage", () => {

@@ -3874,7 +3874,15 @@ export function extractThreadMeta(repo: any): {
         ? msg.content
         : "";
     if (textParts.trim()) {
-      if (!title) title = textParts.trim().slice(0, 80);
+      if (!title)
+        title = textParts
+          .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+          .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
+          .replace(/<\/context>/gi, "")
+          .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 80);
       preview = textParts.trim().slice(0, 120);
     }
   }

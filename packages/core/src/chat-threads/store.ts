@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import type { AgentRunOptions } from "@agent-native/agentkit/protocol";
 
 import {
+  extractThreadMeta,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   normalizeThreadTitle,
@@ -1465,7 +1466,7 @@ export async function updateThreadData(
         options.preserveCurrentTitleAndPreview;
       const nextTitle = preserveCurrentTitleAndPreview
         ? current.title
-        : title || current.title;
+        : title || current.title || extractThreadMeta(merged).title;
       const nextPreview = preserveCurrentTitleAndPreview
         ? current.preview
         : typeof transformed === "object" && transformed.preview !== undefined
