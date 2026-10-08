@@ -23,7 +23,8 @@ const MAX_MULTIPART_OVERHEAD_BYTES = 64_000;
 const MAX_REQUEST_BYTES =
   MAX_BATCH_BYTES + MAX_MANIFEST_BYTES + MAX_MULTIPART_OVERHEAD_BYTES;
 // Leave headroom under Analytics' 75-second Netlify function limit.
-const DESIGN_UPLOAD_TIMEOUT_MS = 60_000;
+const DESIGN_REQUEST_DEADLINE_MS = 60_000;
+const DESIGN_ACTION_TIMEOUT_MS = 30_000;
 
 type ScreenshotInput = {
   recordingId: string;
@@ -70,6 +71,17 @@ function unknownSaveOutcomeError(message: string, cause?: unknown) {
     data: { saveOutcomeUnknown: true },
     ...(cause === undefined ? {} : { cause }),
   });
+}
+
+function remainingDesignRequestTimeout(deadlineAt: number): number {
+  const remaining = Math.ceil(deadlineAt - Date.now());
+  if (remaining <= 0) {
+    throw createError({
+      statusCode: 504,
+      statusMessage: "Design screenshot export exceeded its request deadline",
+    });
+  }
+  return Math.min(DESIGN_ACTION_TIMEOUT_MS, remaining);
 }
 
 function isDesignUploadResult(value: unknown): value is DesignUploadResult {
@@ -395,17 +407,20 @@ async function readDesignStoryboard(
   designId: string,
   userEmail: string,
   apiKey: string,
+  deadlineAt: number,
 ): Promise<{ targetUrl: string; content: string } | null> {
-  const invokeRead = (target: string, input: Record<string, unknown>) =>
-    invokeAgentAction({
+  const invokeRead = (target: string, input: Record<string, unknown>) => {
+    const requestTimeoutMs = remainingDesignRequestTimeout(deadlineAt);
+    return invokeAgentAction({
       target,
       selfAppId: "analytics",
       userEmail,
       apiKey,
-      requestTimeoutMs: 30_000,
+      requestTimeoutMs,
       action: "get-design",
       input,
     });
+  };
 
   const metadata = await invokeRead(target, {
     id: designId,
@@ -529,6 +544,7 @@ function createDesignUploadForm(
 
 export default defineEventHandler(async (event) =>
   runApiHandlerWithContext(event, async (ctx) => {
+    const designRequestDeadlineAt = Date.now() + DESIGN_REQUEST_DEADLINE_MS;
     let responseBody:
       | {
           response: string;
@@ -654,6 +670,7 @@ export default defineEventHandler(async (event) =>
           manifest.designId,
           ctx.userEmail,
           uploadToken,
+          designRequestDeadlineAt,
         );
         if (!previous) {
           badRequest(
@@ -682,6 +699,9 @@ export default defineEventHandler(async (event) =>
         designManifest,
         screenshotBytes,
       );
+      const uploadTimeoutMs = remainingDesignRequestTimeout(
+        designRequestDeadlineAt,
+      );
       let uploadResponse: Response | undefined;
       let uploadResponseBody: string | undefined;
       const controller = new AbortController();
@@ -695,7 +715,7 @@ export default defineEventHandler(async (event) =>
               statusMessage: "Design screenshot upload timed out",
             }),
           );
-        }, DESIGN_UPLOAD_TIMEOUT_MS);
+        }, uploadTimeoutMs);
       });
       try {
         const upload = await Promise.race([
@@ -817,6 +837,7 @@ export default defineEventHandler(async (event) =>
           designId,
           ctx.userEmail,
           uploadToken,
+          designRequestDeadlineAt,
         );
       } catch {
         throw unknownSaveOutcomeError(

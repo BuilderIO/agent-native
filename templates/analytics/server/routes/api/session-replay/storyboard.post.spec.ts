@@ -268,6 +268,54 @@ describe("POST /api/session-replay/storyboard", () => {
     expect(mocks.invokeAgentAction).toHaveBeenCalledTimes(4);
   });
 
+  it("shares one deadline across existing-board reads, upload, and confirmation", async () => {
+    const start = Date.now();
+    let elapsed = 0;
+    const dateNow = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() => start + elapsed);
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const uploadImplementation = mocks.ssrfSafeFetch.getMockImplementation();
+    mocks.invokeAgentAction.mockImplementation(async ({ input }: any) => {
+      const callIndex = mocks.invokeAgentAction.mock.calls.length;
+      if (callIndex <= 2) elapsed += 20_000;
+      const content =
+        input?.includeFileContent === false
+          ? undefined
+          : callIndex === 2
+            ? ""
+            : matchingBoardContent();
+      return {
+        target: { url: designUrl },
+        result: {
+          action: "get-design",
+          status: "completed",
+          output: designOutput(content),
+        },
+      };
+    });
+    mocks.ssrfSafeFetch.mockImplementation(async (...args: any[]) => {
+      elapsed += 5_000;
+      return uploadImplementation!(...args);
+    });
+
+    try {
+      await (handler as any)(makeEvent(makeFormData()));
+
+      expect(
+        mocks.invokeAgentAction.mock.calls.map(
+          ([options]) => options.requestTimeoutMs,
+        ),
+      ).toEqual([30_000, 30_000, 15_000, 15_000]);
+      expect(
+        setTimeoutSpy.mock.calls.some(([, timeoutMs]) => timeoutMs === 20_000),
+      ).toBe(true);
+    } finally {
+      dateNow.mockRestore();
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   it("canonicalizes the Design audience before minting the upload token", async () => {
     mocks.resolveAgentInvocationTarget.mockResolvedValueOnce({
       url: `${designUrl}/`,

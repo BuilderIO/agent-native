@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   migrateBoardObjectsToFile: vi.fn(),
   putPrivateBlob: vi.fn(),
+  queueVisualEditSnapshotBlobCleanup: vi.fn(),
   queueVisualEditSnapshotBlobCleanupInTransaction: vi.fn(),
   readLiveSourceFile: vi.fn(),
   resolveAttachment: vi.fn(),
@@ -111,6 +112,7 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
   deleteVisualEditSnapshotBlobs: mocks.deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanup: mocks.queueVisualEditSnapshotBlobCleanup,
   queueVisualEditSnapshotBlobCleanupInTransaction:
     mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
 }));
@@ -222,6 +224,88 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     );
     expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
     expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(blobHandle);
+  });
+
+  it("reports when fallback blob deletion succeeds after queue failure", async () => {
+    mocks.deletePrivateBlob
+      .mockResolvedValueOnce({ deleted: false })
+      .mockResolvedValueOnce({ deleted: true });
+    mocks.deleteVisualEditSnapshotBlobs.mockRejectedValueOnce(
+      new Error("cleanup queue insert failed"),
+    );
+
+    await expect(
+      action.run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      ),
+    ).rejects.toThrow("board setup failed");
+
+    expect(mocks.queueVisualEditSnapshotBlobCleanup).not.toHaveBeenCalled();
+  });
+
+  it("durably queues blobs that remain after the cleanup fallback", async () => {
+    mocks.deletePrivateBlob
+      .mockResolvedValueOnce({ deleted: false })
+      .mockResolvedValueOnce({ deleted: false });
+    mocks.deleteVisualEditSnapshotBlobs.mockRejectedValueOnce(
+      new Error("cleanup queue insert failed"),
+    );
+
+    const error = await action
+      .run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      actionContractError: true,
+      message: "board setup failed",
+      details: { cleanupPending: true },
+    });
+    expect(mocks.queueVisualEditSnapshotBlobCleanup).toHaveBeenCalledWith([
+      JSON.stringify({
+        id: "blob-id",
+        provider: "private-provider",
+        opaque: true,
+        encrypted: true,
+      }),
+    ]);
   });
 
   it("reports private blob cleanup that remains pending after an action failure", async () => {

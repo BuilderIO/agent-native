@@ -22,6 +22,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanup,
   queueVisualEditSnapshotBlobCleanupInTransaction,
 } from "../server/lib/visual-edit-snapshot-blobs.js";
 import {
@@ -266,9 +267,29 @@ async function cleanupUploadedScreenshots(
       "[design-replay-screenshots] Private blob cleanup remains pending:",
       error,
     );
-    await Promise.allSettled(
-      pendingHandles.map((handle) => deletePrivateBlob(handle)),
-    );
+    const remainingHandles = (
+      await Promise.all(
+        pendingHandles.map(async (handle) => {
+          try {
+            const result = await deletePrivateBlob(handle);
+            return result.deleted ? null : handle;
+          } catch {
+            return handle;
+          }
+        }),
+      )
+    ).filter((handle): handle is PrivateBlobHandle => handle !== null);
+    if (!remainingHandles.length) return false;
+    try {
+      await queueVisualEditSnapshotBlobCleanup(
+        remainingHandles.map((handle) => JSON.stringify(handle)),
+      );
+    } catch (queueError) {
+      console.warn(
+        "[design-replay-screenshots] Could not queue screenshot cleanup for retry:",
+        queueError,
+      );
+    }
     return true;
   }
 }

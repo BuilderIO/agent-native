@@ -105,6 +105,18 @@ export async function deleteVisualEditSnapshotBlobs(
   return remaining.length > 0;
 }
 
+export async function queueVisualEditSnapshotBlobCleanup(
+  values: readonly (string | null | undefined)[],
+): Promise<void> {
+  const handles = [...new Set(values.filter((value) => value != null))];
+  if (!handles.length) return;
+  const table = schema.designVisualEditSnapshotBlobCleanup;
+  await getDb()
+    .insert(table)
+    .values(handles.map((blobHandle) => ({ blobHandle })))
+    .onConflictDoNothing();
+}
+
 export async function queueVisualEditSnapshotBlobCleanupInTransaction(
   tx: DesignDataMutationTransaction,
   values: readonly (string | null | undefined)[],

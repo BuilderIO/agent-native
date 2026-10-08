@@ -23,9 +23,8 @@ import { Label } from "@/components/ui/label";
 import { getIdToken } from "@/lib/auth";
 
 import {
-  ReplayCompositorCaptureError,
-  startReplayCompositorCapture,
-  type ReplayCompositorCapture,
+  captureReplayScreenshot,
+  ReplayScreenshotAssetError,
 } from "./session-replay-screenshot";
 
 const MAX_REPLAYS = 3;
@@ -91,7 +90,6 @@ export function SessionReplayStoryboardExportDialog({
   const stageAreaRef = useRef<HTMLDivElement>(null);
   const stageRootRef = useRef<HTMLDivElement>(null);
   const replayerRef = useRef<any>(null);
-  const captureRef = useRef<ReplayCompositorCapture | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const selectionKey = recordings.map((recording) => recording.id).join("\n");
   const viewportFit = Math.min(
@@ -132,8 +130,6 @@ export function SessionReplayStoryboardExportDialog({
   const cleanup = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
-    captureRef.current?.stop();
-    captureRef.current = null;
     try {
       replayerRef.current?.pause?.();
       replayerRef.current?.destroy?.();
@@ -188,16 +184,8 @@ export function SessionReplayStoryboardExportDialog({
   }
 
   function captureErrorMessage(error: unknown): string {
-    if (error instanceof ReplayCompositorCaptureError) {
-      return t(
-        error.kind === "wrongSurface"
-          ? "sessions.storyboardSelectAnalyticsTab"
-          : error.kind === "tooLarge"
-            ? "sessions.storyboardScreenshotTooLarge"
-            : error.kind === "canceled"
-              ? "sessions.storyboardCanceled"
-              : "sessions.storyboardCaptureFailed",
-      );
+    if (error instanceof ReplayScreenshotAssetError) {
+      return t("sessions.screenshotUnsupportedAssets");
     }
     return error instanceof Error
       ? error.message
@@ -242,11 +230,8 @@ export function SessionReplayStoryboardExportDialog({
     const controller = new AbortController();
     abortRef.current = controller;
     let mutationSubmitted = false;
-    const capturePromise = startReplayCompositorCapture();
 
     try {
-      const capture = await capturePromise;
-      captureRef.current = capture;
       const totalFrames = targets.reduce(
         (total, target) => total + target.offsets.length,
         0,
@@ -257,7 +242,10 @@ export function SessionReplayStoryboardExportDialog({
       const { Replayer } = await import("@rrweb/replay");
       const replayPlayback = await import("./SessionDetailPage");
       const stageRoot = stageRootRef.current;
-      if (!stageRoot) throw new Error(t("sessions.storyboardCaptureFailed"));
+      const stageArea = stageAreaRef.current;
+      if (!stageRoot || !stageArea) {
+        throw new Error(t("sessions.storyboardCaptureFailed"));
+      }
 
       for (const target of targets) {
         if (controller.signal.aborted)
@@ -364,11 +352,23 @@ export function SessionReplayStoryboardExportDialog({
               timestamp: formatTimestampOffset(offsetMs),
             }),
           );
-          const blob = await capture.capture(
-            iframe,
-            dimensions.width,
-            dimensions.height,
-          );
+          let blob: Blob;
+          try {
+            blob = await captureReplayScreenshot(
+              stageArea,
+              stageRoot,
+              iframe,
+              controller.signal,
+            );
+          } catch (captureError) {
+            if (controller.signal.aborted) {
+              throw new Error(t("sessions.storyboardCanceled"));
+            }
+            if (captureError instanceof ReplayScreenshotAssetError) {
+              throw captureError;
+            }
+            throw new Error(t("sessions.storyboardCaptureFailed"));
+          }
           if (blob.size > MAX_SCREENSHOT_BYTES) {
             throw new Error(t("sessions.storyboardScreenshotTooLarge"));
           }
@@ -437,11 +437,16 @@ export function SessionReplayStoryboardExportDialog({
         throw new Error(t("sessions.storyboardCanceled"));
       }
       mutationSubmitted = true;
-      const upload = await fetch(appApiPath("session-replay/storyboard"), {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        body: formData,
-      });
+      let upload: Response;
+      try {
+        upload = await fetch(appApiPath("session-replay/storyboard"), {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          body: formData,
+        });
+      } catch {
+        throw new Error(t("sessions.storyboardSaveOutcomeUnknown"));
+      }
       let result: {
         response?: string;
         boardUrl?: string;
@@ -454,7 +459,7 @@ export function SessionReplayStoryboardExportDialog({
       try {
         result = (await upload.json()) as typeof result;
       } catch {
-        throw new Error(t("sessions.storyboardUnexpectedResponse"));
+        throw new Error(t("sessions.storyboardSaveOutcomeUnknown"));
       }
       if (result?.cleanupPending || result?.data?.cleanupPending) {
         const storyboardWasConfirmed = Boolean(
@@ -507,7 +512,6 @@ export function SessionReplayStoryboardExportDialog({
   function cancelCapture() {
     if (exportState !== "capturing") return;
     abortRef.current?.abort();
-    captureRef.current?.stop();
     setExportState("idle");
     setProgress("");
     setError(t("sessions.storyboardCanceled"));

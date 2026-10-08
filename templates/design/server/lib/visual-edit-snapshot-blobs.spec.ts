@@ -66,6 +66,7 @@ vi.mock("../db/index.js", () => ({
 import {
   deleteVisualEditSnapshotBlobs,
   parseVisualEditSnapshotBlobHandle,
+  queueVisualEditSnapshotBlobCleanup,
 } from "./visual-edit-snapshot-blobs.js";
 
 const handle = {
@@ -122,6 +123,15 @@ describe("visual-edit snapshot blob cleanup", () => {
     expect(deletePrivateBlob).toHaveBeenCalledTimes(2);
     expect(cleanupQueue.rows.has(JSON.stringify(handle))).toBe(false);
     warn.mockRestore();
+  });
+
+  it("queues cleanup handles durably without requiring a drain", async () => {
+    const serialized = JSON.stringify(handle);
+
+    await queueVisualEditSnapshotBlobCleanup([serialized, serialized, null]);
+
+    expect(cleanupQueue.rows.has(serialized)).toBe(true);
+    expect(deletePrivateBlob).not.toHaveBeenCalled();
   });
 
   it("prioritizes newly queued handles before older failed deletions", async () => {
