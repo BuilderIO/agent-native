@@ -9,7 +9,7 @@ import {
 } from "@agent-native/toolkit/ui/dropdown-menu";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useHref, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -445,6 +445,45 @@ describe("AgentPanel settings navigation", () => {
     }
   });
 
+  it("keeps a settings request inside the mounted app path", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    let href = "";
+
+    function LocationProbe() {
+      const location = useLocation();
+      href = useHref(`${location.pathname}${location.hash}`);
+      return null;
+    }
+
+    try {
+      vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+      act(() => {
+        window.history.replaceState(null, "", "/dispatch/chat#llm");
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { basename: "/dispatch", initialEntries: ["/dispatch/chat#llm"] },
+            React.createElement(AgentPanelSettingsNavigation),
+            React.createElement(LocationProbe),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
+      });
+
+      expect(href).toBe("/dispatch/settings#llm");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      window.history.replaceState(null, "", "/");
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("routes a mounted settings request to an existing secret-specific hash", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -532,7 +571,7 @@ describe("AgentPanel settings navigation", () => {
     }
   });
 
-  it("preserves the app base path when opening settings", () => {
+  it("navigates with a router-local settings path", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root: Root = createRoot(container);
@@ -545,11 +584,10 @@ describe("AgentPanel settings navigation", () => {
 
     try {
       act(() => {
-        window.history.replaceState(null, "", "/dispatch/_agent-native/poll");
         root.render(
           React.createElement(
             MemoryRouter,
-            { initialEntries: ["/"] },
+            { initialEntries: ["/chat"] },
             React.createElement(AgentPanelSettingsNavigation),
             React.createElement(LocationProbe),
           ),
@@ -564,11 +602,10 @@ describe("AgentPanel settings navigation", () => {
         );
       });
 
-      expect(pathname).toBe("/dispatch/settings");
+      expect(pathname).toBe("/settings");
     } finally {
       act(() => root.unmount());
       container.remove();
-      window.history.replaceState(null, "", "/");
     }
   });
 
@@ -1134,7 +1171,6 @@ describe("AgentChatSurface chrome defaults", () => {
     expect(source).not.toContain("SettingsPanel");
     expect(source).not.toContain("allowSettingsMode");
     expect(source).not.toContain('mode === "settings"');
-    expect(source).toContain('pathname: appPath("/settings")');
   });
 
   it("mounts URL command sync for a full-page chat surface", () => {

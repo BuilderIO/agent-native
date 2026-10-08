@@ -3,6 +3,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
@@ -823,7 +824,14 @@ interface DocumentToolbarProps {
   editorEscapeTargetRef?: Ref<HTMLButtonElement>;
 }
 
-export function DocumentToolbar({
+// The MCP App host owns the page chrome, so the widget draws no toolbar and
+// makes none of the requests behind it (its scoped session would be refused).
+export function DocumentToolbar(props: DocumentToolbarProps) {
+  const inWidget = useIsMcpAppWidgetEmbed();
+  return inWidget ? null : <DocumentToolbarRow {...props} />;
+}
+
+function DocumentToolbarRow({
   compact = false,
   documentId,
   documentTitle,

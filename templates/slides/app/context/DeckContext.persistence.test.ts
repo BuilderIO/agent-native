@@ -42,6 +42,11 @@ vi.mock("@agent-native/core/client/org", () => ({
 }));
 
 import {
+  registerInlineEditRemoteApplier,
+  requestInlineEditRemoteRetry,
+  type InlineEditRemoteApplier,
+} from "../lib/inline-edit-remote";
+import {
   DeckProvider,
   DeckSaveError,
   clearSlideEditingActive,
@@ -2334,13 +2339,13 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     it.each([
-      [400, "slide_content_hash_required"],
-      [403, "forbidden"],
-      [404, "not_found"],
-      [409, "deck_write_conflict"],
+      [400, "slide_content_hash_required", false],
+      [403, "forbidden", true],
+      [404, "not_found", true],
+      [409, "deck_write_conflict", false],
     ])(
-      "fails a %i %s save once with a non-retryable typed error",
-      async (status, errorCode) => {
+      "fails a %i %s save once with a typed error (retryable: %s)",
+      async (status, errorCode, retryable) => {
         const { result, getPatchAttempts } = await renderWithDeck({
           patchStatus: status,
           patchResponse: { error: "Rejected", errorCode },
@@ -2368,11 +2373,75 @@ describe("DeckContext deck creation persistence", () => {
         expect(getDeckSaveError(deckId)).toMatchObject({
           status,
           errorCode,
-          retryable: false,
+          retryable,
         });
         expect(hasUnsavedDeckChanges(deckId)).toBe(true);
       },
     );
+
+    async function failOneSave(
+      result: Awaited<ReturnType<typeof renderWithDeck>>["result"],
+    ) {
+      vi.useFakeTimers();
+      act(() => {
+        result.current.updateSlide(
+          deckId,
+          "slide-1",
+          { notes: "Changed" },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await expect(
+          result.current.flushDeckSave(deckId),
+        ).rejects.toBeInstanceOf(DeckSaveError);
+      });
+    }
+    const focusWindow = () =>
+      act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+    it("retries an access-lost save once per focus and clears it when access returns", async () => {
+      const options = {
+        patchStatus: 403,
+        patchResponse: {
+          error: "Requires editor role",
+          errorCode: "forbidden",
+        },
+      };
+      const { result, getPatchAttempts } = await renderWithDeck(options);
+      await failOneSave(result);
+      expect(getPatchAttempts(deckId)).toBe(1);
+
+      await focusWindow();
+      expect(getPatchAttempts(deckId)).toBe(2);
+      expect(getDeckSaveError(deckId)).toMatchObject({
+        status: 403,
+        retryable: true,
+      });
+      expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+
+      options.patchStatus = 200;
+      options.patchResponse = { error: "", errorCode: "" };
+      await focusWindow();
+      expect(getPatchAttempts(deckId)).toBe(3);
+      expect(getDeckSaveError(deckId)).toBeUndefined();
+      expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+    });
+
+    it("does not retry a non-access terminal save on focus", async () => {
+      const { result, getPatchAttempts } = await renderWithDeck({
+        patchStatus: 400,
+        patchResponse: { error: "Rejected", errorCode: "bad_request" },
+      });
+      await failOneSave(result);
+
+      await focusWindow();
+
+      expect(getPatchAttempts(deckId)).toBe(1);
+    });
 
     it.each([408, 429])(
       "keeps retrying a transient %i save",
@@ -4065,6 +4134,375 @@ describe("DeckContext deck creation persistence", () => {
       );
       expect(hasFailedDeckSave(initial.id)).toBe(false);
       clearSlideEditingActive(initial.id, "slide-1");
+    });
+
+    it("merges again when the merged retry is itself stale because the other writer saved again", async () => {
+      window.history.pushState({}, "", "/deck/merge-deck");
+      const { fetchMock, setAccessibleDeck, getAccessibleDeck } = setupFetch({
+        staleContentConflicts: true,
+      });
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      setAccessibleDeck(initial);
+      await act(async () => result.current.reloadDecks());
+      setAccessibleDeck({
+        ...initial,
+        updatedAt: "2026-05-12T00:01:00.000Z",
+        slides: [
+          {
+            ...initial.slides[0]!,
+            content: slideHtml("Title by remote", "Body"),
+          },
+        ],
+      });
+      // The other writer saves again after this client re-read the deck for its
+      // first merge and before the merged retry lands, so the retry is stale too.
+      const baseFetch = fetchMock.getMockImplementation()!;
+      let patchCalls = 0;
+      fetchMock.mockImplementation((url, init) => {
+        if (requestString(url).includes("/_agent-native/actions/patch-deck")) {
+          patchCalls += 1;
+          if (patchCalls === 2) {
+            setAccessibleDeck({
+              ...initial,
+              updatedAt: "2026-05-12T00:02:00.000Z",
+              slides: [
+                {
+                  ...initial.slides[0]!,
+                  content: slideHtml("Title by remote, again", "Body"),
+                },
+              ],
+            });
+          }
+        }
+        return baseFetch(url, init);
+      });
+
+      markSlideEditingActive(initial.id, "slide-1");
+      act(() => {
+        result.current.updateSlide(
+          initial.id,
+          "slide-1",
+          { content: slideHtml("Title", "Body by local") },
+          { preserveLocalState: true },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave(initial.id);
+      });
+
+      expect(patchBodies(fetchMock)).toHaveLength(3);
+      expect(getAccessibleDeck()?.slides[0]?.content).toBe(
+        slideHtml("Title by remote, again", "Body by local"),
+      );
+      expect(hasFailedDeckSave(initial.id)).toBe(false);
+      expect(getStaleContentDraft(initial.id, "slide-1")).toBeUndefined();
+      clearSlideEditingActive(initial.id, "slide-1");
+    });
+
+    describe("while the slide is open in an inline text edit", () => {
+      const remoteDeck = (body: string): Deck => ({
+        ...initial,
+        updatedAt: "2026-05-12T00:01:00.000Z",
+        slides: [
+          {
+            ...initial.slides[0]!,
+            content: slideHtml("Title", body),
+          },
+        ],
+      });
+
+      async function openEdit(
+        applier: InlineEditRemoteApplier,
+        setup?: ReturnType<typeof setupFetch>,
+      ) {
+        window.history.pushState({}, "", "/deck/merge-deck");
+        const api = setup ?? setupFetch({ staleContentConflicts: true });
+        const { result } = renderHook(() => useDecks(), { wrapper });
+        await waitFor(() => expect(result.current.loading).toBe(false));
+        api.setAccessibleDeck(initial);
+        await act(async () => result.current.reloadDecks());
+        markSlideEditingActive(initial.id, "slide-1");
+        const unregister = registerInlineEditRemoteApplier(
+          initial.id,
+          "slide-1",
+          applier,
+        );
+        return { api, result, unregister };
+      }
+
+      it("adopts the other writer's copy once the editor has shown it", async () => {
+        const applier = vi.fn<InlineEditRemoteApplier>(() => "applied");
+        const { api, result, unregister } = await openEdit(applier);
+        api.setAccessibleDeck(remoteDeck("Body by remote"));
+
+        await act(async () => {
+          await result.current.refreshOpenDeck(initial.id);
+        });
+
+        expect(applier).toHaveBeenCalledWith(
+          initial.slides[0]!.content,
+          slideHtml("Title", "Body by remote"),
+        );
+        expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+          slideHtml("Title", "Body by remote"),
+        );
+
+        // The adopted copy is what the next draft is based on, so a draft
+        // typed on top of it is not read as a stale save.
+        const draft = slideHtml("Title typed", "Body by remote");
+        act(() => {
+          result.current.updateSlide(
+            initial.id,
+            "slide-1",
+            { content: draft },
+            { preserveLocalState: true },
+          );
+        });
+        await act(async () => {
+          await result.current.flushDeckSave(initial.id);
+        });
+        expect(patchBodies(api.fetchMock)).toHaveLength(1);
+        expect(patchBodies(api.fetchMock)[0]?.operations).toMatchObject([
+          {
+            baseContentHash: hashSlideContent(
+              slideHtml("Title", "Body by remote"),
+            ),
+          },
+        ]);
+        expect(api.getAccessibleDeck()?.slides[0]?.content).toBe(draft);
+        expect(hasFailedDeckSave(initial.id)).toBe(false);
+        unregister();
+        clearSlideEditingActive(initial.id, "slide-1");
+      });
+
+      it("keeps its own copy and waits for the edit to end when the editor holds the change", async () => {
+        const applier = vi.fn<InlineEditRemoteApplier>(() => "held");
+        const { api, result, unregister } = await openEdit(applier);
+        api.setAccessibleDeck(remoteDeck("Body by remote"));
+
+        await act(async () => {
+          await result.current.refreshOpenDeck(initial.id);
+        });
+
+        expect(applier).toHaveBeenCalledTimes(1);
+        expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+          initial.slides[0]!.content,
+        );
+
+        unregister();
+        act(() => clearSlideEditingActive(initial.id, "slide-1"));
+        await waitFor(() =>
+          expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+            slideHtml("Title", "Body by remote"),
+          ),
+        );
+      });
+
+      it("does not ask the editor again for its own saved draft coming back", async () => {
+        const applier = vi.fn<InlineEditRemoteApplier>(() => "applied");
+        const { api, result, unregister } = await openEdit(applier);
+        const draft = slideHtml("Title typed", "Body");
+        act(() => {
+          result.current.updateSlide(
+            initial.id,
+            "slide-1",
+            { content: draft },
+            { preserveLocalState: true },
+          );
+        });
+        await act(async () => {
+          await result.current.flushDeckSave(initial.id);
+        });
+        expect(api.getAccessibleDeck()?.slides[0]?.content).toBe(draft);
+
+        await act(async () => {
+          await result.current.refreshOpenDeck(initial.id);
+        });
+
+        expect(applier).not.toHaveBeenCalled();
+        expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+          initial.slides[0]!.content,
+        );
+        unregister();
+        clearSlideEditingActive(initial.id, "slide-1");
+      });
+
+      it("retries once the draft save settles when a write was in flight", async () => {
+        const applier = vi.fn<InlineEditRemoteApplier>(() => "applied");
+        const { api, result, unregister } = await openEdit(applier);
+        act(() => {
+          result.current.updateSlide(
+            initial.id,
+            "slide-1",
+            { content: slideHtml("Title typed", "Body") },
+            { preserveLocalState: true },
+          );
+        });
+        api.setAccessibleDeck(remoteDeck("Body by remote"));
+
+        await act(async () => {
+          await result.current.refreshOpenDeck(initial.id);
+        });
+        expect(applier).not.toHaveBeenCalled();
+
+        await act(async () => {
+          await result.current.flushDeckSave(initial.id);
+        });
+        await waitFor(() => expect(applier).toHaveBeenCalledTimes(1));
+        unregister();
+        clearSlideEditingActive(initial.id, "slide-1");
+      });
+
+      it("retries at once when the write settled while the read was in flight", async () => {
+        const applier = vi.fn<InlineEditRemoteApplier>(() => "applied");
+        const { api, result, unregister } = await openEdit(applier);
+        act(() => {
+          result.current.updateSlide(
+            initial.id,
+            "slide-1",
+            { content: slideHtml("Title typed", "Body") },
+            { preserveLocalState: true },
+          );
+        });
+        api.setAccessibleDeck(remoteDeck("Body by remote"));
+        const real = api.fetchMock.getMockImplementation()!;
+        let release = () => {};
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        api.fetchMock.mockImplementationOnce((url, init) => {
+          const response = real(url, init);
+          return requestString(url).includes("/_agent-native/actions/get-deck")
+            ? response.then((r) => gate.then(() => r))
+            : response;
+        });
+
+        let read: Promise<unknown> = Promise.resolve();
+        act(() => {
+          read = result.current.refreshOpenDeck(initial.id);
+        });
+        await act(async () => {
+          await result.current.flushDeckSave(initial.id);
+        });
+        await act(async () => {
+          release();
+          await read;
+        });
+
+        await waitFor(() => expect(applier).toHaveBeenCalled());
+        unregister();
+        clearSlideEditingActive(initial.id, "slide-1");
+      });
+
+      it("does not re-read the deck when a composition ends with nothing deferred", async () => {
+        const applier = vi.fn<InlineEditRemoteApplier>(() => "applied");
+        const { api, result, unregister } = await openEdit(applier);
+        const deckReads = () =>
+          api.fetchMock.mock.calls.filter(([url]) =>
+            requestString(url).includes("/_agent-native/actions/get-deck"),
+          ).length;
+        await act(async () => {
+          await result.current.refreshOpenDeck(initial.id);
+        });
+        const before = deckReads();
+
+        await act(async () => {
+          requestInlineEditRemoteRetry(initial.id);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+
+        expect(deckReads()).toBe(before);
+        unregister();
+        clearSlideEditingActive(initial.id, "slide-1");
+      });
+
+      it("retries when the editor asks for a later attempt", async () => {
+        let result_: "later" | "applied" = "later";
+        const applier = vi.fn<InlineEditRemoteApplier>(() => result_);
+        const { api, result, unregister } = await openEdit(applier);
+        api.setAccessibleDeck(remoteDeck("Body by remote"));
+
+        await act(async () => {
+          await result.current.refreshOpenDeck(initial.id);
+        });
+        expect(applier).toHaveBeenCalledTimes(1);
+        expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+          initial.slides[0]!.content,
+        );
+
+        // A save settling mid-composition must not read the deck again.
+        const deckReads = () =>
+          api.fetchMock.mock.calls.filter(([url]) =>
+            requestString(url).includes("/_agent-native/actions/get-deck"),
+          ).length;
+        const readsWhileComposing = deckReads();
+        act(() => {
+          result.current.updateDeck(initial.id, { title: "Renamed" });
+        });
+        await act(async () => {
+          await result.current.flushDeckSave(initial.id);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+        expect(deckReads()).toBe(readsWhileComposing);
+        expect(applier).toHaveBeenCalledTimes(1);
+
+        result_ = "applied";
+        await act(async () => {
+          requestInlineEditRemoteRetry(initial.id);
+        });
+        await waitFor(() =>
+          expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+            slideHtml("Title", "Body by remote"),
+          ),
+        );
+        unregister();
+        clearSlideEditingActive(initial.id, "slide-1");
+      });
+
+      it("meets a draft on the same object with the save-time conflict", async () => {
+        const { api, result, unregister } = await openEdit(
+          () => "held",
+          setupFetch({ staleContentConflicts: true }),
+        );
+        api.setAccessibleDeck({
+          ...initial,
+          updatedAt: "2026-05-12T00:01:00.000Z",
+          slides: [
+            {
+              ...initial.slides[0]!,
+              content: slideHtml("Title by remote", "Body"),
+            },
+          ],
+        });
+        await act(async () => {
+          await result.current.refreshOpenDeck(initial.id);
+        });
+        expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+          initial.slides[0]!.content,
+        );
+
+        const draft = slideHtml("Title typed", "Body");
+        act(() => {
+          result.current.updateSlide(
+            initial.id,
+            "slide-1",
+            { content: draft },
+            { preserveLocalState: true },
+          );
+        });
+        await act(async () => {
+          await expect(
+            result.current.flushDeckSave(initial.id),
+          ).rejects.toThrow("Failed to save deck");
+        });
+
+        expect(hasFailedDeckSave(initial.id)).toBe(true);
+        expect(getStaleContentDraft(initial.id, "slide-1")).toBe(draft);
+        expect(api.getAccessibleDeck()?.slides[0]?.content).toBe(
+          slideHtml("Title by remote", "Body"),
+        );
+        unregister();
+        clearSlideEditingActive(initial.id, "slide-1");
+      });
     });
 
     it("still holds a conflict when both writers edit the same object", async () => {

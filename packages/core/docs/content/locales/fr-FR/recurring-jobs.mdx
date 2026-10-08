@@ -135,14 +135,34 @@ Summarize overnight emails.`,
 
 ## Fonctionnement du planificateur {#how-scheduler-runs}
 
-Le planificateur est un plugin de framework (la routine interne `processRecurringJobs()`) qui s'exécute en cours de processus : un `setInterval` se déclenche toutes les 60 secondes (avec un délai de démarrage de 10 secondes) dans le plugin de chat de l'agent, partout où le serveur est en cours d'exécution.
+À chaque tick, le planificateur (la routine interne `processRecurringJobs()`) trouve les tâches dues et les exécute. Ce qui déclenche le tick dépend de l'endroit où l'application s'exécute :
 
-<Diagram id="doc-block-1fo15gx" title="Une coche du planificateur" summary={"Toutes les 60 secondes, le planificateur recherche les tâches dues, les exécute en tant que nouveau thread d'agent et réécrit le résultat dans le fichier de tâches."}>
+| Environnement                                                       | Ce qui déclenche le tick                                                                             | Exigences et limites                                                                                                           |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Serveur à exécution continue (Node.js, Docker, Fly, Render, un VPS) | Un minuteur en cours de processus toutes les 60 secondes, qui démarre 10 secondes après le lancement | S'exécute tant que le processus est actif.                                                                                     |
+| [Netlify](/docs/netlify)                                            | Une fonction planifiée émise par le build, toutes les minutes                                        | Déploiements publiés uniquement, jamais les Deploy Previews ni les déploiements de branche. Le build a besoin de `A2A_SECRET`. |
+| [Vercel](/docs/vercel#vercel-scheduled-work)                        | Une tâche cron Vercel ajoutée par le build, toutes les minutes par défaut                            | Déploiement de production uniquement. Nécessite `CRON_SECRET`. Les projets Hobby peuvent l'exécuter au plus une fois par jour. |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-scheduled-work)    | Un Cron Trigger ajouté par le build à `wrangler.json`, toutes les minutes                            | Nécessite `A2A_SECRET` comme secret du Worker.                                                                                 |
+| AWS Lambda                                                          | Rien                                                                                                 | Les automatisations planifiées ne se déclenchent pas.                                                                          |
+| Développement local                                                 | Rien, sauf si vous l'activez                                                                         | Voir l'encadré ci-dessous.                                                                                                     |
+
+Sur Netlify, Vercel et Cloudflare, le même tick vide aussi la file des
+automatisations déclenchées par événement, nettoie les exécutions dont la
+fonction a été interrompue et exécute les balayages des applications, comme la
+mise en attente et l'envoi programmé de Mail. Un déploiement serverless sans
+déclencheur n'a rien de tout cela : les automatisations déclenchées par
+événement attendent dans la file et les exécutions interrompues restent
+bloquées. Les automatisations déclenchées par webhook et **Run now** se lancent
+d'elles-mêmes, elles fonctionnent donc toujours. Lorsqu'un déploiement ne peut
+pas déclencher les planifications, la page **Automations** l'indique et en donne
+la raison.
+
+<Diagram id="doc-block-1fo15gx" title="Une coche du planificateur" summary={"À chaque tick, le planificateur trouve les tâches dues, puis les fait passer par le même cycle de vie d'exécution en arrière-plan que les automatisations par événement."}>
 
 ```html
 <div class="sched">
   <div class="diagram-box accent">
-    <code>setInterval</code> &bull; 60s &#8635;
+    tick du planificateur &bull; toutes les minutes &#8635;
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-card">
@@ -201,14 +221,29 @@ Le planificateur est un plugin de framework (la routine interne `processRecurrin
 
 <Callout id="doc-block-j6yn07" tone="risk">
 
-**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+**Une instance chaude n'exécute pas les planifications.** Les hôtes serverless ne démarrent jamais le minuteur en cours de processus, donc les pings keep-alive ne déclenchent pas les tâches. Seul le déclencheur de la plateforme du tableau ci-dessus le fait. Sur AWS Lambda, rien ne les déclenche encore : exécutez donc les automatisations planifiées sur un hôte à exécution continue (Fly, Render, un VPS).
+
+</Callout>
+
+<Callout id="doc-block-rj2" tone="warning">
+
+**Désactivé par défaut en développement local.** La boucle `setInterval` du planificateur ne démarre jamais lorsque `NODE_ENV` vaut `development` ou `test`, ou lorsque l'URL de l'application pointe vers `localhost` / `127.0.0.1` / `*.localhost`, ce qui couvre la plupart des configurations de développement local. Définissez `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` pour exécuter quand même le planificateur en local. Pour désactiver les tâches planifiées sur n'importe quel hôte, utilisez `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1`, décrit ci-après.
+
+</Callout>
+
+<Callout id="doc-block-rj3" tone="warning">
+
+**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` est lu dans deux contextes.** Sur Netlify, Vercel et Cloudflare, c'est l'environnement de **build** qui décide : le déclencheur de la plateforme continue de se déclencher pour vider les automatisations par événement et nettoyer les exécutions, mais un build avec l'interrupteur activé ignore les tâches planifiées, quoi qu'en dise l'environnement déployé. Sur un serveur à exécution continue, c'est l'environnement d'**exécution** qui contrôle le minuteur en cours de processus. Définissez-le là où votre hôte le lit. Le build enregistre sa décision, afin que la page **Automations** puisse indiquer que les planifications ne s'exécuteront jamais au lieu d'afficher une date de prochaine exécution que rien ne respectera.
 
 </Callout>
 
 ## Débogage d'une tâche {#debugging}
 
 - Ouvrez `jobs/<name>.md` dans l'ressources de l'agent : le premier plan affiche `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Testez-le sans attendre :** il n'y a pas d'outil de tir forcé. Pour effectuer le même travail à la demande, collez l'invite du travail dans le chat de l'agent et laissez-le s'y exécuter, ou définissez temporairement le planning sur la minute suivante afin que le planificateur le récupère au tick suivant (puis restaurez le vrai cron).
+- **Testez-le sans attendre :** ouvrez l'automatisation dans **Automations** et
+  choisissez **Run now**. L'automatisation s'exécute immédiatement, avec ses
+  effets de bord réels, sans attendre un tick du planificateur ; cela fonctionne
+  donc aussi en local et sur les hôtes sans déclencheur.
 - **Mettez-le en pause :** retournez `enabled: false`. Le fichier reste en place, arrête simplement de s'exécuter.
 
 ## Outil d'agent {#agent-tool}
@@ -228,7 +263,7 @@ Un seul outil `manage-jobs` est enregistré dans chaque modèle. Le paramètre `
 
 Ne confondez pas les tâches récurrentes avec `@agent-native/scheduling` :
 
-- **Tâches récurrentes (cette page)** — _invites_ planifiées par cron que l'agent exécute en arrière-plan. Au niveau du framework. Vit dans l'ressources de l'agent. S'exécute sur n'importe quelle application native d'agent.
+- **Tâches récurrentes (cette page)** — _invites_ planifiées par cron que l'agent exécute en arrière-plan. Au niveau du framework. Vit dans l'ressources de l'agent. Se déclenche sur tout hôte doté d'un planificateur (voir [Fonctionnement du planificateur](#how-scheduler-runs)).
 - **`@agent-native/scheduling`** — un package de domaine réutilisable pour créer des fonctionnalités de calendrier/réservation (types d'événements, fenêtres de disponibilité, réservations). Alimente le modèle `calendar` et les surfaces de planification personnalisées.
 
 Les tâches récurrentes sont : "Comment faire en sorte que l'agent agisse seul ?" Le package de planification est « Comment puis-je créer une application de calendrier ? » Différentes préoccupations.

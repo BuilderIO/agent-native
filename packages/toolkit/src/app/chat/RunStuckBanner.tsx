@@ -18,11 +18,20 @@ export interface RunStuckBannerProps {
   hasInFlightWork?: () => boolean;
   isAwaitingResponse?: () => boolean;
   onStuckStateChange?: (state: RunStuckState) => void;
+  /**
+   * The server has stopped tracking a run this chat still shows as running.
+   * Resolves `settled` once the chat no longer shows it running; rejects when
+   * the thread could not be refreshed.
+   */
+  onServerSettled?: () => Promise<RunReconcileOutcome>;
   autoRetry?: boolean;
   autoRetryOwnerId?: string;
   className?: string;
 }
 
+export type RunReconcileOutcome = "settled" | "still_running";
+
+const RECONCILE_RETRY_MS = 30_000;
 const AUTO_RETRY_CLAIM_TTL_MS = 5 * 60 * 1000;
 const BACKGROUND_WORKER_FRESH_HEARTBEAT_MS = 30_000;
 
@@ -123,6 +132,7 @@ export function RunStuckBanner({
   stuckThresholdMs,
   onRetry,
   onStuckStateChange,
+  onServerSettled,
   autoRetry = false,
   autoRetryOwnerId,
   hasInFlightWork,
@@ -130,9 +140,11 @@ export function RunStuckBanner({
   className,
 }: RunStuckBannerProps) {
   const t = useT();
+  const chatAwaiting = isAwaitingResponse?.();
   const state = useRunStuckDetection({
     threadId,
     enabled,
+    awaitingResponse: chatAwaiting,
     stuckThresholdMs,
     apiUrl,
   });
@@ -148,9 +160,13 @@ export function RunStuckBanner({
   const backgroundWorkerStillAlive = isFreshBackgroundWorker(state);
   const inFlightWork =
     state.hasInFlightWork === true || (hasInFlightWork?.() ?? false);
-  const awaitingResponse = isAwaitingResponse?.() ?? true;
+  const awaitingResponse = chatAwaiting ?? true;
+  // While the status is unreadable `isStuck` is the last answer carried forward
+  // by the clock, not a fresh one: only the unreadable notice may speak, and
+  // nothing may abort a run on it.
+  const isStuck = state.isStuck && !state.statusUnreadable;
   const showsStuckBanner =
-    state.isStuck &&
+    isStuck &&
     !!state.runId &&
     !backgroundWorkerStillAlive &&
     !inFlightWork &&
@@ -158,6 +174,50 @@ export function RunStuckBanner({
   const isServerContinuedDispatch =
     state.dispatchMode === "foreground-self-chain" ||
     state.dispatchMode?.startsWith("background") === true;
+
+  // Only a host that says when the chat is waiting can tell a lost ending from
+  // an idle chat, so reconciling needs `isAwaitingResponse`.
+  const chatShowsRunning = isAwaitingResponse != null && awaitingResponse;
+  const settledWhileRunning = chatShowsRunning && state.serverSettled;
+  const [reconcile, setReconcile] = useState<"idle" | "failed" | "unsettled">(
+    "idle",
+  );
+  const lastReconcileAtRef = useRef(0);
+  const reconcileEpochRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  // `state` changes on every poll, so a reconcile that did not settle the chat
+  // is retried at most once per RECONCILE_RETRY_MS, never in a loop.
+  useEffect(() => {
+    if (!settledWhileRunning || !onServerSettled) {
+      // A reload still in flight answers a chat that has since moved on.
+      reconcileEpochRef.current += 1;
+      lastReconcileAtRef.current = 0;
+      setReconcile("idle");
+      return;
+    }
+    const now = Date.now();
+    if (now - lastReconcileAtRef.current < RECONCILE_RETRY_MS) return;
+    lastReconcileAtRef.current = now;
+    const epoch = reconcileEpochRef.current;
+    const current = () =>
+      mountedRef.current && epoch === reconcileEpochRef.current;
+    onServerSettled().then(
+      (outcome) => {
+        if (current()) {
+          setReconcile(outcome === "settled" ? "idle" : "unsettled");
+        }
+      },
+      () => {
+        if (current()) setReconcile("failed");
+      },
+    );
+  }, [onServerSettled, settledWhileRunning, state]);
 
   const lastReportedRef = useRef<{
     isStuck: boolean;
@@ -185,6 +245,13 @@ export function RunStuckBanner({
           ? Math.floor(state.stuckSinceMs / 1000)
           : null,
       runStatus: state.status,
+      reason: "no_progress",
+      dispatchMode: state.dispatchMode,
+      hasInFlightWork: state.hasInFlightWork,
+      heartbeatSinceSec:
+        state.heartbeatSinceMs != null
+          ? Math.floor(state.heartbeatSinceMs / 1000)
+          : null,
     });
   }, [showsStuckBanner, state, threadId]);
 
@@ -204,7 +271,7 @@ export function RunStuckBanner({
       backgroundWorkerStillAlive ||
       inFlightWork ||
       !awaitingResponse ||
-      !state.isStuck ||
+      !isStuck ||
       !state.runId ||
       busy.type !== "none" ||
       autoRetriedRunIdsRef.current.has(state.runId)
@@ -239,9 +306,9 @@ export function RunStuckBanner({
     busy,
     inFlightWork,
     isServerContinuedDispatch,
+    isStuck,
     onRetry,
     ownerId,
-    state.isStuck,
     state.runId,
     state.stuckSinceMs,
     threadId,
@@ -249,7 +316,42 @@ export function RunStuckBanner({
   ]);
 
   if (!showsStuckBanner) {
-    return null;
+    const notice =
+      reconcile === "unsettled"
+        ? "agentChat.recovery.statusMismatch"
+        : (isAwaitingResponse
+              ? awaitingResponse
+              : state.status === "running") &&
+            (state.statusUnreadable || reconcile === "failed")
+          ? "agentChat.recovery.statusUnreadable"
+          : null;
+    if (!notice) return null;
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className={cn(
+          "mx-3 mt-2 flex items-center gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground",
+          className,
+        )}
+      >
+        <IconAlertTriangle
+          size={16}
+          className="shrink-0 text-amber-500"
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 leading-snug">{t(notice)}</span>
+        {reconcile === "unsettled" ? (
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="inline-flex h-7 shrink-0 cursor-pointer items-center rounded-md bg-foreground px-2.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/90"
+          >
+            {t("agentChat.recovery.reload")}
+          </button>
+        ) : null}
+      </div>
+    );
   }
 
   const handleCancel = async () => {

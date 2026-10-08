@@ -17,6 +17,7 @@ import {
   isMarkdownBulletPrefixInMarker,
   removeEmptyBulletAtCaret,
   rowTextRange,
+  rowTextContainer,
   stripCopiedIdentity,
   ZERO_WIDTH_SPACE,
 } from "./bullet-editing";
@@ -97,6 +98,7 @@ export interface InPlaceTextSession {
    * which is exactly when `end()` restores the start bytes.
    */
   readonly changed: boolean;
+  readonly historyStats: () => InPlaceTextHistoryStats;
   readonly commands: InPlaceTextSessionCommands;
   /** Runs a change to the edited element itself (a dock style) as one undo step. */
   apply: (mutate: () => void) => boolean;
@@ -110,6 +112,18 @@ export interface InPlaceTextSession {
   cloneWithoutPlaceholders: (root: HTMLElement) => HTMLElement;
   /** Settles placeholders and restores the element's pre-session attributes. */
   end: () => void;
+}
+
+export interface InPlaceTextHistoryStats {
+  undoDepth: number;
+  redoDepth: number;
+  retainedBytes: number;
+  peakBytes: number;
+  peakEntries: number;
+  countEvictions: number;
+  byteEvictions: number;
+  bytesEvicted: number;
+  initialStateEvicted: boolean;
 }
 
 const BLOCK_TAGS = new Set([
@@ -239,8 +253,8 @@ const ORDERED_TYPE_MARKER: Record<string, string> = {
 };
 const PLACEHOLDER_ONLY = new RegExp(`^${ZERO_WIDTH_SPACE}+$`);
 const ALL_ZWSP = new RegExp(ZERO_WIDTH_SPACE, "g");
-export const IN_PLACE_TEXT_UNDO_LIMIT = 2048;
-export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 64 * 1024 * 1024;
+export const IN_PLACE_TEXT_UNDO_LIMIT = 4096;
+export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 128 * 1024 * 1024;
 /** How far Tab nests a legacy bullet row, the way generated decks draw sub-bullets. */
 const LEGACY_ROW_INDENT_PX = 24;
 const TYPING_RUN_MS = 1000;
@@ -1465,12 +1479,43 @@ export function startInPlaceTextSession(
   );
   const undoStack: Snapshot[] = [];
   const redoStack: Snapshot[] = [];
+  let retainedHistoryBytes = 0;
+  let peakHistoryBytes = 0;
+  let peakHistoryEntries = 0;
+  let historyCountEvictions = 0;
+  let historyByteEvictions = 0;
+  let historyBytesEvicted = 0;
+  let initialHistoryStateEvicted = false;
+  const historyStats = (): InPlaceTextHistoryStats => ({
+    undoDepth: undoStack.length,
+    redoDepth: redoStack.length,
+    retainedBytes: retainedHistoryBytes,
+    peakBytes: peakHistoryBytes,
+    peakEntries: peakHistoryEntries,
+    countEvictions: historyCountEvictions,
+    byteEvictions: historyByteEvictions,
+    bytesEvicted: historyBytesEvicted,
+    initialStateEvicted: initialHistoryStateEvicted,
+  });
+  const publishHistoryStats = () => {
+    if (!import.meta.env.DEV) return;
+    Object.defineProperty(el, "__slidesInPlaceTextHistoryStats", {
+      configurable: true,
+      enumerable: false,
+      value: historyStats(),
+    });
+  };
   let lastEdit: {
     kind: EditKind;
     at: number;
     boundary: boolean;
     /** Where the edit left the selection; a run only continues from there. */
     after: TextOffsets | null;
+  } | null = null;
+  let pendingNullDataShortcutPrefix: {
+    inputType: "insertText" | "insertReplacementText";
+    prefix: string;
+    previousPrefix: string;
   } | null = null;
   let focusSelection: TextOffsets | null = null;
   let pointerFocusPending = false;
@@ -1818,15 +1863,32 @@ export function startInPlaceTextSession(
       (total, state) => total + state.byteSize,
       0,
     );
+    peakHistoryBytes = Math.max(peakHistoryBytes, bytes);
+    peakHistoryEntries = Math.max(
+      peakHistoryEntries,
+      undoStack.length + redoStack.length,
+    );
     while (
       undoStack.length + redoStack.length > IN_PLACE_TEXT_UNDO_LIMIT ||
       bytes > IN_PLACE_TEXT_UNDO_BYTE_LIMIT
     ) {
       // Keep the nearest undo and redo states when a large snapshot is evicted.
+      const overCount =
+        undoStack.length + redoStack.length > IN_PLACE_TEXT_UNDO_LIMIT;
       const removed = undoStack.length ? undoStack.shift() : redoStack.shift();
       if (!removed) break;
+      if (overCount) historyCountEvictions += 1;
+      else {
+        historyByteEvictions += 1;
+        historyBytesEvicted += removed.byteSize;
+      }
+      if (removed.tag === initialRootTagName && removed.html === startHtml) {
+        initialHistoryStateEvicted = true;
+      }
       bytes -= removed.byteSize;
     }
+    retainedHistoryBytes = bytes;
+    publishHistoryStats();
   }
 
   function restore(state: Snapshot) {
@@ -1867,6 +1929,7 @@ export function startInPlaceTextSession(
     if (reservationEnabled && state.html !== startHtml) {
       preserveLayoutReservation(true);
     }
+    publishHistoryStats();
   }
 
   /** Records the pre-change state; a run of typing or deleting is one step. */
@@ -2466,6 +2529,17 @@ export function startInPlaceTextSession(
     return !hasRenderedContent(before.cloneContents());
   }
 
+  function paragraphAfter(caret: Range, block: HTMLElement) {
+    const after = document.createRange();
+    after.selectNodeContents(block);
+    after.setStart(caret.startContainer, caret.startOffset);
+    const remainder = after.cloneContents();
+    return (
+      !remainder.textContent?.replaceAll(/[\u200b\ufeff]/g, "") &&
+      !hasRenderedContent(remainder)
+    );
+  }
+
   function previousTextBlock(block: HTMLElement): HTMLElement | null {
     const previous = block.previousElementSibling;
     if (!(previous instanceof HTMLElement)) return null;
@@ -2498,8 +2572,9 @@ export function startInPlaceTextSession(
                 ),
             ) as HTMLElement | undefined) ?? into)
         : into;
-    const join = textOffset(target, target, target.childNodes.length);
-    if (hasRenderedContent(from)) {
+    const join = textOffset(target, target, target.childNodes.length, true);
+    const sourceHasContent = hasRenderedContent(from);
+    if (sourceHasContent) {
       if (
         from.tagName === "P" &&
         (["P", "LI"].includes(target.tagName) ||
@@ -2511,7 +2586,61 @@ export function startInPlaceTextSession(
       }
     }
     if (from.parentNode !== target) from.remove();
-    placeCaret(...textPoint(target, join, true));
+    if (!sourceHasContent) {
+      let tail: Node | null = target.lastChild;
+      while (tail instanceof Element && !(tail instanceof HTMLBRElement)) {
+        tail = tail.lastChild;
+      }
+      if (tail instanceof HTMLBRElement && tail.parentNode) {
+        placeCaret(
+          tail.parentNode,
+          Array.from(tail.parentNode.childNodes).indexOf(tail) + 1,
+        );
+        return;
+      }
+    }
+    placeCaret(...textPoint(target, join, true, true));
+  }
+
+  function prependParagraphIntoRow(row: HTMLElement, paragraph: HTMLElement) {
+    const marker = rowMarker(row);
+    const content = rowTextRange(row, marker);
+    const contentStart = textOffset(
+      row,
+      content.startContainer,
+      content.startOffset,
+      true,
+    );
+    const textContainer = rowTextContainer(row, marker);
+    const textContainerIndex = Array.from(row.childNodes).indexOf(
+      textContainer,
+    );
+    const hasEarlierContent =
+      textContainer !== row &&
+      Array.from(row.childNodes)
+        .slice(content.startOffset, textContainerIndex)
+        .some(hasRenderedContent);
+    const insertionTarget = hasEarlierContent ? row : textContainer;
+    const insertionIndex = insertionTarget === row ? content.startOffset : 0;
+    const before = insertionTarget.childNodes[insertionIndex] ?? null;
+    const insertedLength = textOffset(
+      paragraph,
+      paragraph,
+      paragraph.childNodes.length,
+      true,
+    );
+    for (const child of Array.from(paragraph.childNodes)) {
+      insertionTarget.insertBefore(child, before);
+    }
+    paragraph.remove();
+    placeCaret(
+      ...textPoint(
+        row,
+        contentStart + insertedLength,
+        insertedLength > 0,
+        true,
+      ),
+    );
   }
 
   function plainifyQuote(quote: HTMLElement) {
@@ -2535,7 +2664,26 @@ export function startInPlaceTextSession(
   }
 
   function deleteAtBlockEdge(caret: Range, direction: DeleteDirection) {
-    if (direction !== "backward") return false;
+    if (direction === "forward") {
+      const block = nearestBlock(caret.startContainer, el);
+      if (
+        !caret.collapsed ||
+        block.tagName !== "P" ||
+        block === el ||
+        !paragraphAfter(caret, block)
+      ) {
+        return false;
+      }
+      const next = block.nextElementSibling;
+      if (!(next instanceof HTMLElement)) return false;
+      if (isBulletRow(next) || next.hasAttribute("data-slide-plain-row")) {
+        prependParagraphIntoRow(next, block);
+        return true;
+      }
+      if (next.tagName !== "P") return false;
+      appendBlockContents(block, next);
+      return true;
+    }
     const next =
       caret.collapsed && caret.startContainer instanceof HTMLElement
         ? caret.startContainer.childNodes[caret.startOffset]
@@ -4267,6 +4415,27 @@ export function startInPlaceTextSession(
     placeCaret(node, position);
   }
 
+  function shouldCheckMarkdownShortcut(data: string | null) {
+    return data !== null && data !== "" && /[ \u00a0\-+*_~`]/u.test(data);
+  }
+
+  function insertedShortcutTrigger(prefix: string, previousPrefix: string) {
+    const caret = selectionRange();
+    if (!caret?.collapsed) return false;
+    const block = commandBlock(caret.startContainer);
+    const normalize = (value: string) =>
+      value.replaceAll(ZERO_WIDTH_SPACE, "").replaceAll("\u00a0", " ");
+    const currentPrefix = normalize(linePrefix(block, caret).toString());
+    const targetPrefix = normalize(prefix);
+    const previous = normalize(previousPrefix);
+    return (
+      currentPrefix.startsWith(targetPrefix) &&
+      currentPrefix.startsWith(previous) &&
+      currentPrefix.length > previous.length &&
+      shouldCheckMarkdownShortcut(currentPrefix.slice(targetPrefix.length))
+    );
+  }
+
   function applyMarkdownShortcut() {
     const caret = selectionRange();
     if (!caret?.collapsed) return;
@@ -4686,6 +4855,7 @@ export function startInPlaceTextSession(
   function onBeforeInput(event: InputEvent) {
     const type = event.inputType;
     const range = selectionRange();
+    pendingNullDataShortcutPrefix = null;
     if (COMPOSITION_INPUTS.has(type)) {
       captureReservationParentHeight();
       return;
@@ -4704,6 +4874,28 @@ export function startInPlaceTextSession(
       if (type === "historyUndo") undo();
       else redo();
       return;
+    }
+    if (
+      (type === "insertText" || type === "insertReplacementText") &&
+      (event.data === null || event.data === "") &&
+      !event.dataTransfer?.getData("text/plain")
+    ) {
+      const target =
+        (type === "insertReplacementText" ? targetRange(event) : null) ?? range;
+      if (target) {
+        const block = commandBlock(target.startContainer);
+        const previousRange =
+          range &&
+          block.contains(range.startContainer) &&
+          block.contains(range.endContainer)
+            ? range
+            : target;
+        pendingNullDataShortcutPrefix = {
+          inputType: type,
+          prefix: linePrefix(block, target).toString(),
+          previousPrefix: linePrefix(block, previousRange).toString(),
+        };
+      }
     }
     if (!event.cancelable) {
       captureReservationParentHeight();
@@ -4736,8 +4928,13 @@ export function startInPlaceTextSession(
       return;
     }
     if (type === "insertText" || type === "insertReplacementText") {
-      const data =
-        event.data ?? event.dataTransfer?.getData("text/plain") ?? "";
+      const transferredText = event.dataTransfer?.getData("text/plain");
+      const data = event.data || transferredText || "";
+      if ((event.data === null || event.data === "") && !transferredText) {
+        captureReservationParentHeight();
+        checkpoint("typing");
+        return;
+      }
       if (type === "insertText" && range && isNativeInsert(range)) {
         captureReservationParentHeight();
         checkpoint("typing", /\s/.test(data));
@@ -4748,7 +4945,7 @@ export function startInPlaceTextSession(
         (type === "insertReplacementText" ? targetRange(event) : null) ?? range;
       if (!target) return;
       edit("typing", () => insertText(data, target));
-      if ([" ", "-", "*", "_", "~", "`"].includes(data)) {
+      if (shouldCheckMarkdownShortcut(data)) {
         applyMarkdownShortcut();
       }
       return;
@@ -4831,9 +5028,19 @@ export function startInPlaceTextSession(
 
   function onInput(event: Event) {
     const input = event as InputEvent;
+    const pendingShortcutPrefix = pendingNullDataShortcutPrefix;
+    pendingNullDataShortcutPrefix = null;
     if (
-      input.inputType === "insertText" &&
-      [" ", "-", "*", "_", "~", "`"].includes(input.data ?? "")
+      (input.inputType === "insertText" ||
+        input.inputType === "insertReplacementText") &&
+      !input.isComposing &&
+      (shouldCheckMarkdownShortcut(input.data) ||
+        ((input.data === null || input.data === "") &&
+          pendingShortcutPrefix?.inputType === input.inputType &&
+          insertedShortcutTrigger(
+            pendingShortcutPrefix.prefix,
+            pendingShortcutPrefix.previousPrefix,
+          )))
     ) {
       applyMarkdownShortcut();
     }
@@ -5328,6 +5535,13 @@ export function startInPlaceTextSession(
     else el.setAttribute("contenteditable", initialContentEditable);
     if (initialEditingBlock === null) el.removeAttribute("data-editing-block");
     else el.setAttribute("data-editing-block", initialEditingBlock);
+    if (import.meta.env.DEV) {
+      delete (
+        el as HTMLElement & {
+          __slidesInPlaceTextHistoryStats?: InPlaceTextHistoryStats;
+        }
+      ).__slidesInPlaceTextHistoryStats;
+    }
   }
 
   const selection = window.getSelection();
@@ -5407,6 +5621,7 @@ export function startInPlaceTextSession(
     get changed() {
       return hasVisibleChange();
     },
+    historyStats,
     commands,
     apply: (mutate) =>
       command(() => {

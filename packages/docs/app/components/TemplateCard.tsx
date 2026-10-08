@@ -134,11 +134,11 @@ export const templates = [
 export type Template = (typeof templates)[number];
 
 export const featuredTemplates = [
-  "clips",
   "design",
   "slides",
   "analytics",
   "calendar",
+  "clips",
   "mail",
   "assets",
   "content",

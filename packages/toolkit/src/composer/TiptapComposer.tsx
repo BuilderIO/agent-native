@@ -42,7 +42,10 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
 import { BuilderBMark } from "./BuilderBMark.js";
-import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
+import {
+  searchComposerContextActions,
+  type ComposerContextMenuItem,
+} from "./ComposerContextMenu.js";
 import {
   ComposerPlusMenu,
   type ComposerTerminalModeControl,
@@ -376,6 +379,10 @@ function isSameComposerAttachmentSnapshot(
 ) {
   return current.id === snapshot.id && current.file === snapshot.file;
 }
+
+// Host Add-menu actions listed among "@" suggestions. Picking one runs the
+// action or opens its picker as a dialog instead of inserting a mention.
+const COMPOSER_CONTEXT_ENTRY_SOURCE = "composer-context";
 
 function composerReferenceFromMentionItem(
   item: MentionItem,
@@ -1193,7 +1200,7 @@ export interface TiptapComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
-  /** Shared +/@ entries; matching IDs replace built-in full-mode actions. */
+  /** Shared + menu entries; matching IDs replace built-in full-mode actions. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /**
    * Controls the "+" menu next to the composer. `"full"` (default) shows the
@@ -2776,6 +2783,9 @@ export function TiptapComposer({
   });
   const [popover, setPopover] = useState<PopoverState>(null);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [contextEntryRequest, setContextEntryRequest] = useState<{
+    id: string;
+  } | null>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
   const lastComposerRuntimeSyncRef = useRef<{
@@ -2890,6 +2900,7 @@ export function TiptapComposer({
     isLoading: mentionsLoading,
     error: mentionsError,
     retry: retryMentions,
+    settledQuery: settledMentionQuery,
   } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
     includeDefaultMentionSearch && (contextMenuOpen || popover?.type === "@"),
@@ -2912,6 +2923,45 @@ export function TiptapComposer({
       ),
     [hostMentionItems, mentionItems, mentionQuery, slotReferences],
   );
+  const inlineMentionItems = useMemo(() => {
+    if (
+      popover?.type !== "@" ||
+      !hasContextMenu ||
+      disabled ||
+      contextControlsDisabled ||
+      !contextMenuItems?.length
+    )
+      return filteredMentionItems;
+    const addContextLabel = t("agentChat.composer.addContext", {
+      defaultValue: "Add context",
+    });
+    return [
+      ...searchComposerContextActions(contextMenuItems, mentionQuery)
+        // Custom pages only render inside the + menu.
+        .filter(({ action }) => !action.disabled && !action.render)
+        .map(
+          ({ action, categories }): MentionItem => ({
+            id: `${COMPOSER_CONTEXT_ENTRY_SOURCE}:${action.id}`,
+            label: action.label,
+            description: action.description,
+            source: COMPOSER_CONTEXT_ENTRY_SOURCE,
+            refType: COMPOSER_CONTEXT_ENTRY_SOURCE,
+            refId: action.id,
+            section: categories[0] ?? addContextLabel,
+          }),
+        ),
+      ...filteredMentionItems,
+    ];
+  }, [
+    popover?.type,
+    hasContextMenu,
+    disabled,
+    contextControlsDisabled,
+    contextMenuItems,
+    mentionQuery,
+    filteredMentionItems,
+    t,
+  ]);
 
   const {
     skills,
@@ -2960,14 +3010,18 @@ export function TiptapComposer({
   }, [allSlashSkills, popover]);
 
   // Keep refs in sync with state
-  const mentionItemsRef = useRef(filteredMentionItems);
-  mentionItemsRef.current = filteredMentionItems;
+  // Results for an earlier query are stale until the search for this one
+  // settles, so auto-close may not treat them as final. Host mention items
+  // carry no readiness signal (they may still be loading), so only a settled
+  // default search can end a query as "nothing matches".
+  const mentionSearchSettled =
+    includeDefaultMentionSearch &&
+    !mentionsLoading &&
+    settledMentionQuery === mentionQuery;
   const filteredCommandsRef = useRef(filteredCommands);
   filteredCommandsRef.current = filteredCommands;
   const filteredSkillsRef = useRef(filteredSkills);
   filteredSkillsRef.current = filteredSkills;
-  const hasContextMenuRef = useRef(hasContextMenu);
-  hasContextMenuRef.current = hasContextMenu;
   const launchersDisabledRef = useRef(disabled || contextControlsDisabled);
   launchersDisabledRef.current = disabled || contextControlsDisabled;
   const onSlashCommandRef = useRef(onSlashCommand);
@@ -3017,6 +3071,24 @@ export function TiptapComposer({
     setPopover(null);
     popoverStateRef.current = null;
   }, []);
+
+  // A query nothing matches is plain text ("@builder.io", "@3pm"), so end the
+  // mention there instead of holding later keys.
+  useEffect(() => {
+    if (
+      mentionQuery &&
+      mentionSearchSettled &&
+      inlineMentionItems.length === 0
+    ) {
+      closePopover();
+    }
+  }, [mentionQuery, mentionSearchSettled, inlineMentionItems, closePopover]);
+
+  // The + menu runs a request from its own effect, which fires before this one;
+  // clear it so a remounted menu cannot run the same action again.
+  useEffect(() => {
+    if (contextEntryRequest) setContextEntryRequest(null);
+  }, [contextEntryRequest]);
 
   // Persist draft to localStorage so refreshes don't lose the prompt.
   const hasDraftScope = Boolean(draftScope?.trim());
@@ -3479,17 +3551,6 @@ export function TiptapComposer({
 
         // Handle popover keyboard nav
         if (pop) {
-          if (event.key === " " && pop.type === "@" && pop.query) {
-            const exact = findExactMentionItem(
-              mentionItemsRef.current,
-              pop.query,
-            );
-            if (exact) {
-              event.preventDefault();
-              selectMention(view, pop, exact);
-              return true;
-            }
-          }
           if (event.key === "ArrowUp") {
             event.preventDefault();
             popoverRef.current?.moveUp();
@@ -3500,7 +3561,18 @@ export function TiptapComposer({
             popoverRef.current?.moveDown();
             return true;
           }
-          if (event.key === "Enter") {
+          // A mention comes only from an explicit pick of a highlighted row. With
+          // nothing highlighted, even while a search is pending, the "@" is
+          // plain text: Enter submits it and a late result changes nothing.
+          const highlighted =
+            pop.type === "@" ? popoverRef.current?.getSelectedMention() : null;
+          if (event.key === "Enter" && pop.type === "@" && !highlighted) {
+            closePopover();
+          } else if (event.key === "Tab" && !event.shiftKey && highlighted) {
+            event.preventDefault();
+            selectMention(view, pop, highlighted);
+            return true;
+          } else if (event.key === "Enter") {
             event.preventDefault();
             const idx = popoverRef.current?.getSelectedIndex() ?? 0;
             const currentCommands = filteredCommandsRef.current;
@@ -3616,22 +3688,17 @@ export function TiptapComposer({
         }
 
         // Detect @ trigger — only when preceded by start-of-text, space, or newline
-        // (not after alphanumeric chars, which would indicate an email address)
+        // (not after alphanumeric chars, which would indicate an email address).
+        // Keep the typed "@" in the draft and focus in the editor: a focus-taking
+        // menu here would swallow the rest of a literal like "@builder.io".
         if (event.key === "@") {
+          if (launchersDisabledRef.current) return false;
           const { from } = view.state.selection;
           const textBefore = view.state.doc.textBetween(
             Math.max(0, from - 1),
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            if (hasContextMenuRef.current) {
-              if (launchersDisabledRef.current) return false;
-              event.preventDefault();
-              popoverStateRef.current = null;
-              setPopover(null);
-              setContextMenuOpen(true);
-              return true;
-            }
             const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
             setTimeout(() => {
@@ -3843,15 +3910,7 @@ export function TiptapComposer({
     insertTextAtCursor(text: string) {
       if (!isComposerEditorUsable(editor)) return;
       editor.commands.focus();
-      // An inserted "@" opens the shared Add menu when the host provides one.
-      const mention = text === "@";
-      if (mention && hasContextMenuRef.current) {
-        if (launchersDisabledRef.current) return;
-        popoverStateRef.current = null;
-        setPopover(null);
-        setContextMenuOpen(true);
-        return;
-      }
+      const mention = text === "@" && !launchersDisabledRef.current;
       let inserted = text;
       if (mention) {
         const { from } = editor.state.selection;
@@ -5324,6 +5383,14 @@ export function TiptapComposer({
     const currentPos = ed.state.selection.from;
     // startPos is after the trigger char, so -1 to include the @ or /
     const deleteFrom = Math.max(0, pop.startPos - 1);
+    if (item.source === COMPOSER_CONTEXT_ENTRY_SOURCE && item.refId) {
+      ed.chain()
+        .focus()
+        .deleteRange({ from: deleteFrom, to: currentPos })
+        .run();
+      setContextEntryRequest({ id: item.refId });
+      return;
+    }
     const normalized = adapters.agentChat!.normalizeReference!(
       composerReferenceFromMentionItem(item),
     ) as AgentComposerReference | null;
@@ -5907,6 +5974,7 @@ export function TiptapComposer({
         ) : hasContextMenu ? (
           <ComposerPlusMenu
             contextMenuItems={launchersDisabled ? [] : contextLauncherItems}
+            openEntry={contextEntryRequest}
             mode={
               launchersDisabled || plusMenuMode === "hidden"
                 ? "upload-only"
@@ -6040,7 +6108,7 @@ export function TiptapComposer({
         density={mentionPopoverDensity}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
-        mentionItems={filteredMentionItems}
+        mentionItems={inlineMentionItems}
         skills={filteredSkills}
         commands={filteredCommands}
         hint={hint}

@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +16,10 @@ import {
 } from "@/components/deck/SlideRenderer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
+import {
+  applyRemoteSlideUnderInlineEdit,
+  onInlineEditRemoteRetry,
+} from "@/lib/inline-edit-remote";
 import * as slideCommentAnchor from "@/lib/slide-comment-anchor";
 import {
   captureSlideImageUploadProvenance,
@@ -154,6 +164,169 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     );
   });
 
+  describe("another writer's saved edit during a text edit", () => {
+    const objects = (a: string, b: string) =>
+      `<div class="fmd-slide"><div data-slide-object-id="a">${a}</div><div data-slide-object-id="b">${b}</div></div>`;
+
+    function openEdit(slideId: string, content: string) {
+      vi.stubGlobal("fetch", () => new Promise(() => {}));
+      const noop = () => {};
+      const slide = { id: slideId, content, layout: "blank" } as Slide;
+      render(
+        <SlideEditor
+          slide={slide}
+          deckId="deck-live"
+          onUpdateSlide={() => undefined}
+          onGenerateImage={noop}
+          onOpenAssetLibrary={noop}
+          onUploadImage={noop}
+          onToggleObjectFit={noop}
+          onChangeObjectPosition={noop}
+        />,
+        { wrapper: Providers },
+      );
+      const edited = document.querySelector<HTMLElement>(
+        '.slide-content [data-slide-object-id="a"]',
+      )!;
+      fireEvent.doubleClick(edited, { detail: 2 });
+      expect(edited.getAttribute("contenteditable")).toBe("true");
+      (edited.firstChild as Text).data = "Alpha typed";
+      return { edited, slide };
+    }
+
+    it("shows another object's change around the open edit", () => {
+      const base = objects("Alpha", "Beta");
+      const { edited } = openEdit("slide-live-editor", base);
+
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-editor",
+          base,
+          objects("Alpha", "Beta by remote"),
+        ),
+      ).toBe("applied");
+
+      expect(
+        document.querySelector('.slide-content [data-slide-object-id="b"]')
+          ?.textContent,
+      ).toBe("Beta by remote");
+      expect(edited.getAttribute("contenteditable")).toBe("true");
+      expect(edited.textContent).toBe("Alpha typed");
+    });
+
+    it("does not save the edit's start copy over the remote change when the typing nets out", () => {
+      const base = objects("Alpha", "Beta");
+      const onUpdateSlide = vi.fn(
+        (_updates: Partial<Slide>, _slideId?: string, _options?: object) =>
+          undefined,
+      );
+      vi.stubGlobal("fetch", () => new Promise(() => {}));
+      const noop = () => {};
+      const slide = {
+        id: "slide-live-baseline",
+        content: base,
+        layout: "blank",
+      } as Slide;
+      render(
+        <SlideEditor
+          slide={slide}
+          deckId="deck-live"
+          onUpdateSlide={onUpdateSlide}
+          onGenerateImage={noop}
+          onOpenAssetLibrary={noop}
+          onUploadImage={noop}
+          onToggleObjectFit={noop}
+          onChangeObjectPosition={noop}
+        />,
+        { wrapper: Providers },
+      );
+      const edited = document.querySelector<HTMLElement>(
+        '.slide-content [data-slide-object-id="a"]',
+      )!;
+      fireEvent.doubleClick(edited, { detail: 2 });
+      (edited.firstChild as Text).data = "Alpha typed";
+      fireEvent.input(edited);
+      fireEvent(window, new Event("pagehide"));
+      // That draft is what the canvas last matched the server on.
+      const confirmed = objects("Alpha typed", "Beta");
+      expect(onUpdateSlide).toHaveBeenCalledTimes(1);
+
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-baseline",
+          confirmed,
+          objects("Alpha typed", "Beta by remote"),
+        ),
+      ).toBe("applied");
+      // The typing nets out to the text the edit started with.
+      (edited.firstChild as Text).data = "Alpha";
+      fireEvent(window, new Event("pagehide"));
+
+      expect(onUpdateSlide).toHaveBeenCalledTimes(2);
+      expect(
+        (onUpdateSlide.mock.calls[1]![0] as Partial<Slide>).content,
+      ).toContain("Beta by remote");
+    });
+
+    it("holds a change to the edited text and one that arrives after the edit ended", () => {
+      const base = objects("Alpha", "Beta");
+      openEdit("slide-live-held", base);
+      const remote = objects("Alpha by remote", "Beta");
+
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-held",
+          base,
+          remote,
+        ),
+      ).toBe("held");
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-held",
+          base,
+          objects("Alpha", "Beta by remote"),
+        ),
+      ).toBe("held");
+    });
+
+    it("waits out an IME composition and asks for a retry when it ends", () => {
+      const base = objects("Alpha", "Beta");
+      const { edited } = openEdit("slide-live-ime", base);
+      const retry = vi.fn();
+      const stopListening = onInlineEditRemoteRetry(retry);
+      const remote = objects("Alpha", "Beta by remote");
+
+      fireEvent.compositionStart(edited);
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-ime",
+          base,
+          remote,
+        ),
+      ).toBe("later");
+      expect(retry).not.toHaveBeenCalled();
+
+      fireEvent.compositionEnd(edited);
+      expect(retry).toHaveBeenCalledWith("deck-live");
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-ime",
+          base,
+          remote,
+        ),
+      ).toBe("applied");
+      stopListening();
+    });
+  });
+
   it("refocuses the canvas after Escape and keeps the layer selected", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const onUpdateSlide = vi.fn(
@@ -294,6 +467,49 @@ describe("SlideEditor with a newer version of the edited slide", () => {
         Object.hasOwn(updates, "content"),
       ),
     ).toHaveLength(0);
+  });
+
+  it("keeps the arrange context menu above positioned slide images", async () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const noop = () => {};
+    const slide = {
+      id: "slide-image-context-menu",
+      content:
+        '<div class="fmd-slide"><div class="fmd-pptx-image" data-pptx-element-kind="image" data-slide-object-id="image-1" style="position:absolute;z-index:2147483000"><img src="https://example.test/image.svg" alt="Image"></div></div>',
+      layout: "blank",
+    } as Slide;
+    const { container, getByRole } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+
+    fireEvent.contextMenu(container.querySelector(".slide-content img")!, {
+      button: 2,
+    });
+
+    const menu = getByRole("menu");
+    const arrangeItem = getByRole("menuitem", {
+      name: "styleInspector.order",
+    });
+    expect(menu.className).toContain("z-[2147483647]");
+    expect(arrangeItem.getAttribute("aria-disabled")).not.toBe("true");
+
+    fireEvent.pointerMove(arrangeItem, { pointerType: "mouse" });
+
+    await waitFor(() => {
+      const submenu = getByRole("menuitem", {
+        name: "styleInspector.bringToFront",
+      }).closest('[role="menu"]');
+      expect(submenu?.className).toContain("z-[2147483647]");
+    });
   });
 
   it("keeps a comment-highlight click in the active text editor", () => {

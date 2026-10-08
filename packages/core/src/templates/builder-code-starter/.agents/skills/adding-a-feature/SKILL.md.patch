@@ -1,0 +1,19 @@
+===================================================================
+--- a/.agents/skills/adding-a-feature/SKILL.md
++++ b/.agents/skills/adding-a-feature/SKILL.md
+@@ -129,11 +129,12 @@
+ Instruction examples may name secret keys like `SLACK_WEBHOOK`, but must use
+ placeholders such as `${keys.SLACK_WEBHOOK}` or `<SLACK_WEBHOOK>`. Do not paste
+ real keys, internal data, or customer data into instructions as examples.
+ 
+-If the feature changes visible copy, update its source and the app's configured
+-locale catalogs. Use `agent-native-docs` to find the localization guidance when
+-the app's translation setup is unclear.
++If the feature adds or changes visible UI copy, prompts, toasts, labels, empty
++states, or formatting, edit the English strings inline in components. Do **not**
++add i18n catalogs unless the user explicitly asks for localization; only then
++read the `internationalization` skill.
+ 
+ For app-backed skills, declare skill visibility in the app-skill manifest:
+ 
+ - `internal` — only the app's own agents should use it.

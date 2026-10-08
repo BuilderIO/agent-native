@@ -5,6 +5,12 @@ import { describe, expect, it } from "vitest";
 describe("Design editor header", () => {
   const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
 
+  it("only offers Add screen to editors", () => {
+    expect(editorSource).toContain(
+      "canEditDesign ? handleAddScreenAffordance : undefined",
+    );
+  });
+
   it("keeps the title without rendering the review status chip", () => {
     expect(editorSource).toContain("{projectTitleControl}");
     expect(editorSource).not.toContain("ReviewStatusControl");
@@ -34,6 +40,33 @@ describe("Design editor header", () => {
     expect(surface).toContain("chatOnly={true}");
     expect(surface).toContain("onCollapse={() => setActiveLeftPanel(null)}");
     expect(surface).toContain("min-w-0");
+  });
+
+  it("mounts the top bar from the shared visibility rule", () => {
+    expect(editorSource).toContain("const topBarVisible = isTopBarVisible({");
+    expect(editorSource).toMatch(/\{topBarVisible \? \(\s*<EditorTopBar/);
+  });
+
+  it("falls back to the rail row and toolbar tabs wherever the top bar is absent", () => {
+    const railStart = editorSource.indexOf("{/* ── Render: right rail ── */}");
+    const railEnd = editorSource.indexOf(
+      "{minimalUi && !hostOwnsChrome ? (",
+      railStart,
+    );
+    const rail = editorSource.slice(railStart, railEnd);
+    // Docked rail: only the local-preview row. Every other shell keeps the
+    // full action row (visual-edit route, embedded chrome, minimal UI).
+    expect(rail).toContain(
+      "{!topBarVisible ? (\n              rightSidebarActions",
+    );
+    expect(rail).toContain("{localPreviewRow}");
+    expect(editorSource).toContain("showModeTabs={!topBarVisible}");
+    const minimalBarStart = editorSource.indexOf(
+      'data-design-minimal-bar="right"',
+    );
+    expect(
+      editorSource.slice(minimalBarStart, minimalBarStart + 400),
+    ).toContain("{rightSidebarActions}");
   });
 
   it("puts the signed-out play control beside the presence slot", () => {

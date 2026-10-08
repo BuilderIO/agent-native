@@ -904,11 +904,11 @@ export async function searchAgentThreads(input: {
         ? " OR id IN (" + runThreadIds.map(() => "?").join(", ") + ")"
         : "";
     where.push(
-      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
+      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\' OR LOWER(source_url) LIKE ? ESCAPE '\\' OR id = ? OR scope_id = ?" +
         runIdClause +
         ")",
     );
-    args.push(pattern, pattern, pattern, pattern);
+    args.push(pattern, pattern, pattern, pattern, pattern, q, q);
     args.push(...runThreadIds);
   }
   args.push(limit);

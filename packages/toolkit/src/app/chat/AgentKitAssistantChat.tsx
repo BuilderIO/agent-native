@@ -83,9 +83,12 @@ import {
   realtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
 } from "@agent-native/toolkit/composer/realtime-voice-transcript";
+import { IconButton } from "@agent-native/toolkit/design-system";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertTriangle,
+  IconCircleCheck,
+  IconCopy,
   IconLoader2,
   IconMessage,
   IconPlayerStopFilled,
@@ -117,7 +120,6 @@ import {
   type AgentConnectionErrorRenderProps,
   type AgentKitBranchNavigation,
 } from "../agentkit/react/index.js";
-import { AgentKitRoot } from "../agentkit/react/root.js";
 import {
   AgentKitDevCheckpointProvider,
   AgentKitDevCheckpointRestore,
@@ -142,6 +144,7 @@ import {
   AgentKitFilesChangedSummary,
   AgentKitMarkdownText,
 } from "./agentkit-chat/parity-renderers.js";
+import { CoreAgentKitRoot } from "./agentkit-chat/root.js";
 import { AgentApprovalCard } from "./chat/agent-approval-card.js";
 import { renderMarkdownToClipboardHtml } from "./chat/markdown-renderer.js";
 import {
@@ -169,7 +172,10 @@ import {
 } from "./chat/tool-call-display.js";
 import { resolveAgentKitToolSource } from "./chat/tool-integration.js";
 import { ExternalAgentNudge } from "./external-agent-host.js";
+import { fallbackChatTitle } from "./fallback-chat-title.js";
+import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
+import { reconcileSettledRun } from "./reconcile-settled-run.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
 
@@ -200,9 +206,12 @@ const DEFERRED_PROVIDER_SUBMISSION_CLAIM_TTL_MS = 15 * 60 * 1000;
 const DEFERRED_PROVIDER_SUBMISSION_MAX_RETRIES = 3;
 const DEFERRED_PROVIDER_SUBMISSIONS_KEY_PREFIX =
   "agentkit-deferred-provider-submissions:";
+type AgentKitHandoffThreadSnapshot = AgentThreadSnapshot & {
+  titleSource?: "fallback";
+};
 const threadHandoffSnapshots = new Map<
   string,
-  { snapshot: AgentThreadSnapshot; expiresAt: number }
+  { snapshot: AgentKitHandoffThreadSnapshot; expiresAt: number }
 >();
 const deferredProviderSubmissionOperations = new Map<
   string,
@@ -856,6 +865,11 @@ export const AgentKitAssistantChat = forwardRef<
         shortcut: "{{shortcut}}",
       }),
       feedbackSubmit: t("agentChat.feedback.submit"),
+      feedbackReasonMisread: t("agentChat.feedback.reasonMisread"),
+      feedbackReasonNotDone: t("agentChat.feedback.reasonNotDone"),
+      feedbackReasonWrongNumbers: t("agentChat.feedback.reasonWrongNumbers"),
+      feedbackReasonTooSlow: t("agentChat.feedback.tooSlow"),
+      feedbackCopyDetails: t("agentChat.feedback.copyDetails"),
       fork: t("agentChat.message.forkChat"),
       previousBranch: t("agentChat.message.previousBranch"),
       nextBranch: t("agentChat.message.nextBranch"),
@@ -863,6 +877,8 @@ export const AgentKitAssistantChat = forwardRef<
       error: t("agentChat.error.failed"),
       renderError: t("agentChat.error.render"),
       runFailed: t("agentChat.error.failed"),
+      continueRun: t("agentChat.common.continue"),
+      continueRunUnavailable: t("agentChat.recovery.continueUnavailable"),
       reconnect: t("agentChat.agentPanel.chatgptSubscriptionReconnect"),
       reasoning: t("agentChat.status.thinking"),
       expandActivity: t("agentChat.common.expand"),
@@ -1186,7 +1202,7 @@ export const AgentKitAssistantChat = forwardRef<
   return (
     <ThinkingDisplayProvider value={props.thinkingDisplay}>
       <CoreComposerRuntimeProvider>
-        <AgentKitRoot
+        <CoreAgentKitRoot
           transport={transport}
           clientOptions={{
             transportOwnership: "owned",
@@ -1202,6 +1218,7 @@ export const AgentKitAssistantChat = forwardRef<
           labels={labels}
           branchNavigation={props.branchNavigation}
           loadRunUsage={loadRunUsage}
+          buildFeedbackReport={formatFeedbackReport}
           onThreadForked={(thread) => props.onForkedThread?.(thread.id)}
           onCopyMessage={({ text }) => {
             const html = renderMarkdownToClipboardHtml(text);
@@ -1250,7 +1267,7 @@ export const AgentKitAssistantChat = forwardRef<
               />
             </AgentKitDevCheckpointProvider>
           )}
-        </AgentKitRoot>
+        </CoreAgentKitRoot>
       </CoreComposerRuntimeProvider>
     </ThinkingDisplayProvider>
   );
@@ -1521,6 +1538,15 @@ const AgentKitAssistantChatBody = forwardRef<
   const isThreadRunning = useCallback(
     () => hasActiveAgentRuns(controller.getThread(threadId)),
     [controller, threadId],
+  );
+  const reconcileServerSettled = useCallback(
+    () =>
+      reconcileSettledRun({
+        load: control.load,
+        getThread: () => controller.getThread(threadId),
+        tabId: props.tabId ?? threadId,
+      }),
+    [control.load, controller, props.tabId, threadId],
   );
 
   useEffect(() => {
@@ -3141,6 +3167,7 @@ const AgentKitAssistantChatBody = forwardRef<
           )
         }
         isAwaitingResponse={() => isRunning}
+        onServerSettled={reconcileServerSettled}
         onRetry={() =>
           void sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
         }
@@ -3369,6 +3396,32 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
+  const activeRunId = thread.activeRunIds.at(-1);
+  const [requestIdCopyFeedback, setRequestIdCopyFeedback] = useState<{
+    runId: string;
+    status: "copied" | "failed";
+  } | null>(null);
+  const activeRunRequestIdCopyStatus =
+    requestIdCopyFeedback && requestIdCopyFeedback.runId === activeRunId
+      ? requestIdCopyFeedback.status
+      : null;
+  useEffect(() => {
+    if (!requestIdCopyFeedback) return;
+    const timeout = setTimeout(() => setRequestIdCopyFeedback(null), 1_400);
+    return () => clearTimeout(timeout);
+  }, [requestIdCopyFeedback]);
+  const copyActiveRunRequestId = async () => {
+    if (!activeRunId) return;
+    try {
+      const copied = await writeClipboardText(activeRunId);
+      setRequestIdCopyFeedback({
+        runId: activeRunId,
+        status: copied ? "copied" : "failed",
+      });
+    } catch {
+      setRequestIdCopyFeedback({ runId: activeRunId, status: "failed" });
+    }
+  };
   const lastMessage = thread.messages.at(-1);
   const showThinking =
     surface.isSubmissionInFlight &&
@@ -3538,6 +3591,46 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         surface.props.tabId,
       )}
       {children}
+      {activeRunId ? (
+        <div
+          className="agentkit-activities-static"
+          data-agentkit-active-run-id-copy="true"
+        >
+          <IconButton
+            label={
+              activeRunRequestIdCopyStatus === "copied"
+                ? t("agentChat.common.copied")
+                : activeRunRequestIdCopyStatus === "failed"
+                  ? t("agentChat.recovery.copyFailed")
+                  : t("agentChat.message.copyRequestId")
+            }
+            title={t("agentChat.message.copyRequestId")}
+            icon={
+              activeRunRequestIdCopyStatus === "copied" ? (
+                <IconCircleCheck aria-hidden="true" />
+              ) : activeRunRequestIdCopyStatus === "failed" ? (
+                <IconAlertTriangle aria-hidden="true" />
+              ) : (
+                <IconCopy aria-hidden="true" />
+              )
+            }
+            size="compact"
+            onPress={() => void copyActiveRunRequestId()}
+          />
+          {activeRunRequestIdCopyStatus ? (
+            <span
+              className="sr-only"
+              role={
+                activeRunRequestIdCopyStatus === "failed" ? "alert" : "status"
+              }
+            >
+              {activeRunRequestIdCopyStatus === "copied"
+                ? t("agentChat.common.copied")
+                : t("agentChat.recovery.copyFailed")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {handoffMessages.map((message) => (
         <AgentMessageView
           key={message.id}
@@ -4607,6 +4700,7 @@ function AgentKitRunFailure({
   const surface = useAgentKitSurface();
   const t = useT();
   const [dismissed, setDismissed] = useState<string | null>(null);
+  const [continueFailed, setContinueFailed] = useState(false);
   const authErrorReason =
     error.code === "unauthorized" || error.code === "http_401"
       ? "session-expired"
@@ -4690,6 +4784,17 @@ function AgentKitRunFailure({
     );
   }
   if (wasRetried(thread.messages, runId)) return null;
+  // Continuing resumes the stopped run's own turn, so finished steps are not
+  // run again; that needs it to still be the turn's newest run.
+  const continueStoppedRun = control.canContinueRun
+    ? superseded
+      ? undefined
+      : () => {
+          setContinueFailed(false);
+          control.continueRun(runId).catch(() => setContinueFailed(true));
+        }
+    : () =>
+        void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue");
   const info: RunErrorInfo = {
     message: formatAgentKitErrorText(error, t),
     errorCode: error.code,
@@ -4700,8 +4805,9 @@ function AgentKitRunFailure({
   return (
     <RunErrorRecoveryCard
       info={info}
-      onContinue={() =>
-        void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
+      onContinue={continueStoppedRun}
+      continueError={
+        continueFailed ? t("agentChat.recovery.continueUnavailable") : null
       }
       onRetry={() => void retryFailedTurn()}
       retryHasUnavailableAttachment={retryRequest.hasUnavailableAttachment}
@@ -5334,7 +5440,13 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
     agentMessageText(
       [...messages].reverse().find((message) => message.role === "user")!,
     );
-  const title = thread.thread?.title ?? firstUserText?.slice(0, 80) ?? "";
+  const handoffThread = thread.thread as AgentKitHandoffThreadSnapshot | null;
+  const savedTitle = handoffThread?.title?.trim();
+  const titleSource: "fallback" | undefined =
+    !savedTitle || handoffThread?.titleSource === "fallback"
+      ? "fallback"
+      : undefined;
+  const title = savedTitle || fallbackChatTitle(firstUserText ?? "");
   const runs = Object.entries(thread.runs).map(([id, run]) => ({
     ...run,
     id,
@@ -5356,6 +5468,7 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
       agentKit,
     }),
     title,
+    ...(titleSource ? { titleSource } : {}),
     preview: (latestUserText ?? "").slice(0, 280),
     messageCount: messages.length,
   };
@@ -5389,7 +5502,7 @@ function createAgentKitThreadHandoffKey(
 function readAgentKitThreadHandoffSnapshot(
   key: string,
   consume = false,
-): AgentThreadSnapshot | null {
+): AgentKitHandoffThreadSnapshot | null {
   const entry = threadHandoffSnapshots.get(key);
   if (!entry) return null;
   if (entry.expiresAt <= Date.now()) {
@@ -5413,10 +5526,13 @@ function storeAgentKitThreadHandoffSnapshot(
   if (!messages.length) return;
 
   const now = new Date().toISOString();
-  const handoff: AgentThreadSnapshot = {
+  const handoff: AgentKitHandoffThreadSnapshot = {
     ...(thread.thread ?? {}),
     id: thread.id,
     title: snapshot.title || thread.thread?.title,
+    ...(snapshot.titleSource === "fallback"
+      ? { titleSource: "fallback" as const }
+      : {}),
     createdAt: thread.thread?.createdAt ?? messages[0]?.createdAt ?? now,
     updatedAt: thread.thread?.updatedAt ?? messages.at(-1)?.createdAt ?? now,
     messages,
@@ -5617,7 +5733,7 @@ function appendVoiceTranscriptsToThreadSnapshot(
     }),
     title:
       snapshot.title ||
-      (firstUser ? agentMessageText(firstUser).slice(0, 80) : ""),
+      (firstUser ? fallbackChatTitle(agentMessageText(firstUser)) : ""),
     preview: latestUser ? agentMessageText(latestUser).slice(0, 280) : "",
     messageCount: messages.length,
   };

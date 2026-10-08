@@ -279,6 +279,90 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("associates a terminal run with its durable assistant message", async () => {
+    const threadId = "thread-terminal-assistant";
+    const runId = "run-terminal-assistant";
+    const assistantMessage = {
+      id: "assistant-terminal",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "Recovered response." }],
+    };
+    const occurredAt = "2026-10-01T00:00:00.000Z";
+    const runEvent = (
+      sequence: number,
+      type: string,
+      message?: Record<string, unknown>,
+    ) => ({
+      id: `event-${sequence}`,
+      threadId,
+      runId,
+      sequence,
+      occurredAt,
+      type,
+      ...(message ? { message } : {}),
+    });
+    const threadData = JSON.stringify({
+      messages: [],
+      agentKit: {
+        messages: [assistantMessage],
+        events: [
+          runEvent(1, "run.started"),
+          runEvent(2, "message.created", {
+            ...assistantMessage,
+            status: "streaming",
+          }),
+          runEvent(3, "message.completed", assistantMessage),
+          runEvent(4, "run.completed"),
+        ],
+        runs: [
+          {
+            id: runId,
+            threadId,
+            status: "completed",
+            lastSequence: 4,
+          },
+        ],
+        activeRunIds: [],
+      },
+    });
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith(`/threads/${threadId}`)) {
+        return json({
+          id: threadId,
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+          threadData,
+        });
+      }
+      if (url.includes(`/runs/active?threadId=${threadId}`)) {
+        return json({ active: false, status: "completed", runId });
+      }
+      if (url.includes(`/runs/${runId}?threadId=${threadId}`)) {
+        return json({
+          id: runId,
+          threadId,
+          status: "completed",
+          lastSequence: 4,
+        });
+      }
+      return json({ error: "Not found" }, 404);
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.runs?.find((run) => run.id === runId)).toMatchObject({
+      status: "completed",
+      activeMessageId: assistantMessage.id,
+    });
+    await transport.dispose();
+  });
+
   it("persists bounded snapshot deltas and retries smaller chunks after a 413", async () => {
     const largeResult = "x".repeat(60_000);
     const previousToolCalls = Array.from({ length: 50 }, (_, index) => ({
@@ -3189,6 +3273,314 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  // The stale-run reaper recovered turn-1: run-1 was interrupted and run-2,
+  // a successor on the same turn, carried it on.
+  function recoveredTurnThread(input: {
+    run1: Record<string, unknown>;
+    successorReply: boolean;
+    successorFailed?: boolean;
+    /** The text of each message the open page saved for run-1, run-2's included. */
+    pageSaw?: string[];
+  }) {
+    const streamed = (id: string, sequence: number) => ({
+      id: `run-1:${sequence}`,
+      type: "message.created",
+      threadId: "thread-recovered",
+      runId: "run-1",
+      sequence,
+      occurredAt: "2026-10-05T17:00:50.000Z",
+      message: { id, role: "assistant", parts: [] },
+    });
+    return {
+      id: "thread-recovered",
+      threadData: JSON.stringify({
+        messages: [
+          {
+            message: {
+              id: "server-user-run-1",
+              role: "user",
+              status: "complete",
+              content: [{ type: "text", text: "Handle the refund" }],
+              metadata: {
+                custom: {
+                  submittedRunId: "run-1",
+                  submittedTurnId: "turn-1",
+                },
+              },
+            },
+            parentId: null,
+          },
+          ...(input.successorReply
+            ? [
+                {
+                  message: {
+                    id: "server-run-2",
+                    role: "assistant",
+                    status: input.successorFailed
+                      ? { type: "incomplete", reason: "error" }
+                      : { type: "complete", reason: "stop" },
+                    content: [{ type: "text", text: "Refund handled." }],
+                    metadata: {
+                      runId: "run-2",
+                      custom: { turnId: "turn-1", foldedRunIds: ["run-2"] },
+                    },
+                  },
+                  parentId: "server-user-run-1",
+                },
+              ]
+            : []),
+        ],
+        agentKit: {
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              status: "complete",
+              parts: [{ type: "text", text: "Handle the refund" }],
+            },
+            ...(input.pageSaw ?? []).map((text, index) => ({
+              id: `assistant-${index + 1}`,
+              role: "assistant",
+              status: "complete",
+              parts: text ? [{ type: "text", text }] : [],
+            })),
+          ],
+          events: (input.pageSaw ?? []).map((_text, index) =>
+            streamed(`assistant-${index + 1}`, index + 1),
+          ),
+          runs: [
+            {
+              id: "run-1",
+              threadId: "thread-recovered",
+              startedAt: "2026-10-05T17:00:48.000Z",
+              lastSequence: 0,
+              ...input.run1,
+            },
+          ],
+          activeRunIds: [],
+        },
+      }),
+    };
+  }
+  const staleRunFailure = {
+    status: "failed",
+    error: {
+      code: "stale_run",
+      message:
+        "The agent stopped before it could finish. It may have hit a server timeout or the worker may have been interrupted.",
+      retryable: true,
+    },
+  };
+
+  it.each([
+    {
+      label: "the open page saved its failure",
+      run1: staleRunFailure,
+      active: { active: false, status: "completed", runId: "run-2" },
+    },
+    {
+      label: "the page closed mid-run",
+      run1: { status: "running" },
+      active: { active: false, status: "completed", runId: "run-2" },
+    },
+    {
+      label: "the server no longer reports the turn",
+      run1: staleRunFailure,
+      active: { active: false, status: "idle" },
+    },
+  ])(
+    "does not report an interrupted run as failed once a successor finished its turn ($label)",
+    async ({ run1, active }) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ ...active, turnId: "turn-1" })
+            : json(recoveredTurnThread({ run1, successorReply: true })),
+        ) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-recovered",
+      });
+
+      const run = snapshot?.runs?.find((entry) => entry.id === "run-1");
+      expect(run?.status).toBe("completed");
+      expect(run?.error).toBeUndefined();
+      expect(
+        snapshot?.runs?.filter((entry) => entry.status === "failed"),
+      ).toEqual([]);
+      expect(snapshot?.messages.at(-1)).toMatchObject({
+        id: "server-run-2",
+        parts: [{ type: "text", text: "Refund handled." }],
+      });
+      await transport.dispose();
+    },
+  );
+
+  it("shows a recovered turn's reply once after the open page followed the successor", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "run-2",
+              turnId: "turn-1",
+            })
+          : json(
+              recoveredTurnThread({
+                run1: { status: "completed" },
+                successorReply: true,
+                pageSaw: ["", "Refund handled."],
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    expect(
+      snapshot?.messages.filter((message) => message.role === "assistant"),
+    ).toMatchObject([
+      { id: "assistant-1" },
+      {
+        id: "assistant-2",
+        parts: [{ type: "text", text: "Refund handled." }],
+      },
+    ]);
+    await transport.dispose();
+  });
+
+  it.each([
+    {
+      label: "the page closed before the recovery",
+      pageSaw: ["Checking the refund…"],
+    },
+    {
+      label: "the page saw part of the recovery",
+      pageSaw: ["Checking the refund…", "Refund"],
+    },
+    {
+      label: "the interrupted attempt only quoted the answer",
+      pageSaw: ["Still pending. Expected confirmation: Refund handled."],
+    },
+  ])(
+    "keeps a recovered turn's saved reply the page never fully showed ($label)",
+    async ({ pageSaw }) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "idle" })
+            : json(
+                recoveredTurnThread({
+                  run1: { status: "running" },
+                  successorReply: true,
+                  pageSaw,
+                }),
+              ),
+        ) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-recovered",
+      });
+
+      expect(snapshot?.messages.at(-1)).toMatchObject({
+        id: "server-run-2",
+        parts: [{ type: "text", text: "Refund handled." }],
+      });
+      await transport.dispose();
+    },
+  );
+
+  it("follows the successor still running an interrupted run's turn instead of failing the run", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({
+              active: true,
+              status: "running",
+              runId: "run-2",
+              turnId: "turn-1",
+            })
+          : json(
+              recoveredTurnThread({
+                run1: staleRunFailure,
+                successorReply: false,
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    expect(
+      snapshot?.runs?.find((run) => run.id === "run-1"),
+    ).not.toHaveProperty("error");
+    expect(snapshot?.activeRunIds).toEqual(["run-2"]);
+    await transport.dispose();
+  });
+
+  it("keeps an interrupted run's failure when the run that carried its turn on failed too", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "idle" })
+          : json(
+              recoveredTurnThread({
+                run1: staleRunFailure,
+                successorReply: true,
+                successorFailed: true,
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    expect(snapshot?.runs?.find((run) => run.id === "run-1")).toMatchObject({
+      status: "failed",
+      error: { code: "stale_run" },
+    });
+    await transport.dispose();
+  });
+
+  it("keeps an interrupted run's failure when no newer run carried its turn", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({
+              active: false,
+              status: "failed",
+              runId: "run-1",
+              turnId: "turn-1",
+              terminalReason: "error:stale_run",
+            })
+          : json(
+              recoveredTurnThread({
+                run1: staleRunFailure,
+                successorReply: false,
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    expect(snapshot?.runs?.find((run) => run.id === "run-1")).toMatchObject({
+      status: "failed",
+    });
+    await transport.dispose();
+  });
+
   it("reports a finished run's failure after the server stops calling it active", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>
@@ -4745,7 +5137,7 @@ describe("createAgentNativeAgentKitTransport", () => {
 
     const loadMessages = async (
       rootText: string,
-      rootToolCallResult = "Hello, AgentKit Browser!",
+      rootToolCallResult: unknown = { message: "Hello, AgentKit Browser!" },
       rootReasoning = false,
       snapshotFinalStatus: "complete" | "streaming" = "complete",
     ) => {
@@ -4776,7 +5168,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                           toolCallId: "call-hello",
                           toolName: "hello",
                           args: { name: "AgentKit Browser" },
-                          result: { message: rootToolCallResult },
+                          result: rootToolCallResult,
                         },
                         { type: "text", text: rootText },
                       ],
@@ -4860,14 +5252,19 @@ describe("createAgentNativeAgentKitTransport", () => {
       ],
       toolCallIds: ["call-hello"],
     });
+    // The stored root keeps the model-facing result text; the snapshot output
+    // is the structured result. The same call must still count as mirrored.
     await expect(
-      loadMessages("The task is complete.", "A different tool result."),
+      loadMessages(
+        "The task is complete.",
+        JSON.stringify(
+          { message: "Hello, AgentKit Browser!", detail: "model-only" },
+          null,
+          2,
+        ),
+      ),
     ).resolves.toEqual({
-      messageIds: [
-        `server-${runId}`,
-        "assistant-tool-step",
-        "assistant-final-answer",
-      ],
+      messageIds: ["assistant-tool-step", "assistant-final-answer"],
       toolCallIds: ["call-hello"],
     });
     await expect(

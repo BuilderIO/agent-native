@@ -9,6 +9,7 @@ export type AnalyticsMemoryMessage = {
 export type AnalyticsMemoryCandidate = {
   id: string;
   name: string;
+  kind: "guidance" | "metric";
   type: "reference";
   description: string;
   content: string;
@@ -387,6 +388,7 @@ function makeCandidate(
   return {
     id,
     name: id,
+    kind,
     type: "reference",
     description:
       content.length <= 120 ? content : `${content.slice(0, 117).trimEnd()}...`,

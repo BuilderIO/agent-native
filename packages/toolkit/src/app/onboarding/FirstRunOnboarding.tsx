@@ -191,6 +191,8 @@ export function FirstRunOnboarding({
   const [customRole, setCustomRole] = useState("");
   const [savingRole, setSavingRole] = useState(false);
   const [roleSaveError, setRoleSaveError] = useState<string | null>(null);
+  const [retryingBuilderStatus, setRetryingBuilderStatus] = useState(false);
+  const retryingBuilderStatusAtCountRef = useRef<number | null>(null);
   const [builderConnectionMode, setBuilderConnectionMode] = useState<
     "existing" | "provision"
   >("existing");
@@ -457,6 +459,22 @@ export function FirstRunOnboarding({
     trackingFlow: "connect_llm",
     onConnected: handleBuilderConnected,
   });
+  const builderStatusReadCount = connectFlow.statusReadSettledCount ?? 0;
+  useEffect(() => {
+    const startedAt = retryingBuilderStatusAtCountRef.current;
+    if (startedAt !== null && builderStatusReadCount > startedAt) {
+      retryingBuilderStatusAtCountRef.current = null;
+      setRetryingBuilderStatus(false);
+    }
+  }, [builderStatusReadCount]);
+  const retryBuilderStatus = useCallback(() => {
+    retryingBuilderStatusAtCountRef.current = builderStatusReadCount;
+    setRetryingBuilderStatus(true);
+    if (!connectFlow.retry()) {
+      retryingBuilderStatusAtCountRef.current = null;
+      setRetryingBuilderStatus(false);
+    }
+  }, [builderStatusReadCount, connectFlow.retry]);
   useEffect(() => {
     const attempt = builderSetupAttemptRef.current;
     if (!attempt || connectFlow.connecting) return;
@@ -464,10 +482,14 @@ export function FirstRunOnboarding({
       trackFirstRunSetupOutcome(attempt, "failed", "account_exists");
       return;
     }
-    if (connectFlow.error) {
+    if (connectFlow.terminalError) {
       trackFirstRunSetupOutcome(attempt, "failed", "connection_error");
     }
-  }, [connectFlow.accountExists, connectFlow.connecting, connectFlow.error]);
+  }, [
+    connectFlow.accountExists,
+    connectFlow.connecting,
+    connectFlow.terminalError,
+  ]);
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
   const retryOnboardingCompletion = useCallback(() => {
@@ -733,7 +755,7 @@ export function FirstRunOnboarding({
                       onClick={() => handleBuilder(true)}
                       disabled={connectFlow.connecting}
                     >
-                      {t("agentChat.onboarding.builderCreateAccount")}
+                      {t("agentChat.onboarding.builderCreateAndActivate")}
                     </button>
                   )}
                   <button
@@ -746,6 +768,32 @@ export function FirstRunOnboarding({
                     {t("agentChat.onboarding.builderSignInWithAccount")}
                   </button>
                 </div>
+                {connectFlow.error &&
+                  connectFlow.errorKind === "status-read" && (
+                    <div
+                      role="status"
+                      data-testid="first-run-builder-status-error"
+                      className="flex flex-col items-center gap-2 text-center text-xs text-destructive"
+                    >
+                      <p>{t("agentChat.settingsShell.builder.grantsFailed")}</p>
+                      <button
+                        type="button"
+                        data-testid="first-run-builder-retry-status"
+                        aria-busy={retryingBuilderStatus}
+                        disabled={retryingBuilderStatus}
+                        className="text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={retryBuilderStatus}
+                      >
+                        {retryingBuilderStatus ? (
+                          <IconLoader2
+                            className="mr-1 inline h-3 w-3 animate-spin"
+                            aria-hidden
+                          />
+                        ) : null}
+                        {t("agentChat.settingsShell.builder.retry")}
+                      </button>
+                    </div>
+                  )}
               </section>
 
               <section className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6">
@@ -987,18 +1035,40 @@ export function FirstRunOnboarding({
                 {t("common.cancel")}
               </button>
             )}
-            {connectFlow.error && (
-              <div className="mt-4 flex flex-col items-center gap-2">
-                <p className="text-xs text-destructive">{connectFlow.error}</p>
-                <button
-                  type="button"
-                  className={secondaryButtonClass}
-                  onClick={() => setScreen("choice")}
-                >
-                  Try again
-                </button>
-              </div>
+            {connectFlow.statusUnavailable &&
+              connectFlow.connecting &&
+              !connectFlow.terminalError && (
+                <p className="mt-4 text-xs text-destructive" role="alert">
+                  {t(
+                    "agentChat.settingsShell.integrations.builderStatusFailed",
+                  )}
+                </p>
+              )}
+            {connectFlow.terminalError && connectFlow.connecting && (
+              <p className="mt-4 text-xs text-destructive" role="alert">
+                {connectFlow.terminalError}
+              </p>
             )}
+            {!connectFlow.connecting &&
+              (connectFlow.statusUnavailable || connectFlow.terminalError) && (
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p className="text-xs text-destructive" role="alert">
+                    {connectFlow.terminalError ??
+                      t(
+                        "agentChat.settingsShell.integrations.builderStatusFailed",
+                      )}
+                  </p>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() =>
+                      handleBuilder(builderConnectionMode === "provision")
+                    }
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
           </>
         )}
       </div>

@@ -4202,7 +4202,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el.parentElement;
   }
 
-  function positionReferenceRectForElement(el: Element) {
+  function positionReferenceRectForElement(
+    el: Element,
+    fixedWithoutContainingBlock: boolean,
+  ) {
+    if (fixedWithoutContainingBlock) {
+      var fixedRoot = el.ownerDocument.documentElement;
+      return {
+        x: window.scrollX || window.pageXOffset || 0,
+        y: window.scrollY || window.pageYOffset || 0,
+        width: fixedRoot.clientWidth,
+        height: fixedRoot.clientHeight,
+      };
+    }
     var ancestor = el.parentElement;
     while (ancestor) {
       if (ancestor.getAttribute("data-an-primitive") === "frame") {
@@ -4345,8 +4357,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     if (!containingBlock) {
       return {
-        origin: { x: 0, y: 0 },
+        origin: fixed
+          ? {
+              x: window.scrollX || window.pageXOffset || 0,
+              y: window.scrollY || window.pageYOffset || 0,
+            }
+          : { x: 0, y: 0 },
         transform: transform,
+        hasContainingBlock: false,
       };
     }
 
@@ -4376,6 +4394,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             transform.d * scrollY,
         },
         transform: transform,
+        hasContainingBlock: true,
       };
     }
 
@@ -4392,6 +4411,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           transform.d * (htmlContainingBlock.clientTop - scrollY),
       },
       transform: transform,
+      hasContainingBlock: true,
     };
   }
 
@@ -6434,10 +6454,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (designParent && parentStyles) {
       positionComputedStylesCache.set(designParent, parentStyles);
     }
-    var positionReferenceRect = positionReferenceRectForElement(el);
     var positionCoordinateContext = positionContainingBlockForElement(
       el,
       positionComputedStylesCache,
+    );
+    var positionReferenceRect = positionReferenceRectForElement(
+      el,
+      cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
     );
     var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
@@ -6737,15 +6760,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // same scope containerFirstSelectionTarget resolves clicks against — never
   // reaching into a candidate's nested descendants unless Cmd/Ctrl is held
   // (`deep`), matching Cmd/Ctrl+click's own deep-select.
-  function collectSelectableElements(deep?: boolean): Element[] {
+  function collectSelectableElements(
+    deep?: boolean,
+    gestureScope?: Element | null,
+  ): Element[] {
     var nodes = Array.prototype.slice.call(
       document.body ? document.body.querySelectorAll("*") : [],
     ) as Element[];
     var scope: Element | null = null;
+    // A background-started marquee stays within its scope when the box crosses its edge.
+    var limitToGestureScope = Boolean(gestureScope);
     if (!deep) {
-      scope = selectionContainerScope;
+      scope = gestureScope || selectionContainerScope;
       if (!scope || !document.documentElement.contains(scope)) {
         scope = document.body;
+        limitToGestureScope = false;
       }
     }
     var seen = new Set<Element>();
@@ -6755,11 +6784,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       var target = selectionTargetForHit(node);
-      if (target && scope && scope.contains(target)) {
-        target = containerScopeAncestor(target, scope);
+      if (target && scope) {
+        if (scope.contains(target)) {
+          target = containerScopeAncestor(target, scope);
+        } else if (limitToGestureScope) {
+          return;
+        }
       }
       if (
         !target ||
+        target === scope ||
         isDocumentRootElement(target) ||
         isBoardRootMarqueeSurface(target) ||
         isOverlayElement(target) ||
@@ -7373,6 +7407,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     startY: number;
     additive: boolean;
     deep: boolean;
+    scope?: Element | null;
     moved: boolean;
     pointerId?: number;
     candidates?: Element[];
@@ -13513,7 +13548,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     marqueeSelectionOverlay.style.height = rect.height + "px";
 
     if (!activeMarqueeSelection.candidates) {
-      var collected = collectSelectableElements(activeMarqueeSelection.deep);
+      var collected = collectSelectableElements(
+        activeMarqueeSelection.deep,
+        activeMarqueeSelection.scope,
+      );
       activeMarqueeSelection.candidates = collected;
       activeMarqueeSelection.candidateBounds = collected.map(selectableBounds);
     }
@@ -13563,7 +13601,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function beginMarqueeSelection(e): void {
+  function beginMarqueeSelection(e, scope?: Element | null): void {
     if (e.button !== 0) return;
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     clearActiveMarqueeSelection();
@@ -13631,6 +13669,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       startY: e.clientY,
       additive: additive,
       deep: Boolean(e && (e.metaKey || e.ctrlKey)),
+      scope: scope || null,
       moved: false,
       infoCache: new Map<Element, unknown>(),
       lightInfoCache: new Map<Element, unknown>(),
@@ -25608,14 +25647,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var hit = elementFromEditorPoint(e.clientX, e.clientY);
     var hitTarget = selectionTargetForHit(hit);
+    var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
     if (
       !hit ||
       hit === document.body ||
       hit === document.documentElement ||
       isBoardRootMarqueeSurface(hitTarget) ||
-      isContainerBackgroundHit(hitTarget, hit)
+      startsOnContainerBackground
     ) {
-      beginMarqueeSelection(e);
+      beginMarqueeSelection(e, startsOnContainerBackground ? hitTarget : null);
       return;
     }
     var selectedAlive =

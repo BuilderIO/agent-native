@@ -59,7 +59,7 @@ Deck data lives in SQL; all writes go through server-side actions. Read `deck-ma
 ## Application State
 
 - `navigation` exposes deck, slide, selection, and editor view; `navigate` opens decks, slides, imports, and exports.
-- `slides-selection` describes selected elements, tool mode, transient selectors, text/image hints, and computed styles. Read `view-screen` before visual/style edits; use actions for full data.
+- `slides-selection` describes selected elements, tool mode, transient selectors, text/image/video hints, and computed styles. Read `view-screen` before visual/style edits; use actions for full data.
 
 ## Export Behavior
 

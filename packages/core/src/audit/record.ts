@@ -173,7 +173,7 @@ export async function recordActionAudit(
       createdAt: Date.now(),
       action: actionName,
       caller,
-      actorKind: deriveActorKind(caller, actorEmail),
+      actorKind: deriveActorKind(caller, actorEmail, ctx?.orgId),
       actorEmail,
       orgId: ctx?.orgId ?? null,
       threadId: ctx?.threadId ?? null,
