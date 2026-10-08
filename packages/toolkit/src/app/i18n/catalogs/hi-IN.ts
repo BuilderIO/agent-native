@@ -1761,6 +1761,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "सिर्फ़ संगठन के मालिक और एडमिन फ़ाइल स्टोरेज बदल सकते हैं।",
   "settings.audit.action": "कार्रवाई",
+  "settings.audit.agentVia": "{{protocol}} के ज़रिए एजेंट",
   "settings.audit.allApps": "सभी ऐप",
   "settings.audit.app": "ऐप",
   "settings.audit.changedBy": "बदलने वाला",
