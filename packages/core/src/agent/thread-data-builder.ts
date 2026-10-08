@@ -19,7 +19,7 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
-import { splitAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
+import { stripAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   type RefusedTurnRetryContext,
@@ -3852,38 +3852,6 @@ export function normalizeThreadTitle(value: unknown): string {
   return value.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
-const ENCODED_AGENT_CHAT_CONTEXT_BLOCK =
-  /(?:^|\n)[ \t]*<context\b(?=[^>]*\bdata-agentkit-context-encoding=(?:"entities-v1"|'entities-v1'))[^>]*>/i;
-const LEGACY_CONTEXT_OPEN_PATTERN = /^[ \t]*<context\b[^>]*>/gim;
-
-function visibleThreadPrompt(text: string): string {
-  if (ENCODED_AGENT_CHAT_CONTEXT_BLOCK.test(text))
-    return splitAgentChatContextFromMessage(text).message;
-
-  LEGACY_CONTEXT_OPEN_PATTERN.lastIndex = 0;
-  const opening = LEGACY_CONTEXT_OPEN_PATTERN.exec(text);
-  if (!opening) return text;
-
-  const closingPattern = /<\/context>/gi;
-  closingPattern.lastIndex = opening.index + opening[0].length;
-  let lastClosing: RegExpExecArray | null = null;
-  let closing = closingPattern.exec(text);
-  while (closing) {
-    lastClosing = closing;
-    closing = closingPattern.exec(text);
-  }
-
-  if (!lastClosing) return text.slice(0, opening.index);
-  LEGACY_CONTEXT_OPEN_PATTERN.lastIndex =
-    lastClosing.index + lastClosing[0].length;
-  if (LEGACY_CONTEXT_OPEN_PATTERN.exec(text))
-    return text.slice(0, opening.index);
-  return (
-    text.slice(0, opening.index) +
-    text.slice(lastClosing.index + lastClosing[0].length)
-  );
-}
-
 export function extractThreadMeta(repo: any): {
   title: string;
   preview: string;
@@ -3906,7 +3874,7 @@ export function extractThreadMeta(repo: any): {
       : typeof msg.content === "string"
         ? msg.content
         : "";
-    const visiblePrompt = visibleThreadPrompt(textParts)
+    const visiblePrompt = stripAgentChatContextFromMessage(textParts)
       .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
       .replace(/\s+/g, " ")
       .trim();

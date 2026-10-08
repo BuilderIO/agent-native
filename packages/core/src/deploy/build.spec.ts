@@ -4598,6 +4598,10 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     fs.writeFileSync(path.join(runtimeDir, "index.js"), "export default {};");
     const runtimeDanglingFile = path.join(runtimeDir, "dangling.js");
     fs.symlinkSync("missing-package-target.js", runtimeDanglingFile);
+    const runtimeDirectoryTarget = path.join(runtimeDir, "directory-target");
+    fs.mkdirSync(runtimeDirectoryTarget);
+    const runtimeDirectoryLink = path.join(runtimeDir, "directory.js");
+    fs.symlinkSync(runtimeDirectoryTarget, runtimeDirectoryLink, "dir");
 
     const routesDir = path.join(functionDir, "routes");
     fs.mkdirSync(routesDir, { recursive: true });
@@ -4619,6 +4623,7 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
       ).dependencies,
     ).toEqual({ runtime: "1" });
     expect(fs.lstatSync(runtimeDanglingFile).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(runtimeDirectoryLink).isSymbolicLink()).toBe(true);
     expect(fs.lstatSync(emittedDanglingFile).isSymbolicLink()).toBe(true);
   });
 

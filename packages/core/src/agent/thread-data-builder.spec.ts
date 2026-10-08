@@ -184,6 +184,14 @@ describe("extractThreadMeta", () => {
       "Plan next week",
     ],
     [
+      "Question <context>private</context> still visible",
+      "Question still visible",
+    ],
+    [
+      "Use <context-menu>public</context-menu> and <Context.Provider>public</Context.Provider>.",
+      "Use <context-menu>public</context-menu> and <Context.Provider>public</Context.Provider>.",
+    ],
+    [
       "<context>hidden </context>\nsecret tail\n</context>\nVisible prompt",
       "Visible prompt",
     ],
@@ -195,7 +203,7 @@ describe("extractThreadMeta", () => {
     (prompt, visible) => {
       expect(
         extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
-      ).toEqual({ title: visible, preview: visible });
+      ).toEqual({ title: visible.slice(0, 80), preview: visible });
     },
   );
 
@@ -248,12 +256,12 @@ describe("extractThreadMeta", () => {
     ).toEqual({ title: prompt, preview: prompt });
   });
 
-  it("preserves an ordinary inline unclosed context mention", () => {
-    const prompt = "How do I write a literal <context> tag without closing it?";
+  it("fails closed on an inline unclosed exact context opener", () => {
+    const prompt = "Question <context>private remainder";
 
     expect(
       extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
-    ).toEqual({ title: prompt, preview: prompt });
+    ).toEqual({ title: "Question", preview: "Question" });
   });
 
   it("preserves a literal closing tag when there is no hidden context block", () => {

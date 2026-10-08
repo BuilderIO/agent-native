@@ -5072,6 +5072,7 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
     }
     const fromPackageDir = path.dirname(resolvedFilePath);
     if (!isWithinFunction(fromPackageDir)) return [];
+    if (!fs.statSync(resolvedFilePath).isFile()) return [];
     let source: string;
     try {
       source = fs.readFileSync(resolvedFilePath, "utf8");
