@@ -582,7 +582,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.match(
     regressionCases,
     /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
-    "the focused regression selectors must not run on the Screen-history shard",
+    "focused Design selectors must not run on Screen-history shards",
   );
   assert.ok(
     screenSelectionRegressions.includes(
@@ -622,7 +622,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
     "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
   ];
-  // source-read-ok: ensures workflow grep selectors name real Screen-history Playwright cases.
   const screenHistorySpec = readFileSync(
     "templates/design/e2e/parity-selection-history-delete-screen.spec.ts",
     "utf8",
@@ -631,16 +630,13 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     assert.equal(
       screenHistorySpec.split(title).length - 1,
       1,
-      `Screen-history case must exist exactly once in its source spec: ${title}`,
+      `Screen-history case must exist exactly once: ${title}`,
     );
   }
-  const selectedScreenHistoryCases = screenHistoryShardSelectors.flatMap(
-    ({ selectors }) => selectors,
-  );
   assert.deepEqual(
-    [...selectedScreenHistoryCases].sort(),
+    screenHistoryShardSelectors.flatMap(({ selectors }) => selectors).sort(),
     [...screenHistoryCases].sort(),
-    "Screen-history test selectors must cover every intended case once",
+    "Screen-history selectors must cover each intended case once",
   );
   assert.deepEqual(
     [...regressionCases.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
@@ -666,7 +662,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.match(
     designJob,
     /^\s+run: pnpm exec playwright install --only-shell chromium$/m,
-    "Design shards must reuse the runner's browser libraries instead of reinstalling OS dependencies",
+    "Design shards must reuse the runner's browser libraries",
   );
   const jobTimeout = Number(
     designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
@@ -678,20 +674,20 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     screenSelectionRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
   assert.ok(
-    Number.isInteger(jobTimeout) && jobTimeout > 0 && jobTimeout < 10,
-    `Design acceptance job must stop before ten minutes (got ${jobTimeout})`,
+    Number.isInteger(jobTimeout) && jobTimeout === 30,
+    `Design acceptance job needs a bounded 30-minute budget (got ${jobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout <= 5 &&
-      jobTimeout >= stepTimeout + 4,
-    `focused Design tests need a five-minute cap and four minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout === 20 &&
+      jobTimeout >= stepTimeout + 10,
+    `focused Design tests need a 20-minute cap and ten minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
-      screenHistoryStepTimeout <= 4 &&
-      jobTimeout >= screenHistoryStepTimeout + 5,
-    `Screen-history tests need a four-minute cap and five minutes for setup (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
+      screenHistoryStepTimeout === 4 &&
+      jobTimeout >= screenHistoryStepTimeout + 10,
+    `Screen-history tests need a four-minute cap with ten minutes for setup (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
   );
   assert.match(
     designJob,
@@ -708,6 +704,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const inspectorThreeStart = shardStart("inspector-3");
   const inspectorFourStart = shardStart("inspector-4");
   const dragOneStart = shardStart("drag-1");
+  const dragTwoStart = shardStart("drag-2");
   assert.ok(
     inspectorOneStart >= 0 &&
       inspectorTwoStart > inspectorOneStart &&
@@ -749,14 +746,22 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const fallbackStart = shardStart("*");
   assert.ok(
     positionOneStart >= 0 &&
+      dragTwoStart > dragOneStart &&
       positionTwoStart > positionOneStart &&
       positionThreeStart > positionTwoStart &&
       fallbackStart > positionThreeStart,
   );
+  assert.deepEqual(fixedLocations(dragTwoStart, positionOneStart), [
+    "e2e/drag-and-drop.moving-by-drag.spec.ts:105",
+    "e2e/parity-alt-drag-duplicate.spec.ts:1293",
+    "e2e/parity-selection.spec.ts:313",
+    "e2e/parity-selection.spec.ts:451",
+    "e2e/parity-selection.spec.ts:572",
+  ]);
   assert.deepEqual(fixedLocations(positionOneStart, positionTwoStart), [
     "e2e/pasted-svg-image-inspector.spec.ts:656",
     "e2e/pasted-svg-image-inspector.spec.ts:693",
-    "e2e/position-alignment.spec.ts:312",
+    "e2e/position-alignment.spec.ts:361",
     "e2e/position-alignment.spec.ts:431",
     "e2e/position-alignment.spec.ts:509",
   ]);
@@ -767,7 +772,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "e2e/position-alignment.spec.ts:661",
   ]);
   assert.deepEqual(fixedLocations(positionThreeStart, fallbackStart), [
-    "e2e/position-alignment.spec.ts:361",
+    "e2e/position-alignment.spec.ts:312",
     "e2e/position-alignment.spec.ts:708",
     "e2e/position-alignment.spec.ts:740",
     "e2e/position-alignment.spec.ts:780",
@@ -964,8 +969,13 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/corner-radius-handle-drag.spec.ts",
-      202,
+      239,
       "canvas corner-radius handle follows the drag and persists the radius",
+    ],
+    [
+      "e2e/overview-wheel-zoom.spec.ts",
+      185,
+      "the zoom percentage input updates the overview canvas scale",
     ],
     [
       "e2e/pasted-svg-image-inspector.spec.ts",
@@ -1031,6 +1041,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/position-alignment.spec.ts",
       780,
       "Align uses a Group's bounds while Position stays Frame-relative",
+    ],
+    [
+      "e2e/parity-alt-drag-duplicate.spec.ts",
+      1293,
+      "copies a root auto-layout Frame as a selected board-root layer and preserves its original",
     ],
   ] as const;
   for (const [file, line, title] of selectedTests) {

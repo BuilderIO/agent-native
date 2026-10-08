@@ -125,7 +125,7 @@ export function absolutePlacePointForDrop(args: {
 export function authoredTargetPointForDrop(args: {
   boardFileId?: string;
   targetScreenId: string;
-  targetOutsideBoardRenderGeometry?: boolean;
+  targetOutsideBoardContentBounds?: boolean;
   targetAnchorNodeId?: string;
   targetAnchorPendingNodeId?: string;
   targetAnchorSelector?: string;
@@ -141,7 +141,7 @@ export function authoredTargetPointForDrop(args: {
     !hasAnchor &&
     args.boardFileId &&
     args.targetScreenId === args.boardFileId &&
-    args.targetOutsideBoardRenderGeometry === true &&
+    args.targetOutsideBoardContentBounds === true &&
     args.targetCanvasPoint
   ) {
     return args.targetCanvasPoint;
@@ -378,7 +378,7 @@ export function runCrossScreenElementDrop(
     targetGridPlacement,
     targetAnchorRect,
     targetCanvasPoint,
-    targetOutsideBoardRenderGeometry,
+    targetOutsideBoardContentBounds,
     targetLocalPoint,
     sourcePointerOffset,
     sourceComputedSize,
@@ -413,7 +413,7 @@ export function runCrossScreenElementDrop(
       height: number;
     };
     targetCanvasPoint?: { x: number; y: number };
-    targetOutsideBoardRenderGeometry?: boolean;
+    targetOutsideBoardContentBounds?: boolean;
     targetLocalPoint?: { x: number; y: number };
     sourcePointerOffset?: { x: number; y: number };
     sourceComputedSize?: { width?: number; height?: number };
@@ -439,7 +439,7 @@ export function runCrossScreenElementDrop(
     targetAnchorPendingNodeId,
     targetAnchorSelector,
     targetCanvasPoint,
-    targetOutsideBoardRenderGeometry,
+    targetOutsideBoardContentBounds,
     targetLocalPoint,
   });
   if (styleSnapshotCaptureFailed) {
