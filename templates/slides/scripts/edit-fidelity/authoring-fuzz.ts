@@ -173,6 +173,21 @@ export function isBrowserSessionPath(pathname: string) {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
+export function isExpectedSaveReloadActionAbort(
+  pathname: string,
+  errorText: string,
+  activePhase: string,
+) {
+  return (
+    [
+      "/_agent-native/actions/get-lab-states",
+      "/_agent-native/actions/get-deck-access-status",
+    ].includes(pathname) &&
+    errorText === "NS_BINDING_ABORTED" &&
+    activePhase === "save/reload"
+  );
+}
+
 export function isConflictResourceConsoleError(message: string) {
   return /\bstatus of 409\b/.test(message);
 }
@@ -638,19 +653,39 @@ export async function runAuthoringFuzz(
   const { start: lineStartKey, end: lineEndKey } =
     authoringFuzzLineNavigationKeys(process.platform, options.lineKeys);
   const historyLimit = options.historyLimit ?? 100;
+  const traceEnabled = process.env.SLIDES_AUTHORING_FUZZ_TRACE === "1";
   if (!Number.isSafeInteger(historyLimit) || historyLimit < 1) {
     throw new Error("historyLimit must be a positive safe integer");
   }
   const editor: Locator = page.locator(editorSelector);
   const slideContent: Locator = page.locator(slideContentSelector);
   const pageErrors: string[] = [];
+  const pendingRequests = new Map<
+    any,
+    { method: string; path: string; startedAt: number }
+  >();
   const pendingSaveConflicts: Promise<void>[] = [];
   const conflictResponsePaths: string[] = [];
   const patchDeckActionPath = "/_agent-native/actions/patch-deck";
   let patchDeckConflicts = 0;
   let conflictResourceErrors = 0;
+  let activeIndex = -1;
+  let activePhase = "setup";
   const onConsole = (message: any) => {
+    if (
+      traceEnabled &&
+      message.type() === "debug" &&
+      message.text().startsWith("[authoring-fuzz heartbeat]")
+    ) {
+      console.log(message.text());
+      return;
+    }
     if (message.type() !== "error") return;
+    if (traceEnabled) {
+      console.log(
+        `[edit-fidelity] console error phase=${activePhase}: ${message.text()}`,
+      );
+    }
     if (isConflictResourceConsoleError(message.text())) {
       conflictResourceErrors += 1;
       return;
@@ -660,13 +695,64 @@ export async function runAuthoringFuzz(
   const onPageError = (error: Error) =>
     pageErrors.push(error.stack ?? error.message);
   const onRequestFailed = (request: any) => {
+    pendingRequests.delete(request);
     const url = request.url();
-    if (!isBrowserSessionPath(new URL(url).pathname)) return;
-    pageErrors.push(
-      `browser-session request failed: ${url} (${request.failure()?.errorText ?? "unknown"})`,
-    );
+    const pathname = new URL(url).pathname;
+    const errorText = request.failure()?.errorText ?? "unknown";
+    if (traceEnabled) {
+      console.log(
+        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText})`,
+      );
+    }
+    if (isExpectedSaveReloadActionAbort(pathname, errorText, activePhase)) {
+      return;
+    }
+    if (
+      [
+        "/_agent-native/actions/get-lab-states",
+        "/_agent-native/actions/get-deck-access-status",
+      ].includes(pathname) ||
+      isBrowserSessionPath(pathname)
+    ) {
+      pageErrors.push(`watched request failed: ${url} (${errorText})`);
+    }
+  };
+  const onRequest = (request: any) => {
+    if (!traceEnabled) return;
+    const requestUrl = new URL(request.url());
+    pendingRequests.set(request, {
+      method: request.method(),
+      path: requestUrl.pathname,
+      startedAt: Date.now(),
+    });
+    if (
+      [
+        "/_agent-native/actions/get-lab-states",
+        "/_agent-native/actions/get-deck-access-status",
+      ].includes(requestUrl.pathname)
+    ) {
+      console.log(
+        `[edit-fidelity] navigation candidate request ${request.method()} ${requestUrl.href} phase=${activePhase}`,
+      );
+    }
+  };
+  const onRequestSettled = (request: any) => {
+    pendingRequests.delete(request);
   };
   const onResponse = (response: any) => {
+    if (traceEnabled) {
+      const responseUrl = new URL(response.url());
+      if (
+        [
+          "/_agent-native/actions/get-lab-states",
+          "/_agent-native/actions/get-deck-access-status",
+        ].includes(responseUrl.pathname)
+      ) {
+        console.log(
+          `[edit-fidelity] navigation candidate response ${response.status()} ${responseUrl.href} phase=${activePhase}`,
+        );
+      }
+    }
     if (response.status() !== 409) return;
     const responsePath = new URL(response.url()).pathname;
     conflictResponsePaths.push(responsePath);
@@ -687,7 +773,9 @@ export async function runAuthoringFuzz(
   page.on("pageerror", onPageError);
   page.on("response", onResponse);
   page.on("requestfailed", onRequestFailed);
-  await page.evaluate(() => {
+  page.on("request", onRequest);
+  page.on("requestfinished", onRequestSettled);
+  await page.evaluate((traceHeartbeat: boolean) => {
     const scope = window as Window & {
       __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
       __slidesAuthoringInputTraceInstalled?: boolean;
@@ -731,10 +819,33 @@ export async function runAuthoringFuzz(
     document.addEventListener("input", record, true);
     scope.__slidesAuthoringInputTraceInstalled = true;
     scope.__slidesAuthoringInputTrace = trace;
-  });
+    if (traceHeartbeat) {
+      let heartbeat = 0;
+      window.setInterval(() => {
+        console.debug(`[authoring-fuzz heartbeat] ${++heartbeat}`);
+      }, 5000);
+    }
+  }, traceEnabled);
 
-  let activeIndex = -1;
-  let activePhase = "setup";
+  const tracePhase = (phase: string) => {
+    if (!traceEnabled) return;
+    console.log(
+      `[edit-fidelity] trace seed=${seed} step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${phase} at=${Date.now()}`,
+    );
+  };
+  const traceWatchdog = traceEnabled
+    ? setInterval(() => {
+        const pending = [...pendingRequests.values()]
+          .filter((request) => Date.now() - request.startedAt >= 10_000)
+          .map(
+            (request) =>
+              `${request.method} ${request.path} ${Date.now() - request.startedAt}ms`,
+          );
+        console.log(
+          `[edit-fidelity] trace seed=${seed} node-heartbeat step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${activePhase} pending=${pending.length ? pending.join(" | ") : "none"}`,
+        );
+      }, 15_000)
+    : null;
   const replay = () => plan.slice(0, Math.max(1, activeIndex + 1));
   const checkPageErrors = async () => {
     await Promise.all(pendingSaveConflicts.splice(0));
@@ -2196,10 +2307,16 @@ export async function runAuthoringFuzz(
     await snapshotEditorSiblings("capture", operation);
   };
   const openSlashMenu = async () => {
+    tracePhase("slash.new-line:start");
     await newLine();
+    tracePhase("slash.new-line:end");
+    tracePhase("slash.type:start");
     await typeText("/");
+    tracePhase("slash.type:end");
     const options = page.locator('[role="listbox"] [role="option"]');
+    tracePhase("slash.wait-visible:start");
     await options.first().waitFor({ state: "visible", timeout: 1500 });
+    tracePhase("slash.wait-visible:end");
     if ((await options.count()) !== SLASH_COMMANDS.length)
       throw new Error("slash menu did not expose all eight commands");
     const focused = await editor.evaluate(
@@ -2256,6 +2373,7 @@ export async function runAuthoringFuzz(
       ([value]) => value === command,
     );
     if (commandIndex < 0) throw new Error(`unknown slash command ${command}`);
+    tracePhase(`slash.navigate:start:${command}`);
     for (let index = 0; index < commandIndex; index += 1)
       await page.keyboard.press("ArrowDown");
     const activeOptionId = await page
@@ -2268,10 +2386,14 @@ export async function runAuthoringFuzz(
       throw new Error(`slash menu did not select ${command}`);
     }
     const withTrigger = await inspectSelection();
+    tracePhase(`slash.command-key:start:${command}:${key}`);
     await page.keyboard.press(key);
+    tracePhase(`slash.command-key:end:${command}:${key}`);
+    tracePhase(`slash.wait-hidden:start:${command}`);
     await page
       .locator('[role="listbox"]')
       .waitFor({ state: "hidden", timeout: 1500 });
+    tracePhase(`slash.wait-hidden:end:${command}`);
     if (
       slashCount((await inspectSelection()).text) !==
       slashCount(withTrigger.text) - 1
@@ -2748,7 +2870,10 @@ export async function runAuthoringFuzz(
       activePhase = `step ${activeIndex}`;
       const operation = plan[activeIndex];
       let skipFinalSiblingCheck = false;
+      tracePhase("sibling-capture:start");
       await snapshotEditorSiblings("capture", operation);
+      tracePhase("sibling-capture:end");
+      tracePhase("operation:start");
       switch (operation.kind) {
         case "type":
           await typeText(operation.value);
@@ -4029,9 +4154,16 @@ export async function runAuthoringFuzz(
           break;
       }
 
+      tracePhase("operation:end");
+      tracePhase("caret-check:start");
       await assertCaret();
+      tracePhase("caret-check:end");
+      tracePhase("page-errors:start");
       await checkPageErrors();
+      tracePhase("page-errors:end");
+      tracePhase("sibling-assert:start");
       const siblingChanges = await snapshotEditorSiblings("assert", operation);
+      tracePhase("sibling-assert:end");
       if (
         siblingChanges.length &&
         !skipFinalSiblingCheck &&
@@ -4044,7 +4176,9 @@ export async function runAuthoringFuzz(
             siblingChanges.slice(0, 5).join(", "),
         );
       }
+      tracePhase("outside-assert:start");
       await assertOutsideUnchanged();
+      tracePhase("outside-assert:end");
       if ((activeIndex + 1) % 100 === 0) {
         console.log(
           `[edit-fidelity] fuzz seed=${seed} checked ${activeIndex + 1}/${plan.length} steps`,
@@ -4282,6 +4416,28 @@ export async function runAuthoringFuzz(
         const scope = window as Window & {
           __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
         };
+        const selection = window.getSelection();
+        const anchor = selection?.anchorNode ?? null;
+        const anchorElement =
+          anchor instanceof Element ? anchor : (anchor?.parentElement ?? null);
+        const block = anchorElement?.closest<HTMLElement>(
+          "p,div,li,blockquote,h1,h2,h3,h4,h5,h6,pre",
+        );
+        let prefix = "";
+        if (block && anchor && selection?.rangeCount) {
+          try {
+            const range = document.createRange();
+            range.selectNodeContents(block);
+            range.setEnd(anchor, selection.anchorOffset);
+            prefix = range
+              .toString()
+              .replaceAll(String.fromCharCode(0x200b), "");
+          } catch {
+            prefix = "";
+          }
+        }
+        const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
+        const listboxStyle = listbox ? getComputedStyle(listbox) : null;
         return {
           historyStats:
             root instanceof HTMLElement
@@ -4291,6 +4447,46 @@ export async function runAuthoringFuzz(
                   }
                 ).__slidesInPlaceTextHistoryStats ?? null)
               : null,
+          focus: {
+            rootFocused: document.activeElement === root,
+            activeTag: document.activeElement?.tagName ?? null,
+          },
+          selection: {
+            collapsed: selection?.isCollapsed ?? null,
+            insideRoot:
+              root instanceof HTMLElement &&
+              !!anchor &&
+              !!selection?.focusNode &&
+              root.contains(anchor) &&
+              root.contains(selection.focusNode),
+            anchorType: anchor?.nodeType ?? null,
+            anchorTag: anchorElement?.tagName ?? null,
+            anchorOffset: selection?.anchorOffset ?? null,
+            blockTag: block?.tagName ?? null,
+            blockLength: block?.textContent?.length ?? null,
+            prefixLength: prefix.length,
+            prefixEmpty: prefix.length === 0,
+            prefixEndsInWhitespace: /\s$/.test(prefix),
+            slashOffset: prefix.lastIndexOf("/"),
+          },
+          slashMenu: {
+            count: document.querySelectorAll('[role="listbox"]').length,
+            visible:
+              !!listbox &&
+              listboxStyle?.visibility !== "hidden" &&
+              listboxStyle?.display !== "none" &&
+              listbox.getClientRects().length > 0,
+            optionCount:
+              listbox?.querySelectorAll('[role="option"]').length ?? 0,
+            activeDescendant:
+              root instanceof HTMLElement
+                ? root.getAttribute("aria-activedescendant")
+                : null,
+            controls:
+              root instanceof HTMLElement
+                ? root.getAttribute("aria-controls")
+                : null,
+          },
           recentInputEvents:
             scope.__slidesAuthoringInputTrace?.slice(-12) ?? [],
         };
@@ -4307,9 +4503,12 @@ export async function runAuthoringFuzz(
       options.browser,
     );
   } finally {
+    if (traceWatchdog) clearInterval(traceWatchdog);
     page.off("console", onConsole);
     page.off("pageerror", onPageError);
     page.off("response", onResponse);
+    page.off("request", onRequest);
+    page.off("requestfinished", onRequestSettled);
     page.off("requestfailed", onRequestFailed);
   }
 }

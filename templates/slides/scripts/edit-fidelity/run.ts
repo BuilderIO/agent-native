@@ -878,7 +878,7 @@ async function openSlide(
   deckId: string,
   index: number,
   slideId: string,
-  options: { canvasTimeoutMs?: number } = {},
+  options: { canvasTimeoutMs?: number; skipPointerMove?: boolean } = {},
 ) {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -922,7 +922,7 @@ async function openSlide(
       );
     }
   }
-  await page.mouse.move(0, 0);
+  if (!options.skipPointerMove) await page.mouse.move(0, 0);
   await settle(page);
 }
 
@@ -5055,10 +5055,20 @@ async function runAuthoringFuzzQa(
         browser: browserName as "chromium" | "webkit" | "firefox",
         lineKeys: { start: lineStartKey, end: lineEndKey },
         finishAndReload: async (): Promise<AuthoringFuzzPersistence> => {
+          const trace = (phase: string) => {
+            if (process.env.SLIDES_AUTHORING_FUZZ_TRACE === "1") {
+              console.log(`[edit-fidelity] save/reload ${phase}`);
+            }
+          };
+          trace("exit-edit:start");
           if (!(await exitEdit(activePage, slideId, "escape"))) {
             throw new Error("Escape did not leave in-place text editing");
           }
+          trace("exit-edit:end");
+          trace("read-live-html:start");
           const liveHtml = await slideHtml();
+          trace("read-live-html:end");
+          trace("settle-saved:start");
           const stored = await settleSaved(
             activePage,
             deckId!,
@@ -5066,8 +5076,15 @@ async function runAuthoringFuzzQa(
             () => 0,
             2500,
           );
-          await openSlide(activePage, base, deckId!, 0, slideId);
+          trace("settle-saved:end");
+          trace("open-reloaded-slide:start");
+          await openSlide(activePage, base, deckId!, 0, slideId, {
+            skipPointerMove: true,
+          });
+          trace("open-reloaded-slide:end");
+          trace("read-reloaded-html:start");
           const reloadedHtml = await slideHtml();
+          trace("read-reloaded-html:end");
           return canonicalizeAuthoringFuzzPersistence(
             {
               originalHtml: originalSlideHtml,

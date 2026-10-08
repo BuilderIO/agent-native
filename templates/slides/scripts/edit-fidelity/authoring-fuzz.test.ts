@@ -14,6 +14,7 @@ import {
   isBrowserSessionPath,
   isCaretScrollOnlyChange,
   isConflictResourceConsoleError,
+  isExpectedSaveReloadActionAbort,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
   runAuthoringFuzz,
@@ -469,6 +470,51 @@ it("captures failed browser-session registration and subroute requests", () => {
     false,
   );
   expect(isBrowserSessionPath("/_agent-native/actions/patch-deck")).toBe(false);
+});
+
+it("ignores only the two expected action aborts during save/reload navigation", () => {
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/actions/get-lab-states",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/browser-sessions/session-id/claim",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/actions/get-lab-states",
+      "NS_BINDING_ABORTED",
+      "step 12",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/actions/get-lab-states-extra",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/actions/get-lab-states",
+      "net::ERR_ABORTED",
+      "save/reload",
+    ),
+  ).toBe(false);
 });
 
 it("recognizes resource conflicts with or without browser status text", () => {
