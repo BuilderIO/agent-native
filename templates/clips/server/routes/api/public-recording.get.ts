@@ -27,6 +27,7 @@ import {
   isImageRecording,
   resolveRecordingKind,
 } from "../../../shared/recording-kind.js";
+import { parseStoredChapters } from "../../../shared/stored-chapters.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -369,16 +370,7 @@ export default defineEventHandler(async (event) => {
     .where(eq(schema.recordingCtas.recordingId, recordingId))
     .orderBy(asc(schema.recordingCtas.createdAt));
 
-  let chapters: { startMs: number; title: string }[] = [];
-  try {
-    const parsed = JSON.parse(rec.chaptersJson ?? "[]");
-    if (Array.isArray(parsed)) {
-      chapters = parsed.filter(
-        (c: any) =>
-          typeof c?.startMs === "number" && typeof c?.title === "string",
-      );
-    }
-  } catch {}
+  const chapters = parseStoredChapters(rec.chaptersJson);
 
   const transcriptSegments = normalizeTranscriptSegments({
     segments: parseTranscriptSegments(transcript?.segmentsJson),

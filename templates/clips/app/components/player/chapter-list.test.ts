@@ -21,6 +21,17 @@ describe("parseTimestamp", () => {
     expect(parseTimestamp("1:02:03")).toBe(3_723_000);
   });
 
+  it("reads the full-width digits and colon CJK input methods type", () => {
+    expect(parseTimestamp("０：４８")).toBe(48_000);
+    expect(parseTimestamp("１：０２：０３")).toBe(3_723_000);
+  });
+
+  it("reads Arabic-Indic, Persian and Devanagari digits", () => {
+    expect(parseTimestamp("٠:٤٨")).toBe(48_000);
+    expect(parseTimestamp("۱:۰۲")).toBe(62_000);
+    expect(parseTimestamp("१:०५")).toBe(65_000);
+  });
+
   it("refuses a bare number, so a numbered list isn't read as times", () => {
     expect(parseTimestamp("1")).toBeNull();
     expect(parseChapterLines("1 Introduction\n2 Setup")).toEqual({

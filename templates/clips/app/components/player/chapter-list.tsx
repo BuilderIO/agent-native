@@ -20,7 +20,9 @@
 
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { CHAPTERS_CHANGED, sameChapters } from "@shared/stored-chapters";
 import { IconPencil, IconPlus } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useId,
@@ -55,8 +57,26 @@ import { cn } from "@/lib/utils";
  */
 const MAX_CHAPTER_SECONDS = 100 * 3600;
 
+// The zero of each other digit set the app's locales type: Arabic-Indic,
+// Persian/Urdu, Devanagari.
+const DIGIT_ZEROS = [0x0660, 0x06f0, 0x0966];
+
+/**
+ * Times typed in the viewer's own digits, or the full-width digits and
+ * colon CJK input methods produce, read as ASCII.
+ */
+function asciiDigits(input: string): string {
+  return input
+    .normalize("NFKC")
+    .replace(/[\u0660-\u0669\u06f0-\u06f9\u0966-\u096f]/g, (ch) => {
+      const code = ch.charCodeAt(0);
+      const zero = DIGIT_ZEROS.find((z) => code >= z && code <= z + 9)!;
+      return String(code - zero);
+    });
+}
+
 export function parseTimestamp(input: string): number | null {
-  const parts = input
+  const parts = asciiDigits(input)
     .trim()
     .split(":")
     .map((p) => p.trim());
@@ -207,13 +227,6 @@ export function chaptersToSave(
   return [...saved, ...hidden].sort((a, b) => a.startMs - b.startMs);
 }
 
-function sameChapters(a: Chapter[], b: Chapter[]): boolean {
-  return (
-    a.length === b.length &&
-    a.every((c, i) => c.startMs === b[i].startMs && c.title === b[i].title)
-  );
-}
-
 interface ChapterListProps {
   recordingId: string;
   chapters: Chapter[];
@@ -242,10 +255,19 @@ function ChapterRows({
   visible: VisibleChapter[];
   onSeek: (originalMs: number) => void;
 }) {
+  // Keyed by chapter, not position, so focus stays on the same chapter when
+  // a save adds one above it.
+  const seen = new Map<string, number>();
+  const rowKeys = visible.map(({ chapter }) => {
+    const base = `${chapter.startMs}:${chapter.title}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return `${base}:${n}`;
+  });
   return (
     <ul className="flex min-w-0 flex-1 flex-col gap-1">
       {visible.map(({ chapter, editedMs }, i) => (
-        <li key={i} className="text-sm leading-snug">
+        <li key={rowKeys[i]} className="text-sm leading-snug">
           {/* One button for time and title, so a screen reader hears which
               chapter it jumps to. */}
           <button
@@ -331,12 +353,15 @@ function EditableChapterList({
   } | null>(null);
   const [pending, setPending] = useState<Chapter[] | null>(null);
   // A save that failed, offered again on the next open together with the
-  // list it was written against, so the conflict check still applies.
+  // list it is checked against: the one it was written against, or, when
+  // the server refused it as stale, the list the server has now.
   const [failedSave, setFailedSave] = useState<{
     draft: string;
     from: { chapters: Chapter[]; cuts: string; draft: string | null };
+    changed: boolean;
   } | null>(null);
   const mutation = useActionMutation("set-chapters");
+  const queryClient = useQueryClient();
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef(false);
 
@@ -365,7 +390,15 @@ function EditableChapterList({
       .join("\n");
     setDraft(failedSave?.draft ?? fresh);
     setEditingFrom(failedSave?.from ?? { chapters: shown, cuts, draft: fresh });
-    setError(failedSave ? t("chapters.saveFailed") : null);
+    setError(
+      failedSave
+        ? t(
+            failedSave.changed
+              ? "chapterList.changedWhileEditing"
+              : "chapters.saveFailed",
+          )
+        : null,
+    );
     setFailedSave(null);
     setMode("edit");
   };
@@ -432,14 +465,46 @@ function EditableChapterList({
     setPending(next);
     leaveEditing();
     mutation.mutate(
-      { recordingId, chapters: next },
+      { recordingId, chapters: next, expectedChapters: from.chapters },
       {
         onError: (err) => {
-          setPending(null);
-          setFailedSave({ draft: draftBeforeSave, from });
+          const refusal = err as {
+            errorCode?: unknown;
+            details?: { chapters?: unknown };
+          } | null;
+          const changed = refusal?.errorCode === CHAPTERS_CHANGED;
+          const serverList =
+            changed && Array.isArray(refusal?.details?.chapters)
+              ? (refusal.details.chapters as Chapter[])
+              : null;
+          // Show the server's list until the page's data catches up; the
+          // next Save is checked against it and replaces it.
+          setPending(serverList);
+          setFailedSave({
+            draft: draftBeforeSave,
+            from: serverList
+              ? { chapters: serverList, cuts, draft: null }
+              : from,
+            changed,
+          });
+          if (changed) {
+            void queryClient.invalidateQueries({
+              queryKey: [
+                "action",
+                "get-recording-player-data",
+                { recordingId },
+              ],
+            });
+          }
           // The hook's error text is English and for developers.
           console.error("[clips] set-chapters failed", err);
-          toast.error(t("chapters.saveFailed"));
+          toast.error(
+            t(
+              changed
+                ? "chapterList.changedWhileEditing"
+                : "chapters.saveFailed",
+            ),
+          );
         },
       },
     );
