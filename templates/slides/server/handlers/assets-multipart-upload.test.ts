@@ -37,9 +37,9 @@ vi.mock("h3", async (importOriginal) => {
   return { ...h3, defineEventHandler: (handler: unknown) => handler };
 });
 
-import { mockEvent } from "h3";
+import { getResponseStatus, mockEvent } from "h3";
 
-import { uploadAsset } from "./assets";
+import { MAX_ASSET_REQUEST_SIZE, uploadAsset } from "./assets";
 
 beforeEach(() => {
   mocks.uploadFile.mockReset();
@@ -88,4 +88,28 @@ it("accepts a PNG multipart upload after enforcing the request size limit", asyn
     }),
   );
   expect(mocks.insertAsset).toHaveBeenCalledOnce();
+});
+
+it("returns 413 when an image multipart request exceeds the real body limit", async () => {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(MAX_ASSET_REQUEST_SIZE));
+      controller.enqueue(new Uint8Array(1));
+      controller.close();
+    },
+  });
+  const event = mockEvent(
+    new Request("https://slides.example.test/api/assets/upload", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=upload" },
+      body,
+      duplex: "half",
+    } as RequestInit),
+  );
+
+  await uploadAsset(event as never);
+
+  expect(getResponseStatus(event as never)).toBe(413);
+  expect(mocks.uploadFile).not.toHaveBeenCalled();
+  expect(mocks.insertAsset).not.toHaveBeenCalled();
 });

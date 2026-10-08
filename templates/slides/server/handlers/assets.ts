@@ -62,7 +62,7 @@ async function readBoundedMultipartFormData(
       req: new Request(originalRequest.url, {
         method: originalRequest.method,
         headers,
-        body: new Blob([Buffer.from(body)]),
+        body: new Blob([body as Uint8Array<ArrayBuffer>]),
       }),
     },
   ) as typeof h3Event;
@@ -77,9 +77,9 @@ function multipartUploadError(
 ) {
   const statusCode = (error as { statusCode?: unknown })?.statusCode;
   const status =
-    typeof statusCode === "number" && statusCode >= 400 && statusCode < 500
+    typeof statusCode === "number" && statusCode >= 400 && statusCode < 600
       ? statusCode
-      : 400;
+      : 500;
   setResponseStatus(
     event as unknown as Parameters<typeof setResponseStatus>[0],
     status,
