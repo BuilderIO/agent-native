@@ -173,7 +173,10 @@ async function closeServer(server: ViteDevServer): Promise<void> {
 describe("Nitro PGlite dev lifecycle", () => {
   it("blocks PGlite lock reacquisition during an .env-triggered Vite restart", async () => {
     const testRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "agent-native-pglite-env-restart-"),
+      path.join(
+        fs.realpathSync(os.tmpdir()),
+        "agent-native-pglite-env-restart-",
+      ),
     );
     const coreRoot = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
@@ -236,11 +239,20 @@ describe("Nitro PGlite dev lifecycle", () => {
 export default { plugins: agentNative() };
 `,
     );
-    fs.symlinkSync(
-      path.join(workspaceRoot, "node_modules"),
-      path.join(testRoot, "node_modules"),
-      "dir",
-    );
+    // Nitro writes `.nitro/vite/dev-worker.mjs` with imports relative to the
+    // build dir's unresolved path, so the dir must be real, not a symlink into
+    // the workspace (or through /var -> /private/var): otherwise the worker's
+    // imports miss whenever the two depths differ, which is always in CI. Link
+    // only the packages.
+    const workspaceModules = path.join(workspaceRoot, "node_modules");
+    fs.mkdirSync(path.join(testRoot, "node_modules"));
+    for (const entry of fs.readdirSync(workspaceModules)) {
+      if (entry === ".nitro" || entry === ".vite") continue;
+      fs.symlinkSync(
+        fs.realpathSync(path.join(workspaceModules, entry)),
+        path.join(testRoot, "node_modules", entry),
+      );
+    }
     fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=before\n");
     fs.writeFileSync(
       path.join(testRoot, "server", "plugins", "pglite-lifecycle.ts"),
