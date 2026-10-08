@@ -128,7 +128,8 @@ With a system or reference, use only its colors; these rules govern how.
   headline + image, split, grid of 3, quote, closing. Alternate dense and
   sparse; avoid three identical layouts in a row.
 - Fixed chrome in the exact same place on every slide: a small running head,
-  a page number like `04 / 12`, maybe a hairline. Quiet repetition is what
+  a page number like `04 / 12` (use the slide-number tokens in create-deck,
+  never typed digits), maybe a hairline. Quiet repetition is what
   makes a deck feel designed.
 - Title and section slides carry the strongest expression of the direction.
 

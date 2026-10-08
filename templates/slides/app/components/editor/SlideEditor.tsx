@@ -18,6 +18,7 @@ import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { SLIDES_LAYOUT_OVERFLOW_WARNING } from "@shared/labs";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import { hashSlideContent } from "@shared/slide-fit";
+import type { SlidePosition } from "@shared/slide-number";
 import { IconX } from "@tabler/icons-react";
 import {
   useState,
@@ -1021,6 +1022,7 @@ function syncSelectionToAppState(state: SlidesSelectionState | null) {
 
 interface SlideEditorProps {
   slide: Slide;
+  slidePosition?: SlidePosition;
   onUpdateSlide: (
     updates: Partial<Omit<Slide, "id">>,
     slideIdOverride?: string,
@@ -1642,6 +1644,7 @@ type ActiveImageCrop = {
 
 export default function SlideEditor({
   slide,
+  slidePosition,
   onUpdateSlide,
   readOnly = false,
   contextToolbarSlot,
@@ -9922,6 +9925,7 @@ export default function SlideEditor({
                         >
                           <SlideRenderer
                             slide={slide}
+                            slidePosition={slidePosition}
                             className="shadow-2xl shadow-black/40"
                             designSystem={designSystem}
                             aspectRatio={aspectRatio}

@@ -1124,6 +1124,24 @@ button[title="Open agent sidebar"] {
   line-height: inherit;
 }
 
+/* Slide-number tokens (`<span data-slide-number></span>`). Must stay equal to
+   SLIDE_NUMBER_CSS in shared/slide-number.ts, which the HTML export inlines. */
+[data-slide-count] {
+  counter-set: slide-number var(--slide-index) slide-total var(--slide-count);
+}
+[data-slide-count] [data-slide-number]::before {
+  content: counter(slide-number);
+}
+[data-slide-count] [data-slide-number="pad"]::before {
+  content: counter(slide-number, decimal-leading-zero);
+}
+[data-slide-count] [data-slide-total]::before {
+  content: counter(slide-total);
+}
+[data-slide-count] [data-slide-total="pad"]::before {
+  content: counter(slide-total, decimal-leading-zero);
+}
+
 .slide-content[data-slide-content-scope]
   code[data-slide-authoring-format="code"] {
   font-size: 0.88em;

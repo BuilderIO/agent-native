@@ -21,6 +21,16 @@ describe("sanitizeSlideHtml", () => {
     expect(html).toContain('target="_blank"');
   });
 
+  it("keeps empty slide-number tokens", () => {
+    const html = sanitizeSlideHtml(
+      '<p><span data-slide-number="pad"></span> / <span data-slide-total="pad"></span> <span data-slide-number></span></p>',
+    );
+
+    expect(html).toContain('<span data-slide-number="pad"></span>');
+    expect(html).toContain('<span data-slide-total="pad"></span>');
+    expect(html).toMatch(/<span data-slide-number(?:="")?><\/span>/);
+  });
+
   it("keeps layout styles but removes css url injection", () => {
     expect(
       sanitizeSlideHtml(

@@ -228,6 +228,15 @@ resolves to a browser default, so the deck reads as unstyled rather than as the
 direction you chose. Never import a stock presentation palette, font, or
 component language as a substitute for choosing.
 
+## Slide numbers
+
+For a footer page number, use the tokens `<span data-slide-number></span>` and
+`<span data-slide-total></span>`, never typed digits: reorders, inserts, and
+deletes would leave a typed `04 / 08` stale. Add `="pad"` for two digits
+(`<span data-slide-number="pad"></span> / <span data-slide-total="pad"></span>`
+renders `04 / 08`). Leave the spans empty; the renderer fills them from the
+slide's position in the deck.
+
 ## Fit budget
 
 The canvas is fixed at its aspect-ratio dimensions. With the standard 16:9

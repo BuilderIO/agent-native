@@ -1,3 +1,5 @@
+import { materializeSlideNumberTokens } from "@shared/slide-number";
+
 import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
 import { importExportModule } from "./dynamic-import";
 import {
@@ -2019,6 +2021,8 @@ export async function buildDeckPptxBlob(
         height: dims.height,
       });
       exportClones.push(clone);
+      // dom-to-pptx reads DOM text, not the ::before counters the tokens use.
+      materializeSlideNumberTokens(clone.element);
       await preloadImagesWithCors(clone.element);
       resetAutofitTransforms(clone.element);
       slideBulletIndents.push(normalizeListsForPptx(clone.element, dims));

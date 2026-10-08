@@ -4202,6 +4202,10 @@ export default function DeckEditor() {
         {showCurrentSlideEditor && currentSlide && (
           <SlideEditor
             slide={editorSlide ?? currentSlide}
+            slidePosition={{
+              number: currentIndex + 1,
+              count: deck.slides.length,
+            }}
             deckId={id}
             onFlushInlineEdit={() => {
               flushPendingSaves();
