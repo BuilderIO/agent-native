@@ -4,6 +4,7 @@ import { getDbExec, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
+  ensureIndexExistsConcurrently,
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -1200,10 +1201,12 @@ async function _doEnsureTable(): Promise<void> {
 
   // The (path, owner) unique index uses the default operator class, which a
   // prefix LIKE cannot use under a non-C collation; the trigger dispatcher
-  // reads jobs/ by prefix every few seconds.
-  await ensureIndexExists(
+  // reads jobs/ by prefix every few seconds. Built concurrently: this can run
+  // in a request against an existing, large table, and a plain build would
+  // block resource writes for its whole duration.
+  await ensureIndexExistsConcurrently(
     "resources_path_pattern_idx",
-    `CREATE INDEX IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
   ).catch((err) => {
     // coercion-ok: absence of an index degrades latency, never correctness
     console.warn(
