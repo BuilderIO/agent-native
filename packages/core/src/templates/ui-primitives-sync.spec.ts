@@ -380,6 +380,7 @@ describe("ui-primitives sync guard", () => {
       ).toBe(true);
       if (fs.existsSync(file)) {
         expect(
+          // source-read-ok: This architecture check verifies the UI adapter form.
           isToolkitPrimitiveReExport(fs.readFileSync(file, "utf-8")),
           `LOCAL_IMPLEMENTATION_ALLOW_LIST entry ${template}:${primitive} is now a Toolkit re-export; remove it`,
         ).toBe(false);
