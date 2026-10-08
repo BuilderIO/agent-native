@@ -123,6 +123,7 @@ interface EventRead {
   invalidRows: number;
   truncated: boolean;
   lastSessionDropped: boolean;
+  pages: number;
 }
 
 async function readJourneyEvents(
@@ -132,6 +133,7 @@ async function readJourneyEvents(
 ): Promise<EventRead> {
   const raw: Record<string, unknown>[] = [];
   let truncated = false;
+  let pages = 0;
   for (;;) {
     // One row past the budget tells a full read from a cut one.
     const limit = Math.min(EVENT_PAGE_ROWS, maxEventRows + 1 - raw.length);
@@ -146,6 +148,7 @@ async function readJourneyEvents(
     if (page.truncated) {
       throw new Error("Journey event page exceeded the query row cap");
     }
+    pages += 1;
     raw.push(...page.rows);
     if (page.rows.length < limit) break;
     if (raw.length > maxEventRows) {
@@ -172,7 +175,7 @@ async function readJourneyEvents(
       lastSessionDropped = true;
     }
   }
-  return { rows, invalidRows, truncated, lastSessionDropped };
+  return { rows, invalidRows, truncated, lastSessionDropped, pages };
 }
 
 function groupSessions(rows: readonly JourneyEventRow[]): {
@@ -328,6 +331,12 @@ export async function getOnboardingJourney(
   if (read.truncated) {
     notes.push(
       `Event read stopped at maxEventRows=${args.maxEventRows}; counts are a partial sample${read.lastSessionDropped ? " and the last session read was left out" : ""}.`,
+    );
+  }
+  if (read.pages > 1 && args.dateTo >= new Date().toISOString().slice(0, 10)) {
+    // Pages are OFFSET reads of a table that is still receiving events.
+    notes.push(
+      `The window includes today and the read took ${read.pages} pages; events that arrived while it ran can shift page boundaries, so a few rows near the live edge may be missing.`,
     );
   }
   if (capped.dropped) {

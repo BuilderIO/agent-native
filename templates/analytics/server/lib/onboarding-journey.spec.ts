@@ -260,6 +260,41 @@ describe("getOnboardingJourney", () => {
     );
     expect(tree.rootN).toBe(4001);
     expect(tree.coverage.truncated).toBe(false);
+    expect(tree).not.toHaveProperty("notes");
+  });
+
+  it("says a multi-page read of a window that includes today can miss rows at the live edge", async () => {
+    const firstPage = Array.from({ length: 4000 }, (_, i) =>
+      eventRow(`p${String(i).padStart(5, "0")}`, "signup", i),
+    );
+    mocks.queryFirstPartyAnalytics
+      .mockResolvedValueOnce({ rows: firstPage, schema: [] })
+      .mockResolvedValueOnce({
+        rows: [eventRow("z-last", "signup", 0)],
+        schema: [],
+      });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      dateTo: new Date().toISOString().slice(0, 10),
+      maxEventRows: 10_000,
+    })) as JourneyTree;
+    expect(tree.notes?.join(" ")).toMatch(/includes today.*2 pages.*live edge/);
+
+    mocks.queryFirstPartyAnalytics.mockReset();
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: journeyRows(),
+      schema: [],
+    });
+    const single = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      dateTo: new Date().toISOString().slice(0, 10),
+    })) as JourneyTree;
+    expect(single).not.toHaveProperty("notes");
   });
 
   it("counts rows it cannot read, and says so", async () => {

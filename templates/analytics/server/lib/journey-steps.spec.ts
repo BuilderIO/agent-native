@@ -42,6 +42,15 @@ describe("normalizeJourneyPath", () => {
     );
   });
 
+  it("replaces a segment that holds an email address", () => {
+    expect(normalizeJourneyPath("/invite/alice@example.com")).toBe(
+      "/invite/:email",
+    );
+    expect(normalizeJourneyPath("/invite/alice%40example.com/accept")).toBe(
+      "/invite/:email/accept",
+    );
+  });
+
   it("keeps readable segments and the root", () => {
     expect(normalizeJourneyPath("/home/")).toBe("/home");
     expect(normalizeJourneyPath("/")).toBe("/");

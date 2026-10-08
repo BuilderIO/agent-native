@@ -8,7 +8,7 @@
  * and writes a PNG per frame plus manifest.json. It never reads a local
  * database.
  */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -504,6 +504,9 @@ async function main(argv: string[]): Promise<number> {
   const outDir = resolve(values.out ?? "frames");
   await mkdir(outDir, { recursive: true });
   const manifestPath = path.join(outDir, "manifest.json");
+  // A manifest left by an earlier run would describe old frames as this run's
+  // output if the run exits before it writes its own.
+  await rm(manifestPath, { force: true });
   const generatedAt = new Date().toISOString();
   const writeManifest = async (
     frames: ManifestFrame[],
