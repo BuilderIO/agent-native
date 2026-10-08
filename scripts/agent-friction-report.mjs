@@ -2222,8 +2222,25 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [false, `${"deployment ".repeat(4000)}${"failure ".repeat(4000)}`],
 ];
 
-const E2E_ISSUE_FANOUT_RE =
-  /\b(?:e2e|end[- ]to[- ]end|playwright)\b[^.!?\n]{0,120}\b(?:too many|separate|per[- ](?:test|spec)|flood|overload|duplicate)\b[^.!?\n]{0,80}\b(?:issues?|tickets?)\b|\b(?:too many|separate|per[- ](?:test|spec)|flood|overload|duplicate)\b[^.!?\n]{0,80}\b(?:issues?|tickets?)\b[^.!?\n]{0,120}\b(?:e2e|end[- ]to[- ]end|playwright)\b|\b(?:e2e|end[- ]to[- ]end|playwright)\b[^.!?\n]{0,120}\b(?:don't|do not|stop|shouldn't|should not|why)\b[^.!?\n]{0,80}\b100\b[^.!?\n]{0,40}\b(?:issues?|tickets?)\b|\b(?:don't|do not|stop|shouldn't|should not|why)\b[^.!?\n]{0,80}\b100\b[^.!?\n]{0,40}\b(?:issues?|tickets?)\b[^.!?\n]{0,120}\b(?:e2e|end[- ]to[- ]end|playwright)\b|\bissues?\b[^.!?\n]{0,80}\b(?:for|per)\s+(?:each|every)\b[^.!?\n]{0,80}\b(?:e2e|end[- ]to[- ]end|playwright)\b|\b(?:each|every)\b[^.!?\n]{0,80}\b(?:e2e|end[- ]to[- ]end|playwright)\b[^.!?\n]{0,80}\b(?:own|separate|individual)\b[^.!?\n]{0,40}\b(?:issues?|tickets?)\b|\b(?:one|an?)\s+(?:issues?|tickets?)\b[^.!?\n]{0,40}\bper\b[^.!?\n]{0,60}\b(?:e2e|end[- ]to[- ]end|playwright)\b[^.!?\n]{0,40}\b(?:tests?|specs?|failures?)\b|\b(?:one|an?)\s+(?:issues?|tickets?)\b[^.!?\n]{0,40}\bper\s+(?:tests?|specs?|failures?)\b[^.!?\n]{0,80}\b(?:e2e|end[- ]to[- ]end|playwright)\b/i;
+const ATTACHED_BLOCK =
+  /<(in-app-browser-context|user_message_metadata|environment_context|user_instructions|turn_aborted|task-notification|system-reminder|skill|image)\b[\s\S]*?(<\/\1>|\/>|$)/g;
+const E2E_PLATFORM = String.raw`(?:e2e|end[- ]to[- ]end|playwright)`;
+const E2E_TEST_KIND = String.raw`(?:tests?|specs?|failures?|runs?|bugs?)`;
+const E2E_ISSUE_FANOUT_RE = new RegExp(
+  [
+    String.raw`\bissues?\b[^.!?;\n]{0,80}\b(?:for|per)\s+(?:each|every)\b[^.!?;\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b`,
+    String.raw`\b(?:each|every)\b[^.!?;\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;\n]{0,80}\b(?:own|separate|individual)\s+(?:issues?|tickets?)\b`,
+    String.raw`\b(?:one|an?)\s+(?:issues?|tickets?)\b[^.!?;\n]{0,40}\bper\s+${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b`,
+    String.raw`\b(?:one|an?)\s+(?:issues?|tickets?)\b[^.!?;\n]{0,40}\bper\s+${E2E_TEST_KIND}\b[^.!?;\n]{0,80}\b${E2E_PLATFORM}\b`,
+    String.raw`\bduplicate\s+(?:issues?|tickets?)\b[^.!?;\n]{0,60}\b(?:for|about|from|on)\b[^.!?;\n]{0,40}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b`,
+    String.raw`\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;\n]{0,60}\b(?:create|open|file|generate|produce|get|have)\b[^.!?;\n]{0,60}\b(?:separate|duplicate|individual)\s+(?:issues?|tickets?)\b`,
+    String.raw`\b(?:too many|flood\w*|overload\w*)\b[^.!?;\n]{0,60}\b(?:issues?|tickets?)\b[^.!?;\n]{0,60}\b(?:for|from|in)\b[^.!?;\n]{0,20}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b`,
+    String.raw`\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;\n]{0,60}\b(?:create|open|file|generate|produce)\b[^.!?;\n]{0,40}\b(?:too many|flood\w*|overload\w*)\b[^.!?;\n]{0,40}\b(?:issues?|tickets?)\b`,
+    String.raw`\b${E2E_PLATFORM}\b[^.!?;\n]{0,120}\b(?:don't|do not|stop|shouldn't|should not|why)\b[^.!?;\n]{0,80}\b100\b[^.!?;\n]{0,40}\b(?:issues?|tickets?)\b`,
+    String.raw`\b(?:don't|do not|stop|shouldn't|should not|why)\b[^.!?;\n]{0,80}\b100\b[^.!?;\n]{0,40}\b(?:issues?|tickets?)\b[^.!?;\n]{0,80}\b(?:for|during|from)\b[^.!?;\n]{0,40}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b`,
+  ].join("|"),
+  "i",
+);
 const E2E_ISSUE_FANOUT_REGEX_CASES = [
   [true, "When an E2E test fails, don't open up 100 issues. Just one."],
   [true, "Stop opening 100 issues for failed Playwright runs."],
@@ -2232,11 +2249,18 @@ const E2E_ISSUE_FANOUT_REGEX_CASES = [
   [true, "Each Playwright test got its own issue."],
   [true, "Stop filing one issue per E2E test."],
   [true, "There are multiple duplicate tickets for Playwright failures."],
+  [true, "E2E tests open separate issues for each failure."],
   [false, "The E2E suite had 100 failing tests."],
   [false, "There are 100 issues in this unrelated database test."],
   [false, "The E2E run reported multiple issues across different defects."],
+  [false, "The E2E suite is green, but a separate issue tracks billing."],
   [false, "Closed 100 issues this sprint and the E2E suite is green now."],
   [false, "The Design E2E failure is tracked in one issue."],
+];
+const E2E_ISSUE_FANOUT_NORMALIZATION_CASES = [
+  [false, "The E2E suite is green.\nA separate issue tracks billing."],
+  [false, "The E2E suite is green.\nDuplicate ticket opened for billing."],
+  [false, "The E2E tests are green\nThey create separate issues for billing."],
 ];
 
 if (process.argv.includes("--self-test")) {
@@ -2292,6 +2316,12 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...E2E_ISSUE_FANOUT_REGEX_CASES.filter(
       ([expected, message]) => E2E_ISSUE_FANOUT_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...E2E_ISSUE_FANOUT_NORMALIZATION_CASES.filter(
+      ([expected, message]) =>
+        E2E_ISSUE_FANOUT_RE.test(normalizeHumanText(message)) !== expected,
     ),
   );
   failures.push(
@@ -2388,7 +2418,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2751,8 +2781,6 @@ const PATTERNS = [
 
 const AUTHORED_BY_AGENT =
   /<(subagent_notification|codex_delegation)\b|^\s*(The following is the Codex agent history|Claude here\s*[—-]\s*watchdog)/i;
-const ATTACHED_BLOCK =
-  /<(in-app-browser-context|user_message_metadata|environment_context|user_instructions|turn_aborted|task-notification|system-reminder|skill|image)\b[\s\S]*?(<\/\1>|\/>|$)/g;
 
 const args = process.argv.slice(2);
 const weeks = Number(valueOf("--weeks") ?? 8);
@@ -2838,10 +2866,19 @@ async function scan(file, read) {
   }
 }
 
+function normalizeHumanText(raw) {
+  return String(raw ?? "")
+    .replace(ATTACHED_BLOCK, " ")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
 function humanText(raw) {
   const raw_ = String(raw ?? "");
   if (AUTHORED_BY_AGENT.test(raw_)) return null;
-  const text = raw_.replace(ATTACHED_BLOCK, " ").replace(/\s+/g, " ").trim();
+  const text = normalizeHumanText(raw_);
   if (!text || text.startsWith("<")) return null;
   return text.length > 2 ? text : null;
 }
