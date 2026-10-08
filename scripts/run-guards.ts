@@ -10,6 +10,7 @@ const guards = [
   "guard:no-drizzle-push",
   "guard:mcp-registry",
   "guard:no-pnpm-patches",
+  "guard:template-layers",
   "guard:chat-first-shared-ui",
   "guard:no-empty-migrations",
   "guard:release-schema-complete",
