@@ -47,7 +47,7 @@ function isMissingFigmaCredential(error: unknown, message: string): boolean {
   const code = (error as { errorCode?: unknown } | null)?.errorCode;
   return (
     code === FIGMA_IMPORT_ERROR_CODES.authRequired ||
-    isAgentConnectionRequiredError(error) ||
+    (isAgentConnectionRequiredError(error) && error.reason === "connect") ||
     CREDENTIAL_MISSING_RE.test(message)
   );
 }

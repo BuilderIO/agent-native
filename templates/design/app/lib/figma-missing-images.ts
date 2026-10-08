@@ -1,15 +1,16 @@
 export interface MissingFigmaImage {
-  fileId: string;
   hash: string;
+  fileIds: string[];
   layerName: string | null;
 }
 
+// Keyed by hash, like the import's unresolvedImages count: one image reused on
+// several screens is one missing image, filled everywhere by one upload.
 export function listMissingFigmaImages(
   screens: Array<{ fileId: string; html: string }>,
 ): MissingFigmaImage[] {
   const parser = new DOMParser();
-  const seen = new Set<string>();
-  const images: MissingFigmaImage[] = [];
+  const byHash = new Map<string, MissingFigmaImage>();
   for (const { fileId, html } of screens) {
     if (!html.includes("data-figma-image-ref")) continue;
     const doc = parser.parseFromString(html, "text/html");
@@ -18,16 +19,19 @@ export function listMissingFigmaImages(
     )) {
       const hashes = (element.dataset.figmaImageRef ?? "").trim().split(/\s+/);
       for (const hash of hashes) {
-        const key = `${fileId}:${hash}`;
-        if (!hash || seen.has(key)) continue;
-        seen.add(key);
-        images.push({
-          fileId,
-          hash,
-          layerName: element.dataset.agentNativeLayerName?.trim() || null,
-        });
+        if (!hash) continue;
+        const image = byHash.get(hash);
+        if (!image) {
+          byHash.set(hash, {
+            hash,
+            fileIds: [fileId],
+            layerName: element.dataset.agentNativeLayerName?.trim() || null,
+          });
+        } else if (!image.fileIds.includes(fileId)) {
+          image.fileIds.push(fileId);
+        }
       }
     }
   }
-  return images;
+  return [...byHash.values()];
 }

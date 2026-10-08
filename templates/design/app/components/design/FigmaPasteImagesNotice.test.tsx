@@ -119,6 +119,7 @@ describe("FigmaPasteImagesNotice file picker", () => {
     vi.clearAllMocks();
   });
 
+  // oracle: none — exercises the notice's own upload and fill wiring, not measured Figma behavior.
   it("keeps the selected-file handler mounted if the chooser dismisses the popover", async () => {
     await act(async () =>
       root.render(
@@ -180,13 +181,14 @@ describe("FigmaPasteImagesNotice file picker", () => {
     `<div data-agent-native-layer-name="${name}" data-figma-image-ref="${hash}" style="background-image: url('about:blank');"></div>`;
 
   async function renderNotice(
-    html: string,
+    html: string | Record<string, string>,
     overrides: Partial<{
       uploadImage: (file: File) => Promise<string>;
       onClose: () => void;
       onHydrated: () => void;
     }> = {},
   ) {
+    const screens = typeof html === "string" ? { "screen-1": html } : html;
     const props = {
       uploadImage: vi.fn(async () => "https://cdn.example.com/robot.svg"),
       onClose: vi.fn(),
@@ -196,10 +198,18 @@ describe("FigmaPasteImagesNotice file picker", () => {
     await act(async () =>
       root.render(
         <FigmaPasteImagesNotice
-          count={html.split("data-figma-image-ref").length - 1}
+          count={
+            new Set(
+              Object.values(screens).flatMap((content) =>
+                [...content.matchAll(/data-figma-image-ref="([^"]+)"/g)].map(
+                  (match) => match[1],
+                ),
+              ),
+            ).size
+          }
           designId="design-1"
-          fileIds={["screen-1"]}
-          getScreenContent={() => html}
+          fileIds={Object.keys(screens)}
+          getScreenContent={(fileId) => screens[fileId] ?? ""}
           onConnect={vi.fn()}
           onDismissForever={vi.fn()}
           {...props}
@@ -237,6 +247,7 @@ describe("FigmaPasteImagesNotice file picker", () => {
     );
   }
 
+  // oracle: none — exercises the notice's own upload and fill wiring, not measured Figma behavior.
   it("fills the only missing image from an uploaded SVG and closes", async () => {
     mocks.callAction.mockResolvedValue({ resolved: 1, missing: 0 });
     const props = await renderNotice(missingImage("abc123", "Robot arm"));
@@ -256,6 +267,7 @@ describe("FigmaPasteImagesNotice file picker", () => {
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 
+  // oracle: none — exercises the notice's own upload and fill wiring, not measured Figma behavior.
   it("labels each missing image by layer name and stays open until all are filled", async () => {
     mocks.callAction.mockResolvedValue({ resolved: 1, missing: 1 });
     const props = await renderNotice(
@@ -277,6 +289,35 @@ describe("FigmaPasteImagesNotice file picker", () => {
     expect(container.textContent).toContain('"count":1');
   });
 
+  // oracle: none — exercises the notice's own upload and fill wiring, not measured Figma behavior.
+  it("fills one image reused on two screens with a single upload", async () => {
+    mocks.callAction.mockResolvedValue({ resolved: 1, missing: 0 });
+    const props = await renderNotice({
+      "screen-1": missingImage("shared", "Logo"),
+      "screen-2": missingImage("shared", "Logo"),
+    });
+
+    expect(container.textContent).toContain('"count":1');
+    await chooseImageFile(
+      buttonWithText("designEditor.import.figmaPasteUploadImage")!,
+      new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" }),
+    );
+
+    expect(props.uploadImage).toHaveBeenCalledTimes(1);
+    expect(mocks.callAction.mock.calls).toEqual([
+      [
+        "fill-figma-paste-image",
+        expect.objectContaining({ fileId: "screen-1", hash: "shared" }),
+      ],
+      [
+        "fill-figma-paste-image",
+        expect.objectContaining({ fileId: "screen-2", hash: "shared" }),
+      ],
+    ]);
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // oracle: none — exercises the notice's own upload and fill wiring, not measured Figma behavior.
   it("does not fill anything when the upload produced no URL", async () => {
     const props = await renderNotice(missingImage("abc123", "Robot arm"), {
       uploadImage: vi.fn(async () => ""),
@@ -291,6 +332,7 @@ describe("FigmaPasteImagesNotice file picker", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
+  // oracle: none — exercises the notice's own upload and fill wiring, not measured Figma behavior.
   it("rejects non-image files before uploading", async () => {
     const props = await renderNotice(missingImage("abc123", "Robot arm"));
 

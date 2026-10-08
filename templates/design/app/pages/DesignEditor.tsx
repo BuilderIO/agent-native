@@ -14794,7 +14794,10 @@ function DesignEditor() {
         return "";
       }
       const dataUrl = await readFileAsDataUrl(file);
-      if (!dataUrl) return "";
+      if (!dataUrl) {
+        toast.error(t("designEditor.import.errors.uploadFailed"));
+        return "";
+      }
       const result = (await callAction("upload-image", {
         data: dataUrl,
         filename: file.name,
@@ -14807,7 +14810,7 @@ function DesignEditor() {
       });
       return "";
     },
-    [canUploadDesignMedia, readFileAsDataUrl, requestFileStorageSetup],
+    [canUploadDesignMedia, readFileAsDataUrl, requestFileStorageSetup, t],
   );
   const uploadImageFileForHtmlRef = useRef(uploadImageFileForHtml);
   uploadImageFileForHtmlRef.current = uploadImageFileForHtml;

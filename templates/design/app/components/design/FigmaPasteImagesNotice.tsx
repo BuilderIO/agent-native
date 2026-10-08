@@ -57,8 +57,6 @@ interface FigmaPasteImagesNoticeProps {
   onClose: () => void;
 }
 
-const imageKey = (image: MissingFigmaImage) => `${image.fileId}:${image.hash}`;
-
 function isImageFile(file: File) {
   return file.type.startsWith("image/") || /\.svg$/i.test(file.name);
 }
@@ -95,7 +93,7 @@ export function FigmaPasteImagesNotice({
               fileId,
               html: getScreenContent(fileId),
             })),
-          ).filter((image) => !filled.has(imageKey(image)))
+          ).filter((image) => !filled.has(image.hash))
         : [],
     [expanded, fileIds, filled, getScreenContent],
   );
@@ -128,13 +126,15 @@ export function FigmaPasteImagesNotice({
       const imageUrl = await uploadImage(file);
       // uploadImage already surfaced why: storage setup or an upload error.
       if (!imageUrl) return;
-      await callAction("fill-figma-paste-image", {
-        fileId: target.image.fileId,
-        hash: target.image.hash,
-        imageUrl,
-      });
+      for (const fileId of target.image.fileIds) {
+        await callAction("fill-figma-paste-image", {
+          fileId,
+          hash: target.image.hash,
+          imageUrl,
+        });
+      }
       onHydrated();
-      setFilled((current) => new Set(current).add(imageKey(target.image)));
+      setFilled((current) => new Set(current).add(target.image.hash));
       toast.success(t("designEditor.import.figmaPasteUploadImageSuccess"));
       if (target.othersMissing <= 0) onClose();
     } catch (error) {
@@ -260,7 +260,7 @@ export function FigmaPasteImagesNotice({
                 <div className="max-h-48 overflow-y-auto">
                   {missingImages.map((image, index) => (
                     <button
-                      key={imageKey(image)}
+                      key={image.hash}
                       type="button"
                       className={rowClass}
                       disabled={busy}

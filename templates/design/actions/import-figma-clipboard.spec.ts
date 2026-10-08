@@ -654,6 +654,27 @@ describe("import-figma-clipboard", () => {
       expect(result.unresolvedImages).toBe(1);
     });
 
+    it("keeps the reauthorize prompt instead of falling back when Figma is connected", async () => {
+      const { AgentConnectionRequiredError } =
+        await import("@agent-native/core/action");
+      mocks.executeProviderApiRequest.mockRejectedValue(
+        new AgentConnectionRequiredError(
+          "figma requires an available workspace connection.",
+          { provider: "figma", reason: "reauthorize" },
+        ),
+      );
+
+      await expect(
+        action.run({
+          figmetaFileKey: FILE_KEY,
+          selectedNodeIds: ["1:1"],
+          clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+          clipboardBuffer: FAKE_BUFFER_BASE64,
+        } as any),
+      ).rejects.toMatchObject({ errorCode: "connection_required" });
+      expect(mocks.importFigmaClipboardFromBuffer).not.toHaveBeenCalled();
+    });
+
     describe("with the editor's paste scene", () => {
       const decoded = (wrapsLooseNode: boolean) => ({
         files: [
