@@ -285,9 +285,20 @@ describe("SettingsTabsPage", () => {
     expect(document.activeElement).toBe(teamTab);
   });
 
-  it("keeps an onboarding attempt through legacy settings tab navigation", () => {
+  it("keeps an onboarding attempt through legacy settings tab navigation", async () => {
     installTestLocalStorage();
-    expect(setCustomKeyOnboardingAttempt("legacy-settings-nav")).toBe("stored");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "not authenticated" }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    expect(await setCustomKeyOnboardingAttempt("legacy-settings-nav")).toBe(
+      "stored",
+    );
 
     act(() => {
       root.render(
@@ -309,7 +320,16 @@ describe("SettingsTabsPage", () => {
 
   it("records abandonment when a legacy settings route exits", async () => {
     installTestLocalStorage();
-    expect(setCustomKeyOnboardingAttempt("legacy-settings-exit")).toBe(
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "not authenticated" }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    expect(await setCustomKeyOnboardingAttempt("legacy-settings-exit")).toBe(
       "stored",
     );
 

@@ -14,6 +14,7 @@ import {
   requestCustomKeyOnboardingAbandonment,
   trackCustomKeyOnboardingOutcome,
   withCustomKeyOnboardingCredentialSave,
+  withCustomKeyOnboardingLocalEndpointSave,
 } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
@@ -45,7 +46,14 @@ import {
   IconServer,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { BrandLogo } from "../infra/logos.js";
 import { WhoField } from "../WhoField.js";
@@ -140,8 +148,16 @@ function unique(models: readonly string[]): string[] {
  */
 export function ProviderDialog(props: ProviderDialogProps) {
   const savePending = useRef(false);
+  const selectedProvider = useRef<AgentProviderId>(
+    props.provider ?? props.providers?.[0] ?? "anthropic",
+  );
+  const reportSelectedProvider = useCallback((provider: AgentProviderId) => {
+    selectedProvider.current = provider;
+  }, []);
   const dismiss = () => {
-    if (savePending.current) {
+    if (selectedProvider.current === "ollama" && !savePending.current) {
+      trackCustomKeyOnboardingOutcome("local_endpoint_skipped");
+    } else if (savePending.current) {
       requestCustomKeyOnboardingAbandonment();
     } else {
       trackCustomKeyOnboardingOutcome("credential_skipped");
@@ -161,6 +177,7 @@ export function ProviderDialog(props: ProviderDialogProps) {
         <ProviderDialogContent
           {...props}
           onDismiss={dismiss}
+          onProviderChange={reportSelectedProvider}
           onSavingChange={(saving) => {
             savePending.current = saving;
           }}
@@ -172,6 +189,7 @@ export function ProviderDialog(props: ProviderDialogProps) {
 
 interface ProviderDialogInternalProps {
   onDismiss: () => void;
+  onProviderChange: (provider: AgentProviderId) => void;
   onSavingChange: (saving: boolean) => void;
 }
 
@@ -259,6 +277,7 @@ function ProviderDialogForm({
   providers: providerChoices,
   onOpenChange,
   onDismiss,
+  onProviderChange,
   onSavingChange,
   onSaved,
   onRemoved,
@@ -351,6 +370,10 @@ function ProviderDialogForm({
   const requestRef = useRef(0);
   const fromService = mode === "add-from-service";
 
+  useEffect(() => {
+    onProviderChange(provider);
+  }, [onProviderChange, provider]);
+
   // A pasted key (or Ollama endpoint) is checked as it's entered, by asking
   // the provider which models it reaches.
   useEffect(() => {
@@ -433,6 +456,7 @@ function ProviderDialogForm({
       addChoices.find((choice) => choice.provider === next)?.replaces ?? null;
     const nextEndpoint = next === "openai" ? (target?.endpoint ?? "") : "";
     setProvider(next);
+    onProviderChange(next);
     setKeyValue((value) => (keepValue ? value : ""));
     setKeyError(false);
     setChecked(
@@ -503,7 +527,7 @@ function ProviderDialogForm({
             scope,
           });
         if (isOllama) {
-          await saveProviderSettings();
+          await withCustomKeyOnboardingLocalEndpointSave(saveProviderSettings);
         } else {
           await withCustomKeyOnboardingCredentialSave(saveProviderSettings);
         }

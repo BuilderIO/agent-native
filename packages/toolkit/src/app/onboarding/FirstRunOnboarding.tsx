@@ -594,7 +594,7 @@ export function FirstRunOnboarding({
       );
       return;
     }
-    if (attempt) setCustomKeyOnboardingAttempt(attempt.id);
+    if (attempt) await setCustomKeyOnboardingAttempt(attempt.id);
     trackFirstRunSetupOutcome(attempt, "settings_opened");
     if (typeof window === "undefined") return;
     const search = new URLSearchParams(window.location.search);

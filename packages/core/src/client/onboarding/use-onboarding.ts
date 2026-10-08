@@ -9,6 +9,7 @@ import type {
 import {
   getAnalyticsIdentityKey,
   getAnalyticsSessionId,
+  resolveAnalyticsIdentityKey,
   trackEvent,
 } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
@@ -26,9 +27,21 @@ const seenOnboardingEvents = new Set<string>();
 const CUSTOM_KEY_ATTEMPT_STORAGE_KEY =
   "agent-native.onboarding.custom_keys_attempt";
 const locallyTrackedCustomKeyOutcomes = new Set<string>();
+type CustomKeyOnboardingSaveOutcome =
+  | "credential_saved"
+  | "local_endpoint_saved";
+type CustomKeyOnboardingAbandonmentOutcome =
+  | "credential_abandoned"
+  | "local_endpoint_abandoned";
 const pendingCustomKeyCredentialSaves = new Map<
   string,
-  { count: number; abandonmentRequested: boolean; saved: boolean }
+  {
+    count: number;
+    abandonmentRequested: boolean;
+    saved: boolean;
+    saveOutcome: CustomKeyOnboardingSaveOutcome;
+    abandonmentOutcome: CustomKeyOnboardingAbandonmentOutcome;
+  }
 >();
 let onboardingDocumentId: string | null = null;
 let onboardingCorrelationSequence = 0;
@@ -40,7 +53,23 @@ type CustomKeyOnboardingOutcome =
   | "credential_validated"
   | "credential_saved"
   | "credential_skipped"
-  | "credential_abandoned";
+  | "credential_abandoned"
+  | "local_endpoint_saved"
+  | "local_endpoint_skipped"
+  | "local_endpoint_abandoned";
+
+function isTerminalCustomKeyOnboardingOutcome(
+  outcome: CustomKeyOnboardingOutcome,
+): boolean {
+  return (
+    outcome === "credential_saved" ||
+    outcome === "credential_skipped" ||
+    outcome === "credential_abandoned" ||
+    outcome === "local_endpoint_saved" ||
+    outcome === "local_endpoint_skipped" ||
+    outcome === "local_endpoint_abandoned"
+  );
+}
 
 interface CustomKeyOnboardingAttempt {
   id: string;
@@ -105,12 +134,12 @@ function readCustomKeyOnboardingAttempt(): CustomKeyAttemptRead {
   }
 }
 
-export function setCustomKeyOnboardingAttempt(
+export async function setCustomKeyOnboardingAttempt(
   id: string,
-): "stored" | "no_session" | "unavailable" {
+): Promise<"stored" | "no_session" | "unavailable"> {
   if (typeof window === "undefined") return "unavailable";
   const sessionId = getAnalyticsSessionId();
-  const identityKey = getAnalyticsIdentityKey();
+  const identityKey = await resolveAnalyticsIdentityKey();
   if (!sessionId || !identityKey) return "no_session";
   try {
     window.sessionStorage.setItem(
@@ -159,11 +188,7 @@ export function trackCustomKeyOnboardingOutcome(
     alreadyTracked ||
     locallyTrackedCustomKeyOutcomes.has(attemptOutcomeKey)
   ) {
-    if (
-      outcome === "credential_saved" ||
-      outcome === "credential_skipped" ||
-      outcome === "credential_abandoned"
-    ) {
+    if (isTerminalCustomKeyOnboardingOutcome(outcome)) {
       try {
         window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
       } catch {
@@ -199,11 +224,7 @@ export function trackCustomKeyOnboardingOutcome(
     } catch {
       return "tracked_storage_unavailable";
     }
-  } else if (
-    outcome === "credential_saved" ||
-    outcome === "credential_skipped" ||
-    outcome === "credential_abandoned"
-  ) {
+  } else if (isTerminalCustomKeyOnboardingOutcome(outcome)) {
     try {
       window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
     } catch {
@@ -228,7 +249,10 @@ function trackCustomKeyOnboardingOutcomeForAttempt(
   return trackCustomKeyOnboardingOutcome(outcome);
 }
 
-function beginCustomKeyOnboardingCredentialSave(): {
+function beginCustomKeyOnboardingSave(
+  saveOutcome: CustomKeyOnboardingSaveOutcome,
+  abandonmentOutcome: CustomKeyOnboardingAbandonmentOutcome,
+): {
   finish: (saved: boolean) => void;
 } | null {
   const stored = readCustomKeyOnboardingAttempt();
@@ -245,6 +269,8 @@ function beginCustomKeyOnboardingCredentialSave(): {
     count: 0,
     abandonmentRequested: false,
     saved: false,
+    saveOutcome,
+    abandonmentOutcome,
   };
   pending.count += 1;
   pendingCustomKeyCredentialSaves.set(attemptId, pending);
@@ -261,7 +287,7 @@ function beginCustomKeyOnboardingCredentialSave(): {
         if (saved) {
           const result = trackCustomKeyOnboardingOutcomeForAttempt(
             attemptId,
-            "credential_saved",
+            current.saveOutcome,
           );
           if (
             result === "tracked" ||
@@ -278,7 +304,7 @@ function beginCustomKeyOnboardingCredentialSave(): {
           if (current.abandonmentRequested && !current.saved) {
             trackCustomKeyOnboardingOutcomeForAttempt(
               attemptId,
-              "credential_abandoned",
+              current.abandonmentOutcome,
             );
           }
         }
@@ -290,7 +316,32 @@ function beginCustomKeyOnboardingCredentialSave(): {
 export async function withCustomKeyOnboardingCredentialSave<T>(
   save: () => Promise<T>,
 ): Promise<T> {
-  const credentialSave = beginCustomKeyOnboardingCredentialSave();
+  return withCustomKeyOnboardingSave(
+    save,
+    "credential_saved",
+    "credential_abandoned",
+  );
+}
+
+export async function withCustomKeyOnboardingLocalEndpointSave<T>(
+  save: () => Promise<T>,
+): Promise<T> {
+  return withCustomKeyOnboardingSave(
+    save,
+    "local_endpoint_saved",
+    "local_endpoint_abandoned",
+  );
+}
+
+async function withCustomKeyOnboardingSave<T>(
+  save: () => Promise<T>,
+  saveOutcome: CustomKeyOnboardingSaveOutcome,
+  abandonmentOutcome: CustomKeyOnboardingAbandonmentOutcome,
+): Promise<T> {
+  const credentialSave = beginCustomKeyOnboardingSave(
+    saveOutcome,
+    abandonmentOutcome,
+  );
   let saved = false;
   try {
     const result = await save();
@@ -313,6 +364,9 @@ function handleCustomKeyOnboardingAbandonment(
         "credential_saved",
         "credential_skipped",
         "credential_abandoned",
+        "local_endpoint_saved",
+        "local_endpoint_skipped",
+        "local_endpoint_abandoned",
       ] as const
     ).find((outcome) =>
       locallyTrackedCustomKeyOutcomes.has(`${attemptId}:${outcome}`),
@@ -328,7 +382,7 @@ function handleCustomKeyOnboardingAbandonment(
       } else {
         trackCustomKeyOnboardingOutcomeForAttempt(
           attemptId,
-          "credential_abandoned",
+          pending.abandonmentOutcome,
         );
       }
       return;

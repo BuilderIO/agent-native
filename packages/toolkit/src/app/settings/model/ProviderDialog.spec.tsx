@@ -26,6 +26,7 @@ const callActionMock = vi.hoisted(() => vi.fn());
 const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
 const onboardingAbandonmentRequestMock = vi.hoisted(() => vi.fn());
 const credentialSaveBoundaryMock = vi.hoisted(() => vi.fn());
+const localEndpointSaveBoundaryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
@@ -54,6 +55,14 @@ vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
     credentialSaveBoundaryMock();
     const result = await save();
     onboardingOutcomeMock("credential_saved");
+    return result;
+  },
+  withCustomKeyOnboardingLocalEndpointSave: async (
+    save: () => Promise<unknown>,
+  ) => {
+    localEndpointSaveBoundaryMock();
+    const result = await save();
+    onboardingOutcomeMock("local_endpoint_saved");
     return result;
   },
 }));
@@ -206,6 +215,7 @@ describe("ProviderDialog", () => {
     onboardingOutcomeMock.mockReset();
     onboardingAbandonmentRequestMock.mockReset();
     credentialSaveBoundaryMock.mockReset();
+    localEndpointSaveBoundaryMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -471,7 +481,23 @@ describe("ProviderDialog", () => {
       scope: "org",
     });
     expect(credentialSaveBoundaryMock).not.toHaveBeenCalled();
-    expect(onboardingOutcomeMock).not.toHaveBeenCalled();
+    expect(localEndpointSaveBoundaryMock).toHaveBeenCalledOnce();
+    expect(onboardingOutcomeMock).toHaveBeenCalledWith("local_endpoint_saved");
+    expect(onboardingOutcomeMock).not.toHaveBeenCalledWith("credential_saved");
+  });
+
+  it("classifies dismissing Ollama setup separately from skipping credentials", () => {
+    render({ provider: "ollama" });
+
+    act(() => button("Cancel").click());
+
+    expect(onboardingOutcomeMock).toHaveBeenCalledExactlyOnceWith(
+      "local_endpoint_skipped",
+    );
+    expect(onboardingOutcomeMock).not.toHaveBeenCalledWith(
+      "credential_skipped",
+    );
+    expect(onboardingAbandonmentRequestMock).not.toHaveBeenCalled();
   });
 
   it("manages a saved key: masked, checked on save, and models only", async () => {

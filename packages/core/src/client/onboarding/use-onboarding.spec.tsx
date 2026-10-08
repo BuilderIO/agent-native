@@ -11,10 +11,12 @@ const analyticsSessionIdMock = vi.hoisted(() =>
 const analyticsIdentityKeyMock = vi.hoisted(() =>
   vi.fn(() => "browser-identity-42"),
 );
+const analyticsIdentityResolverMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../analytics.js", () => ({
   getAnalyticsIdentityKey: () => analyticsIdentityKeyMock(),
   getAnalyticsSessionId: () => analyticsSessionIdMock(),
+  resolveAnalyticsIdentityKey: () => analyticsIdentityResolverMock(),
   trackEvent: trackEventMock,
 }));
 
@@ -28,6 +30,7 @@ import {
   useCustomKeyOnboardingAttemptLifecycle,
   useOnboarding,
   withCustomKeyOnboardingCredentialSave,
+  withCustomKeyOnboardingLocalEndpointSave,
   type UseOnboardingResult,
 } from "./use-onboarding.js";
 
@@ -37,6 +40,9 @@ beforeEach(() => {
   __resetOnboardingSummaryReadsForTests();
   analyticsSessionIdMock.mockReturnValue("browser-session-42");
   analyticsIdentityKeyMock.mockReturnValue("browser-identity-42");
+  analyticsIdentityResolverMock.mockImplementation(() =>
+    Promise.resolve(analyticsIdentityKeyMock()),
+  );
 });
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
@@ -407,8 +413,8 @@ describe("trackOnboardingEvent", () => {
     expect(trackEventMock).toHaveBeenCalledTimes(2);
   });
 
-  it("links custom-key outcomes to the handed-off attempt without recording values", () => {
-    setCustomKeyOnboardingAttempt("attempt-1");
+  it("links custom-key outcomes to the handed-off attempt without recording values", async () => {
+    await setCustomKeyOnboardingAttempt("attempt-1");
 
     expect(trackCustomKeyOnboardingOutcome("credential_entry_started")).toBe(
       "tracked",
@@ -454,8 +460,8 @@ describe("trackOnboardingEvent", () => {
     ]);
   });
 
-  it("preserves a custom-key attempt when the browser session rotates", () => {
-    setCustomKeyOnboardingAttempt("attempt-session-rotation");
+  it("preserves a custom-key attempt when the browser session rotates", async () => {
+    await setCustomKeyOnboardingAttempt("attempt-session-rotation");
     analyticsSessionIdMock.mockReturnValue("browser-session-43");
 
     expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
@@ -468,8 +474,8 @@ describe("trackOnboardingEvent", () => {
     );
   });
 
-  it("discards a custom-key attempt after the analytics identity changes", () => {
-    setCustomKeyOnboardingAttempt("attempt-identity-rotation");
+  it("discards a custom-key attempt after the analytics identity changes", async () => {
+    await setCustomKeyOnboardingAttempt("attempt-identity-rotation");
     analyticsIdentityKeyMock.mockReturnValue("browser-identity-43");
 
     expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe(
@@ -478,8 +484,56 @@ describe("trackOnboardingEvent", () => {
     expect(trackEventMock).not.toHaveBeenCalled();
   });
 
-  it("discards a custom-key attempt carried into another document without abandonment", () => {
-    setCustomKeyOnboardingAttempt("attempt-old-document");
+  it("does not store a custom-key attempt until analytics identity resolves", async () => {
+    let resolveIdentity!: (identity: string | undefined) => void;
+    analyticsIdentityResolverMock.mockReturnValueOnce(
+      new Promise<string | undefined>((resolve) => {
+        resolveIdentity = resolve;
+      }),
+    );
+
+    const attempt = setCustomKeyOnboardingAttempt(
+      "attempt-unresolved-identity",
+    );
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).toBeNull();
+
+    resolveIdentity("resolved-user-identity");
+    expect(await attempt).toBe("stored");
+    const stored = JSON.parse(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ) ?? "null",
+    ) as { identityKey?: string } | null;
+    expect(stored?.identityKey).toBe("resolved-user-identity");
+  });
+
+  it("uses a terminal local-endpoint outcome without a credential outcome", async () => {
+    await setCustomKeyOnboardingAttempt("attempt-local-endpoint-skipped");
+
+    expect(trackCustomKeyOnboardingOutcome("local_endpoint_skipped")).toBe(
+      "tracked",
+    );
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-local-endpoint-skipped",
+        outcome: "local_endpoint_skipped",
+      }),
+    );
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).toBeNull();
+  });
+
+  it("discards a custom-key attempt carried into another document without abandonment", async () => {
+    await setCustomKeyOnboardingAttempt("attempt-old-document");
     const key = "agent-native.onboarding.custom_keys_attempt";
     const stored = window.sessionStorage.getItem(key);
     expect(stored).not.toBeNull();
@@ -523,7 +577,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
   });
 
   it("preserves the attempt during a back-forward cache pagehide", async () => {
-    setCustomKeyOnboardingAttempt("attempt-bfcache");
+    await setCustomKeyOnboardingAttempt("attempt-bfcache");
     await act(async () => root?.render(<Harness />));
 
     const event = new Event("pagehide");
@@ -535,7 +589,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
   });
 
   it("discards a stale attempt when a new document enters settings", async () => {
-    setCustomKeyOnboardingAttempt("attempt-new-document");
+    await setCustomKeyOnboardingAttempt("attempt-new-document");
     const key = "agent-native.onboarding.custom_keys_attempt";
     const stored = window.sessionStorage.getItem(key);
     expect(stored).not.toBeNull();
@@ -553,7 +607,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
   });
 
   it("records abandonment when the settings route unmounts", async () => {
-    setCustomKeyOnboardingAttempt("attempt-route-exit");
+    await setCustomKeyOnboardingAttempt("attempt-route-exit");
     await act(async () => root?.render(<Harness />));
     await act(async () => {
       root?.unmount();
@@ -571,7 +625,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
   });
 
   it("keeps an attempt through settings unmount until a pending save succeeds", async () => {
-    setCustomKeyOnboardingAttempt("attempt-save-during-unmount");
+    await setCustomKeyOnboardingAttempt("attempt-save-during-unmount");
     await act(async () => root?.render(<Harness />));
 
     let resolveSave!: () => void;
@@ -616,7 +670,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
   });
 
   it("resolves a requested abandonment to the pending save outcome", async () => {
-    setCustomKeyOnboardingAttempt("attempt-dismiss-pending-save");
+    await setCustomKeyOnboardingAttempt("attempt-dismiss-pending-save");
 
     let resolveSave!: () => void;
     const save = withCustomKeyOnboardingCredentialSave(
@@ -655,7 +709,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
   });
 
   it("records abandonment after a dismissed pending save fails", async () => {
-    setCustomKeyOnboardingAttempt("attempt-dismiss-failed-save");
+    await setCustomKeyOnboardingAttempt("attempt-dismiss-failed-save");
 
     let rejectSave!: (error: Error) => void;
     const save = withCustomKeyOnboardingCredentialSave(
@@ -688,8 +742,71 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
     ).toBeNull();
   });
 
+  it("classifies a dismissed pending local endpoint save by its result", async () => {
+    await setCustomKeyOnboardingAttempt("attempt-local-endpoint-save");
+
+    let resolveSave!: () => void;
+    const save = withCustomKeyOnboardingLocalEndpointSave(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    requestCustomKeyOnboardingAbandonment();
+
+    expect(trackEventMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSave();
+      await save;
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-local-endpoint-save",
+        outcome: "local_endpoint_saved",
+      }),
+    );
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps local endpoint abandonment separate when its pending save fails", async () => {
+    await setCustomKeyOnboardingAttempt("attempt-local-endpoint-failed-save");
+
+    let rejectSave!: (error: Error) => void;
+    const save = withCustomKeyOnboardingLocalEndpointSave(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        }),
+    );
+    requestCustomKeyOnboardingAbandonment();
+
+    await act(async () => {
+      rejectSave(new Error("save failed"));
+      await expect(save).rejects.toThrow("save failed");
+    });
+
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-local-endpoint-failed-save",
+        outcome: "local_endpoint_abandoned",
+      }),
+    );
+    expect(trackEventMock.mock.calls[0]?.[1]).not.toMatchObject({
+      outcome: "credential_abandoned",
+    });
+  });
+
   it("records page-exit abandonment while a save is still pending", async () => {
-    setCustomKeyOnboardingAttempt("attempt-failed-save-after-unmount");
+    await setCustomKeyOnboardingAttempt("attempt-failed-save-after-unmount");
     await act(async () => root?.render(<Harness />));
 
     let rejectSave!: (error: Error) => void;
@@ -726,7 +843,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
   });
 
   it("leaves an attempt available for retry after a save fails while settings stays mounted", async () => {
-    setCustomKeyOnboardingAttempt("attempt-retry-save");
+    await setCustomKeyOnboardingAttempt("attempt-retry-save");
     await act(async () => root?.render(<Harness />));
 
     await expect(
@@ -754,7 +871,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
   });
 
   it("does not treat Strict Mode effect replay as abandonment", async () => {
-    setCustomKeyOnboardingAttempt("attempt-strict-mode");
+    await setCustomKeyOnboardingAttempt("attempt-strict-mode");
     await act(async () => {
       root?.render(
         <React.StrictMode>
