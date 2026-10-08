@@ -172,10 +172,6 @@ export function isBrowserSessionPath(pathname: string) {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
-export function isConflictResourceConsoleError(message: string) {
-  return /\bstatus of 409\b/.test(message);
-}
-
 export function authoringFuzzLineNavigationKeys(
   platform: string,
   override?: ReturnType<typeof lineNavigationKeys>,
