@@ -27,6 +27,7 @@ export interface AgentTeamRunPayload {
   name?: string;
   allowedActionNames?: string[];
   noProgressCount?: number;
+  hitContinuationLimit?: boolean;
   transcriptRunIds?: string[];
   turnId: string;
 }

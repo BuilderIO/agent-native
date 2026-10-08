@@ -19,6 +19,7 @@ let failNextDispatchStateRead = false;
 let failDispatchStateReadAt: number | null = null;
 let dispatchStateReadCount = 0;
 let reclaimAfterNextDispatchStateRead = false;
+let completeAfterNextDispatchStateRead = false;
 let failParentCompletionReadFor: string | null = null;
 let rejectNextThreadDataUpdate = false;
 let failTaskProjectionFor: {
@@ -283,6 +284,13 @@ const queueDb = {
       }
       const r = queueRows.find((x) => x.task_id === args[0]);
       const rows = r ? [{ ...r }] : [];
+      if (completeAfterNextDispatchStateRead) {
+        completeAfterNextDispatchStateRead = false;
+        if (r) {
+          r.status = "done";
+          r.updated_at = Date.now();
+        }
+      }
       if (reclaimAfterNextDispatchStateRead) {
         reclaimAfterNextDispatchStateRead = false;
         await queue.claimAgentTeamRun(String(args[0]));
@@ -691,6 +699,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     failDispatchStateReadAt = null;
     dispatchStateReadCount = 0;
     reclaimAfterNextDispatchStateRead = false;
+    completeAfterNextDispatchStateRead = false;
     failParentCompletionReadFor = null;
     rejectNextThreadDataUpdate = false;
     failTaskProjectionFor = null;
@@ -824,6 +833,34 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(insertNotificationMock).toHaveBeenCalledWith(
       expect.objectContaining({ body: completedResponse.slice(0, 300) }),
     );
+  });
+
+  it("does not stop a task whose queue attempt completed concurrently", async () => {
+    await seedTask("stop-after-completion");
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "stop-after-completion",
+    );
+    if (!row) throw new Error("missing queued task row");
+    row.status = "running";
+    row.attempts = 1;
+    completeAfterNextDispatchStateRead = true;
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-stop-after-completion"),
+      ),
+    ).resolves.toEqual({ ok: false, error: "Task is not running" });
+
+    expect(appState.get("agent-task:stop-after-completion")).toMatchObject({
+      status: "running",
+      summary: "",
+    });
+    expect(
+      (await queue.getAgentTeamRunDispatchState("stop-after-completion"))
+        ?.status,
+    ).toBe("done");
+    expect(abortRunMock).not.toHaveBeenCalled();
+    expect(completeProgressRunMock).not.toHaveBeenCalled();
   });
 
   it("does not replay completed actions when terminal transcript persistence fails", async () => {
@@ -1743,6 +1780,44 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     ]);
   });
 
+  it("includes the claimed attempt when reading a failed task transcript", async () => {
+    const taskId = "failed-transcript";
+    await seedTask(taskId);
+    const task = appState.get(`agent-task:${taskId}`);
+    Object.assign(task, {
+      status: "errored",
+      terminalProgressStatus: "failed",
+    });
+    appState.set(`agent-task:${taskId}`, task);
+    const row = queueRows.find((candidate) => candidate.task_id === taskId);
+    if (!row) throw new Error("missing queued task row");
+    row.status = "failed";
+    row.attempts = 3;
+    row.continuation_count = 2;
+    getRunEventsSinceMock.mockImplementation(async (runId: string) =>
+      runId === `run-task-${taskId}-a3-c2`
+        ? [
+            {
+              seq: 0,
+              eventData: JSON.stringify({
+                type: "text",
+                text: "output from failed attempt",
+              }),
+            },
+          ]
+        : [],
+    );
+
+    const events = await runWithRequestContext({ userEmail: OWNER }, () =>
+      listAgentTeamBackgroundTranscriptEvents(`run-task-${taskId}`),
+    );
+
+    expect(events.map((event) => event.message)).toEqual([
+      "output from failed attempt",
+    ]);
+    expect(events[0]?.metadata?.sourceRunId).toBe(`run-task-${taskId}-a3-c2`);
+  });
+
   it("fails a live transcript read when active queue state is unreadable", async () => {
     await seedTask("active-transcript-read-failure");
     const task = appState.get("agent-task:active-transcript-read-failure");
@@ -2122,6 +2197,9 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       opts.send({ type: "auto_continue", reason: "run_timeout" });
     });
     await seedTask("tp-no-progress");
+    const seededTask = appState.get("agent-task:tp-no-progress");
+    seededTask.parentThreadId = "parent-no-progress";
+    appState.set("agent-task:tp-no-progress", seededTask);
 
     await processAgentTeamRun({
       taskId: "tp-no-progress",
@@ -2145,6 +2223,10 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       body: { mode: "continue", noProgressCount: 2 },
     });
 
+    failTaskProjectionFor = {
+      taskId: "tp-no-progress",
+      status: "completed",
+    };
     await processAgentTeamRun({
       taskId: "tp-no-progress",
       mode: "continue",
@@ -2152,13 +2234,34 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       resolveConfig: async () => resolveConfig(),
     });
 
-    const task = appState.get("agent-task:tp-no-progress");
-    expect(task.status).toBe("completed");
-    expect(task.summary).toContain("[hit-continuation-limit]");
+    const dispatch = await queue.getAgentTeamRunDispatchState("tp-no-progress");
+    expect(dispatch).toMatchObject({
+      status: "done",
+      payload: { hitContinuationLimit: true },
+    });
+    expect(appState.get("agent-task:tp-no-progress").status).toBe("running");
+
+    const task = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("tp-no-progress"),
+    );
+    expect(task).toMatchObject({
+      status: "completed",
+      hitContinuationLimit: true,
+    });
+    expect(task?.summary).toContain("[hit-continuation-limit]");
     expect(
       (await queue.getAgentTeamRunDispatchState("tp-no-progress"))?.status,
     ).toBe("done");
     expect(dispatches).toHaveLength(2);
+    expect(
+      appState.get("parent-completion:parent-no-progress:inj-tp-no-progress"),
+    ).toMatchObject({
+      hitContinuationLimit: true,
+      summaryExcerpt: expect.stringContaining("[hit-continuation-limit]"),
+    });
+    expect(insertNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining("hit limit") }),
+    );
   });
 
   it("resets no-progress counter when a chunk makes progress", async () => {
