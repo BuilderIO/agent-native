@@ -4481,6 +4481,7 @@ function DesignEditor() {
   const deleteDesignMutation = useActionMutation("delete-design");
   const [trashDialogOpen, setTrashDialogOpen] = useState(false);
   const importPanelRef = useRef<DesignImportPanelHandle | null>(null);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const suppressFileMenuReturnFocusRef = useRef(false);
   const saveDesignAsTemplateMutation = useActionMutation(
@@ -26121,11 +26122,22 @@ function DesignEditor() {
       const file = event.target.files?.[0];
       event.target.value = "";
       if (!file) return;
+      setMinimalUi(false);
+      setUiHidden(false);
       setActiveLeftPanel("import");
-      importPanelRef.current?.importFile(file);
+      setPendingImportFile(file);
     },
     [],
   );
+
+  // The import panel lives in the left sidebar, which is unmounted in minimal
+  // UI, so hand the file over only once that sidebar is back.
+  const importPanelMounted = !hostOwnsChrome && !uiHidden && !minimalUi;
+  useEffect(() => {
+    if (!pendingImportFile || !importPanelMounted) return;
+    importPanelRef.current?.importFile(pendingImportFile);
+    setPendingImportFile(null);
+  }, [pendingImportFile, importPanelMounted]);
 
   if (!id) return null;
 
