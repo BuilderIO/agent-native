@@ -28,6 +28,7 @@ import {
   ActionTransportError,
   CouldNotRun,
   getHarnessUnavailableError,
+  isPlaywrightTimeoutFailure,
   isPlaywrightTargetTransportFailure,
   rethrowIfHarnessUnavailable,
   runSetupActionAsCouldNotRun,
@@ -150,6 +151,24 @@ it("classifies raw Playwright target failures as could-not-run", () => {
   expect(() =>
     rethrowIfHarnessUnavailable(new Error("Timeout 45000ms exceeded")),
   ).not.toThrow();
+});
+
+it("recognizes Playwright selector timeouts without treating app errors as setup failures", () => {
+  expect(
+    isPlaywrightTimeoutFailure(new Error("Timeout 45000ms exceeded")),
+  ).toBe(true);
+  expect(
+    isPlaywrightTimeoutFailure(
+      Object.assign(new Error("waiting for selector"), {
+        name: "TimeoutError",
+      }),
+    ),
+  ).toBe(true);
+  expect(
+    isPlaywrightTimeoutFailure(
+      new Error("create-deck request timed out after 30000ms"),
+    ),
+  ).toBe(false);
 });
 
 it("classifies authoring sign-in transport failures as setup errors", async () => {

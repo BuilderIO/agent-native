@@ -10,6 +10,14 @@ export function isPlaywrightTargetTransportFailure(error: unknown) {
   return PLAYWRIGHT_TARGET_TRANSPORT_FAILURE.test(message);
 }
 
+export function isPlaywrightTimeoutFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    (error instanceof Error && error.name === "TimeoutError") ||
+    /\bTimeout \d+ms exceeded\b/i.test(message)
+  );
+}
+
 export async function runSetupAsCouldNotRun<T>(
   label: string,
   run: () => Promise<T>,

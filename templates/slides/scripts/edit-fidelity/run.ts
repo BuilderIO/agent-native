@@ -72,6 +72,7 @@ import {
   ActionTransportError,
   CouldNotRun,
   getHarnessUnavailableError,
+  isPlaywrightTimeoutFailure,
   isPlaywrightTargetTransportFailure,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
@@ -961,7 +962,8 @@ async function openSlide(
       if (
         options.initialOpenAsSetup &&
         failedStage === "canvas" &&
-        isPlaywrightTargetTransportFailure(error)
+        (isPlaywrightTargetTransportFailure(error) ||
+          isPlaywrightTimeoutFailure(error))
       ) {
         throw new CouldNotRun(
           `could not wait for authoring fuzz slide canvas: ${detail}`,
