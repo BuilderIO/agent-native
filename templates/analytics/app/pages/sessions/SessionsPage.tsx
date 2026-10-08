@@ -334,14 +334,16 @@ export function ReplayStorageHint({
                   {t("sessions.storageSetupTitle")}
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {!builderStatusLoading && !canConnectBuilder
-                    ? t("dataSources.workspaceAdminRequiredDescription", {
-                        name: "Builder.io",
-                      })
-                    : builderAiConnected &&
-                        storageStatus.data?.builderUploadConfigured === false
-                      ? t("sessions.builderAiConnectedStorageNeedsGrant")
-                      : t("sessions.storageSetupDescription")}
+                  {builderConnect.statusUnavailable
+                    ? builderConnect.error
+                    : !builderStatusLoading && !canConnectBuilder
+                      ? t("dataSources.workspaceAdminRequiredDescription", {
+                          name: "Builder.io",
+                        })
+                      : builderAiConnected &&
+                          storageStatus.data?.builderUploadConfigured === false
+                        ? t("sessions.builderAiConnectedStorageNeedsGrant")
+                        : t("sessions.storageSetupDescription")}
                 </p>
               </div>
             </div>
@@ -379,6 +381,18 @@ export function ReplayStorageHint({
                   : t("sessions.connectBuilder")}
               </Button>
             </BuilderConnectPopover>
+            {builderConnect.statusUnavailable ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="builder-status-retry"
+                onClick={() => builderConnect.retry()}
+                disabled={builderStatus.loading || builderConnect.connecting}
+              >
+                {t("sidebar.retry")}
+              </Button>
+            ) : null}
             <CollapsibleTrigger asChild>
               <Button type="button" variant="ghost" size="sm">
                 <IconServer className="h-3.5 w-3.5" />

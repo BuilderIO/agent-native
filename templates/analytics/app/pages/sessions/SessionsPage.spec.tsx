@@ -20,6 +20,9 @@ const builderMocks = vi.hoisted(() => ({
   effective: null as "org" | "personal" | "workspace" | "env" | null,
   canConnect: { org: true, personal: true },
   start: vi.fn(),
+  retry: vi.fn(),
+  error: null as string | null,
+  statusUnavailable: false,
   status: null as { configured?: boolean; effective?: string } | null,
   statusLoading: false,
 }));
@@ -58,6 +61,9 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
     hasFetchedStatus: true,
     canConnect: builderMocks.canConnect,
     start: builderMocks.start,
+    retry: builderMocks.retry,
+    error: builderMocks.error,
+    statusUnavailable: builderMocks.statusUnavailable,
   }),
   useBuilderStatus: () => ({
     status: builderMocks.status,
@@ -173,6 +179,9 @@ describe("ReplayStorageHint", () => {
     builderMocks.effective = null;
     builderMocks.canConnect = { org: true, personal: true };
     builderMocks.start.mockReset();
+    builderMocks.retry.mockReset();
+    builderMocks.error = null;
+    builderMocks.statusUnavailable = false;
     builderMocks.status = null;
     builderMocks.statusLoading = false;
     storageMocks.useReplayStorageStatus.mockReturnValue({
@@ -225,6 +234,30 @@ describe("ReplayStorageHint", () => {
         button.textContent?.includes("settings.saveStorage"),
       ),
     ).toBe(true);
+  });
+
+  it("keeps the Builder status retry available when connection access is unknown", async () => {
+    builderMocks.canConnect = { org: false, personal: false };
+    builderMocks.statusUnavailable = true;
+    builderMocks.error = "Could not read Builder status";
+
+    await act(async () => {
+      root.render(<ReplayStorageHint />);
+    });
+
+    expect(container.textContent).toContain("Could not read Builder status");
+    expect(container.textContent).not.toContain(
+      "dataSources.workspaceAdminRequiredDescription",
+    );
+    const retry = container.querySelector<HTMLButtonElement>(
+      '[data-testid="builder-status-retry"]',
+    );
+    expect(retry?.disabled).toBe(false);
+
+    await act(async () => retry?.click());
+
+    expect(builderMocks.retry).toHaveBeenCalledOnce();
+    expect(builderMocks.start).not.toHaveBeenCalled();
   });
 
   it.each(["org", "personal"] as const)(
