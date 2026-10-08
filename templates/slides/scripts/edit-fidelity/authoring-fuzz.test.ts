@@ -53,6 +53,17 @@ it("keeps authoring page setup errors out of seed regression results", async () 
   ).rejects.toBe(setupError);
 });
 
+it("classifies authoring sign-in transport failures as setup errors", async () => {
+  await expect(
+    runSetupAsCouldNotRun("could not sign in authoring fuzz page", async () => {
+      throw new TypeError("Failed to fetch");
+    }),
+  ).rejects.toMatchObject({
+    message:
+      "could not sign in authoring fuzz page: TypeError: Failed to fetch",
+  });
+});
+
 it("requires a markdown shortcut to add its result markup", () => {
   expect(() => assertShortcutMarkupAdded("bullet", 0, 1)).not.toThrow();
   expect(() => assertShortcutMarkupAdded("bullet", 1, 1)).toThrow(

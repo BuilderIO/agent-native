@@ -4958,7 +4958,9 @@ async function runAuthoringFuzzQa(
         () =>
           activePage.goto(`${base}/home`, { waitUntil: "domcontentloaded" }),
       );
-      await ensureSignedIn(activePage);
+      await runSetupAsCouldNotRun("could not sign in authoring fuzz page", () =>
+        ensureSignedIn(activePage),
+      );
       await activePage.setViewportSize(
         profile?.kind === "scaled"
           ? { width: 850, height: 650 }
