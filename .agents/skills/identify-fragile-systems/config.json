@@ -1,0 +1,48 @@
+{
+  "repo": "BuilderIO/agent-native",
+  "baseBranch": "main",
+  "windowHours": 24,
+  "lookbackDays": 21,
+  "reFixDays": 7,
+  "minWindowCommits": 2,
+  "maxHotSystems": 15,
+  "systemDepth": {
+    "packages": 4,
+    "templates": 4,
+    "default": 2
+  },
+  "ignoreSubjects": [
+    "^chore: release packages",
+    "^Version Packages",
+    "^chore\\(deps"
+  ],
+  "ignorePaths": [
+    "(^|/)pnpm-lock\\.yaml$",
+    "(^|/)CHANGELOG\\.md$",
+    "^\\.changeset/",
+    "(^|/)changelog/",
+    "\\.snap$",
+    "^packages/core/docs/content/locales/"
+  ],
+  "mechanicalPaths": [
+    "(^|/)i18n/",
+    "(^|/)locales?/",
+    "i18n-catalog-english-value-baseline\\.txt$"
+  ],
+  "plansDir": ".builder/plans/fragile-systems",
+  "dataDir": ".tmp/fragile-systems",
+  "jira": {
+    "baseUrl": "https://builder-io.atlassian.net",
+    "projectKey": "ENG",
+    "issueType": "Task",
+    "label": "refactor-findings",
+    "podField": "customfield_10089",
+    "podValue": "Agent Native",
+    "propertyKey": "fragility-finding",
+    "sightingCooldownDays": 7,
+    "email": "sami@builder.io",
+    "emailEnv": "JIRA_REFACTORY_EMAIL",
+    "tokenEnv": "JIRA_SAMI_REFACTORY_TOKEN",
+    "maxNewTicketsPerRun": 3
+  }
+}
