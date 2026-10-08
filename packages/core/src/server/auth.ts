@@ -4752,12 +4752,9 @@ function isMcpDirectoryWidgetReadCapabilityApplicationStateRequest(
   if (!isMcpDirectoryWidgetReadCapabilityScope(scope)) return false;
 
   const rawUrl = event.node?.req?.url ?? event.path ?? "/";
-  let pathname: string;
-  try {
-    pathname = new URL(rawUrl, "http://agent-native.invalid").pathname;
-  } catch {
-    return false;
-  }
+  const base = "http://agent-native.invalid";
+  if (!URL.canParse(rawUrl, base)) return false;
+  const pathname = new URL(rawUrl, base).pathname;
 
   const canonicalPath = canonicalFrameworkPathname(pathname);
   const statePath = `${FRAMEWORK_INTERNAL_ROUTE_PREFIX}/application-state`;
