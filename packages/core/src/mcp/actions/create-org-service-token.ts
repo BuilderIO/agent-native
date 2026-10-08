@@ -47,6 +47,7 @@ export default defineAction({
       .optional()
       .describe("Token lifetime in days (1-3650, default 365)"),
   }),
+  requiresAuth: true,
   toolCallable: false,
   run: async (args, ctx) => {
     const caller = await requireServiceTokenCaller({
