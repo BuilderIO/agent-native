@@ -5826,10 +5826,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.body ? document.body.querySelectorAll("*") : []
       );
       var scope = null;
+      var limitToGestureScope = Boolean(gestureScope);
       if (!deep) {
         scope = gestureScope || selectionContainerScope;
         if (!scope || !document.documentElement.contains(scope)) {
           scope = document.body;
+          limitToGestureScope = false;
         }
       }
       var seen = /* @__PURE__ */ new Set();
@@ -5839,8 +5841,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var target = selectionTargetForHit(node);
-        if (target && scope && scope.contains(target)) {
-          target = containerScopeAncestor(target, scope);
+        if (target && scope) {
+          if (scope.contains(target)) {
+            target = containerScopeAncestor(target, scope);
+          } else if (limitToGestureScope) {
+            return;
+          }
         }
         if (!target || target === scope || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
           return;

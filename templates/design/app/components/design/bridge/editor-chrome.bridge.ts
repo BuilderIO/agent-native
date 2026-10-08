@@ -6768,10 +6768,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.body ? document.body.querySelectorAll("*") : [],
     ) as Element[];
     var scope: Element | null = null;
+    // A background-started marquee stays within its scope when the box crosses its edge.
+    var limitToGestureScope = Boolean(gestureScope);
     if (!deep) {
       scope = gestureScope || selectionContainerScope;
       if (!scope || !document.documentElement.contains(scope)) {
         scope = document.body;
+        limitToGestureScope = false;
       }
     }
     var seen = new Set<Element>();
@@ -6781,8 +6784,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       var target = selectionTargetForHit(node);
-      if (target && scope && scope.contains(target)) {
-        target = containerScopeAncestor(target, scope);
+      if (target && scope) {
+        if (scope.contains(target)) {
+          target = containerScopeAncestor(target, scope);
+        } else if (limitToGestureScope) {
+          return;
+        }
       }
       if (
         !target ||

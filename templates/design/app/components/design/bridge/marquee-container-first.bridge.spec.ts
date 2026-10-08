@@ -36,6 +36,11 @@ const WRAPPED_CONTAINER_FIXTURE = `<!doctype html><html><body style="margin:0">
            style="position:absolute;left:16px;top:16px;width:110px;height:80px;background:#3b82f6"></div>
     </div>
   </div>
+  <div data-agent-native-node-id="outside-container" data-agent-native-layer-name="Outside"
+       style="position:absolute;left:500px;top:80px;width:180px;height:200px;background:#0f766e">
+    <div data-agent-native-node-id="outside-kid" data-agent-native-layer-name="Outside Kid"
+         style="position:absolute;left:16px;top:16px;width:100px;height:80px;background:#f97316"></div>
+  </div>
 </body></html>`;
 
 async function marqueeSelectedIds(
@@ -99,7 +104,7 @@ describe("marquee selects at the current container level", () => {
     }
   });
 
-  it("excludes the background container when a marquee extends beyond it", async () => {
+  it("keeps a background-origin marquee scoped when it crosses the container boundary", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage();
@@ -114,7 +119,7 @@ describe("marquee selects at the current container level", () => {
 
       expect(
         selected,
-        "a background-origin marquee should select the direct Card child, not collapse to Wrapper",
+        "a background-origin marquee should select only direct children within its gesture scope",
       ).toEqual(["card"]);
     } finally {
       await browser.close();
