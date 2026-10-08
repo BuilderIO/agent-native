@@ -4949,7 +4949,13 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
   const resolvePackageDirectory = (
     segments: string[],
     fromPackageDir?: string,
+    resolvedPackageDir?: string,
   ): string | null => {
+    if (resolvedPackageDir) {
+      const resolved = fs.realpathSync(resolvedPackageDir);
+      if (!isWithinFunction(resolved)) return null;
+      return fs.statSync(resolved).isDirectory() ? resolved : null;
+    }
     let current = fromPackageDir ?? functionRoot;
     if (!isWithinFunction(current)) return null;
     while (isWithinFunction(current)) {
@@ -4973,14 +4979,30 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
     }
     return null;
   };
-  const collect = (names: Iterable<string>): Set<string> => {
+  type PackageReference = {
+    name: string;
+    fromPackageDir: string;
+    resolvedPackageDir?: string;
+  };
+  type PackageRequest = string | PackageReference;
+  const collect = (
+    roots: Iterable<PackageRequest>,
+    scanPackageReferences?: (packageDir: string) => Iterable<PackageReference>,
+  ): Set<string> => {
     const collected = new Set<string>();
     const visited = new Set<string>();
-    const visit = (name: string, fromPackageDir?: string) => {
+    const visit = (request: PackageRequest, parentPackageDir?: string) => {
+      const name = typeof request === "string" ? request : request.name;
+      const fromPackageDir =
+        typeof request === "string" ? parentPackageDir : request.fromPackageDir;
       const segments = packageSegments(name);
       if (!segments) return;
       collected.add(name);
-      const packageDir = resolvePackageDirectory(segments, fromPackageDir);
+      const packageDir = resolvePackageDirectory(
+        segments,
+        fromPackageDir,
+        typeof request === "string" ? undefined : request.resolvedPackageDir,
+      );
       if (!packageDir) return;
       const manifest = readPackageManifest(packageDir);
       const version =
@@ -4988,6 +5010,10 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
       const identity = `${packageDir}\0${version}`;
       if (visited.has(identity)) return;
       visited.add(identity);
+      if (scanPackageReferences) {
+        for (const reference of scanPackageReferences(packageDir))
+          visit(reference);
+      }
       for (const field of [
         ...RUNTIME_PACKAGE_DEPENDENCY_FIELDS,
         "peerDependencies",
@@ -5003,7 +5029,7 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
           visit(dependency, packageDir);
       }
     };
-    for (const name of names) visit(name);
+    for (const root of roots) visit(root);
     return collected;
   };
   const candidates = collect([
@@ -5024,27 +5050,94 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
         !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name),
     ),
   );
+  const findCandidateReferences = (filePath: string): PackageReference[] => {
+    const source = fs.readFileSync(filePath, "utf8");
+    const fromPackageDir = path.dirname(fs.realpathSync(filePath));
+    if (!isWithinFunction(fromPackageDir)) return [];
+    const references = new Map<string, PackageReference>();
+    const addReference = (reference: PackageReference) => {
+      const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
+      references.set(identity, reference);
+    };
+    const findResolvedCandidate = (
+      specifier: string,
+    ): { name: string; resolvedPackageDir: string } | undefined => {
+      if (
+        !specifier.startsWith("./") &&
+        !specifier.startsWith("../") &&
+        !path.isAbsolute(specifier)
+      )
+        return;
+      const target = path.resolve(fromPackageDir, specifier);
+      if (!isWithinFunction(target)) return;
+      let match:
+        | { name: string; resolvedPackageDir: string; markerStart: number }
+        | undefined;
+      for (const name of candidates) {
+        if (SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)) continue;
+        const marker = `${path.sep}node_modules${path.sep}${name
+          .split("/")
+          .join(path.sep)}`;
+        const markerStart = target.lastIndexOf(marker);
+        const suffix = target[markerStart + marker.length];
+        if (markerStart < 0 || (suffix !== undefined && suffix !== path.sep))
+          continue;
+        const candidateDir = target.slice(0, markerStart + marker.length);
+        if (!fs.existsSync(candidateDir)) continue;
+        const resolvedPackageDir = fs.realpathSync(candidateDir);
+        if (
+          !isWithinFunction(resolvedPackageDir) ||
+          !fs.statSync(resolvedPackageDir).isDirectory()
+        )
+          continue;
+        if (!match || markerStart > match.markerStart)
+          match = { name, resolvedPackageDir, markerStart };
+      }
+      return (
+        match && {
+          name: match.name,
+          resolvedPackageDir: match.resolvedPackageDir,
+        }
+      );
+    };
+    const literalSpecifier =
+      /\b(?:import|export)\s+(?:[^;'"`]*?\s+from\s*)?(['"`])([^'"`]+)\1|\b(?:import|require)\s*\(\s*(['"`])([^'"`]+)\3/g;
+    for (const match of source.matchAll(literalSpecifier)) {
+      const specifier = match[2] ?? match[4];
+      if (!specifier) continue;
+      const resolved = findResolvedCandidate(specifier);
+      if (resolved) addReference({ ...resolved, fromPackageDir });
+    }
+    for (const name of candidates) {
+      if (
+        !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name) &&
+        (hasExternalSsrRuntimeReference(source, name) ||
+          ["/", '"', "'", "`"].some((boundary) =>
+            source.includes(`node_modules/${name}${boundary}`),
+          ))
+      )
+        addReference({ name, fromPackageDir });
+    }
+    return [...references.values()];
+  };
+  const emittedReferences: PackageReference[] = [];
   for (const entry of fs.readdirSync(functionDir)) {
     if (entry === "node_modules") continue;
     const file = path.join(functionDir, entry);
     const inspect = (filePath: string) => {
-      const source = fs.readFileSync(filePath, "utf8");
-      for (const name of candidates) {
-        if (
-          !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name) &&
-          (hasExternalSsrRuntimeReference(source, name) ||
-            ["/", '"', "'", "`"].some((boundary) =>
-              source.includes(`node_modules/${name}${boundary}`),
-            ))
-        )
-          retained.add(name);
-      }
+      emittedReferences.push(...findCandidateReferences(filePath));
     };
     if (fs.statSync(file).isDirectory())
       walkServerJavaScriptFiles(file, inspect);
     else if (/\.(?:[cm]?js)$/.test(entry)) inspect(file);
   }
-  const needed = collect(retained);
+  const needed = collect([...retained, ...emittedReferences], (packageDir) => {
+    const references: PackageReference[] = [];
+    walkServerJavaScriptFiles(packageDir, (filePath) => {
+      references.push(...findCandidateReferences(filePath));
+    });
+    return references;
+  });
   return new Set([...candidates].filter((name) => !needed.has(name)));
 }
 
