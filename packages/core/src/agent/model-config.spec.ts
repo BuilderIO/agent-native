@@ -390,6 +390,7 @@ describe("getContextWindowForModel", () => {
 
   it("uses current Builder and OpenRouter Grok context windows", () => {
     expect(getContextWindowForModel("grok-code-fast")).toBe(200_000);
+    expect(getContextWindowForModel("x-ai/grok-4.7")).toBe(500_000);
     expect(getContextWindowForModel("x-ai/grok-build-0.1")).toBe(256_000);
   });
 
@@ -484,6 +485,7 @@ describe("getContextWindowForModel", () => {
 describe("getMaxOutputTokensForModel", () => {
   it("uses current Grok completion limits for Builder and OpenRouter", () => {
     expect(getMaxOutputTokensForModel("grok-code-fast")).toBe(10_000);
+    expect(getMaxOutputTokensForModel("x-ai/grok-4.7")).toBe(450_000);
     expect(getMaxOutputTokensForModel("x-ai/grok-build-0.1")).toBe(230_400);
   });
 

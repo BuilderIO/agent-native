@@ -275,6 +275,28 @@ describe("useChatModels", () => {
     ).toBe("claude-sonnet-5-5");
   });
 
+  it("upgrades a current default using runtime models outside the picker subset", async () => {
+    stubCatalog({
+      builderConnected: true,
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-6-luna"],
+          runtimeSupportedModels: ["gpt-6-luna", "gemini-3-8-flash"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        },
+      ],
+      current: { engine: "builder", model: "gemini-3-7-flash" },
+    });
+
+    const catalog = await loadChatModelCatalog();
+
+    expect(catalog.state).toBe("available");
+    if (catalog.state !== "available") return;
+    expect(catalog.defaultModel).toBe("gemini-3-8-flash");
+  });
+
   it("preserves the default model for an engine with custom model IDs", async () => {
     stubCatalog({
       engines: [

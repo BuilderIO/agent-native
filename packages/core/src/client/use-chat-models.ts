@@ -204,12 +204,14 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
   const currentEngineModels = groups
     .filter((group) => group.engine === currentEngineName)
     .flatMap((group) => group.models);
+  const defaultModelCandidates =
+    currentEngine?.runtimeSupportedModels ?? currentEngineModels;
   const defaultModel = currentModel
     ? currentEngine?.preserveCustomModels
       ? currentModel
       : (upgradeModelForProvider(
           currentModel,
-          currentEngineModels,
+          defaultModelCandidates,
           currentEngineName ?? "",
         ) ?? currentModel)
     : DEFAULT_MODEL;

@@ -55,6 +55,25 @@ describe("upgradeModelForProvider", () => {
       upgradeModelForProvider("claude-sonnet-5", supportedModels, "anthropic"),
     ).toBeUndefined();
   });
+
+  it("upgrades retired OpenRouter model aliases for saved selections", () => {
+    const supportedModels = ["openai/gpt-6-luna", "x-ai/grok-build-0.1"];
+
+    expect(
+      upgradeModelForProvider(
+        "x-ai/grok-code-fast-1",
+        supportedModels,
+        "ai-sdk:openrouter",
+      ),
+    ).toBe("x-ai/grok-build-0.1");
+    expect(
+      upgradeModelForProvider(
+        "x-ai/grok-code-fast-1",
+        supportedModels,
+        "ai-sdk:anthropic",
+      ),
+    ).toBeUndefined();
+  });
 });
 
 describe("normalizeModelForEngine", () => {
@@ -124,5 +143,23 @@ describe("getModelOptionLabel", () => {
 
   it("formats malformed GPT IDs without throwing", () => {
     expect(getModelOptionLabel("gpt-5--luna")).toBe("gpt-5--luna");
+  });
+
+  it("formats current provider-prefixed model IDs as friendly names", () => {
+    expect(getModelOptionLabel("openai/gpt-5.5")).toBe("GPT-5.5");
+    expect(getModelOptionLabel("google/gemini-3.1-pro-preview")).toBe(
+      "Gemini 3.1 Pro",
+    );
+    expect(getModelOptionLabel("gemini-3.1-pro-preview")).toBe(
+      "Gemini 3.1 Pro Preview",
+    );
+    expect(getModelOptionLabel("deepseek/deepseek-v4-pro")).toBe(
+      "DeepSeek V4 Pro",
+    );
+    expect(getModelOptionLabel("qwen/qwen3-coder")).toBe("Qwen3 Coder");
+    expect(getModelOptionLabel("x-ai/grok-4.7")).toBe("Grok 4.7");
+    expect(getModelOptionLabel("tenant/custom-model")).toBe(
+      "tenant/custom-model",
+    );
   });
 });

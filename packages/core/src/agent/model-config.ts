@@ -18,6 +18,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "deepseek-v4-1-flash": 1_048_576,
   "deepseek/deepseek-v4.1-flash": 1_048_576,
   "grok-code-fast": 200_000,
+  "x-ai/grok-4.7": 500_000,
   "x-ai/grok-build-0.1": 256_000,
 
   "gpt-5-6-sol": 1_050_000,
@@ -142,6 +143,7 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "deepseek-v3-1": 32_768,
   "deepseek/deepseek-chat-v3.1": 32_768,
   "grok-code-fast": 10_000,
+  "x-ai/grok-4.7": 450_000,
   "x-ai/grok-build-0.1": 230_400,
 
   "gpt-5-6-sol": 40_000,

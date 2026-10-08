@@ -319,4 +319,43 @@ describe("ResourceEditor markdown editing", () => {
       ),
     ).toBe(true);
   });
+
+  it("uses friendly names for provider-prefixed custom-agent model choices", () => {
+    const engine = {
+      name: "ai-sdk:openrouter",
+      label: "OpenRouter",
+      defaultModel: "openai/gpt-5.5",
+      supportedModels: [
+        "openai/gpt-5.5",
+        "google/gemini-3.1-pro-preview",
+        "deepseek/deepseek-v4-pro",
+        "qwen/qwen3-coder",
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <ResourceEditor
+          resource={{
+            ...resource,
+            path: "agents/researcher.md",
+            content:
+              "---\nname: Researcher\nmodel: openai/gpt-5.5\n---\n# Research\n",
+          }}
+          onSave={vi.fn()}
+          view="visual"
+          modelEngine={engine}
+        />,
+      );
+    });
+
+    const options = Array.from(container.querySelector("select")!.options);
+    expect(options.map((option) => option.textContent)).toEqual([
+      "Default model",
+      "GPT-5.5",
+      "Gemini 3.1 Pro",
+      "DeepSeek V4 Pro",
+      "Qwen3 Coder",
+    ]);
+  });
 });
