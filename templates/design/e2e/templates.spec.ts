@@ -6,7 +6,63 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, enableFeatureFlag } from "./helpers";
+import { appPath } from "./helpers";
+
+async function setFeatureFlagRules(
+  page: Page,
+  key: string,
+  rules: Record<string, unknown>,
+) {
+  const response = await page.request.post(
+    `${e2eBaseURL()}/_agent-native/actions/set-feature-flag`,
+    { data: { operation: "replace-rules", key, rules } },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `set-feature-flag failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return response.json();
+}
+
+async function enableDesignSystemWorkflowsAndRestore(
+  page: Page,
+): Promise<() => Promise<void>> {
+  const response = await page.request.get(
+    `${e2eBaseURL()}/_agent-native/actions/list-feature-flags`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `list-feature-flags failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const listed = await response.json();
+  const key = "design-system-workflows";
+  const currentRules = listed.flags?.find(
+    (flag: { key: string }) => flag.key === key,
+  )?.rules;
+  if (!currentRules || !["off", "on", "rules"].includes(currentRules.mode)) {
+    throw new Error(`list-feature-flags did not return rules for ${key}`);
+  }
+  const previousRules = {
+    mode: currentRules.mode,
+    ...(currentRules.emails !== undefined && {
+      emails: currentRules.emails,
+    }),
+    ...(currentRules.orgIds !== undefined && {
+      orgIds: currentRules.orgIds,
+    }),
+    ...(currentRules.percentage !== undefined && {
+      percentage: currentRules.percentage,
+    }),
+  };
+
+  await setFeatureFlagRules(page, key, { mode: "on" });
+  return async () => {
+    const restored = await setFeatureFlagRules(page, key, previousRules);
+    expect(restored.rules).toMatchObject(previousRules);
+  };
+}
 
 async function postAction(
   request: APIRequestContext,
@@ -102,11 +158,13 @@ test("built-in template preserves its dimensions and locks and can be saved agai
       templateId: "preset-social-story",
     });
 
+    const created = await createResponseResult.json();
+    createdDesignId = created.id ?? created.data?.id ?? created.design?.id;
+    expect(createdDesignId).toBeTruthy();
     await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
       timeout: 30_000,
     });
-    createdDesignId = page.url().split("/design/").pop()?.split(/[?#]/)[0];
-    expect(createdDesignId).toBeTruthy();
+    expect(page.url()).toContain(`/design/${createdDesignId}`);
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
@@ -212,11 +270,13 @@ test("home Templates tab opens a built-in template design", async ({
       templateId: "preset-social-story",
     });
 
+    const created = await response.json();
+    createdDesignId = created.id ?? created.data?.id ?? created.design?.id;
+    expect(createdDesignId).toBeTruthy();
     await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
       timeout: 30_000,
     });
-    createdDesignId = page.url().split("/design/").pop()?.split(/[?#]/)[0];
-    expect(createdDesignId).toBeTruthy();
+    expect(page.url()).toContain(`/design/${createdDesignId}`);
     const design = await getAction(request, "get-design", {
       id: createdDesignId!,
     });
@@ -248,10 +308,8 @@ test("template copy clears a linked design system when explicitly requested", as
   let createdDesignId: string | undefined;
 
   try {
-    restoreDesignSystemWorkflows = await enableFeatureFlag(
-      page,
-      "design-system-workflows",
-    );
+    restoreDesignSystemWorkflows =
+      await enableDesignSystemWorkflowsAndRestore(page);
     const designSystem = await postAction(request, "create-design-system", {
       templateId: "material-3",
       title: `E2E system for template override ${Date.now()}`,

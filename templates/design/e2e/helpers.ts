@@ -120,46 +120,13 @@ export async function enableFeatureFlag(
   page: Page,
   key: string,
 ): Promise<() => Promise<void>> {
-  const response = await page.request.get(
-    `${e2eBaseUrl(page)}/_agent-native/actions/list-feature-flags`,
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `list-feature-flags failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  const listed = await response.json();
-  const currentRules = listed.flags?.find(
-    (flag: { key: string }) => flag.key === key,
-  )?.rules;
-  if (!currentRules || !["off", "on", "rules"].includes(currentRules.mode)) {
-    throw new Error(`list-feature-flags did not return rules for ${key}`);
-  }
-  const previousRules = {
-    mode: currentRules.mode,
-    ...(currentRules.emails !== undefined && {
-      emails: currentRules.emails,
-    }),
-    ...(currentRules.orgIds !== undefined && {
-      orgIds: currentRules.orgIds,
-    }),
-    ...(currentRules.percentage !== undefined && {
-      percentage: currentRules.percentage,
-    }),
-  };
-
   await postAction(page, "set-feature-flag", {
     operation: "replace-rules",
     key,
     rules: { mode: "on" },
   });
   return async () => {
-    const restored = await postAction(page, "set-feature-flag", {
-      operation: "replace-rules",
-      key,
-      rules: previousRules,
-    });
-    expect(restored.rules).toMatchObject(previousRules);
+    await postAction(page, "set-feature-flag", { operation: "off", key });
   };
 }
 
