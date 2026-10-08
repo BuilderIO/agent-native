@@ -74,7 +74,7 @@ import { readValueOption } from "./run-options.ts";
 import {
   ActionTransportError,
   CouldNotRun,
-  isActionEvaluationTransportFailure,
+  isPlaywrightTargetTransportFailure,
   rethrowIfCouldNotRun,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
@@ -707,7 +707,7 @@ async function action<T = any>(
     { name, body, method, timeoutMs },
   );
   const res = await evaluation.catch((error: unknown) => {
-    if (isActionEvaluationTransportFailure(error)) {
+    if (isPlaywrightTargetTransportFailure(error)) {
       throw new ActionTransportError(
         `${name} action evaluation failed: ${String(error)}`,
       );
@@ -898,7 +898,7 @@ async function openSlide(
   slideId: string,
   options: {
     canvasTimeoutMs?: number;
-    navigationFailureAsSetup?: boolean;
+    initialOpenAsSetup?: boolean;
     skipPointerMove?: boolean;
   } = {},
 ) {
@@ -910,7 +910,7 @@ async function openSlide(
           waitUntil: "domcontentloaded",
           timeout: 90_000,
         });
-      if (options.navigationFailureAsSetup) {
+      if (options.initialOpenAsSetup) {
         await runSetupAsCouldNotRun(
           "could not navigate to authoring fuzz slide",
           navigate,
@@ -953,6 +953,15 @@ async function openSlide(
       const detail = `${String(error)}\nCanvas wait page state: ${JSON.stringify(pageState)}`;
       if (error instanceof CouldNotRun && failedStage === "navigation") {
         throw new CouldNotRun(`${error.message}\n${detail}`);
+      }
+      if (
+        options.initialOpenAsSetup &&
+        failedStage === "canvas" &&
+        isPlaywrightTargetTransportFailure(error)
+      ) {
+        throw new CouldNotRun(
+          `could not wait for authoring fuzz slide canvas: ${detail}`,
+        );
       }
       throw new Error(detail);
     }
@@ -5055,7 +5064,7 @@ async function runAuthoringFuzzQa(
       );
       deckId = String(created.id ?? created.deckId);
       await openSlide(activePage, base, deckId, 0, slideId, {
-        navigationFailureAsSetup: true,
+        initialOpenAsSetup: true,
       });
       if (profile?.kind === "scaled") {
         const scale = await activePage

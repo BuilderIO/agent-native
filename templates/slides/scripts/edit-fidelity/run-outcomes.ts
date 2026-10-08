@@ -2,12 +2,12 @@ export class CouldNotRun extends Error {}
 
 export class ActionTransportError extends Error {}
 
-const PLAYWRIGHT_EVALUATION_TRANSPORT_FAILURE =
+const PLAYWRIGHT_TARGET_TRANSPORT_FAILURE =
   /Execution context was destroyed|frame was detached|Target page, context or browser has been closed|Target crashed|Protocol error \([^)]*\): Target closed|Cannot find context with specified id/i;
 
-export function isActionEvaluationTransportFailure(error: unknown) {
+export function isPlaywrightTargetTransportFailure(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  return PLAYWRIGHT_EVALUATION_TRANSPORT_FAILURE.test(message);
+  return PLAYWRIGHT_TARGET_TRANSPORT_FAILURE.test(message);
 }
 
 export async function runSetupAsCouldNotRun<T>(
