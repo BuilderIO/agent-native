@@ -10,6 +10,7 @@ import {
   serializeIconValue,
   type IconValue,
 } from "@agent-native/core/icons";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -444,8 +445,15 @@ export function isStaleBuilderImageSourceComponentSave(args: {
 
 export default defineAction({
   description:
-    "Update an existing document's metadata or browser-owned content. Agents must use get-document followed by edit-document with baseRevision and idempotencyKey for body changes.",
+    "Update an existing page's or database's metadata, preserving omitted fields. To replace or clear its description, pass only id and description (an empty string clears it); for a database, id is its backing documentId, not its databaseId. Returns saved metadata including the full description in structuredContent. Agents must use get-document followed by edit-document with baseRevision and idempotencyKey for body changes.",
   deferLoading: false,
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  mcpApp: { structuredContent: true },
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -453,7 +461,7 @@ export default defineAction({
     isConsequential: true,
     title: "Update Content Document",
     description:
-      "Delegate a sparse metadata update to an existing Content document while preserving omitted fields. For body changes, use get-document followed by edit-document with its revision protocol.",
+      "Update a page's or database's metadata while preserving omitted fields. Use id and description to replace or clear page guidance. For body changes, use get-document followed by edit-document with its revision protocol.",
   },
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
@@ -462,7 +470,9 @@ export default defineAction({
     description: z
       .string()
       .optional()
-      .describe("Stable page guidance; this does not alter page content"),
+      .describe(
+        "Full page or database guidance; an empty string clears it. Does not alter the Markdown body. Leading and trailing whitespace is trimmed.",
+      ),
     icon: z
       .union([z.string(), iconValueSchema])
       .nullable()
@@ -1215,7 +1225,7 @@ export default defineAction({
             args.icon === null
               ? null
               : serializeIconValue(parseIconValue(args.icon));
-        if (lockedTitleChanged || lockedContentChanged) {
+        if (lockedDocumentFieldsChanged) {
           Object.assign(updates, documentEditAttribution(actor));
         }
         const primaryBlocksFields = lockedContentChanged
@@ -1606,5 +1616,17 @@ export default defineAction({
       } satisfies BrowserDocumentUpdateResponse,
       ownerEmail,
     );
+  },
+  link: ({ result }) => {
+    if (!result.id) return null;
+    return {
+      url: buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId: result.id },
+      }),
+      label: "Open document",
+      view: "editor",
+    };
   },
 });
