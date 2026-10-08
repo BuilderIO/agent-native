@@ -97,6 +97,7 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
     configured: false,
     connecting: false,
     hasFetchedStatus: true,
+    canConnect: { org: true, personal: true },
   }),
   useBuilderStatus: () => ({
     status: { configured: false },
