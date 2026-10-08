@@ -319,4 +319,76 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       expect(frame.top).toBeCloseTo(0, 4);
     });
   });
+
+  describe("fillFocusedViewport", () => {
+    // Height the frame's card renders at, in canvas pixels.
+    function renderedFrameHeight(index: number) {
+      const card = container.querySelector<HTMLElement>(
+        `[data-frame-id="screen-${index}"] [data-screen-card]`,
+      );
+      if (!card) throw new Error(`frame ${index} not rendered`);
+      return Number.parseFloat(card.style.height);
+    }
+
+    it.each([
+      ["narrow", NARROW_PANE],
+      ["wide", WIDE_PANE],
+    ])(
+      "grows a short screen to the %s pane's viewport so no band is left below it",
+      async (_label, paneSize) => {
+        const view = await renderScreens([1440, 1440], {
+          height: 900,
+          initialFitScreenId: null,
+          fillFocusedViewport: true,
+          paneSize,
+        });
+        const frame = frameScreenRect(view, 0, 1440, renderedFrameHeight(0));
+        expect(frame.top).toBeCloseTo(0, 4);
+        expect(frame.top + frame.height).toBeGreaterThanOrEqual(
+          paneSize.height - 1,
+        );
+        expect(frame.top + frame.height).toBeLessThan(paneSize.height + 2);
+      },
+    );
+
+    it("leaves a screen taller than the pane at its own height so it still scrolls", async () => {
+      await renderScreens([1440], {
+        height: 4000,
+        initialFitScreenId: null,
+        fillFocusedViewport: true,
+        paneSize: NARROW_PANE,
+      });
+      expect(renderedFrameHeight(0)).toBe(4000);
+    });
+
+    it("grows only the focused screen", async () => {
+      await renderScreens([1440, 1440], {
+        height: 900,
+        initialFitScreenId: "screen-1",
+        fillFocusedViewport: true,
+        paneSize: NARROW_PANE,
+      });
+      expect(renderedFrameHeight(1)).toBeGreaterThan(900);
+      expect(renderedFrameHeight(0)).toBe(900);
+    });
+
+    it("keeps frames at their own height unless the pane asks to be filled", async () => {
+      await renderScreens([1440, 1440], {
+        height: 900,
+        initialFitScreenId: null,
+        paneSize: NARROW_PANE,
+      });
+      expect(renderedFrameHeight(0)).toBe(900);
+    });
+
+    it("keeps every frame at its own height when the first layout fits all screens", async () => {
+      await renderScreens([1440, 1440], {
+        height: 900,
+        fillFocusedViewport: true,
+        paneSize: NARROW_PANE,
+      });
+      expect(renderedFrameHeight(0)).toBe(900);
+      expect(renderedFrameHeight(1)).toBe(900);
+    });
+  });
 });
