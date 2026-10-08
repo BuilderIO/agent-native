@@ -7,15 +7,11 @@
 import { existsSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import type { BugReport } from "./bug-intake.ts";
-import type { Collected, Commit } from "./collect.ts";
+import type { Target } from "../../fragility-common/lib/artifacts.ts";
 import {
-  type Args,
+  argList,
+  argNumber,
   argString,
-  classifySubject,
-  compile,
-  isBugRun,
-  loadConfig,
   main,
   readJson,
   rel,
@@ -23,8 +19,15 @@ import {
   runDir,
   runId,
   ScriptError,
-  systemOf,
   writeJson,
+} from "../../fragility-common/lib/cli.ts";
+import type { Collected, Commit } from "./collect.ts";
+import {
+  classifySubject,
+  compile,
+  type HistoryConfig,
+  loadHistoryConfig,
+  systemOf,
 } from "./lib.ts";
 
 const SWEEP_SYSTEMS = 12;
@@ -101,8 +104,8 @@ export interface SystemReport {
 
 export interface Analysis {
   runId: string;
-  mode: "nightly" | "bug";
-  bug: { title: string; ref: string; url: string | null } | null;
+  mode: "window" | "focus";
+  label: { title: string; url: string | null } | null;
   focus: string[];
   regressionCandidates: (CommitRef & { kind: string; files: string[] })[];
   related: {
@@ -132,24 +135,23 @@ type Touch = { commit: Commit; files: Commit["files"]; primary: boolean };
 main((args) => {
   if (args.help) {
     console.log(
-      "analyze --run <id> [--focus <file,file>] [--keywords <word,word>]   (reads commits.json, writes analysis.json + analysis.md)\n  --focus scores the systems containing these files instead of the window's hot systems; required in a bug run.\n  --keywords lists lookback fixes anywhere whose subject matches, to find the same bug class elsewhere.",
+      'analyze --run <id> [--focus <file,file>] [--label "<title>"] [--label-url <url>] [--regression-days N] [--keywords <word,word>]   (reads commits.json, writes analysis.json, analysis.md, targets.json)\n  --focus scores the systems containing these files instead of the window\'s hot systems, and lists every recent change to them as regression candidates.\n  --keywords lists lookback fixes anywhere whose subject matches, to find the same bug class elsewhere.',
     );
     return;
   }
-  const config = loadConfig();
+  const config = loadHistoryConfig();
   const id = runId(args);
-  const dir = runDir(config, id);
+  const dir = runDir(id);
   const data = readJson<Collected>(path.join(dir, "commits.json"));
-  const bug = isBugRun(config, id)
-    ? readJson<BugReport>(path.join(dir, "bug.json"))
-    : null;
-  const focus = listArg(args, "focus").map((f) => f.replace(/^\.\//, ""));
-  const keywords = listArg(args, "keywords");
-  if (bug && focus.length === 0) {
-    throw new ScriptError(
-      "bug run: pass --focus <file,file> with the files the defect lives in",
-    );
-  }
+  const focus = argList(args, "focus").map((f) => f.replace(/^\.\//, ""));
+  const keywords = argList(args, "keywords");
+  const regressionDays = argNumber(
+    args,
+    "regression-days",
+    config.regressionDays,
+  );
+  const labelTitle = argString(args, "label");
+  const focused = focus.length > 0;
   assertFocusFiles(focus, data);
 
   const ignoredSubject = compile(config.ignoreSubjects);
@@ -262,16 +264,16 @@ main((args) => {
 
   const analysis: Analysis = {
     runId: id,
-    mode: bug ? "bug" : "nightly",
-    bug: bug
-      ? { title: bug.title, ref: bug.source.ref, url: bug.source.url }
+    mode: focused ? "focus" : "window",
+    label: labelTitle
+      ? { title: labelTitle, url: argString(args, "label-url") ?? null }
       : null,
     focus,
-    regressionCandidates: bug
+    regressionCandidates: focused
       ? regressionCandidates(
           focus,
           data.commits,
-          Date.parse(data.windowEnd) - config.regressionDays * DAY,
+          Date.parse(data.windowEnd) - regressionDays * DAY,
           { ignoredSubject, sweeps: sweepShas },
         )
       : [],
@@ -300,6 +302,7 @@ main((args) => {
     hotSystems: hot,
   };
   writeJson(path.join(dir, "analysis.json"), analysis);
+  writeJson(path.join(dir, "targets.json"), hot.map(toTarget));
   const md = path.join(dir, "analysis.md");
   writeFileSync(md, renderMarkdown(analysis));
   console.log(
@@ -307,7 +310,7 @@ main((args) => {
   );
   if (analysis.regressionCandidates.length) {
     console.log(
-      `  ${analysis.regressionCandidates.length} changes to the traced path in the last ${config.regressionDays}d (read each with pr.ts):`,
+      `  ${analysis.regressionCandidates.length} changes to the traced path in the last ${regressionDays}d (read each with pr.ts):`,
     );
     for (const c of analysis.regressionCandidates.slice(0, 12)) {
       console.log(
@@ -321,16 +324,26 @@ main((args) => {
         `  focus ${f.path}: ${f.commits} commits, ${f.fixes} fixes in the lookback${f.broadCommits ? ` (+${f.broadCommits} broad commits not counted)` : ""}`,
       );
     console.log(
-      `  ${String(r.score).padStart(3)}  ${r.verdict.padEnd(19)} ${r.system}  ${bug ? "" : `window ${r.window.commits}c/${r.window.fixes}f  `}lookback ${r.lookback.commits}c/${r.lookback.fixes}f  weekly fixes ${r.lookback.weekly.map((w) => w.fixes).join("→")}`,
+      `  ${String(r.score).padStart(3)}  ${r.verdict.padEnd(19)} ${r.system}  ${focused ? "" : `window ${r.window.commits}c/${r.window.fixes}f  `}lookback ${r.lookback.commits}c/${r.lookback.fixes}f  weekly fixes ${r.lookback.weekly.map((w) => w.fixes).join("→")}`,
     );
   }
 });
 
-function listArg(args: Args, key: string): string[] {
-  return (argString(args, key) ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+function toTarget(r: SystemReport): Target {
+  return {
+    system: r.system,
+    files: [
+      ...new Set([
+        ...(r.focus ?? []).map((f) => f.path),
+        ...r.topFiles.map((f) => f.path),
+      ]),
+    ],
+    score: r.score,
+    verdict: r.verdict,
+    windowCommits: r.focus ? null : r.window.commits,
+    lookbackFixes: r.lookback.fixes,
+    weeklyFixes: r.lookback.weekly.map((w) => w.fixes),
+  };
 }
 
 function assertFocusFiles(focus: string[], data: Collected): void {
@@ -408,7 +421,7 @@ function relatedFixes(
   keywords: string[],
   commits: Commit[],
   focus: string[],
-  config: ReturnType<typeof loadConfig>,
+  config: HistoryConfig,
   filters: {
     ignoredSubject: (s: string) => boolean;
     ignoredPath: (s: string) => boolean;
@@ -666,26 +679,27 @@ function quantile(sorted: number[], q: number): number {
 }
 
 function renderMarkdown(a: Analysis): string {
-  const scope = a.bug
-    ? [
-        `Bug report: ${a.bug.url ? `[${a.bug.title}](${a.bug.url})` : a.bug.title} (${a.bug.ref}). Lookback from ${a.lookbackStart} to ${a.windowEnd}. Head \`${a.head.slice(0, 9)}\`.`,
-        `Systems below are the ones containing the focus files (${a.focus.map((f) => `\`${f}\``).join(", ")}). Window counts do not apply to a bug run.`,
-        "",
-        "## Regression candidates",
-        "",
-        "Every recent change (any kind, not only fixes) to a file on the traced path, newest first. Read each diff with pr.ts and say whether it broke a hop's precondition.",
-        "",
-        ...(a.regressionCandidates.length
-          ? a.regressionCandidates.map(
-              (c) =>
-                `- ${c.date} #${c.pr ?? "?"} [${c.kind}] ${c.subject} — ${c.files.map((f) => `\`${f}\``).join(", ")}`,
-            )
-          : ["- none in the regression window"]),
-        "",
-      ]
-    : [
-        `Window ${a.windowStart} to ${a.windowEnd}. Lookback from ${a.lookbackStart}. Head \`${a.head.slice(0, 9)}\`. PR metadata: ${a.prMetadata}.`,
-      ];
+  const scope =
+    a.mode === "focus"
+      ? [
+          `${a.label ? `Subject: ${a.label.url ? `[${a.label.title}](${a.label.url})` : a.label.title}. ` : ""}Lookback from ${a.lookbackStart} to ${a.windowEnd}. Head \`${a.head.slice(0, 9)}\`.`,
+          `Systems below are the ones containing the focus files (${a.focus.map((f) => `\`${f}\``).join(", ")}). Window counts do not apply in focus mode.`,
+          "",
+          "## Regression candidates",
+          "",
+          "Every recent change (any kind, not only fixes) to a file on the traced path, newest first. Read each diff with pr.ts and say whether it broke a hop's precondition.",
+          "",
+          ...(a.regressionCandidates.length
+            ? a.regressionCandidates.map(
+                (c) =>
+                  `- ${c.date} #${c.pr ?? "?"} [${c.kind}] ${c.subject} — ${c.files.map((f) => `\`${f}\``).join(", ")}`,
+              )
+            : ["- none in the regression window"]),
+          "",
+        ]
+      : [
+          `Window ${a.windowStart} to ${a.windowEnd}. Lookback from ${a.lookbackStart}. Head \`${a.head.slice(0, 9)}\`. PR metadata: ${a.prMetadata}.`,
+        ];
   const lines = [
     `# Fragility triage ${a.runId}`,
     "",

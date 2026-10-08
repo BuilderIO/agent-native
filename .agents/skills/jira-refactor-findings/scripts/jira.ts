@@ -1,7 +1,43 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { type Config, deriveRunUrl, ScriptError } from "./lib.ts";
+import {
+  loadSkillConfig,
+  ScriptError,
+} from "../../fragility-common/lib/cli.ts";
+
+export interface JiraConfig {
+  baseUrl: string;
+  projectKey: string;
+  issueType: string;
+  label: string;
+  podField: string;
+  podOptionId: string;
+  propertyKey: string;
+  sightingCooldownDays: number;
+  maxNewTicketsPerRun: number;
+  email: string;
+  emailEnv: string;
+  tokenEnv: string;
+}
+
+export function loadJiraConfig(): JiraConfig {
+  return loadSkillConfig<JiraConfig>(import.meta.url);
+}
+
+// The branch-run link put on tickets: FRAGILITY_RUN_URL, or the Builder
+// project branch derived from a Fusion preview origin.
+function deriveRunUrl(): string | null {
+  const explicit = process.env.FRAGILITY_RUN_URL;
+  if (explicit) return explicit;
+  const origin = process.env.FUSION_ENV_ORIGIN;
+  const match =
+    origin &&
+    /^https:\/\/([0-9a-f]{20,32})-([a-z0-9-]+)\.builderio\.xyz/.exec(origin);
+  return match
+    ? `https://builder.io/app/projects/${match[1]}/${match[2]}`
+    : null;
+}
 
 export interface Finding {
   key: string;
@@ -47,8 +83,8 @@ export class Jira {
   private readonly auth: string;
   readonly base: string;
 
-  constructor(readonly config: Config) {
-    const { emailEnv, tokenEnv, email, baseUrl } = config.jira;
+  constructor(readonly config: JiraConfig = loadJiraConfig()) {
+    const { emailEnv, tokenEnv, email, baseUrl } = config;
     const token = process.env[tokenEnv];
     if (!token)
       throw new ScriptError(`${tokenEnv} is not set; Jira steps cannot run`, 2);
@@ -126,7 +162,7 @@ export class Jira {
   }
 
   async findings(): Promise<Finding[]> {
-    const { projectKey, label, propertyKey } = this.config.jira;
+    const { projectKey, label, propertyKey } = this.config;
     const jql = `project = ${projectKey} AND labels = "${label}" ORDER BY created DESC`;
     const out: Finding[] = [];
     let nextPageToken: string | undefined;
@@ -157,7 +193,7 @@ export class Jira {
   }
 
   private toFinding(issue: RawIssue): Finding {
-    const property = issue.properties?.[this.config.jira.propertyKey] as
+    const property = issue.properties?.[this.config.propertyKey] as
       | FindingProperty
       | undefined;
     const description = adfText(issue.fields.description);
@@ -187,7 +223,7 @@ export class Jira {
   async setProperty(key: string, value: FindingProperty): Promise<void> {
     await this.request(
       "PUT",
-      `/rest/api/3/issue/${key}/properties/${this.config.jira.propertyKey}`,
+      `/rest/api/3/issue/${key}/properties/${this.config.propertyKey}`,
       value,
     );
   }

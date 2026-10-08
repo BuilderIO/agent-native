@@ -4,22 +4,24 @@
 //   known    → an existing refactor-findings ticket already covers it
 //   needs-info → cannot be decided from code and history; what to ask for
 // Re-running with the same --symptom replaces that entry.
-import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
+  artifact,
+  readBug,
+  readJiraResults,
+} from "../../fragility-common/lib/artifacts.ts";
+import {
   argString,
-  isBugRun,
-  loadConfig,
   main,
-  readJson,
+  readJsonOr,
   rel,
-  runDir,
   runId,
   ScriptError,
   writeJson,
-} from "./lib.ts";
-import { readPlan } from "./plan.ts";
+} from "../../fragility-common/lib/cli.ts";
+import { readPlan } from "../../fragility-common/lib/plan-format.ts";
+import { loadJiraConfig } from "../../jira-refactor-findings/scripts/jira.ts";
 
 export interface BugVerdict {
   symptom: string;
@@ -69,13 +71,11 @@ main((args) => {
       `${verdict} needs --trigger (the recent change that broke it, or "none-found: <what you checked>") and --ruled-out (rival explanations and the check that ruled each out)`,
     );
   }
-  const config = loadConfig();
   const id = runId(args);
-  if (!isBugRun(config, id))
+  if (!readBug(id))
     throw new ScriptError(
       `run ${id} has no bug.json; start it with bug-intake`,
     );
-  const dir = runDir(config, id);
 
   const fix = argString(args, "fix") ?? null;
   const planArg = argString(args, "plan");
@@ -115,7 +115,7 @@ main((args) => {
   }
   if (verdict === "known") {
     if (!ticket) throw new ScriptError("known needs --ticket ENG-123");
-    const results = resultsFor(dir);
+    const results = readJiraResults(id);
     if (!results.some((r) => r.key === ticket)) {
       throw new ScriptError(
         `no sighting on ${ticket} in this run; run jira-sighting --key ${ticket} --system <system> --note "..." --apply first`,
@@ -134,23 +134,16 @@ main((args) => {
     fix,
     plan,
     ticket,
-    ticketUrl: ticket ? `${config.jira.baseUrl}/browse/${ticket}` : null,
+    ticketUrl: ticket ? `${loadJiraConfig().baseUrl}/browse/${ticket}` : null,
     unfiled,
     ask,
     at: new Date().toISOString(),
   };
-  const file = path.join(dir, "verdict.json");
-  const existing = existsSync(file) ? readJson<BugVerdict[]>(file) : [];
+  const file = artifact(id, "verdicts");
+  const existing = readJsonOr<BugVerdict[]>(file, []);
   writeJson(file, [
     ...existing.filter((v) => v.symptom !== entry.symptom),
     entry,
   ]);
   console.log(`${rel(file)}: ${entry.symptom} → ${entry.verdict}`);
 });
-
-function resultsFor(dir: string): { key: string }[] {
-  const file = path.join(dir, "jira-results.json");
-  return existsSync(file)
-    ? (JSON.parse(readFileSync(file, "utf8")) as { key: string }[])
-    : [];
-}

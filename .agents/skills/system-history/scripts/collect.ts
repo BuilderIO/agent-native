@@ -7,18 +7,20 @@ import path from "node:path";
 import {
   argNumber,
   argString,
-  classifySubject,
-  type CommitKind,
-  isBugRun,
-  loadConfig,
+  commonConfig,
   main,
-  prNumber,
   rel,
   run,
   runDir,
   runId,
   ScriptError,
   writeJson,
+} from "../../fragility-common/lib/cli.ts";
+import {
+  classifySubject,
+  type CommitKind,
+  loadHistoryConfig,
+  prNumber,
 } from "./lib.ts";
 
 export interface FileChange {
@@ -69,16 +71,14 @@ const RECORD = "\x1e";
 main(async (args) => {
   if (args.help) {
     console.log(
-      "collect --run <id> [--until <iso>] [--window-hours N] [--lookback-days N] [--no-fetch] [--no-prs]\n  In a bug run (bug.json present) the lookback defaults to bugLookbackDays and window PRs are skipped.",
+      "collect --run <id> [--until <iso>] [--window-hours N] [--lookback-days N] [--no-fetch] [--no-prs]",
     );
     return;
   }
-  const config = loadConfig();
+  const config = loadHistoryConfig();
+  const { repo } = commonConfig();
   const id = runId(args);
   const ref = `origin/${config.baseBranch}`;
-  // A bug run has no review window; it needs a longer history for the
-  // files the bug lives in, and no window PR metadata.
-  const bug = isBugRun(config, id);
 
   let fetched = false;
   if (!args["no-fetch"]) {
@@ -94,11 +94,7 @@ main(async (args) => {
   if (Number.isNaN(until.getTime()))
     throw new ScriptError("--until is not a valid date");
   const windowHours = argNumber(args, "window-hours", config.windowHours);
-  const lookbackDays = argNumber(
-    args,
-    "lookback-days",
-    bug ? config.bugLookbackDays : config.lookbackDays,
-  );
+  const lookbackDays = argNumber(args, "lookback-days", config.lookbackDays);
   if (!(windowHours > 0) || !(lookbackDays > 0)) {
     throw new ScriptError(
       "--window-hours and --lookback-days must be positive",
@@ -159,15 +155,13 @@ main(async (args) => {
   const windowPrs = [
     ...new Set(commits.filter((c) => c.inWindow && c.pr).map((c) => c.pr!)),
   ];
-  const prs: Collected["prs"] = bug
-    ? { status: "unavailable", error: "bug run: no review window" }
-    : args["no-prs"]
-      ? { status: "unavailable", error: "skipped with --no-prs" }
-      : fetchPrs(config.repo, windowPrs);
+  const prs: Collected["prs"] = args["no-prs"]
+    ? { status: "unavailable", error: "skipped with --no-prs" }
+    : fetchPrs(repo, windowPrs);
 
   const out: Collected = {
     runId: id,
-    repo: config.repo,
+    repo,
     head: commits[0].sha,
     windowStart: windowStart.toISOString(),
     windowEnd: until.toISOString(),
@@ -176,12 +170,12 @@ main(async (args) => {
     commits,
     prs,
   };
-  const file = path.join(runDir(config, id), "commits.json");
+  const file = path.join(runDir(id), "commits.json");
   writeJson(file, out);
 
   const inWindow = commits.filter((c) => c.inWindow).length;
   console.log(
-    `${rel(file)}: ${bug ? "bug run, " : ""}${commits.length} commits in ${lookbackDays}d lookback, ${inWindow} in the ${windowHours}h window; PR metadata ${prs.status}${prs.status === "ok" ? ` (${prs.items.length}/${windowPrs.length})` : `: ${prs.error}`}`,
+    `${rel(file)}: ${commits.length} commits in ${lookbackDays}d lookback, ${inWindow} in the ${windowHours}h window; PR metadata ${prs.status}${prs.status === "ok" ? ` (${prs.items.length}/${windowPrs.length})` : `: ${prs.error}`}`,
   );
 });
 

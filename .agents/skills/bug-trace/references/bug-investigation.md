@@ -35,10 +35,10 @@ in some UI state, is a lead.
 
 ## 3. List what changed on the path
 
-Run `analyze.ts --focus` with every file on the traced path, not just
+Run system-history's `analyze.ts --focus` with every file on the traced path, not just
 the file where the error shows. Read its "Regression candidates" section:
 every commit of any kind that touched those files in the regression window.
-Read each one with `pr.ts --pr N --file <path>` and ask: did this change
+Read each one with system-history's `pr.ts --pr N --file <path>` and ask: did this change
 break a precondition from step 1? Words like "no longer", "got busted", or
 "stopped" in a report mean a regression. Expect to find the change.
 
@@ -83,4 +83,5 @@ For the symptom:
 - the evidence level;
 - the framework rule or primitive involved;
 - the sibling sites;
-- the verdict per the rubric.
+- if the caller asked for one, the verdict per its rubric (for example
+  `investigate-bug`'s `references/bug-verdicts.md`).

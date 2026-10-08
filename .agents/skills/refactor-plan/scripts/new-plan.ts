@@ -4,21 +4,23 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import type { Analysis } from "./analyze.ts";
-import type { BugReport } from "./bug-intake.ts";
+import { readBug } from "../../fragility-common/lib/artifacts.ts";
 import {
   argString,
-  fingerprintFor,
-  loadConfig,
   main,
-  plansDir,
   readJson,
   rel,
   runDir,
   runId,
   ScriptError,
-} from "./lib.ts";
-import { TODO, writePlan } from "./plan.ts";
+} from "../../fragility-common/lib/cli.ts";
+import {
+  fingerprintFor,
+  TODO,
+  writePlan,
+} from "../../fragility-common/lib/plan-format.ts";
+import type { Analysis } from "../../system-history/scripts/analyze.ts";
+import { plansDir } from "./lib.ts";
 
 main((args) => {
   const slug = argString(args, "slug");
@@ -33,11 +35,8 @@ main((args) => {
   }
   if (!/^[a-z0-9-]+$/.test(slug))
     throw new ScriptError("--slug must be kebab-case");
-  const config = loadConfig();
   const id = runId(args);
-  const analysis = readJson<Analysis>(
-    path.join(runDir(config, id), "analysis.json"),
-  );
+  const analysis = readJson<Analysis>(path.join(runDir(id), "analysis.json"));
   const systems = systemsArg
     .split(",")
     .map((s) => s.trim())
@@ -46,23 +45,27 @@ main((args) => {
     const report = analysis.hotSystems.find((r) => r.system === system);
     if (!report) {
       throw new ScriptError(
-        `${system} is not a ${analysis.bug ? "focus" : "hot"} system in ${id}. Systems: ${analysis.hotSystems.map((r) => r.system).join(", ")}`,
+        `${system} is not a ${analysis.mode === "focus" ? "focus" : "hot"} system in ${id}. Systems: ${analysis.hotSystems.map((r) => r.system).join(", ")}`,
       );
     }
     return report;
   });
 
-  const file = path.join(plansDir(config, id), `${slug}.md`);
+  const file = path.join(plansDir(id), `${slug}.md`);
   if (existsSync(file) && !args.force)
     throw new ScriptError(`${rel(file)} exists; pass --force to overwrite`);
 
   const lead = [...reports].sort((a, b) => b.score - a.score)[0];
-  const bug = analysis.bug;
+  // A run with bug-trace's bug.json is a bug run; the plan names the report.
+  const report = readBug(id);
+  const bug = report
+    ? { title: report.title, url: report.source.url, ref: report.source.ref }
+    : null;
   // Pasted reports have no link, so the plan (and the ticket) carry the text.
   const quoted =
-    bug && !bug.url
-      ? readJson<BugReport>(path.join(runDir(config, id), "bug.json"))
-          .body.trim()
+    report && !report.source.url
+      ? report.body
+          .trim()
           .split("\n")
           .slice(0, 20)
           .map((line) => `> ${line}`.trimEnd())

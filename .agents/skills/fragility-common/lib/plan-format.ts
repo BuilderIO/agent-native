@@ -1,6 +1,8 @@
+// The plan file: the contract between refactor-plan (writes it) and
+// jira-refactor-findings (files it). Markdown with a flat frontmatter block.
 import { readFileSync, writeFileSync } from "node:fs";
 
-import { ScriptError } from "./lib.ts";
+import { ScriptError } from "./cli.ts";
 
 export interface PlanMeta {
   fingerprint: string;
@@ -21,6 +23,14 @@ export interface PlanMeta {
 }
 
 export const TODO = "TODO(agent)";
+
+// Dedup keys on this, so it must stay stable across runs and refactors.
+export function fingerprintFor(systems: string[], slug: string): string {
+  const anchor = [...systems].sort()[0] ?? "unscoped";
+  return `fsys:${anchor}:${slug}`
+    .toLowerCase()
+    .replace(/[^a-z0-9:/._-]+/g, "-");
+}
 
 const LIST_KEYS = new Set(["systems", "paths"]);
 const NUMBER_KEYS = new Set(["score", "windowCommits", "lookbackFixes"]);

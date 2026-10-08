@@ -1,70 +1,46 @@
 // Writes <plansDir>/<run>/README.md: every hot system and what the run did
 // with it. A hot system with no plan, no sighting, and no recorded decision is
 // listed as UNDECIDED so an incomplete run cannot look finished.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import type { Analysis } from "./analyze.ts";
-import type { BugVerdict } from "./bug-verdict.ts";
 import {
-  loadConfig,
+  artifact,
+  readJiraResults,
+} from "../../fragility-common/lib/artifacts.ts";
+import {
   main,
-  plansDir,
   readJson,
+  readJsonOr,
   rel,
   runDir,
   runId,
-} from "./lib.ts";
-import { readPlan } from "./plan.ts";
+} from "../../fragility-common/lib/cli.ts";
+import { readPlan } from "../../fragility-common/lib/plan-format.ts";
+import { loadJiraConfig } from "../../jira-refactor-findings/scripts/jira.ts";
+import { plansDir } from "../../refactor-plan/scripts/lib.ts";
+import type { Analysis } from "../../system-history/scripts/analyze.ts";
 
 main((args) => {
   if (args.help) {
     console.log(
-      "summarize --run <id>   (reads analysis, plans, jira-results.json, decisions.json; verdict.json in a bug run)",
+      "summarize --run <id>   (reads analysis, plans, jira-results.json, decisions.json; writes the plans README)",
     );
     return;
   }
-  const config = loadConfig();
+  const { baseUrl } = loadJiraConfig();
   const id = runId(args);
-  const data = runDir(config, id);
-  const out = plansDir(config, id);
-  const analysis = readJson<Analysis>(path.join(data, "analysis.json"));
-  const results = optional<
-    {
-      action: string;
-      key: string;
-      url: string;
-      plan?: string;
-      system?: string;
-    }[]
-  >(path.join(data, "jira-results.json"), []);
-  const decisions = optional<Record<string, string>>(
-    path.join(data, "decisions.json"),
+  const data = runDir(id);
+  const out = plansDir(id);
+  const analysis = readJson<Analysis>(artifact(id, "analysis"));
+  const results = readJiraResults(id);
+  const decisions = readJsonOr<Record<string, string>>(
+    artifact(id, "decisions"),
     {},
   );
   const plans = readdirSync(out)
     .filter((f) => f.endsWith(".md") && f !== "README.md")
     .map((f) => ({ file: f, ...readPlan(path.join(out, f)) }));
-
-  if (analysis.bug) {
-    const verdicts = optional<BugVerdict[]>(
-      path.join(data, "verdict.json"),
-      [],
-    );
-    const file = path.join(out, "README.md");
-    writeFileSync(
-      file,
-      renderBug(id, analysis, verdicts, results, config.jira.baseUrl),
-    );
-    console.log(
-      `${rel(file)}: ${verdicts.map((v) => `${v.symptom} → ${v.verdict}`).join(", ") || "no verdict"}`,
-    );
-    if (verdicts.length === 0) {
-      console.error("bug run has no verdict; record one with bug-verdict");
-      process.exitCode = 1;
-    }
-    return;
-  }
 
   const rows = analysis.hotSystems.map((r) => {
     const plan = plans.find((p) => p.meta.systems.includes(r.system));
@@ -72,7 +48,7 @@ main((args) => {
     let disposition: string;
     if (plan) {
       const ticket = plan.meta.jira
-        ? `[${plan.meta.jira}](${config.jira.baseUrl}/browse/${plan.meta.jira})`
+        ? `[${plan.meta.jira}](${baseUrl}/browse/${plan.meta.jira})`
         : "no ticket yet";
       disposition = `plan [${plan.file}](./${plan.file}), ${ticket}`;
     } else if (results.some((x) => x.system === r.system)) {
@@ -118,70 +94,3 @@ main((args) => {
   );
   if (undecided) process.exitCode = 1;
 });
-
-function renderBug(
-  id: string,
-  analysis: Analysis,
-  verdicts: BugVerdict[],
-  results: { action: string; key: string; url: string }[],
-  jiraBase: string,
-): string {
-  const bug = analysis.bug!;
-  const label = {
-    "one-off": "one-off bug",
-    pattern: "systemic pattern",
-    known: "known pattern",
-    "needs-info": "undecided, needs info",
-  };
-  const lines = [
-    `# Bug triage run ${id}`,
-    "",
-    `Report: ${bug.url ? `[${bug.title}](${bug.url})` : bug.title} (${bug.ref}). Head \`${analysis.head.slice(0, 9)}\`, lookback from ${analysis.lookbackStart.slice(0, 10)}.`,
-    "",
-  ];
-  if (verdicts.length === 0) lines.push("**No verdict recorded.**", "");
-  for (const v of verdicts) {
-    const outcome =
-      v.verdict === "one-off"
-        ? `Suggested fix: ${v.fix}`
-        : v.verdict === "needs-info"
-          ? `Ask the reporter for: ${v.ask}`
-          : v.ticket
-            ? `${v.plan ? `Plan [${path.basename(v.plan)}](./${path.basename(v.plan)}), ticket` : "Ticket"} [${v.ticket}](${jiraBase}/browse/${v.ticket})`
-            : `Plan [${path.basename(v.plan!)}](./${path.basename(v.plan!)}), not filed: ${v.unfiled}`;
-    lines.push(
-      `## ${v.symptom}: ${label[v.verdict]}`,
-      "",
-      `- Root cause (${v.evidence ?? "unstated"}): ${v.rootCause}`,
-      ...(v.trigger ? [`- Why now: ${v.trigger}`] : []),
-      ...(v.ruledOut ? [`- Ruled out: ${v.ruledOut}`] : []),
-      `- Why: ${v.reason}`,
-      `- ${outcome}`,
-      "",
-    );
-  }
-  lines.push(
-    "## Systems examined",
-    "",
-    "| System | Verdict | Score | Lookback commits / fixes | Focus files (lookback fixes) |",
-    "|---|---|---|---|---|",
-    ...analysis.hotSystems.map(
-      (r) =>
-        `| \`${r.system}\` | ${r.verdict} | ${r.score} | ${r.lookback.commits}/${r.lookback.fixes} | ${(r.focus ?? []).map((f) => `\`${path.basename(f.path)}\` (${f.fixes})`).join(", ")} |`,
-    ),
-    "",
-    "## Jira actions",
-    "",
-    ...(results.length
-      ? results.map((r) => `- ${r.action}: [${r.key}](${r.url})`)
-      : ["- none"]),
-    "",
-  );
-  return lines.join("\n");
-}
-
-function optional<T>(file: string, fallback: T): T {
-  return existsSync(file)
-    ? (JSON.parse(readFileSync(file, "utf8")) as T)
-    : fallback;
-}

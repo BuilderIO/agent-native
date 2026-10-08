@@ -4,11 +4,11 @@
 import {
   argNumber,
   argString,
-  loadConfig,
+  commonConfig,
   main,
   run,
   ScriptError,
-} from "./lib.ts";
+} from "../../fragility-common/lib/cli.ts";
 
 main((args) => {
   const number = argString(args, "pr");
@@ -20,7 +20,7 @@ main((args) => {
     return;
   }
   if (!/^\d+$/.test(number)) throw new ScriptError("--pr must be a number");
-  const { repo } = loadConfig();
+  const { repo } = commonConfig();
   const meta = JSON.parse(
     run(
       "gh",

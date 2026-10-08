@@ -6,9 +6,24 @@
 // A bug-triggered plan always comments on an existing ticket (once per run):
 // a real bug traced to the pattern is new evidence, not nightly noise.
 // Dry-run unless --apply. Re-running after a partial failure finishes the job.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import {
+  appendJiraResult,
+  readJiraResults,
+} from "../../fragility-common/lib/artifacts.ts";
+import {
+  argString,
+  main,
+  rel,
+  ScriptError,
+} from "../../fragility-common/lib/cli.ts";
+import {
+  type PlanMeta,
+  readPlan,
+  TODO,
+  writePlan,
+} from "../../fragility-common/lib/plan-format.ts";
 import {
   adf,
   type AdfNode,
@@ -23,15 +38,6 @@ import {
   runLink,
   type Sighting,
 } from "./jira.ts";
-import {
-  argString,
-  loadConfig,
-  main,
-  rel,
-  runDir,
-  ScriptError,
-} from "./lib.ts";
-import { type PlanMeta, readPlan, TODO, writePlan } from "./plan.ts";
 
 type Action =
   | "create"
@@ -49,7 +55,6 @@ main(async (args) => {
     if (!args.help) process.exitCode = 1;
     return;
   }
-  const config = loadConfig();
   const file = path.resolve(planFile);
   const { meta, body } = readPlan(file);
   assertFinished(meta, body, file);
@@ -62,7 +67,8 @@ main(async (args) => {
     );
   }
 
-  const jira = new Jira(config);
+  const jira = new Jira();
+  const config = jira.config;
   const findings = await jira.findings();
   const duplicateOf = argString(args, "duplicate-of");
   const match =
@@ -71,7 +77,7 @@ main(async (args) => {
     null;
   if (duplicateOf && !match)
     throw new ScriptError(
-      `--duplicate-of ${duplicateOf} is not a ${config.jira.label} ticket`,
+      `--duplicate-of ${duplicateOf} is not a ${config.label} ticket`,
     );
 
   const today = new Date().toISOString().slice(0, 10);
@@ -87,7 +93,7 @@ main(async (args) => {
   const bugTriggered = meta.trigger === "bug";
   const action = decide(
     match,
-    config.jira.sightingCooldownDays,
+    config.sightingCooldownDays,
     Boolean(args["force-comment"]) || bugTriggered,
   );
   const attachmentName = `${path.basename(file, ".md")}-${meta.runId}.md`;
@@ -119,12 +125,12 @@ main(async (args) => {
   };
   let key: string;
   if (action === "create" || action === "recurrence") {
-    const created = readResults(config, meta.runId).filter(
+    const created = readJiraResults(meta.runId).filter(
       (r) => r.action === "create" || r.action === "recurrence",
     ).length;
-    if (created >= config.jira.maxNewTicketsPerRun && !args["over-cap"]) {
+    if (created >= config.maxNewTicketsPerRun && !args["over-cap"]) {
       throw new ScriptError(
-        `run ${meta.runId} already created ${created} tickets (cap ${config.jira.maxNewTicketsPerRun}); keep the plan file and report it, or pass --over-cap if a human asked for more`,
+        `run ${meta.runId} already created ${created} tickets (cap ${config.maxNewTicketsPerRun}); keep the plan file and report it, or pass --over-cap if a human asked for more`,
       );
     }
     key = await create(jira, meta, link, match);
@@ -139,7 +145,7 @@ main(async (args) => {
     }
   } else {
     key = match!.key;
-    const existing = await currentProperty(jira, key, config.jira.propertyKey);
+    const existing = await currentProperty(jira, key, config.propertyKey);
     // Each write checks what a previous partial run already did, so a re-run
     // after a failure finishes the job instead of repeating it.
     const commented = await jira.hasRunComment(key, meta.runId);
@@ -152,7 +158,7 @@ main(async (args) => {
       action === "declined-sighting" &&
       !commented &&
       (bugTriggered ||
-        shouldNudgeDeclined(existing, config.jira.sightingCooldownDays * 4))
+        shouldNudgeDeclined(existing, config.sightingCooldownDays * 4))
     ) {
       await jira.comment(key, declinedComment(meta, link));
     }
@@ -178,7 +184,7 @@ main(async (args) => {
     plan: rel(file),
     at: new Date().toISOString(),
   };
-  appendResult(config, meta.runId, result);
+  appendJiraResult(meta.runId, result);
   console.log(JSON.stringify(result, null, 2));
 });
 
@@ -235,8 +241,7 @@ async function create(
   link: string | null,
   previous: Finding | null,
 ): Promise<string> {
-  const { projectKey, issueType, label, podField, podOptionId } =
-    jira.config.jira;
+  const { projectKey, issueType, label, podField, podOptionId } = jira.config;
   const summary = `[${meta.area}] Refactor: ${meta.title}`.slice(0, 250);
   const facts: AdfNode[][] = [
     [
@@ -344,26 +349,4 @@ function declinedComment(meta: PlanMeta, link: string | null): AdfNode {
           ),
         ];
   return adf.doc(adf.p(...lead, ...(link ? [adf.text("Run", link)] : [])));
-}
-
-function readResults(
-  config: ReturnType<typeof loadConfig>,
-  id: string,
-): { action: Action }[] {
-  const file = path.join(runDir(config, id), "jira-results.json");
-  return existsSync(file)
-    ? (JSON.parse(readFileSync(file, "utf8")) as { action: Action }[])
-    : [];
-}
-
-function appendResult(
-  config: ReturnType<typeof loadConfig>,
-  id: string,
-  result: { action: Action },
-): void {
-  const file = path.join(runDir(config, id), "jira-results.json");
-  writeFileSync(
-    file,
-    `${JSON.stringify([...readResults(config, id), result], null, 2)}\n`,
-  );
 }

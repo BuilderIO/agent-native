@@ -1,15 +1,16 @@
 // Starts a bug-report run: fetches the report from GitHub or Jira (or takes a
-// file or pasted text) and writes bug.json, which switches the rest of the
-// pipeline into bug mode for that run.
+// file or pasted text) and writes the run's bug.json.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { adfText, Jira } from "./jira.ts";
+import {
+  ARTIFACTS,
+  type BugReport,
+} from "../../fragility-common/lib/artifacts.ts";
 import {
   argString,
-  type Config,
-  loadConfig,
+  commonConfig,
   main,
   readJson,
   rel,
@@ -18,21 +19,8 @@ import {
   runId,
   ScriptError,
   writeJson,
-} from "./lib.ts";
-
-export interface BugReport {
-  runId: string;
-  source: {
-    kind: "github-issue" | "github-pr" | "jira" | "file" | "text";
-    ref: string;
-    url: string | null;
-  };
-  title: string;
-  body: string;
-  comments: { author: string; body: string }[];
-  reportedAt: string | null;
-  intakeAt: string;
-}
+} from "../../fragility-common/lib/cli.ts";
+import { adfText, Jira } from "../../jira-refactor-findings/scripts/jira.ts";
 
 type Intake = Omit<BugReport, "runId" | "intakeAt">;
 
@@ -53,11 +41,10 @@ main(async (args) => {
     if (!args.help) process.exitCode = 1;
     return;
   }
-  const config = loadConfig();
   const intake = issue
-    ? fromGitHub(config, issue)
+    ? fromGitHub(issue)
     : jiraKey
-      ? await fromJira(config, jiraKey)
+      ? await fromJira(jiraKey)
       : fromText(file ? readFile(file) : text!, file);
   if (!`${intake.title}${intake.body}`.trim())
     throw new ScriptError("the bug report is empty");
@@ -68,7 +55,7 @@ main(async (args) => {
     ...args,
     run: argString(args, "run") ?? defaultRun(intake),
   });
-  const out = path.join(runDir(config, id), "bug.json");
+  const out = path.join(runDir(id), ARTIFACTS.bug);
   if (existsSync(out) && !args.force) {
     const existing = readJson<BugReport>(out);
     if (existing.source.ref !== intake.source.ref) {
@@ -105,11 +92,11 @@ function defaultRun(intake: Intake): string {
   return `bug-${new Date().toISOString().slice(0, 10)}-${hash}`;
 }
 
-function fromGitHub(config: Config, ref: string): Intake {
+function fromGitHub(ref: string): Intake {
   const url = /github\.com\/([\w.-]+\/[\w.-]+)\/(issues|pull)\/(\d+)/.exec(ref);
   if (!url && !/^#?\d+$/.test(ref))
     throw new ScriptError(`--issue must be a number or a GitHub issue/PR URL`);
-  const repo = url?.[1] ?? config.repo;
+  const repo = url?.[1] ?? commonConfig().repo;
   const number = url?.[3] ?? ref.replace("#", "");
   const kind = url?.[2] === "pull" ? "github-pr" : "github-issue";
   const raw = run(
@@ -144,10 +131,10 @@ function fromGitHub(config: Config, ref: string): Intake {
   };
 }
 
-async function fromJira(config: Config, ref: string): Promise<Intake> {
+async function fromJira(ref: string): Promise<Intake> {
   const key = (/\b([A-Z][A-Z0-9]+-\d+)\b/.exec(ref) ?? [])[1];
   if (!key) throw new ScriptError(`--jira must be an issue key or URL`);
-  const jira = new Jira(config);
+  const jira = new Jira();
   const issue = await jira.request<{
     fields: {
       summary: string;

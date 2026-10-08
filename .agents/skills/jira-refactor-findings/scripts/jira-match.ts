@@ -1,20 +1,22 @@
 // Fetches every existing refactor-findings ticket and matches them against
-// this run's hot systems, so the agent skips systems that are already
-// ticketed before spending time on a plan.
+// the run's targets (targets.json, or --systems/--files), so the caller skips
+// what is already ticketed before spending time on a plan.
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import type { Analysis } from "./analyze.ts";
-import { type Finding, isDeclined, isOpen, Jira } from "./jira.ts";
 import {
-  loadConfig,
+  artifact,
+  readTargets,
+  type Target,
+} from "../../fragility-common/lib/artifacts.ts";
+import {
+  argList,
   main,
-  readJson,
   rel,
-  runDir,
   runId,
   writeJson,
-} from "./lib.ts";
+} from "../../fragility-common/lib/cli.ts";
+import { type Finding, isDeclined, isOpen, Jira } from "./jira.ts";
 
 export interface Match {
   system: string;
@@ -33,45 +35,36 @@ export interface Match {
 main(async (args) => {
   if (args.help) {
     console.log(
-      "jira-findings --run <id>   (writes jira-findings.json and, if analysis.json exists, jira-matches.json)",
+      "jira-match --run <id> [--systems a,b --files x,y]   (writes jira-findings.json; matches targets.json, or the given systems and files, into jira-matches.json)",
     );
     return;
   }
-  const config = loadConfig();
   const id = runId(args);
-  const dir = runDir(config, id);
-  const jira = new Jira(config);
+  const jira = new Jira();
   const findings = await jira.findings();
-  writeJson(path.join(dir, "jira-findings.json"), {
-    fetchedAt: new Date().toISOString(),
-    findings,
-  });
+  const findingsFile = artifact(id, "jiraFindings");
+  writeJson(findingsFile, { fetchedAt: new Date().toISOString(), findings });
   console.log(
-    `${rel(path.join(dir, "jira-findings.json"))}: ${findings.length} existing ${config.jira.label} tickets`,
+    `${rel(findingsFile)}: ${findings.length} existing ${jira.config.label} tickets`,
   );
 
-  const analysisFile = path.join(dir, "analysis.json");
-  if (!existsSync(analysisFile)) {
-    console.log("  no analysis.json in this run yet; skipped matching");
+  const targets = targetsFor(
+    id,
+    argList(args, "systems"),
+    argList(args, "files"),
+  );
+  if (!targets) {
+    console.log(
+      "  no targets.json in this run and no --systems; skipped matching",
+    );
     return;
   }
-  const analysis = readJson<Analysis>(analysisFile);
-  const matches: Match[] = analysis.hotSystems.map((r) => ({
-    system: r.system,
-    verdict: r.verdict,
-    score: r.score,
+  const matches: Match[] = targets.map((t) => ({
+    system: t.system,
+    verdict: t.verdict,
+    score: t.score,
     matches: findings
-      .map((f) => ({
-        f,
-        why: overlap(
-          r.system,
-          [
-            ...(r.focus ?? []).map((t) => t.path),
-            ...r.topFiles.map((t) => t.path),
-          ],
-          f,
-        ),
-      }))
+      .map((f) => ({ f, why: overlap(t.system, t.files, f) }))
       .filter(({ why }) => why.length > 0)
       .map(({ f, why }) => ({
         key: f.key,
@@ -82,7 +75,7 @@ main(async (args) => {
         why,
       })),
   }));
-  writeJson(path.join(dir, "jira-matches.json"), matches);
+  writeJson(artifact(id, "jiraMatches"), matches);
   for (const m of matches) {
     const label = m.matches.length
       ? m.matches
@@ -92,6 +85,18 @@ main(async (args) => {
     console.log(`  ${m.system}: ${label}`);
   }
 });
+
+function targetsFor(
+  id: string,
+  systems: string[],
+  files: string[],
+): Pick<Target, "system" | "files" | "verdict" | "score">[] | null {
+  if (systems.length)
+    return systems.map((system) => ({ system, files, verdict: "", score: 0 }));
+  return existsSync(path.join(artifact(id, "targets")))
+    ? readTargets(id)
+    : null;
+}
 
 function overlap(system: string, files: string[], finding: Finding): string[] {
   const why: string[] = [];
