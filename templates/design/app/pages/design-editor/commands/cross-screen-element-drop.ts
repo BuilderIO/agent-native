@@ -245,6 +245,7 @@ export function resolveCrossScreenMoveFailureRecovery(args: {
 }
 
 export interface CrossScreenElementDropArgs {
+  clearExplicitOverviewScreenSelection?: () => void;
   getCurrentFileSnapshot?: (fileId: string) => {
     content: string;
     updatedAt?: string | null;
@@ -332,6 +333,7 @@ export function runCrossScreenElementDrop(
     canEditDesign,
     canEditLiveScreen,
     canEditLiveBoard = false,
+    clearExplicitOverviewScreenSelection,
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeIdRef,
     designSourceType,
@@ -927,6 +929,7 @@ export function runCrossScreenElementDrop(
       copiedNodeCandidate,
     );
     if (copiedNode) {
+      clearExplicitOverviewScreenSelection?.();
       setCreatedOverviewLayerSelection({
         screenId: targetScreenId,
         layerId: copiedNode.id,
@@ -1497,6 +1500,7 @@ export function runCrossScreenElementDrop(
       movedNodeCandidate,
     );
     if (movedNodeFinal) {
+      clearExplicitOverviewScreenSelection?.();
       setCreatedOverviewLayerSelection({
         screenId: targetScreenId,
         layerId: movedNodeFinal.id,

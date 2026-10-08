@@ -31,15 +31,6 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   widgets: true,
   widgetDomain: "https://design.agent-native.com",
   widgetTargets: {
-    "get-design-snapshot": (args: Record<string, unknown>, result: unknown) => {
-      const designId = id(args.designId, record(result).designId);
-      return designId
-        ? {
-            targetPath: `/design/${encodeURIComponent(designId)}`,
-            resourceIds: { designId },
-          }
-        : null;
-    },
     "create-design": (_args: Record<string, unknown>, result: unknown) => {
       const designId = id(record(result).id, record(result).designId);
       return designId
