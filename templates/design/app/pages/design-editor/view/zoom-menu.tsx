@@ -226,6 +226,7 @@ export function renderZoomMenu({
         <ZoomMenuRow
           label={"Multiplayer cursors" /* i18n-ignore */}
           checked={multiplayerCursors}
+          disabled={viewMode === "overview"}
           onSelect={() => toggleViewSetting("multiplayerCursors")}
         />
         <DropdownMenuSeparator />
