@@ -767,12 +767,10 @@ async function scanStartedAfter(seq: number): Promise<Resource[]> {
  * Event names as of a fingerprint read made by this call. Rejects when jobs
  * cannot be read.
  */
-async function readCurrentEventAutomationNames(
-  options: { timeoutMs?: number } = {},
-): Promise<Set<string>> {
+async function readCurrentEventAutomationNames(): Promise<Set<string>> {
   for (;;) {
     const generation = _eventAutomationGeneration;
-    const fingerprint = await resourceFingerprintAllOwners("jobs/", options);
+    const fingerprint = await resourceFingerprintAllOwners("jobs/");
     // Counted after the read returns: a scan that began while it was running
     // may have read jobs/ before a write the fingerprint already includes.
     const scansBefore = _eventAutomationScanCount;
@@ -803,9 +801,7 @@ function checkedEventAutomationNames(): Promise<Set<string> | null> {
     return Promise.resolve(names);
   }
   if (Date.now() < _eventAutomationCheckRetryAt) return Promise.resolve(null);
-  _inflightEventAutomationCheck ??= readCurrentEventAutomationNames({
-    timeoutMs: EVENT_AUTOMATION_CHECK_TIMEOUT_MS,
-  })
+  _inflightEventAutomationCheck ??= checkEventAutomationFingerprint()
     .catch((err: unknown) => {
       _eventAutomationCheckRetryAt =
         Date.now() + EVENT_AUTOMATION_CHECK_INTERVAL_MS;
@@ -819,6 +815,26 @@ function checkedEventAutomationNames(): Promise<Set<string> | null> {
       _inflightEventAutomationCheck = null;
     });
   return _inflightEventAutomationCheck;
+}
+
+/**
+ * One bounded fingerprint read: the cached names when jobs/ is unchanged, or
+ * `null` when it changed. The check never scans, so every event waiting on it
+ * waits for one short query; the event's own scan then reloads the names.
+ */
+async function checkEventAutomationFingerprint(): Promise<Set<string> | null> {
+  const generation = _eventAutomationGeneration;
+  const fingerprint = await resourceFingerprintAllOwners("jobs/", {
+    timeoutMs: EVENT_AUTOMATION_CHECK_TIMEOUT_MS,
+  });
+  const cached = _eventAutomationNames;
+  if (generation !== _eventAutomationGeneration) return null;
+  if (cached?.fingerprint !== fingerprint) return null;
+  // The fingerprint covers every row and local file the list was read from,
+  // so a match renews the list as much as a fresh read would.
+  cached.checkedAt = Date.now();
+  cached.loadedAt = cached.checkedAt;
+  return cached.names;
 }
 
 /**
@@ -849,13 +865,16 @@ export async function hasEventAutomation(eventName: string): Promise<boolean> {
 }
 
 /**
- * A refresh that lands mid-scan means the scan may predate a new automation;
- * only a scan that is still current when it finishes counts.
+ * A jobs scan that began after scan number `seq` and is still current when it
+ * finishes: an earlier scan, or one a refresh invalidated mid-flight, may
+ * predate a new automation.
  */
-async function currentEventAutomationResources(): Promise<Resource[]> {
+async function currentEventAutomationResources(
+  seq: number,
+): Promise<Resource[]> {
   for (;;) {
     const generation = _eventAutomationGeneration;
-    const jobResources = await listEventAutomationResources();
+    const jobResources = await scanStartedAfter(seq);
     if (generation === _eventAutomationGeneration) return jobResources;
   }
 }
@@ -865,22 +884,27 @@ async function handleAnyEvent(
   payload: unknown,
   eventMeta: EventMeta,
 ): Promise<void> {
+  // Taken on arrival: a scan already running may have read jobs/ before an
+  // automation another instance just created, so the event must not reuse it.
+  const scansBeforeEvent = _eventAutomationScanCount;
   // Unknown names cost no extra failure point: handleEvent's own scan reloads
   // them.
   if ((await checkedEventAutomationNames())?.has(eventName) === false) return;
-  await handleEvent(eventName, payload, eventMeta);
+  await handleEvent(eventName, payload, eventMeta, scansBeforeEvent);
 }
 
 async function handleEvent(
   eventName: string,
   payload: unknown,
   eventMeta: EventMeta,
+  scansBeforeEvent: number,
 ): Promise<void> {
   const deps = _deps;
   if (!deps) return;
 
   try {
-    const jobResources = await currentEventAutomationResources();
+    const jobResources =
+      await currentEventAutomationResources(scansBeforeEvent);
     const matchingTriggers = jobResources.filter((resource) => {
       if (!resource.path.endsWith(".md")) return false;
       const { meta, body } = parseTriggerFrontmatter(resource.content);

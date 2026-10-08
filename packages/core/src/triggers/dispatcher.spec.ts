@@ -603,6 +603,41 @@ Respond to the concurrent event.`,
     expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
   });
 
+  it("does not dispatch an event from a scan that began before it arrived", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const meta = (eventId: string) => ({
+      owner: "alice+triggers@agent-native.test",
+      eventId,
+      emittedAt: new Date().toISOString(),
+    });
+    let resolveEarlyScan!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveEarlyScan = resolve;
+        }),
+    );
+    const earlyEvent = busEventHandler("unrelated.event")({}, meta("early"));
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    // Another instance creates the automation while that scan is running;
+    // the scan has already read jobs/ without it.
+    const lateEvent = busEventHandler("test.event.fired")({}, meta("late"));
+    resolveEarlyScan([]);
+    await Promise.all([earlyEvent, lateEvent]);
+
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "late" }),
+    );
+  });
+
   it("shares one jobs read across a burst of events on a cold cache", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     await initTriggerDispatcher({
@@ -769,6 +804,9 @@ Respond to the concurrent event.`,
       await vi.advanceTimersByTimeAsync(1_000);
       await busEventHandler("test.event.fired")({}, meta("after-check"));
       expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledOnce();
+      // The check does not scan on a changed fingerprint; the event's own
+      // scan is the only full read after the first.
+      expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
       expect(triggerQueueMocks.enqueue).toHaveBeenCalledOnce();
       expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
         expect.objectContaining({ eventId: "after-check" }),
