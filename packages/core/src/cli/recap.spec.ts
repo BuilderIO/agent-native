@@ -1610,6 +1610,40 @@ describe("recap comment body", () => {
     expect(body).not.toContain("<picture>");
   });
 
+  it("treats empty readback output as failure when the screenshot reports skipped", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_READBACK_OK: "",
+      RECAP_SHOT_OK: "false",
+      RECAP_SHOT_REASON:
+        "Published recap readback failed: the readback step did not complete.",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+
+    expect(body).toContain("### Visual recap — readback failed");
+    expect(body).toContain("the workflow could not verify it");
+    expect(body).toContain("Screenshot capture was skipped");
+    expect(body).toContain("the readback step did not complete");
+    expect(body).not.toContain("screenshot failed");
+    expect(body).not.toContain("<picture>");
+  });
+
+  it("treats empty readback and screenshot outputs as a skipped capture", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_READBACK_OK: "",
+      RECAP_SHOT_OK: "",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+
+    expect(body).toContain("### Visual recap — readback failed");
+    expect(body).toContain("Screenshot capture was skipped");
+    expect(body).not.toContain("screenshot failed");
+    expect(body).not.toContain("<picture>");
+  });
+
   it("drops a recap-image URL whose token is too short for the image route", () => {
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",

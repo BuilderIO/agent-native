@@ -2328,14 +2328,22 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const fallbackImageUrl =
     env.RECAP_SHOT_OK === "false" ? undefined : lightImageUrl || darkImageUrl;
 
-  if (env.RECAP_READBACK_OK === "false") {
+  const readbackFailed =
+    Object.hasOwn(env, "RECAP_READBACK_OK") && env.RECAP_READBACK_OK !== "true";
+  if (readbackFailed) {
+    const readbackDiagnostic =
+      (env.RECAP_READBACK_REASON || "").trim() ||
+      (env.RECAP_SHOT_REASON || "")
+        .trim()
+        .match(/^Published recap readback failed:\s*(.+)$/i)?.[1] ||
+      "";
     const diagnostic = buildRecapFailureDiagnostic({
-      readbackReason: (env.RECAP_READBACK_REASON || "").trim(),
+      readbackReason: readbackDiagnostic,
     });
     lines.push("### Visual recap — readback failed");
     lines.push("");
     lines.push(
-      "The recap was published, but the configured PR service token could not verify it. Screenshot capture was skipped. Open the interactive recap directly:",
+      "The recap was published, but the workflow could not verify it. Screenshot capture was skipped. Open the interactive recap directly:",
     );
     lines.push("");
     lines.push(`**Open the [full interactive recap](${safeUrl})**`);
@@ -4206,7 +4214,7 @@ export function recapCheckOutcome(
     conclusion = "failure";
     title = "Visual recap readback failed";
     summary =
-      "The recap was published, but the configured PR token could not verify it. Screenshot capture was skipped. This informational check does not block the PR.";
+      "The recap was published, but the workflow could not verify it. Screenshot capture was skipped. This informational check does not block the PR.";
     text = diagnostic
       ? `**[Open visual recap](${recapUrl})**\n\n### Diagnostic\n\n${diagnostic}\n\nScreenshot capture was skipped.`
       : `**[Open visual recap](${recapUrl})**\n\nScreenshot capture was skipped because published recap readback failed.`;
