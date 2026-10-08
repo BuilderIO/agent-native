@@ -310,7 +310,10 @@ export interface StartRunOptions {
   userId?: string;
   attemptCount?: number;
   recoverChunkBoundaries?: boolean;
-  persistEvent?: (write: () => Promise<void>) => Promise<void>;
+  persistEvent?: (
+    write: () => Promise<void>,
+    metadata: { terminal: boolean },
+  ) => Promise<void>;
 }
 
 export interface RunChunkControl {
@@ -1362,7 +1365,11 @@ export function startRun(
   const persistRunEvent = (runEvent: RunEvent): Promise<void> => {
     const write = () =>
       insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event));
-    return options?.persistEvent ? options.persistEvent(write) : write();
+    return options?.persistEvent
+      ? options.persistEvent(write, {
+          terminal: isTerminalRunEvent(runEvent.event),
+        })
+      : write();
   };
 
   const emitRunEvent = (

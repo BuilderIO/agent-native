@@ -820,6 +820,19 @@ async function reconcileTaskWithRun(
   );
 }
 
+async function reconcileTaskForRead(task: AgentTask): Promise<AgentTask> {
+  const storedTask = structuredClone(task);
+  try {
+    return await reconcileTaskWithRun(task);
+  } catch (error) {
+    console.warn(
+      `[agent-teams] could not reconcile task ${task.taskId} during read:`,
+      describeDbError(error),
+    );
+    return storedTask;
+  }
+}
+
 export async function reconcileAgentTeamRunsForOwner(
   owner: string,
   event?: any,
@@ -2268,11 +2281,14 @@ export async function processAgentTeamRun(
             model: config.model,
             engineName: config.engine.name,
             attemptCount: claimedAttempts,
-            persistEvent: async (write) => {
+            persistEvent: async (write, { terminal }) => {
               const result = await withCurrentAgentTeamRunAttempt(
                 opts.taskId,
                 claimedAttempts,
                 write,
+                terminal
+                  ? { statuses: ["queued", "running", "done", "failed"] }
+                  : undefined,
               );
               if (!result.current) {
                 markLeaseLost();
@@ -2303,7 +2319,7 @@ export async function getTask(
   if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
     return undefined;
   }
-  return await reconcileTaskWithRun(task);
+  return await reconcileTaskForRead(task);
 }
 
 export async function getTaskByThread(
@@ -2314,7 +2330,7 @@ export async function getTaskByThread(
   if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
     return undefined;
   }
-  return await reconcileTaskWithRun(task);
+  return await reconcileTaskForRead(task);
 }
 
 export async function listTasks(
@@ -2325,7 +2341,7 @@ export async function listTasks(
   const tasks = entries
     .map((e) => e.value as unknown as AgentTask)
     .filter((task) => taskMatchesOwnerScope(task, ownerScope));
-  const reconciled = await Promise.all(tasks.map(reconcileTaskWithRun));
+  const reconciled = await Promise.all(tasks.map(reconcileTaskForRead));
   return reconciled.sort(
     (a, b) =>
       (b.updatedAt ?? b.completedAt ?? b.createdAt) -

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 let queueRows: Record<string, any>[] = [];
 let failNextDispatchStateRead = false;
 let reclaimAfterNextDispatchStateRead = false;
+let failParentCompletionReadFor: string | null = null;
 function affected(n: number) {
   return { rows: [], rowsAffected: n };
 }
@@ -263,11 +264,12 @@ function requireMockRequestContext(): void {
 vi.mock("../application-state/script-helpers.js", () => ({
   readAppState: vi.fn(async (k: string) => {
     requireMockRequestContext();
-    return appState.get(k) ?? null;
+    const value = appState.get(k);
+    return value == null ? null : structuredClone(value);
   }),
   writeAppState: vi.fn(async (k: string, v: any) => {
     requireMockRequestContext();
-    appState.set(k, v);
+    appState.set(k, structuredClone(v));
   }),
   deleteAppState: vi.fn(async (k: string) => {
     requireMockRequestContext();
@@ -275,9 +277,13 @@ vi.mock("../application-state/script-helpers.js", () => ({
   }),
   listAppState: vi.fn(async (prefix: string) => {
     requireMockRequestContext();
+    if (failParentCompletionReadFor === prefix) {
+      failParentCompletionReadFor = null;
+      throw new Error("parent completion state unavailable");
+    }
     return [...appState.entries()]
       .filter(([k]) => k.startsWith(prefix))
-      .map(([k, v]) => ({ key: k, value: v }));
+      .map(([k, v]) => ({ key: k, value: structuredClone(v) }));
   }),
 }));
 
@@ -305,6 +311,8 @@ const abortRunMock = vi.fn();
 const getRunMock = vi.fn();
 const subscribeToRunMock = vi.fn();
 const persistedRunEventIds: string[] = [];
+const persistedTerminalRunEventIds: string[] = [];
+const startRunWork: Promise<void>[] = [];
 vi.mock("../agent/run-manager.js", () => ({
   startRun: (
     runId: string,
@@ -313,16 +321,26 @@ vi.mock("../agent/run-manager.js", () => ({
     onComplete?: (run: any) => Promise<void>,
     options?: any,
   ) => {
-    void (async () => {
+    const work = (async () => {
       const events: any[] = [];
       const pendingEventWrites: Promise<unknown>[] = [];
       const send = (e: any) => {
         events.push({ seq: events.length, event: e });
         if (options?.persistEvent) {
+          const terminal = [
+            "done",
+            "error",
+            "missing_api_key",
+            "loop_limit",
+            "auto_continue",
+          ].includes(e?.type);
           pendingEventWrites.push(
             options
-              .persistEvent(async () => {})
-              .then(() => persistedRunEventIds.push(runId)),
+              .persistEvent(async () => {}, { terminal })
+              .then(() => {
+                persistedRunEventIds.push(runId);
+                if (terminal) persistedTerminalRunEventIds.push(runId);
+              }),
           );
         }
       };
@@ -348,7 +366,30 @@ vi.mock("../agent/run-manager.js", () => ({
         startedAt: Date.now(),
       };
       if (onComplete) await onComplete(run);
+      if (
+        options?.persistEvent &&
+        !events.some(({ event }) =>
+          [
+            "done",
+            "error",
+            "missing_api_key",
+            "loop_limit",
+            "auto_continue",
+          ].includes(event?.type),
+        )
+      ) {
+        pendingEventWrites.push(
+          options
+            .persistEvent(async () => {}, { terminal: true })
+            .then(() => {
+              persistedRunEventIds.push(runId);
+              persistedTerminalRunEventIds.push(runId);
+            }),
+        );
+        await Promise.allSettled(pendingEventWrites);
+      }
     })();
+    startRunWork.push(work);
     return {
       runId,
       threadId,
@@ -544,10 +585,13 @@ function resolveConfig() {
 }
 
 describe("processAgentTeamRun (durable serverless execution)", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await Promise.allSettled(startRunWork);
+    startRunWork.length = 0;
     queueRows = [];
     failNextDispatchStateRead = false;
     reclaimAfterNextDispatchStateRead = false;
+    failParentCompletionReadFor = null;
     appState.clear();
     threadData.clear();
     dispatches.length = 0;
@@ -564,6 +608,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     getRunMock.mockReset();
     abortRunMock.mockReset();
     persistedRunEventIds.length = 0;
+    persistedTerminalRunEventIds.length = 0;
     subscribeToRunMock.mockReset();
     getRunEventsSinceMock.mockReset();
     getRunEventsSinceMock.mockResolvedValue([]);
@@ -601,6 +646,29 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
+
+  it("persists the terminal event after the queue row is finalized", async () => {
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      opts.send({ type: "text", text: "terminal event result" });
+    });
+    await seedTask("terminal-event");
+
+    await processAgentTeamRun({
+      taskId: "terminal-event",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    await vi.waitFor(() =>
+      expect(persistedTerminalRunEventIds).toContain(
+        "run-task-terminal-event-a1-c0",
+      ),
+    );
+    expect(appState.get("agent-task:terminal-event").status).toBe("completed");
+    expect(
+      (await queue.getAgentTeamRunDispatchState("terminal-event"))?.status,
+    ).toBe("done");
+  });
 
   it("records child-run telemetry with the durable parent correlation", async () => {
     runAgentLoopMock.mockImplementation(async (opts: any) => {
@@ -1240,6 +1308,67 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       taskId: "reconcile-completion",
       status: "completed",
     });
+  });
+
+  it("returns the stored task when direct-read reconciliation fails", async () => {
+    await seedTask("reconcile-read-failure");
+    const storedTask = appState.get("agent-task:reconcile-read-failure");
+    storedTask.parentThreadId = "parent-read-failure";
+    appState.set("agent-task:reconcile-read-failure", storedTask);
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "reconcile-read-failure",
+    );
+    if (!row) throw new Error("missing queued task row");
+    row.status = "done";
+    failParentCompletionReadFor = "parent-completion:parent-read-failure:";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const task = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("reconcile-read-failure", { ownerEmail: OWNER }),
+    );
+
+    expect(task).toMatchObject({
+      taskId: "reconcile-read-failure",
+      status: "running",
+      parentThreadId: "parent-read-failure",
+    });
+    expect(appState.get("agent-task:reconcile-read-failure").status).toBe(
+      "running",
+    );
+    warn.mockRestore();
+  });
+
+  it("keeps one failed reconciliation from rejecting the task list", async () => {
+    await seedTask("list-reconcile-failure");
+    await seedTask("list-reconcile-success");
+    const failedTask = appState.get("agent-task:list-reconcile-failure");
+    failedTask.parentThreadId = "parent-list-failure";
+    appState.set("agent-task:list-reconcile-failure", failedTask);
+    for (const taskId of ["list-reconcile-failure", "list-reconcile-success"]) {
+      const row = queueRows.find((candidate) => candidate.task_id === taskId);
+      if (!row) throw new Error(`missing queued task row ${taskId}`);
+      row.status = "done";
+    }
+    failParentCompletionReadFor = "parent-completion:parent-list-failure:";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const tasks = await runWithRequestContext({ userEmail: OWNER }, () =>
+      listTasks({ ownerEmail: OWNER }),
+    );
+
+    expect(tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId: "list-reconcile-failure",
+          status: "running",
+        }),
+        expect.objectContaining({
+          taskId: "list-reconcile-success",
+          status: "completed",
+        }),
+      ]),
+    );
+    warn.mockRestore();
   });
 
   it("stops the currently active chunk run for a background task", async () => {

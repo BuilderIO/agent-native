@@ -852,6 +852,29 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("identifies terminal events for attempt-scoped persistence", async () => {
+    const persistedEvents: boolean[] = [];
+    const run = startRun(
+      "run-event-persistence-metadata",
+      "thread-event-persistence-metadata",
+      async (send) => {
+        send({ type: "text", text: "finished" });
+      },
+      undefined,
+      {
+        softTimeoutMs: 0,
+        persistEvent: async (write, metadata) => {
+          persistedEvents.push(metadata.terminal);
+          await write();
+        },
+      },
+    );
+
+    await run.finalized;
+
+    expect(persistedEvents).toEqual([false, true]);
+  });
+
   it("records terminal error diagnostics for errored runs", async () => {
     startRun(
       "run-error-diagnostics",
