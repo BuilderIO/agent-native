@@ -571,6 +571,73 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
+  const screenSelectionRegressions = step(
+    "Run focused Screen selection history regressions",
+  );
+  assert.match(
+    screenSelectionRegressions,
+    /^        if: startsWith\(matrix\.shard, 'screen-history-'\)$/m,
+    "Screen-selection regressions must run only on their dedicated shards",
+  );
+  assert.match(
+    regressionCases,
+    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
+    "focused Design selectors must not run on Screen-history shards",
+  );
+  assert.ok(
+    screenSelectionRegressions.includes(
+      "E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+    "each Screen-history shard needs isolated application state",
+  );
+  const screenHistoryShardSelectors = [
+    ...screenSelectionRegressions.matchAll(
+      /\s+(screen-history-\d)\)\s+grep='([^']+)'/g,
+    ),
+  ].map(([, shard, selectors]) => ({ shard, selectors: selectors.split("|") }));
+  assert.deepEqual(
+    screenHistoryShardSelectors.map(({ shard }) => shard),
+    ["screen-history-1", "screen-history-2", "screen-history-3"],
+    "Screen-history regressions must stay split across three shards",
+  );
+  assert.deepEqual(
+    screenHistoryShardSelectors.map(({ selectors }) => selectors.length),
+    [5, 5, 5],
+    "Screen-history regressions must stay balanced across the three shards",
+  );
+  const screenHistoryCases = [
+    "undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id",
+    "deleting a selected child layer keeps its owning Screen",
+    "undo restores a child layer with its additive Screen selection",
+    "marquee-selecting child elements after a Screen pick deletes only the elements",
+    "undoing a canvas element click restores its explicit Screen target for Delete",
+    "failed Screen deletion keeps the explicit Screen target for retry",
+    "a newer layer selection survives failed Screen deletion settlement",
+    "Shift-marquee adds a hit Screen to the existing Delete selection",
+    "a newer Screen pick survives failed Screen deletion settlement",
+    "a newer sidebar Screen selection survives failed Screen deletion settlement",
+    "Select All Screens survives failed Screen deletion settlement",
+    "marquee selection persists and deletes Screens after a prior layer selection",
+    "deep-select marquee over a Screen deletes only the child",
+    "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
+    "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
+  ];
+  const screenHistorySpec = readFileSync(
+    "templates/design/e2e/parity-selection-history-delete-screen.spec.ts",
+    "utf8",
+  );
+  for (const title of screenHistoryCases) {
+    assert.equal(
+      screenHistorySpec.split(title).length - 1,
+      1,
+      `Screen-history case must exist exactly once: ${title}`,
+    );
+  }
+  assert.deepEqual(
+    screenHistoryShardSelectors.flatMap(({ selectors }) => selectors).sort(),
+    [...screenHistoryCases].sort(),
+    "Screen-history selectors must cover each intended case once",
+  );
   assert.deepEqual(
     [...regressionCases.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
       Number(count),
@@ -594,8 +661,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /^\s+run: pnpm exec playwright install --only-shell --with-deps chromium$/m,
-    "Design shards must install the Chromium runtime dependencies",
+    /^\s+run: pnpm exec playwright install --only-shell chromium$/m,
+    "Design shards must reuse the runner's browser libraries",
   );
   const jobTimeout = Number(
     designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
@@ -603,19 +670,28 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const stepTimeout = Number(
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
+  const screenHistoryStepTimeout = Number(
+    screenSelectionRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
   assert.ok(
-    Number.isInteger(jobTimeout) && jobTimeout >= 25 && jobTimeout <= 30,
-    `Design acceptance job needs a bounded 25-minute budget (got ${jobTimeout})`,
+    Number.isInteger(jobTimeout) && jobTimeout === 30,
+    `Design acceptance job needs a bounded 30-minute budget (got ${jobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout === 15 &&
+      stepTimeout === 20 &&
       jobTimeout >= stepTimeout + 10,
-    `focused Design tests need a 15-minute cap and ten minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+    `focused Design tests need a 20-minute cap and ten minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+  );
+  assert.ok(
+    Number.isInteger(screenHistoryStepTimeout) &&
+      screenHistoryStepTimeout === 4 &&
+      jobTimeout >= screenHistoryStepTimeout + 10,
+    `Screen-history tests need a four-minute cap with ten minutes for setup (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
   );
   assert.match(
     designJob,
-    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,\s*screen-history-1,\s*screen-history-2,\s*screen-history-3,?\s*\]/,
   );
   const fixedLocations = (start: number, end: number) =>
     [
@@ -722,19 +798,21 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
   );
   assert.ok(regressionCases.includes('if [[ -f "$spec" ]]; then'));
-  const fastTestsStart = workflow.indexOf("  fast-tests:\n");
-  assert.ok(fastTestsStart >= 0);
-  const fastTestsBodyStart = fastTestsStart + "  fast-tests:\n".length;
-  const nextJobOffset = workflow
-    .slice(fastTestsBodyStart)
-    .search(/^  [a-z0-9-]+:[ \t]*$/m);
-  const fastTestsEnd =
-    nextJobOffset === -1 ? workflow.length : fastTestsBodyStart + nextJobOffset;
-  const fastTestsJob = workflow.slice(fastTestsStart, fastTestsEnd);
+  const fastTestsJobStart = workflow.indexOf("  fast-tests:\n");
+  assert.notEqual(fastTestsJobStart, -1, "missing fast-tests workflow job");
+  const nextJobHeader = workflow
+    .slice(fastTestsJobStart + 1)
+    .match(/\n  [a-z][a-z0-9_-]*:\n/);
+  const nextJobIndex = nextJobHeader?.index;
+  const fastTestsJobEnd =
+    nextJobIndex === undefined
+      ? undefined
+      : fastTestsJobStart + 1 + nextJobIndex;
+  const fastTestsJob = workflow.slice(fastTestsJobStart, fastTestsJobEnd);
   assert.doesNotMatch(
-    fastTestsJob.slice("  fast-tests:\n".length),
-    /^  [a-z0-9-]+:[ \t]*$/m,
-    "fast-tests assertions must stay inside that job",
+    fastTestsJob,
+    /\n  [a-z][a-z0-9_-]*:\n/,
+    "fast-tests assertions must stop before the next top-level job",
   );
   const needsStart = fastTestsJob.indexOf("    needs:");
   const needsEnd = fastTestsJob.indexOf("    if:", needsStart);

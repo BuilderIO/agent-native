@@ -5,6 +5,12 @@ import { describe, expect, it } from "vitest";
 describe("Design editor header", () => {
   const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
 
+  it("only offers Add screen to editors", () => {
+    expect(editorSource).toContain(
+      "canEditDesign ? handleAddScreenAffordance : undefined",
+    );
+  });
+
   it("keeps the title without rendering the review status chip", () => {
     expect(editorSource).toContain("{projectTitleControl}");
     expect(editorSource).not.toContain("ReviewStatusControl");
