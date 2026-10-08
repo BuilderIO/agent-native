@@ -3019,10 +3019,12 @@ async function assertAgentKitChatAcceptance(
   try {
     await page
       .locator('[data-agent-composer-slot="stop-button"]')
+      .filter({ visible: true })
+      .first()
       .waitFor({ state: "visible" });
   } catch (error) {
     throw new Error(
-      "The composer no longer counts the run as active while its approval card is pending, so a follow-up would bypass the queue.",
+      "The composer did not render a visible stop button while its approval card was pending, so a follow-up could bypass the queue.",
       { cause: error },
     );
   }
@@ -3355,6 +3357,7 @@ async function assertAgentKitChatAcceptance(
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
   await page
     .getByText("All seven local sample widgets are ready.", { exact: true })
+    .filter({ visible: true })
     .first()
     .waitFor({ state: "visible" });
   await assertAgentKitWidgetSamples(page);

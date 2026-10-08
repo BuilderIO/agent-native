@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
     delete: vi.fn(() => deleteQuery),
   };
   const snapshotRows = [{ blobHandle: "serialized-handle" }];
+  const screenshotRows = [{ blobHandle: "replay-screenshot-handle" }];
   const withDesignSourceMutationTransaction = vi.fn(
     async (_id: string, callback: (tx: typeof tx) => Promise<unknown>) => {
       const result = await callback(tx);
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => {
     deleteQuery,
     tx,
     snapshotRows,
+    screenshotRows,
     assertAccess: vi.fn(),
     withDesignSourceMutationTransaction,
     deleteVisualEditSnapshotBlobs: vi.fn(async () => {
@@ -71,6 +73,10 @@ vi.mock("../server/db/index.js", () => ({
       designId: "designVisualEditSnapshots.designId",
       blobHandle: "designVisualEditSnapshots.blobHandle",
     },
+    designBoardReplayScreenshots: {
+      designId: "designBoardReplayScreenshots.designId",
+      blobHandle: "designBoardReplayScreenshots.blobHandle",
+    },
     designVisualEditPending: { designId: "designVisualEditPending.designId" },
     designs: { id: "designs.id" },
   },
@@ -98,7 +104,9 @@ describe("delete-design snapshot cleanup", () => {
       },
     );
     mocks.snapshotQuery.for.mockReset();
-    mocks.snapshotQuery.for.mockResolvedValue(mocks.snapshotRows);
+    mocks.snapshotQuery.for
+      .mockResolvedValueOnce(mocks.snapshotRows)
+      .mockResolvedValueOnce(mocks.screenshotRows);
     mocks.deleteQuery.where.mockReset();
     mocks.deleteQuery.where.mockResolvedValue(undefined);
     mocks.deleteVisualEditSnapshotBlobs.mockReset();
@@ -113,7 +121,7 @@ describe("delete-design snapshot cleanup", () => {
     );
   });
 
-  it("removes every snapshot blob after the design deletion commits", async () => {
+  it("removes snapshot and replay screenshot blobs after design deletion commits", async () => {
     await expect(action.run({ id: "design-one" })).resolves.toEqual({
       id: "design-one",
       deleted: true,
@@ -121,10 +129,18 @@ describe("delete-design snapshot cleanup", () => {
 
     expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledWith([
       "serialized-handle",
+      "replay-screenshot-handle",
     ]);
     expect(
       mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
-    ).toHaveBeenCalledWith(mocks.tx, ["serialized-handle"]);
+    ).toHaveBeenCalledWith(mocks.tx, [
+      "serialized-handle",
+      "replay-screenshot-handle",
+    ]);
+    expect(mocks.tx.delete).toHaveBeenCalledWith({
+      designId: "designBoardReplayScreenshots.designId",
+      blobHandle: "designBoardReplayScreenshots.blobHandle",
+    });
     expect(mocks.tx.delete).toHaveBeenCalledWith({
       designId: "designVisualEditPending.designId",
     });

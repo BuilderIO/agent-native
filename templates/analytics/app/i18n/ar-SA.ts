@@ -1560,6 +1560,52 @@ export default {
     devtoolsNoConsoleMatches:
       "لا توجد رسائل وحدة تحكم مطابقة لعوامل التصفية الحالية.",
     devtoolsNoNetworkMatches: "لا توجد طلبات مطابقة لعوامل التصفية الحالية.",
+    storyboardSelectionCoverage:
+      "تم اختيار {{selected}} من أصل {{total}} من جلسات الإعادة ({{percent}}).",
+    storyboardSelectHint: "اختر حتى 3 جلسات لإنشاء لوحة قصصية.",
+    clearStoryboardSelection: "مسح التحديد",
+    createStoryboard: "إنشاء لوحة قصصية",
+    selectReplayForStoryboard: "اختر إعادة التشغيل {{id}} للوحة القصصية",
+    storyboardDesignId: "معرّف Design (اختياري)",
+    storyboardTitle: "عنوان اللوحة القصصية",
+    storyboardDefaultTitle: "لوحة قصصية لإعادة الجلسة",
+    storyboardTimestamps: "الطوابع الزمنية (حتى 3، مفصولة بفواصل)",
+    storyboardReplayPreview: "معاينة إعادة التشغيل",
+    storyboardStartingCapture:
+      "اختر علامة تبويب Analytics هذه في أداة التقاط المتصفح.",
+    storyboardLoadingReplay: "جارٍ تحميل إعادة التشغيل {{replayId}}…",
+    storyboardCapturingFrame:
+      "جارٍ التقاط {{current}} من {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "جارٍ إرسال لقطات الشاشة إلى Design…",
+    storyboardComplete: "تمت إضافة {{screenshots}} من لقطات الشاشة إلى Design.",
+    storyboardTimestampError: "استخدم التنسيق mm:ss أو hh:mm:ss أو mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "أدخل طابعًا زمنيًا واحدًا على الأقل لكل إعادة تشغيل محددة.",
+    storyboardTimestampLimit: "اختر 3 طوابع زمنية كحد أقصى لكل إعادة تشغيل.",
+    storyboardDuplicateTimestamp: "أزل الطوابع الزمنية المكررة.",
+    storyboardScreenshotLimit: "اختر 9 لقطات شاشة كحد أقصى.",
+    storyboardReplayLimit: "اختر حتى 3 جلسات إعادة تشغيل.",
+    storyboardCaptureFailed: "تعذر التقاط لقطة الشاشة.",
+    storyboardCanceled: "تم إلغاء الالتقاط.",
+    storyboardReplayIncomplete:
+      "تحتوي إعادة التشغيل {{replayId}} على أحداث غير متاحة؛ تم إيقاف التصدير.",
+    storyboardViewportUnavailable: "أبعاد إطار العرض المسجلة غير متاحة.",
+    storyboardTimestampOutOfRange:
+      "الطابع الزمني خارج نطاق إعادة التشغيل {{replayId}}.",
+    storyboardScreenshotTooLarge: "تتجاوز إحدى لقطات الشاشة حد 5 MB.",
+    storyboardBatchTooLarge: "تتجاوز مجموعة لقطات الشاشة حد 20 MB.",
+    storyboardRouteUnavailable:
+      "المسار عند {{timestamp}} غير متاح لإعادة التشغيل {{replayId}}.",
+    storyboardNoDesignResponse: "لم يُرجع Design نتيجة للوحة القصصية.",
+    storyboardTemporaryCleanupPending:
+      "حُفظت لوحة القصص، لكن تعذّر حذف ملفات لقطات الشاشة المؤقتة.",
+    storyboardUnexpectedResponse:
+      "أعاد تصدير لقطات الشاشة استجابة يتعذّر قراءتها. أعد المحاولة.",
+    openStoryboard: "فتح اللوحة القصصية في Design",
+    cancelStoryboardCapture: "إلغاء الالتقاط",
+    captureToDesign: "التقاط وإضافة إلى Design",
+    storyboardSelectAnalyticsTab:
+      "اختر علامة تبويب Analytics هذه في أداة التقاط المتصفح.",
   },
   catalog: {
     description:
