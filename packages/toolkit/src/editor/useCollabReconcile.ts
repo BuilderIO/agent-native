@@ -530,7 +530,6 @@ export function useCollabReconcile({
   ]);
 
   const syncedBeforeAdoptRef = useRef<string | null>(null);
-  const liveSyncedBeforeAdoptRef = useRef<string | null>(null);
   const peerReconcileWaitRef = useRef<{
     editor: Editor;
     ydoc: YDoc | null;
@@ -889,8 +888,6 @@ export function useCollabReconcile({
             );
           }
           syncedBeforeAdoptRef.current = snapshotKey;
-          if (status === "synced")
-            liveSyncedBeforeAdoptRef.current = snapshotKey;
           if (!cancelled) apply(deferred);
         };
         void requestCollabSync().then(
@@ -900,18 +897,7 @@ export function useCollabReconcile({
         return;
       }
 
-      // A snapshot whose live catch-up succeeded already holds every update
-      // the server has received, so only a failed or unavailable catch-up has
-      // to wait for a peer's update to arrive by polling. A doc that moved on
-      // since the last snapshot holds text the merge has to place, so it waits.
-      if (
-        collab &&
-        externalNewer &&
-        !deferred &&
-        peerCountRef.current > 0 &&
-        (liveSyncedBeforeAdoptRef.current !== snapshotKey ||
-          !editorUnchangedSinceApply)
-      ) {
+      if (collab && externalNewer && !deferred && peerCountRef.current > 0) {
         peerWait.deadline ??= Date.now() + PEER_SETTLE_MS;
         const remaining = peerWait.deadline - Date.now();
         if (remaining > 0) {

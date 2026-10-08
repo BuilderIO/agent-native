@@ -507,66 +507,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     }
   });
 
-  it.each([
-    ["synced", true],
-    ["failed", false],
-  ] as const)(
-    "applies an agent snapshot with a peer present without the settle wait only after a live catch-up (%s)",
-    async (status, appliedAtOnce) => {
-      vi.useFakeTimers();
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const baseline = "original body\n\nSecond paragraph.";
-      const harness = makePeerReconcileHarness(baseline);
-      try {
-        act(() => root.render(React.createElement(harness.Harness)));
-        await act(async () => vi.advanceTimersByTimeAsync(30));
-        act(() =>
-          root.render(
-            React.createElement(harness.Harness, {
-              value: `Agent ${baseline}`,
-              revision: null,
-              updatedAt: "2024-01-01T00:00:02.000Z",
-              requestCollabSync: async () => ({ status }),
-            }),
-          ),
-        );
-        await act(async () => vi.advanceTimersByTimeAsync(500));
-        expect(harness.markdown() === `Agent ${baseline}`).toBe(appliedAtOnce);
-        await act(async () => vi.advanceTimersByTimeAsync(30000));
-        expect(harness.markdown()).toBe(`Agent ${baseline}`);
-      } finally {
-        warn.mockRestore();
-        harness.dispose();
-      }
-    },
-  );
-
-  it("still waits out the peer window after a live catch-up when the doc holds text the snapshot lacks", async () => {
-    vi.useFakeTimers();
-    const baseline = "original body\n\nSecond paragraph.";
-    const harness = makePeerReconcileHarness(baseline);
-    try {
-      act(() => root.render(React.createElement(harness.Harness)));
-      await act(async () => vi.advanceTimersByTimeAsync(30));
-      act(() => harness.editor().commands.insertContentAt(1, "Unsaved "));
-      act(() =>
-        root.render(
-          React.createElement(harness.Harness, {
-            value: `Agent ${baseline}`,
-            revision: null,
-            updatedAt: "2024-01-01T00:00:02.000Z",
-            requestCollabSync: async () => ({ status: "synced" as const }),
-          }),
-        ),
-      );
-      await act(async () => vi.advanceTimersByTimeAsync(2000));
-      expect(harness.markdown()).toContain("Unsaved");
-      expect(harness.markdown()).not.toContain("Agent");
-    } finally {
-      harness.dispose();
-    }
-  });
-
   it("catches up before merging a saved revision whose text is still in flight through Yjs", async () => {
     vi.useFakeTimers();
     const baseline = "original body\n\nSecond paragraph.";
