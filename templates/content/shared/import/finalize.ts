@@ -1,9 +1,5 @@
 import { docToNfm, nfmToDoc, type PMDoc, type PMNode } from "../nfm";
-import {
-  IMPORT_REFERENCE_PLACEHOLDER,
-  type ImportReferenceSlot,
-  type MarkdownImportDraft,
-} from "./markdown";
+import type { ImportReferenceSlot, MarkdownImportDraft } from "./markdown";
 import { isMarkdownFilePath } from "./paths";
 import type {
   ImportAssetResolution,
@@ -67,14 +63,10 @@ export function finalizeMarkdownImport(
   };
 
   const placeholderSlot = (value: unknown): ImportReferenceSlot | null => {
-    if (
-      typeof value !== "string" ||
-      !value.startsWith(IMPORT_REFERENCE_PLACEHOLDER)
-    ) {
+    if (typeof value !== "string" || !value.startsWith(draft.referencePrefix)) {
       return null;
     }
-    const slot =
-      draft.slots[Number(value.slice(IMPORT_REFERENCE_PLACEHOLDER.length))];
+    const slot = draft.slots[Number(value.slice(draft.referencePrefix.length))];
     if (!slot) {
       throw new ImportContractError(`Unknown import reference ${value}`);
     }
@@ -125,7 +117,7 @@ export function finalizeMarkdownImport(
   }
 
   const content = docToNfm(doc);
-  if (content.includes(IMPORT_REFERENCE_PLACEHOLDER)) {
+  if (content.includes(draft.referencePrefix)) {
     throw new ImportContractError(
       "An import reference reached the stored body unresolved",
     );
@@ -214,7 +206,7 @@ function measureCoverage(
   draft: MarkdownImportDraft,
   stored: PMDoc,
 ): ImportTextCoverage {
-  const landedParts = [draft.title, draft.description ?? ""];
+  const landedParts = draft.titleHeading ? [draft.titleHeading] : [];
   let sourceParts: string[];
   let accounted: string[] = [];
   if (draft.coverage.kind === "markdown") {

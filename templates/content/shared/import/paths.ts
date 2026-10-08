@@ -1,6 +1,7 @@
 const SCHEME_RE = /^([a-z][a-z0-9+.-]*):/i;
 const SAFE_LINK_SCHEMES = new Set(["http", "https", "mailto", "tel"]);
 const MARKDOWN_FILE_RE = /\.(md|markdown|mdx)$/i;
+const CONTROL_CHARACTER_RE = /[\u0000-\u001f\u007f]/;
 
 export type ImportReference =
   | { kind: "remote"; url: string }
@@ -20,7 +21,11 @@ export function classifyImportReference(
   reference: string,
 ): ImportReference {
   const trimmed = reference.trim();
-  if (!trimmed) return { kind: "unsupported", reference };
+  // Browsers drop tabs, newlines, and leading control characters from a URL,
+  // so `java\tscript:` would run as `javascript:` while reading as a path.
+  if (!trimmed || CONTROL_CHARACTER_RE.test(trimmed)) {
+    return { kind: "unsupported", reference };
+  }
   if (trimmed.startsWith("#")) return { kind: "anchor", url: trimmed };
   if (trimmed.startsWith("//")) {
     return { kind: "remote", url: `https:${trimmed}` };

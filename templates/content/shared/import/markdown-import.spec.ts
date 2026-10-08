@@ -485,11 +485,14 @@ describe("Markdown import", () => {
     expect(noteKinds(page)).toContain("text-not-landed");
   });
 
-  it("names source text that never reached the page", () => {
-    const draft = parseMarkdownImport({
-      sourcePath: "notes/page.md",
-      text: "Visible words",
-    });
+  it.each([
+    ["with no title", "Visible words"],
+    [
+      "whose frontmatter title and description hold the same words",
+      "---\ntitle: Phantom paragraph\ndescription: A phantom paragraph\n---\nVisible words",
+    ],
+  ])("names source text that never reached a page %s", (_, text) => {
+    const draft = parseMarkdownImport({ sourcePath: "notes/page.md", text });
     if (draft.coverage.kind !== "markdown")
       throw new Error("expected Markdown");
     const page = finalizeMarkdownImport(
@@ -577,5 +580,109 @@ describe("Markdown import", () => {
 
     expect(page.content).toBe("A claim.\\[\\^missing\\]");
     expect(page.report.status).toBe("preserved");
+  });
+
+  it("removes a link or image whose scheme hides behind a control character", () => {
+    const page = importMarkdown(
+      [
+        "[tab](<java\tscript:alert(1)>)",
+        "[climb](<java\tscript:alert(1)//../../..>)",
+        "[entity](java&#9;script:alert(1))",
+        '<a href="&#1;javascript:alert(1)">leading</a>',
+        "![image](<java\tscript:alert(1)>)",
+      ].join("\n\n"),
+    );
+
+    const hrefs = nodesOfType(page.doc, "text").flatMap((node) =>
+      (node.marks ?? [])
+        .filter((mark) => mark.type === "link")
+        .map((mark) => mark.attrs?.href),
+    );
+    expect(hrefs).toEqual([]);
+    expect(nodesOfType(page.doc, "image")[0]?.attrs?.src).toBe("");
+    expect(page.content).not.toMatch(/script:/);
+    expect(noteKinds(page)).toEqual(
+      expect.arrayContaining(["link-removed", "asset-missing"]),
+    );
+  });
+
+  it("keeps source text that reads like an import placeholder", () => {
+    const page = importMarkdown(
+      "Write `agent-native-import-reference:0` or agent-native-import-reference:1.\n\n![Chart](chart.png)",
+      {
+        resolvers: {
+          asset: () => ({
+            status: "resolved",
+            url: "https://files.example/chart.png",
+          }),
+        },
+      },
+    );
+
+    expect(page.content).toContain("`agent-native-import-reference:0`");
+    expect(page.content).toContain("agent-native-import-reference:1.");
+    expect(nodesOfType(page.doc, "image")[0]?.attrs?.src).toBe(
+      "https://files.example/chart.png",
+    );
+  });
+
+  it("keeps text written right after a closing details tag", () => {
+    const page = importMarkdown(
+      [
+        "<details><summary>One</summary>Inside one</details>",
+        "After one",
+        "",
+        "<details>",
+        "<summary>Two</summary>",
+        "",
+        "Inside two",
+        "",
+        "</details>",
+        "<details><summary>Three</summary>",
+        "",
+        "Inside three",
+        "",
+        "</details>",
+        "After three",
+      ].join("\n"),
+    );
+
+    expect(
+      page.doc.content.map((node) =>
+        node.type === "notionToggle"
+          ? `${node.attrs?.summary}: ${textOf(node)}`
+          : textOf(node),
+      ),
+    ).toEqual([
+      "One: Inside one",
+      "After one",
+      "Two: Inside two",
+      "Three: Inside three",
+      "After three",
+    ]);
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
+  it("reports a table instead of padding it into far more cells than it holds", () => {
+    const wideRow = `| ${Array.from({ length: 400 }, (_, index) => `c${index}`).join(" | ")} |`;
+    const page = importMarkdown(
+      [
+        "| a |",
+        "| - |",
+        wideRow,
+        ...Array.from({ length: 300 }, () => "| x |"),
+      ].join("\n"),
+    );
+
+    expect(nodesOfType(page.doc, "table")).toEqual([]);
+    expect(noteKinds(page)).toContain("unsupported-markdown");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+
+    const ragged = importMarkdown("| a | b |\n| - | - |\n| 1 |\n| 2 | 3 | 4 |");
+    expect(
+      nodesOfType(ragged.doc, "tableRow").map(
+        (row) => row.content?.length ?? 0,
+      ),
+    ).toEqual([3, 3, 3]);
   });
 });

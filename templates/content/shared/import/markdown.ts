@@ -32,9 +32,13 @@ import type { ImportFrontmatter, ImportedPage, MarkdownDialect } from "./types";
 /**
  * Prefix for image sources and link targets that wait on an upload or on the
  * new page id of another imported file. `finalizeMarkdownImport` replaces
- * every one before anything is stored.
+ * every one before anything is stored. It is random per draft, so text in the
+ * source can neither imitate a placeholder nor be mistaken for one.
  */
-export const IMPORT_REFERENCE_PLACEHOLDER = "agent-native-import-reference:";
+function newReferencePrefix(): string {
+  const [high, low] = crypto.getRandomValues(new Uint32Array(2));
+  return `agent-native-import-reference-${high.toString(36)}${low.toString(36)}:`;
+}
 
 export type ImportReferenceSlot =
   | { role: "asset"; reference: ImportReference; written: string }
@@ -45,11 +49,18 @@ export interface MarkdownImportDraft {
   dialect: MarkdownDialect;
   title: string;
   titleSource: ImportedPage["titleSource"];
+  /**
+   * Text of the leading heading the title replaced. It left the body, so the
+   * text-coverage check counts it as landed; other title text never was body.
+   */
+  titleHeading: string | null;
   description: string | null;
   icon: string | null;
   frontmatter: ImportFrontmatter;
   /** Image sources and link targets may still hold reference placeholders. */
   doc: PMDoc;
+  /** Starts every reference placeholder in `doc`; the slot index follows. */
+  referencePrefix: string;
   slots: ImportReferenceSlot[];
   notes: ImportNoteBag;
   /** What a reader of the source sees, for the text-coverage check. */
@@ -172,6 +183,12 @@ const HTML_BLOCK_BREAKS = new Set([
 /** Tags a flattened HTML block reproduces faithfully, so they need no note. */
 const FAITHFUL_HTML_TAGS = new Set(["p", "br", "img", "a", "hr", "pre"]);
 
+/**
+ * Empty cells a table may gain from padding short rows to its widest row.
+ * Past this, the cells built would far outnumber the cells written.
+ */
+const MAX_TABLE_PADDING_CELLS = 100_000;
+
 type InlinePiece = PMNode | { block: PMNode } | { paragraphBreak: true };
 
 export interface ParseMarkdownImportInput {
@@ -192,17 +209,28 @@ export function parseMarkdownImport(
     notes,
   );
   const dialect: MarkdownDialect = looksLikeNfm(body) ? "nfm" : "markdown";
+  const referencePrefix = newReferencePrefix();
 
   let blocks: PMNode[];
   let slots: ImportReferenceSlot[];
   let coverage: MarkdownImportDraft["coverage"];
   if (dialect === "nfm") {
-    const converted = convertNfm(input.sourcePath, body, notes);
+    const converted = convertNfm(
+      input.sourcePath,
+      body,
+      notes,
+      referencePrefix,
+    );
     blocks = converted.blocks;
     slots = converted.slots;
     coverage = { kind: "nfm", source: body };
   } else {
-    const converter = new MarkdownConverter(input.sourcePath, body, notes);
+    const converter = new MarkdownConverter(
+      input.sourcePath,
+      body,
+      notes,
+      referencePrefix,
+    );
     blocks = converter.convert();
     slots = converter.slots;
     coverage = {
@@ -218,6 +246,7 @@ export function parseMarkdownImport(
     dialect,
     title: title.title,
     titleSource: title.source,
+    titleHeading: title.heading,
     description: frontmatter.description,
     icon: frontmatter.icon,
     frontmatter: {
@@ -228,6 +257,7 @@ export function parseMarkdownImport(
       type: "doc",
       content: blocks.length ? blocks : [{ type: "paragraph" }],
     },
+    referencePrefix,
     slots,
     notes,
     coverage,
@@ -340,7 +370,11 @@ function takeTitle(
   frontmatterTitle: string | null,
   sourcePath: string,
   notes: ImportNoteBag,
-): { title: string; source: ImportedPage["titleSource"] } {
+): {
+  title: string;
+  source: ImportedPage["titleSource"];
+  heading: string | null;
+} {
   const first = blocks[0];
   const heading =
     first?.type === "heading" && Number(first.attrs?.level) === 1
@@ -351,14 +385,16 @@ function takeTitle(
     : "";
 
   if (frontmatterTitle) {
-    if (
+    const duplicate =
       heading &&
       headingText.toLowerCase() ===
-        collapseWhitespace(frontmatterTitle).toLowerCase()
-    ) {
-      blocks.shift();
-    }
-    return { title: frontmatterTitle, source: "frontmatter" };
+        collapseWhitespace(frontmatterTitle).toLowerCase();
+    if (duplicate) blocks.shift();
+    return {
+      title: frontmatterTitle,
+      source: "frontmatter",
+      heading: duplicate ? headingText : null,
+    };
   }
   if (heading && headingText) {
     blocks.shift();
@@ -369,9 +405,13 @@ function takeTitle(
     ) {
       notes.add("title-formatting-removed", headingText);
     }
-    return { title: headingText, source: "heading" };
+    return { title: headingText, source: "heading", heading: headingText };
   }
-  return { title: titleFromFilename(sourcePath), source: "filename" };
+  return {
+    title: titleFromFilename(sourcePath),
+    source: "filename",
+    heading: null,
+  };
 }
 
 class MarkdownConverter {
@@ -390,6 +430,7 @@ class MarkdownConverter {
     private readonly sourcePath: string,
     private readonly source: string,
     private readonly notes: ImportNoteBag,
+    private readonly referencePrefix: string,
   ) {}
 
   convert(): PMNode[] {
@@ -487,14 +528,21 @@ class MarkdownConverter {
     ];
   }
 
-  private blocks(nodes: readonly RootContent[]): PMNode[] {
+  private blocks(source: readonly RootContent[]): PMNode[] {
     const out: PMNode[] = [];
+    const nodes = [...source];
     for (let index = 0; index < nodes.length; index++) {
       const node = nodes[index];
       if (node.type === "html" && /^\s*<details\b/i.test(node.value)) {
         const toggle = this.details(nodes, index);
         out.push(toggle.node);
         index = toggle.end;
+        // Text after `</details>` in the same HTML block is read as a block of
+        // its own, which may open another toggle.
+        if (toggle.after.trim()) {
+          nodes[index] = { type: "html", value: toggle.after };
+          index--;
+        }
         continue;
       }
       out.push(...this.block(node));
@@ -519,7 +567,7 @@ class MarkdownConverter {
       case "thematicBreak":
         return [{ type: "horizontalRule" }];
       case "table":
-        return [this.table(node)];
+        return this.table(node);
       case "html":
         return this.paragraphs(this.htmlFragment(node.value));
       case "definition":
@@ -647,12 +695,19 @@ class MarkdownConverter {
     };
   }
 
-  private table(node: Table): PMNode {
-    const columns = Math.max(
-      1,
-      ...node.children.map((row) => row.children.length),
-    );
-    return {
+  private table(node: Table): PMNode[] {
+    let columns = 1;
+    let cells = 0;
+    for (const row of node.children) {
+      columns = Math.max(columns, row.children.length);
+      cells += row.children.length;
+    }
+    // Short rows are padded to the widest, so one wide row over many short
+    // ones would build far more cells than the source holds.
+    if (columns * node.children.length - cells > MAX_TABLE_PADDING_CELLS) {
+      return this.unsupportedBlock(node);
+    }
+    const table: PMNode = {
       type: "table",
       attrs: { headerRow: true },
       content: node.children.map((row, rowIndex) => ({
@@ -671,6 +726,7 @@ class MarkdownConverter {
         }),
       })),
     };
+    return [table];
   }
 
   /**
@@ -680,7 +736,7 @@ class MarkdownConverter {
   private details(
     nodes: readonly RootContent[],
     start: number,
-  ): { node: PMNode; end: number } {
+  ): { node: PMNode; end: number; after: string } {
     const opening = (nodes[start] as { value: string }).value;
     const summaryMatch = /<summary\b[^>]*>([\s\S]*?)<\/summary>/i.exec(opening);
     const summary = collapseWhitespace(
@@ -693,35 +749,36 @@ class MarkdownConverter {
 
     const children: PMNode[] = [];
     let end = nodes.length - 1;
-    const closeIndex = head.search(/<\/details\s*>/i);
-    if (closeIndex !== -1) {
-      children.push(
-        ...this.paragraphs(this.htmlFragment(head.slice(0, closeIndex))),
-      );
+    let after = "";
+    const closedInHead = splitAtDetailsClose(head, 1);
+    if ("before" in closedInHead) {
+      children.push(...this.paragraphs(this.htmlFragment(closedInHead.before)));
       end = start;
+      after = closedInHead.after;
     } else {
       if (head.trim()) {
         children.push(...this.paragraphs(this.htmlFragment(head)));
       }
-      let depth = 1;
+      let depth = closedInHead.depth;
       const inner: RootContent[] = [];
       for (let index = start + 1; index < nodes.length; index++) {
         const node = nodes[index];
         if (node.type === "html") {
-          depth += (node.value.match(/<details\b/gi) ?? []).length;
-          const closes = node.value.match(/<\/details\s*>/gi) ?? [];
-          if (depth - closes.length <= 0) {
-            const before = node.value.replace(/<\/details\s*>[\s\S]*$/i, "");
+          const closed = splitAtDetailsClose(node.value, depth);
+          if ("before" in closed) {
             children.push(...this.blocks(inner));
-            if (before.trim()) {
-              children.push(...this.paragraphs(this.htmlFragment(before)));
+            if (closed.before.trim()) {
+              children.push(
+                ...this.paragraphs(this.htmlFragment(closed.before)),
+              );
             }
             end = index;
+            after = closed.after;
             inner.length = 0;
             depth = 0;
             break;
           }
-          depth -= closes.length;
+          depth = closed.depth;
         }
         inner.push(node);
       }
@@ -735,6 +792,7 @@ class MarkdownConverter {
         content: children,
       },
       end,
+      after,
     };
   }
 
@@ -1111,7 +1169,7 @@ class MarkdownConverter {
 
   private slot(slot: ImportReferenceSlot): string {
     this.slots.push(slot);
-    return `${IMPORT_REFERENCE_PLACEHOLDER}${this.slots.length - 1}`;
+    return `${this.referencePrefix}${this.slots.length - 1}`;
   }
 
   private sourceSlice(node: Nodes): string {
@@ -1153,6 +1211,27 @@ function importedLinkHref(
 }
 
 /**
+ * Splits HTML at the `</details>` that closes the toggle open before it,
+ * skipping toggles opened and closed inside. With no such tag, returns how
+ * many toggles are still open after the HTML.
+ */
+function splitAtDetailsClose(
+  html: string,
+  depth: number,
+): { before: string; after: string } | { depth: number } {
+  for (const match of html.matchAll(/<(\/?)details\b[^>]*>/gi)) {
+    depth += match[1] ? -1 : 1;
+    if (depth === 0) {
+      return {
+        before: html.slice(0, match.index),
+        after: html.slice(match.index + match[0].length),
+      };
+    }
+  }
+  return { depth };
+}
+
+/**
  * Reads Content's own stored Markdown with the parser the editor uses, after
  * the same nesting repair Notion push applies.
  */
@@ -1160,12 +1239,13 @@ function convertNfm(
   sourcePath: string,
   body: string,
   notes: ImportNoteBag,
+  referencePrefix: string,
 ): { blocks: PMNode[]; slots: ImportReferenceSlot[] } {
   const doc = nfmToDoc(legacyMarkdownToNfm(indentContainerBodies(body)));
   const slots: ImportReferenceSlot[] = [];
   const slot = (value: ImportReferenceSlot) => {
     slots.push(value);
-    return `${IMPORT_REFERENCE_PLACEHOLDER}${slots.length - 1}`;
+    return `${referencePrefix}${slots.length - 1}`;
   };
   const visit = (node: PMNode) => {
     if (
