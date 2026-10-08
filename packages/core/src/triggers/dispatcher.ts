@@ -199,7 +199,9 @@ async function recordTriggerSkip(
     lastCheck: new Date().toISOString(),
     lastStatus: status,
     lastError: reason,
-    ...(status === "error" ? { lastErrorCode: errorCode } : {}),
+    ...(status === "error" && errorCode !== undefined
+      ? { lastErrorCode: errorCode }
+      : {}),
   });
 }
 

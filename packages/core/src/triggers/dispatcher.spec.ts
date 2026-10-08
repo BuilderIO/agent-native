@@ -2921,6 +2921,50 @@ Handle the event.`,
     ).toMatchObject({ engine, resolvedModel: "automation-model" });
   });
 
+  it("preserves the failure streak when a condition check errors without a new code", async () => {
+    const conditionEvaluator = await import("./condition-evaluator.js");
+    const resource = conditionResource(
+      "condition-failure",
+      "event.condition.failure",
+    );
+    resource.content = resource.content.replace(
+      "enabled: true",
+      "enabled: true\nlastErrorCode: http_502\nconsecutiveFailures: 2",
+    );
+    resourceListAllOwnersMock.mockResolvedValue([resource]);
+    vi.mocked(conditionEvaluator.evaluateCondition).mockRejectedValueOnce(
+      new Error("Condition unavailable"),
+    );
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      apiKey: "test-deployment-api-key",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.condition.failure",
+    )?.[1];
+    await handler?.(
+      {},
+      {
+        owner: resource.owner,
+        eventId: "condition-failure-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    await vi.waitFor(() => {
+      const content = resourcePutMock.mock.calls.at(-1)?.[2];
+      expect(content).toBeTypeOf("string");
+      expect(parseTriggerFrontmatter(content).meta).toMatchObject({
+        enabled: true,
+        lastStatus: "error",
+        lastError: "Condition unavailable",
+        lastErrorCode: "http_502",
+        consecutiveFailures: 2,
+      });
+    });
+    expect(startRunMock).not.toHaveBeenCalled();
+  });
+
   it("routes organization events only to their creator and fails closed when membership is unreadable", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {
