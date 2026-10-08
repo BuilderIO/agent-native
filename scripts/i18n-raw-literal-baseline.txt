@@ -93,5 +93,5 @@ templates/design/app/components/design/code-workbench/search/search-engine.ts|In
 templates/design/app/components/design/code-workbench/store.tsx|Could not read file
 templates/design/app/components/design/code-workbench/workspace/localhost-provider.ts|File changed on disk since it was last read
 templates/design/app/components/design/edit-panel/effects-properties.tsx|, elementKey: string, nextLayers: readonly Pick
-templates/design/app/pages/DesignEditor.tsx|Could not open component source
 templates/design/app/pages/design-editor/commands/confirm-make-real.ts|Migration failed
+templates/design/app/pages/design-editor/domains/use-editor-generation-and-access.ts|Could not open component source

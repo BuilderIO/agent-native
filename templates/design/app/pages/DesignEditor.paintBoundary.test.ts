@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
-
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
+const editorSource = readDesignEditorSource();
 
 function findNodes<T extends ts.Node>(
   root: ts.Node,
@@ -16,6 +16,41 @@ function findNodes<T extends ts.Node>(
   };
   visit(root);
   return nodes;
+}
+
+// Canvases rendered inside `root`, following render-function calls into the
+// functions defined in the editor source.
+function renderedCanvases(
+  file: ts.SourceFile,
+  root: ts.Node,
+  seen = new Set<string>(),
+): string[] {
+  const names: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
+      const tag = node.tagName.getText();
+      if (tag === "MultiScreenCanvas" || tag === "DesignCanvas") {
+        names.push(tag);
+      }
+    } else if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      !seen.has(node.expression.text)
+    ) {
+      const name = node.expression.text;
+      const renderFunction = file.statements.find(
+        (statement): statement is ts.FunctionDeclaration =>
+          ts.isFunctionDeclaration(statement) && statement.name?.text === name,
+      );
+      if (renderFunction) {
+        seen.add(name);
+        names.push(...renderedCanvases(file, renderFunction, seen));
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  return names;
 }
 
 function canvasViewport(source: string) {
@@ -86,11 +121,7 @@ function assertBackdropBoundary(viewport: ts.JsxElement) {
 describe("Design editor viewport backdrop boundary", () => {
   it("contains overview and single-screen canvases in the same viewport", () => {
     const viewport = canvasViewport(editorSource);
-    const canvases = findNodes(viewport, ts.isJsxSelfClosingElement)
-      .map((element) => element.tagName.getText())
-      .filter(
-        (name) => name === "MultiScreenCanvas" || name === "DesignCanvas",
-      );
+    const canvases = renderedCanvases(viewport.getSourceFile(), viewport);
 
     expect(canvases).toEqual(["MultiScreenCanvas", "DesignCanvas"]);
   });

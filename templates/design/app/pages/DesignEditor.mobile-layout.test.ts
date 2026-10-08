@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("Design editor mobile layout", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
   const layoutSource = readFileSync("app/components/layout/Layout.tsx", "utf8");
   const bottomToolbarSource = readFileSync(
     "app/components/design/editor/DesignBottomToolbar.tsx",
@@ -99,7 +101,7 @@ describe("Design editor mobile layout", () => {
     expect(editorSource).toContain(
       "(widgetEmbed && minimalInspectorHasSelection)",
     );
-    expect(editorSource).toContain("initialFitScreenId={\n");
+    expect(editorSource).toContain("initialFitScreenId: widgetEmbed\n");
   });
 
   it("keeps save warnings out of a read-only directory widget but not other sessions", () => {

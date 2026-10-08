@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("Design editor header", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
 
   it("only offers Add screen to editors", () => {
     expect(editorSource).toContain(
@@ -53,10 +53,10 @@ describe("Design editor header", () => {
 
   it("offers signed-out Localhost owners the account-gated live-canvas path", () => {
     const signedOutActionsStart = editorSource.indexOf(
-      "const signedOutPersistenceActions = (",
+      "export function renderSignedOutPersistenceActions(",
     );
     const signedOutActionsEnd = editorSource.indexOf(
-      "const rightToolbarCompact =",
+      "\n}\n",
       signedOutActionsStart,
     );
     const signedOutActions = editorSource.slice(
