@@ -432,6 +432,7 @@ jobs:
             inspector-1,
             inspector-2,
             inspector-3,
+            inspector-4,
             drag-1,
             drag-2,
             position-1,
@@ -511,11 +512,8 @@ jobs:
             inspector-2)
               fixed_specs=( \
                 e2e/inspector-styles.spec.ts:452 \
-                e2e/inspector-styles.spec.ts:541 \
                 e2e/inspector-styles.spec.ts:610 \
-                e2e/inspector-styles.spec.ts:667 \
                 e2e/inspector-styles.spec.ts:737 \
-                e2e/inspector-styles.spec.ts:798 \
               )
               ;;
             inspector-3)
@@ -525,6 +523,13 @@ jobs:
                 e2e/inspector-styles.spec.ts:833 \
                 e2e/inspector-styles.spec.ts:880 \
                 e2e/inspector-styles.spec.ts:999 \
+              )
+              ;;
+            inspector-4)
+              fixed_specs=( \
+                e2e/inspector-styles.spec.ts:541 \
+                e2e/inspector-styles.spec.ts:667 \
+                e2e/inspector-styles.spec.ts:798 \
               )
               ;;
             drag-1)

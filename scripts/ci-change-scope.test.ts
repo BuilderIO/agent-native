@@ -610,23 +610,25 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
   );
   const fixedLocations = (start: number, end: number) =>
-    [...regressionCases.slice(start, end).matchAll(/e2e\/[^ \n]+:\d+/g)].map(
-      ([location]) => location,
-    );
+    [
+      ...regressionCases.slice(start, end).matchAll(/e2e\/[^ \n]+(?::\d+)?/g),
+    ].map(([location]) => location);
   const shardStart = (name: string) =>
     regressionCases.indexOf(`            ${name})`);
   const inspectorOneStart = shardStart("inspector-1");
   const inspectorTwoStart = shardStart("inspector-2");
   const inspectorThreeStart = shardStart("inspector-3");
+  const inspectorFourStart = shardStart("inspector-4");
   const dragOneStart = shardStart("drag-1");
   assert.ok(
     inspectorOneStart >= 0 &&
       inspectorTwoStart > inspectorOneStart &&
       inspectorThreeStart > inspectorTwoStart &&
-      dragOneStart > inspectorThreeStart,
+      inspectorFourStart > inspectorThreeStart &&
+      dragOneStart > inspectorFourStart,
   );
   assert.deepEqual(fixedLocations(inspectorOneStart, inspectorTwoStart), [
     "e2e/canvas-invariants.spec.ts:508",
@@ -638,13 +640,15 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   ]);
   assert.deepEqual(fixedLocations(inspectorTwoStart, inspectorThreeStart), [
     "e2e/inspector-styles.spec.ts:452",
-    "e2e/inspector-styles.spec.ts:541",
     "e2e/inspector-styles.spec.ts:610",
-    "e2e/inspector-styles.spec.ts:667",
     "e2e/inspector-styles.spec.ts:737",
+  ]);
+  assert.deepEqual(fixedLocations(inspectorFourStart, dragOneStart), [
+    "e2e/inspector-styles.spec.ts:541",
+    "e2e/inspector-styles.spec.ts:667",
     "e2e/inspector-styles.spec.ts:798",
   ]);
-  assert.deepEqual(fixedLocations(inspectorThreeStart, dragOneStart), [
+  assert.deepEqual(fixedLocations(inspectorThreeStart, inspectorFourStart), [
     "e2e/canvas-invariants.spec.ts:1170",
     "e2e/canvas-invariants.spec.ts:1320",
     "e2e/inspector-styles.spec.ts:833",
@@ -717,6 +721,10 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     fastTestsJob.includes('if [ "$DESIGN_CANVAS_RESULT" != "success" ]; then'),
+  );
+  assert.match(
+    fastTestsJob,
+    /if \[ "\$DESIGN_CANVAS_E2E" = "true" \]; then\s+if \[ "\$DESIGN_CANVAS_RESULT" != "success" \]; then\s+echo "::error::Design canvas interaction acceptance did not succeed \(\$DESIGN_CANVAS_RESULT\)"\s+exit 1\s+fi/,
   );
   const selectedTests = [
     [
