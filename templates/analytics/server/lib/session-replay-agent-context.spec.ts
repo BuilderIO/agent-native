@@ -62,6 +62,11 @@ vi.mock("./session-replay.js", () => ({
     mockGetSessionReplayTokenizedEvents(...args),
 }));
 
+import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../shared/session-events";
+import {
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+  SESSION_REPLAY_VITALS_EVENT_TAG,
+} from "../../shared/session-performance";
 import {
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
@@ -360,6 +365,16 @@ describe("session replay agent context links", () => {
         durationMs: 4,
       }),
       { type: 5, timestamp: 1600, data: { tag: "app.custom", payload: {} } },
+      // Markers the Sessions triage Lab owns stay off agent timelines.
+      ...[
+        SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+        SESSION_REPLAY_VITALS_EVENT_TAG,
+        SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+      ].map((tag, index) => ({
+        type: 5,
+        timestamp: 1700 + index,
+        data: { tag, payload: { action: "save-clip", duration_ms: 1_500 } },
+      })),
     ]);
 
     const context = await buildSessionReplayAgentContext({

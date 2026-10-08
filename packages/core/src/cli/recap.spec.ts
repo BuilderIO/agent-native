@@ -1435,6 +1435,25 @@ describe("recap prompt builder", () => {
 });
 
 describe("recap comment body", () => {
+  it("gives the right recovery command for a rejected recap token", () => {
+    const body = buildCommentBody({
+      RECAP_AUTH_FAILED: "true",
+      HEAD_SHA: "abcdef1234567",
+    } as NodeJS.ProcessEnv);
+
+    expect(body).toContain(
+      "Recap authentication failed — `PLAN_RECAP_TOKEN` was rejected; it may be expired, revoked, or minted for another Plans app.",
+    );
+    expect(body).toContain(
+      "Personal token: run `npx @agent-native/core@latest connect <app-url> --client codex`, then `npx @agent-native/recap-cli@latest recap setup`.",
+    );
+    expect(body).toContain(
+      "Org service token: an owner/admin can mint a 10-year replacement with `npx -y @agent-native/core@latest connect <app-url> --service-token <name> --ttl-days 3650`.",
+    );
+    expect(body).not.toContain("As an org owner/admin, mint a replacement");
+    expect(body).not.toContain("reconnect <app-url>");
+  });
+
   it("embeds an inline screenshot picture link and a plan-id marker on success", () => {
     const token = "a".repeat(64);
     const body = buildCommentBody({
@@ -3212,8 +3231,11 @@ describe("recap comment body — auth-failure differentiation", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
     expect(body).toContain("PLAN_RECAP_TOKEN");
-    expect(body).toContain("expired or revoked");
-    expect(body).toContain("npx -y @agent-native/core@latest reconnect");
+    expect(body).toContain("expired, revoked, or minted for another Plans app");
+    expect(body).toContain(
+      "connect <app-url> --service-token <name> --ttl-days 3650",
+    );
+    expect(body).not.toContain("reconnect <app-url>");
   });
 
   it("shows generic failure copy when RECAP_AUTH_FAILED is absent/false", () => {

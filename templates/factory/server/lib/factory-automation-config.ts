@@ -490,6 +490,61 @@ export function restoreFactoryAutomationIdentityFields(
   return next;
 }
 
+export type AutomationTriggerStamp = {
+  content: string;
+  /** Why the file stays untagged; absent when it is tagged. */
+  skipped?: string;
+};
+
+/**
+ * Tags a job file with its trigger type so core treats it as an automation.
+ * The tag moves the scheduler from its legacy identity fallback to strict
+ * checks (`createdBy`, `runAs: creator`, and an `orgId` matching the owner),
+ * so a file is tagged only when it can pass them. Defaults the legacy path
+ * already assumes are written down; a creator is never invented.
+ */
+export function stampAutomationTriggerType(
+  content: string,
+  options: { orgId: string; triggerType?: string; identityFrom?: string },
+): AutomationTriggerStamp {
+  if (readFrontmatterValue(content, "triggerType") != null) return { content };
+  const read = (key: string) =>
+    readFrontmatterValue(content, key) ??
+    (options.identityFrom
+      ? readFrontmatterValue(options.identityFrom, key)
+      : undefined);
+  const createdBy = read("createdBy");
+  if (!createdBy) return { content, skipped: "it has no createdBy" };
+  const runAs = read("runAs") ?? "creator";
+  if (runAs !== "creator") {
+    return { content, skipped: `it runs as "${runAs}"` };
+  }
+  const orgId = read("orgId") ?? options.orgId;
+  if (orgId !== options.orgId) {
+    return {
+      content,
+      skipped: `its orgId is "${orgId}", not "${options.orgId}"`,
+    };
+  }
+  let next = content;
+  for (const [key, value] of [
+    ["createdBy", createdBy],
+    ["runAs", runAs],
+    ["orgId", orgId],
+  ] as const) {
+    if (readFrontmatterValue(next, key) == null) {
+      next = setAutomationFrontmatterField(next, key, value);
+    }
+  }
+  return {
+    content: setAutomationFrontmatterField(
+      next,
+      "triggerType",
+      options.triggerType ?? "schedule",
+    ),
+  };
+}
+
 export function applyAutomationConfigFrontmatter(
   content: string,
   config: FactoryAutomationConfig,

@@ -177,6 +177,62 @@ export function writePageDraftJournal(input: {
   return entry;
 }
 
+export function updatePageDraftJournalTitle(
+  scope: PageDraftJournalScope,
+  title: string,
+): boolean {
+  const normalized = normalizedScope(scope);
+  const itemKey = key(normalized);
+  try {
+    const store = storage();
+    const raw = store.getItem(itemKey);
+    if (raw === null) return false;
+    const entry = parseEntry(raw, itemKey);
+    if (entry.snapshot.title === title && entry.snapshot.baseTitle === title)
+      return true;
+    if (entry.snapshot.title !== entry.snapshot.baseTitle) return false;
+    store.setItem(
+      itemKey,
+      JSON.stringify({
+        ...entry,
+        snapshot: { ...entry.snapshot, title, baseTitle: title },
+        writtenAt: Date.now(),
+      }),
+    );
+  } catch (cause) {
+    if (cause instanceof PageDraftJournalError) throw cause;
+    throw new PageDraftJournalError("write_failed", cause);
+  }
+  return true;
+}
+
+export async function persistTitleBeforeSyncingPageDraftJournal(input: {
+  persist: () => Promise<void>;
+  scope: PageDraftJournalScope | null;
+  title: string;
+  editGeneration: number;
+  content: string;
+}): Promise<boolean> {
+  await input.persist();
+  const scope = input.scope;
+  if (!scope) return false;
+
+  const entry = listPageDraftJournal({
+    accountId: scope.accountId,
+    orgId: scope.orgId,
+    documentId: scope.documentId,
+  }).find((candidate) => candidate.scope.writerId === scope.writerId);
+  if (
+    !entry ||
+    entry.snapshot.editGeneration !== input.editGeneration ||
+    entry.snapshot.content !== input.content ||
+    entry.snapshot.title !== entry.snapshot.baseTitle
+  )
+    return false;
+
+  return updatePageDraftJournalTitle(scope, input.title);
+}
+
 export function listPageDraftJournal(
   scope: Omit<PageDraftJournalScope, "writerId">,
 ): PageDraftJournalEntry[] {

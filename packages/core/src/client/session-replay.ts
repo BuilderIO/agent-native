@@ -348,6 +348,9 @@ export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
 export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
+export const SESSION_REPLAY_VITALS_EVENT_TAG = "agent-native.vitals";
+export const SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG =
+  "agent-native.slow_request";
 const SESSION_REPLAY_LIFECYCLE_EVENT_TAG = "agent-native.session_replay";
 
 const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
@@ -2710,6 +2713,11 @@ function installConsoleCapture(
         level,
         source,
         message,
+        // Captured exceptions also arrive as console errors, and only they
+        // can become Monitoring issues, so a reader must tell the two apart.
+        ...(source === "console" && level === "error"
+          ? { exception: false }
+          : {}),
         ...(extraArgs.length ? { args: extraArgs } : {}),
         ...(stack ? { stack } : {}),
         ...(url ? { url } : {}),
@@ -2909,6 +2917,56 @@ function installNetworkCapture(
       ? (captureOptions.maxErrorBodyLength ?? DEFAULT_MAX_ERROR_BODY_LENGTH)
       : null;
 
+  const restores: Array<() => void> = [];
+
+  // A background tab throttles timers, so a request that was ever hidden did
+  // not keep anyone waiting for its duration. Checking visibility only at the
+  // end misses a tab that was hidden and came back.
+  let hiddenEpoch = 0;
+  const countHidden = () => {
+    if (document.visibilityState === "hidden") hiddenEpoch += 1;
+  };
+  document.addEventListener("visibilitychange", countHidden);
+  restores.push(() =>
+    document.removeEventListener("visibilitychange", countHidden),
+  );
+  const watchHidden = (): (() => boolean) => {
+    const hiddenAtStart = document.visibilityState !== "visible";
+    const epochAtStart = hiddenEpoch;
+    return () =>
+      hiddenAtStart ||
+      epochAtStart !== hiddenEpoch ||
+      document.visibilityState !== "visible";
+  };
+
+  // A request the browser cancels because the page is leaving fails exactly
+  // like a network error. WebKit cancels right after beforeunload, Chromium
+  // after pagehide; neither listener costs the page its bfcache eligibility.
+  // Input or a bfcache restore means the page stayed (a cancelled prompt or a
+  // download keeps it alive after beforeunload).
+  let pageLeaving = false;
+  const markLeaving = () => {
+    pageLeaving = true;
+  };
+  const markStaying = () => {
+    pageLeaving = false;
+  };
+  const leaveListeners: Array<[EventTarget, string, () => void]> = [
+    [window, "beforeunload", markLeaving],
+    [window, "pagehide", markLeaving],
+    [window, "pageshow", markStaying],
+    [window, "pointerdown", markStaying],
+    [window, "keydown", markStaying],
+  ];
+  for (const [target, type, listener] of leaveListeners) {
+    target.addEventListener(type, listener, { capture: true });
+  }
+  restores.push(() => {
+    for (const [target, type, listener] of leaveListeners) {
+      target.removeEventListener(type, listener, { capture: true });
+    }
+  });
+
   const recordRequest = (
     api: "fetch" | "xhr",
     method: string,
@@ -2916,6 +2974,7 @@ function installNetworkCapture(
     status: number,
     ok: boolean,
     durationMs: number,
+    pageHidden: boolean,
     error?: string,
     responseBody?: string,
   ) => {
@@ -2931,6 +2990,8 @@ function installNetworkCapture(
         status,
         ok,
         durationMs: Math.max(0, Math.round(durationMs)),
+        ...(pageHidden ? { pageHidden: true } : {}),
+        ...(status === 0 && pageLeaving ? { pageLeaving: true } : {}),
         ...(error
           ? {
               error: truncateCaptureText(
@@ -2981,8 +3042,6 @@ function installNetworkCapture(
     }
   };
 
-  const restores: Array<() => void> = [];
-
   if (typeof window.fetch === "function") {
     const originalFetch = window.fetch;
     const wrappedFetch = function (
@@ -3008,6 +3067,7 @@ function installNetworkCapture(
         return originalFetch.call(self, input as RequestInfo | URL, init);
       }
       const startedAt = performance.now();
+      const wasHidden = watchHidden();
       const result = originalFetch.call(self, input as RequestInfo | URL, init);
       if (!result || typeof (result as Promise<Response>).then !== "function") {
         return result;
@@ -3016,6 +3076,7 @@ function installNetworkCapture(
         (response) => {
           try {
             const durationMs = performance.now() - startedAt;
+            const pageHidden = wasHidden();
             if (errorBodyCap !== null && response.status >= 500) {
               let clone: Response | null = null;
               try {
@@ -3040,6 +3101,7 @@ function installNetworkCapture(
                       response.status,
                       response.ok,
                       durationMs,
+                      pageHidden,
                       undefined,
                       responseBody,
                     );
@@ -3055,6 +3117,7 @@ function installNetworkCapture(
                   response.status,
                   response.ok,
                   durationMs,
+                  pageHidden,
                 );
               }
             } else {
@@ -3065,6 +3128,7 @@ function installNetworkCapture(
                 response.status,
                 response.ok,
                 durationMs,
+                pageHidden,
               );
             }
           } catch {
@@ -3081,6 +3145,7 @@ function installNetworkCapture(
               0,
               false,
               performance.now() - startedAt,
+              wasHidden(),
               error instanceof Error ? error.message : String(error),
             );
           } catch {
@@ -3143,6 +3208,7 @@ function installNetworkCapture(
         const info = xhrInfo.get(this);
         if (info && !stopped && !replayCaptureInternal) {
           const startedAt = performance.now();
+          const wasHidden = watchHidden();
           let errorMessage: string | undefined;
           const markError = (message: string) => () => {
             errorMessage = message;
@@ -3174,6 +3240,7 @@ function installNetworkCapture(
                 effectiveStatus,
                 !errorMessage && status >= 200 && status < 300,
                 performance.now() - startedAt,
+                wasHidden(),
                 errorMessage,
                 responseBody,
               );
@@ -3660,6 +3727,7 @@ export function emitSessionReplayException(input: {
   emitReplayCustomEvent(state, SESSION_REPLAY_CONSOLE_EVENT_TAG, {
     level,
     source: "console",
+    exception: true,
     message: `${input.type}: ${input.message}`.slice(
       0,
       MAX_CONSOLE_MESSAGE_LENGTH,
@@ -3671,16 +3739,10 @@ export function emitSessionReplayException(input: {
   });
 }
 
-/**
- * Mark a tracked analytics event on the replay timeline. Only the event name
- * is recorded; event properties stay out of the replay.
- */
-export function emitSessionReplayAnalyticsEvent(name: string): void {
-  const state = getState();
-  if (!state.active || !state.addCustomEvent) return;
-  if (state.analyticsEventCount >= MAX_ANALYTICS_EVENTS_PER_REPLAY) return;
-  const bounded = name.trim().slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH);
-  if (!bounded) return;
+function reserveAnalyticsMarker(state: SessionReplayState): boolean {
+  if (state.analyticsEventCount >= MAX_ANALYTICS_EVENTS_PER_REPLAY) {
+    return false;
+  }
   state.analyticsEventCount += 1;
   const stored = readStoredReplaySession();
   if (stored?.replayId === state.replayId) {
@@ -3689,8 +3751,91 @@ export function emitSessionReplayAnalyticsEvent(name: string): void {
       analyticsEventCount: state.analyticsEventCount,
     });
   }
+  return true;
+}
+
+/**
+ * Mark a tracked analytics event on the replay timeline. Only the event name
+ * is recorded; event properties stay out of the replay.
+ */
+export function emitSessionReplayAnalyticsEvent(name: string): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  const bounded = name.trim().slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH);
+  if (!bounded || !reserveAnalyticsMarker(state)) return;
   emitReplayCustomEvent(state, SESSION_REPLAY_ANALYTICS_EVENT_TAG, {
     name: bounded,
+  });
+}
+
+export type SessionReplaySlowRequest = {
+  action?: unknown;
+  method?: unknown;
+  duration_ms?: unknown;
+  status_code?: unknown;
+  outcome?: unknown;
+  page_hidden?: unknown;
+};
+
+/**
+ * Mark a slow `action.response` on the replay timeline with that event's own
+ * timing, which runs to the end of the body; a network event stops at the
+ * headers. Only these operational fields are recorded, and the marker shares
+ * the analytics marker budget.
+ */
+export function emitSessionReplaySlowRequest(
+  input: SessionReplaySlowRequest,
+): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  if (typeof input.duration_ms !== "number") return;
+  if (!reserveAnalyticsMarker(state)) return;
+  emitReplayCustomEvent(state, SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG, {
+    ...(typeof input.action === "string"
+      ? { action: input.action.slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH) }
+      : {}),
+    ...(typeof input.method === "string"
+      ? { method: input.method.slice(0, 10) }
+      : {}),
+    duration_ms: input.duration_ms,
+    ...(typeof input.status_code === "number"
+      ? { status_code: input.status_code }
+      : {}),
+    ...(typeof input.outcome === "string"
+      ? { outcome: input.outcome.slice(0, 20) }
+      : {}),
+    page_hidden: input.page_hidden === true,
+  });
+}
+
+export type SessionReplayWebVitals = {
+  route?: string;
+  navigationType: string;
+  ttfbMs?: number;
+  lcpMs?: number;
+  inpMs?: number;
+  cls?: number;
+};
+
+/**
+ * Mark a finished page view's Web Vitals on the replay timeline. Shares the
+ * analytics marker budget, since each page view adds one.
+ */
+export function emitSessionReplayWebVitals(
+  input: SessionReplayWebVitals,
+): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  if (!reserveAnalyticsMarker(state)) return;
+  const metric = (value: number | undefined) =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  emitReplayCustomEvent(state, SESSION_REPLAY_VITALS_EVENT_TAG, {
+    ...(input.route ? { route: input.route.slice(0, 200) } : {}),
+    navigationType: input.navigationType.slice(0, 20),
+    ...(metric(input.ttfbMs) !== undefined ? { ttfbMs: input.ttfbMs } : {}),
+    ...(metric(input.lcpMs) !== undefined ? { lcpMs: input.lcpMs } : {}),
+    ...(metric(input.inpMs) !== undefined ? { inpMs: input.inpMs } : {}),
+    ...(metric(input.cls) !== undefined ? { cls: input.cls } : {}),
   });
 }
 

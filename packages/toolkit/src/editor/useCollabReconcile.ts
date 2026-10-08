@@ -57,6 +57,8 @@ const PEER_SETTLE_MS = 2500;
 // converged the doc by then (it never refetched), adopt it rather than keep a
 // Yjs doc that disagrees with SQL until the next reload drops unsaved text.
 const LEAD_FAILOVER_MS = PEER_SETTLE_MS * 2;
+const CATCH_UP_ATTEMPTS = 3;
+const CATCH_UP_RETRY_MS = 2000;
 function pushEmittedRing(ring: string[], value: string): void {
   if (!value) return;
   if (ring[ring.length - 1] === value) return;
@@ -539,6 +541,7 @@ export function useCollabReconcile({
     editable: boolean;
     deadline: number | null;
     leadDeadline: number | null;
+    catchUpFailures: number;
   } | null>(null);
 
   useEffect(() => {
@@ -570,6 +573,7 @@ export function useCollabReconcile({
         editable,
         deadline: null,
         leadDeadline: null,
+        catchUpFailures: 0,
       };
     }
     const peerWait = peerReconcileWaitRef.current!;
@@ -853,38 +857,42 @@ export function useCollabReconcile({
       }
 
       // A snapshot another writer saved can reach this tab before the Yjs
-      // updates that carry the same text (a collab poll lags the action poll),
-      // and applying it first inserts that text a second time when they land.
-      // Snapshots with revisions are told apart from their collab copy by the
-      // revision protocol above instead.
-      const snapshotKey = contentUpdatedAt ?? "";
+      // updates that carry the same text (a collab poll lags the action poll,
+      // and a save's merged answer lags neither), and applying it first
+      // inserts that text a second time when they land. Only a collab-backed
+      // revision, returned above, is known to be in the Yjs doc already.
+      const snapshotKey = `${contentRevision ?? ""}@${contentUpdatedAt ?? ""}`;
       if (
         collab &&
         externalNewer &&
-        !contentRevision &&
         requestCollabSync &&
         syncedBeforeAdoptRef.current !== snapshotKey
       ) {
-        // Adopting without the catch-up is the behavior before this step
-        // existed, so a failed sync degrades to it, loudly.
-        const adopt = () => {
+        // The update a failed catch-up missed may only be late, so the
+        // catch-up retries first. Past that, adopting without it is the
+        // behavior before this step existed, so the sync degrades to it,
+        // loudly.
+        const caughtUp = (
+          status: "synced" | "failed" | "unavailable",
+          error?: unknown,
+        ) => {
+          if (status !== "synced") {
+            if (++peerWait.catchUpFailures < CATCH_UP_ATTEMPTS) {
+              if (!cancelled)
+                retry = setTimeout(() => apply(deferred), CATCH_UP_RETRY_MS);
+              return;
+            }
+            console.warn(
+              `Adopting a saved snapshot without a live sync (${status})`,
+              ...(error === undefined ? [] : [error]),
+            );
+          }
           syncedBeforeAdoptRef.current = snapshotKey;
           if (!cancelled) apply(deferred);
         };
         void requestCollabSync().then(
-          (result) => {
-            if (result.status === "failed") {
-              console.warn("Adopting a saved snapshot without a live sync");
-            }
-            adopt();
-          },
-          (error: unknown) => {
-            console.warn(
-              "Adopting a saved snapshot without a live sync:",
-              error,
-            );
-            adopt();
-          },
+          (result) => caughtUp(result.status),
+          (error: unknown) => caughtUp("failed", error),
         );
         return;
       }

@@ -146,6 +146,7 @@ describe("native assistant connection cards", () => {
   ])(
     "renders $provider connection output as a native card",
     ({ toolName, result, provider, detail }) => {
+      const onOpenConnections = vi.fn();
       const message: ChatMessage = {
         id: "assistant-1",
         role: "assistant",
@@ -169,7 +170,7 @@ describe("native assistant connection cards", () => {
             animateIn={false}
             showFooter={false}
             canChat
-            onOpenConnections={() => {}}
+            onOpenConnections={onOpenConnections}
             onContinueAfterConnection={() => {}}
           />,
         );
@@ -183,6 +184,14 @@ describe("native assistant connection cards", () => {
       expect(
         container.querySelector('[data-testid="generic-tool"]'),
       ).toBeNull();
+      act(() => {
+        container
+          .querySelector<HTMLButtonElement>(
+            `[aria-label="Connect ${provider}"]`,
+          )
+          ?.click();
+      });
+      expect(onOpenConnections).toHaveBeenCalledWith(provider);
     },
   );
 
