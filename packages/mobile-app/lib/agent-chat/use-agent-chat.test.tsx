@@ -42,7 +42,7 @@ vi.mock("./message-actions", async (importOriginal) => {
 
 import { createAgentThreadState } from "@agent-native/agentkit";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
-import { invalidateAgentEngineReadiness } from "@agent-native/core/client/agent-chat";
+import { invalidateAgentEngineReadiness } from "@agent-native/core/client/agent-engine-readiness";
 
 import { DEFAULT_CHAT_BASE_URL } from "./api";
 import type { ChatAttachment } from "./types";

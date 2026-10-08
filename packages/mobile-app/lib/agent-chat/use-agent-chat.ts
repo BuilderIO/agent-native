@@ -6,7 +6,7 @@ import {
   invalidateAgentEngineReadiness,
   subscribeAgentEngineReadiness,
   type AgentEngineConfiguredState,
-} from "@agent-native/core/client/agent-chat";
+} from "@agent-native/core/client/agent-engine-readiness";
 import {
   useCallback,
   useEffect,
