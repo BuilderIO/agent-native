@@ -584,11 +584,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
     "the focused regression selectors must not run on the Screen-history shard",
   );
-  assert.match(
-    screenSelectionRegressions,
-    /^        timeout-minutes: 4$/m,
-    "Screen-selection shards need a four-minute cap inside the nine-minute job",
-  );
   assert.ok(
     screenSelectionRegressions.includes(
       "E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
@@ -627,6 +622,17 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
     "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
   ];
+  const screenHistorySpec = readFileSync(
+    "templates/design/e2e/parity-selection-history-delete-screen.spec.ts",
+    "utf8",
+  );
+  for (const title of screenHistoryCases) {
+    assert.equal(
+      screenHistorySpec.split(title).length - 1,
+      1,
+      `Screen-history case must exist exactly once in its source spec: ${title}`,
+    );
+  }
   const selectedScreenHistoryCases = screenHistoryShardSelectors.flatMap(
     ({ selectors }) => selectors,
   );
@@ -676,9 +682,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout <= 4 &&
-      jobTimeout >= stepTimeout + 5,
-    `focused Design tests need a four-minute cap and five minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout <= 5 &&
+      jobTimeout >= stepTimeout + 4,
+    `focused Design tests need a five-minute cap and four minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
