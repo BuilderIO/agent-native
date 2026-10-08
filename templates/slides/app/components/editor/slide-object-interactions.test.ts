@@ -1234,6 +1234,31 @@ describe("slide object interactions", () => {
     expect(ensureSlideObjectId(object)).toBe("original");
   });
 
+  it("rekeys preserved layout spacers to the cloned child ids", () => {
+    const row = document.createElement("div");
+    row.dataset.slideObjectId = "row";
+    row.innerHTML = `
+      <div data-slide-layout-spacer-for="child"></div>
+      <div data-slide-object-id="child">Child</div>
+    `;
+
+    const clone = cloneSlideObject(row);
+    const cloneChild = clone.querySelector<HTMLElement>(
+      "[data-slide-object-id]",
+    )!;
+    const cloneSpacer = clone.querySelector("[data-slide-layout-spacer-for]")!;
+
+    expect(cloneChild.dataset.slideObjectId).not.toBe("child");
+    expect(cloneSpacer.getAttribute("data-slide-layout-spacer-for")).toBe(
+      cloneChild.dataset.slideObjectId,
+    );
+    expect(
+      row
+        .querySelector("[data-slide-layout-spacer-for]")!
+        .getAttribute("data-slide-layout-spacer-for"),
+    ).toBe("child");
+  });
+
   it("remints DOM ids and keeps clone-local references attached", () => {
     const object = document.createElement("div");
     object.id = "source-root";
@@ -1925,7 +1950,7 @@ describe("slide object interactions", () => {
     ).toEqual([label]);
   });
 
-  it("duplicates members after their originals with fresh ids and no builder ids", () => {
+  it("duplicates members at the end of their parent with fresh ids and no builder ids", () => {
     const parent = document.createElement("div");
     const a = createFreeformObject("a", { left: 10, top: 20 });
     a.dataset.builderId = "b-1";
@@ -1944,12 +1969,14 @@ describe("slide object interactions", () => {
 
     const clones = duplicateSlideObjectMembers(members);
 
+    // Appended so animations' child-index paths for tail and the originals
+    // keep pointing at the same elements.
     expect(Array.from(parent.children)).toEqual([
       a,
-      clones[0].element,
       group,
-      clones[1].element,
       tail,
+      clones[0].element,
+      clones[1].element,
     ]);
     const ids = Array.from(
       parent.querySelectorAll("[data-slide-object-id]"),

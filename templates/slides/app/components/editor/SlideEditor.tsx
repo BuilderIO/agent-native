@@ -4320,15 +4320,20 @@ export default function SlideEditor({
     [refreshMultiSelectionRects],
   );
 
+  // Ids the selection chrome follows while an Alt-drag copy exists; the
+  // originals' ids (`multiSelection`) are stale until the copies are committed.
+  const copyDragRectIdsRef = useRef<Set<string> | null>(null);
+  const cancelScheduledMultiSelectionRects = useCallback(() => {
+    if (multiSelectionRefreshFrameRef.current !== null) {
+      cancelAnimationFrame(multiSelectionRefreshFrameRef.current);
+      multiSelectionRefreshFrameRef.current = null;
+    }
+    scheduledMultiSelectionIdsRef.current = null;
+  }, []);
+
   useEffect(
-    () => () => {
-      if (multiSelectionRefreshFrameRef.current !== null) {
-        cancelAnimationFrame(multiSelectionRefreshFrameRef.current);
-        multiSelectionRefreshFrameRef.current = null;
-      }
-      scheduledMultiSelectionIdsRef.current = null;
-    },
-    [],
+    () => cancelScheduledMultiSelectionRects,
+    [cancelScheduledMultiSelectionRects],
   );
 
   // Portal selection chrome uses viewport coordinates, so a flex layout change
@@ -4349,7 +4354,9 @@ export default function SlideEditor({
       setSelectionViewportRect(scrollContainer.getBoundingClientRect());
       if (selectedImg) setSelectionRect(selectedImg.getBoundingClientRect());
       if (multiSelection.size > 0) {
-        refreshMultiSelectionRects(multiSelection);
+        refreshMultiSelectionRects(
+          copyDragRectIdsRef.current ?? multiSelection,
+        );
       }
       if (selectedElementPath && selectedElementSelector) {
         invalidateSelectionOverlayMeasurement();
@@ -4403,7 +4410,7 @@ export default function SlideEditor({
   useEffect(() => {
     if (multiSelection.size === 0) return;
     const update = () => {
-      refreshMultiSelectionRects(multiSelection);
+      refreshMultiSelectionRects(copyDragRectIdsRef.current ?? multiSelection);
     };
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
@@ -6100,7 +6107,9 @@ export default function SlideEditor({
           ensureSlideObjectId(element);
           if (!clone && gesture.duplicate) {
             clone = cloneSlideObject(element);
-            element.after(clone);
+            // Appended, not inserted after the original: animations persist
+            // child-index paths, so a mid-list insert retargets later siblings.
+            element.parentElement!.appendChild(clone);
             ensureBuilderId(clone);
             stampBuilderIds(clone);
             activeElement = clone;
@@ -6883,6 +6892,9 @@ export default function SlideEditor({
         for (const clone of clones) clone.element.remove();
         clones = [];
         rectIds = ids;
+        copyDragRectIdsRef.current = null;
+        // A queued frame still holds the removed copies' ids.
+        cancelScheduledMultiSelectionRects();
       };
 
       const restoreGroupPromotions = () => {
@@ -7042,6 +7054,7 @@ export default function SlideEditor({
             rectIds = new Set(
               clones.map(({ element }) => ensureBuilderId(element)),
             );
+            copyDragRectIdsRef.current = rectIds;
           }
           const dragged = clones.length > 0 ? clones : members;
           const moving = unionSlideObjectGeometries(
@@ -7087,25 +7100,15 @@ export default function SlideEditor({
           scheduleMultiSelectionRects(rectIds);
           return { handled: true };
         },
-        commit: (gesture) => {
+        commit: () => {
           if (members.length === 0) {
             return { handled: false, reason: "unhandled" };
           }
-          // Alt released before drop turns the copy drag back into a move.
-          if (clones.length > 0 && !gesture.duplicate) {
-            clones.forEach((clone, index) => {
-              const original = members[index].element;
-              applyObjectGeometry(
-                original,
-                planSlideObjectGeometry(
-                  original,
-                  getObjectGeometry(clone.element),
-                ),
-              );
-            });
-            removeClones();
-          }
+          // pointerUp re-runs preview whenever Alt changed, so clones that
+          // reach commit belong to a gesture that is still duplicating.
           const committed = clones.length > 0 ? clones : members;
+          copyDragRectIdsRef.current = null;
+          cancelScheduledMultiSelectionRects();
           // Serialize while the promoted elements still live in their fmd
           // canvas. Markdown promotion restores the React tree below, but
           // the persisted HTML must retain the canvas and absolute geometry.
@@ -7215,6 +7218,7 @@ export default function SlideEditor({
     },
     [
       applyObjectGeometry,
+      cancelScheduledMultiSelectionRects,
       clearAlignmentGuides,
       freezeElementForFreeformSelection,
       getSnapPeerGeometries,

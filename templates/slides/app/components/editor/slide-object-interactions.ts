@@ -857,11 +857,26 @@ export function cloneSlideObject(element: HTMLElement): HTMLElement {
   const clone = element.cloneNode(true) as HTMLElement;
   removeTransientBuilderIds(clone);
   remintSlideObjectDomIds(clone);
-  clone.setAttribute("data-slide-object-id", createSlideObjectId());
+  const idMap = new Map<string, string>();
+  for (const node of [
+    clone,
+    ...clone.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+  ]) {
+    const fresh = createSlideObjectId();
+    const previous = node.getAttribute("data-slide-object-id");
+    if (previous) idMap.set(previous, fresh);
+    node.setAttribute("data-slide-object-id", fresh);
+  }
+  // A preserved layout spacer is keyed to its object's id; left alone, the
+  // copy's spacer would belong to the original and deleting either would
+  // remove or orphan the other's gap.
   clone
-    .querySelectorAll<HTMLElement>("[data-slide-object-id]")
-    .forEach((descendant) => {
-      descendant.setAttribute("data-slide-object-id", createSlideObjectId());
+    .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+    .forEach((spacer) => {
+      const owner = idMap.get(
+        spacer.getAttribute("data-slide-layout-spacer-for") ?? "",
+      );
+      if (owner) spacer.setAttribute("data-slide-layout-spacer-for", owner);
     });
   return clone;
 }
@@ -3021,16 +3036,17 @@ export function collectMovableSlideObjects(
 }
 
 /**
- * Insert a fresh copy of every member right after its original, in the same
- * parent. Each copy has its own object id (and fresh ids for nested objects),
- * no transient builder ids, and the member's starting geometry.
+ * Append a fresh copy of every member to the end of its original's parent.
+ * Each copy has its own object id (and fresh ids for nested objects), no
+ * transient builder ids, and the member's starting geometry. Appending keeps
+ * every existing sibling's child-index path, which animations persist.
  */
 export function duplicateSlideObjectMembers(
   members: readonly SlideObjectMoveMember[],
 ): SlideObjectMoveMember[] {
   return members.map((member) => {
     const clone = cloneSlideObject(member.element);
-    member.element.after(clone);
+    member.element.parentElement!.appendChild(clone);
     return {
       objectId: clone.getAttribute("data-slide-object-id")!,
       element: clone,

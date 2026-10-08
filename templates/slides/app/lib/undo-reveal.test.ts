@@ -84,6 +84,25 @@ describe("diffUndoRevealTargets", () => {
     ).toEqual([{ objectId: "x1", path: [0] }]);
   });
 
+  it("pairs look-alike copies appended after the tail with distinct sources", () => {
+    const x1 = box("x1", "left: 0px", "X");
+    const x2 = box("x2", "left: 50px", "X");
+    const dup1 = box("x3", "left: 18px", "X");
+    const dup2 = box("x4", "left: 68px", "X");
+    expect(
+      diffUndoRevealTargets(
+        slide(x1, x2, B, dup1, dup2),
+        slide(x1, x2, B),
+        "undo",
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        { objectId: "x1", path: [0] },
+        { objectId: "x2", path: [1] },
+      ]),
+    );
+  });
+
   it("selects nothing when undoing the creation of an object with no source (U12)", () => {
     const created = box("n", "left: 5px", "New");
     expect(diffUndoRevealTargets(slide(A, created), slide(A), "undo")).toEqual(

@@ -181,6 +181,7 @@ function cloneFingerprint(element: Element): string {
 function findCloneSource(
   { element: removed, anchor }: SlideDiff["removed"][number],
   after: Element,
+  taken: ReadonlySet<Element>,
 ): Element | null {
   // An empty box or shape matches any look-alike, and undoing its creation
   // selects nothing.
@@ -192,11 +193,13 @@ function findCloneSource(
   const fingerprint = cloneFingerprint(removed);
   const candidates = Array.from(after.querySelectorAll("*")).filter(
     (candidate) =>
+      !taken.has(candidate) &&
       candidate.tagName === removed.tagName &&
       cloneFingerprint(candidate) === fingerprint,
   );
-  // A copy lands after its source: take the nearest match before the spot the
-  // copy occupied, else the last match.
+  // A copy lands at or after its source: take the nearest match before the
+  // spot the copy occupied, else the last match. Sources already claimed by
+  // another removed copy are skipped, so look-alike copies pair one to one.
   const before = anchor
     ? candidates.filter(
         (candidate) =>
@@ -292,9 +295,12 @@ export function diffUndoRevealTargets(
     .map((element) => selectableObject(element, afterRoot))
     .filter((element): element is Element => element !== null);
   if (objects.length === 0 && direction === "undo") {
-    objects = diff.removed
-      .map((removed) => findCloneSource(removed, afterRoot))
-      .filter((element): element is Element => element !== null);
+    const sources = new Set<Element>();
+    for (const removed of diff.removed) {
+      const source = findCloneSource(removed, afterRoot, sources);
+      if (source) sources.add(source);
+    }
+    objects = [...sources];
   }
 
   const targets: UndoRevealTarget[] = [];

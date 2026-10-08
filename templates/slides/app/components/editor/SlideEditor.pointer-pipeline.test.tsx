@@ -845,6 +845,75 @@ describe("SlideEditor pointer pipeline Alt-drag of a multi-selection", () => {
     expect(editor.hasSelection()).toBe(false);
   });
 
+  it("recreates the copies when Alt is pressed again after a release", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    dragTo(125, 292);
+    expect(
+      editor.container.querySelectorAll("[data-slide-object-id]"),
+    ).toHaveLength(2);
+    dragTo(135, 302, { altKey: true });
+    dropAt(135, 302, { altKey: true });
+
+    const objects = placements(updates[0]);
+    expect(objects).toHaveLength(4);
+    expect(objects.filter((object) => object.left === "80px")).toHaveLength(2);
+  });
+
+  it("appends the copies after their siblings so child-index paths hold", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    dropAt(125, 292, { altKey: true });
+
+    const doc = new DOMParser().parseFromString(updates[0], "text/html");
+    const children = Array.from(doc.querySelector(".fmd-slide")!.children);
+    // The original wrapper keeps index 0 (animations address it by path) and
+    // both copies trail it.
+    expect(children[0].id).toBe("container");
+    expect(children).toHaveLength(3);
+    expect(
+      children.slice(1).map((copy) => copy.textContent?.trim().slice(0, 4)),
+    ).toEqual(["Erup", "Stat"]);
+  });
+
+  it("keeps the preserved flow spacers on the originals, not the copies", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    dropAt(125, 292, { altKey: true });
+
+    const doc = new DOMParser().parseFromString(updates[0], "text/html");
+    const originalIds = ["callout", "card"].map(
+      (id) => doc.getElementById(id)!.getAttribute("data-slide-object-id")!,
+    );
+    const spacerOwners = Array.from(
+      doc.querySelectorAll("[data-slide-layout-spacer-for]"),
+    ).map((spacer) => spacer.getAttribute("data-slide-layout-spacer-for"));
+    expect(spacerOwners.sort()).toEqual([...originalIds].sort());
+  });
+
+  it("keeps the selection outline when a pointercancel follows a move within a frame", async () => {
+    const { editor, updates } = await mountSelectedPair();
+    const outline = () =>
+      document.querySelector("[data-slide-selection-outline='true']");
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    fireEvent.pointerCancel(window, { pointerId: 1 });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+    expect(updates).toHaveLength(0);
+    expect(
+      editor.container.querySelectorAll("[data-slide-object-id]"),
+    ).toHaveLength(0);
+    expect(outline()).not.toBeNull();
+  });
+
   it("persists nothing for an Alt press that never crosses the drag threshold", async () => {
     const { editor, updates } = await mountSelectedPair();
 
