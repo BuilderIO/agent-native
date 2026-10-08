@@ -48,6 +48,7 @@ function job(
     conclusion: "failure",
     started_at: "2026-10-05T12:00:00Z",
     completed_at: "2026-10-05T12:30:00Z",
+    runner_name: "GitHub Actions",
     steps: [step("Run Design E2E", "failure")],
     ...overrides,
   } as WorkflowJob;
@@ -520,7 +521,8 @@ describe("ci-red-report", () => {
         [
           job(cancelled.id, 461, {
             conclusion: "cancelled",
-            started_at: null,
+            started_at: "2026-10-05T12:01:00Z",
+            runner_name: "",
             steps: [],
           }),
           job(cancelled.id, 462, {

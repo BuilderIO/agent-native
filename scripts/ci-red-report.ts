@@ -46,6 +46,7 @@ export type WorkflowJob = {
   conclusion: string | null;
   started_at: string | null;
   completed_at: string | null;
+  runner_name: string | null;
   steps: WorkflowStep[];
 };
 
@@ -310,6 +311,10 @@ function parseWorkflowJob(value: unknown, context: string): WorkflowJob {
   ) {
     return invalid(context, `workflow job ${id} has invalid started_at`);
   }
+  const runnerName = record.runner_name;
+  if (runnerName !== null && typeof runnerName !== "string") {
+    return invalid(context, `workflow job ${id} has invalid runner_name`);
+  }
   if (record.status === "completed" && !completedAt) {
     return invalid(
       context,
@@ -327,6 +332,7 @@ function parseWorkflowJob(value: unknown, context: string): WorkflowJob {
     conclusion: jobConclusion,
     started_at: startedAt,
     completed_at: completedAt,
+    runner_name: runnerName,
     steps,
   };
 }
@@ -491,7 +497,11 @@ export function buildCiRedRows(
             job.conclusion === "cancelled" || job.conclusion === "skipped",
         ) &&
         jobs.every(
-          (job) => job.conclusion !== "cancelled" || job.started_at === null,
+          (job) =>
+            job.conclusion !== "cancelled" ||
+            // GitHub may set started_at before a queued job acquires a runner.
+            ((job.runner_name === null || job.runner_name.trim() === "") &&
+              job.steps.length === 0),
         )
       )
         continue;
