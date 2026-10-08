@@ -33,6 +33,7 @@ let previousIntegrationDurableDispatch: string | undefined;
 let previousDisableRecurringJobs: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
+let previousVercelEnv: string | undefined;
 let previousVercelUrl: string | undefined;
 let previousVercelBranchUrl: string | undefined;
 let previousVercelProjectProductionUrl: string | undefined;
@@ -89,6 +90,7 @@ beforeEach(() => {
     process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
+  previousVercelEnv = process.env.VERCEL_ENV;
   previousVercelUrl = process.env.VERCEL_URL;
   previousVercelBranchUrl = process.env.VERCEL_BRANCH_URL;
   previousVercelProjectProductionUrl =
@@ -134,6 +136,7 @@ beforeEach(() => {
   delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
+  delete process.env.VERCEL_ENV;
   delete process.env.VERCEL_URL;
   delete process.env.VERCEL_BRANCH_URL;
   delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
@@ -181,6 +184,7 @@ afterEach(() => {
   );
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
+  restoreEnv("VERCEL_ENV", previousVercelEnv);
   restoreEnv("VERCEL_URL", previousVercelUrl);
   restoreEnv("VERCEL_BRANCH_URL", previousVercelBranchUrl);
   restoreEnv(
@@ -1623,6 +1627,44 @@ describe("workspace deploy", () => {
     );
   });
 
+  it("skips localhost aliases and IPv4-mapped loopback URLs", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.URL = "https://beta.example.test";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-server",
+      "dispatch-server.mjs",
+    );
+    const localUrls = [
+      "http://localhost.",
+      "http://api.localhost.",
+      "http://127.0.0.2",
+      "http://[::ffff:127.0.0.2]",
+    ];
+
+    for (const [index, localUrl] of localUrls.entries()) {
+      process.env.APP_URL = localUrl;
+      delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
+      await import(
+        `${pathToFileURL(dispatchEntry).href}?loopback-alias=${index}`
+      );
+
+      expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+        "https://beta.example.test/dispatch",
+      );
+    }
+  });
+
   it("skips an invalid runtime URL and uses the gateway alias", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
 
@@ -1677,6 +1719,38 @@ describe("workspace deploy", () => {
 
     expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
       "https://workspace-abc.vercel.app/dispatch",
+    );
+  });
+
+  it("uses the project production URL for Vercel production deployments", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "vercel",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_URL = "workspace-deployment-abc.vercel.app";
+    process.env.VERCEL_BRANCH_URL = "workspace-branch.vercel.app";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "workspace.example.com";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".vercel",
+      "output",
+      "functions",
+      "dispatch-server.func",
+      "index.mjs",
+    );
+    await import(
+      `${pathToFileURL(dispatchEntry).href}?vercel-production-url=${Date.now()}`
+    );
+
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://workspace.example.com/dispatch",
     );
   });
 

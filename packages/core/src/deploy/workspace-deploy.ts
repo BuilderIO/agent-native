@@ -156,12 +156,17 @@ function workspaceDirectoryEnvSnippet(
   }
 
   function resolveRuntimeDirectoryUrl() {
+    const isVercelProduction =
+      processRef.env.VERCEL_ENV?.trim().toLowerCase() === "production";
     const vercelCandidates = processRef.env.VERCEL
-      ? [
-          processRef.env.VERCEL_URL,
-          processRef.env.VERCEL_BRANCH_URL,
-          processRef.env.VERCEL_PROJECT_PRODUCTION_URL,
-        ]
+      ? (isVercelProduction
+          ? [
+              processRef.env.VERCEL_PROJECT_PRODUCTION_URL,
+              processRef.env.VERCEL_URL,
+              processRef.env.VERCEL_BRANCH_URL,
+            ]
+          : [processRef.env.VERCEL_URL, processRef.env.VERCEL_BRANCH_URL]
+        )
           .filter(Boolean)
           .map((candidate) =>
             /^https?:\\/\\//i.test(candidate)
@@ -196,13 +201,20 @@ function workspaceDirectoryEnvSnippet(
       const directoryUrl = new URL(${JSON.stringify(dispatchApp.path)}, baseUrl)
       .toString()
       .replace(/\\/$/, "");
-      const hostname = baseUrl.hostname.toLowerCase();
+      const hostname = baseUrl.hostname.toLowerCase().replace(/\\.$/, "");
+      const mappedIpv4 = hostname.match(
+        /^\\[::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}\\]$/,
+      );
+      const isMappedIpv4Loopback =
+        mappedIpv4 !== null &&
+        (Number.parseInt(mappedIpv4[1], 16) >> 8) === 0x7f;
       if (
         hostname === "localhost" ||
         hostname.endsWith(".localhost") ||
-        hostname.startsWith("127.") ||
+        /^127(?:\\.\\d{1,3}){3}$/.test(hostname) ||
         hostname === "[::1]" ||
-        hostname === "::1"
+        hostname === "::1" ||
+        isMappedIpv4Loopback
       ) {
         loopbackUrl ??= directoryUrl;
         continue;
