@@ -4104,6 +4104,13 @@ describe("AgentKitAssistantChat host behavior", () => {
       createdAt: "2026-09-26T12:00:01.000Z",
       parts: [{ type: "text", text: "Assistant answer survives handoff" }],
     };
+    const followupUserMessage = {
+      id: "handoff-followup-user-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-09-26T12:00:02.000Z",
+      parts: [{ type: "text", text: "Save after handoff" }],
+    };
     chatMocks.threadId = threadId;
     chatMocks.thread = {
       thread: {
@@ -4152,7 +4159,6 @@ describe("AgentKitAssistantChat host behavior", () => {
         titleSource: "fallback",
       }),
     );
-
     const fetch = vi.fn(async () => new Response(null, { status: 404 }));
     const runtime = {
       id: "handoff-test",
@@ -4188,23 +4194,23 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.createTransport.mockImplementation((options: any) =>
       createAgentNativeAgentKitTransport({ ...options, runtime, fetch }),
     );
-    await act(async () => {
-      root.render(
-        <AgentKitAssistantChat
-          {...baseProps({
-            threadId,
-            browserTabId,
-            isNewThread: false,
-            onSaveThread: savedSnapshots,
-            centerComposerWhenEmpty: true,
-            suggestionPlacement: "context-chips",
-            homeIntroSlot: <h1>What should we do?</h1>,
-            afterComposerSlot: <div data-testid="home-app-grid" />,
-            suggestions: ["Explore my apps"],
-          })}
-        />,
-      );
+    const restoredProps = baseProps({
+      threadId,
+      browserTabId,
+      isNewThread: false,
+      onSaveThread: savedSnapshots,
+      centerComposerWhenEmpty: true,
+      suggestionPlacement: "context-chips",
+      homeIntroSlot: <h1>What should we do?</h1>,
+      afterComposerSlot: <div data-testid="home-app-grid" />,
+      suggestions: ["Explore my apps"],
     });
+    const restoredRef = createRef<any>();
+    await act(async () =>
+      root.render(
+        <AgentKitAssistantChat {...restoredProps} ref={restoredRef} />,
+      ),
+    );
 
     expect(container.textContent).toContain("Keep this transcript visible");
     expect(container.textContent).toContain(
@@ -4218,6 +4224,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     const handoff = await chatMocks.rootProps.transport.getThreadSnapshot({
       threadId,
     });
+    expect(handoff).toMatchObject({
+      title: "Keep this transcript visible",
+      titleSource: "fallback",
+    });
     expect(handoff.messages[0].parts).toContainEqual({
       type: "text",
       text: "Keep this transcript visible",
@@ -4227,6 +4237,22 @@ describe("AgentKitAssistantChat host behavior", () => {
       text: "Assistant answer survives handoff",
     });
     expect(fetch).not.toHaveBeenCalled();
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: handoff,
+      messages: [...handoff.messages, followupUserMessage],
+    };
+    await act(async () =>
+      root.render(
+        <AgentKitAssistantChat {...restoredProps} ref={restoredRef} />,
+      ),
+    );
+    const restoredSurfaceSnapshot = restoredRef.current?.exportThreadSnapshot();
+    expect(restoredSurfaceSnapshot).toMatchObject({
+      title: "Keep this transcript visible",
+      titleSource: "fallback",
+    });
   });
 
   it("keeps transient thread-restore errors retryable without clearing the tab", async () => {
