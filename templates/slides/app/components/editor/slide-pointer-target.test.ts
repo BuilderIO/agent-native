@@ -3,7 +3,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  clampRangeToTextRoot,
   clampSelectionToTextRoot,
   firstTextLeaf,
   resolveSlidePointerTarget,
@@ -734,70 +733,5 @@ describe("clampSelectionToTextRoot", () => {
     expect(selection.anchorOffset).toBe(4);
     expect(b.contains(selection.focusNode)).toBe(true);
     expect(selection.toString()).toBe("Beta");
-  });
-});
-
-describe("clampRangeToTextRoot", () => {
-  function mountLeaves() {
-    document.body.innerHTML = `<p id="a">Alpha text</p><p id="b">Beta text</p><p id="c">Gamma text</p>`;
-    const get = (id: string) => document.getElementById(id)!;
-    const range = (from: [Node, number], to: [Node, number]) => {
-      const r = document.createRange();
-      r.setStart(...from);
-      r.setEnd(...to);
-      return r;
-    };
-    return { a: get("a"), b: get("b"), c: get("c"), range };
-  }
-
-  it("keeps a range that is already inside the root", () => {
-    const { a, range } = mountLeaves();
-    const clamped = clampRangeToTextRoot(
-      range([a.firstChild!, 2], [a.firstChild!, 5]),
-      a,
-    );
-    expect([clamped.startOffset, clamped.endOffset]).toEqual([2, 5]);
-    expect(clamped.startContainer).toBe(a.firstChild);
-  });
-
-  it("clamps a drag that ends in a later leaf to the end of the press leaf", () => {
-    const { a, b, range } = mountLeaves();
-    const clamped = clampRangeToTextRoot(
-      range([a.firstChild!, 3], [b.firstChild!, 2]),
-      a,
-    );
-    expect(clamped.startContainer).toBe(a.firstChild);
-    expect(clamped.startOffset).toBe(3);
-    expect(a.contains(clamped.endContainer)).toBe(true);
-    expect(clamped.toString()).toBe("ha text");
-  });
-
-  it("clamps a drag that ends in an earlier leaf to the start of the press leaf", () => {
-    const { a, b, range } = mountLeaves();
-    const clamped = clampRangeToTextRoot(
-      range([a.firstChild!, 2], [b.firstChild!, 2]).cloneRange(),
-      b,
-    );
-    expect(b.contains(clamped.startContainer)).toBe(true);
-    expect(b.contains(clamped.endContainer)).toBe(true);
-    expect(clamped.toString()).toBe("Be");
-  });
-
-  it("collapses a range that lies entirely outside the root onto its edge", () => {
-    const { a, c, range } = mountLeaves();
-    const clamped = clampRangeToTextRoot(
-      range([c.firstChild!, 1], [c.firstChild!, 4]),
-      a,
-    );
-    expect(clamped.collapsed).toBe(true);
-    expect(a.contains(clamped.startContainer)).toBe(true);
-  });
-
-  it("does not mutate the range it was given", () => {
-    const { a, b, range } = mountLeaves();
-    const original = range([a.firstChild!, 3], [b.firstChild!, 2]);
-    clampRangeToTextRoot(original, a);
-    expect(original.endContainer).toBe(b.firstChild);
-    expect(original.endOffset).toBe(2);
   });
 });

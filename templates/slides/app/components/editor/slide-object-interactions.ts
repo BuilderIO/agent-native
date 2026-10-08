@@ -97,6 +97,15 @@ export function isSlideTableStructureElement(element: Element): boolean {
   return SLIDE_TABLE_STRUCTURE_ELEMENTS.has(element.tagName);
 }
 
+/** A table is one movable object: its rows and cells join a selection as the table. */
+export function resolveMultiSelectableElement(
+  element: HTMLElement,
+): HTMLElement | null {
+  return isSlideTableStructureElement(element)
+    ? element.closest<HTMLElement>("table")
+    : element;
+}
+
 const SLIDE_LAYER_REQUIRED_CHILDREN = new Map<string, Set<string>>([
   ["COLGROUP", new Set(["COL"])],
   ["DL", new Set(["DD", "DT"])],

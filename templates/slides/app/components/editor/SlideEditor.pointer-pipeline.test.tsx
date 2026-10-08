@@ -77,7 +77,17 @@ const TABLE_SLIDE = `
     </tr></tbody></table>
   </div>`;
 
+const TABLE_NOTE_SLIDE = `
+  <div id="slide" class="fmd-slide" style="position:relative">
+    <table id="table"><tbody><tr id="tr">
+      <td id="cell" style="padding:20px">Cell text</td>
+      <td id="emptyCell" style="padding:20px"></td>
+    </tr></tbody></table>
+    <div id="note" class="fmd-text-box" data-slide-object-id="note-1" style="position:absolute;left:600px;top:100px;width:200px;height:40px;font-size:24px">Note</div>
+  </div>`;
+
 const TEXT_RECTS: Record<string, Rect> = {
+  note: { left: 600, top: 100, right: 700, bottom: 120 },
   cell: { left: 150, top: 150, right: 250, bottom: 170 },
   memberC: { left: 300, top: 300, right: 450, bottom: 330 },
   h2: { left: 80, top: 150, right: 400, bottom: 180 },
@@ -92,6 +102,7 @@ const TEXT_RECTS: Record<string, Rect> = {
 };
 
 const BOX_RECTS: Record<string, Rect> = {
+  note: { left: 600, top: 100, right: 800, bottom: 140 },
   table: { left: 100, top: 100, right: 500, bottom: 200 },
   tr: { left: 100, top: 100, right: 500, bottom: 200 },
   cell: { left: 100, top: 100, right: 300, bottom: 200 },
@@ -216,7 +227,7 @@ async function mountEditor(
     <SlideEditor
       {...props}
       slide={slide}
-      onUpdateSlide={() => undefined}
+      onUpdateSlide={props.onUpdateSlide ?? (() => undefined)}
       onGenerateImage={noop}
       onOpenAssetLibrary={noop}
       onUploadImage={noop}
@@ -483,6 +494,31 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     expect(caption.contains(selection.focusNode)).toBe(true);
   });
 
+  it("keeps the direction of a backward text drag that ends in another leaf", async () => {
+    const editor = await mountEditor(CLIP_SLIDE);
+    const caption = editor.el("caption");
+    const labelB = editor.el("labelB");
+
+    editor.press("caption", { x: 700, y: 278 });
+    // Dragged up and to the left: the focus sits in the earlier leaf.
+    window
+      .getSelection()!
+      .setBaseAndExtent(caption.firstChild!, 20, labelB.firstChild!, 4);
+    stack = [editor.el("chart")];
+    fireEvent.pointerUp(editor.el("chart"), editor.init({ x: 800, y: 157 }));
+    fireEvent.click(editor.el("chart"), {
+      ...editor.init({ x: 800, y: 157 }),
+      detail: 1,
+    });
+
+    expect(editor.isEditing("caption")).toBe(true);
+    const selection = window.getSelection()!;
+    expect(selection.anchorNode).toBe(caption.firstChild);
+    expect(selection.anchorOffset).toBe(20);
+    expect(selection.focusNode).toBe(caption);
+    expect(selection.focusOffset).toBe(0);
+  });
+
   it("selects a text object with all of its text on Enter", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
@@ -655,6 +691,101 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     // A click on cell padding still selects the cell for styling.
     editor.click("emptyCell", { x: 310, y: 110 });
     expect(editor.lastSelected()).toBe(editor.el("emptyCell"));
+  });
+
+  describe("a table joining a multi-selection", () => {
+    const memberPoint = { x: 780, y: 130 };
+
+    const dragNote = (editor: Awaited<ReturnType<typeof mountEditor>>) => {
+      editor.press("note", memberPoint);
+      fireEvent.pointerMove(window, {
+        clientX: memberPoint.x + 40,
+        clientY: memberPoint.y + 30,
+        pointerId: 1,
+      });
+      fireEvent.pointerUp(window, {
+        clientX: memberPoint.x + 40,
+        clientY: memberPoint.y + 30,
+        pointerId: 1,
+      });
+    };
+
+    const expectTableMovedWhole = (
+      editor: Awaited<ReturnType<typeof mountEditor>>,
+    ) => {
+      for (const id of ["cell", "emptyCell", "tr"]) {
+        expect(editor.el(id).style.position, id).toBe("");
+        expect(editor.el(id).hasAttribute("data-slide-object-id"), id).toBe(
+          false,
+        );
+      }
+      expect(editor.el("table").style.position).toBe("absolute");
+    };
+
+    it("moves the table, not the cell, when a cell is shift-clicked into a selection", async () => {
+      const editor = await mountEditor(TABLE_NOTE_SLIDE);
+
+      editor.click("note", memberPoint);
+      editor.click("cell", { x: 110, y: 110 }, { shiftKey: true });
+      dragNote(editor);
+      expectTableMovedWhole(editor);
+    });
+
+    it("toggles the whole table when one of its cells is shift-clicked again", async () => {
+      const editor = await mountEditor(TABLE_NOTE_SLIDE);
+
+      editor.click("note", memberPoint);
+      editor.click("cell", { x: 110, y: 110 }, { shiftKey: true });
+      editor.click("emptyCell", { x: 310, y: 110 }, { shiftKey: true });
+      dragNote(editor);
+      expect(editor.el("table").style.position).toBe("");
+      expect(editor.el("cell").style.position).toBe("");
+      expect(editor.el("note").style.left).not.toBe("600px");
+    });
+
+    it("nudges the table, not the cell, with the arrow keys", async () => {
+      const onUpdateSlide = vi.fn();
+      const editor = await mountEditor(TABLE_NOTE_SLIDE, { onUpdateSlide });
+
+      editor.click("note", memberPoint);
+      editor.click("cell", { x: 110, y: 110 }, { shiftKey: true });
+      editor.canvas.focus();
+      fireEvent.keyDown(editor.canvas, { key: "ArrowRight" });
+
+      const saved = new DOMParser().parseFromString(
+        (onUpdateSlide.mock.calls.at(-1)?.[0] as { content: string }).content,
+        "text/html",
+      );
+      expect(saved.querySelector("#table")?.getAttribute("style")).toContain(
+        "position: absolute",
+      );
+      expect(saved.querySelector("td")?.style.position).toBe("");
+      expect(
+        saved.querySelector("td")?.hasAttribute("data-slide-object-id"),
+      ).toBe(false);
+    });
+
+    it("never nudges a selected cell out of its table", async () => {
+      const onUpdateSlide = vi.fn();
+      const editor = await mountEditor(TABLE_SLIDE, { onUpdateSlide });
+
+      editor.click("emptyCell", { x: 310, y: 110 });
+      expect(editor.lastSelected()).toBe(editor.el("emptyCell"));
+      editor.canvas.focus();
+      fireEvent.keyDown(editor.canvas, { key: "ArrowRight" });
+      expect(onUpdateSlide).not.toHaveBeenCalled();
+      expect(editor.el("emptyCell").style.position).toBe("");
+    });
+
+    it("moves the table, not its cells, when a marquee sweeps over it", async () => {
+      const editor = await mountEditor(TABLE_NOTE_SLIDE);
+
+      editor.press("slide", { x: 900, y: 500 });
+      fireEvent.pointerMove(window, { clientX: 90, clientY: 90, pointerId: 1 });
+      fireEvent.pointerUp(window, { clientX: 90, clientY: 90, pointerId: 1 });
+      dragNote(editor);
+      expectTableMovedWhole(editor);
+    });
   });
 
   it("offers no resize or rotate handles on a selected table cell", async () => {
