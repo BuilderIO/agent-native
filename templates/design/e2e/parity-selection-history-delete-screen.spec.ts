@@ -805,6 +805,61 @@ test("Shift-marquee reselecting an owner Screen makes Delete target the Screen",
   }
 });
 
+// oracle: none — this checks additive Screen selection and deletion, not a Figma observation.
+test("Shift-marquee adds a hit Screen to the existing Delete selection", async ({
+  page,
+}) => {
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    const secondId = await fileIdByFilename(page, id, "second.html");
+    const homeTitle = page.locator(
+      `[data-frame-id="${homeId}"] [data-frame-title]`,
+    );
+    await homeTitle.click();
+    await expect.poll(() => selectedScreenIds(page)).toContain(homeId);
+
+    const secondFrame = page.locator(`[data-frame-id="${secondId}"]`);
+    const frameBox = await secondFrame.boundingBox();
+    const canvas = await page
+      .locator("[data-multi-screen-canvas-surface]")
+      .boundingBox();
+    expect(frameBox).not.toBeNull();
+    expect(canvas).not.toBeNull();
+    const margin = 24;
+    const from = { x: frameBox!.x - margin, y: frameBox!.y - margin };
+    const to = {
+      x: frameBox!.x + frameBox!.width + margin,
+      y: frameBox!.y + frameBox!.height + margin,
+    };
+    expect(from.x).toBeGreaterThanOrEqual(canvas!.x);
+    expect(from.y).toBeGreaterThanOrEqual(canvas!.y);
+    expect(to.x).toBeLessThanOrEqual(canvas!.x + canvas!.width);
+    expect(to.y).toBeLessThanOrEqual(canvas!.y + canvas!.height);
+
+    await page.keyboard.down("Shift");
+    try {
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 12 });
+      await page.mouse.up();
+    } finally {
+      await page.keyboard.up("Shift");
+    }
+    await expect
+      .poll(() => selectedScreenIds(page))
+      .toEqual(expect.arrayContaining([homeId, secondId]));
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Home")).toHaveCount(0);
+    await expect(layerRow(page, "Second")).toHaveCount(0);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 // oracle: none — this checks app selection history and deletion behavior, not a Figma observation.
 test("undoing a canvas element click restores its explicit Screen target for Delete", async ({
   page,
@@ -1003,6 +1058,69 @@ test("a newer layer selection survives failed Screen deletion settlement", async
     await expect(greenBoxRow).toHaveAttribute("aria-selected", "true");
     await expect.poll(() => lastSelectedLayers(page)).toEqual([greenBoxId]);
     expect(deleteTargets).toEqual([[secondId]]);
+  } finally {
+    releaseFirstDelete();
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
+// oracle: none — this checks async Screen selection settlement, not Figma behavior.
+test("a newer Screen pick survives failed Screen deletion settlement", async ({
+  page,
+}) => {
+  const id = await newThreeScreenDesign(page);
+  const deleteTargets: string[][] = [];
+  let releaseFirstDelete: () => void = () => {};
+  const firstDeleteGate = new Promise<void>((resolve) => {
+    releaseFirstDelete = resolve;
+  });
+  let signalFirstDelete: () => void = () => {};
+  const firstDeleteSeen = new Promise<void>((resolve) => {
+    signalFirstDelete = resolve;
+  });
+
+  try {
+    await openEditor(page, id);
+    const secondId = await fileIdByFilename(page, id, "second.html");
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    await layerRow(page, "Second").click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
+
+    await page.route("**/_agent-native/actions/delete-file", async (route) => {
+      const body = route.request().postDataJSON() as {
+        id?: string;
+        fileIds?: string[];
+      };
+      deleteTargets.push(body.fileIds ?? (body.id ? [body.id] : []));
+      if (deleteTargets.length === 1) {
+        signalFirstDelete();
+        await firstDeleteGate;
+        await route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "intentional E2E route failure" }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.keyboard.press("Delete");
+    await firstDeleteSeen;
+    const homeTitle = page.locator(
+      `[data-frame-id="${homeId}"] [data-frame-title]`,
+    );
+    await homeTitle.click();
+    await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
+    releaseFirstDelete();
+
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
+    await page.keyboard.press("Delete");
+    await expect.poll(() => deleteTargets.length).toBe(2);
+    expect(deleteTargets).toEqual([[secondId], [homeId]]);
+    await expect(layerRow(page, "Home")).toHaveCount(0, { timeout: 10_000 });
+    await expect(layerRow(page, "Second")).toHaveCount(1);
   } finally {
     releaseFirstDelete();
     await postAction(page, "delete-design", { id }).catch(() => {});

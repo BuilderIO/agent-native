@@ -24513,36 +24513,7 @@ function DesignEditor() {
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
     ) => {
-      let resolvedIntent = intent;
-      if (
-        intent.source === "marquee" &&
-        intent.final === true &&
-        intent.shiftKey === true &&
-        intent.metaKey !== true &&
-        intent.ctrlKey !== true &&
-        intent.selectedScreenIds !== undefined &&
-        !sameStringIds(
-          intent.baseSelectedScreenIds ?? [],
-          overviewSelectedScreenIdsRef.current,
-        )
-      ) {
-        const selectedScreenIds = new Set(overviewSelectedScreenIdsRef.current);
-        for (const screenId of intent.marqueeHitScreenIds ?? []) {
-          if (selectedScreenIds.has(screenId)) {
-            selectedScreenIds.delete(screenId);
-          } else {
-            selectedScreenIds.add(screenId);
-          }
-        }
-        const selectedIds = [...selectedScreenIds];
-        resolvedIntent = {
-          ...intent,
-          selectedScreenIds: selectedIds,
-          marqueeSelectedScreenIds: (intent.marqueeHitScreenIds ?? []).filter(
-            (screenId) => selectedScreenIds.has(screenId),
-          ),
-        };
-      }
+      const resolvedIntent = intent;
       if (
         resolvedIntent.final === true &&
         resolvedIntent.cancelled !== true &&
@@ -25782,6 +25753,7 @@ function DesignEditor() {
   // on MultiScreenCanvas without changing behavior.
   const handleOverviewScreenPick = useCallback(
     (pickedId: string) => {
+      if (!shiftKeyHeldRef.current) selectionRevisionRef.current += 1;
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
