@@ -146,6 +146,7 @@ export function runPrimitiveCreated(
     );
     const cancel = scheduleBeginTextEditForScreen(screenId, textNodeId, {
       boardFileId,
+      afterPointerGesture: true,
       isAbandoned: () =>
         abandoned || !isPendingTextRequestLive(screenId, textNodeId),
       onExhausted: (finalStatus) => {

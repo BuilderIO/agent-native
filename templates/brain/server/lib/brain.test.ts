@@ -4235,7 +4235,7 @@ describe("Brain connector smoke coverage", () => {
         if (url.pathname === "/oauth/token") {
           return Response.json({ access_token: "zoom-token" });
         }
-        if (url.pathname === "/v2/accounts/test-token/recordings") {
+        if (url.pathname === "/v2/accounts/me/recordings") {
           return Response.json({
             meetings: [
               {
@@ -4279,10 +4279,125 @@ describe("Brain connector smoke coverage", () => {
     const result = await runConnectorSync(source as never);
 
     expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
-    expect(requestedPaths).toContain("/v2/accounts/test-token/recordings");
+    expect(requestedPaths).toContain("/v2/accounts/me/recordings");
     expect(requestedPaths.some((path) => path.startsWith("/v2/users"))).toBe(
       false,
     );
+  });
+
+  it("looks up a meeting when the account list omits transcript download URLs", async () => {
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        requestedPaths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        const files = (withUrl: boolean) => [
+          { id: "mp4", file_type: "MP4", status: "completed" },
+          {
+            id: "transcript",
+            file_type: "TRANSCRIPT",
+            status: "completed",
+            ...(withUrl
+              ? { download_url: "https://zoom.us/rec/download/transcript" }
+              : {}),
+          },
+        ];
+        const meeting = {
+          uuid: "abc//def==",
+          id: 83124551552,
+          topic: "Marketing Standup",
+          start_time: "2026-10-06T15:29:38Z",
+        };
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [{ ...meeting, recording_files: files(false) }],
+          });
+        }
+        if (
+          url.pathname === "/v2/meetings/abc%252F%252Fdef%253D%253D/recordings"
+        ) {
+          return Response.json({ ...meeting, recording_files: files(true) });
+        }
+        if (url.pathname === "/rec/download/transcript") {
+          return new Response(
+            [
+              "WEBVTT",
+              "",
+              "00:00:01.000 --> 00:00:04.000",
+              "Ada: Launch moves to Friday.",
+            ].join(String.fromCharCode(10)),
+          );
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-detail-lookup-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingTopics: ["Marketing Standup"] },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: { transcriptsDownloaded: 1, transcriptsWithoutDownloadUrl: 0 },
+    });
+    expect(requestedPaths).toContain(
+      "/v2/meetings/abc%252F%252Fdef%253D%253D/recordings",
+    );
+  });
+
+  it("caps the file summaries recorded for each matched Zoom meeting", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              {
+                uuid: "many-files",
+                id: 83124551552,
+                topic: "Marketing Standup",
+                start_time: "2026-10-06T15:29:38Z",
+                recording_files: Array.from({ length: 12 }, (_, i) => ({
+                  id: "mp4-" + i,
+                  file_type: "MP4",
+                  status: "completed",
+                })),
+              },
+            ],
+          });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-file-cap-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingTopics: ["Marketing Standup"] },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+    const [matched] = (
+      result.stats as { matchedMeetings: Array<Record<string, unknown>> }
+    ).matchedMeetings;
+
+    expect(matched.files).toHaveLength(10);
+    expect(matched.filesOmitted).toBe(2);
   });
 
   it("imports only Zoom meetings matching the source meeting filter", async () => {
@@ -4308,7 +4423,7 @@ describe("Brain connector smoke coverage", () => {
         if (url.pathname === "/oauth/token") {
           return Response.json({ access_token: "zoom-token" });
         }
-        if (url.pathname === "/v2/accounts/test-token/recordings") {
+        if (url.pathname === "/v2/accounts/me/recordings") {
           return Response.json({
             meetings: [
               recording("by-id", 12345678901, "Pod 2 Monday Sync"),
@@ -4364,7 +4479,7 @@ describe("Brain connector smoke coverage", () => {
         if (url.pathname === "/oauth/token") {
           return Response.json({ access_token: "zoom-token" });
         }
-        if (url.pathname === "/v2/accounts/test-token/recordings") {
+        if (url.pathname === "/v2/accounts/me/recordings") {
           listFromDates.push(url.searchParams.get("from") ?? "");
           return Response.json({ meetings: [] });
         }
@@ -4396,6 +4511,47 @@ describe("Brain connector smoke coverage", () => {
     expect(listFromDates).toEqual([lookbackStart, yesterday]);
   });
 
+  it("rewinds the Zoom window when lookback days increase", async () => {
+    const listFromDates: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          listFromDates.push(url.searchParams.get("from") ?? "");
+          return Response.json({ meetings: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const dayMs = 24 * 60 * 60 * 1000;
+    const yesterday = new Date(Date.now() - dayMs).toISOString().slice(0, 10);
+    const lookbackStart = new Date(Date.now() - 20 * dayMs)
+      .toISOString()
+      .slice(0, 10);
+    const source = seedSource({
+      id: "zoom-lookback-change-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: { lookbackDays: 20 } }),
+      cursorJson: JSON.stringify({
+        from: yesterday,
+        filterKey: null,
+        lookbackDays: 7,
+      }),
+    });
+
+    await runConnectorSync(source as never);
+    const savedCursor = JSON.parse(String(source.cursorJson));
+    source.cursorJson = JSON.stringify({ ...savedCursor, from: yesterday });
+    await runConnectorSync(source as never);
+
+    expect(savedCursor.lookbackDays).toBe(20);
+    expect(listFromDates).toEqual([lookbackStart, yesterday]);
+  });
+
   it("dedupes account-wide Zoom recordings across query chunks", async () => {
     const meetings = Array.from({ length: 1_001 }, (_, index) => ({
       uuid: `meeting-${index}`,
@@ -4411,7 +4567,7 @@ describe("Brain connector smoke coverage", () => {
         if (url.pathname === "/oauth/token") {
           return Response.json({ access_token: "zoom-token" });
         }
-        if (url.pathname === "/v2/accounts/test-token/recordings") {
+        if (url.pathname === "/v2/accounts/me/recordings") {
           return Response.json({ meetings });
         }
         return Response.json({ message: "unexpected" }, { status: 404 });
@@ -4434,6 +4590,25 @@ describe("Brain connector smoke coverage", () => {
       status: "success",
       stats: { meetingsSeen: 1_001, alreadyImported: 1 },
     });
+  });
+
+  it("explains when a Slack source has no channels selected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ ok: false, error: "unexpected" })),
+    );
+    const source = seedSource({
+      id: "slack-no-channels",
+      provider: "slack",
+      configJson: "{}",
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    expect(source.lastError).toBe(
+      "No Slack channels are selected. Add channel IDs to this source or turn on public channels.",
+    );
   });
 
   it("still rejects a private channel configured by name instead of ID", async () => {

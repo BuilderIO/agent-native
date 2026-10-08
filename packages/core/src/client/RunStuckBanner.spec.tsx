@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -822,6 +823,56 @@ describe("RunStuckBanner", () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(container.textContent).toContain("Retry");
+  });
+
+  it("reports a stuck chat once per run, and only while its banner shows", async () => {
+    const stuckEvents = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name, properties]) =>
+            name === "agent_chat_stuck_detected" &&
+            (properties as { runId?: string } | undefined)?.runId ===
+              "run-reported",
+        );
+    let inFlight = true;
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-reported",
+          status: "running",
+          heartbeatAt: 10_000,
+          lastProgressAt: 10_000,
+          serverNow: 101_000,
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, false);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      renderWithCatalog(
+        <RunStuckBanner threadId="thread-1" hasInFlightWork={() => inFlight} />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(container.textContent).toBe("");
+    expect(stuckEvents()).toHaveLength(0);
+
+    inFlight = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(container.textContent).toContain("This chat looks stuck.");
+    expect(stuckEvents()).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    expect(stuckEvents()).toHaveLength(1);
   });
 
   it("claims one automatic retry across multiple mounted chat views", async () => {

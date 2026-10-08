@@ -257,6 +257,83 @@ describe("Page draft recovery", () => {
     ).not.toContain("editor.previewDraftConflict");
   });
 
+  it("discards a newer-base draft the saved page already holds", async () => {
+    state.draft = {
+      title: "Saved",
+      content: "Saved body",
+      version: 3,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    await act(async () => render());
+    expect(state.resolve).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.remove).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "delete",
+        expectedVersion: 3,
+        expectedContent: "Saved body",
+        ifPageHoldsDraft: true,
+      }),
+    );
+    expect(
+      container.querySelector('[data-testid="recovery-comparison"]'),
+    ).toBeNull();
+  });
+
+  it("keeps a draft the page held when the stored page moves before the delete", async () => {
+    state.draft = {
+      title: "Saved",
+      content: "Saved body",
+      version: 3,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    state.remove.mockResolvedValue({ status: "conflict", draft: state.draft });
+    await act(async () => render());
+    expect(state.remove).toHaveBeenCalledWith(
+      expect.objectContaining({ ifPageHoldsDraft: true }),
+    );
+    expect(state.refetch).toHaveBeenCalled();
+    expect(
+      container.querySelector('[data-testid="recovery-comparison"]'),
+    ).toBeNull();
+  });
+
+  it("discards a draft instead of offering it beside a newer page that holds it", async () => {
+    state.draft = {
+      title: "Saved",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    state.resolve.mockResolvedValue({
+      status: "document_conflict",
+      document: { ...page, content: "Draft body", updatedAt: "v3" },
+    });
+    await act(async () => render());
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "use_saved" }),
+    );
+    expect(state.remove).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "delete",
+        expectedVersion: 3,
+        ifPageHoldsDraft: true,
+      }),
+    );
+    expect(
+      container.querySelector('[data-testid="recovery-comparison"]'),
+    ).toBeNull();
+  });
+
   it("moves a legacy draft to History without blocking the editor", async () => {
     state.draft = {
       title: "Legacy draft",

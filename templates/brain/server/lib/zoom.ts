@@ -147,15 +147,21 @@ export async function fetchZoomAccessToken(
 
 type ZoomPageCallback = () => Promise<void>;
 
+// "me" is the token's own account and needs only the :admin scope; a literal
+// account ID is a master-account call that requires the :master scope.
 export function listZoomAccountRecordings(
   token: string,
-  accountId: string,
   from: string,
   to: string,
   onPage?: ZoomPageCallback,
 ) {
-  const path = "/accounts/" + encodeURIComponent(accountId) + "/recordings";
-  return listZoomRecordingPages(token, path, from, to, onPage);
+  return listZoomRecordingPages(
+    token,
+    "/accounts/me/recordings",
+    from,
+    to,
+    onPage,
+  );
 }
 
 export function listZoomRecordings(
@@ -195,6 +201,30 @@ async function listZoomRecordingPages(
     nextPageToken = page.next_page_token || undefined;
   } while (nextPageToken);
   return meetings;
+}
+
+export function isReadyZoomTranscript(file: ZoomRecordingFile): boolean {
+  return file.file_type === "TRANSCRIPT" && file.status !== "processing";
+}
+
+// Zoom requires a UUID that starts with "/" or contains "//" to be encoded twice.
+export function zoomMeetingUuidPath(uuid: string): string {
+  const encoded = encodeURIComponent(uuid);
+  return uuid.startsWith("/") || uuid.includes("//")
+    ? encodeURIComponent(encoded)
+    : encoded;
+}
+
+// The account-wide list omits download_url; this per-meeting lookup includes it.
+export function getZoomMeetingRecordings(
+  token: string,
+  meetingUuid: string,
+): Promise<ZoomMeeting> {
+  return zoomApiJson<ZoomMeeting>(
+    token,
+    `${ZOOM_API_BASE}/meetings/${zoomMeetingUuidPath(meetingUuid)}/recordings`,
+    "meeting recording lookup",
+  );
 }
 
 /**

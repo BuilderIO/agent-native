@@ -36,6 +36,7 @@ vi.mock("@/lib/agent-chat", () => agentChatMocks);
 import {
   buildGenerationBriefContext,
   useQuestionFlow,
+  type QuestionFlowGenerationBrief,
 } from "./use-question-flow";
 
 let latestHook: ReturnType<typeof useQuestionFlow> | null = null;
@@ -47,6 +48,7 @@ interface ProbeProps {
   model?: string;
   engine?: string;
   selectionRef?: { current: { model?: string; engine?: string } | null };
+  getGenerationBrief?: () => QuestionFlowGenerationBrief | null;
 }
 
 function Probe(props: ProbeProps) {
@@ -59,6 +61,7 @@ function Probe(props: ProbeProps) {
         ? { model: props.model, engine: props.engine }
         : null;
     },
+    getGenerationBrief: props.getGenerationBrief,
   });
   return null;
 }
@@ -169,6 +172,23 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     });
 
     expect(order).toEqual(["clear", "send"]);
+    await cleanup();
+  });
+
+  it("clears the questionnaire without sending when the generation brief is unavailable", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: "existing-tab",
+      getGenerationBrief: () => null,
+    });
+
+    act(() => {
+      latestHook!.handleSubmit({ q1: "answer" });
+    });
+
+    expect(clearMock).toHaveBeenCalledTimes(1);
+    expect(agentChatMocks.sendToDesignAgentChat).not.toHaveBeenCalled();
+
     await cleanup();
   });
 

@@ -194,10 +194,30 @@ for (const target of targets) {
         `${target.app} verification returned an error`,
       ).toBeLessThan(400);
       expect(new URL(verificationPage.url()).origin).toBe(target.origin);
+      const continueButton = verificationPage.locator(
+        'form button[type="submit"]',
+      );
+      await expect(
+        continueButton,
+        `${target.app} emailed link did not stop at the scanner-safe confirmation page`,
+      ).toBeVisible();
+      await continueButton.click();
+      await expect
+        .poll(() => new URL(verificationPage.url()).pathname)
+        .not.toContain("/_agent-native/auth/email-link/landing");
       expect(new URL(verificationPage.url()).pathname).not.toMatch(
         /sign-in|login/i,
       );
     });
+
+    if (target.app === "chat") {
+      await test.step("wait for Chat to finish its first-run thread handoff", async () => {
+        await verificationPage.waitForURL(
+          (url) => /^\/chat\/[^/]+\/?$/.test(url.pathname),
+          { waitUntil: "load" },
+        );
+      });
+    }
 
     if (target.app === "design" && target.environment === "beta") {
       await test.step("capture fresh-user first-run readiness", async () => {

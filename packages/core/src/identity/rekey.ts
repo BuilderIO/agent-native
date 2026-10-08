@@ -190,6 +190,12 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   // A missing connect-token row reads as "not revoked", so revoke, never delete.
   { table: "mcp_connect_tokens", column: "owner_email", offboard: "revoke" },
   { table: "mcp_connect_tokens", column: "created_by" },
+  // The accountable owner outlives their account: the principal stays governed and its owner reads as stale.
+  {
+    table: "service_principal_policies",
+    column: "owner_email",
+    offboard: "retain",
+  },
   { table: "mcp_oauth_codes", column: "owner_email", offboard: "delete" },
   {
     table: "mcp_oauth_codes",

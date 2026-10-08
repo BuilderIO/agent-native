@@ -208,19 +208,32 @@ async function openPair(
   if (concurrentOpen) {
     // Hold both editors' first read of the live document until each has asked,
     // so both see it empty and both try to seed it, as two people opening the
-    // plan in the same moment do.
-    let arrived = 0;
-    let release: () => void = () => {};
-    const bothArrived = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const liveDocState = new RegExp(`/collab/plan(:|%3A)${planId}/state`);
+    // plan in the same moment do. The plan's callouts have live documents of
+    // their own, held the same way.
+    const asked = new Map<string, { count: number; release: () => void }>();
+    const bothAsked = new Map<string, Promise<void>>();
+    const liveDocState = new RegExp(
+      `/collab/plan(:|%3A)${planId}((:|%3A)[^/]+)?/state`,
+    );
     for (const page of [pageA, pageB]) {
       await page.route(liveDocState, async (route) => {
-        arrived += 1;
-        if (arrived >= 2) release();
+        const doc = new URL(route.request().url()).pathname;
+        let entry = asked.get(doc);
+        if (!entry) {
+          let release: () => void = () => {};
+          bothAsked.set(
+            doc,
+            new Promise<void>((resolve) => {
+              release = resolve;
+            }),
+          );
+          entry = { count: 0, release };
+          asked.set(doc, entry);
+        }
+        entry.count += 1;
+        if (entry.count >= 2) entry.release();
         await Promise.race([
-          bothArrived,
+          bothAsked.get(doc),
           new Promise((resolve) => setTimeout(resolve, 15_000)),
         ]);
         await route.continue();
@@ -351,6 +364,34 @@ test("edits made offline by one user merge after reconnect", async ({
   }
 });
 
+test("an edit typed while the live document is unreachable for longer than the retries last is still saved", async ({
+  browser,
+}) => {
+  test.setTimeout(150_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA, pageB, planId } = pair;
+    let reachable = false;
+    await pageB.route("**/_agent-native/collab/**/update", (route) =>
+      reachable
+        ? route.continue()
+        : route.fulfill({ status: 503, body: "unavailable" }),
+    );
+    const token = `STALLED${Date.now() % 100000}`;
+    await typeAtEndOf(pageB, "Bravo block seed.", ` ${token}`);
+    // Five failed attempts take about 15 s, after which the autosave used to
+    // stop and leave the edit unsaved until the next keystroke.
+    await pageB.waitForTimeout(20_000); // e2e-harness-ignore: the outage must outlast the retries to prove they continue
+    reachable = true;
+    await expect
+      .poll(() => persistedText(pageA, planId), { timeout: 60_000 })
+      .toContain(token);
+  } finally {
+    await closePair(pair);
+  }
+});
+
 test("an edit another writer saves to a different block while someone types is kept", async ({
   browser,
 }) => {
@@ -388,9 +429,10 @@ test("an edit another writer saves to a different block while someone types is k
   }
 });
 
-test("opening a plan in two editors at once seeds it exactly once", async ({
+test("opening a plan in two editors at once seeds it and its callouts exactly once", async ({
   browser,
 }) => {
+  test.setTimeout(120_000);
   let pair: Pair | undefined;
   try {
     const seed = "Single seed marker line.";
@@ -405,22 +447,30 @@ test("opening a plan in two editors at once seeds it exactly once", async ({
       { concurrentOpen: true },
     );
     const { pageA, pageB, planId } = pair;
-    await pageA.waitForTimeout(3_000); // e2e-harness-ignore: a duplicate seed shows up late, so wait before reading
+    await pageA.waitForTimeout(9_000); // e2e-harness-ignore: a duplicate seed shows up late, once polling merges the two copies
     for (const page of [pageA, pageB]) {
       expect(
         occurrences(await editorText(page), "Single seed marker line."),
         "the seed must appear once in each open editor",
       ).toBe(1);
+      expect(
+        occurrences(await editorText(page), "Separator callout."),
+        "the callout's seed must appear once in each open editor",
+      ).toBe(1);
     }
     // Duplicated seeds only reach SQL when someone edits, so type once.
     const token = ` SEEDCHECK${Date.now() % 100000}`;
     await typeAtEndOf(pageA, "Second block marker.", token);
+    const calloutToken = ` CALLOUTCHECK${Date.now() % 100000}`;
+    await typeAtEndOf(pageA, "Separator callout.", calloutToken);
     await expect
       .poll(async () => persistedText(pageA, planId), { timeout: 20_000 })
-      .toContain(token.trim());
+      .toContain(calloutToken.trim());
     const text = await persistedText(pageA, planId);
+    expect(text).toContain(token.trim());
     expect(occurrences(text, "Single seed marker line.")).toBe(1);
     expect(occurrences(text, "Second block marker.")).toBe(1);
+    expect(occurrences(text, "Separator callout.")).toBe(1);
     for (const page of [pageA, pageB]) {
       await page.reload();
       await expect(surface(page)).toContainText(token.trim(), {
@@ -429,6 +479,7 @@ test("opening a plan in two editors at once seeds it exactly once", async ({
       expect(
         occurrences(await editorText(page), "Single seed marker line."),
       ).toBe(1);
+      expect(occurrences(await editorText(page), "Separator callout.")).toBe(1);
     }
   } finally {
     await closePair(pair);

@@ -3,6 +3,7 @@ import type { TweakDefinition } from "@shared/api";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { agentChatContentFromImages } from "@/lib/chat-image-attachments";
 
 import {
   coveredIntakeTopics,
@@ -14,6 +15,11 @@ import {
 
 const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
   "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating or editing. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
+
+export {
+  agentChatContentFromImages,
+  imageAttachmentsFromUploadedFiles,
+} from "@/lib/chat-image-attachments";
 
 export function formatUploadedFileContext(files: UploadedFile[]): string {
   if (files.length === 0) return "";
@@ -36,14 +42,6 @@ export function formatUploadedFileContext(files: UploadedFile[]): string {
   });
 
   return lines.join("\n");
-}
-
-export function imageAttachmentsFromUploadedFiles(
-  files: UploadedFile[],
-): string[] {
-  return files
-    .map((file) => file.dataUrl)
-    .filter((dataUrl): dataUrl is string => !!dataUrl?.trim());
 }
 
 export function formatTweakDefinitionsContext(
@@ -142,6 +140,13 @@ export function designIntakeQuestionDirectives(
   referenceImageCount = 0,
   contextHint?: IntakeQuestionContextHint,
 ): string[] {
+  if (referenceImageCount > 0) {
+    return designGenerationDirectives(
+      designId,
+      designSystemId,
+      referenceImageCount,
+    );
+  }
   const covered = contextHint ? coveredIntakeTopics(contextHint.coverage) : [];
   const uncovered = contextHint
     ? uncoveredIntakeTopics(contextHint.coverage)
@@ -202,10 +207,38 @@ export function referenceImageDirectives(
   if (referenceImageCount < 1) return [];
   return [
     `The user attached ${referenceImageCount} reference image(s) to this message. Treat any image showing a UI as a layout specification to reproduce, not as loose inspiration.`,
-    "Match its regions and their positions, navigation pattern, information hierarchy, density, component grammar (tabs vs pills, cards vs rows, sidebar vs topbar), and approximate proportions. Briefly name what you see before building so a misread can be corrected early.",
+    "Inspect the actual image pixels before calling generation tools. Read its regions, navigation, hierarchy, density, component grammar, spacing, and proportions from the image itself; a filename, path, or text description is not a substitute. If the image is unavailable in this turn, stop and ask the user to attach it again instead of guessing.",
     "Do NOT substitute your own composition, palette, or font for something the image or the linked design system already specifies — including choices a generic quality heuristic would discourage. Deviate only where the image is genuinely unreadable, and say so when you do.",
-    "Do NOT call `show-design-questions` or `present-design-variants` about anything the image already answers; the direction is chosen. Generate the one design it specifies.",
+    "Recreate the visible structure and content as closely as the image allows. Do NOT call `show-design-questions` or `present-design-variants`; the screenshot already specifies the direction. Generate one design.",
   ];
+}
+
+export function referenceImageContextDirectives(
+  referenceImageCount: number,
+): string[] {
+  if (referenceImageCount < 1) return [];
+  return [
+    `The user attached ${referenceImageCount} visual reference image(s) to this message. Inspect the image pixels before acting; a filename, path, or text description is not a substitute. If an image is unavailable in this turn, stop and ask the user to attach it again instead of guessing.`,
+    "For a UI screenshot, use its visible regions, navigation, hierarchy, density, component grammar, spacing, and proportions as the reference. Apply the user's requested changes while preserving other visible structure.",
+  ];
+}
+
+export function builderDesignEmbedSubmitData(
+  message: string,
+  images: readonly string[],
+) {
+  const context = referenceImageContextDirectives(images.length).join("\n");
+  return {
+    message,
+    submit: true as const,
+    ...(images.length
+      ? {
+          images: [...images],
+          content: agentChatContentFromImages(message, images),
+        }
+      : {}),
+    ...(context ? { context } : {}),
+  };
 }
 
 export function structuralReferenceDirectives(label: string): string[] {
@@ -226,7 +259,11 @@ export function designGenerationDirectives(
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...designSystemGenerationDirectives(designSystemId),
     ...referenceImageDirectives(referenceImageCount),
-    'If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
+    ...(referenceImageCount > 0
+      ? []
+      : [
+          'If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
+        ]),
     'Responsive behavior is mandatory for every web design: use a mobile-first layout, include a viewport meta tag, stack or collapse desktop columns at narrow widths, and never rely on a fixed-width desktop shell. Default to a desktop primary artboard. For a Desktop or Both/responsive intake answer, pass `primaryViewport: "desktop"` and `canvasFrames` with width 1440 and height 1024; pass `primaryViewport: "mobile"` only when the user explicitly chooses a mobile-primary artboard.',
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
     "After generate-design succeeds, run `take-design-screenshot` at desktop and mobile viewports. Fix any horizontal overflow or layout breakage with edit-design before summarizing what was created.",
@@ -238,11 +275,13 @@ export function designTemplateRefinementDirectives(
   designId: string,
   templateId: string,
   designSystemId?: string | null,
+  referenceImageCount = 0,
 ): string[] {
   return [
     `This design was copied from template "${templateId}". Its files, canvas dimensions, defaults, and locked layers already exist.`,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...designSystemTemplateEditDirectives(designSystemId),
+    ...referenceImageContextDirectives(referenceImageCount),
     `Call \`get-design-snapshot --designId="${designId}"\` exactly once before editing.`,
     `The copied screens are edited in place, so they stop showing the template once this run saves. \`view-screen\` reports the template's authoritative dimensions and fonts as \`design.createdFromTemplate\` on every turn — keep them unchanged. Call \`get-design-template --designId="${designId}"\` when you need the template's original markup or locked layers.`,
     "Refine the existing template with `edit-design`; do not call `generate-design`, `delete-file`, or create a replacement screen.",

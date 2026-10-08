@@ -2,13 +2,13 @@ import { fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
-  normalizeZoomMeetingId,
-  normalizeZoomMeetingTopic,
-} from "../server/lib/zoom.js";
-import {
   describeSourceConfigIssues,
   validateSourceConfig,
 } from "../shared/source-config-validation.js";
+import {
+  normalizeZoomMeetingId,
+  normalizeZoomMeetingTopic,
+} from "../shared/zoom-meeting-filter.js";
 
 const zoomSourceConfigSchema = z
   .object({
@@ -56,6 +56,34 @@ function assertValidZoomConfig(config: Record<string, unknown>) {
       details: { issues },
     },
   );
+}
+
+// Model gateways drop the keys of free-form object parameters, so agents send
+// source config as a JSON string instead.
+export const sourceConfigJsonSchema = z
+  .string()
+  .optional()
+  .describe(
+    'Provider configuration as a JSON object encoded in a string, for example "{\\"zoom\\":{\\"lookbackDays\\":7}}". Agents must use this instead of config.',
+  );
+
+export function mergeSourceConfigJson(
+  config: Record<string, unknown> | undefined,
+  configJson: string | undefined,
+): Record<string, unknown> | undefined {
+  if (configJson === undefined || !configJson.trim()) return config;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(configJson);
+  } catch {
+    parsed = undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    fail("configJson must be a JSON object encoded as a string.", {
+      errorCode: "invalid_source_config",
+    });
+  }
+  return { ...config, ...(parsed as Record<string, unknown>) };
 }
 
 export function assertValidSourceConfig(

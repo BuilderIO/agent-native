@@ -22,6 +22,7 @@ A few entry points:
 - `writing-agent-instructions` — read before editing instructions, skills, or
   tool/action descriptions.
 - `verifying-changes` — exercise the broken path before reporting a fix done.
+- `design-figma-parity` — read before making or reviewing Design parity claims.
 - `adding-tests-and-ci` — read before adding a test, CI job, or workflow
   trigger.
 - `reporting-progress` — read during long runs and before asking for status.
@@ -143,8 +144,8 @@ exist, and both are narrow on purpose.
 Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
-`no-bare-error-in-actions`, and `external-result-contract` check only lines
-this branch added, so the
+`no-bare-error-in-actions`, `external-result-contract`, and
+`no-source-reading-tests` check only lines this branch added, so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma, and every opt-out is a decision a reviewer should see.
 
