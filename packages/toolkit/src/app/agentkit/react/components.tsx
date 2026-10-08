@@ -5235,12 +5235,86 @@ export function AgentKitChat({
       />
     </AgentKitSurfaceBoundary>
   );
+  const renderRunTail = (runId: RunId) => {
+    const items: ReactNode[] = [];
+    if (pendingRuns.has(runId)) {
+      const boundary = lastAssistantMessagesByRun.get(runId);
+      items.push(
+        renderRunWork({
+          runId,
+          anchor: boundary?.id ?? "start",
+          afterSequence: boundary?.sequence,
+        }),
+      );
+    }
+    if (failedRuns.has(runId)) {
+      items.push(
+        <AgentKitSurfaceBoundary
+          key={`run-failure:${runId}`}
+          surface="activity"
+          resetKey={`${runId}:${thread.events.length}`}
+        >
+          {renderRunFailure(runId)}
+        </AgentKitSurfaceBoundary>,
+      );
+    }
+    return items;
+  };
+  // A run's work after its last reply, and its failure, belong to its turn: a
+  // finished run's tail goes before the first message written after it ended.
+  const runEndedAt = new Map<RunId, number>();
+  for (const event of thread.events) {
+    const occurredAt = Date.parse(event.occurredAt);
+    if (!Number.isFinite(occurredAt)) continue;
+    runEndedAt.set(
+      event.runId,
+      Math.max(runEndedAt.get(event.runId) ?? occurredAt, occurredAt),
+    );
+  }
+  const tailRunIds = Array.from(
+    new Set([
+      ...pendingRunIds,
+      ...Array.from(failedRuns.keys()).filter(
+        (runId) => !lastAssistantMessagesByRun.has(runId),
+      ),
+    ]),
+  );
+  const tailsBeforeMessage = new Map<number, RunId[]>();
+  const tailsAtEnd: RunId[] = [];
+  for (const runId of tailRunIds) {
+    const status = thread.runs[runId]?.status;
+    const endedAt = runEndedAt.get(runId);
+    const lastOwnMessage = thread.messages.findLastIndex(
+      (message) => messageRunIds.get(message.id) === runId,
+    );
+    const before =
+      endedAt !== undefined &&
+      (status === "completed" || status === "failed" || status === "cancelled")
+        ? thread.messages.findIndex(
+            (message, index) =>
+              index > lastOwnMessage &&
+              messageRunIds.get(message.id) !== runId &&
+              Date.parse(message.createdAt ?? "") > endedAt,
+          )
+        : -1;
+    if (before === -1) {
+      tailsAtEnd.push(runId);
+    } else {
+      tailsBeforeMessage.set(before, [
+        ...(tailsBeforeMessage.get(before) ?? []),
+        runId,
+      ]);
+    }
+  }
   const transcriptItems: ReactNode[] = [];
   const previousAssistantByRun = new Map<
     RunId,
     { id: string; sequence: number }
   >();
-  for (const message of thread.messages) {
+  for (const [messageIndex, message] of thread.messages.entries()) {
+    for (const runId of tailsBeforeMessage.get(messageIndex) ?? []) {
+      transcriptItems.push(...renderRunTail(runId));
+    }
     const runId = messageRunIds.get(message.id);
     const sequence = messageBoundarySequences.get(message.id);
     const isAssistantBoundary =
@@ -5339,40 +5413,8 @@ export function AgentKitChat({
       );
     }
   }
-  for (const runId of pendingRunIds) {
-    const boundary = lastAssistantMessagesByRun.get(runId);
-    transcriptItems.push(
-      renderRunWork({
-        runId,
-        anchor: boundary?.id ?? "start",
-        afterSequence: boundary?.sequence,
-      }),
-    );
-    if (failedRuns.has(runId)) {
-      transcriptItems.push(
-        <AgentKitSurfaceBoundary
-          key={`run-failure:${runId}`}
-          surface="activity"
-          resetKey={`${runId}:${thread.events.length}`}
-        >
-          {renderRunFailure(runId)}
-        </AgentKitSurfaceBoundary>,
-      );
-    }
-  }
-  for (const [runId] of failedRuns) {
-    if (lastAssistantMessagesByRun.has(runId) || pendingRuns.has(runId)) {
-      continue;
-    }
-    transcriptItems.push(
-      <AgentKitSurfaceBoundary
-        key={`run-failure:${runId}`}
-        surface="activity"
-        resetKey={`${runId}:${thread.events.length}`}
-      >
-        {renderRunFailure(runId)}
-      </AgentKitSurfaceBoundary>,
-    );
+  for (const runId of tailsAtEnd) {
+    transcriptItems.push(...renderRunTail(runId));
   }
   return (
     <AgentMessageEditContext.Provider value={messageEditContext}>

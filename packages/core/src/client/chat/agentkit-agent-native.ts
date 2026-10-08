@@ -75,6 +75,7 @@ interface ActiveRunStatus {
   runId?: unknown;
   awaitingRedispatch?: unknown;
   terminalReason?: unknown;
+  turnId?: unknown;
 }
 
 interface SnapshotAnnotationConflict {
@@ -512,6 +513,35 @@ function durableRunFailures(messages: AgentMessage[]): Map<string, AgentError> {
   );
 }
 
+/** The turn each durable prompt started, keyed by the run it was submitted to. */
+function durableSubmittedTurns(messages: AgentMessage[]): Map<string, string> {
+  return new Map(
+    messages.flatMap((message) => {
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "user" &&
+        typeof custom?.submittedRunId === "string" &&
+        typeof custom.submittedTurnId === "string"
+        ? [[custom.submittedRunId, custom.submittedTurnId] as const]
+        : [];
+    }),
+  );
+}
+
+/** The runs that left a durable reply on each turn. */
+function durableReplyRunsByTurn(
+  messages: AgentMessage[],
+): Map<string, Set<string>> {
+  const result = new Map<string, Set<string>>();
+  for (const message of messages) {
+    const turnId = asRecord(asRecord(message.metadata)?.custom)?.turnId;
+    if (message.role !== "assistant" || typeof turnId !== "string") continue;
+    const runIds = result.get(turnId) ?? new Set<string>();
+    for (const runId of durableRunIds(message)) runIds.add(runId);
+    result.set(turnId, runIds);
+  }
+  return result;
+}
+
 /** A durable reply's terminal run plus every continuation run folded into it. */
 function durableRunIds(message: AgentMessage): string[] {
   const metadata = asRecord(message.metadata);
@@ -771,6 +801,46 @@ function reconcileDurableMessages(
       );
     }
   }
+  const textOf = (parts: AgentMessage["parts"]) =>
+    parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+  // A run that recovered an interrupted turn records only itself on its reply,
+  // while an open page streamed it into the run the prompt was submitted to.
+  // The recovering run's events open their own message, so the reply is on
+  // screen only when one of that run's messages is exactly it; anything less
+  // keeps the saved reply, so the answer is never dropped.
+  const submittedRunByTurn = new Map<string, string | null>();
+  for (const stored of submittedUsers) {
+    const turnId = asRecord(asRecord(stored.metadata)?.custom)?.submittedTurnId;
+    if (typeof turnId !== "string") continue;
+    submittedRunByTurn.set(
+      turnId,
+      submittedRunByTurn.has(turnId) ? null : submittedRunId(stored)!,
+    );
+  }
+  const shownByInterruptedRun = (reply: AgentMessage) => {
+    const turnId = asRecord(asRecord(reply.metadata)?.custom)?.turnId;
+    const submitted =
+      typeof turnId === "string" ? submittedRunByTurn.get(turnId) : undefined;
+    if (
+      !submitted ||
+      durableRunIds(reply).includes(submitted) ||
+      durableByRun.has(submitted)
+    ) {
+      return false;
+    }
+    const ids = assistantIdsByRun.get(submitted);
+    const replyText = textOf(reply.parts);
+    if (!ids || !replyText) return false;
+    return messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        ids.has(message.id) &&
+        textOf(message.parts) === replyText,
+    );
+  };
 
   const rootAssistantProjection = projectRootAssistantMessages({
     rootMessages: durable,
@@ -923,6 +993,7 @@ function reconcileDurableMessages(
     if (typeof runId !== "string" || !recoverableAssistantRunIds.has(runId)) {
       continue;
     }
+    if (shownByInterruptedRun(message)) continue;
     missingMessages.push(message);
     representedAssistantIds.add(message.id);
   }
@@ -953,11 +1024,6 @@ function reconcileDurableMessages(
       (typeof metadataRunId === "string" ? metadataRunId : undefined)
     );
   };
-  const textOf = (parts: AgentMessage["parts"]) =>
-    parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
 
   const reconciledMessages = projectedMessages.map((message) => {
     if (message.role === "user") {
@@ -2123,8 +2189,8 @@ export function createAgentNativeAgentKitTransport(
 
   async function activeRunSnapshot(
     threadId: string,
+    value: ActiveRunStatus,
   ): Promise<AgentRunSnapshot | null | undefined> {
-    const value = await activeRunStatus(threadId);
     const status = value.status;
     if (typeof value.active !== "boolean") return undefined;
     // An idle thread has no run; a run that just finished keeps its id and
@@ -2262,7 +2328,8 @@ export function createAgentNativeAgentKitTransport(
     const completedRunIds = completedDurableRunIds(durableMessages);
     const userStoppedRunIds = userStoppedDurableRunIds(durableMessages);
     const durableFailures = durableRunFailures(durableMessages);
-    const activeRun = await activeRunSnapshot(threadId);
+    const activeStatus = await activeRunStatus(threadId);
+    const activeRun = await activeRunSnapshot(threadId, activeStatus);
     if (activeRun === undefined) return thread;
     let discoveredRun = activeRun;
     if (discoveredRun?.status === "failed") {
@@ -2279,9 +2346,33 @@ export function createAgentNativeAgentKitTransport(
       !["completed", "failed", "cancelled"].includes(discoveredRun.status)
         ? discoveredRun.id
         : undefined;
+    const submittedTurns = durableSubmittedTurns(durableMessages);
+    const replyRunsByTurn = durableReplyRunsByTurn(durableMessages);
+    const discoveredTurnId =
+      typeof activeStatus.turnId === "string" ? activeStatus.turnId : undefined;
+    // The stale-run reaper hands an interrupted turn to a successor run, which
+    // then owns the turn's outcome: the server reports it, or it completed a
+    // reply. A successor that failed or was stopped leaves the failure showing.
+    const carriedOnByNewerRun = (runId: string) => {
+      const turnId = submittedTurns.get(runId);
+      if (!turnId) return false;
+      if (discoveredRun && discoveredTurnId === turnId) return true;
+      return [...(replyRunsByTurn.get(turnId) ?? [])].some(
+        (id) => id !== runId && completedRunIds.has(id),
+      );
+    };
     const runs = (thread.runs ?? [])
       .filter((entry) => entry.id !== discoveredRun?.id)
       .map((run) => {
+        if (
+          (["queued", "running"].includes(run.status) ||
+            (run.status === "failed" &&
+              runOutcomeForCode(run.error?.code) === "interrupted")) &&
+          carriedOnByNewerRun(run.id)
+        ) {
+          const { error: _error, ...attempt } = run;
+          return { ...attempt, status: "completed" as const };
+        }
         if (
           activeRun === null &&
           run.status === "running" &&
