@@ -88,6 +88,25 @@ async function waitForReloadedElement(
   ).toBeVisible({ timeout: 30_000 });
   const element = designFrame(page, fileId).locator(selector);
   await expect(element).toBeAttached({ timeout: 30_000 });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ screenId, targetSelector }) => {
+          const iframe = Array.from(
+            document.querySelectorAll<HTMLIFrameElement>(
+              "iframe[data-design-preview-iframe]",
+            ),
+          ).find((candidate) => candidate.dataset.screenIframeId === screenId);
+          const previewDocument = iframe?.contentDocument;
+          return Boolean(
+            previewDocument?.readyState === "complete" &&
+            previewDocument.querySelector(targetSelector),
+          );
+        },
+        { screenId: fileId, targetSelector: selector },
+      ),
+    )
+    .toBe(true);
   return element;
 }
 
@@ -262,7 +281,6 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
     await expect(reloadedTarget).toHaveCSS(
       "border-top-left-radius",
       `${committedRadius}px`,
-      { timeout: 30_000 },
     );
 
     await setOverviewZoom(page, 200);
@@ -386,13 +404,11 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
       "#filled-polygon",
     );
     await expect
-      .poll(
-        () =>
-          reloadedPolygon.evaluate((element) => ({
-            radius: element.getAttribute("data-an-corner-radius"),
-            d: element.querySelector(":scope > path")?.getAttribute("d"),
-          })),
-        { timeout: 30_000 },
+      .poll(() =>
+        reloadedPolygon.evaluate((element) => ({
+          radius: element.getAttribute("data-an-corner-radius"),
+          d: element.querySelector(":scope > path")?.getAttribute("d"),
+        })),
       )
       .toEqual(savedPolygon);
 
@@ -498,7 +514,6 @@ test("asymmetric normalized radius handle follows a normal drag without jumping"
     await expect(reloadedTarget).toHaveCSS(
       "border-top-left-radius",
       "149px 99px",
-      { timeout: 30_000 },
     );
   } finally {
     await action(request, "delete-design", { id: designId });
