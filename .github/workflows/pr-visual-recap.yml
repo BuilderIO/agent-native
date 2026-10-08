@@ -1144,6 +1144,8 @@ jobs:
           CHECK_RUN_ID: ${{ steps.recap_check.outputs.check_run_id }}
           PLAN_OK: ${{ steps.url.outputs.ok }}
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
+          SHOT_OK: ${{ steps.shot.outputs.shot_ok }}
+          SHOT_REASON: ${{ steps.shot.outputs.shot_reason }}
           SUPPRESSED: ${{ steps.scan.outputs.suppressed }}
           SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
@@ -1156,6 +1158,8 @@ jobs:
             --check-run-id "$CHECK_RUN_ID" \
             --plan-ok "$PLAN_OK" \
             --plan-url "$PLAN_URL" \
+            --shot-ok "$SHOT_OK" \
+            --shot-reason "$SHOT_REASON" \
             --suppressed "$SUPPRESSED" \
             --suppressed-json "$SUPPRESSED_JSON" \
             --huge "$DIFF_HUGE" \

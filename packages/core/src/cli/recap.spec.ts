@@ -3037,6 +3037,23 @@ describe("recap check — outcome mapper", () => {
     expect(out.text).toBe(`**[Open visual recap](${app}/recaps/abc123)**`);
   });
 
+  it("fails the informational recap check when screenshot capture fails", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: true,
+      planUrl: `${app}/recaps/abc123`,
+      screenshotOk: false,
+      shotReason: "get-visual-plan returned HTTP 403",
+    });
+    expect(out.conclusion).toBe("failure");
+    expect(out.title).toBe("Visual recap screenshot failed");
+    expect(out.summary).toContain("does not block the PR");
+    expect(out.detailsUrl).toBe(`${app}/recaps/abc123`);
+    expect(out.text).toContain(
+      "Screenshot failed: get-visual-plan returned HTTP 403",
+    );
+  });
+
   it("success: a huge diff gets the summarized summary", () => {
     const out = recapCheckOutcome({
       ...base,
@@ -3142,6 +3159,13 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("checks: write");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check start");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check complete");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "SHOT_OK: ${{ steps.shot.outputs.shot_ok }}",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--shot-ok "$SHOT_OK"');
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      '--shot-reason "$SHOT_REASON"',
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "Fetch plan block reference",
     );
@@ -3914,6 +3938,9 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("--image-cache-key");
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
+    expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
+    expect(content).toContain('--shot-ok "$SHOT_OK"');
+    expect(content).toContain('--shot-reason "$SHOT_REASON"');
     expect(content).toContain("[recap shot] ${label}");
     expect(content).toContain("const hasAllImages = shots.every");
     expect(content).toContain(
@@ -4235,6 +4262,9 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     expect(content).toContain("--image-cache-key");
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
+    expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
+    expect(content).toContain('--shot-ok "$SHOT_OK"');
+    expect(content).toContain('--shot-reason "$SHOT_REASON"');
     expect(content).toContain("[recap shot] ${label}");
     expect(content).toContain("const hasAllImages = shots.every");
     expect(content).toContain(
