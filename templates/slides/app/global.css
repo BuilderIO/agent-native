@@ -1147,6 +1147,11 @@ button[title="Open agent sidebar"] {
 [data-slide-count] [data-slide-total="pad"]::before {
   content: counter(slide-total, decimal-leading-zero);
 }
+/* Editor only: a token is one unit under Delete/Backspace. Left editable,
+   Delete before it also removes the character after it. */
+[data-slide-count] :is([data-slide-number], [data-slide-total]) {
+  -webkit-user-modify: read-only;
+}
 
 .slide-content[data-slide-content-scope]
   code[data-slide-authoring-format="code"] {

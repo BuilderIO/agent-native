@@ -85,6 +85,14 @@ function measuredTextRects(element: HTMLElement): DOMRect[] {
       if (rect.width > 0 || rect.height > 0) rects.push(rect);
     }
   }
+  // Slide-number digits are `::before` content, so the walk above never sees them.
+  for (const token of element.querySelectorAll(
+    "[data-slide-number],[data-slide-total]",
+  )) {
+    for (const rect of Array.from(token.getClientRects())) {
+      if (rect.width > 0 || rect.height > 0) rects.push(rect);
+    }
+  }
   return rects;
 }
 

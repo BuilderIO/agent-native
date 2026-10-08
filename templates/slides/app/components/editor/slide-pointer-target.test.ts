@@ -801,3 +801,25 @@ describe("clampRangeToTextRoot", () => {
     expect(original.endOffset).toBe(2);
   });
 });
+
+describe("resolveSlidePointerTarget on slide-number digits", () => {
+  it("counts the digits drawn by a token as text, not as the footer's body", () => {
+    const root = document.createElement("div");
+    root.className = "slide-content";
+    root.innerHTML = `<div class="fmd-slide"><p id="footer">Page <span id="n" data-slide-number></span></p></div>`;
+    document.body.append(root);
+    const token = root.querySelector<HTMLElement>("#n")!;
+    const footer = root.querySelector<HTMLElement>("#footer")!;
+    token.getClientRects = () =>
+      [
+        { left: 100, top: 10, right: 112, bottom: 30, width: 12, height: 20 },
+      ] as unknown as DOMRectList;
+    const target = resolveSlidePointerTarget({
+      root,
+      point: { x: 106, y: 20 },
+      stack: [token, footer, root],
+    });
+    expect(target.hit).toBe("text");
+    expect(target.textRoot).toBe(footer);
+  });
+});
