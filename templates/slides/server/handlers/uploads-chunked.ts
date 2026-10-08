@@ -327,11 +327,6 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
       }
 
       const previousHandle = session.chunks[chunkKey];
-      if (previousHandle && !(await deleteChunk(previousHandle))) {
-        setResponseStatus(event, 503);
-        return { error: "Could not replace the previously uploaded chunk" };
-      }
-
       const handle = await putPrivateBlob({
         data: bytes,
         filename: `${sessionId}-${index}`,
@@ -378,6 +373,21 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         return { error: "Upload session changed while saving the chunk" };
       }
       session = nextSession;
+
+      if (previousHandle) {
+        try {
+          if (!(await deleteChunk(previousHandle))) {
+            console.warn("[slides-upload] replaced chunk cleanup incomplete", {
+              sessionId,
+            });
+          }
+        } catch (error) {
+          console.warn("[slides-upload] replaced chunk cleanup failed", {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
 
       if (!isFinal) return { ok: true };
 

@@ -259,7 +259,7 @@ describe("chunked reference uploads", () => {
     expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 503);
   });
 
-  it("deletes an existing chunk before replacing its handle", async () => {
+  it("deletes a replaced chunk after updating the session", async () => {
     const oldHandle = {
       id: "old",
       provider: "public-upload:builder",
@@ -282,6 +282,32 @@ describe("chunked reference uploads", () => {
         chunks: { "0": expect.objectContaining({ id: "blob-1" }) },
       }),
     );
+    expect(mocks.compareAndSetSession.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.deleteBlob.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("preserves the prior chunk when the replacement loses its session CAS", async () => {
+    const oldHandle = {
+      id: "old",
+      provider: "public-upload:builder",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.compareAndSetSession.mockResolvedValueOnce(false);
+    mocks.getSession.mockResolvedValueOnce(
+      session({ chunks: { "0": oldHandle }, chunkSizes: { "0": 4 } }),
+    );
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+      error: "Upload session changed while saving the chunk",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mocks.deleteBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "blob-1" }),
+    );
+    expect(mocks.deleteBlob).not.toHaveBeenCalledWith(oldHandle);
   });
 
   it("returns committed success when temporary cleanup fails", async () => {
