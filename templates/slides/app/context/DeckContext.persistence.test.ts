@@ -6164,6 +6164,56 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck("shared-deck")?.slides).toEqual([]);
   });
 
+  it("undoes quick content writes one step at a time only when they ask for separate steps", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide">0</div>',
+          notes: "",
+          layout: "title",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    const contentOf = () =>
+      result.current.getDeck("shared-deck")?.slides[0]?.content;
+    const write = (n: number, separateUndo: boolean) =>
+      act(() => {
+        result.current.updateSlide(
+          "shared-deck",
+          "slide-1",
+          { content: `<div class="fmd-slide">${n}</div>` },
+          { separateUndo },
+        );
+      });
+
+    write(1, true);
+    write(2, true);
+    write(3, true);
+    await act(async () => result.current.undo("shared-deck"));
+    expect(contentOf()).toContain(">2<");
+    await act(async () => result.current.undo("shared-deck"));
+    expect(contentOf()).toContain(">1<");
+    await act(async () => result.current.undo("shared-deck"));
+    expect(contentOf()).toContain(">0<");
+
+    write(1, false);
+    write(2, false);
+    await act(async () => result.current.undo("shared-deck"));
+    expect(contentOf()).toContain(">0<");
+  });
+
   it("keeps undo and redo available through keyboard shortcuts", async () => {
     window.history.pushState({}, "", "/deck/shared-deck");
     const { setAccessibleDeck } = setupFetch();

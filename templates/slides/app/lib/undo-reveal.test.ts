@@ -91,6 +91,56 @@ describe("diffUndoRevealTargets", () => {
     );
   });
 
+  it("selects the child, not its wrapper, when a nested object is deleted or inserted", () => {
+    const wrap = (...children: string[]) =>
+      `<div data-slide-object-id="w">${children.join("")}</div>`;
+    const p = (id: string, text: string) =>
+      `<p data-slide-object-id="${id}">${text}</p>`;
+    const one = slide(wrap(p("a", "A")));
+    const two = slide(wrap(p("a", "A"), p("b", "B")));
+    expect(diffUndoRevealTargets(one, two, "undo")).toEqual([
+      { objectId: "b", path: [0, 1] },
+    ]);
+    expect(diffUndoRevealTargets(one, two, "redo")).toEqual([
+      { objectId: "b", path: [0, 1] },
+    ]);
+    expect(diffUndoRevealTargets(two, one, "redo")).toEqual([]);
+    const bare = (...children: string[]) =>
+      slide(`<div>${children.join("")}</div>`);
+    expect(
+      diffUndoRevealTargets(
+        bare("<p>A</p>"),
+        bare("<p>A</p>", "<p>B</p>"),
+        "undo",
+      ),
+    ).toEqual([{ objectId: null, path: [0, 1] }]);
+  });
+
+  it("does not take a look-alike image or empty shape for the source of an undone insert", () => {
+    const img = (id: string) =>
+      `<img data-slide-object-id="${id}" class="fmd-img" src="/a.png" style="left: 10px">`;
+    const rect = (id: string) =>
+      `<div data-slide-object-id="${id}" class="rect" style="left: 10px"></div>`;
+    const other = `<img data-slide-object-id="o" class="fmd-img" src="/b.png" style="left: 90px">`;
+    expect(
+      diffUndoRevealTargets(
+        slide(img("i1"), other, img("i2")),
+        slide(img("i1"), other),
+        "undo",
+      ),
+    ).toEqual([{ objectId: "i1", path: [0] }]);
+    expect(
+      diffUndoRevealTargets(slide(other, img("i2")), slide(other), "undo"),
+    ).toEqual([]);
+    expect(
+      diffUndoRevealTargets(
+        slide(rect("r1"), rect("r2")),
+        slide(rect("r1")),
+        "undo",
+      ),
+    ).toEqual([]);
+  });
+
   it("ignores layout spacers and slide-level edits", () => {
     const spacer =
       '<div class="fmd-layout-spacer" data-slide-layout-spacer-for="a"></div>';

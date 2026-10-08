@@ -2480,6 +2480,7 @@ export default function DeckEditor() {
   const [undoSelection, setUndoSelection] =
     useState<UndoSelectionRequest | null>(null);
   const undoSelectionSequenceRef = useRef(0);
+  const clearUndoSelection = useCallback(() => setUndoSelection(null), []);
   const handleSlideSelectionRef = useRef(handleSlideSelection);
   handleSlideSelectionRef.current = handleSlideSelection;
   useEffect(
@@ -4421,6 +4422,7 @@ export default function DeckEditor() {
             deckSlides={widgetEmbed ? deck.slides : undefined}
             onSelectFollowingSlide={handleSlideSelection}
             undoSelection={undoSelection}
+            onUndoSelectionConsumed={clearUndoSelection}
             deckId={id}
             onFlushInlineEdit={() => {
               flushPendingSaves();

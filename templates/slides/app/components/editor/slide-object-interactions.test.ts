@@ -4007,6 +4007,68 @@ describe("object interaction geometry hardening", () => {
     expect(offRow.guides.some((guide) => guide.equalSpacing)).toBe(false);
   });
 
+  it("takes row membership from the dragged position, not the drag start", () => {
+    const peers = [
+      { x: 0, y: 0, width: 100, height: 100 },
+      { x: 200, y: 0, width: 100, height: 100 },
+    ];
+    // Started below the row, dragged up into it: the gaps of 100 apply.
+    const into = snapSlideObjectMove({
+      moving: { x: 500, y: 500, width: 100, height: 100 },
+      deltaX: -98.5,
+      deltaY: -500,
+      peers,
+      scale: 1,
+    });
+    expect(into.deltaX).toBe(-100);
+    expect(into.guides.filter((guide) => guide.equalSpacing)).toHaveLength(2);
+
+    // Started in the row, dragged out of it: nothing to space against.
+    const out = snapSlideObjectMove({
+      moving: { x: 500, y: 0, width: 100, height: 100 },
+      deltaX: -98.5,
+      deltaY: 400,
+      peers,
+      scale: 1,
+    });
+    expect(out.deltaX).toBe(-98.5);
+    expect(out.guides.some((guide) => guide.equalSpacing)).toBe(false);
+  });
+
+  it("measures gaps between neighbours only, never across an object in between", () => {
+    const result = snapSlideObjectMove({
+      moving: { x: 500, y: 0, width: 100, height: 100 },
+      deltaX: 101.5,
+      deltaY: 0,
+      peers: [
+        { x: 0, y: 0, width: 100, height: 100 },
+        { x: 150, y: 0, width: 100, height: 100 },
+        { x: 300, y: 0, width: 100, height: 100 },
+      ],
+      scale: 1,
+    });
+    // (A, C) would give 600 over a gap of 200 spanning B; (B, C) gives 450.
+    expect(result.deltaX).toBe(101.5);
+    expect(result.guides.some((guide) => guide.equalSpacing)).toBe(false);
+  });
+
+  it("keeps the spacing guide on the slide for a row at the bottom edge", () => {
+    const result = snapSlideObjectMove({
+      moving: { x: 450, y: 440, width: 100, height: 60 },
+      deltaX: 51,
+      deltaY: 0,
+      peers: [
+        { x: 100, y: 440, width: 100, height: 60 },
+        { x: 300, y: 440, width: 100, height: 60 },
+      ],
+      canvas: { width: 960, height: 505 },
+      scale: 1,
+    });
+    const guides = result.guides.filter((guide) => guide.equalSpacing);
+    expect(guides).toHaveLength(2);
+    for (const guide of guides) expect(guide.position).toBe(504);
+  });
+
   it("does not snap to equal spacing when Cmd/Ctrl bypasses snapping (gs-truth 9.6)", () => {
     const result = snapSlideObjectMove({
       moving: { x: 450, y: 115, width: 100, height: 40 },

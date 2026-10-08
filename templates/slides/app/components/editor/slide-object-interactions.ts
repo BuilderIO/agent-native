@@ -3147,25 +3147,29 @@ interface EqualSpacingSnap {
 /**
  * Snap `moving` so the gaps between it and its row/column neighbours match:
  * either it ends a chain whose last gap equals the one before it, or it sits
- * centred between two objects. Only objects sharing the moving object's row
- * (cross-axis overlap) take part.
+ * centred between two neighbours. Only objects sharing the moving object's row
+ * (cross-axis overlap at its dragged position) take part, and a chain only
+ * grows past the row's first or last object.
  */
 function nearestEqualSpacingSnap(
   moving: SnapSpan,
   proposedDelta: number,
+  crossDelta: number,
   peers: readonly SnapSpan[],
   tolerance: number,
 ): EqualSpacingSnap | null {
   const size = moving.end - moving.start;
   const start = moving.start + proposedDelta;
-  const row = peers.filter((peer) =>
-    spansOverlap(
-      peer.crossStart,
-      peer.crossEnd,
-      moving.crossStart,
-      moving.crossEnd,
-    ),
-  );
+  const row = peers
+    .filter((peer) =>
+      spansOverlap(
+        peer.crossStart,
+        peer.crossEnd,
+        moving.crossStart + crossDelta,
+        moving.crossEnd + crossDelta,
+      ),
+    )
+    .sort((a, b) => a.start - b.start);
   let best: EqualSpacingSnap | null = null;
   const consider = (
     target: number,
@@ -3182,22 +3186,23 @@ function nearestEqualSpacingSnap(
     };
   };
 
-  for (const first of row) {
-    for (const second of row) {
-      const gap = second.start - first.end;
-      if (
-        first === second ||
-        gap < MIN_EQUAL_SPACING_GAP ||
-        !spansOverlap(
-          first.crossStart,
-          first.crossEnd,
-          second.crossStart,
-          second.crossEnd,
-        )
-      ) {
-        continue;
-      }
-      const pair = [first, second];
+  for (let index = 0; index < row.length - 1; index++) {
+    const first = row[index]!;
+    const second = row[index + 1]!;
+    const gap = second.start - first.end;
+    if (
+      gap < MIN_EQUAL_SPACING_GAP ||
+      !spansOverlap(
+        first.crossStart,
+        first.crossEnd,
+        second.crossStart,
+        second.crossEnd,
+      )
+    ) {
+      continue;
+    }
+    const pair = [first, second];
+    if (index + 1 === row.length - 1) {
       consider(
         second.end + gap,
         [
@@ -3206,6 +3211,8 @@ function nearestEqualSpacingSnap(
         ],
         pair,
       );
+    }
+    if (index === 0) {
       consider(
         first.start - gap - size,
         [
@@ -3214,17 +3221,17 @@ function nearestEqualSpacingSnap(
         ],
         pair,
       );
-      if (gap >= size + 2 * MIN_EQUAL_SPACING_GAP) {
-        const target = (first.end + second.start - size) / 2;
-        consider(
-          target,
-          [
-            [first.end, target],
-            [target + size, second.start],
-          ],
-          pair,
-        );
-      }
+    }
+    if (gap >= size + 2 * MIN_EQUAL_SPACING_GAP) {
+      const target = (first.end + second.start - size) / 2;
+      consider(
+        target,
+        [
+          [first.end, target],
+          [target + size, second.start],
+        ],
+        pair,
+      );
     }
   }
   return best;
@@ -3353,12 +3360,14 @@ export function snapSlideObjectMove({
   const xSpacing = nearestEqualSpacingSnap(
     snapSpan(moving, "x"),
     deltaX,
+    deltaY,
     peerSpans("x"),
     tolerance,
   );
   const ySpacing = nearestEqualSpacingSnap(
     snapSpan(moving, "y"),
     deltaY,
+    deltaX,
     peerSpans("y"),
     tolerance,
   );
@@ -3387,9 +3396,11 @@ export function snapSlideObjectMove({
   for (const gap of xGaps?.gaps ?? []) {
     guides.push({
       orientation: "horizontal",
-      position:
+      position: Math.min(
         Math.max(xGaps?.crossEnd ?? 0, moved.y + moved.height) +
-        EQUAL_SPACING_GUIDE_OFFSET,
+          EQUAL_SPACING_GUIDE_OFFSET,
+        (canvas?.height ?? Infinity) - 1,
+      ),
       start: gap[0],
       end: gap[1],
       equalSpacing: true,
@@ -3398,9 +3409,11 @@ export function snapSlideObjectMove({
   for (const gap of yGaps?.gaps ?? []) {
     guides.push({
       orientation: "vertical",
-      position:
+      position: Math.min(
         Math.max(yGaps?.crossEnd ?? 0, moved.x + moved.width) +
-        EQUAL_SPACING_GUIDE_OFFSET,
+          EQUAL_SPACING_GUIDE_OFFSET,
+        (canvas?.width ?? Infinity) - 1,
+      ),
       start: gap[0],
       end: gap[1],
       equalSpacing: true,

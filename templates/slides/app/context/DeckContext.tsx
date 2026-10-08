@@ -354,6 +354,8 @@ export interface UpdateSlideOptions {
   persistence?: "debounced" | "immediate";
   preserveLocalState?: boolean;
   recordUndoOnly?: boolean;
+  /** Never merge this write into the previous undo step (each key press is a step). */
+  separateUndo?: boolean;
   clearMissingImagePreviews?: boolean;
 }
 
@@ -4538,12 +4540,17 @@ export function DeckProvider({
             direction === "undo" ? entry.redo : entry.undo,
             startingDecks,
           );
-          const reveal = undoRevealForOps(
-            startingDecks.find((deck) => deck.id === deckId),
-            deckId,
-            applicableOps,
-            direction,
-          );
+          // Nothing consumes the reveal without a mounted editor, and a
+          // multi-slide step makes the diff expensive.
+          const reveal =
+            undoRevealListenersRef.current.size > 0
+              ? undoRevealForOps(
+                  startingDecks.find((deck) => deck.id === deckId),
+                  deckId,
+                  applicableOps,
+                  direction,
+                )
+              : null;
           setDecks((prev) => {
             let next = prev;
             for (const op of applicableOps) {
@@ -6238,9 +6245,9 @@ export function DeckProvider({
           );
           recordUndo(before, op, {
             label,
-            coalesceKey: `${deckId}:${slideId}:${Object.keys(updates)
-              .sort()
-              .join(",")}`,
+            coalesceKey: options.separateUndo
+              ? undefined
+              : `${deckId}:${slideId}:${Object.keys(updates).sort().join(",")}`,
           });
         }
         return storedContent;
@@ -6269,9 +6276,9 @@ export function DeckProvider({
       if (before && !options?.preserveLocalState) {
         recordUndo(before, op, {
           label,
-          coalesceKey: `${deckId}:${slideId}:${Object.keys(updates)
-            .sort()
-            .join(",")}`,
+          coalesceKey: options?.separateUndo
+            ? undefined
+            : `${deckId}:${slideId}:${Object.keys(updates).sort().join(",")}`,
         });
       }
       return storedContent;

@@ -54,12 +54,14 @@ function ownSignature(element: Element): string {
     .sort()
     .join(";");
   // Inline markup is part of the paragraph that owns it, so removing a bold
-  // span changes the paragraph; block children are compared on their own.
+  // span changes the paragraph. Block children are compared on their own and
+  // their count stays out of the signature: a parent whose child list changed
+  // would otherwise swallow the added or removed child as its descendant.
   const content = Array.from(element.childNodes)
     .map((node) => {
       if (node.nodeType === 3) return node.textContent;
       if (!(node instanceof Element)) return "";
-      return INLINE_TAGS.has(node.tagName) ? node.outerHTML : "<>";
+      return INLINE_TAGS.has(node.tagName) ? node.outerHTML : "";
     })
     .join("")
     .replace(/\s+/g, " ")
@@ -159,17 +161,39 @@ function outermost(elements: readonly Element[]): Element[] {
   );
 }
 
+const POSITION_PROPERTIES = ["left", "top", "z-index"];
+
+/** Markup minus what a paste or duplicate rewrites: ids and position. */
+function cloneFingerprint(element: Element): string {
+  const copy = element.cloneNode(true) as Element;
+  for (const node of [copy, ...copy.querySelectorAll("*")]) {
+    for (const name of IGNORED_ATTRIBUTES) node.removeAttribute(name);
+    if (node instanceof HTMLElement) {
+      for (const property of POSITION_PROPERTIES) {
+        node.style.removeProperty(property);
+      }
+    }
+  }
+  return copy.outerHTML.replace(/\s+/g, " ");
+}
+
 /** The surviving object an undone paste or duplicate was copied from. */
 function findCloneSource(
   { element: removed, anchor }: SlideDiff["removed"][number],
   after: Element,
 ): Element | null {
-  const text = removed.textContent?.replace(/\s+/g, " ").trim();
+  // An empty box or shape matches any look-alike, and undoing its creation
+  // selects nothing.
+  const hasContent =
+    Boolean(removed.textContent?.trim()) ||
+    removed.tagName === "IMG" ||
+    removed.querySelector("img, svg, video, canvas, iframe") !== null;
+  if (!hasContent) return null;
+  const fingerprint = cloneFingerprint(removed);
   const candidates = Array.from(after.querySelectorAll("*")).filter(
     (candidate) =>
       candidate.tagName === removed.tagName &&
-      candidate.className === removed.className &&
-      candidate.textContent?.replace(/\s+/g, " ").trim() === text,
+      cloneFingerprint(candidate) === fingerprint,
   );
   // A copy lands after its source: take the nearest match before the spot the
   // copy occupied, else the last match.

@@ -1109,6 +1109,8 @@ interface SlideEditorProps {
   onSelectFollowingSlide?: (slideId: string) => void;
   /** Objects the last Undo/Redo changed; selected once the slide shows them. */
   undoSelection?: UndoSelectionRequest | null;
+  /** The editor is done with `undoSelection` (applied or not applicable). */
+  onUndoSelectionConsumed?: () => void;
   /** Zero-based index of the current slide */
   slideIndex?: number;
   /** Design system to inject as CSS custom properties on the slide */
@@ -1685,6 +1687,7 @@ export default function SlideEditor({
   deckSlides,
   onSelectFollowingSlide,
   undoSelection,
+  onUndoSelectionConsumed,
   slideIndex = 0,
   designSystem,
   aspectRatio,
@@ -4029,10 +4032,16 @@ export default function SlideEditor({
   );
 
   const commitMultiObjectChange = useCallback(
-    (objectIds: string[], serializedContent?: string) => {
+    (
+      objectIds: string[],
+      serializedContent?: string,
+      options?: UpdateSlideOptions,
+    ) => {
       pendingMultiSelectionResyncRef.current = { objectIds, paths: [] };
       const html = serializedContent ?? readCurrentSlideContentHtml();
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, options);
+      }
     },
     [readCurrentSlideContentHtml],
   );
@@ -4069,18 +4078,21 @@ export default function SlideEditor({
   // selection because the DOM was replaced.
   const appliedUndoSelectionRef = useRef(0);
   useEffect(() => {
+    // A request for another slide waits for the slide switch; every other
+    // bail drops it so a later content change cannot apply stale paths.
+    if (!undoSelection || undoSelection.slideId !== slide.id) return;
+    const slideContent = getSlideContent();
     if (
-      !undoSelection ||
-      undoSelection.slideId !== slide.id ||
+      !slideContent ||
       undoSelection.sequence <= appliedUndoSelectionRef.current ||
       !undoSelection.targets ||
       editingElRef.current
     ) {
+      onUndoSelectionConsumed?.();
       return;
     }
-    const slideContent = getSlideContent();
-    if (!slideContent) return;
     appliedUndoSelectionRef.current = undoSelection.sequence;
+    onUndoSelectionConsumed?.();
     const root = slideContent.querySelector(".fmd-slide");
     const elements = undoSelection.targets
       .map(
@@ -4097,12 +4109,6 @@ export default function SlideEditor({
       element.hasAttribute("data-builder-id"),
     );
     if (selectable.length > 1) {
-      pendingMultiSelectionResyncRef.current = {
-        objectIds: selectable.map((element) =>
-          element.getAttribute("data-slide-object-id"),
-        ),
-        paths: [],
-      };
       applyMultiSelectionRef.current(
         new Set(
           selectable.map((element) => element.getAttribute("data-builder-id")!),
@@ -4126,6 +4132,7 @@ export default function SlideEditor({
     slide.content,
     slide.id,
     undoSelection,
+    onUndoSelectionConsumed,
   ]);
 
   // One Escape owner for the HTML editor. Radix dialogs/popovers and native
@@ -7765,6 +7772,7 @@ export default function SlideEditor({
         commitMultiObjectChange(
           members.map((member) => member.objectId),
           html,
+          { separateUndo: true },
         );
         return;
       }
@@ -7806,7 +7814,11 @@ export default function SlideEditor({
         removeSlideObjectLayoutSpacer(frozen.element);
         frozen.restoreMarkdownTree();
       }
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
+      }
       const selector = getBuilderSelector(frozen.element);
       if (selector) selectElementForStyling(frozen.element, selector);
     };
