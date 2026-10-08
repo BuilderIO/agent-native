@@ -9,11 +9,11 @@ import {
 import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
-import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import {
   agentEngineStatusUrlForChatApi,
   requireAgentEngineConfiguredForDispatch,
 } from "../agent-engine-readiness.js";
+import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {

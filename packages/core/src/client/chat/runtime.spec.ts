@@ -644,6 +644,8 @@ describe("createAgentNativeChatRuntime", () => {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
       },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
     try {
       const apiUrl = "/_agent-native/agent-chat";
@@ -665,9 +667,7 @@ describe("createAgentNativeChatRuntime", () => {
         new Headers(
           fetchMock.mock.calls.find(([input]) => String(input) === apiUrl)?.[1]
             ?.headers,
-        ).get(
-          "x-agent-native-session-id",
-        ),
+        ).get("x-agent-native-session-id"),
       ).toBe("browser-session-42");
     } finally {
       vi.unstubAllGlobals();
@@ -688,6 +688,8 @@ describe("createAgentNativeChatRuntime", () => {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
       },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
     try {
       const apiUrl = "https://chat.example.test/_agent-native/agent-chat";
@@ -2596,11 +2598,16 @@ describe("createAgentNativeChatRuntime", () => {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
       },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
     try {
       const fetchMock = vi.fn(
         async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = String(input);
+          if (url.includes("/_agent-native/agent-engine/status")) {
+            return Response.json({ configured: true, chatEligible: true });
+          }
           if (url === `${apiUrl}/stream-token`) {
             return Response.json({ token: "short-lived-token" });
           }
@@ -2627,12 +2634,17 @@ describe("createAgentNativeChatRuntime", () => {
       });
       await drain((await session.startTurn({ prompt: "Stream this" })).events);
 
-      expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
-        `${apiUrl}/stream-token`,
-        streamingUrl,
-      ]);
-      const tokenRequest = fetchMock.mock.calls[0]?.[1];
-      const streamRequest = fetchMock.mock.calls[1]?.[1];
+      expect(
+        fetchMock.mock.calls
+          .map(([input]) => String(input))
+          .filter((url) => !url.includes("/_agent-native/agent-engine/status")),
+      ).toEqual([`${apiUrl}/stream-token`, streamingUrl]);
+      const tokenRequest = fetchMock.mock.calls.find(
+        ([input]) => String(input) === `${apiUrl}/stream-token`,
+      )?.[1];
+      const streamRequest = fetchMock.mock.calls.find(
+        ([input]) => String(input) === streamingUrl,
+      )?.[1];
       expect(tokenRequest).toMatchObject({
         method: "GET",
         credentials: "same-origin",
