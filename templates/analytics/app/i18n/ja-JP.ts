@@ -1513,6 +1513,14 @@ export default {
     savingScreenshot: "スクリーンショットを保存中…",
     screenshotDownloaded: "スクリーンショットをダウンロードしました",
     screenshotSaveFailed: "スクリーンショットを保存できませんでした",
+    copyScreenshot: "Design にコピー",
+    copyingScreenshot: "スクリーンショットをコピー中…",
+    screenshotCopiedForDesign:
+      "スクリーンショットをコピーしました。Design に貼り付けてください。",
+    screenshotCopyFailed:
+      "スクリーンショットをコピーできませんでした。ダウンロードして PNG を Design にアップロードしてください。",
+    screenshotCopyUnsupportedAssets:
+      "スクリーンショットをコピーできませんでした。この時点には安全にキャプチャできないメディアや画像があります。リプレイの別の時点をお試しください。",
     screenshotUnsupportedAssets:
       "安全にキャプチャできない埋め込みメディアや画像があるため、スクリーンショットは保存されませんでした。",
     timeline: "イベントタイムライン",

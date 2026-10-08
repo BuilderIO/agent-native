@@ -271,6 +271,10 @@ export interface BuilderConnectFlow {
   connecting: boolean;
   error: string | null;
   errorKind: BuilderConnectErrorKind | null;
+  /** The most recent terminal Builder connection attempt error, if any. */
+  terminalError: string | null;
+  /** The most recent Builder connection-status read failed. */
+  statusUnavailable: boolean;
   accountExists: boolean;
   hasFetchedStatus: boolean;
   start: (options?: BuilderConnectStartOptions) => void;
@@ -849,15 +853,11 @@ export function useBuilderConnectFlow(
   const errorKind = errorState?.kind ?? null;
   const setError = useCallback(
     (message: string | null, kind: BuilderConnectErrorKind = "connection") => {
-      setErrorState(message ? { message, kind } : null);
+      setErrorState(message ? { kind, message } : null);
     },
     [],
   );
-  const clearStatusReadError = useCallback(() => {
-    setErrorState((current) =>
-      current?.kind === "status-read" ? null : current,
-    );
-  }, []);
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [accountExists, setAccountExists] = useState(false);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const [statusResolved, setStatusResolved] = useState(false);
@@ -884,6 +884,15 @@ export function useBuilderConnectFlow(
     controller: AbortController;
   } | null>(null);
   const retryStatusRef = useRef<() => boolean>(() => false);
+  const statusUnavailableRef = useRef(false);
+  const markStatusUnavailable = useCallback(() => {
+    statusUnavailableRef.current = true;
+    setStatusUnavailable(true);
+  }, []);
+  const markStatusAvailable = useCallback(() => {
+    statusUnavailableRef.current = false;
+    setStatusUnavailable(false);
+  }, []);
   const statusPollFailuresRef = useRef(0);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -1034,6 +1043,7 @@ export function useBuilderConnectFlow(
       setOrgName(null);
       setConnecting(false);
       setError(null);
+      markStatusAvailable();
       setAccountExists(false);
       setHasFetchedStatus(false);
       setStatusResolved(false);
@@ -1055,13 +1065,12 @@ export function useBuilderConnectFlow(
       setHasFetchedStatus(true);
       setStatusReadSettledCount((count) => count + 1);
       if (!s) {
-        setError(
-          t("agentChat.settingsShell.builder.grantsFailed"),
-          "status-read",
-        );
+        markStatusUnavailable();
         return;
       }
-      clearStatusReadError();
+      if (statusUnavailableRef.current) {
+        markStatusAvailable();
+      }
       setStatusResolved(true);
       setConfigured(!!s.configured);
       setCodeChangeConfigured(isCodeChangeConfigured(s));
@@ -1139,12 +1148,12 @@ export function useBuilderConnectFlow(
       window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
   }, [
-    clearStatusReadError,
     enabled,
     fetchStatus,
+    markStatusAvailable,
+    markStatusUnavailable,
     notifyProvisionedAccount,
     setError,
-    t,
   ]);
 
   const retry = useCallback(() => retryStatusRef.current(), []);
@@ -1274,24 +1283,24 @@ export function useBuilderConnectFlow(
             : { ok: false, code: "provision_token_invalid", message: null };
         // Provisioning and connect tokens expire; refresh both from one status read.
         const freshProvisioningCredentials = async () => {
+          // coercion-ok: no fresh token is sent as none and refused as provision_token_invalid
           const status = await fetchStatus();
-          if (!status) return { kind: "status-read-failed" as const };
-          if (!status.agentNativeProvisioningEnabled) {
-            return { kind: "unavailable" as const };
+          if (!status) {
+            markStatusUnavailable();
+            return null;
           }
-          const freshUrl = status.connectUrl ?? null;
+          markStatusAvailable();
+          if (!status?.agentNativeProvisioningEnabled) return null;
+          const freshUrl = status?.connectUrl ?? null;
           const freshConnectToken = freshUrl
             ? new URL(freshUrl, origin).searchParams.get(BUILDER_CONNECT_PARAM)
             : null;
           return status.agentNativeProvisioningToken && freshConnectToken
             ? {
-                kind: "ready" as const,
-                credentials: {
-                  provisioningToken: status.agentNativeProvisioningToken,
-                  connectToken: freshConnectToken,
-                },
+                provisioningToken: status.agentNativeProvisioningToken,
+                connectToken: freshConnectToken,
               }
-            : { kind: "unavailable" as const };
+            : null;
         };
         void (async () => {
           // The provisioning token outlives the signed connect URL by a
@@ -1305,25 +1314,17 @@ export function useBuilderConnectFlow(
                   connectToken,
                 }
               : null;
-          const credentialResult = cachedCredentials
-            ? { kind: "ready" as const, credentials: cachedCredentials }
-            : await freshProvisioningCredentials();
-          if (credentialResult.kind === "status-read-failed") {
+          const credentials =
+            cachedCredentials ?? (await freshProvisioningCredentials());
+          if (!credentials) {
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError(
-              t("agentChat.settingsShell.builder.grantsFailed"),
-              "status-read",
-            );
+            if (!statusUnavailableRef.current) {
+              setError(t("agentChat.settingsShell.builder.setupStartFailed"));
+            }
             return;
           }
-          if (credentialResult.kind === "unavailable") {
-            connectStartedAtRef.current = null;
-            setConnecting(false);
-            setError(t("agentChat.settingsShell.builder.setupStartFailed"));
-            return;
-          }
-          let result = await activate(credentialResult.credentials);
+          let result = await activate(credentials);
           let statusReadFailed = false;
           if (
             !result.ok &&
@@ -1333,23 +1334,14 @@ export function useBuilderConnectFlow(
             isCurrentAttempt()
           ) {
             const freshCredentials = await freshProvisioningCredentials();
-            if (freshCredentials.kind === "status-read-failed") {
-              statusReadFailed = true;
-              result = {
-                ok: false,
-                code: "provisioning_unavailable",
-                message: null,
-              };
-            } else {
-              result =
-                freshCredentials.kind === "ready"
-                  ? await activate(freshCredentials.credentials)
-                  : {
-                      ok: false,
-                      code: "provisioning_unavailable",
-                      message: null,
-                    };
-            }
+            statusReadFailed = statusUnavailableRef.current;
+            result = freshCredentials
+              ? await activate(freshCredentials)
+              : {
+                  ok: false,
+                  code: "provisioning_unavailable",
+                  message: null,
+                };
           }
           if (!isCurrentAttempt()) {
             notifyAgentEngineConfiguredChanged("builder-connect");
@@ -1365,9 +1357,13 @@ export function useBuilderConnectFlow(
             // attempt with a retryable error.
             const status = await fetchStatus();
             if (!isCurrentAttempt()) return;
-            if (!status) {
+            if (status) markStatusAvailable();
+            else {
+              markStatusUnavailable();
               statusReadFailed = true;
-            } else if (
+            }
+            if (
+              status &&
               isBuilderConnectComplete(status, connectTargetRef.current)
             ) {
               await confirmConnectSuccessRef.current(connectAttemptId);
@@ -1389,13 +1385,7 @@ export function useBuilderConnectFlow(
               flow: trackedFlow,
             });
           }
-          if (statusReadFailed) {
-            setError(
-              t("agentChat.settingsShell.builder.grantsFailed"),
-              "status-read",
-            );
-            return;
-          }
+          if (statusReadFailed) return;
           setError(
             result.message && result.code !== "provision_token_invalid"
               ? result.message
@@ -1449,14 +1439,12 @@ export function useBuilderConnectFlow(
             cancelledConnectAttemptIdRef.current !== connectAttemptId;
           if (!isCurrentAttempt()) return;
           if (!status) {
+            markStatusUnavailable();
             connectStartedAtRef.current = null;
             setConnecting(false);
-            setError(
-              t("agentChat.settingsShell.builder.grantsFailed"),
-              "status-read",
-            );
             return;
           }
+          markStatusAvailable();
           setHasFetchedStatus(true);
           setStatusResolved(true);
           setConfigured(!!status.configured);
@@ -1506,7 +1494,7 @@ export function useBuilderConnectFlow(
             setConnecting(false);
             setError(
               result?.error ??
-                t("agentChat.settingsShell.builder.grantsFailed"),
+                t("agentChat.settingsShell.builder.setupStartFailed"),
               "launch",
             );
           }
@@ -1540,6 +1528,8 @@ export function useBuilderConnectFlow(
             ) {
               return;
             }
+            if (s) markStatusAvailable();
+            else markStatusUnavailable();
             if (s) {
               setHasFetchedStatus(true);
               setStatusResolved(true);
@@ -1606,6 +1596,8 @@ export function useBuilderConnectFlow(
               }
               return;
             }
+            if (s) markStatusAvailable();
+            else markStatusUnavailable();
             if (s) {
               setHasFetchedStatus(true);
               setStatusResolved(true);
@@ -1690,6 +1682,9 @@ export function useBuilderConnectFlow(
       enabled,
       t,
       fetchStatus,
+      markStatusAvailable,
+      markStatusUnavailable,
+      setError,
       transport,
       agentNativeProvisioningEnabled,
       agentNativeProvisioningToken,
@@ -1716,14 +1711,13 @@ export function useBuilderConnectFlow(
         statusPollFailuresRef.current = 0;
       } else {
         statusPollFailuresRef.current += 1;
-        setError(
-          t("agentChat.settingsShell.builder.grantsFailed"),
-          "status-read",
-        );
+        markStatusUnavailable();
       }
       const orgName = s?.orgName ?? null;
       if (s) {
-        clearStatusReadError();
+        if (statusUnavailableRef.current) {
+          markStatusAvailable();
+        }
         setHasFetchedStatus(true);
         setStatusResolved(true);
         setConfigured(!!s.configured);
@@ -1935,11 +1929,11 @@ export function useBuilderConnectFlow(
         return;
       }
       if (!s) return;
+      markStatusAvailable();
       if (!isBuilderConnectComplete(s, connectTargetRef.current)) {
         const connectError = isCurrentConnectError(s?.connectError, started)
           ? s?.connectError
           : null;
-        clearStatusReadError();
         setHasFetchedStatus(true);
         if (s) {
           setStatusResolved(true);
@@ -1976,7 +1970,6 @@ export function useBuilderConnectFlow(
         }
         return;
       }
-      clearStatusReadError();
       setHasFetchedStatus(true);
       setStatusResolved(true);
       setConfigured(true);
@@ -2056,7 +2049,7 @@ export function useBuilderConnectFlow(
       channel?.close();
       window.removeEventListener("message", handler);
     };
-  }, [clearStatusReadError, fetchStatus, notifyProvisionedAccount]);
+  }, [fetchStatus, markStatusAvailable, notifyProvisionedAccount, setError]);
 
   return {
     configured,
@@ -2074,8 +2067,14 @@ export function useBuilderConnectFlow(
     builderEnabled,
     orgName,
     connecting,
-    error,
-    errorKind,
+    terminalError: error,
+    error:
+      error ??
+      (statusUnavailable
+        ? t("agentChat.settingsShell.integrations.builderStatusFailed")
+        : null),
+    errorKind: errorKind ?? (statusUnavailable ? "status-read" : null),
+    statusUnavailable,
     accountExists,
     hasFetchedStatus,
     start,

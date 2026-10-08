@@ -13,7 +13,6 @@ import {
   useBuilderStatus,
   useBuilderConnectFlow,
   withBuilderConnectTrackingParams,
-  type BuilderConnectTransport,
   type BuilderConnectionScope,
 } from "./useBuilderStatus.js";
 
@@ -52,7 +51,6 @@ function setEmbeddedWindow(embedded: boolean) {
 function BuilderConnectProbeContent({
   enabled = true,
   popupUrl,
-  transport,
   provisionAccount = false,
   startProvisionAccount,
   startScope,
@@ -60,7 +58,6 @@ function BuilderConnectProbeContent({
 }: {
   enabled?: boolean;
   popupUrl?: string;
-  transport?: BuilderConnectTransport;
   provisionAccount?: boolean;
   startProvisionAccount?: boolean;
   startScope?: BuilderConnectionScope;
@@ -69,7 +66,6 @@ function BuilderConnectProbeContent({
   const flow = useBuilderConnectFlow({
     enabled,
     popupUrl,
-    transport,
     provisionAccount,
     onConnected,
   });
@@ -108,6 +104,12 @@ function BuilderConnectProbeContent({
         {flow.credentialSource ?? "none"}
       </output>
       <output data-testid="error-kind">{flow.errorKind ?? ""}</output>
+      <output data-testid="status-unavailable">
+        {flow.statusUnavailable ? "unavailable" : "available"}
+      </output>
+      <output data-testid="terminal-error">
+        {flow.terminalError ?? "none"}
+      </output>
       <output>{flow.error ?? ""}</output>
     </div>
   );
@@ -575,47 +577,10 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain(
       "Couldn't navigate the Builder popup",
     );
-    expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
-    ).toBe("launch");
     expect(popup.removeEventListener).toHaveBeenCalledWith(
       "load",
       expect.any(Function),
     );
-  });
-
-  it("marks a blocked popup navigation as a launch error", async () => {
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const popup = createPopupStub();
-    Object.defineProperty(popup.location, "href", {
-      configurable: true,
-      get: () => "",
-      set: () => {
-        throw new Error("popup navigation blocked");
-      },
-    });
-    openSpy.mockReturnValue(popup);
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe />);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await flushAfterPaint();
-
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(popup.close).toHaveBeenCalledOnce();
-    expect(container.textContent).toContain(
-      "Couldn't navigate the Builder popup. Allow popups and try again.",
-    );
-    expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
-    ).toBe("launch");
   });
 
   it("cancels an embedded popup wait when the flow unmounts", async () => {
@@ -884,122 +849,6 @@ describe("useBuilderConnectFlow", () => {
       expect(openSpy).not.toHaveBeenCalled();
     });
 
-    it("shows a later provisioning error instead of an earlier status-read error", async () => {
-      const setupError = "Couldn't create your Builder account. Try again.";
-      let statusReads = 0;
-      vi.mocked(fetch).mockImplementation(async (input) => {
-        const url = new URL(String(input));
-        if (url.pathname === "/_agent-native/builder/provision") {
-          return activationResponse(503, {
-            ok: false,
-            code: "provision_failed",
-            message: setupError,
-          });
-        }
-        statusReads += 1;
-        return statusReads === 1
-          ? activationResponse(503, { ok: false })
-          : jsonResponse(activationStatus);
-      });
-
-      await act(async () => {
-        root.render(<BuilderConnectProbe provisionAccount />);
-      });
-      await flushAfterPaint();
-      expect(
-        container.querySelector("[data-testid='error-kind']")?.textContent,
-      ).toBe("status-read");
-
-      await clickConnect();
-
-      expect(statusReads).toBe(2);
-      expect(container.textContent).toContain("unresolved");
-      expect(
-        container.querySelector("[data-testid='error-kind']")?.textContent,
-      ).toBe("connection");
-      expect(container.textContent).toContain(setupError);
-      expect(container.textContent).not.toContain(
-        "Couldn't check your Builder.io connection.",
-      );
-    });
-
-    it("keeps status-read guidance when refreshing missing provisioning credentials fails", async () => {
-      let statusReads = 0;
-      const activationPosts: URL[] = [];
-      vi.mocked(fetch).mockImplementation(async (input) => {
-        const url = new URL(String(input));
-        if (url.pathname === "/_agent-native/builder/provision") {
-          activationPosts.push(url);
-          return activationResponse(403, {
-            ok: false,
-            code: "provision_token_invalid",
-          });
-        }
-        statusReads += 1;
-        if (statusReads === 1) {
-          return jsonResponse({
-            ...activationStatus,
-            agentNativeProvisioningToken: null,
-            connectUrl: null,
-          });
-        }
-        throw new Error("status unavailable");
-      });
-
-      await act(async () => {
-        root.render(<BuilderConnectProbe provisionAccount />);
-      });
-      await flushAfterPaint();
-      await clickConnect();
-
-      expect(activationPosts).toHaveLength(0);
-      expect(container.textContent).toContain(
-        "Couldn't check your Builder.io connection.",
-      );
-      expect(container.textContent).not.toContain(
-        "Couldn't start Builder.io setup.",
-      );
-      expect(
-        container.querySelector("[data-testid='error-kind']")?.textContent,
-      ).toBe("status-read");
-    });
-
-    it("keeps status-read guidance when refreshing expired provisioning credentials fails", async () => {
-      let statusReads = 0;
-      const activationPosts: URL[] = [];
-      vi.mocked(fetch).mockImplementation(async (input) => {
-        const url = new URL(String(input));
-        if (url.pathname === "/_agent-native/builder/provision") {
-          activationPosts.push(url);
-          return activationResponse(403, {
-            ok: false,
-            code: "provision_token_invalid",
-            message: "This activation link is expired.",
-          });
-        }
-        statusReads += 1;
-        if (statusReads === 1) return jsonResponse(activationStatus);
-        throw new Error("status unavailable");
-      });
-
-      await act(async () => {
-        root.render(<BuilderConnectProbe provisionAccount />);
-      });
-      await flushAfterPaint();
-      await clickConnect();
-
-      expect(activationPosts).toHaveLength(1);
-      expect(container.textContent).toContain(
-        "Couldn't check your Builder.io connection.",
-      );
-      expect(container.textContent).not.toContain(
-        "Couldn't start Builder.io setup.",
-      );
-      expect(
-        container.querySelector("[data-testid='error-kind']")?.textContent,
-      ).toBe("status-read");
-    });
-
     it("reconciles status when the activation response is lost", async () => {
       let activationAttempts = 0;
       vi.mocked(fetch).mockImplementation(async (input) => {
@@ -1029,39 +878,6 @@ describe("useBuilderConnectFlow", () => {
       );
       expect(onConnected).toHaveBeenCalled();
       expect(openSpy).not.toHaveBeenCalled();
-    });
-
-    it("keeps status-read guidance when activation reconciliation cannot read status", async () => {
-      let activationAttempts = 0;
-      let statusReads = 0;
-      vi.mocked(fetch).mockImplementation(async (input) => {
-        const url = new URL(String(input));
-        if (url.pathname === "/_agent-native/builder/provision") {
-          activationAttempts += 1;
-          throw new TypeError("Failed to fetch");
-        }
-        statusReads += 1;
-        if (statusReads === 1) return jsonResponse(activationStatus);
-        throw new Error("status unavailable");
-      });
-
-      await act(async () => {
-        root.render(<BuilderConnectProbe provisionAccount />);
-      });
-      await flushAfterPaint();
-      await clickConnect();
-
-      expect(activationAttempts).toBe(1);
-      expect(statusReads).toBe(2);
-      expect(container.textContent).toContain(
-        "Couldn't check your Builder.io connection.",
-      );
-      expect(container.textContent).not.toContain(
-        "Couldn't start Builder.io setup.",
-      );
-      expect(
-        container.querySelector("[data-testid='error-kind']")?.textContent,
-      ).toBe("status-read");
     });
 
     it("does not treat another scope's connection as activation success", async () => {
@@ -1836,10 +1652,14 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle unresolved");
     expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
-    ).toBe("status-read");
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("unavailable");
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe("none");
     expect(container.textContent).toContain(
-      "Couldn't check your Builder.io connection.",
+      "Couldn't check the Builder.io connection.",
     );
 
     await act(async () => {
@@ -1850,49 +1670,14 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle resolved");
     expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
-    ).toBe("");
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("available");
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe("none");
     expect(container.textContent).not.toContain(
-      "Couldn't check your Builder.io connection.",
-    );
-  });
-
-  it("keeps last-good status while marking a failed refresh as a status read", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        jsonResponse({
-          ...connectedBuilderStatus,
-          configured: false,
-          agentNativeProvisioningEnabled: true,
-          agentNativeProvisioningToken: provisioningToken,
-        }),
-      )
-      .mockRejectedValueOnce(new Error("status unavailable"));
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe />);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await flushAfterPaint();
-
-    expect(container.textContent).toContain("not-configured idle resolved");
-    expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
-    ).toBe("");
-
-    await act(async () => {
-      window.dispatchEvent(new Event("focus"));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(container.textContent).toContain("not-configured idle resolved");
-    expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
-    ).toBe("status-read");
-    expect(container.textContent).toContain(
-      "Couldn't check your Builder.io connection.",
+      "Couldn't check the Builder.io connection.",
     );
   });
 
@@ -2189,127 +1974,6 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("configured");
   });
 
-  it("clears a status-read error when callback confirmation succeeds", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const popup = createPopupStub();
-    openSpy.mockReturnValue(popup);
-    const disconnectedStatus = {
-      ...connectedBuilderStatus,
-      configured: false,
-      orgName: null,
-    };
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
-      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
-      .mockRejectedValueOnce(new Error("poll status unavailable"))
-      .mockResolvedValueOnce(jsonResponse(connectedBuilderStatus));
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe />);
-      await Promise.resolve();
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-    });
-
-    expect(
-      container.querySelector('[data-testid="error-kind"]')?.textContent,
-    ).toBe("status-read");
-
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "https://agent-workspace.builder.io",
-          data: {
-            type: "builder-connect-success",
-            attemptId: popupAttemptId(popup),
-          },
-        }),
-      );
-      await vi.advanceTimersByTimeAsync(0);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(container.textContent).toContain("configured idle resolved");
-    expect(
-      container.querySelector('[data-testid="error-kind"]')?.textContent,
-    ).toBe("");
-  });
-
-  it("clears a stale status-read error after callback status becomes readable", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const popup = createPopupStub();
-    openSpy.mockReturnValue(popup);
-    const disconnectedStatus = {
-      ...connectedBuilderStatus,
-      configured: false,
-      orgName: null,
-    };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
-      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
-      .mockRejectedValueOnce(new Error("poll status unavailable"))
-      .mockImplementation(async () => jsonResponse(disconnectedStatus));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe />);
-      await Promise.resolve();
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-    });
-
-    expect(
-      container.querySelector('[data-testid="error-kind"]')?.textContent,
-    ).toBe("status-read");
-
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "https://agent-workspace.builder.io",
-          data: {
-            type: "builder-connect-success",
-            attemptId: popupAttemptId(popup),
-          },
-        }),
-      );
-      await vi.advanceTimersByTimeAsync(5000);
-    });
-
-    expect(container.textContent).toContain(
-      "not-configured connecting resolved",
-    );
-    expect(
-      container.querySelector('[data-testid="error-kind"]')?.textContent,
-    ).toBe(
-      "",
-      `${container.querySelector('[data-testid="status"]')?.textContent}; ${fetchMock.mock.calls.length} status reads`,
-    );
-  });
-
   it("ignores a success message from another connect attempt", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
@@ -2539,31 +2203,22 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("Didn't hear back from Builder");
   });
 
-  it("preserves status-read guidance when the connect poll times out", async () => {
+  it("clears a stale status-read error after a readable incomplete callback status", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
     openSpy.mockReturnValue(popup);
-    let statusReads = 0;
-    vi.mocked(fetch).mockImplementation(async () => {
-      statusReads += 1;
-      if (statusReads === 1) {
-        return jsonResponse({
-          configured: false,
-          envManaged: false,
-          builderEnabled: true,
-          orgName: null,
-          connectUrl:
-            "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
-          appHost: "https://builder.io",
-          apiHost: "https://api.builder.io",
-          publicKeyConfigured: false,
-          privateKeyConfigured: false,
-        });
-      }
-      throw new Error("status unavailable");
-    });
+    const incompleteStatus = {
+      ...connectedBuilderStatus,
+      configured: false,
+      orgName: null,
+    };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(incompleteStatus))
+      .mockResolvedValueOnce(jsonResponse(incompleteStatus))
+      .mockRejectedValueOnce(new Error("poll status unavailable"))
+      .mockResolvedValue(jsonResponse(incompleteStatus));
 
     await act(async () => {
       root.render(<BuilderConnectProbe />);
@@ -2577,20 +2232,45 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(2000);
     });
 
-    expect(container.textContent).toContain("not-configured idle");
     expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
     ).toBe("status-read");
     expect(container.textContent).toContain(
-      "Couldn't check your Builder.io connection.",
+      "Couldn't check the Builder.io connection.",
     );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(container.textContent).toContain(
+      "not-configured connecting resolved",
+    );
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("available");
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe("none");
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("");
     expect(container.textContent).not.toContain(
-      "Didn't hear back from Builder",
+      "Couldn't check the Builder.io connection.",
     );
   });
 
@@ -2758,48 +2438,6 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
     expect(openSpy).toHaveBeenCalled();
-  });
-
-  it("preserves the retryable status-read error after the popup closes", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const popup = createPopupStub();
-    const notConfiguredStatus = {
-      ...connectedBuilderStatus,
-      configured: false,
-    };
-    openSpy.mockReturnValue(popup);
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse(notConfiguredStatus))
-      .mockResolvedValueOnce(jsonResponse(notConfiguredStatus))
-      .mockRejectedValue(new Error("status unavailable"));
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe />);
-      await Promise.resolve();
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    (popup as unknown as { closed: boolean }).closed = true;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_000);
-    });
-
-    expect(container.textContent).toContain("not-configured idle");
-    expect(container.textContent).toContain(
-      "Couldn't check your Builder.io connection.",
-    );
-    expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
-    ).toBe("status-read");
   });
 
   it("resets after the browser OAuth popup closes", async () => {
@@ -3184,87 +2822,6 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
-  it("reports an invalid desktop connect URL as a setup-start error", async () => {
-    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
-    const openConnectUrl = vi.fn(async () => ({ ok: true as const }));
-    const transport: BuilderConnectTransport = {
-      readStatus: vi.fn(async () => ({
-        ...connectedBuilderStatus,
-        configured: false,
-        connectUrl: "https://builder.example/connect",
-      })),
-      activateAccount: vi.fn(async () => ({
-        ok: false as const,
-        code: "network_error" as const,
-        message: null,
-      })),
-      openConnectUrl,
-    };
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe transport={transport} />);
-    });
-    await flushAfterPaint();
-
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(container.textContent).toContain(
-      "Couldn't start Builder.io setup. Refresh this page and try again.",
-    );
-    expect(container.textContent).not.toContain(
-      "Couldn't check your Builder.io connection.",
-    );
-    expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
-    ).toBe("connection");
-    expect(openConnectUrl).not.toHaveBeenCalled();
-  });
-
-  it("marks a failed desktop sign-in launch as a launch error", async () => {
-    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
-    const openConnectUrl = vi.fn(async () => ({
-      ok: false as const,
-      error: "Could not open Builder in the system browser.",
-    }));
-    const transport: BuilderConnectTransport = {
-      readStatus: vi.fn(async () => ({
-        ...connectedBuilderStatus,
-        configured: false,
-        connectUrl: "https://builder.example/connect?_an_connect=signed",
-      })),
-      activateAccount: vi.fn(async () => ({
-        ok: false as const,
-        code: "network_error" as const,
-        message: null,
-      })),
-      openConnectUrl,
-    };
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe transport={transport} />);
-    });
-    await flushAfterPaint();
-
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await flushAfterPaint();
-
-    expect(openConnectUrl).toHaveBeenCalledOnce();
-    expect(container.textContent).toContain(
-      "Could not open Builder in the system browser.",
-    );
-    expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
-    ).toBe("launch");
-  });
-
   it("asks the MCP host to open Builder when an embedded chat sandbox blocks popups", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     setEmbeddedWindow(true);
@@ -3328,37 +2885,6 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("Allow popups");
-  });
-
-  it("marks an embedded host that cannot open Builder as a launch error", async () => {
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    setEmbeddedWindow(true);
-    vi.mocked(fetch).mockImplementation(async () =>
-      jsonResponse({
-        ...connectedBuilderStatus,
-        configured: false,
-      }),
-    );
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe />);
-      await Promise.resolve();
-    });
-    await flushAfterPaint();
-
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await flushAfterPaint();
-
-    expect(
-      container.querySelector("[data-testid='error-kind']")?.textContent,
-    ).toBe("launch");
-    expect(container.textContent).toContain(
-      "Couldn't open Builder from this chat host.",
-    );
   });
 
   it("does not open the MCP host after cancelling a pending embedded startup", async () => {

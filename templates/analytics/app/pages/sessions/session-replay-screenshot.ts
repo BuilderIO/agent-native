@@ -15,6 +15,7 @@ const MAX_INLINE_ASSET_BYTES = 32_000_000;
 const MAX_IMAGE_RESPONSE_BYTES = 12_000_000;
 const MAX_SCREENSHOT_DIMENSION = 8_192;
 const MAX_SCREENSHOT_PIXELS = 16_000_000;
+const MAX_CLIPBOARD_PNG_BYTES = 32_000_000;
 const MAX_REPLAY_IFRAME_DEPTH = 8;
 const VIDEO_READY_STATE_HAVE_CURRENT_DATA = 2;
 const REPLAY_SCREENSHOT_MARKER = "data-replay-screenshot-map";
@@ -1179,13 +1180,87 @@ function waitForReplayPaint(signal?: AbortSignal): Promise<void> {
   });
 }
 
-export async function downloadReplayScreenshot(
+export class ReplayScreenshotClipboardError extends Error {
+  constructor() {
+    super("Replay screenshot could not be copied to the clipboard");
+    this.name = "ReplayScreenshotClipboardError";
+  }
+}
+
+export function writeReplayScreenshotToClipboard(
+  screenshot: Blob | Promise<Blob>,
+  clipboard: Pick<Clipboard, "write"> | undefined = globalThis.navigator
+    ?.clipboard,
+  onClipboardWriteFailure?: () => void,
+): Promise<void> {
+  const ClipboardItemConstructor = globalThis.ClipboardItem;
+  const boundedPng = Promise.resolve(screenshot).then((blob) => {
+    if (
+      blob.type !== "image/png" ||
+      blob.size === 0 ||
+      blob.size > MAX_CLIPBOARD_PNG_BYTES
+    ) {
+      throw new ReplayScreenshotClipboardError();
+    }
+    return blob;
+  });
+  const pngResult = boundedPng.then(
+    () => ({ kind: "png-ready" as const }),
+    (error: unknown) => ({ error, kind: "png-failed" as const }),
+  );
+
+  let clipboardWrite: Promise<void>;
+  try {
+    if (!clipboard?.write || !ClipboardItemConstructor) {
+      throw new ReplayScreenshotClipboardError();
+    }
+
+    // Start the clipboard write with the click; the promised PNG can render afterward.
+    const item = new ClipboardItemConstructor({ "image/png": boundedPng });
+    clipboardWrite = Promise.resolve(clipboard.write([item]));
+  } catch (error) {
+    clipboardWrite = Promise.reject(error);
+  }
+
+  const writeResult = clipboardWrite.then(
+    () => ({ kind: "write-succeeded" as const }),
+    () => ({ kind: "write-failed" as const }),
+  );
+
+  return Promise.race([pngResult, writeResult]).then(async (firstResult) => {
+    if (firstResult.kind === "write-failed") {
+      const error = new ReplayScreenshotClipboardError();
+      onClipboardWriteFailure?.();
+      throw error;
+    }
+
+    const finalPngResult =
+      firstResult.kind === "png-ready" || firstResult.kind === "png-failed"
+        ? firstResult
+        : await pngResult;
+    if (finalPngResult.kind === "png-failed") {
+      if (finalPngResult.error instanceof ReplayScreenshotAssetError) {
+        throw finalPngResult.error;
+      }
+      throw new ReplayScreenshotClipboardError();
+    }
+
+    const finalWriteResult =
+      firstResult.kind === "write-succeeded" ? firstResult : await writeResult;
+    if (finalWriteResult.kind === "write-failed") {
+      const error = new ReplayScreenshotClipboardError();
+      onClipboardWriteFailure?.();
+      throw error;
+    }
+  });
+}
+
+export async function captureReplayScreenshot(
   stage: HTMLElement,
   stageRoot: HTMLElement,
   iframe: HTMLIFrameElement,
-  filename: string,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<Blob> {
   const replayWindow = iframe.contentWindow;
   const replayDocument = iframe.contentDocument;
   if (
@@ -1293,13 +1368,7 @@ export async function downloadReplayScreenshot(
     assertScreenshotDimensions(canvas.width, canvas.height);
     const blob = await canvasToBlob(canvas);
     assertCaptureAvailable();
-
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.download = filename;
-    link.href = downloadUrl;
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+    return blob;
   } finally {
     if (previousStageFrameMarker === null) {
       iframe.removeAttribute(REPLAY_SCREENSHOT_MARKER);
@@ -1307,6 +1376,34 @@ export async function downloadReplayScreenshot(
       iframe.setAttribute(REPLAY_SCREENSHOT_MARKER, previousStageFrameMarker);
     }
   }
+}
+
+export function downloadReplayScreenshotBlob(
+  blob: Blob,
+  filename: string,
+): void {
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = downloadUrl;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+}
+
+export async function downloadReplayScreenshot(
+  stage: HTMLElement,
+  stageRoot: HTMLElement,
+  iframe: HTMLIFrameElement,
+  filename: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const screenshot = await captureReplayScreenshot(
+    stage,
+    stageRoot,
+    iframe,
+    signal,
+  );
+  downloadReplayScreenshotBlob(screenshot, filename);
 }
 
 function assertScreenshotDimensions(width: number, height: number): void {

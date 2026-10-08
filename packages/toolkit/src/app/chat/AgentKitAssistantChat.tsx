@@ -117,7 +117,6 @@ import {
   type AgentConnectionErrorRenderProps,
   type AgentKitBranchNavigation,
 } from "../agentkit/react/index.js";
-import { AgentKitRoot } from "../agentkit/react/root.js";
 import {
   AgentKitDevCheckpointProvider,
   AgentKitDevCheckpointRestore,
@@ -142,6 +141,7 @@ import {
   AgentKitFilesChangedSummary,
   AgentKitMarkdownText,
 } from "./agentkit-chat/parity-renderers.js";
+import { CoreAgentKitRoot } from "./agentkit-chat/root.js";
 import { AgentApprovalCard } from "./chat/agent-approval-card.js";
 import { renderMarkdownToClipboardHtml } from "./chat/markdown-renderer.js";
 import {
@@ -1186,7 +1186,7 @@ export const AgentKitAssistantChat = forwardRef<
   return (
     <ThinkingDisplayProvider value={props.thinkingDisplay}>
       <CoreComposerRuntimeProvider>
-        <AgentKitRoot
+        <CoreAgentKitRoot
           transport={transport}
           clientOptions={{
             transportOwnership: "owned",
@@ -1250,7 +1250,7 @@ export const AgentKitAssistantChat = forwardRef<
               />
             </AgentKitDevCheckpointProvider>
           )}
-        </AgentKitRoot>
+        </CoreAgentKitRoot>
       </CoreComposerRuntimeProvider>
     </ThinkingDisplayProvider>
   );

@@ -534,6 +534,20 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     assert.equal(scope.checks.design_canvas_interaction_e2e, true, path);
   }
 
+  assert.deepEqual(
+    classifyChangedPaths([
+      "templates/design/e2e/position-alignment.spec.ts",
+      "templates/design/e2e/inspector-styles.spec.ts",
+      "templates/design/e2e/fixture.test.tsx",
+      "templates/design/app/components/design/EditPanel.tsx",
+    ]).designCanvasE2eSpecs,
+    [
+      "templates/design/e2e/fixture.test.tsx",
+      "templates/design/e2e/inspector-styles.spec.ts",
+      "templates/design/e2e/position-alignment.spec.ts",
+    ],
+  );
+
   assert.equal(
     classifyChangedPaths([".github/workflows/ci.yml"]).checks
       .design_canvas_interaction_e2e,
@@ -557,8 +571,56 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
-  assert.ok(regressionCases.includes("timeout-minutes: 10"));
-  assert.ok(regressionCases.includes("--workers=2"));
+  assert.deepEqual(
+    [...regressionCases.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
+      Number(count),
+    ),
+    [1, 1],
+  );
+  const designJobStart = workflow.indexOf(
+    "  design-canvas-interaction-acceptance:\n",
+  );
+  assert.notEqual(designJobStart, -1);
+  const designJobEnd = workflow.indexOf("\n  fast-tests:", designJobStart);
+  const designJob = workflow.slice(
+    designJobStart,
+    designJobEnd === -1 ? undefined : designJobEnd,
+  );
+  const jobTimeout = Number(
+    designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
+  );
+  const stepTimeout = Number(
+    regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
+  assert.ok(
+    jobTimeout >= stepTimeout + 10,
+    "job timeout must leave ten minutes for setup around the focused test step",
+  );
+  assert.match(
+    designJob,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*drag-1,\s*drag-2,\s*position,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
+  );
+  assert.ok(
+    regressionCases.includes(
+      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+  );
+  assert.ok(
+    regressionCases.includes(
+      "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
+    ),
+  );
+  assert.ok(
+    regressionCases.includes(
+      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"',
+    ),
+  );
+  assert.ok(
+    regressionCases.includes(
+      "mapfile -d '' -t changed_specs < \"$changed_specs_file\"",
+    ),
+  );
+  assert.ok(regressionCases.includes('if [[ -f "$spec" ]]; then'));
   const selectedTests = [
     [
       "e2e/canvas-invariants.spec.ts",
@@ -579,6 +641,71 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/canvas-invariants.spec.ts",
       1320,
       "basic authoring raises no uncaught page errors",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      176,
+      "text fills hide and restore without losing the original color",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      238,
+      "selection hide and Appearance visibility stay in sync with opacity",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      314,
+      "text gradient apply and removal survive reselection; box gradient editor persists",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      426,
+      "style layer row actions stay visible and toggle visibility state",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      452,
+      "typography edits update size and spacing inputs",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      541,
+      "search selects Lato Medium and keeps custom font names offline",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      610,
+      "numeric scrub handles use terse tooltips and drag from compact labels",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      667,
+      "numeric input applies Figma math and starts an Option scrub drag",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      737,
+      "appearance controls use droplet blend menu and inline independent corners",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      798,
+      "export rows add, remove, and reset when selection changes",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      833,
+      "resizing a selected element emits a visual-style-change payload",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      880,
+      "pointercancel restores a scrubbed value without adding a history step",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      999,
+      "can capture a screenshot of inspector coverage via CDP",
     ],
     [
       "e2e/drag-and-drop.drag-feedback.spec.ts",
@@ -606,6 +733,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "board regression: overlapping board Frames keep the pointer drop without cancel or revert",
     ],
     [
+      "e2e/parity-selection.spec.ts",
+      572,
+      "selected nested frame drag from its grandchild tracks the pointer and persists",
+    ],
+    [
+      "e2e/corner-radius-handle-drag.spec.ts",
+      202,
+      "canvas corner-radius handle follows the drag and persists the radius",
+    ],
+    [
       "e2e/pasted-svg-image-inspector.spec.ts",
       656,
       "clipboard SVG File paste in the parent editor stays editable after reload",
@@ -617,27 +754,47 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      335,
+      361,
       "Auto Layout matrix centers both axes and persists after reload",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      484,
+      431,
+      "canvas and Layers selection show parent-relative position after iframe scroll",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      509,
+      "fixed Position stays viewport-relative after iframe scroll and reload",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      570,
       "Position stays Frame-relative through Groups and resets at nested Frames",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      529,
+      615,
       "Position edits use the CSS containing block through static wrappers and borders",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      606,
+      661,
+      "Position stays Frame-relative through a positioned plain wrapper",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      708,
+      "unframed absolute positions use the initial containing block through static wrappers",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      740,
       "Position edits invert own and static-containing-block transforms and persist",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      646,
+      780,
       "Align uses a Group's bounds while Position stays Frame-relative",
     ],
   ] as const;
@@ -649,8 +806,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     )[line - 1];
     assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
   }
-  assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts"));
-  assert.ok(!workflow.includes("Run changed Design E2E specs"));
 });
 
 test("a deleted Design E2E path runs the focused interaction suite", () => {

@@ -255,6 +255,16 @@ const messages = {
     generateImage: "Gerar imagem",
     assetLibrary: "Biblioteca de assets",
     imageOptions: "Opções da imagem",
+    videoPlayback: "Reprodução de vídeo",
+    autoplayVideo: "Reprodução automática",
+    loopVideo: "Repetir vídeo",
+    videoUploading: "Enviando vídeo…",
+    videoAdded: "Vídeo adicionado",
+    videoUploadFailed: "Falha ao enviar vídeo",
+    videoUploadError: "Não foi possível enviar este vídeo.",
+    videoFormatUnsupported: "Só há suporte para vídeos MP4 e WebM.",
+    videoTooLarge: "O vídeo deve ter no máximo 50 MB.",
+    videoUploadNeedsBuilder: "O armazenamento de vídeos não está configurado.",
     cropImage: "Cortar imagem",
     cropHandle: "Cortar imagem {{position}}",
     diagrams: "Diagramas",
@@ -308,6 +318,9 @@ const messages = {
     conflictStatus: "Conflito de texto",
     conflictStatusDescription:
       "Revise o texto em conflito antes de salvar outras alterações.",
+    accessLost: "Acesso perdido",
+    accessLostDescription:
+      "Seu acesso a esta apresentação mudou. Suas edições continuam na tela; tente novamente quando o acesso for restaurado ou baixe um backup.",
     reviewConflict: "Revisar conflito",
     conflictTitle: "Conflito de texto no slide {{number}}",
     conflictDescription:
