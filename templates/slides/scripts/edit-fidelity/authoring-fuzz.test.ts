@@ -24,7 +24,7 @@ import {
   ActionTransportError,
   CouldNotRun,
   isPlaywrightTargetTransportFailure,
-  rethrowIfCouldNotRun,
+  rethrowIfHarnessUnavailable,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
 } from "./run-outcomes.ts";
@@ -48,7 +48,7 @@ it("keeps authoring page setup errors out of seed regression results", async () 
   expect(caught).toMatchObject({
     message: "could not create authoring fuzz page: Error: Target crashed",
   });
-  expect(() => rethrowIfCouldNotRun(caught)).toThrow(caught);
+  expect(() => rethrowIfHarnessUnavailable(caught)).toThrow(caught);
 
   const setupError = new CouldNotRun("sign-in request timed out");
   await expect(
@@ -56,6 +56,28 @@ it("keeps authoring page setup errors out of seed regression results", async () 
       throw setupError;
     }),
   ).rejects.toBe(setupError);
+});
+
+it("classifies fuzz action transport failures as could-not-run", () => {
+  let caught: unknown;
+  try {
+    rethrowIfHarnessUnavailable(
+      new ActionTransportError("get-slide-content request failed"),
+    );
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toBeInstanceOf(CouldNotRun);
+  expect(caught).toMatchObject({
+    message:
+      "authoring action transport failed: Error: get-slide-content request failed",
+  });
+  expect(() =>
+    rethrowIfHarnessUnavailable(
+      new Error("get-slide-content returned HTTP 500"),
+    ),
+  ).not.toThrow();
 });
 
 it("classifies authoring sign-in transport failures as setup errors", async () => {

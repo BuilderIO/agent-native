@@ -75,7 +75,7 @@ import {
   ActionTransportError,
   CouldNotRun,
   isPlaywrightTargetTransportFailure,
-  rethrowIfCouldNotRun,
+  rethrowIfHarnessUnavailable,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
 } from "./run-outcomes.ts";
@@ -5153,7 +5153,7 @@ async function runAuthoringFuzzQa(
         `[edit-fidelity] fuzz seed=${result.seed} passed ${result.stepsRun} steps on ${profile ? `committed-${profile.kind}` : "synthetic"} (${result.undoSteps} undo steps)`,
       );
     } catch (error) {
-      rethrowIfCouldNotRun(error);
+      rethrowIfHarnessUnavailable(error);
       const problem = `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`;
       problems.push(problem);
       console.error(`[edit-fidelity] ${problem}`);

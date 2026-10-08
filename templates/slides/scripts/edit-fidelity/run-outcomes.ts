@@ -36,6 +36,11 @@ export async function runSetupActionAsCouldNotRun<T>(
   }
 }
 
-export function rethrowIfCouldNotRun(error: unknown): void {
+export function rethrowIfHarnessUnavailable(error: unknown): void {
   if (error instanceof CouldNotRun) throw error;
+  if (error instanceof ActionTransportError) {
+    throw new CouldNotRun(
+      `authoring action transport failed: ${String(error)}`,
+    );
+  }
 }
