@@ -359,15 +359,6 @@ export function ComposerContextMenu({
     [controlledOpen, dismissPage, onOpenChange, updatePath],
   );
   useEffect(() => {
-    if (open || !pendingAttachmentRequest.current) return;
-    const frame = window.requestAnimationFrame(() => {
-      if (!pendingAttachmentRequest.current) return;
-      pendingAttachmentRequest.current = false;
-      onAttachmentRequest?.();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [onAttachmentRequest, open]);
-  useEffect(() => {
     if (!disabled) return;
     pendingDialog.current = null;
     if (open) {
@@ -631,6 +622,16 @@ export function ComposerContextMenu({
               event.preventDefault();
               setDialog(pendingDialog.current);
               pendingDialog.current = null;
+              return;
+            }
+            // Wait for the exit animation: the storage popover anchors to the
+            // focused element, and focus moving here would dismiss it.
+            if (pendingAttachmentRequest.current) {
+              event.preventDefault();
+              pendingAttachmentRequest.current = false;
+              restoreFocusOnClose.current = true;
+              triggerRef.current?.focus();
+              onAttachmentRequest?.();
               return;
             }
             if (!restoreFocusOnClose.current) event.preventDefault();

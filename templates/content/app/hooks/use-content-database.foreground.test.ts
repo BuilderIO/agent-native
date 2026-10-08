@@ -17,7 +17,10 @@ vi.mock("@tanstack/react-query", async () => ({
 
 import type { ContentDatabaseTableQuery } from "@shared/api";
 
-import { useContentDatabase } from "./use-content-database";
+import {
+  useContentDatabase,
+  useContentDatabasePersonalView,
+} from "./use-content-database";
 
 describe("foreground database read after cached creation", () => {
   beforeEach(() => {
@@ -143,5 +146,50 @@ describe("rows for the requested view", () => {
     );
     expect(result.itemsFailed).toBe(false);
     expect(result.data?.items).toEqual([{ id: "rank-first" }]);
+  });
+});
+
+describe("database editor boot reads", () => {
+  beforeEach(() => {
+    useActionQuery.mockReset();
+    useActionQuery.mockReturnValue({ data: undefined });
+    useQueryClient.mockReturnValue(new QueryClient());
+  });
+
+  it("requests the scoped database, items, and personal view for /page/:id", () => {
+    const tableQuery: ContentDatabaseTableQuery = {
+      search: "launch",
+      filters: [],
+      sorts: [],
+      filterMode: "and",
+    };
+
+    function Probe() {
+      useContentDatabase("document-7", 50, tableQuery);
+      useContentDatabasePersonalView("database-7");
+      return null;
+    }
+
+    renderToStaticMarkup(createElement(Probe));
+
+    expect(useActionQuery.mock.calls).toEqual(
+      expect.arrayContaining([
+        [
+          "get-content-database",
+          { documentId: "document-7", limit: 50 },
+          expect.any(Object),
+        ],
+        [
+          "query-content-database-items",
+          { documentId: "document-7", limit: 50, tableQuery },
+          expect.any(Object),
+        ],
+        [
+          "get-content-database-personal-view",
+          { databaseId: "database-7" },
+          expect.any(Object),
+        ],
+      ]),
+    );
   });
 });

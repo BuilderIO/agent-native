@@ -1,5 +1,20 @@
 # @agent-native/agentkit
 
+## 0.203.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.203.0
+
+### Patch Changes
+
+- 3d573d7: Prevent duplicate chat output and bound custom transport snapshot persistence.
+- Release all public npm packages with a patch version bump.
+- 3d573d7: Persist AgentKit thread snapshots as bounded deltas so long conversations do not exceed hosting request limits.
+- 4738d38: Include completed tool calls and results in the next AgentKit turn so the agent can answer questions about its prior tool activity.
+
 ## 0.202.0
 
 ### Patch Changes

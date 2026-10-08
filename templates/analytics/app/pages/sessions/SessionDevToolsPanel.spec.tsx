@@ -2,6 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -9,9 +10,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useLocale: () => ({ locale: "en-US" }),
 }));
 
+import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import { SessionDevToolsPanel } from "./SessionDevToolsPanel";
 
-const diagnostics = {
+const diagnostics: ReplayDevToolsDiagnostics = {
   console: [],
   network: [],
   consoleErrorCount: 0,
@@ -35,17 +37,25 @@ describe("SessionDevToolsPanel friction tab", () => {
     vi.unstubAllGlobals();
   });
 
-  function render(friction?: React.ReactNode) {
+  function render(
+    friction?: React.ReactNode,
+    jumpDisabled = false,
+    values = diagnostics,
+    onSeek = () => {},
+  ) {
     act(() => {
       root.render(
-        <SessionDevToolsPanel
-          diagnostics={diagnostics}
-          currentTime={0}
-          height={240}
-          onHeightChange={() => {}}
-          onSeek={() => {}}
-          friction={friction}
-        />,
+        <MemoryRouter>
+          <SessionDevToolsPanel
+            diagnostics={values}
+            currentTime={0}
+            height={240}
+            onHeightChange={() => {}}
+            onSeek={onSeek}
+            jumpDisabled={jumpDisabled}
+            friction={friction}
+          />
+        </MemoryRouter>,
       );
     });
   }
@@ -68,5 +78,33 @@ describe("SessionDevToolsPanel friction tab", () => {
       );
     });
     expect(container.textContent).toContain("friction breakdown");
+  });
+
+  it("disables DevTools jump-to controls during screenshot capture", () => {
+    const onSeek = vi.fn();
+    const values: ReplayDevToolsDiagnostics = {
+      ...diagnostics,
+      console: [
+        {
+          id: "console-error",
+          offsetMs: 120,
+          timestamp: 120,
+          level: "error",
+          source: "console",
+          message: "replay error",
+          args: [],
+          repeat: 1,
+        },
+      ],
+    };
+
+    render(undefined, true, values, onSeek);
+
+    const jumpButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("sessions.devtoolsJumpTo"),
+    );
+    expect(jumpButton?.disabled).toBe(true);
+    jumpButton?.click();
+    expect(onSeek).not.toHaveBeenCalled();
   });
 });

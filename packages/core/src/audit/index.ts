@@ -41,6 +41,12 @@ export {
   type OrgAdminAuditEventInput,
 } from "./org-admin.js";
 
+export {
+  auditEventToOcsf,
+  OCSF_SCHEMA_VERSION,
+  type OcsfApiActivity,
+} from "./ocsf.js";
+
 export { recordActionAudit } from "./record.js";
 
 export {

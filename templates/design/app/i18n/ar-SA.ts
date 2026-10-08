@@ -1001,6 +1001,10 @@ export default {
     keyboardShortcuts: {
       title: "اختصارات لوحة المفاتيح",
       close: "يغلق: اختصارات لوحة المفاتيح",
+      search: "بحث",
+      searchLabel: "البحث في اختصارات لوحة المفاتيح",
+      categoriesLabel: "فئات الاختصارات",
+      empty: "لا توجد اختصارات تطابق “{{query}}”",
       codeContext: "الكود",
       screenContext: "الشاشات",
       nudgeAmount: {
@@ -1033,11 +1037,6 @@ export default {
         leftBracket: "القوس المربع الأيسر",
         rightBracket: "القوس المربع الأيمن",
       },
-      descriptions: {
-        toggleUi: "اضغطه الآن لإخفاء اللوحات بسرعة والتركيز على عملك",
-        undo: "تراجع عن أحدث تغيير في التصميم",
-        redo: "استعد تغيير التصميم الذي تراجعت عنه للتو",
-      },
       categories: {
         essential: "أساسي",
         tools: "الأدوات",
@@ -1069,6 +1068,7 @@ export default {
         showLayers: "الطبقات",
         showAssets: "الأصول",
         toggleUi: "View",
+        toggleMinimalUi: "واجهة مبسطة",
         toggleComments: "تثبيت تعليق",
         zoomIn: "تكبير",
         zoomOut: "تصغير",
@@ -1557,6 +1557,8 @@ export default {
     assetAdded: "تمت إضافة الأصول",
     assetsNoImageUrl: "لم تُرجع Assets عنوان URL للصورة.",
     failedToUploadFile: "فشل تحميل الملف",
+    imageAttachmentUnavailable:
+      "تعذّر تجهيز هذه الصورة كمدخل مرئي. أرفق ملف PNG أو JPG أو GIF أو WebP أصغر.",
     attachmentsTooLarge:
       "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
     failedToSubmitPrompt: "تعذر إرسال المطالبة",
@@ -1986,9 +1988,10 @@ export default {
     comingSoonTitle: "أنظمة التصميم قريبًا",
     waitlist: {
       join: "انضم إلى قائمة الانتظار",
-      joining: "جارٍ الانضمام...",
-      joined: "أنت على قائمة الانتظار",
-      error: "تعذّر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
+      joining: "جارٍ الانضمام…",
+      joined: "أُضيفت إلى قائمة الانتظار",
+      error: "تعذّر الانضمام إلى قائمة الانتظار. يُرجى المحاولة مجددًا.",
+      unavailable: "التسجيل في قائمة الانتظار غير متاح الآن. يُرجى المحاولة لاحقًا.",
     },
     deleteError: "لا يمكن حذف نظام التصميم",
     updateSuccess: "تم تحديث نظام التصميم",

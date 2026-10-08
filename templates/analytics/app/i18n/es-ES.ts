@@ -1523,6 +1523,19 @@ export default {
       "Fragmentos con acceso controlado usados para reconstruir esta reproducción. Las URL del proveedor permanecen privadas.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Descargar captura",
+    savingScreenshot: "Guardando captura…",
+    screenshotDownloaded: "Captura descargada",
+    screenshotSaveFailed: "No se pudo guardar la captura",
+    copyScreenshot: "Copiar a Design",
+    copyingScreenshot: "Copiando captura…",
+    screenshotCopiedForDesign: "Captura copiada. Pégala en Design.",
+    screenshotCopyFailed:
+      "No se pudo copiar la captura. Descárgala y sube el PNG a Design.",
+    screenshotCopyUnsupportedAssets:
+      "No se copió la captura: este momento contiene medios o imágenes que no se pueden capturar de forma segura. Prueba otro momento de la reproducción.",
+    screenshotUnsupportedAssets:
+      "No se guardó la captura: algunos medios o imágenes incrustados no se pudieron capturar de forma segura.",
     timeline: "Línea de tiempo de eventos",
     replayTimeline: "Línea de tiempo de reproducción",
     timelineDescription: "Mostrando {{count}} de {{total}} eventos útiles.",

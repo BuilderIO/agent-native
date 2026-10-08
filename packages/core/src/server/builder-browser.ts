@@ -17,6 +17,7 @@ import {
 import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
@@ -2161,12 +2162,13 @@ export function normalizeBuilderAgentAttachments(
           "Builder attachment size does not match its text content",
         );
       }
-    } else if (
-      !attachment.dataUrl.startsWith(`data:${attachment.contentType};base64,`)
-    ) {
-      throw new Error(
-        "Image and PDF Builder attachments require a matching base64 dataUrl",
-      );
+    } else {
+      const dataUrl = parseBase64DataUrl(attachment.dataUrl);
+      if (!dataUrl || dataUrl.mediaType !== attachment.contentType) {
+        throw new Error(
+          "Image and PDF Builder attachments require a matching base64 dataUrl",
+        );
+      }
     }
 
     return attachment;

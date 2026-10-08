@@ -1007,6 +1007,10 @@ export default {
     keyboardShortcuts: {
       title: "कीबोर्ड शॉर्टकट",
       close: "बंद करना: कीबोर्ड शॉर्टकट",
+      search: "खोजें",
+      searchLabel: "कीबोर्ड शॉर्टकट खोजें",
+      categoriesLabel: "शॉर्टकट श्रेणियाँ",
+      empty: "“{{query}}” से मेल खाने वाला कोई शॉर्टकट नहीं",
       codeContext: "कोड",
       screenContext: "स्क्रीन",
       nudgeAmount: {
@@ -1039,11 +1043,6 @@ export default {
         leftBracket: "बायाँ कोष्ठक",
         rightBracket: "दायाँ कोष्ठक",
       },
-      descriptions: {
-        toggleUi: "पैनल तुरंत छिपाकर अपने काम पर ध्यान देने के लिए इसे अभी दबाएँ",
-        undo: "सबसे हाल के डिज़ाइन बदलाव को वापस करें",
-        redo: "अभी वापस किए गए डिज़ाइन बदलाव को फिर से लागू करें",
-      },
       categories: {
         essential: "आवश्यक",
         tools: "उपकरण",
@@ -1075,6 +1074,7 @@ export default {
         showLayers: "परतें",
         showAssets: "एसेट",
         toggleUi: "View",
+        toggleMinimalUi: "न्यूनतम UI",
         toggleComments: "टिप्पणी पिन करें",
         zoomIn: "ज़ूम इन",
         zoomOut: "ज़ूम आउट",
@@ -1566,6 +1566,8 @@ export default {
     assetAdded: "संपत्ति जोड़ी गई",
     assetsNoImageUrl: "Assets ने कोई छवि URL नहीं लौटाया।",
     failedToUploadFile: "फ़ाइल अपलोड करने में विफल",
+    imageAttachmentUnavailable:
+      "इस छवि को दृश्य इनपुट के रूप में तैयार नहीं किया जा सका। छोटी PNG, JPG, GIF या WebP फ़ाइल जोड़ें।",
     attachmentsTooLarge:
       "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
     failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
@@ -1992,9 +1994,11 @@ export default {
     comingSoonTitle: "डिज़ाइन सिस्टम जल्द आ रहे हैं",
     waitlist: {
       join: "प्रतीक्षा सूची में शामिल हों",
-      joining: "शामिल हो रहे हैं...",
+      joining: "शामिल हो रहे हैं…",
       joined: "आप प्रतीक्षा सूची में हैं",
-      error: "प्रतीक्षा सूची में शामिल नहीं हो सके। कृपया फिर से प्रयास करें।",
+      error: "प्रतीक्षा सूची में शामिल नहीं हो सके। कृपया फिर से कोशिश करें।",
+      unavailable:
+        "प्रतीक्षा सूची में शामिल होना अभी उपलब्ध नहीं है। कृपया बाद में फिर से कोशिश करें।",
     },
     deleteError: "डिज़ाइन सिस्टम को हटाया नहीं जा सका",
     updateSuccess: "डिज़ाइन सिस्टम अपडेट किया गया",

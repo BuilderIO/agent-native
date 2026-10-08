@@ -1539,6 +1539,19 @@ export default {
       "Fragments à accès contrôlé utilisés pour reconstruire cette relecture. Les URL du fournisseur restent privées.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Télécharger la capture",
+    savingScreenshot: "Enregistrement de la capture…",
+    screenshotDownloaded: "Capture téléchargée",
+    screenshotSaveFailed: "Impossible d’enregistrer la capture",
+    copyScreenshot: "Copier dans Design",
+    copyingScreenshot: "Copie de la capture…",
+    screenshotCopiedForDesign: "Capture copiée. Collez-la dans Design.",
+    screenshotCopyFailed:
+      "Impossible de copier la capture. Téléchargez-la puis importez le PNG dans Design.",
+    screenshotCopyUnsupportedAssets:
+      "Capture non copiée : ce moment contient des médias ou des images qui ne peuvent pas être capturés en toute sécurité. Essayez un autre moment de la relecture.",
+    screenshotUnsupportedAssets:
+      "Capture non enregistrée : certains médias intégrés ou images ne peuvent pas être capturés en toute sécurité.",
     timeline: "Chronologie des événements",
     replayTimeline: "Chronologie de relecture",
     timelineDescription:

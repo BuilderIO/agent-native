@@ -1,9 +1,7 @@
 ---
 name: cross-source-analysis
 description: >-
-  Use when an analytics question spans multiple data sources (e.g. warehouse
-  events + CRM + support + first-party) and you must stitch identities, remove
-  duplicates, and produce one consolidated answer with per-source provenance.
+  Use when a question spans multiple sources (warehouse + CRM + support + first-party): stitch identities, remove duplicates, give one answer with per-source provenance.
 ---
 
 # Cross-Source Analysis

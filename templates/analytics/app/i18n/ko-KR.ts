@@ -1482,6 +1482,20 @@ export default {
       "이 리플레이를 재구성하는 데 사용되는 범위 제한 청크입니다. 제공자 URL은 비공개로 유지됩니다.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "스크린샷 저장",
+    savingScreenshot: "스크린샷 저장 중…",
+    screenshotDownloaded: "스크린샷을 다운로드했습니다",
+    screenshotSaveFailed: "스크린샷을 저장하지 못했습니다",
+    copyScreenshot: "Design에 복사",
+    copyingScreenshot: "스크린샷 복사 중…",
+    screenshotCopiedForDesign:
+      "스크린샷을 복사했습니다. Design에 붙여넣으세요.",
+    screenshotCopyFailed:
+      "스크린샷을 복사하지 못했습니다. 다운로드한 PNG를 Design에 업로드하세요.",
+    screenshotCopyUnsupportedAssets:
+      "스크린샷을 복사하지 못했습니다. 이 시점에는 안전하게 캡처할 수 없는 미디어나 이미지가 있습니다. 리플레이의 다른 시점을 시도하세요.",
+    screenshotUnsupportedAssets:
+      "일부 포함된 미디어 또는 이미지를 안전하게 캡처할 수 없어 스크린샷을 저장하지 않았습니다.",
     timeline: "이벤트 타임라인",
     replayTimeline: "리플레이 타임라인",
     timelineDescription: "유용한 이벤트 {{count}} / {{total}}개를 표시합니다.",

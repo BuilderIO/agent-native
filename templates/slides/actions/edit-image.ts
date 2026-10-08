@@ -1,3 +1,4 @@
+import { parseArgs } from "@agent-native/core";
 import { resolveGeminiApiKey } from "@agent-native/core/server";
 
 const config = async () => {
@@ -8,24 +9,6 @@ const config = async () => {
 };
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
-
-function parseArgs(args: string[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("--")) {
-      const key = arg.slice(2);
-      const next = args[i + 1];
-      if (next && !next.startsWith("--")) {
-        result[key] = next;
-        i++;
-      } else {
-        result[key] = "true";
-      }
-    }
-  }
-  return result;
-}
 
 export default async function main(args: string[]) {
   await config();

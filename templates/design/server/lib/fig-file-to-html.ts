@@ -1,3 +1,5 @@
+import { parseBase64DataUrl } from "@agent-native/core/shared";
+
 import {
   base64ToBytes,
   readAscii,
@@ -1454,13 +1456,17 @@ export function imageSizeFromUnknownBytes(
 function intrinsicImageSize(
   url: string,
 ): { width: number; height: number } | null {
-  const match = /^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/.exec(
-    url,
-  );
-  if (!match) return null;
+  const parsed = parseBase64DataUrl(url);
+  if (
+    !parsed ||
+    !["image/png", "image/jpeg", "image/jpg"].includes(parsed.mediaType) ||
+    !/^[A-Za-z0-9+/=]+$/.test(parsed.data)
+  ) {
+    return null;
+  }
   return imageSizeFromBytes(
-    base64ToBytes(match[2]!),
-    match[1] === "png" ? "png" : "jpeg",
+    base64ToBytes(parsed.data),
+    parsed.mediaType === "image/png" ? "png" : "jpeg",
   );
 }
 

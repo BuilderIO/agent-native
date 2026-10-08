@@ -18,7 +18,7 @@ vi.mock("./credentials", () => ({ resolveCredential }));
 
 vi.mock("./gcloud", () => ({ getAccessToken }));
 
-const { dryRunQuery, runQuery } = await import("./bigquery");
+const { dryRunQuery, dryRunQuerySchema, runQuery } = await import("./bigquery");
 
 function jsonResponse(data: unknown): Response {
   return {
@@ -539,6 +539,76 @@ describe("runQuery cancellation", () => {
       ),
       expect.objectContaining({ signal: controller.signal }),
     );
+  });
+
+  it("returns the dry-run result schema and byte estimate and keeps dryRunQuery a plain pass", async () => {
+    const dryRunJob = {
+      statistics: {
+        totalBytesProcessed: "1048576",
+        query: {
+          schema: {
+            fields: [
+              { name: "week", type: "DATE", mode: "NULLABLE" },
+              { name: "signups", type: "INT64" },
+            ],
+          },
+        },
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof globalThis.fetch>()
+        .mockImplementation(async (_input, init) => {
+          expect(JSON.parse(String(init?.body))).toMatchObject({
+            configuration: { dryRun: true },
+          });
+          return jsonResponse(dryRunJob);
+        }),
+    );
+
+    await expect(dryRunQuerySchema("SELECT 1")).resolves.toEqual({
+      error: null,
+      schema: [
+        { name: "week", type: "DATE" },
+        { name: "signups", type: "INT64" },
+      ],
+      totalBytesProcessed: 1_048_576,
+    });
+    await expect(dryRunQuery("SELECT 1")).resolves.toBeNull();
+  });
+
+  it("leaves the dry-run schema and byte estimate absent when the response has none", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>().mockResolvedValue(jsonResponse({})),
+    );
+
+    const result = await dryRunQuerySchema("SELECT 1");
+
+    expect(result).toEqual({ error: null });
+  });
+
+  it("flags a timed-out dry run as timed out rather than as invalid SQL", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>().mockImplementation((_input, init) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
+        });
+      }),
+    );
+
+    const pending = dryRunQuerySchema("SELECT 1");
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(pending).resolves.toMatchObject({
+      error: "BigQuery validation timed out after 10 seconds",
+      timedOut: true,
+    });
   });
 
   it("bounds dry-run validation and aborts the warehouse request", async () => {

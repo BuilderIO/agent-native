@@ -31,6 +31,13 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   active GitHub login with `gh api user --jq .login`, include `author` in the
   live PR query, and compare `author.login` with that login. Verify the head
   repository, branch, head OID, and base; recheck the head.
+- Review replies follow PR ownership. Compare the live `author.login` with
+  `gh api user --jq .login`. Concise replies needed to document fixes, declines,
+  or terminal dispositions on the active user's own PR need no separate
+  authorization. For another person's PR, post a reply only when the current
+  request explicitly authorizes that communication on that exact PR; review,
+  monitor, fix, push, or merge authorization alone does not authorize comments.
+  Do not post proactive PR comments.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
 - `/ship` starts in `ship_mode=merge-authorized` for a new PR or a PR authored
@@ -300,10 +307,10 @@ timer never creates a publish commit.
 
 Open or update one ready PR for the current branch immediately after the first
 push. Use a factual title and body. Do not create a second PR from a worktree.
-Do not tag, assign, mention, or leave proactive comments on the PR unless the
-user explicitly requested that communication. A factual reply needed to
-document a review fix or terminal disposition is allowed when the babysit
-gate requires it.
+Do not post proactive comments, tags, assignments, or mentions unless the user
+explicitly requested that communication. Required review replies follow the
+ownership rule in Contract; no extra authorization is needed for the active
+user's own PR.
 
 Keep these claims separate in the PR and final report:
 
