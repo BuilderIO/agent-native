@@ -18356,6 +18356,7 @@ function DesignEditor() {
 
   const handleSidebarScreenSelect = useCallback(
     (screenId: string) => {
+      selectionRevisionRef.current += 1;
       explicitOverviewScreenSelectionRef.current = [];
       if (
         viewModeRef.current === "overview" &&
@@ -18932,6 +18933,7 @@ function DesignEditor() {
         return;
       }
       if (!overviewScreens.length) return;
+      selectionRevisionRef.current += 1;
       setDrawMode(false);
       setPinMode(false);
       setMode("edit");

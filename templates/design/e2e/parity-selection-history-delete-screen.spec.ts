@@ -1127,6 +1127,117 @@ test("a newer Screen pick survives failed Screen deletion settlement", async ({
   }
 });
 
+// oracle: none — this checks async sidebar selection settlement, not Figma behavior.
+test("a newer sidebar Screen selection survives failed Screen deletion settlement", async ({
+  page,
+}) => {
+  const id = await newThreeScreenDesign(page);
+  let releaseFirstDelete: () => void = () => {};
+  const firstDeleteGate = new Promise<void>((resolve) => {
+    releaseFirstDelete = resolve;
+  });
+  let signalFirstDelete: () => void = () => {};
+  const firstDeleteSeen = new Promise<void>((resolve) => {
+    signalFirstDelete = resolve;
+  });
+
+  try {
+    await openEditor(page, id);
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    const secondId = await fileIdByFilename(page, id, "second.html");
+    await layerRow(page, "Second").click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
+
+    await page.route("**/_agent-native/actions/delete-file", async (route) => {
+      signalFirstDelete();
+      await firstDeleteGate;
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "intentional E2E route failure" }),
+      });
+    });
+
+    await page.keyboard.press("Delete");
+    await firstDeleteSeen;
+    const homeSidebarRow = page
+      .locator("[data-screen-row]")
+      .filter({ hasText: "Home" });
+    await homeSidebarRow.click();
+    await expect(homeSidebarRow).toHaveAttribute("aria-current", "page");
+    releaseFirstDelete();
+
+    await expect(homeSidebarRow).toHaveAttribute("aria-current", "page");
+    await expect(
+      page.locator("[data-screen-row]").filter({ hasText: "Second" }),
+    ).toHaveCount(1);
+    await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
+  } finally {
+    releaseFirstDelete();
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
+// oracle: none — this checks async select-all settlement, not Figma behavior.
+test("Select All Screens survives failed Screen deletion settlement", async ({
+  page,
+}) => {
+  const id = await newThreeScreenDesign(page);
+  let releaseFirstDelete: () => void = () => {};
+  const firstDeleteGate = new Promise<void>((resolve) => {
+    releaseFirstDelete = resolve;
+  });
+  let signalFirstDelete: () => void = () => {};
+  const firstDeleteSeen = new Promise<void>((resolve) => {
+    signalFirstDelete = resolve;
+  });
+
+  try {
+    await openEditor(page, id);
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    const secondId = await fileIdByFilename(page, id, "second.html");
+    const thirdId = await fileIdByFilename(page, id, "third.html");
+    await layerRow(page, "Second").click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
+
+    await page.route("**/_agent-native/actions/delete-file", async (route) => {
+      signalFirstDelete();
+      await firstDeleteGate;
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "intentional E2E route failure" }),
+      });
+    });
+
+    await page.keyboard.press("Delete");
+    await firstDeleteSeen;
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+A" : "Control+A",
+    );
+    const visibleScreenIds = [homeId, thirdId];
+    await expect
+      .poll(() => selectedScreenIds(page))
+      .toEqual(expect.arrayContaining(visibleScreenIds));
+    expect(await selectedScreenIds(page)).not.toContain(secondId);
+    releaseFirstDelete();
+
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect
+      .poll(() => selectedScreenIds(page))
+      .toEqual(expect.arrayContaining(visibleScreenIds));
+    expect(await selectedScreenIds(page)).not.toContain(secondId);
+    await expect(
+      page
+        .getByRole("tree", { name: "Layers" })
+        .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]'),
+    ).toHaveCount(2);
+  } finally {
+    releaseFirstDelete();
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 // oracle: none — this checks app selection behavior, not a Figma observation.
 test("marquee selection persists and deletes Screens after a prior layer selection", async ({
   page,
