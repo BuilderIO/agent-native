@@ -600,6 +600,7 @@
     "./shared/first-run-onboarding": "./dist/shared/first-run-onboarding.js",
     "./shared/framework-route-prefix": "./dist/shared/framework-route-prefix.js",
     "./shared/loading-labels": "./dist/shared/loading-labels.js",
+    "./shared/mcp-app-widget-embed": "./dist/shared/mcp-app-widget-embed.js",
     "./shared/mcp-connect-content": "./dist/shared/mcp-connect-content.js",
     "./shared/password-policy": "./dist/shared/password-policy.js",
     "./shared/qa-test-email": "./dist/shared/qa-test-email.js",

@@ -511,6 +511,16 @@ export interface MultiScreenCanvasProps {
   } | null;
   preserveCameraOnScreenCountChange?: boolean;
   deferLineupZoomChange?: boolean;
+  /**
+   * Omitted: the first layout fits every screen. Set (a screen id, or null for
+   * the first screen): it fits that one screen to the pane width instead.
+   */
+  initialFitScreenId?: string | null;
+  /**
+   * With `initialFitScreenId` set: render that screen at least as tall as the
+   * pane so it reflows into the pane instead of leaving empty canvas below it.
+   */
+  fillFocusedViewport?: boolean;
   chromeInsetLeft?: number;
   chromeInsetRight?: number;
   visibleCanvasRectRef?: RefObject<(() => VisibleCanvasRect | null) | null>;

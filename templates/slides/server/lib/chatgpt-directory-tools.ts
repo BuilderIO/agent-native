@@ -31,15 +31,6 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   widgets: true,
   widgetDomain: "https://slides.agent-native.com",
   widgetTargets: {
-    "get-deck": (args: Record<string, unknown>, result: unknown) => {
-      const deckId = id(args.deckId, args.id, record(result).id);
-      return deckId
-        ? {
-            targetPath: `/deck/${encodeURIComponent(deckId)}`,
-            resourceIds: { deckId },
-          }
-        : null;
-    },
     "create-deck": (args: Record<string, unknown>, result: unknown) => {
       const deckId = id(record(result).id, args.deckId);
       return deckId

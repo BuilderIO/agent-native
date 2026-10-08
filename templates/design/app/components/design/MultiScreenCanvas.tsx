@@ -339,8 +339,11 @@ import {
   getBoardSurfaceLayerStyle,
   getBoardSurfaceStaticPreviewTransform,
   getBoardSurfaceStaticPreviewViewport,
+  getFocusedLineupFillHeight,
+  getFocusedLineupScale,
   isLineupShrinkOnlyChange,
   OVERVIEW_FRAME_WIDTH,
+  resolveFocusedLineupScreenId,
   shouldDeferLineupRecenterToCameraCommand,
   shouldRenderBoardSurfaceStaticPreview,
   shouldSuppressLineupRecenter,
@@ -689,6 +692,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   suppressLineupRecenter,
   preserveCameraOnScreenCountChange = false,
   deferLineupZoomChange = false,
+  initialFitScreenId,
+  fillFocusedViewport = false,
   chromeInsetLeft = 0,
   chromeInsetRight = 0,
   visibleCanvasRectRef,
@@ -717,6 +722,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     zoom: zoomRef.current,
   });
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
+  // Set by the first layout when it focuses one screen and the pane must be
+  // filled; it keeps the screen that was fitted even if selection moves later.
+  const [viewportFilledScreenId, setViewportFilledScreenId] = useState<
+    string | null
+  >(null);
   const [crossScreenDragActive, setCrossScreenDragActive] = useState(false);
   const [boardRuntimeSurfaceActive, setBoardRuntimeSurfaceActive] = useState<
     string | null
@@ -2404,22 +2414,39 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         previewDeviceFrame,
       });
     });
+    const frameEntries = frames
+      .map((geometry, index) => ({
+        id: renderedScreens[index]?.id ?? String(index),
+        geometry,
+      }))
+      .concat(
+        renderedScreens.length === 0 && boardSurfaceContentBounds
+          ? [
+              {
+                id: boardFileId ?? "__board__",
+                geometry: boardSurfaceContentBounds,
+              },
+            ]
+          : [],
+      );
+    const focusScreenId =
+      initialFitScreenId === undefined
+        ? null
+        : resolveFocusedLineupScreenId({
+            screenIds: renderedScreens.map((screen) => screen.id),
+            selectedScreenIds: selectedIds,
+            requestedScreenId: initialFitScreenId,
+            activeScreenId: activeId,
+          });
+    const focusIndex = renderedScreens.findIndex(
+      (screen) => screen.id === focusScreenId,
+    );
+    const focusScreen = focusIndex >= 0 ? renderedScreens[focusIndex] : null;
+    setViewportFilledScreenId(
+      fillFocusedViewport && focusScreen ? focusScreen.id : null,
+    );
     const bounds = getFrameGroupBounds(
-      frames
-        .map((geometry, index) => ({
-          id: renderedScreens[index]?.id ?? String(index),
-          geometry,
-        }))
-        .concat(
-          renderedScreens.length === 0 && boardSurfaceContentBounds
-            ? [
-                {
-                  id: boardFileId ?? "__board__",
-                  geometry: boardSurfaceContentBounds,
-                },
-              ]
-            : [],
-        ),
+      focusScreen ? [frameEntries[focusIndex]!] : frameEntries,
     );
     const totalWidth = bounds?.width ?? SCREEN_WIDTH;
     const totalHeight = bounds?.height ?? SCREEN_CARD_HEIGHT;
@@ -2438,10 +2465,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       totalHeight > 0
         ? Math.max(minFitScale, (rect.height - 96) / totalHeight)
         : scale;
+    // A focused screen fills the pane width edge to edge up to 100% display
+    // zoom, in either direction, and starts flush at the top of the pane;
+    // fitting every screen only ever zooms out.
+    const focusScale = focusScreen
+      ? getFocusedLineupScale({
+          frameWidth: totalWidth,
+          availableWidth,
+          minScale: minFitScale,
+          maxScale: getResolvedMetadata(focusScreen).width / totalWidth,
+        })
+      : null;
     const nextScale = deferLineupZoomChange
       ? scale
-      : Math.min(scale, widthFitScale, heightFitScale);
-    if (!deferLineupZoomChange && nextScale < scale) {
+      : (focusScale ?? Math.min(scale, widthFitScale, heightFitScale));
+    if (
+      !deferLineupZoomChange &&
+      (focusScale === null ? nextScale < scale : nextScale !== scale)
+    ) {
       const nextZoom = nextScale * 100;
       zoomRef.current = nextZoom;
       setCanvasZoom(nextZoom);
@@ -2450,7 +2491,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     const visualLeft =
       chromeInsetLeft + (availableWidth - totalWidth * nextScale) / 2;
-    const visualTop = (rect.height - totalHeight * nextScale) / 2;
+    const visualTop = focusScreen
+      ? 0
+      : (rect.height - totalHeight * nextScale) / 2;
     const nextPan = {
       x: visualLeft - (SURFACE_PADDING + boundsLeft) * nextScale,
       y: visualTop - (SURFACE_PADDING + boundsTop) * nextScale,
@@ -10584,6 +10627,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return () => window.removeEventListener("message", handleContentSize);
   }, [getResolvedMetadata]);
 
+  const fillViewportHeight = viewportFilledScreenId ? surfaceSize.height : 0;
+  const fillAvailableWidth = viewportFilledScreenId
+    ? Math.max(0, surfaceSize.width - chromeInsetLeft - chromeInsetRight)
+    : 0;
   const canvasFrames = useMemo(() => {
     const cache = canvasFrameEntryCacheRef.current;
     const nextIds = new Set<string>();
@@ -10634,7 +10681,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         !autoHeight || autoHeight === rawGeometry.height
           ? rawGeometry
           : { ...rawGeometry, height: autoHeight };
-      const baseGeometry = clampScreenFrameSize(sizedGeometry, sizeConstraints);
+      const filledGeometry =
+        screen.id === viewportFilledScreenId && fillViewportHeight > 0
+          ? {
+              ...sizedGeometry,
+              height: getFocusedLineupFillHeight({
+                frameWidth: sizedGeometry.width,
+                frameHeight: sizedGeometry.height,
+                availableWidth: fillAvailableWidth,
+                viewportHeight: fillViewportHeight,
+                minScale: AUTOFIT_MIN_ZOOM / 100,
+                maxScale: metadata.width / sizedGeometry.width,
+              }),
+            }
+          : sizedGeometry;
+      const baseGeometry = clampScreenFrameSize(
+        filledGeometry,
+        sizeConstraints,
+      );
       const geometry =
         screen.id === interactScreenId && focusedInteractViewport
           ? {
@@ -10675,6 +10739,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     renderedScreens,
     screenIndexById,
     screenRootComputedStylesById,
+    viewportFilledScreenId,
+    fillViewportHeight,
+    fillAvailableWidth,
   ]);
   const [previewParseRevision, setPreviewParseRevision] = useState(0);
   useEffect(() => {

@@ -45,6 +45,10 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import {
+  useIsMcpAppWidgetEmbed,
+  useIsMcpDirectoryWidgetReadOnlyEmbed,
+} from "@agent-native/core/client/mcp-app-host";
+import {
   useReviewComments,
   useSendReviewThreadToAgent,
 } from "@agent-native/core/client/review";
@@ -1054,9 +1058,11 @@ import {
   localhostConsentRequestDisposition,
   localhostConsentRequestRefetchInterval,
 } from "./design-editor/localhost-consent-request";
+import { applyMcpDirectoryWidgetReadOnlyPolicy } from "./design-editor/mcp-widget-write-capabilities";
 import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
   hasMinimalInspectorSelection,
+  rightInspectorCanvasInset,
   rightInspectorPanelClassName,
 } from "./design-editor/minimal-inspector";
 import {
@@ -1451,7 +1457,12 @@ function DesignEditor() {
   const isLiveCanvasShareLink =
     isVisualEditSurface && searchParams.get("share") === "1";
   const embedChromeRequested = isEmbedChromeRequested();
-  const hostOwnsChrome = embedded && !shellMode && !embedChromeRequested;
+  // An MCP App host owns navigation and chat, not the editor: the widget keeps
+  // the canvas, tools, and inspector as floating controls instead of going bare.
+  const widgetEmbed = useIsMcpAppWidgetEmbed();
+  const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
+  const hostOwnsChrome =
+    embedded && !shellMode && !embedChromeRequested && !widgetEmbed;
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
     isBuilderHostEmbed(),
   );
@@ -2337,7 +2348,7 @@ function DesignEditor() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
   const [uiHidden, setUiHidden] = useState(false);
   const minimalUiByDefault =
-    embedded && !hostOwnsChrome && !embedChromeRequested;
+    widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested);
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
   useEffect(() => {
     setMinimalUi(minimalUiByDefault);
@@ -4124,9 +4135,42 @@ function DesignEditor() {
     isVisualEditSurface &&
     designQueryFailed &&
     (designResult === undefined || designQueryAuthFailed);
-  const canEditDesign = !visualEditAccessLost
-    ? canShareDesign || designAccessRole === "editor"
-    : false;
+  const roleCanEditDesign =
+    !visualEditAccessLost && (canShareDesign || designAccessRole === "editor");
+  const roleCanEditLiveScreens =
+    isVisualEditSurface &&
+    !visualEditAccessLost &&
+    (roleCanEditDesign ||
+      design?.visibility === "public" ||
+      designAccessRole === "viewer" ||
+      designAccessRole === "commenter");
+  const rolePublicVisualEdit =
+    isVisualEditSurface &&
+    !visualEditAccessLost &&
+    !roleCanEditDesign &&
+    design?.visibility === "public";
+  const roleCanCommentDesign =
+    isSignedIn &&
+    (designAccessRole === "owner" ||
+      designAccessRole === "admin" ||
+      designAccessRole === "editor" ||
+      designAccessRole === "commenter");
+  const {
+    canEditDesign,
+    canEditLiveScreens,
+    publicVisualEdit,
+    canCommentDesign,
+    canRenderAuthenticatedShare,
+  } = applyMcpDirectoryWidgetReadOnlyPolicy(
+    {
+      canEditDesign: roleCanEditDesign,
+      canEditLiveScreens: roleCanEditLiveScreens,
+      publicVisualEdit: rolePublicVisualEdit,
+      canCommentDesign: roleCanCommentDesign,
+      canRenderAuthenticatedShare: isSignedIn || roleCanEditDesign,
+    },
+    readOnlyWidget,
+  );
   const [failedLocalhostConsentClear, setFailedLocalhostConsentClear] =
     useState<string | null>(null);
   const localhostConsentRequestQuery = useActionQuery(
@@ -4228,18 +4272,6 @@ function DesignEditor() {
       visualEditSnapshotPublicationState,
     ],
   );
-  const canEditLiveScreens =
-    isVisualEditSurface &&
-    !visualEditAccessLost &&
-    (canEditDesign ||
-      design?.visibility === "public" ||
-      designAccessRole === "viewer" ||
-      designAccessRole === "commenter");
-  const publicVisualEdit =
-    isVisualEditSurface &&
-    !visualEditAccessLost &&
-    !canEditDesign &&
-    design?.visibility === "public";
   const canEditPublicLiveScreenUrl =
     publicVisualEdit && Boolean(getEmbedAuthToken());
   const canApplyPendingVisualEditsWithAgent =
@@ -4251,13 +4283,6 @@ function DesignEditor() {
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
   const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
-  const canCommentDesign =
-    isSignedIn &&
-    (designAccessRole === "owner" ||
-      designAccessRole === "admin" ||
-      designAccessRole === "editor" ||
-      designAccessRole === "commenter");
-  const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -4557,17 +4582,21 @@ function DesignEditor() {
   const fileSaveTimersRef = useRef<Record<string, number>>({});
   const postAuthSaveRef = useRef<string | null>(null);
 
+  // A directory widget's session is read-only, so a refused save is expected
+  // there and not a lost connection or a lost edit to warn about.
   const warnChangesWillRetry = useCallback(() => {
+    if (readOnlyWidget) return;
     toast.warning(t("visualEditor.changesSaveWhenReconnected"), {
       id: "design-save-outbox-warning",
     });
-  }, [t]);
+  }, [readOnlyWidget, t]);
 
   const warnChangesDiscarded = useCallback(() => {
+    if (readOnlyWidget) return;
     toast.error(t("visualEditor.changesDiscarded"), {
       id: "design-save-outbox-discarded",
     });
-  }, [t]);
+  }, [readOnlyWidget, t]);
 
   const journalOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
@@ -27030,8 +27059,11 @@ function DesignEditor() {
     selectedLayerIds,
     selectedScreenGeometry,
   });
+  // Below md the inspector panel is display:none and the Sheet below carries
+  // it, so the panel must neither inset the canvas nor displace the toolbar.
   const rightSidebarVisible =
     !hostOwnsChrome &&
+    !isMobileViewport &&
     !uiHidden &&
     !initialGenerationChromeLimited &&
     !responsiveInteractActive &&
@@ -27039,7 +27071,11 @@ function DesignEditor() {
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
-  const chromeInsetRight = rightSidebarVisible ? rightSidebarWidth : 0;
+  const chromeInsetRight = rightInspectorCanvasInset({
+    visible: rightSidebarVisible,
+    width: rightSidebarWidth,
+    widgetEmbed,
+  });
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
@@ -28196,6 +28232,15 @@ function DesignEditor() {
                           hasExplicitOverviewZoomCommand &&
                           explicitOverviewCanvasZoom === null
                         }
+                        initialFitScreenId={
+                          widgetEmbed
+                            ? (findDesignFileByScreenTarget(
+                                files,
+                                initialRouteScreenTarget,
+                              )?.id ?? null)
+                            : undefined
+                        }
+                        fillFocusedViewport={readOnlyWidget}
                         chromeInsetLeft={chromeInsetLeft}
                         chromeInsetRight={chromeInsetRight}
                         visibleCanvasRectRef={visibleCanvasRectRef}
@@ -28430,7 +28475,9 @@ function DesignEditor() {
                         onPick={handleOverviewScreenPick}
                         onEdit={handleOverviewFrameAction}
                         onDuplicate={handleDuplicateScreen}
-                        onAddBreakpoint={handleOverviewAddBreakpoint}
+                        onAddBreakpoint={
+                          widgetEmbed ? undefined : handleOverviewAddBreakpoint
+                        }
                         breakpointMutationPending={
                           addBreakpointMutation.isPending ||
                           removeBreakpointMutation.isPending ||
@@ -28978,14 +29025,20 @@ function DesignEditor() {
             className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
           >
             <div className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3">
-              <div
-                data-design-minimal-bar="left"
-                className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
-              >
-                <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
-                <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
-                {minimalUiToggle}
-              </div>
+              {widgetEmbed ? (
+                <div aria-hidden="true" />
+              ) : (
+                <div
+                  data-design-minimal-bar="left"
+                  className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
+                >
+                  <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
+                  <div className="min-w-0 flex-1 px-1">
+                    {projectTitleControl}
+                  </div>
+                  {minimalUiToggle}
+                </div>
+              )}
               <div
                 data-design-minimal-bar="interact"
                 className="pointer-events-none flex min-w-0 justify-center"
@@ -28994,7 +29047,9 @@ function DesignEditor() {
                   ? renderResponsiveInteractBar(true)
                   : null}
               </div>
-              {!rightSidebarVisible || uiHidden ? (
+              {widgetEmbed ? (
+                <div aria-hidden="true" />
+              ) : !rightSidebarVisible || uiHidden ? (
                 <div
                   data-design-minimal-bar="right"
                   className="pointer-events-auto min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
@@ -29007,21 +29062,35 @@ function DesignEditor() {
             </div>
           </div>
         ) : null}
+
+        {/* The widget's only persistent control sits in the bottom corner so it
+            never covers the page header the screen starts with. */}
+        {widgetEmbed && minimalUi && (!rightSidebarVisible || uiHidden) ? (
+          <div
+            data-design-widget-zoom
+            className="absolute bottom-3 right-3 z-[90] flex h-7 items-center rounded-md border border-border bg-[var(--design-editor-panel-bg)] px-0.5 shadow-md"
+          >
+            {renderZoomControl("inspector")}
+          </div>
+        ) : null}
       </div>
 
       {/* ── Render: mobile inspector sheet ── */}
+      {/* Minimal UI on a phone opens the sheet itself on every selection. The
+          widget shares a pane with chat, so it opens on request instead, and
+          a frame selected by the route never covers the canvas on load. */}
       {!hostOwnsChrome &&
       !uiHidden &&
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
         <Sheet
           open={
-            minimalUi
+            minimalUi && !widgetEmbed
               ? isMobileViewport && minimalInspectorHasSelection
               : undefined
           }
           onOpenChange={
-            minimalUi
+            minimalUi && !widgetEmbed
               ? (nextOpen) => {
                   if (nextOpen) return;
                   setSelectedElement(null);
@@ -29032,7 +29101,7 @@ function DesignEditor() {
               : undefined
           }
         >
-          {!minimalUi ? (
+          {!minimalUi || (widgetEmbed && minimalInspectorHasSelection) ? (
             <SheetTrigger asChild>
               <Button
                 type="button"
