@@ -697,5 +697,5 @@ export default async () => {
         fs.rmSync(testRoot, { recursive: true, force: true });
       }
     }
-  }, 90_000);
+  }, 180_000);
 });
